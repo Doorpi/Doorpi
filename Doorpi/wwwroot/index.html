@@ -1,0 +1,46 @@
+﻿<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Launcher</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="top-bar">
+        <div id="clock">00:00</div>
+    </div>
+
+    <div class="capaJogo" id="capaJogo">
+        <img id="gameLogo" />
+        <img id="heroImage" />
+    </div>
+
+    <div class="game-grid" id="gameGrid">
+        <div class="card add-card" tabindex="0" id="btnAdd">
+            <div class="plus">+</div>
+            <div class="title">Adicionar Jogo</div>
+        </div>
+    </div>
+
+ 
+    <div id="addGameContainer">
+        <div class="modal-content">
+            <h2 id="modalTitle">Carregando aplicativos...</h2>
+            <div id="appList"></div>
+            <div class="modal-actions" id="modalActions" style="display: none;">
+                <button class="modal-btn" id="btnSearch" tabindex="0">Procurar</button>
+                <button class="modal-btn secondary" id="btnScanFolder" tabindex="0">Escanear Pasta</button>
+
+                <div style="width: 380px;display: flex;justify-content: space-between;">
+                    <button class="modal-btn" id="btnConfirmAdd" tabindex="0">Adicionar Selecionados</button>
+                    <button class="modal-btn" id="btnCancelAdd" tabindex="0">Cancelar</button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
