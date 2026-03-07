@@ -7,16 +7,16 @@ let lastFocusedApp = null;
 let lastFocusedFilter = null;
 let lastFocusedSidebar = null;
 let currentInteractiveCard = null;
+
 // ========================= IDLE NAVIGATION =========================
-// Scroll roda imediatamente. Hero transition e animações de card
-// só disparam quando o usuário parar de navegar por IDLE_MS.
-// Durante navegação rápida, o conteúdo pesado fica suspenso.
 const IDLE_MS = 180;
 let navIdleTimeout = null;
 let pendingInteractionCard = null;
 
+// Opção A — jogos adicionados nesta sessão
+const newGameIdsThisSession = new Set();
+
 function onNavigationIdle() {
-    // Usuário parou — dispara o handleStartInteraction do card atual
     if (pendingInteractionCard) {
         const card = pendingInteractionCard;
         pendingInteractionCard = null;
@@ -27,7 +27,6 @@ function onNavigationIdle() {
 }
 
 function signalNavigation() {
-    // Chamado a cada movimento — reseta o timer de idle
     if (navIdleTimeout) clearTimeout(navIdleTimeout);
     navIdleTimeout = setTimeout(onNavigationIdle, IDLE_MS);
 }
@@ -168,7 +167,6 @@ function showModalLoading() {
     }, 700);
 }
 
-
 function closeModal() {
     document.getElementById('addGameContainer').style.display = 'none';
     document.getElementById("gameGrid").style.overflowX = "auto";
@@ -189,7 +187,6 @@ function populateAppModal(apps) {
         ? "Selecione os aplicativos para adicionar"
         : `Mostrando jogos da loja: ${currentSourceFilter}`;
 
-    // Re-bind btnSearch e btnScanFolder
     ['btnSearch', 'btnScanFolder'].forEach(id => {
         const btn = document.getElementById(id);
         if (!btn) return;
@@ -241,7 +238,6 @@ function populateAppModal(apps) {
         });
     });
 
-    // Re-bind action buttons
     const btnCancel = document.getElementById('btnCancelAdd');
     const btnConfirm = document.getElementById('btnConfirmAdd');
     const newCancel = btnCancel.cloneNode(true);
@@ -250,11 +246,15 @@ function populateAppModal(apps) {
     btnConfirm.replaceWith(newConfirm);
 
     newCancel.addEventListener('click', closeModal);
+
     newConfirm.addEventListener('click', () => {
         const selected = Array.from(document.querySelectorAll('.app-item.selected')).map(el => ({
             Name: el.dataset.name, Path: el.dataset.path, LaunchUrl: el.dataset.launch
         }));
         if (selected.length > 0) {
+            // Marca os IDs como novos nesta sessão (Opção A)
+            selected.forEach(g => newGameIdsThisSession.add(g.LaunchUrl || g.Path));
+
             if (window.chrome && window.chrome.webview)
                 window.chrome.webview.postMessage(JSON.stringify({ action: 'addSelectedGames', games: selected }));
             titleEl.innerText = "Baixando capas e adicionando... (Aguarde)";
@@ -273,27 +273,7 @@ function populateAppModal(apps) {
     }, 150);
 }
 
-
 // ========================= NAVEGAÇÃO =========================
-/*
-   Layout lógico do modal:
-   ┌─────────────┬────────────────────────────────────────────┐
-   │  SIDEBAR    │  FILTROS (filter-bar)                       │
-   │  .menu-tab  │  APPS GRID (#appList)                       │
-   │             │  AÇÕES (action-bar) — rodapé fixo           │
-   └─────────────┴────────────────────────────────────────────┘
-
-   Regras de transição entre grupos:
-   App  + LEFT  → sidebar (tab ativa ou primeira)
-   App  + UP    → filtros (filtro ativo ou primeiro)
-   App  + DOWN  → ações (sem candidato abaixo)
-   App  + RIGHT → ações (atalho)
-   Ação + LEFT/UP → último app focado
-   Filtro + LEFT   → sidebar
-   Filtro + DOWN   → apps
-   Sidebar + RIGHT → último app ou apps[0]
-*/
-
 function getModalGroups() {
     const sidebar = Array.from(document.querySelectorAll(".sidebar-menu .menu-tab"));
     const filters = Array.from(document.querySelectorAll(".filter-bar .filter-btn"));
@@ -310,7 +290,6 @@ function getNavigableItems() {
     return [...sidebar, ...filters, ...apps, ...actions];
 }
 
-// Busca espacial: candidato mais próximo na direção, dentro do mesmo grupo
 function findSpatialCandidate(groupItems, current, direction) {
     const cr = current.getBoundingClientRect();
     const currCX = cr.left + cr.width / 2;
@@ -342,7 +321,6 @@ function findSpatialCandidate(groupItems, current, direction) {
     return best;
 }
 
-// Wrap dentro do grupo (bate na borda → vai para o lado oposto)
 function findWrapCandidate(groupItems, current, direction) {
     const cr = current.getBoundingClientRect();
     const currCX = cr.left + cr.width / 2;
@@ -374,7 +352,6 @@ function findWrapCandidate(groupItems, current, direction) {
     return best;
 }
 
-// Transições explícitas entre grupos
 function getGroupTransition(direction, groupName, groups) {
     const { sidebar, filters, apps, actions } = groups;
 
@@ -410,12 +387,11 @@ function moveFocus(direction) {
     const current = document.activeElement;
 
     if (!items.includes(current)) {
-        (items[0]).focus();
+        items[0].focus();
         return;
     }
 
-    // ── Tela principal (sem modal): spatial + wrap horizontal ──
-// ── Tela principal (sem modal): spatial + wrap horizontal ──
+    // ── Tela principal (sem modal) ──
     if (!isModalOpen) {
         let candidate = findSpatialCandidate(items, current, direction);
         if (!candidate) {
@@ -424,22 +400,17 @@ function moveFocus(direction) {
             else candidate = findWrapCandidate(items, current, direction);
         }
         if (candidate) {
-            
-            // [SEGURANÇA EXTRA] Corta instantaneamente a animação do card atual antes de navegar!
-            if (current && current._stopInteraction) {
-                current._stopInteraction();
-            }
-
+            if (current && current._stopInteraction) current._stopInteraction();
             if (heroFadeTimeout) { clearTimeout(heroFadeTimeout); heroFadeTimeout = null; }
 
-candidate.focus();
-pendingInteractionCard = null;  // cancela qualquer idle pendente
+            candidate.focus();
+            pendingInteractionCard = null;
 
-smoothHorizontalScroll(candidate, direction, () => {
-    if (document.activeElement === candidate || candidate.matches(':hover')) {
-        candidate._startInteraction?.();
-    }
-});
+            smoothHorizontalScroll(candidate, direction, () => {
+                if (document.activeElement === candidate || candidate.matches(':hover')) {
+                    candidate._startInteraction?.();
+                }
+            });
         }
         return;
     }
@@ -454,24 +425,17 @@ smoothHorizontalScroll(candidate, direction, () => {
     else if (current.classList.contains("app-item")) { groupName = "app"; groupItems = apps; }
     else { groupName = "action"; groupItems = actions; }
 
-    // Salva memória do grupo atual
     if (groupName === "app") lastFocusedApp = current;
     if (groupName === "filter") lastFocusedFilter = current;
     if (groupName === "sidebar") lastFocusedSidebar = current;
 
-    // 1. Espacial dentro do grupo
     let candidate = findSpatialCandidate(groupItems, current, direction);
-
-    // 2. Transição para outro grupo
     if (!candidate) candidate = getGroupTransition(direction, groupName, groups);
-
-    // 3. Wrap dentro do grupo
     if (!candidate) candidate = findWrapCandidate(groupItems, current, direction);
 
     if (candidate) {
         candidate.focus();
         ensureModalItemVisible(candidate);
-        // Sinaliza movimento — hero/animações ficam pausados até idle
         if (isModalOpen) signalNavigation();
     }
 }
@@ -501,7 +465,7 @@ function smoothHorizontalScroll(element, direction, onDone) {
     const visibleLeft = eRect.left >= cRect.left - TOLERANCE;
     const visibleRight = eRect.right <= cRect.right + TOLERANCE;
 
-    if (visibleLeft && visibleRight) { onDone?.(); return; }  // já visível → dispara já
+    if (visibleLeft && visibleRight) { onDone?.(); return; }
 
     let targetScrollLeft;
     if (!visibleRight) {
@@ -523,7 +487,7 @@ function smoothHorizontalScroll(element, direction, onDone) {
         const t = Math.min((time - startTime) / duration, 1);
         container.scrollLeft = start + delta * (1 - Math.pow(1 - t, 3));
         if (t < 1) requestAnimationFrame(animate);
-        else onDone?.();  // scroll terminou → dispara
+        else onDone?.();
     })(performance.now());
 }
 
@@ -587,19 +551,10 @@ function handleGamepad() {
 
 requestAnimationFrame(handleGamepad);
 
-
-// ========================= HERO BACKGROUND (bgBlur) =========================
-/*
-   Usa a capa vertical como fundo atmosférico borrado.
-   Não depende de hero images grandes — qualquer resolução funciona.
-*/
+// ========================= HERO BACKGROUND =========================
 let heroFadeTimeout = null;
 let currentBgSrc = "";
 
-// switchHeroBackground(bgSrc, logoSrc, heroSrc)
-//   bgSrc   = capa vertical → blur atmosférico (sempre disponível)
-//   logoSrc = logo do jogo
-//   heroSrc = banner hero (1920x620) ou horizontal, se disponível
 function switchHeroBackground(bgSrc, logoSrc, heroSrc) {
     const bgBlur = document.getElementById('bgBlur');
     const heroImg = document.getElementById('heroImage');
@@ -610,31 +565,24 @@ function switchHeroBackground(bgSrc, logoSrc, heroSrc) {
     if (currentBgSrc.split('?')[0] === cleanNew) return;
     currentBgSrc = bgSrc;
 
-    // Fade out simultâneo
     bgBlur.style.opacity = "0";
-    if (heroImg) { heroImg.style.opacity = "0"; }
-    if (logoImg) { logoImg.classList.remove('visible'); }
+    if (heroImg) heroImg.style.opacity = "0";
+    if (logoImg) logoImg.classList.remove('visible');
 
     if (heroFadeTimeout) clearTimeout(heroFadeTimeout);
 
     heroFadeTimeout = setTimeout(async () => {
-        // Todos os swaps usam setImgSrc: decode off-thread antes de tocar o DOM
-
-        // 1. BG blur atmosférico
         await setImgSrc(bgBlur, bgSrc);
         bgBlur.style.opacity = "1";
 
-        // 2. Grid background desfocado
         const gridBgImg = document.getElementById('gridBgImg');
         if (gridBgImg) setImgSrc(gridBgImg, heroSrc);
 
-        // 3. Hero banner estático
         if (heroImg) {
             await setImgSrc(heroImg, heroSrc || bgSrc);
             heroImg.style.opacity = "1";
         }
 
-        // 4. Logo estático
         if (logoImg && logoSrc) {
             await setImgSrc(logoImg, logoSrc);
             logoImg.classList.add('visible');
@@ -642,10 +590,7 @@ function switchHeroBackground(bgSrc, logoSrc, heroSrc) {
     }, 150);
 }
 
-
 // ========================= CARDS =========================
-
-
 async function getAnimatedBlob(url) {
     if (!url) return null;
     try {
@@ -663,34 +608,23 @@ async function getAnimatedBlob(url) {
     } catch { return null; }
 }
 
-// Decodifica a imagem off-thread antes de tocar o DOM.
 async function setImgSrc(imgEl, src) {
     if (!imgEl) return;
 
-    // [CORREÇÃO CHAVE] Atualiza a trava ANTES de qualquer verificação!
-    // Assim, se um decode do GIF estiver no meio do caminho, ele morre instantaneamente aqui.
     const currentReq = Symbol();
     imgEl.__pendingReq = currentReq;
 
-    if (!src) {
-        imgEl.removeAttribute('src');
-        return;
-    }
-
-    // Se a imagem atual já é o que queremos, não precisamos de decodificação.
-    if (imgEl.src === src || imgEl.src.endsWith(src)) {
-        return;
-    }
+    if (!src) { imgEl.removeAttribute('src'); return; }
+    if (imgEl.src === src || imgEl.src.endsWith(src)) return;
 
     const tmp = new Image();
     tmp.src = src;
     try { await tmp.decode(); } catch (_) { }
 
-    // Se o usuário mudou de ideia e interagiu de novo durante o decode, cancela.
     if (imgEl.__pendingReq !== currentReq) return;
-
     imgEl.src = src;
 }
+
 function createGameCard(data) {
     const grid = document.getElementById('gameGrid');
     const btnAdd = document.getElementById('btnAdd');
@@ -711,6 +645,7 @@ function createGameCard(data) {
 
     if (data.isFeatured) card.classList.add('featured');
 
+    // ── Imagem principal ──
     const img = document.createElement('img');
     img.decoding = "async";
 
@@ -753,33 +688,26 @@ function createGameCard(data) {
         if (src) { img.src = src; img.style.opacity = "1"; }
     });
 
-    // bg para o hero usa: staticVertical (capa vertical borrada como atmosfera)
-    // bg para o hero usa: staticVertical (capa vertical borrada como atmosfera)
+    // ── Interações ──
     const handleStartInteraction = async () => {
         const bgSrc = card.dataset.staticVertical || card.dataset.vertical;
         const logoSrc = card.dataset.staticLogo || card.dataset.logo;
-        // Hero: prefere banner hero, fallback para horizontal, fallback para vertical
         const heroSrc = card.dataset.staticHero || card.dataset.hero
             || card.dataset.staticHorizontal || card.dataset.horizontal
             || bgSrc;
-
         const animGrid = card.classList.contains('featured')
             ? (card.dataset.horizontal || card.dataset.vertical)
             : card.dataset.vertical;
 
         switchHeroBackground(bgSrc, logoSrc, heroSrc);
 
-        // Timer agora é ÚNICO para cada card
         if (card._animationTimeout) clearTimeout(card._animationTimeout);
 
         card._animationTimeout = setTimeout(async () => {
             if (document.activeElement !== card && !card.matches(':hover')) return;
-
             const stillActive = () => document.activeElement === card || card.matches(':hover');
 
-            if (animGrid) {
-                await setImgSrc(img, animGrid);
-            }
+            if (animGrid) await setImgSrc(img, animGrid);
 
             const animHero = card.dataset.hero;
             const staticHero = card.dataset.staticHero || animHero;
@@ -792,58 +720,42 @@ function createGameCard(data) {
             const staticLogo = card.dataset.staticLogo || animLogo;
             if (animLogo && animLogo !== staticLogo && stillActive()) {
                 const logoImg = document.getElementById('gameLogo');
-                if (logoImg) {
-                    await setImgSrc(logoImg, animLogo);
-                    logoImg.classList.add('visible');
-                }
+                if (logoImg) { await setImgSrc(logoImg, animLogo); logoImg.classList.add('visible'); }
             }
         }, 200);
     };
 
     const handleStopInteraction = () => {
-        // Limpa o timer isolado deste card
         if (card._animationTimeout) clearTimeout(card._animationTimeout);
-
         if (document.activeElement === card || card.matches(':hover')) return;
 
         const staticGrid = card.classList.contains('featured')
             ? (card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical)
             : (card.dataset.staticVertical || card.dataset.vertical);
 
-        // Dispara setImgSrc incondicionalmente para FORÇAR o cancelamento do Symbol
         setImgSrc(img, staticGrid);
 
         const heroImg = document.getElementById('heroImage');
         const staticHero = card.dataset.staticHero || card.dataset.hero;
-        if (heroImg && staticHero) {
-            setImgSrc(heroImg, staticHero);
-        }
+        if (heroImg && staticHero) setImgSrc(heroImg, staticHero);
 
         const logoImg = document.getElementById('gameLogo');
         const staticLogo = card.dataset.staticLogo || card.dataset.logo;
-        if (logoImg && staticLogo) {
-            setImgSrc(logoImg, staticLogo);
-        }
+        if (logoImg && staticLogo) setImgSrc(logoImg, staticLogo);
     };
 
-    // Expõe as funções de start e stop para a segurança de navegação usar
     card._startInteraction = handleStartInteraction;
     card._stopInteraction = handleStopInteraction;
-  
 
     card.appendChild(img);
- 
-    card._startInteraction = handleStartInteraction;
 
-    card.addEventListener('mouseenter', handleStartInteraction); // mouse: sem throttle
+    card.addEventListener('mouseenter', handleStartInteraction);
     card.addEventListener('focus', () => {
-        // Teclado/gamepad: não dispara direto — registra e espera idle
         pendingInteractionCard = card;
         signalNavigation();
     });
     card.addEventListener('mouseleave', handleStopInteraction);
     card.addEventListener('blur', () => {
-        // Cancela pendente se sair antes do idle
         if (pendingInteractionCard === card) pendingInteractionCard = null;
         handleStopInteraction();
     });
@@ -859,8 +771,21 @@ function createGameCard(data) {
         moveCardToTop(card);
     });
 
-    grid.insertBefore(card, btnAdd);
-    if (data.isFeatured) handleStartInteraction();
+    
+    if (data.isFeatured) {
+        grid.insertBefore(card, btnAdd);
+        handleStartInteraction();
+    } else {
+       
+        const featured = grid.querySelector('.card.featured');
+        const insertAfter = featured ? featured.nextSibling : grid.firstChild;
+        grid.insertBefore(card, insertAfter);
+
+        
+        if (newGameIdsThisSession.has(gameId)) {
+            card.classList.add('new-game');
+        }
+    }
 }
 
 function moveCardToTop(card) {
