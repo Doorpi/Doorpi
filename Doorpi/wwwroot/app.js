@@ -772,19 +772,19 @@ function createGameCard(data) {
     });
 
     
+
+    if (newGameIdsThisSession.has(gameId)) {
+        card.classList.add('new-game');
+    }
+
+
     if (data.isFeatured) {
         grid.insertBefore(card, btnAdd);
         handleStartInteraction();
     } else {
-       
-        const featured = grid.querySelector('.card.featured');
-        const insertAfter = featured ? featured.nextSibling : grid.firstChild;
-        grid.insertBefore(card, insertAfter);
 
-        
-        if (newGameIdsThisSession.has(gameId)) {
-            card.classList.add('new-game');
-        }
+        const featured = grid.querySelector('.card.featured');
+        grid.insertBefore(card, featured ? featured.nextSibling : grid.firstChild);
     }
 }
 
