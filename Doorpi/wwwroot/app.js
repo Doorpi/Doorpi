@@ -1,103 +1,111 @@
-﻿let currentHero = "";
-let currentLogo = "";
-let transitionTimeout = null;
-let isModalOpen = false;
-
-let allInstalledApps = []; 
+﻿let isModalOpen = false;
+let allInstalledApps = [];
 let currentSourceFilter = "all";
-function updateToLocalFile(gameId, imageType, newUrl) {
-    let targetCard = document.querySelector(`.card[data-game-id="${gameId.replace(/\\/g, '\\\\')}"]`);
-    if (!targetCard) return;
 
-    let datasetKey = "";
-    if (imageType === "GridStatic") datasetKey = "staticVertical";
-    else if (imageType === "HorizontalStatic") datasetKey = "staticHorizontal";
-    else if (imageType === "HeroStatic") datasetKey = "staticHero";
-    else if (imageType === "LogoStatic") datasetKey = "staticLogo";
+// Memória de foco por grupo (para retorno suave ao sair de um grupo)
+let lastFocusedApp = null;
+let lastFocusedFilter = null;
+let lastFocusedSidebar = null;
+let currentInteractiveCard = null;
+// ========================= IDLE NAVIGATION =========================
+// Scroll roda imediatamente. Hero transition e animações de card
+// só disparam quando o usuário parar de navegar por IDLE_MS.
+// Durante navegação rápida, o conteúdo pesado fica suspenso.
+const IDLE_MS = 180;
+let navIdleTimeout = null;
+let pendingInteractionCard = null;
 
-    // Salva o caminho do HD no dataset estático
-    targetCard.dataset[datasetKey] = newUrl;
-
-    const img = targetCard.querySelector('img');
-    const isFeatured = targetCard.classList.contains('featured');
-
-    // MÁGICA: Atualiza visualmente se o card NÃO estiver sendo focado/hover no momento
-    // Isso faz a imagem "aparecer do nada" assim que o C# confirmar que salvou
-    if (img && document.activeElement !== targetCard && !targetCard.matches(':hover')) {
-        if ((isFeatured && datasetKey === "staticHorizontal") || (!isFeatured && datasetKey === "staticVertical")) {
-            img.src = newUrl;
-            img.style.opacity = "1"; // Revela a imagem que estava vazia
-        }
-    }
-
-    // Se o jogo recém adicionado já estiver lá no topo como Featured, 
-    // atualiza o background pesado do Hero e o Logo em tempo real também.
-    const heroImg = document.getElementById('heroImage');
-    const logoImg = document.getElementById('gameLogo');
-
-    if (isFeatured) {
-        if (datasetKey === "staticHero" && heroImg) {
-            heroImg.src = newUrl;
-            heroImg.style.opacity = "1";
-        }
-        if (datasetKey === "staticLogo" && logoImg) {
-            logoImg.src = newUrl;
-            logoImg.style.opacity = "1";
+function onNavigationIdle() {
+    // Usuário parou — dispara o handleStartInteraction do card atual
+    if (pendingInteractionCard) {
+        const card = pendingInteractionCard;
+        pendingInteractionCard = null;
+        if (document.activeElement === card || card.matches(':hover')) {
+            card._startInteraction && card._startInteraction();
         }
     }
 }
 
-const blobCache = new Set();
+function signalNavigation() {
+    // Chamado a cada movimento — reseta o timer de idle
+    if (navIdleTimeout) clearTimeout(navIdleTimeout);
+    navIdleTimeout = setTimeout(onNavigationIdle, IDLE_MS);
+}
+
+// ========================= SELEÇÃO =========================
+function updateSelectionCounter() {
+    const count = document.querySelectorAll('.app-item.selected').length;
+    const counter = document.getElementById('selectionCounter');
+    const counterText = document.getElementById('selectionCounterText');
+    if (!counter || !counterText) return;
+    counterText.innerText = count === 1 ? '1 jogo selecionado' : `${count} jogos selecionados`;
+    counter.classList.toggle('visible', count > 0);
+}
+
+function resetSelectionCounter() {
+    const counter = document.getElementById('selectionCounter');
+    if (counter) counter.classList.remove('visible');
+}
+
+// ========================= CLOCK =========================
 setInterval(() => {
     const now = new Date();
-    document.getElementById('clock').innerText = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    document.getElementById('clock').innerText =
+        now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }, 1000);
 
+// ========================= WEBVIEW =========================
 if (window.chrome && window.chrome.webview) {
     window.chrome.webview.addEventListener('message', event => {
         try {
             const data = JSON.parse(event.data);
             if (data.type === 'newGame') createGameCard(data);
-            else if (data.type === 'installedAppsList') {
-                allInstalledApps = data.apps;
-                applyFilterAndRender();
-            }
-            else if (data.type === 'staticSaved') {
-                updateToLocalFile(data.gameId, data.imageType, data.newUrl);
-            }
+            else if (data.type === 'installedAppsList') { allInstalledApps = data.apps; applyFilterAndRender(); }
+            else if (data.type === 'staticSaved') updateToLocalFile(data.gameId, data.imageType, data.newUrl);
         } catch (e) { console.error("Erro ao receber dados:", e); }
     });
 }
 
+function updateToLocalFile(gameId, imageType, newUrl) {
+    const targetCard = document.querySelector(`.card[data-game-id="${gameId.replace(/\\/g, '\\\\')}"]`);
+    if (!targetCard) return;
+
+    const keyMap = { GridStatic: 'staticVertical', HorizontalStatic: 'staticHorizontal', HeroStatic: 'staticHero', LogoStatic: 'staticLogo' };
+    const datasetKey = keyMap[imageType];
+    if (!datasetKey) return;
+
+    targetCard.dataset[datasetKey] = newUrl;
+
+    const img = targetCard.querySelector('img');
+    const isFeatured = targetCard.classList.contains('featured');
+    if (img && document.activeElement !== targetCard && !targetCard.matches(':hover')) {
+        if ((isFeatured && datasetKey === "staticHorizontal") || (!isFeatured && datasetKey === "staticVertical")) {
+            img.src = newUrl;
+            img.style.opacity = "1";
+        }
+    }
+
+    if (isFeatured) {
+        if (datasetKey === "staticHero") switchHeroBackground(newUrl, targetCard.dataset.staticLogo || targetCard.dataset.logo);
+    }
+}
+
+// ========================= FILTROS =========================
 function applyFilterAndRender() {
-   
     const filtered = currentSourceFilter === "all"
         ? allInstalledApps
         : allInstalledApps.filter(app => (app.Source || app.source) === currentSourceFilter);
-
     populateAppModal(filtered);
 }
 
-
 function setupFilterEvents() {
     document.querySelectorAll('.filter-btn').forEach(btn => {
-      
         const newBtn = btn.cloneNode(true);
         btn.replaceWith(newBtn);
-
-       
-        if (newBtn.dataset.source === currentSourceFilter) {
-            newBtn.classList.add('active');
-        } else {
-            newBtn.classList.remove('active');
-        }
-
-        
+        newBtn.classList.toggle('active', newBtn.dataset.source === currentSourceFilter);
         newBtn.addEventListener('click', () => {
             currentSourceFilter = newBtn.dataset.source;
-            applyFilterAndRender(); 
-
-            
+            applyFilterAndRender();
             setTimeout(() => {
                 const activeBtn = document.querySelector(`.filter-btn[data-source="${currentSourceFilter}"]`);
                 if (activeBtn) activeBtn.focus();
@@ -105,125 +113,150 @@ function setupFilterEvents() {
         });
     });
 }
+
+// ========================= MODAL =========================
 document.getElementById('btnAdd').addEventListener('click', () => {
-    window.chrome.webview.postMessage(JSON.stringify({ action: 'requestInstalledApps' }));
+    if (window.chrome && window.chrome.webview)
+        window.chrome.webview.postMessage(JSON.stringify({ action: 'requestInstalledApps' }));
     showModalLoading();
 });
 
 function showModalLoading() {
     isModalOpen = true;
-
-    const container = document.getElementById('addGameContainer');
-    document.getElementById('modalTitle').innerText = "Buscando aplicativos instalados...";
-    document.getElementById('appList').innerHTML = "";
     document.getElementById('modalActions').style.display = "none";
-
     document.getElementById("gameGrid").style.overflowX = "hidden";
+    document.getElementById('addGameContainer').style.display = 'flex';
+    document.getElementById('modalTitle').innerText = "Detectando Biblioteca";
 
-    container.style.display = 'flex';
+    document.getElementById('appList').innerHTML = `
+        <div class="vb-wrap">
+            <div class="vb-scanline"></div>
+            <div class="vb-ghost-grid">
+                ${'<div class="vb-ghost-tile"></div>'.repeat(15)}
+            </div>
+            <div class="vb-center">
+                <div class="vb-ring-wrap">
+                    <div class="vb-ring outer"></div>
+                    <div class="vb-ring inner"></div>
+                    <div class="vb-ring core"></div>
+                    <div class="vb-ring-dot"></div>
+                </div>
+                <div class="vb-text">
+                    <div class="vb-title">Detectando Biblioteca</div>
+                    <div class="vb-subtitle">Lendo aplicativos instalados</div>
+                    <div class="vb-dots"><span></span><span></span><span></span></div>
+                    <div class="vb-libs" id="vbLibs">
+                        <div class="vb-lib scanning">Steam</div>
+                        <div class="vb-lib">Epic</div>
+                        <div class="vb-lib">GOG</div>
+                        <div class="vb-lib">Windows</div>
+                        <div class="vb-lib">Pastas</div>
+                    </div>
+                </div>
+            </div>
+            <div class="vb-progress"><div class="vb-progress-fill"></div></div>
+        </div>
+    `;
+
+    const libs = document.querySelectorAll('#vbLibs .vb-lib');
+    let current = 0;
+    const libInterval = setInterval(() => {
+        if (!isModalOpen) { clearInterval(libInterval); return; }
+        libs.forEach(l => l.classList.remove('scanning'));
+        libs[current].classList.add('scanning');
+        current = (current + 1) % libs.length;
+    }, 700);
 }
+
 
 function closeModal() {
     document.getElementById('addGameContainer').style.display = 'none';
     document.getElementById("gameGrid").style.overflowX = "auto";
-
+    resetSelectionCounter();
     isModalOpen = false;
     focusItemByIndex(0);
 }
 
 function formatBytes(kb) {
-    if (kb === 0) return "";
+    if (!kb) return "";
     const mb = kb / 1024;
-    if (mb > 1024) return (mb / 1024).toFixed(2) + " GB";
-    return mb.toFixed(0) + " MB";
+    return mb > 1024 ? (mb / 1024).toFixed(2) + " GB" : mb.toFixed(0) + " MB";
 }
 
 function populateAppModal(apps) {
-  
     const titleEl = document.getElementById('modalTitle');
-    if (currentSourceFilter === "all") {
-        titleEl.innerText = "Selecione os aplicativos para adicionar";
-    } else {
-        titleEl.innerText = `Mostrando jogos da loja: ${currentSourceFilter}`;
-    }
+    titleEl.innerText = currentSourceFilter === "all"
+        ? "Selecione os aplicativos para adicionar"
+        : `Mostrando jogos da loja: ${currentSourceFilter}`;
 
-    const appList = document.getElementById('appList');
+    // Re-bind btnSearch e btnScanFolder
+    ['btnSearch', 'btnScanFolder'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        const newBtn = btn.cloneNode(true);
+        btn.replaceWith(newBtn);
+        if (id === 'btnSearch') {
+            newBtn.addEventListener('click', () => {
+                if (window.chrome && window.chrome.webview)
+                    window.chrome.webview.postMessage(JSON.stringify({ action: 'browseManual' }));
+            });
+        } else {
+            newBtn.addEventListener('click', () => {
+                titleEl.innerText = "Aguardando seleção de pasta...";
+                if (window.chrome && window.chrome.webview)
+                    window.chrome.webview.postMessage(JSON.stringify({ action: 'pickFolder' }));
+            });
+        }
+    });
 
-   
-    const btnSearch = document.getElementById('btnSearch');
-    if (btnSearch) {
-        const newBtnSearch = btnSearch.cloneNode(true);
-        btnSearch.replaceWith(newBtnSearch);
-        newBtnSearch.addEventListener('click', () => {
-            window.chrome.webview.postMessage(JSON.stringify({ action: 'browseManual' }));
-        });
-    }
-
-    const btnScan = document.getElementById('btnScanFolder');
-    if (btnScan) {
-        const newBtnScan = btnScan.cloneNode(true);
-        btnScan.replaceWith(newBtnScan);
-        newBtnScan.addEventListener('click', () => {
-            titleEl.innerText = "Aguardando seleção de pasta...";
-            window.chrome.webview.postMessage(JSON.stringify({ action: 'pickFolder' }));
-        });
-    }
-
- 
     setupFilterEvents();
 
-    
+    const appList = document.getElementById('appList');
     appList.innerHTML = apps.map(app => {
-        const isAppAdded = app.IsAdded === true || app.isAdded === true;
+        const isAdded = app.IsAdded === true || app.isAdded === true;
         const iconData = app.IconBase64 || app.iconBase64;
         const appName = app.Name || app.name;
         const appPath = app.Path || app.path;
-        const appSize = app.Size !== undefined ? app.Size : app.size;
+        const appSize = app.Size ?? app.size;
         const appLaunch = app.LaunchUrl || app.launchUrl || "";
 
-        const addedClass = isAppAdded ? "already-added" : "";
-        const tabindex = isAppAdded ? "" : 'tabindex="0"';
-        const iconHtml = iconData ? `<img class="app-icon" src="data:image/png;base64,${iconData}" />` : '';
-
         return `
-            <div class="app-item ${addedClass}" ${tabindex} 
-                 data-path="${appPath.replace(/\\/g, '\\\\')}" 
+            <div class="app-item ${isAdded ? 'already-added' : ''}" ${isAdded ? '' : 'tabindex="0"'}
+                 data-path="${appPath.replace(/\\/g, '\\\\')}"
                  data-launch="${appLaunch}"
                  data-name="${appName.replace(/"/g, '&quot;')}">
-                ${iconHtml}
+                ${iconData ? `<img class="app-icon" src="data:image/png;base64,${iconData}" />` : ''}
                 ${appName}
                 <span class="size">${formatBytes(appSize)}</span>
-            </div>
-        `;
+            </div>`;
     }).join('');
 
     document.getElementById('modalActions').style.display = "flex";
+    resetSelectionCounter();
 
-    
     document.querySelectorAll('.app-item:not(.already-added)').forEach(item => {
         item.addEventListener('click', function () {
             this.classList.toggle('selected');
+            updateSelectionCounter();
         });
     });
 
+    // Re-bind action buttons
     const btnCancel = document.getElementById('btnCancelAdd');
     const btnConfirm = document.getElementById('btnConfirmAdd');
-    btnCancel.replaceWith(btnCancel.cloneNode(true));
-    btnConfirm.replaceWith(btnConfirm.cloneNode(true));
+    const newCancel = btnCancel.cloneNode(true);
+    const newConfirm = btnConfirm.cloneNode(true);
+    btnCancel.replaceWith(newCancel);
+    btnConfirm.replaceWith(newConfirm);
 
-    document.getElementById('btnCancelAdd').addEventListener('click', closeModal);
-    document.getElementById('btnConfirmAdd').addEventListener('click', () => {
+    newCancel.addEventListener('click', closeModal);
+    newConfirm.addEventListener('click', () => {
         const selected = Array.from(document.querySelectorAll('.app-item.selected')).map(el => ({
-            Name: el.dataset.name,
-            Path: el.dataset.path,
-            LaunchUrl: el.dataset.launch
+            Name: el.dataset.name, Path: el.dataset.path, LaunchUrl: el.dataset.launch
         }));
-
         if (selected.length > 0) {
-            window.chrome.webview.postMessage(JSON.stringify({
-                action: 'addSelectedGames',
-                games: selected
-            }));
+            if (window.chrome && window.chrome.webview)
+                window.chrome.webview.postMessage(JSON.stringify({ action: 'addSelectedGames', games: selected }));
             titleEl.innerText = "Baixando capas e adicionando... (Aguarde)";
             appList.innerHTML = "";
             document.getElementById('modalActions').style.display = "none";
@@ -233,220 +266,477 @@ function populateAppModal(apps) {
         }
     });
 
-   
     setTimeout(() => {
-        const firstItem = document.querySelector('.app-item[tabindex="0"]');
-        if (firstItem) {
-            firstItem.focus();
-        } else {
-            const scanBtn = document.getElementById('btnScanFolder');
-            if (scanBtn) scanBtn.focus();
-        }
+        const first = document.querySelector('.app-item[tabindex="0"]');
+        if (first) first.focus();
+        else document.getElementById('btnScanFolder')?.focus();
     }, 150);
 }
+
+
+// ========================= NAVEGAÇÃO =========================
+/*
+   Layout lógico do modal:
+   ┌─────────────┬────────────────────────────────────────────┐
+   │  SIDEBAR    │  FILTROS (filter-bar)                       │
+   │  .menu-tab  │  APPS GRID (#appList)                       │
+   │             │  AÇÕES (action-bar) — rodapé fixo           │
+   └─────────────┴────────────────────────────────────────────┘
+
+   Regras de transição entre grupos:
+   App  + LEFT  → sidebar (tab ativa ou primeira)
+   App  + UP    → filtros (filtro ativo ou primeiro)
+   App  + DOWN  → ações (sem candidato abaixo)
+   App  + RIGHT → ações (atalho)
+   Ação + LEFT/UP → último app focado
+   Filtro + LEFT   → sidebar
+   Filtro + DOWN   → apps
+   Sidebar + RIGHT → último app ou apps[0]
+*/
+
+function getModalGroups() {
+    const sidebar = Array.from(document.querySelectorAll(".sidebar-menu .menu-tab"));
+    const filters = Array.from(document.querySelectorAll(".filter-bar .filter-btn"));
+    const apps = Array.from(document.querySelectorAll("#appList .app-item:not(.already-added)"));
+    const actions = Array.from(document.querySelectorAll("#modalActions button"));
+    return { sidebar, filters, apps, actions };
+}
+
+function getNavigableItems() {
+    if (!isModalOpen) {
+        return Array.from(document.getElementById("gameGrid").querySelectorAll("[tabindex='0']"));
+    }
+    const { sidebar, filters, apps, actions } = getModalGroups();
+    return [...sidebar, ...filters, ...apps, ...actions];
+}
+
+// Busca espacial: candidato mais próximo na direção, dentro do mesmo grupo
+function findSpatialCandidate(groupItems, current, direction) {
+    const cr = current.getBoundingClientRect();
+    const currCX = cr.left + cr.width / 2;
+    const currCY = cr.top + cr.height / 2;
+
+    let best = null, bestScore = Infinity;
+
+    groupItems.forEach(item => {
+        if (item === current) return;
+        const r = item.getBoundingClientRect();
+        const cx = r.left + r.width / 2;
+        const cy = r.top + r.height / 2;
+
+        let isValid = false, dist = 0, overlap = 0;
+
+        switch (direction) {
+            case "RIGHT": isValid = cx > currCX; dist = cx - currCX; overlap = Math.min(cr.bottom, r.bottom) - Math.max(cr.top, r.top); break;
+            case "LEFT": isValid = cx < currCX; dist = currCX - cx; overlap = Math.min(cr.bottom, r.bottom) - Math.max(cr.top, r.top); break;
+            case "DOWN": isValid = cy > currCY; dist = cy - currCY; overlap = Math.min(cr.right, r.right) - Math.max(cr.left, r.left); break;
+            case "UP": isValid = cy < currCY; dist = currCY - cy; overlap = Math.min(cr.right, r.right) - Math.max(cr.left, r.left); break;
+        }
+
+        if (isValid && overlap > 0 && dist < bestScore) {
+            bestScore = dist;
+            best = item;
+        }
+    });
+
+    return best;
+}
+
+// Wrap dentro do grupo (bate na borda → vai para o lado oposto)
+function findWrapCandidate(groupItems, current, direction) {
+    const cr = current.getBoundingClientRect();
+    const currCX = cr.left + cr.width / 2;
+    const currCY = cr.top + cr.height / 2;
+
+    let best = null, maxDist = -1;
+
+    groupItems.forEach(item => {
+        if (item === current) return;
+        const r = item.getBoundingClientRect();
+        const cx = r.left + r.width / 2;
+        const cy = r.top + r.height / 2;
+
+        let isValidOpp = false, dist = 0, overlap = 0;
+
+        switch (direction) {
+            case "RIGHT": isValidOpp = cx < currCX; dist = currCX - cx; overlap = Math.min(cr.bottom, r.bottom) - Math.max(cr.top, r.top); break;
+            case "LEFT": isValidOpp = cx > currCX; dist = cx - currCX; overlap = Math.min(cr.bottom, r.bottom) - Math.max(cr.top, r.top); break;
+            case "DOWN": isValidOpp = cy < currCY; dist = currCY - cy; overlap = Math.min(cr.right, r.right) - Math.max(cr.left, r.left); break;
+            case "UP": isValidOpp = cy > currCY; dist = cy - currCY; overlap = Math.min(cr.right, r.right) - Math.max(cr.left, r.left); break;
+        }
+
+        if (isValidOpp && overlap > 0 && dist > maxDist) {
+            maxDist = dist;
+            best = item;
+        }
+    });
+
+    return best;
+}
+
+// Transições explícitas entre grupos
+function getGroupTransition(direction, groupName, groups) {
+    const { sidebar, filters, apps, actions } = groups;
+
+    if (groupName === "app") {
+        if (direction === "DOWN" || direction === "RIGHT") return actions[0] || null;
+        if (direction === "LEFT") return (lastFocusedSidebar && sidebar.includes(lastFocusedSidebar)) ? lastFocusedSidebar : sidebar.find(el => el.classList.contains('active')) || sidebar[0] || null;
+        if (direction === "UP") return (lastFocusedFilter && filters.includes(lastFocusedFilter)) ? lastFocusedFilter : filters.find(el => el.classList.contains('active')) || filters[0] || null;
+    }
+
+    if (groupName === "action") {
+        if (direction === "LEFT" || direction === "UP") {
+            return (lastFocusedApp && apps.includes(lastFocusedApp)) ? lastFocusedApp : apps[apps.length - 1] || null;
+        }
+    }
+
+    if (groupName === "filter") {
+        if (direction === "DOWN") return (lastFocusedApp && apps.includes(lastFocusedApp)) ? lastFocusedApp : apps[0] || null;
+        if (direction === "LEFT") return (lastFocusedSidebar && sidebar.includes(lastFocusedSidebar)) ? lastFocusedSidebar : sidebar.find(el => el.classList.contains('active')) || sidebar[0] || null;
+        if (direction === "RIGHT") return (lastFocusedApp && apps.includes(lastFocusedApp)) ? lastFocusedApp : apps[0] || null;
+    }
+
+    if (groupName === "sidebar") {
+        if (direction === "RIGHT") return (lastFocusedApp && apps.includes(lastFocusedApp)) ? lastFocusedApp : filters[0] || apps[0] || null;
+    }
+
+    return null;
+}
+
 function moveFocus(direction) {
     const items = getNavigableItems();
     if (!items.length) return;
 
-    const currentIndex = items.indexOf(document.activeElement);
-    if (currentIndex === -1) {
-        focusItemByIndex(0);
+    const current = document.activeElement;
+
+    if (!items.includes(current)) {
+        (items[0]).focus();
         return;
     }
 
-    let nextIndex = currentIndex;
-
-    if (direction === 'RIGHT') {
-        nextIndex = currentIndex + 1;
-    } else if (direction === 'LEFT') {
-        nextIndex = currentIndex - 1;
-    } else if (direction === 'DOWN' || direction === 'UP') {
-        if (!isModalOpen) {
-            
-            nextIndex = direction === 'DOWN' ? currentIndex + 1 : currentIndex - 1;
-        } else {
-            
-            const rect = items[currentIndex].getBoundingClientRect();
-            let closestIndex = currentIndex;
-            let minDistance = Infinity;
-
-            for (let i = 0; i < items.length; i++) {
-                if (i === currentIndex) continue;
-                const otherRect = items[i].getBoundingClientRect();
-
-                let isValid = false;
-                
-                if (direction === 'DOWN' && otherRect.top > rect.top + 10) isValid = true;
-                if (direction === 'UP' && otherRect.bottom < rect.bottom - 10) isValid = true;
-
-                if (isValid) {
-                   
-                    const dist = Math.abs(otherRect.left - rect.left) * 2 + Math.abs(otherRect.top - rect.top);
-                    if (dist < minDistance) {
-                        minDistance = dist;
-                        closestIndex = i;
-                    }
-                }
-            }
-            nextIndex = closestIndex;
+    // ── Tela principal (sem modal): spatial + wrap horizontal ──
+// ── Tela principal (sem modal): spatial + wrap horizontal ──
+    if (!isModalOpen) {
+        let candidate = findSpatialCandidate(items, current, direction);
+        if (!candidate) {
+            if (direction === "RIGHT") candidate = items[0];
+            else if (direction === "LEFT") candidate = items[items.length - 1];
+            else candidate = findWrapCandidate(items, current, direction);
         }
+        if (candidate) {
+            
+            // [SEGURANÇA EXTRA] Corta instantaneamente a animação do card atual antes de navegar!
+            if (current && current._stopInteraction) {
+                current._stopInteraction();
+            }
+
+            if (heroFadeTimeout) { clearTimeout(heroFadeTimeout); heroFadeTimeout = null; }
+
+candidate.focus();
+pendingInteractionCard = null;  // cancela qualquer idle pendente
+
+smoothHorizontalScroll(candidate, direction, () => {
+    if (document.activeElement === candidate || candidate.matches(':hover')) {
+        candidate._startInteraction?.();
+    }
+});
+        }
+        return;
     }
 
-    focusItemByIndex(nextIndex);
-}
-function updateCardLayout(card) {
-    const img = card.querySelector('img');
-    if (!img) return;
+    // ── Modal: navegação por grupos ──
+    const groups = getModalGroups();
+    const { sidebar, filters, apps, actions } = groups;
 
-    if (card.classList.contains('featured') && card.dataset.horizontal) {
-        img.src = card.dataset.horizontal;
+    let groupName, groupItems;
+    if (current.classList.contains("menu-tab")) { groupName = "sidebar"; groupItems = sidebar; }
+    else if (current.classList.contains("filter-btn")) { groupName = "filter"; groupItems = filters; }
+    else if (current.classList.contains("app-item")) { groupName = "app"; groupItems = apps; }
+    else { groupName = "action"; groupItems = actions; }
+
+    // Salva memória do grupo atual
+    if (groupName === "app") lastFocusedApp = current;
+    if (groupName === "filter") lastFocusedFilter = current;
+    if (groupName === "sidebar") lastFocusedSidebar = current;
+
+    // 1. Espacial dentro do grupo
+    let candidate = findSpatialCandidate(groupItems, current, direction);
+
+    // 2. Transição para outro grupo
+    if (!candidate) candidate = getGroupTransition(direction, groupName, groups);
+
+    // 3. Wrap dentro do grupo
+    if (!candidate) candidate = findWrapCandidate(groupItems, current, direction);
+
+    if (candidate) {
+        candidate.focus();
+        ensureModalItemVisible(candidate);
+        // Sinaliza movimento — hero/animações ficam pausados até idle
+        if (isModalOpen) signalNavigation();
+    }
+}
+
+// ========================= FOCO INICIAL =========================
+function focusItemByIndex(index) {
+    const items = getNavigableItems();
+    if (!items.length) return;
+    const el = items[(index + items.length) % items.length];
+    el.focus();
+    if (isModalOpen) ensureModalItemVisible(el); else smoothHorizontalScroll(el);
+}
+
+function ensureModalItemVisible(element) {
+    if (!element) return;
+    element.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+}
+
+// ========================= SCROLL HORIZONTAL =========================
+function smoothHorizontalScroll(element, direction, onDone) {
+    if (isModalOpen) { onDone?.(); return; }
+    const container = document.getElementById("gameGrid");
+    const cRect = container.getBoundingClientRect();
+    const eRect = element.getBoundingClientRect();
+
+    const TOLERANCE = 2;
+    const visibleLeft = eRect.left >= cRect.left - TOLERANCE;
+    const visibleRight = eRect.right <= cRect.right + TOLERANCE;
+
+    if (visibleLeft && visibleRight) { onDone?.(); return; }  // já visível → dispara já
+
+    let targetScrollLeft;
+    if (!visibleRight) {
+        targetScrollLeft = container.scrollLeft + (eRect.left - cRect.left);
     } else {
-        img.src = card.dataset.vertical;
+        targetScrollLeft = container.scrollLeft + (eRect.right - cRect.right);
     }
+
+    targetScrollLeft = Math.max(0, Math.min(container.scrollWidth - container.clientWidth, targetScrollLeft));
+
+    const start = container.scrollLeft;
+    const delta = targetScrollLeft - start;
+    if (Math.abs(delta) < 1) { onDone?.(); return; }
+
+    const duration = 300;
+    const startTime = performance.now();
+
+    (function animate(time) {
+        const t = Math.min((time - startTime) / duration, 1);
+        container.scrollLeft = start + delta * (1 - Math.pow(1 - t, 3));
+        if (t < 1) requestAnimationFrame(animate);
+        else onDone?.();  // scroll terminou → dispara
+    })(performance.now());
 }
 
-function moveCardToTop(card) {
-    if (!card) return;
-    const grid = document.getElementById('gameGrid');
+document.getElementById("gameGrid").addEventListener("wheel", (e) => {
+    if (isModalOpen) return;
+    e.preventDefault();
+    document.getElementById("gameGrid").scrollLeft += e.deltaY * 1.2;
+}, { passive: false });
 
-    // Remove o destaque dos outros cards e volta para a imagem estática deles
-    document.querySelectorAll('.card.featured').forEach(c => {
-        c.classList.remove('featured');
-        const img = c.querySelector('img');
-        if (img) img.src = c.dataset.staticVertical || c.dataset.vertical;
-    });
+// ========================= TECLADO =========================
+document.addEventListener('keydown', (e) => {
+    const map = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' };
+    if (map[e.key]) { e.preventDefault(); moveFocus(map[e.key]); return; }
+    if (e.key === 'Enter') { e.preventDefault(); document.activeElement?.click(); }
+});
 
-    // Adiciona destaque ao card atual
-    card.classList.add('featured');
-    grid.prepend(card);
+// ========================= GAMEPAD =========================
+let gamepadIndex = null, buttonCooldown = false;
+let lastMoveTime = 0, moveState = 0, currentDirection = null;
+const INITIAL_DELAY = 400, REPEAT_DELAY = 80;
 
-    // CORREÇÃO APLICADA AQUI: Força o uso da imagem ESTÁTICA horizontal
-    const img = card.querySelector('img');
-    if (img) {
-        img.src = card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical;
+window.addEventListener("gamepadconnected", e => { gamepadIndex = e.gamepad.index; });
+
+function handleGamepad() {
+    if (gamepadIndex === null) { requestAnimationFrame(handleGamepad); return; }
+    const gamepad = navigator.getGamepads()[gamepadIndex];
+    if (!gamepad) { requestAnimationFrame(handleGamepad); return; }
+
+    const items = getNavigableItems();
+    if (!items.length) { requestAnimationFrame(handleGamepad); return; }
+
+    if (!items.includes(document.activeElement)) { focusItemByIndex(0); requestAnimationFrame(handleGamepad); return; }
+
+    const ax = gamepad.axes[0], ay = gamepad.axes[1];
+    const now = performance.now();
+    let newDir = null;
+
+    if (ax > 0.6 || gamepad.buttons[15]?.pressed) newDir = 'RIGHT';
+    else if (ax < -0.6 || gamepad.buttons[14]?.pressed) newDir = 'LEFT';
+    else if (ay > 0.6 || gamepad.buttons[13]?.pressed) newDir = 'DOWN';
+    else if (ay < -0.6 || gamepad.buttons[12]?.pressed) newDir = 'UP';
+
+    if (newDir) {
+        if (newDir !== currentDirection) {
+            moveFocus(newDir); lastMoveTime = now; moveState = 1; currentDirection = newDir;
+        } else if (moveState === 1 && now - lastMoveTime > INITIAL_DELAY) {
+            moveFocus(newDir); lastMoveTime = now; moveState = 2;
+        } else if (moveState === 2 && now - lastMoveTime > REPEAT_DELAY) {
+            moveFocus(newDir); lastMoveTime = now;
+        }
+    } else {
+        moveState = 0; currentDirection = null;
     }
+
+    if (gamepad.buttons[0].pressed) {
+        if (!buttonCooldown) { document.activeElement?.click(); buttonCooldown = true; }
+    } else { buttonCooldown = false; }
+
+    requestAnimationFrame(handleGamepad);
+}
+
+requestAnimationFrame(handleGamepad);
+
+
+// ========================= HERO BACKGROUND (bgBlur) =========================
+/*
+   Usa a capa vertical como fundo atmosférico borrado.
+   Não depende de hero images grandes — qualquer resolução funciona.
+*/
+let heroFadeTimeout = null;
+let currentBgSrc = "";
+
+// switchHeroBackground(bgSrc, logoSrc, heroSrc)
+//   bgSrc   = capa vertical → blur atmosférico (sempre disponível)
+//   logoSrc = logo do jogo
+//   heroSrc = banner hero (1920x620) ou horizontal, se disponível
+function switchHeroBackground(bgSrc, logoSrc, heroSrc) {
+    const bgBlur = document.getElementById('bgBlur');
+    const heroImg = document.getElementById('heroImage');
+    const logoImg = document.getElementById('gameLogo');
+    if (!bgBlur || !bgSrc) return;
+
+    const cleanNew = bgSrc.split('?')[0];
+    if (currentBgSrc.split('?')[0] === cleanNew) return;
+    currentBgSrc = bgSrc;
+
+    // Fade out simultâneo
+    bgBlur.style.opacity = "0";
+    if (heroImg) { heroImg.style.opacity = "0"; }
+    if (logoImg) { logoImg.classList.remove('visible'); }
+
+    if (heroFadeTimeout) clearTimeout(heroFadeTimeout);
+
+    heroFadeTimeout = setTimeout(async () => {
+        // Todos os swaps usam setImgSrc: decode off-thread antes de tocar o DOM
+
+        // 1. BG blur atmosférico
+        await setImgSrc(bgBlur, bgSrc);
+        bgBlur.style.opacity = "1";
+
+        // 2. Grid background desfocado
+        const gridBgImg = document.getElementById('gridBgImg');
+        if (gridBgImg) setImgSrc(gridBgImg, heroSrc);
+
+        // 3. Hero banner estático
+        if (heroImg) {
+            await setImgSrc(heroImg, heroSrc || bgSrc);
+            heroImg.style.opacity = "1";
+        }
+
+        // 4. Logo estático
+        if (logoImg && logoSrc) {
+            await setImgSrc(logoImg, logoSrc);
+            logoImg.classList.add('visible');
+        }
+    }, 150);
 }
 
 
-// Função auxiliar para extrair o primeiro frame (congelar) da animação
-
-function getStaticFrame(imgElement) {
-    const canvas = document.createElement('canvas');
-    canvas.width = imgElement.naturalWidth;
-    canvas.height = imgElement.naturalHeight;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(imgElement, 0, 0);
-    return canvas.toDataURL('image/png'); // Retorna a imagem estática como texto
-}
+// ========================= CARDS =========================
 
 
-
-let animationTimeout = null;
-
-// Função "Detetive" de Animações
 async function getAnimatedBlob(url) {
     if (!url) return null;
     try {
         const response = await fetch(url);
         if (!response.ok) return null;
         const blob = await response.blob();
-
-        // Lemos só o comecinho do arquivo para ver se tem animação
-        const buffer = await blob.slice(0, 256).arrayBuffer();
-        const bytes = new Uint8Array(buffer);
-        const APNG_SIGNATURE = [0x61, 0x63, 0x54, 0x4C];
-        const WEBP_ANIM_SIGNATURE = [0x41, 0x4E, 0x49, 0x4D];
-
-        let isAnim = false;
-        for (let i = 0; i < bytes.length - 4; i++) {
-            if (bytes.slice(i, i + 4).every((val, index) => val === APNG_SIGNATURE[index])) { isAnim = true; break; }
-            if (bytes.slice(i, i + 4).every((val, index) => val === WEBP_ANIM_SIGNATURE[index])) { isAnim = true; break; }
+        const bytes = new Uint8Array(await blob.slice(0, 256).arrayBuffer());
+        const APNG = [0x61, 0x63, 0x54, 0x4C], WEBP = [0x41, 0x4E, 0x49, 0x4D];
+        let isAnim = bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46; // GIF
+        for (let i = 0; !isAnim && i < bytes.length - 4; i++) {
+            if (bytes.slice(i, i + 4).every((v, j) => v === APNG[j])) isAnim = true;
+            if (bytes.slice(i, i + 4).every((v, j) => v === WEBP[j])) isAnim = true;
         }
-        if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) isAnim = true; // GIF
-
-        return isAnim ? blob : null; // Se for animado, entrega o arquivo cru
+        return isAnim ? blob : null;
     } catch { return null; }
 }
 
+// Decodifica a imagem off-thread antes de tocar o DOM.
+async function setImgSrc(imgEl, src) {
+    if (!imgEl) return;
 
+    // [CORREÇÃO CHAVE] Atualiza a trava ANTES de qualquer verificação!
+    // Assim, se um decode do GIF estiver no meio do caminho, ele morre instantaneamente aqui.
+    const currentReq = Symbol();
+    imgEl.__pendingReq = currentReq;
 
+    if (!src) {
+        imgEl.removeAttribute('src');
+        return;
+    }
+
+    // Se a imagem atual já é o que queremos, não precisamos de decodificação.
+    if (imgEl.src === src || imgEl.src.endsWith(src)) {
+        return;
+    }
+
+    const tmp = new Image();
+    tmp.src = src;
+    try { await tmp.decode(); } catch (_) { }
+
+    // Se o usuário mudou de ideia e interagiu de novo durante o decode, cancela.
+    if (imgEl.__pendingReq !== currentReq) return;
+
+    imgEl.src = src;
+}
 function createGameCard(data) {
     const grid = document.getElementById('gameGrid');
+    const btnAdd = document.getElementById('btnAdd');
     const card = document.createElement('div');
     card.className = 'card';
     card.tabIndex = 0;
 
     const gameId = data.launchUrl || data.path;
     card.dataset.gameId = gameId;
-
-    // Armazena todas as URLs, tanto as originais quanto as estáticas
     card.dataset.hero = data.hero || "";
     card.dataset.logo = data.logo || "";
-    card.dataset.vertical = data.imageData;
+    card.dataset.vertical = data.imageData || "";
     card.dataset.horizontal = data.horizontalImage || "";
     card.dataset.staticVertical = data.staticImageData || "";
     card.dataset.staticHorizontal = data.staticHorizontalImage || "";
     card.dataset.staticHero = data.staticHero || "";
     card.dataset.staticLogo = data.staticLogo || "";
 
+    if (data.isFeatured) card.classList.add('featured');
+
     const img = document.createElement('img');
     img.decoding = "async";
 
+    const processImage = async (src, key, imageType) => {
+        if (!src || card.dataset[key]) return;
+        const blob = await getAnimatedBlob(src);
+        if (!blob) { card.dataset[key] = src; return; }
 
-    if (data.isFeatured) card.classList.add('featured');
-
-   
-    const processImage = async (sourceUrl, targetDatasetKey, imageTypeStr) => {
-        // Se não tiver imagem ou se já tiver lido do HD, aborta.
-        if (!sourceUrl || card.dataset[targetDatasetKey]) return;
-
-        const animBlob = await getAnimatedBlob(sourceUrl);
-
-        if (!animBlob) {
-            // Não tem animação! Salva no dataset normal e fim de papo.
-            card.dataset[targetDatasetKey] = sourceUrl;
-            return;
-        }
-
-        // É ANIMADA! 
         return new Promise(resolve => {
             const tempImg = new Image();
-
-            // Transforma a memória num link virtual (Isso burla a proteção de CORS do navegador)
-            const blobUrl = URL.createObjectURL(animBlob);
-
+            const blobUrl = URL.createObjectURL(blob);
             tempImg.onload = () => {
                 try {
                     const canvas = document.createElement('canvas');
                     canvas.width = tempImg.naturalWidth;
                     canvas.height = tempImg.naturalHeight;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(tempImg, 0, 0);
-
-                    // Gira pro C# resolver o arquivo físico
-                    window.chrome.webview.postMessage(JSON.stringify({
-                        action: 'saveStaticFrame',
-                        gameId: gameId,
-                        imageType: imageTypeStr,
-                        base64: canvas.toDataURL('image/png')
-                    }));
-                } catch (e) {
-                    console.error("Falha ao desenhar imagem:", e);
-                    // Em caso de erro extremo, pelo menos mostra a imagem animada pra não ficar preto
-                    card.dataset[targetDatasetKey] = sourceUrl;
-                } finally {
-                    // Limpa a memória RAM e segue o fluxo
-                    URL.revokeObjectURL(blobUrl);
-                    resolve();
-                }
+                    canvas.getContext('2d').drawImage(tempImg, 0, 0);
+                    if (window.chrome && window.chrome.webview)
+                        window.chrome.webview.postMessage(JSON.stringify({
+                            action: 'saveStaticFrame', gameId, imageType,
+                            base64: canvas.toDataURL('image/png')
+                        }));
+                } catch { card.dataset[key] = src; }
+                finally { URL.revokeObjectURL(blobUrl); resolve(); }
             };
-
-            tempImg.onerror = () => {
-                card.dataset[targetDatasetKey] = sourceUrl;
-                URL.revokeObjectURL(blobUrl);
-                resolve();
-            };
-
+            tempImg.onerror = () => { card.dataset[key] = src; URL.revokeObjectURL(blobUrl); resolve(); };
             tempImg.src = blobUrl;
         });
     };
@@ -455,399 +745,134 @@ function createGameCard(data) {
         processImage(card.dataset.vertical, 'staticVertical', 'GridStatic'),
         processImage(card.dataset.horizontal, 'staticHorizontal', 'HorizontalStatic'),
         processImage(card.dataset.hero, 'staticHero', 'HeroStatic'),
-        processImage(card.dataset.logo, 'staticLogo', 'LogoStatic')
+        processImage(card.dataset.logo, 'staticLogo', 'LogoStatic'),
     ]).then(() => {
-        // Aqui garantimos que ele SÓ carrega a imagem se existir a estática!
-        // Se era uma imagem animada, essas variáveis estarão VAZIAS, então a imagem não vai carregar (e está tudo bem).
-        const initialStaticSrc = card.classList.contains('featured') ?
-            card.dataset.staticHorizontal :
-            card.dataset.staticVertical;
-
-        if (initialStaticSrc) {
-            img.src = initialStaticSrc;
-            img.style.opacity = "1";
-        }
+        const src = card.classList.contains('featured')
+            ? card.dataset.staticHorizontal
+            : card.dataset.staticVertical;
+        if (src) { img.src = src; img.style.opacity = "1"; }
     });
 
-  
-const handleStartInteraction = async () => {
-        const staticGrid = card.classList.contains('featured')
-            ? (card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical)
-            : (card.dataset.staticVertical || card.dataset.vertical);
+    // bg para o hero usa: staticVertical (capa vertical borrada como atmosfera)
+    // bg para o hero usa: staticVertical (capa vertical borrada como atmosfera)
+    const handleStartInteraction = async () => {
+        const bgSrc = card.dataset.staticVertical || card.dataset.vertical;
+        const logoSrc = card.dataset.staticLogo || card.dataset.logo;
+        // Hero: prefere banner hero, fallback para horizontal, fallback para vertical
+        const heroSrc = card.dataset.staticHero || card.dataset.hero
+            || card.dataset.staticHorizontal || card.dataset.horizontal
+            || bgSrc;
 
         const animGrid = card.classList.contains('featured')
             ? (card.dataset.horizontal || card.dataset.vertical)
             : card.dataset.vertical;
 
-        const staticHero = card.dataset.staticHero || card.dataset.hero;
-        const animHero = card.dataset.hero;
-        const staticLogo = card.dataset.staticLogo || card.dataset.logo;
-        const animLogo = card.dataset.logo;
+        switchHeroBackground(bgSrc, logoSrc, heroSrc);
 
-        // 1. Troca o fundo lá de trás para ESTÁTICO IMEDIATAMENTE (com fade bonito)
-        switchHeroBackground(staticHero, staticLogo);
+        // Timer agora é ÚNICO para cada card
+        if (card._animationTimeout) clearTimeout(card._animationTimeout);
 
-        // 2. Prepara o gatilho da Animação
-        if (animationTimeout) clearTimeout(animationTimeout);
+        card._animationTimeout = setTimeout(async () => {
+            if (document.activeElement !== card && !card.matches(':hover')) return;
 
-        // Mudei para apenas 100ms! Extremamente rápido, mas preserva a fluidez da rolagem.
-        animationTimeout = setTimeout(async () => {
-            if (document.activeElement === card || card.matches(':hover')) {
+            const stillActive = () => document.activeElement === card || card.matches(':hover');
 
-                // A) Decodifica e injeta o Grid Animado (a caixinha)
-                if (animGrid && img.src !== animGrid) {
-                    const tempGrid = new Image();
-                    tempGrid.src = animGrid;
-                    try { await tempGrid.decode(); } catch(e){}
-                    if (document.activeElement === card || card.matches(':hover')) img.src = animGrid;
-                }
+            if (animGrid) {
+                await setImgSrc(img, animGrid);
+            }
 
-                // B) Injeta o Hero Animado (Lá no fundo gigante)
-                // Detalhe: Trocamos direto o SRC sem Fade, assim a imagem acorda na mesma hora!
-                if (animHero && animHero !== staticHero) {
-                    const tempHero = new Image();
-                    tempHero.src = animHero;
-                    try { await tempHero.decode(); } catch(e){}
-                    if (document.activeElement === card || card.matches(':hover')) {
-                        const heroImg = document.getElementById('heroImage');
-                        if (heroImg && !heroImg.src.endsWith(animHero)) heroImg.src = animHero;
-                    }
-                }
+            const animHero = card.dataset.hero;
+            const staticHero = card.dataset.staticHero || animHero;
+            if (animHero && animHero !== staticHero && stillActive()) {
+                const heroImg = document.getElementById('heroImage');
+                if (heroImg) await setImgSrc(heroImg, animHero);
+            }
 
-                // C) Injeta o Logo Animado
-                if (animLogo && animLogo !== staticLogo) {
-                    const tempLogo = new Image();
-                    tempLogo.src = animLogo;
-                    try { await tempLogo.decode(); } catch(e){}
-                    if (document.activeElement === card || card.matches(':hover')) {
-                        const logoImg = document.getElementById('gameLogo');
-                        if (logoImg && !logoImg.src.endsWith(animLogo)) logoImg.src = animLogo;
-                    }
+            const animLogo = card.dataset.logo;
+            const staticLogo = card.dataset.staticLogo || animLogo;
+            if (animLogo && animLogo !== staticLogo && stillActive()) {
+                const logoImg = document.getElementById('gameLogo');
+                if (logoImg) {
+                    await setImgSrc(logoImg, animLogo);
+                    logoImg.classList.add('visible');
                 }
             }
-        }, 400); 
+        }, 200);
     };
 
     const handleStopInteraction = () => {
-        if (animationTimeout) clearTimeout(animationTimeout);
-        setTimeout(() => {
-            if (document.activeElement !== card && !card.matches(':hover')) {
-                // Voltar grid pra estático
-                const staticGrid = card.classList.contains('featured') ?
-                    (card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical) :
-                    (card.dataset.staticVertical || card.dataset.vertical);
+        // Limpa o timer isolado deste card
+        if (card._animationTimeout) clearTimeout(card._animationTimeout);
 
-                if (staticGrid) {
-                    if (img.src !== staticGrid) img.src = staticGrid;
-                } else {
-                    img.removeAttribute('src');
-                }
+        if (document.activeElement === card || card.matches(':hover')) return;
 
-                // Desligar as animações do Hero/Logo de fundo para salvar memória/CPU do PC
-                const heroImg = document.getElementById('heroImage');
-                const logoImg = document.getElementById('gameLogo');
-                const staticHero = card.dataset.staticHero || card.dataset.hero;
-                const staticLogo = card.dataset.staticLogo || card.dataset.logo;
+        const staticGrid = card.classList.contains('featured')
+            ? (card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical)
+            : (card.dataset.staticVertical || card.dataset.vertical);
 
-                if (heroImg && heroImg.src.endsWith(card.dataset.hero) && card.dataset.hero !== staticHero) {
-                    heroImg.src = staticHero;
-                }
-                if (logoImg && logoImg.src.endsWith(card.dataset.logo) && card.dataset.logo !== staticLogo) {
-                    logoImg.src = staticLogo;
-                }
-            }
-        }, 0);
+        // Dispara setImgSrc incondicionalmente para FORÇAR o cancelamento do Symbol
+        setImgSrc(img, staticGrid);
+
+        const heroImg = document.getElementById('heroImage');
+        const staticHero = card.dataset.staticHero || card.dataset.hero;
+        if (heroImg && staticHero) {
+            setImgSrc(heroImg, staticHero);
+        }
+
+        const logoImg = document.getElementById('gameLogo');
+        const staticLogo = card.dataset.staticLogo || card.dataset.logo;
+        if (logoImg && staticLogo) {
+            setImgSrc(logoImg, staticLogo);
+        }
     };
 
+    // Expõe as funções de start e stop para a segurança de navegação usar
+    card._startInteraction = handleStartInteraction;
+    card._stopInteraction = handleStopInteraction;
+  
+
     card.appendChild(img);
-    card.addEventListener('mouseenter', handleStartInteraction);
-    card.addEventListener('focus', handleStartInteraction);
+ 
+    card._startInteraction = handleStartInteraction;
+
+    card.addEventListener('mouseenter', handleStartInteraction); // mouse: sem throttle
+    card.addEventListener('focus', () => {
+        // Teclado/gamepad: não dispara direto — registra e espera idle
+        pendingInteractionCard = card;
+        signalNavigation();
+    });
     card.addEventListener('mouseleave', handleStopInteraction);
-    card.addEventListener('blur', handleStopInteraction);
+    card.addEventListener('blur', () => {
+        // Cancela pendente se sair antes do idle
+        if (pendingInteractionCard === card) pendingInteractionCard = null;
+        handleStopInteraction();
+    });
 
     const title = document.createElement('div');
     title.className = 'title';
     title.innerText = data.name;
     card.appendChild(title);
 
-    const launch = () => {
-        window.chrome.webview.postMessage(JSON.stringify({ action: 'launch', path: gameId }));
+    card.addEventListener('click', () => {
+        if (window.chrome && window.chrome.webview)
+            window.chrome.webview.postMessage(JSON.stringify({ action: 'launch', path: gameId }));
         moveCardToTop(card);
-    };
-
-    card.addEventListener('click', launch);
-    grid.insertBefore(card, btnAdd);
-
-    if (data.isFeatured) {
-       
-        handleStartInteraction();
-    }
-}
-
-// === GERENCIADOR DE BACKGROUND UNIFICADO ===
-let heroFadeTimeout = null;
-let currentHeroSrc = "";
-
-function switchHeroBackground(newHero, newLogo) {
-    const heroImg = document.getElementById('heroImage');
-    const logoImg = document.getElementById('gameLogo');
-
-    if (!heroImg || !logoImg || !newHero) return;
-
-    // Se já estamos focados nesse jogo, ignora o comando pra não piscar a tela à toa!
-    const cleanCurrent = currentHeroSrc.split('?')[0];
-    const cleanNew = newHero.split('?')[0];
-    if (cleanCurrent === cleanNew) return;
-
-    currentHeroSrc = newHero;
-
-    // Inicia o Fade Out
-    heroImg.style.opacity = "0";
-    logoImg.style.opacity = "0";
-
-    if (heroFadeTimeout) clearTimeout(heroFadeTimeout);
-
-    // Espera o Fade Out (150ms) e troca pra estática
-    heroFadeTimeout = setTimeout(() => {
-        heroImg.src = newHero;
-        logoImg.src = newLogo;
-
-        // Assim que carregar no PC, Fade In
-        heroImg.onload = () => heroImg.style.opacity = "1";
-        logoImg.onload = () => logoImg.style.opacity = "1";
-
-        if (heroImg.complete) heroImg.style.opacity = "1";
-        if (logoImg.complete) logoImg.style.opacity = "1";
-    }, 150);
-}
-
-
-function updateHeroSection(card) {
-    const heroBg = document.getElementById('hero-background');
-    const heroTitle = document.getElementById('focused-game-title');
-
-    if (!heroBg || !heroTitle) return;
-
-    if (card.dataset.hero) {
-        heroBg.style.backgroundImage = `url('${card.dataset.hero}')`;
-    } else {
-        heroBg.style.backgroundImage = 'none';
-    }
-    heroTitle.innerText = card.dataset.title;
-}
-
-function getNavigableItems() {
-    if (isModalOpen) {
-        const modal = document.getElementById('addGameContainer');
-        return Array.from(modal.querySelectorAll('[tabindex="0"]:not(.already-added)'));
-    } else {
-        const grid = document.getElementById('gameGrid');
-        if (!grid) return [];
-        return Array.from(grid.children);
-    }
-}
-
-function focusItemByIndex(index) {
-    const items = getNavigableItems();
-    if (!items.length) return;
-
-    index = (index + items.length) % items.length;
-    const el = items[index];
-    el.focus();
-
-    if (isModalOpen) {
-        ensureModalItemVisible(el);
-    } else {
-        smoothHorizontalScroll(el);
-    }
-}
-function smoothHorizontalScroll(element) {
-
-    if (isModalOpen) return;
-
-    const container = document.getElementById("gameGrid");
-
-    const containerRect = container.getBoundingClientRect();
-    const elementRect = element.getBoundingClientRect();
-
-    const elementCenter = elementRect.left + elementRect.width / 2;
-    const containerCenter = containerRect.left + containerRect.width / 2;
-
-    const offset = elementCenter - containerCenter;
-
-    const start = container.scrollLeft;
-    const target = Math.max(
-    0,
-    Math.min(container.scrollWidth - container.clientWidth, start + offset)
-);
-
-    const duration = 450; 
-    const startTime = performance.now();
-
-    function animate(time) {
-        const elapsed = time - startTime;
-        const progress = Math.min(elapsed / duration, 1);
-
-        
-        const ease = 1 - Math.pow(1 - progress, 3);
-
-        container.scrollLeft = start + (target - start) * ease;
-
-        if (progress < 1) {
-            requestAnimationFrame(animate);
-        }
-    }
-
-    requestAnimationFrame(animate);
-}
-const container = document.getElementById("gameGrid");
-
-const speed = 1.2;
-
-container.addEventListener("wheel", (e) => {
-
-    if (isModalOpen) return;
-
-    e.preventDefault();
-    container.scrollLeft += e.deltaY * speed;
-
-}, { passive: false });
-
-document.addEventListener('keydown', (e) => {
-
-    const items = getNavigableItems();
-    if (!items.length) return;
-
-    // se o modal estiver aberto, só permite navegação do modal
-    if (isModalOpen) {
-
-        if (e.key === 'ArrowRight') { e.preventDefault(); moveFocus('RIGHT'); }
-        else if (e.key === 'ArrowLeft') { e.preventDefault(); moveFocus('LEFT'); }
-        else if (e.key === 'ArrowDown') { e.preventDefault(); moveFocus('DOWN'); }
-        else if (e.key === 'ArrowUp') { e.preventDefault(); moveFocus('UP'); }
-        else if (e.key === 'Enter') {
-            e.preventDefault();
-            if (document.activeElement) document.activeElement.click();
-        }
-
-        return;
-    }
-
-    
-    if (e.key === 'ArrowRight') { e.preventDefault(); moveFocus('RIGHT'); }
-    else if (e.key === 'ArrowLeft') { e.preventDefault(); moveFocus('LEFT'); }
-    else if (e.key === 'ArrowDown') { e.preventDefault(); moveFocus('DOWN'); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); moveFocus('UP'); }
-    else if (e.key === 'Enter') {
-        e.preventDefault();
-        if (document.activeElement) document.activeElement.click();
-    }
-
-});
-let gamepadIndex = null;
-let buttonCooldown = false;
-
-let lastMoveTime = 0;
-let moveState = 0; 
-let currentDirection = null;
-const INITIAL_DELAY = 400; 
-const REPEAT_DELAY = 80;   
-
-window.addEventListener("gamepadconnected", (e) => {
-    gamepadIndex = e.gamepad.index;
-});
-function ensureModalItemVisible(element) {
-    if (!element) return;
-    element.scrollIntoView({
-        behavior: 'smooth',
-        block: 'nearest', // Garante que apareça sem pular muito a tela
-        inline: 'nearest'
     });
-}
-function handleGamepad() {
 
-
-
-    if (gamepadIndex === null) {
-        requestAnimationFrame(handleGamepad);
-        return;
-    }
-
-    const gamepad = navigator.getGamepads()[gamepadIndex];
-    if (!gamepad) {
-        requestAnimationFrame(handleGamepad);
-        return;
-    }
-
-    const items = getNavigableItems();
-    if (!items.length) {
-        requestAnimationFrame(handleGamepad);
-        return;
-    }
-
-    let currentIndex = items.indexOf(document.activeElement);
-    if (currentIndex === -1) {
-        focusItemByIndex(0);
-        requestAnimationFrame(handleGamepad);
-        return;
-    }
-
-    const axisX = gamepad.axes[0];
-    const axisY = gamepad.axes[1];
-    const dpadRight = gamepad.buttons[15]?.pressed;
-    const dpadLeft = gamepad.buttons[14]?.pressed;
-    const dpadUp = gamepad.buttons[12]?.pressed;
-    const dpadDown = gamepad.buttons[13]?.pressed;
-
-    const now = performance.now();
-    let newDirection = null;
-
-   
-    if (axisX > 0.6 || dpadRight) newDirection = 'RIGHT';
-    else if (axisX < -0.6 || dpadLeft) newDirection = 'LEFT';
-    else if (axisY > 0.6 || dpadDown) newDirection = 'DOWN';
-    else if (axisY < -0.6 || dpadUp) newDirection = 'UP';
-
-    
-    if (newDirection) {
-        if (newDirection !== currentDirection) {
-            
-            moveFocus(newDirection);
-            lastMoveTime = now;
-            moveState = 1;
-            currentDirection = newDirection;
-        } else {
-           
-            if (moveState === 1 && (now - lastMoveTime > INITIAL_DELAY)) {
-               
-                moveFocus(newDirection);
-                lastMoveTime = now;
-                moveState = 2;
-            } else if (moveState === 2 && (now - lastMoveTime > REPEAT_DELAY)) {
-               
-                moveFocus(newDirection);
-                lastMoveTime = now;
-            }
-        }
-    } else {
-  
-        moveState = 0;
-        currentDirection = null;
-    }
-
-
-  
-    if (gamepad.buttons[0].pressed) {
-        if (!buttonCooldown) {
-            document.activeElement.click();
-            buttonCooldown = true;
-        }
-    } else {
-       
-        buttonCooldown = false;
-    }
-
-    requestAnimationFrame(handleGamepad);
+    grid.insertBefore(card, btnAdd);
+    if (data.isFeatured) handleStartInteraction();
 }
 
-requestAnimationFrame(handleGamepad);
+function moveCardToTop(card) {
+    if (!card) return;
+    const grid = document.getElementById('gameGrid');
+    document.querySelectorAll('.card.featured').forEach(c => {
+        c.classList.remove('featured');
+        const img = c.querySelector('img');
+        if (img) img.src = c.dataset.staticVertical || c.dataset.vertical;
+    });
+    card.classList.add('featured');
+    grid.prepend(card);
+    const img = card.querySelector('img');
+    if (img) img.src = card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical;
+}
