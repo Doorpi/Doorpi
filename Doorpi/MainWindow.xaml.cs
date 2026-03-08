@@ -110,7 +110,18 @@ namespace Doorpi
 
             webView.CoreWebView2.Navigate("https://app.local/index.html");
             webView.CoreWebView2.WebMessageReceived += WebView_WebMessageReceived;
-            webView.CoreWebView2.NavigationCompleted += (s, e) => LoadGamesIntoUI();
+            webView.CoreWebView2.NavigationCompleted += (s, e) =>
+            {
+                LoadGamesIntoUI();
+
+                Dispatcher.InvokeAsync(() =>
+                {
+                    Topmost = true;
+                    Activate();
+                    Topmost = false;
+                    webView.Focus(); 
+                });
+            };
 
             webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
             webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;

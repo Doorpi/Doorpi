@@ -13,11 +13,11 @@
     --card-h: clamp(210px, 16.2vw, 620px);
     --card-featured-w: clamp(430px, 34vw, 1080px);
     --card-radius: clamp(8px, 0.63vw, 24px);
-    --card-gap: clamp(10px, 0.78vw, 12px);
+    --card-gap: clamp(16px, 0.78vw, 14px);
     /* Grid */
     --grid-bottom: clamp(18px, 1.41vw, 54px);
     --grid-pad-top: clamp(30px, 2.3vw, 85px);
-    --grid-pad-side: clamp(15px, -0.19vw, 1px);
+    --grid-pad-side: clamp(30px, 3.1vw, 60px);
     --grid-pad-bottom: clamp(26px, 2.03vw, 78px);
     /* Hero / Logo */
     --logo-left: clamp(36px, 2.81vw, 108px);
@@ -180,14 +180,24 @@ body {
     right: 0;
     overflow-x: auto;
     overflow-y: visible;
-    padding: var(--grid-pad-top) var(--grid-pad-side) var(--grid-pad-bottom);
+    padding: var(--grid-pad-top) 0 var(--grid-pad-bottom);
+    scroll-padding-inline: var(--grid-pad-side);
     gap: var(--card-gap);
     scroll-behavior: smooth;
     scrollbar-width: none;
     z-index: 12;
     align-items: flex-end;
 }
-
+    .game-grid::before,
+    .game-grid::after {
+        content: '';
+        display: block;
+        flex: 0 0 var(--grid-pad-side);
+        min-width: var(--grid-pad-side);
+        height: 1px;
+        pointer-events: none;
+        align-self: flex-end;
+    }
     .game-grid::-webkit-scrollbar {
         display: none;
     }

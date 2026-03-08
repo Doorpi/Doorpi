@@ -622,6 +622,9 @@ function handleGamepad() {
 }
 
 requestAnimationFrame(handleGamepad);
+window.addEventListener('load', () => {
+    setTimeout(() => focusItemByIndex(0), 300);
+});
 
 // ========================= HERO BACKGROUND =========================
 let heroFadeTimeout = null;
