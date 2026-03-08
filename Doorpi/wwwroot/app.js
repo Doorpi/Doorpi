@@ -90,29 +90,74 @@ function updateToLocalFile(gameId, imageType, newUrl) {
 }
 
 // ========================= FILTROS =========================
-function applyFilterAndRender() {
-    const filtered = currentSourceFilter === "all"
-        ? allInstalledApps
-        : allInstalledApps.filter(app => (app.Source || app.source) === currentSourceFilter);
-    populateAppModal(filtered);
-}
 
-function setupFilterEvents() {
-    document.querySelectorAll('.filter-btn').forEach(btn => {
-        const newBtn = btn.cloneNode(true);
-        btn.replaceWith(newBtn);
-        newBtn.classList.toggle('active', newBtn.dataset.source === currentSourceFilter);
-        newBtn.addEventListener('click', () => {
-            currentSourceFilter = newBtn.dataset.source;
+// Mapeamento: chave do filtro → quais Sources do C# ele representa
+const FILTER_SOURCES = {
+    all: null,                      // null = sem filtro
+    Steam: ["Steam"],
+    Epic: ["Epic"],
+    GOG: ["GOG"],
+    Windows: ["Windows", "Folder"],     // "Adicionar/Remover" + pastas configuradas
+};
+
+// Labels exibidas no botão (chave → texto)
+const FILTER_LABELS = {
+    all: "Todos",
+    Steam: "Steam",
+    Epic: "Epic",
+    GOG: "GOG",
+    Windows: "Windows & Pastas",
+};
+
+function buildFilterBar(apps) {
+    const bar = document.getElementById('filterBar');
+    if (!bar) return;
+
+    // Descobre quais fontes realmente existem na lista atual
+    const presentSources = new Set(apps.map(a => a.Source || a.source));
+
+    // Monta a ordem desejada, incluindo só os que têm dados
+    const filtersToShow = ['all', ...Object.keys(FILTER_SOURCES).filter(k => {
+        if (k === 'all') return false;
+        return FILTER_SOURCES[k].some(s => presentSources.has(s));
+    })];
+
+    bar.innerHTML = filtersToShow.map(key => `
+        <button class="filter-btn ${currentSourceFilter === key ? 'active' : ''}"
+                tabindex="0"
+                data-source="${key}">
+            ${FILTER_LABELS[key]}
+        </button>
+    `).join('');
+
+    // Bind dos eventos
+    bar.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            currentSourceFilter = btn.dataset.source;
             applyFilterAndRender();
             setTimeout(() => {
-                const activeBtn = document.querySelector(`.filter-btn[data-source="${currentSourceFilter}"]`);
-                if (activeBtn) activeBtn.focus();
+                document.querySelector(`.filter-btn[data-source="${currentSourceFilter}"]`)?.focus();
             }, 50);
         });
     });
 }
 
+function applyFilterAndRender() {
+    const sources = FILTER_SOURCES[currentSourceFilter]; // null = todos
+
+    const filtered = !sources
+        ? allInstalledApps
+        : allInstalledApps.filter(app => sources.includes(app.Source || app.source));
+
+    populateAppModal(filtered);
+}
+
+function setupFilterEvents() {
+    // Agora só atualiza o estado ativo visualmente — buildFilterBar já faz o bind
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.source === currentSourceFilter);
+    });
+}
 // ========================= MODAL =========================
 document.getElementById('btnAdd').addEventListener('click', () => {
     if (window.chrome && window.chrome.webview)
@@ -166,7 +211,31 @@ function showModalLoading() {
         current = (current + 1) % libs.length;
     }, 700);
 }
+// ========================= PLATFORM BADGES =========================
 
+function getPlatformBadge(source) {
+    const platforms = {
+        Steam: { type: 'url', value: 'https://cdn.simpleicons.org/steam/1b9bd4', label: 'Steam' },
+        Epic: { type: 'url', value: 'https://cdn.simpleicons.org/epicgames/a0a0a0', label: 'Epic' },
+        GOG: { type: 'url', value: 'https://cdn.simpleicons.org/gogdotcom/8a4fff', label: 'GOG' },
+        Folder: { type: 'url', value: 'https://cdn.simpleicons.org/files/f0a500', label: 'Pasta' },
+        Windows: {
+            type: 'svg', label: 'Windows', value: `
+            <svg viewBox="0 0 88 88" fill="#0078d4" xmlns="http://www.w3.org/2000/svg">
+                <path d="M0 12.4 35.7 7.6V42H0zm40.3-5.5L88 0v42H40.3zM0 46h35.7v34.4L0 75.6zm40.3.1H88V88L40.3 81.4z"/>
+            </svg>`
+        },
+    };
+
+    const p = platforms[source];
+    if (!p) return '';
+
+    const inner = p.type === 'url'
+        ? `<img src="${p.value}" alt="${p.label}" />`
+        : p.value;
+
+    return `<span class="platform-badge" title="${p.label}">${inner}</span>`;
+}
 function closeModal() {
     document.getElementById('addGameContainer').style.display = 'none';
     document.getElementById("gameGrid").style.overflowX = "auto";
@@ -206,7 +275,7 @@ function populateAppModal(apps) {
         }
     });
 
-    setupFilterEvents();
+    buildFilterBar(allInstalledApps);
 
     const appList = document.getElementById('appList');
     appList.innerHTML = apps.map(app => {
@@ -218,14 +287,17 @@ function populateAppModal(apps) {
         const appLaunch = app.LaunchUrl || app.launchUrl || "";
 
         return `
-            <div class="app-item ${isAdded ? 'already-added' : ''}" ${isAdded ? '' : 'tabindex="0"'}
-                 data-path="${appPath.replace(/\\/g, '\\\\')}"
-                 data-launch="${appLaunch}"
-                 data-name="${appName.replace(/"/g, '&quot;')}">
-                ${iconData ? `<img class="app-icon" src="data:image/png;base64,${iconData}" />` : ''}
-                ${appName}
-                <span class="size">${formatBytes(appSize)}</span>
-            </div>`;
+    <div class="app-item ${isAdded ? 'already-added' : ''}" ${isAdded ? '' : 'tabindex="0"'}
+         data-path="${appPath.replace(/\\/g, '\\\\')}"
+         data-launch="${appLaunch}"
+         data-name="${appName.replace(/"/g, '&quot;')}">
+        ${iconData ? `<img class="app-icon" src="data:image/png;base64,${iconData}" />` : ''}
+        <div class="app-item-info">
+            <span class="app-name">${appName}</span>
+            ${appSize ? `<span class="size">${formatBytes(appSize)}</span>` : ''}
+        </div>
+        ${getPlatformBadge(app.Source || app.source)}
+    </div>`;
     }).join('');
 
     document.getElementById('modalActions').style.display = "flex";

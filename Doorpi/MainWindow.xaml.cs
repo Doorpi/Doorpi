@@ -14,11 +14,13 @@ using System.Windows;
 
 namespace Doorpi
 {
+    // ========================= MODELS =========================
+
     public class InstalledApp
     {
         public string Name { get; set; } = "";
         public string Path { get; set; } = "";
-        public string LaunchUrl { get; set; } = ""; 
+        public string LaunchUrl { get; set; } = "";
         public string Date { get; set; } = "";
         public int Size { get; set; }
         public string IconBase64 { get; set; } = "";
@@ -26,50 +28,65 @@ namespace Doorpi
         public string Source { get; set; } = "";
     }
 
+    public class AppCacheModel
+    {
+        public HashSet<string> WindowsFingerprint { get; set; } = new();
+        public HashSet<string> FolderFingerprint { get; set; } = new();
+        public List<InstalledApp> WindowsApps { get; set; } = new();
+        public List<InstalledApp> FolderApps { get; set; } = new();
+    }
+
+    // ========================= MAIN WINDOW =========================
+
     public partial class MainWindow : Window
     {
         private const string SteamGridApiKey = "5b36e29336a851ae1c85656b2bfc5cf7";
         private static readonly HttpClient httpClient = new HttpClient();
 
+        // Pastas de dados
         private readonly string dataFolder;
         private readonly string gridFolder;
         private readonly string heroFolder;
         private readonly string gridHorizontalFolder;
         private readonly string logoFolder;
+        private readonly string iconCacheFolder;
+
+        // Arquivos de estado
         private readonly string gamesFile;
         private readonly string foldersFile;
+        private readonly string appCacheFile;
+
+        // Watchers para invalidação proativa de cache
+        private readonly List<FileSystemWatcher> _folderWatchers = new();
+        private volatile bool _folderCacheInvalid = false;
+        private volatile bool _windowsCacheInvalid = false;
+
+        // ========================= CONSTRUTOR =========================
 
         public MainWindow()
         {
             InitializeComponent();
 
             dataFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data");
-
-            if (!Directory.Exists(dataFolder)) Directory.CreateDirectory(dataFolder);
-
             gridFolder = Path.Combine(dataFolder, "images", "grid");
             heroFolder = Path.Combine(dataFolder, "images", "hero");
             gridHorizontalFolder = Path.Combine(dataFolder, "images", "grid-horizontal");
             logoFolder = Path.Combine(dataFolder, "images", "logo");
+            iconCacheFolder = Path.Combine(dataFolder, "iconcache");
 
             gamesFile = Path.Combine(dataFolder, "games.json");
             foldersFile = Path.Combine(dataFolder, "folders.json");
+            appCacheFile = Path.Combine(dataFolder, "appcache.json");
 
-
-            if (!File.Exists(gamesFile))
-            {
-                File.WriteAllText(gamesFile, "[]"); 
-            }
-
-            if (!File.Exists(foldersFile))
-            {
-                File.WriteAllText(foldersFile, "[]");
-            }
-
-            Directory.CreateDirectory(gridHorizontalFolder);
+            Directory.CreateDirectory(dataFolder);
             Directory.CreateDirectory(gridFolder);
             Directory.CreateDirectory(heroFolder);
+            Directory.CreateDirectory(gridHorizontalFolder);
             Directory.CreateDirectory(logoFolder);
+            Directory.CreateDirectory(iconCacheFolder);
+
+            if (!File.Exists(gamesFile)) File.WriteAllText(gamesFile, "[]");
+            if (!File.Exists(foldersFile)) File.WriteAllText(foldersFile, "[]");
 
             httpClient.DefaultRequestHeaders.Authorization =
                 new AuthenticationHeaderValue("Bearer", SteamGridApiKey);
@@ -77,168 +94,217 @@ namespace Doorpi
             InitializeAsync();
         }
 
+        // ========================= INICIALIZAÇÃO =========================
+
         async void InitializeAsync()
         {
             await webView.EnsureCoreWebView2Async(null);
             webView.CoreWebView2.OpenDevToolsWindow();
+
             string folderPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot");
 
             webView.CoreWebView2.SetVirtualHostNameToFolderMapping(
-                "app.local",
-                folderPath,
-                CoreWebView2HostResourceAccessKind.Allow);
-
+                "app.local", folderPath, CoreWebView2HostResourceAccessKind.Allow);
             webView.CoreWebView2.SetVirtualHostNameToFolderMapping(
-                "data.local",
-                dataFolder,
-                CoreWebView2HostResourceAccessKind.Allow);
+                "data.local", dataFolder, CoreWebView2HostResourceAccessKind.Allow);
 
             webView.CoreWebView2.Navigate("https://app.local/index.html");
-
             webView.CoreWebView2.WebMessageReceived += WebView_WebMessageReceived;
-
-            webView.CoreWebView2.NavigationCompleted += (s, e) =>
-            {
-                LoadGamesIntoUI();
-            };
+            webView.CoreWebView2.NavigationCompleted += (s, e) => LoadGamesIntoUI();
 
             webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
             webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
+
+            // Inicia watchers em background — sabemos de mudanças antes do usuário abrir o modal
+            StartWatchers();
+            _ = Task.Run(WatchWindowsRegistry);
         }
 
+        // ========================= WATCHERS =========================
 
+        private void StartWatchers()
+        {
+            foreach (var folder in LoadWatchedFolders())
+                AddFolderWatcher(folder);
+        }
+
+        private void AddFolderWatcher(string path)
+        {
+            if (!Directory.Exists(path)) return;
+            var w = new FileSystemWatcher(path, "*.exe")
+            {
+                IncludeSubdirectories = true,
+                NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite,
+                EnableRaisingEvents = true
+            };
+            w.Created += (_, _) => _folderCacheInvalid = true;
+            w.Deleted += (_, _) => _folderCacheInvalid = true;
+            _folderWatchers.Add(w);
+        }
+
+        private async Task WatchWindowsRegistry()
+        {
+            var lastPrint = GetWindowsRegistryFingerprint();
+            while (true)
+            {
+                await Task.Delay(30_000); // checa a cada 30s em background
+                var current = GetWindowsRegistryFingerprint();
+                if (!current.SetEquals(lastPrint))
+                {
+                    _windowsCacheInvalid = true;
+                    lastPrint = current;
+                }
+            }
+        }
+
+        // ========================= ICON CACHE =========================
+
+        /// <summary>
+        /// Retorna ícone em base64. Na primeira chamada extrai do binário e persiste em disco.
+        /// Nas chamadas seguintes retorna do arquivo em disco — zero custo de I/O de binário.
+        /// Chave: path + LastWriteTime, então atualiza automaticamente se o exe mudar.
+        /// </summary>
+        private string GetCachedIcon(string exePath)
+        {
+            if (string.IsNullOrEmpty(exePath) || !File.Exists(exePath)) return "";
+            try
+            {
+                var info = new FileInfo(exePath);
+                string key = $"{exePath}|{info.LastWriteTimeUtc.Ticks}";
+                string hash = Convert.ToHexString(
+                    System.Security.Cryptography.MD5.HashData(
+                        System.Text.Encoding.UTF8.GetBytes(key)))[..12];
+
+                string iconPath = Path.Combine(iconCacheFolder, $"{hash}.b64");
+
+                if (File.Exists(iconPath))
+                    return File.ReadAllText(iconPath); // hit — apenas leitura de texto
+
+                // miss — extrai e persiste para sempre
+                string b64 = ExtractIcon(exePath);
+                if (!string.IsNullOrEmpty(b64))
+                    File.WriteAllText(iconPath, b64);
+
+                return b64;
+            }
+            catch { return ""; }
+        }
+
+        // ========================= STEAM =========================
 
         private List<InstalledApp> GetSteamGames()
         {
             var list = new List<InstalledApp>();
-
             try
             {
-                
                 using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\Valve\Steam")
                              ?? Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Valve\Steam");
 
                 if (key?.GetValue("InstallPath") is string steamPath)
                 {
                     string configPath = Path.Combine(steamPath, "steamapps", "libraryfolders.vdf");
+                    if (!File.Exists(configPath)) return list;
 
-                    if (File.Exists(configPath))
+                    var content = File.ReadAllText(configPath);
+                    var matches = Regex.Matches(content, @"""path""\s+""([^""]+)""");
+
+                    foreach (Match match in matches)
                     {
-                        var content = File.ReadAllText(configPath);
-                        var matches = Regex.Matches(content, @"""path""\s+""([^""]+)""");
+                        string libraryPath = match.Groups[1].Value.Replace(@"\\", @"\");
+                        string appsPath = Path.Combine(libraryPath, "steamapps");
+                        if (!Directory.Exists(appsPath)) continue;
 
-                        
-                        foreach (Match match in matches)
+                        foreach (var acfFile in Directory.GetFiles(appsPath, "appmanifest_*.acf"))
                         {
-                            string libraryPath = match.Groups[1].Value.Replace(@"\\", @"\");
-                            string appsPath = Path.Combine(libraryPath, "steamapps");
+                            var acfContent = File.ReadAllText(acfFile);
+                            string name = Regex.Match(acfContent, @"""name""\s+""([^""]+)""").Groups[1].Value;
+                            string appId = Regex.Match(acfContent, @"""appid""\s+""([^""]+)""").Groups[1].Value;
+                            string installDir = Regex.Match(acfContent, @"""installdir""\s+""([^""]+)""").Groups[1].Value;
 
-                            if (!Directory.Exists(appsPath)) continue;
+                            if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(appId)) continue;
 
-                           
-                            foreach (var acfFile in Directory.GetFiles(appsPath, "appmanifest_*.acf"))
+                            string iconBase64 = "";
+
+                            // Tenta ícone nativo do Steam primeiro
+                            string iconHash = Regex.Match(acfContent, @"""(?:clienticon|icon)""\s+""([a-fA-F0-9]+)""").Groups[1].Value;
+                            if (!string.IsNullOrEmpty(iconHash))
                             {
-                                var acfContent = File.ReadAllText(acfFile);
+                                string icoPath = Path.Combine(steamPath, "steam", "games", $"{iconHash}.ico");
+                                if (File.Exists(icoPath)) iconBase64 = GetCachedIcon(icoPath);
+                            }
 
-                                string name = Regex.Match(acfContent, @"""name""\s+""([^""]+)""").Groups[1].Value;
-                                string appId = Regex.Match(acfContent, @"""appid""\s+""([^""]+)""").Groups[1].Value;
-                                string installDir = Regex.Match(acfContent, @"""installdir""\s+""([^""]+)""").Groups[1].Value;
-
-                                if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(appId)) continue;
-
-                                string iconBase64 = "";
-
-                         
-
-                                string iconHash = Regex.Match(acfContent, @"""(?:clienticon|icon)""\s+""([a-fA-F0-9]+)""").Groups[1].Value;
-                                if (!string.IsNullOrEmpty(iconHash))
+                            // Fallback: melhor exe da pasta do jogo
+                            if (string.IsNullOrEmpty(iconBase64) && !string.IsNullOrEmpty(installDir))
+                            {
+                                string gameFolder = Path.Combine(libraryPath, "steamapps", "common", installDir);
+                                if (Directory.Exists(gameFolder))
                                 {
-                                    string icoPath = Path.Combine(steamPath, "steam", "games", $"{iconHash}.ico");
-                                    if (File.Exists(icoPath)) iconBase64 = ExtractIcon(icoPath);
-                                }
-
-                                
-                                if (string.IsNullOrEmpty(iconBase64) && !string.IsNullOrEmpty(installDir))
-                                {
-                                    string gameFolder = Path.Combine(libraryPath, "steamapps", "common", installDir);
-                                    if (Directory.Exists(gameFolder))
+                                    try
                                     {
-                                        try
+                                        var exeFiles = new DirectoryInfo(gameFolder)
+                                            .GetFiles("*.exe", SearchOption.AllDirectories)
+                                            .Where(f => !f.Name.Contains("crash", StringComparison.OrdinalIgnoreCase) &&
+                                                        !f.Name.Contains("unins", StringComparison.OrdinalIgnoreCase) &&
+                                                        !f.Name.Contains("setup", StringComparison.OrdinalIgnoreCase) &&
+                                                        !f.Name.Contains("redist", StringComparison.OrdinalIgnoreCase))
+                                            .ToList();
+
+                                        if (exeFiles.Any())
                                         {
-                                           
-                                            var exeFiles = new DirectoryInfo(gameFolder)
-                                                .GetFiles("*.exe", SearchOption.AllDirectories)
-                                                .Where(f => !f.Name.Contains("crash", StringComparison.OrdinalIgnoreCase) &&
-                                                            !f.Name.Contains("unins", StringComparison.OrdinalIgnoreCase) &&
-                                                            !f.Name.Contains("setup", StringComparison.OrdinalIgnoreCase) &&
-                                                            !f.Name.Contains("redist", StringComparison.OrdinalIgnoreCase))
-                                                .ToList();
+                                            string cleanGameName = NormalizeGameName(name);
+                                            string cleanFolderName = NormalizeGameName(installDir);
 
-                                            if (exeFiles.Any())
-                                            {
-                                                string cleanGameName = NormalizeGameName(name);
-                                                string cleanFolderName = NormalizeGameName(installDir);
-
-                                               
-                                                var bestExe = exeFiles.FirstOrDefault(f => {
-                                                    string cleanExe = NormalizeGameName(Path.GetFileNameWithoutExtension(f.Name));
-                                                    return cleanExe == cleanGameName || cleanExe == cleanFolderName;
+                                            var bestExe =
+                                                exeFiles.FirstOrDefault(f => {
+                                                    string c = NormalizeGameName(Path.GetFileNameWithoutExtension(f.Name));
+                                                    return c == cleanGameName || c == cleanFolderName;
                                                 })
-                                                
                                                 ?? exeFiles.FirstOrDefault(f => IsNameSimilar(Path.GetFileNameWithoutExtension(f.Name), name))
-                                               
                                                 ?? exeFiles.OrderByDescending(f => f.Length).FirstOrDefault();
 
-                                                if (bestExe != null) iconBase64 = ExtractIcon(bestExe.FullName);
-                                            }
+                                            if (bestExe != null) iconBase64 = GetCachedIcon(bestExe.FullName);
                                         }
-                                        catch { }
                                     }
+                                    catch { }
                                 }
-
-                                
-                                if (string.IsNullOrEmpty(iconBase64))
-                                {
-                                    string libraryCachePath = Path.Combine(steamPath, "appcache", "librarycache", $"{appId}_icon.jpg");
-                                    if (File.Exists(libraryCachePath))
-                                        iconBase64 = Convert.ToBase64String(File.ReadAllBytes(libraryCachePath));
-                                }
-
-                                list.Add(new InstalledApp
-                                {
-                                    Name = name,
-                                    LaunchUrl = $"steam://run/{appId}",
-                                    Path = appId,
-                                    IconBase64 = iconBase64,
-                                    Source = "Steam"
-                                });
                             }
+
+                            // Último fallback: librarycache do Steam
+                            if (string.IsNullOrEmpty(iconBase64))
+                            {
+                                string libraryCachePath = Path.Combine(steamPath, "appcache", "librarycache", $"{appId}_icon.jpg");
+                                if (File.Exists(libraryCachePath))
+                                    iconBase64 = Convert.ToBase64String(File.ReadAllBytes(libraryCachePath));
+                            }
+
+                            list.Add(new InstalledApp
+                            {
+                                Name = name,
+                                LaunchUrl = $"steam://run/{appId}",
+                                Path = appId,
+                                IconBase64 = iconBase64,
+                                Source = "Steam"
+                            });
                         }
                     }
                 }
             }
             catch (Exception ex) { Debug.WriteLine("Erro Steam: " + ex.Message); }
-
             return list;
         }
 
+        // ========================= EPIC =========================
 
         private List<InstalledApp> GetEpicGames()
         {
             var list = new List<InstalledApp>();
-
             try
             {
                 string manifestPath = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                    "Epic",
-                    "EpicGamesLauncher",
-                    "Data",
-                    "Manifests"
-                );
+                    "Epic", "EpicGamesLauncher", "Data", "Manifests");
 
-                if (!Directory.Exists(manifestPath))
-                    return list;
+                if (!Directory.Exists(manifestPath)) return list;
 
                 foreach (var file in Directory.GetFiles(manifestPath, "*.item"))
                 {
@@ -246,26 +312,19 @@ namespace Doorpi
                     using var doc = JsonDocument.Parse(json);
                     var root = doc.RootElement;
 
-                    string name = root.GetProperty("DisplayName").GetString();
-                    string appName = root.GetProperty("AppName").GetString();
-                    string namespaceStr = root.GetProperty("CatalogNamespace").GetString();
-                    string catalogItemId = root.GetProperty("CatalogItemId").GetString();
-
-                    string installLocation = root.GetProperty("InstallLocation").GetString();
+                    string name = root.GetProperty("DisplayName").GetString() ?? "";
+                    string appName = root.GetProperty("AppName").GetString() ?? "";
+                    string namespaceStr = root.GetProperty("CatalogNamespace").GetString() ?? "";
+                    string catalogItemId = root.GetProperty("CatalogItemId").GetString() ?? "";
+                    string installLocation = root.GetProperty("InstallLocation").GetString() ?? "";
                     string launchExe = root.TryGetProperty("LaunchExecutable", out var exeProp)
-                        ? exeProp.GetString()
-                        : "";
+                                                ? exeProp.GetString() ?? "" : "";
 
                     string iconBase64 = "";
-
                     if (!string.IsNullOrEmpty(installLocation) && !string.IsNullOrEmpty(launchExe))
                     {
                         string exePath = Path.Combine(installLocation, launchExe);
-
-                        if (File.Exists(exePath))
-                        {
-                            iconBase64 = ExtractIcon(exePath);
-                        }
+                        if (File.Exists(exePath)) iconBase64 = GetCachedIcon(exePath);
                     }
 
                     list.Add(new InstalledApp
@@ -273,14 +332,133 @@ namespace Doorpi
                         Name = name,
                         LaunchUrl = $"com.epicgames.launcher://apps/{namespaceStr}%3A{catalogItemId}%3A{appName}?action=launch&silent=true",
                         Path = appName,
-                        IconBase64 = iconBase64
+                        IconBase64 = iconBase64,
+                        Source = "Epic"
                     });
                 }
             }
             catch { }
-
             return list;
         }
+
+        // ========================= GOG =========================
+
+        private List<InstalledApp> GetGOGGames()
+        {
+            var list = new List<InstalledApp>();
+            try
+            {
+                using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\GOG.com\Games");
+                if (key == null) return list;
+
+                foreach (var subKeyName in key.GetSubKeyNames())
+                {
+                    using var gameKey = key.OpenSubKey(subKeyName);
+                    if (gameKey == null) continue;
+
+                    string name = gameKey.GetValue("gameName") as string ?? "";
+                    string folderPath = (gameKey.GetValue("path") as string ?? "").Replace("\"", "").Trim();
+                    string finalPath = "";
+
+                    if (!string.IsNullOrEmpty(folderPath) && Directory.Exists(folderPath))
+                    {
+                        var shortcuts = Directory.GetFiles(folderPath, "*.lnk", SearchOption.TopDirectoryOnly)
+                            .Where(f => {
+                                string fn = Path.GetFileName(f).ToLower();
+                                return !fn.Contains("galaxy") && !fn.Contains("uninstall") &&
+                                       !fn.Contains("manual") && !fn.Contains("support");
+                            }).ToList();
+
+                        if (shortcuts.Any())
+                        {
+                            finalPath = shortcuts.FirstOrDefault(s =>
+                                Path.GetFileName(s).StartsWith("Launch", StringComparison.OrdinalIgnoreCase))
+                                ?? shortcuts.First();
+                        }
+                    }
+
+                    if (string.IsNullOrEmpty(finalPath))
+                    {
+                        string exePath = (gameKey.GetValue("launchCommand") as string ??
+                                          gameKey.GetValue("exe") as string ??
+                                          gameKey.GetValue("EXE") as string ?? "")
+                                          .Replace("\"", "").Trim();
+
+                        if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath) &&
+                            !exePath.ToLower().Contains("unins"))
+                            finalPath = exePath;
+                    }
+
+                    if (string.IsNullOrEmpty(finalPath) && !string.IsNullOrEmpty(folderPath) && Directory.Exists(folderPath))
+                    {
+                        var bestExe = new DirectoryInfo(folderPath)
+                            .GetFiles("*.exe", SearchOption.AllDirectories)
+                            .Where(f => {
+                                string fn = f.Name.ToLower();
+                                return !fn.Contains("unins") && !fn.Contains("setup") &&
+                                       !fn.Contains("config") && f.Length > 1024 * 1024 * 2;
+                            })
+                            .OrderByDescending(f => f.Length)
+                            .FirstOrDefault();
+
+                        if (bestExe != null) finalPath = bestExe.FullName;
+                    }
+
+                    if (!string.IsNullOrEmpty(finalPath))
+                    {
+                        list.Add(new InstalledApp
+                        {
+                            Name = name,
+                            Path = finalPath,
+                            Source = "GOG",
+                            IconBase64 = GetCachedIcon(finalPath)
+                        });
+                    }
+                }
+            }
+            catch (Exception ex) { Debug.WriteLine("Erro GOG: " + ex.Message); }
+            return list;
+        }
+
+        // ========================= PASTAS VIGIADAS =========================
+
+        private List<InstalledApp> GetWatchedFolderGames()
+        {
+            var list = new List<InstalledApp>();
+            long minSize = 2 * 1024 * 1024;
+
+            foreach (var folder in LoadWatchedFolders())
+            {
+                if (!Directory.Exists(folder)) continue;
+                try
+                {
+                    foreach (var exe in new DirectoryInfo(folder).GetFiles("*.exe", SearchOption.AllDirectories))
+                    {
+                        string fileName = exe.Name.ToLower();
+                        if (fileName.Contains("unins") || fileName.Contains("crash")) continue;
+
+                        string exeNameOnly = Path.GetFileNameWithoutExtension(exe.Name);
+                        string parentFolderName = exe.Directory?.Name ?? "";
+                        bool isSimilar = IsNameSimilar(exeNameOnly, parentFolderName);
+
+                        if (exe.Length >= minSize || isSimilar)
+                        {
+                            string name = GetGameNameFromFile(exe.FullName) ?? exeNameOnly;
+                            list.Add(new InstalledApp
+                            {
+                                Name = name,
+                                Path = exe.FullName,
+                                Source = "Folder",
+                                IconBase64 = GetCachedIcon(exe.FullName)
+                            });
+                        }
+                    }
+                }
+                catch (Exception ex) { Debug.WriteLine($"Erro ao escanear pasta {folder}: {ex.Message}"); }
+            }
+            return list;
+        }
+
         private void SaveWatchedFolder(string path)
         {
             var folders = LoadWatchedFolders();
@@ -290,82 +468,291 @@ namespace Doorpi
                 try
                 {
                     File.WriteAllText(foldersFile, JsonSerializer.Serialize(folders));
+                    AddFolderWatcher(path); // registra watcher imediatamente
                 }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine("Erro ao salvar pasta: " + ex.Message);
-                }
+                catch (Exception ex) { Debug.WriteLine("Erro ao salvar pasta: " + ex.Message); }
             }
         }
 
         private List<string> LoadWatchedFolders()
         {
             if (!File.Exists(foldersFile)) return new List<string>();
-            try
-            {
-                return JsonSerializer.Deserialize<List<string>>(File.ReadAllText(foldersFile)) ?? new List<string>();
-            }
-            catch
-            {
-                return new List<string>();
-            }
+            try { return JsonSerializer.Deserialize<List<string>>(File.ReadAllText(foldersFile)) ?? new List<string>(); }
+            catch { return new List<string>(); }
         }
+
         private bool IsFolderForbidden(string path)
         {
             try
             {
-                
                 string fullPath = Path.GetFullPath(path);
                 string folderPath = fullPath.TrimEnd(Path.DirectorySeparatorChar).ToLowerInvariant();
+                string rootPath = Path.GetPathRoot(fullPath)!.TrimEnd(Path.DirectorySeparatorChar).ToLowerInvariant();
 
-               
-                string rootPath = Path.GetPathRoot(fullPath).TrimEnd(Path.DirectorySeparatorChar).ToLowerInvariant();
+                if (string.Equals(folderPath, rootPath, StringComparison.OrdinalIgnoreCase)) return true;
 
-    
-                if (string.Equals(folderPath, rootPath, StringComparison.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
-
-                
                 var parentSystemFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            Environment.GetFolderPath(Environment.SpecialFolder.Windows),           
-            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),     
-            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),   
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),       
-            Path.GetDirectoryName(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)) 
-        };
+                {
+                    Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+                    Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                    Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    Path.GetDirectoryName(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)) ?? ""
+                };
 
-               
                 foreach (var forbidden in parentSystemFolders)
                 {
                     if (string.IsNullOrWhiteSpace(forbidden)) continue;
-
-                    string normalizedForbidden = Path.GetFullPath(forbidden).TrimEnd(Path.DirectorySeparatorChar).ToLowerInvariant();
-
-                    if (folderPath == normalizedForbidden)
-                    {
-                        
-                        return true;
-                    }
+                    string norm = Path.GetFullPath(forbidden).TrimEnd(Path.DirectorySeparatorChar).ToLowerInvariant();
+                    if (folderPath == norm) return true;
                 }
 
-               
-                var dirInfo = new DirectoryInfo(fullPath);
-                string folderName = dirInfo.Name.ToLowerInvariant();
-                if (folderName == "$recycle.bin" || folderName == "system volume information") return true;
-
+                string dirName = new DirectoryInfo(fullPath).Name.ToLowerInvariant();
+                if (dirName == "$recycle.bin" || dirName == "system volume information") return true;
             }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Erro na validação de pasta: {ex.Message}");
-                return true;
-            }
+            catch (Exception ex) { Debug.WriteLine($"Erro na validação de pasta: {ex.Message}"); return true; }
 
-            return false; 
+            return false;
         }
-        
+
+        // ========================= WINDOWS APPS (scan) =========================
+
+        private List<InstalledApp> ScanWindowsApps()
+        {
+            var list = new List<InstalledApp>();
+            var paths = new[]
+            {
+                @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+                @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+            };
+
+            foreach (var hive in new[] { RegistryHive.LocalMachine, RegistryHive.CurrentUser })
+                foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+                {
+                    using var baseKey = RegistryKey.OpenBaseKey(hive, view);
+                    foreach (var rel in paths)
+                    {
+                        using var key = baseKey.OpenSubKey(rel);
+                        if (key == null) continue;
+                        foreach (var name in key.GetSubKeyNames())
+                        {
+                            try
+                            {
+                                using var sub = key.OpenSubKey(name);
+                                if (sub == null) continue;
+
+                                var displayName = sub.GetValue("DisplayName") as string;
+                                if (string.IsNullOrWhiteSpace(displayName) || IsSystemComponent(displayName, sub)) continue;
+
+                                string folder = GetAppFolder(sub);
+                                if (string.IsNullOrEmpty(folder)) continue;
+
+                                var exes = new DirectoryInfo(folder).GetFiles("*.exe", SearchOption.TopDirectoryOnly);
+                                if (exes.Length == 0) continue;
+
+                                string exePath = Path.GetFullPath(exes.OrderByDescending(f => f.Length).First().FullName);
+                                list.Add(new InstalledApp
+                                {
+                                    Name = displayName,
+                                    Path = exePath,
+                                    Source = "Windows",
+                                    IconBase64 = GetCachedIcon(exePath)
+                                });
+                            }
+                            catch { }
+                        }
+                    }
+                }
+            return list;
+        }
+
+        // ========================= CACHE DE APPS =========================
+
+        private void SaveAppCache(AppCacheModel cache)
+        {
+            File.WriteAllText(appCacheFile, JsonSerializer.Serialize(cache,
+                new JsonSerializerOptions { WriteIndented = true }));
+        }
+
+        private AppCacheModel? LoadAppCache()
+        {
+            if (!File.Exists(appCacheFile)) return null;
+            try { return JsonSerializer.Deserialize<AppCacheModel>(File.ReadAllText(appCacheFile)); }
+            catch { return null; }
+        }
+
+        private HashSet<string> GetWindowsRegistryFingerprint()
+        {
+            var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var paths = new[]
+            {
+                @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+                @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+            };
+            foreach (var hive in new[] { RegistryHive.LocalMachine, RegistryHive.CurrentUser })
+                foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+                {
+                    using var baseKey = RegistryKey.OpenBaseKey(hive, view);
+                    foreach (var rel in paths)
+                    {
+                        using var key = baseKey.OpenSubKey(rel);
+                        if (key == null) continue;
+                        foreach (var n in key.GetSubKeyNames()) keys.Add(n);
+                    }
+                }
+            return keys;
+        }
+
+        private HashSet<string> GetFolderFingerprint()
+        {
+            var entries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var folder in LoadWatchedFolders())
+            {
+                if (!Directory.Exists(folder)) continue;
+                try
+                {
+                    foreach (var exe in new DirectoryInfo(folder).GetFiles("*.exe", SearchOption.AllDirectories))
+                        entries.Add($"{exe.FullName}|{exe.Length}|{exe.LastWriteTimeUtc.Ticks}");
+                }
+                catch { }
+            }
+            return entries;
+        }
+
+        // ========================= ENVIO DE APPS PRO UI =========================
+
+        /// <summary>
+        /// Fluxo de 3 fases:
+        /// 1. Se há cache → mostra imediatamente (percepção instantânea)
+        /// 2. Todas as fontes rodam em paralelo — fingerprint decide se rescaneia ou usa cache
+        /// 3. Persiste cache atualizado e envia lista final
+        /// </summary>
+        private async Task SendInstalledAppsToUIAsync()
+        {
+            var existingGames = BuildExistingGamesSet();
+            var cache = LoadAppCache() ?? new AppCacheModel();
+
+            // ── Fase 1: feedback visual imediato via cache ──────────────────────
+            if (cache.WindowsApps.Any() || cache.FolderApps.Any())
+            {
+                var s = Task.Run(() => { var r = GetSteamGames(); r.ForEach(a => a.Source = "Steam"); return r; });
+                var e = Task.Run(() => { var r = GetEpicGames(); r.ForEach(a => a.Source = "Epic"); return r; });
+                var g = Task.Run(() => { var r = GetGOGGames(); r.ForEach(a => a.Source = "GOG"); return r; });
+                await Task.WhenAll(s, e, g);
+                SendAppsToUI(BuildFinalList(s.Result, e.Result, g.Result,
+                    cache.WindowsApps, cache.FolderApps, existingGames));
+            }
+
+            // ── Fase 2: scan completo paralelo ──────────────────────────────────
+            var steamTask = Task.Run(() => { var r = GetSteamGames(); r.ForEach(a => a.Source = "Steam"); return r; });
+            var epicTask = Task.Run(() => { var r = GetEpicGames(); r.ForEach(a => a.Source = "Epic"); return r; });
+            var gogTask = Task.Run(() => { var r = GetGOGGames(); r.ForEach(a => a.Source = "GOG"); return r; });
+
+            var winTask = Task.Run(() =>
+            {
+                bool hit = !_windowsCacheInvalid &&
+                            cache.WindowsApps.Any() &&
+                            GetWindowsRegistryFingerprint().SetEquals(cache.WindowsFingerprint);
+
+                if (hit) { Debug.WriteLine("[Cache] Windows: hit"); return (cache.WindowsApps, false); }
+
+                Debug.WriteLine("[Cache] Windows: miss — rescaneando");
+                _windowsCacheInvalid = false;
+                return (ScanWindowsApps(), true);
+            });
+
+            var folderTask = Task.Run(() =>
+            {
+                bool hit = !_folderCacheInvalid &&
+                            cache.FolderApps.Any() &&
+                            GetFolderFingerprint().SetEquals(cache.FolderFingerprint);
+
+                if (hit) { Debug.WriteLine("[Cache] Pastas: hit"); return (cache.FolderApps, false); }
+
+                Debug.WriteLine("[Cache] Pastas: miss — rescaneando");
+                _folderCacheInvalid = false;
+                var r = GetWatchedFolderGames();
+                r.ForEach(a => a.Source = "Folder");
+                return (r, true);
+            });
+
+            await Task.WhenAll(steamTask, epicTask, gogTask, winTask, folderTask);
+
+            var (windows, winChanged) = winTask.Result;
+            var (folders, folderChanged) = folderTask.Result;
+
+            // ── Fase 3: persiste cache se houve rescan ──────────────────────────
+            if (winChanged || folderChanged)
+            {
+                if (winChanged)
+                {
+                    cache.WindowsApps = windows;
+                    cache.WindowsFingerprint = GetWindowsRegistryFingerprint();
+                }
+                if (folderChanged)
+                {
+                    cache.FolderApps = folders;
+                    cache.FolderFingerprint = GetFolderFingerprint();
+                }
+                _ = Task.Run(() => SaveAppCache(cache)); // async — não bloqueia UI
+            }
+
+            // Envia lista final (sempre garante Steam/Epic/GOG atualizados)
+            SendAppsToUI(BuildFinalList(
+                steamTask.Result, epicTask.Result, gogTask.Result,
+                windows, folders, existingGames));
+        }
+
+        private HashSet<string> BuildExistingGamesSet()
+        {
+            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var g in LoadGames())
+            {
+                if (!string.IsNullOrEmpty(g.LaunchUrl)) set.Add(g.LaunchUrl);
+                else if (!string.IsNullOrEmpty(g.Path)) set.Add(Path.GetFullPath(g.Path));
+            }
+            return set;
+        }
+
+        private List<InstalledApp> BuildFinalList(
+            List<InstalledApp> steam,
+            List<InstalledApp> epic,
+            List<InstalledApp> gog,
+            List<InstalledApp> windows,
+            List<InstalledApp> folders,
+            HashSet<string> existingGames)
+        {
+            var all = new List<InstalledApp>();
+            all.AddRange(steam);
+            all.AddRange(epic);
+            all.AddRange(gog);
+            all.AddRange(windows);
+            all.AddRange(folders);
+
+            foreach (var app in all)
+            {
+                if (!string.IsNullOrEmpty(app.LaunchUrl))
+                    app.IsAdded = existingGames.Contains(app.LaunchUrl);
+                else
+                    app.IsAdded = existingGames.Contains(Path.GetFullPath(app.Path));
+            }
+
+            return all
+                .OrderBy(a => GetSourcePriority(a.Source))
+                .GroupBy(a => NormalizeGameName(a.Name))
+                .Select(g => g.First())
+                .OrderBy(a => a.Name)
+                .ToList();
+        }
+
+        private void SendAppsToUI(List<InstalledApp> apps)
+        {
+            var payload = new { type = "installedAppsList", apps };
+            Dispatcher.Invoke(() =>
+                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(payload)));
+        }
+
+        // ========================= WEBVIEW MESSAGES =========================
 
         private async void WebView_WebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
         {
@@ -387,9 +774,7 @@ namespace Doorpi
                 {
                     var selectedApps = JsonSerializer.Deserialize<List<InstalledApp>>(gamesElement.GetRawText());
                     if (selectedApps != null && selectedApps.Any())
-                    {
                         _ = Task.Run(async () => await AddMultipleGamesAsync(selectedApps));
-                    }
                 }
                 else if (action == "launch" && root.TryGetProperty("path", out var pathElement))
                 {
@@ -397,313 +782,112 @@ namespace Doorpi
                 }
                 else if (action == "browseManual")
                 {
-                    Dispatcher.InvokeAsync(() =>
+                    await Dispatcher.InvokeAsync(async () =>
+
                     {
                         try
                         {
-                            var openFileDialog = new Microsoft.Win32.OpenFileDialog
+                            var dlg = new Microsoft.Win32.OpenFileDialog
                             {
                                 Filter = "Executáveis (*.exe)|*.exe",
                                 Title = "Selecione o executável do jogo"
                             };
-
-                            if (openFileDialog.ShowDialog() == true)
+                            if (dlg.ShowDialog() == true)
                             {
-                                string filePath = openFileDialog.FileName;
+                                string filePath = dlg.FileName;
                                 string cleanName = GetGameNameFromFile(filePath) ?? Path.GetFileNameWithoutExtension(filePath);
-
-                                var manualApp = new List<InstalledApp> {
-                                    new InstalledApp {
-                                        Name = cleanName,
-                                        Path = filePath,
-                                        IconBase64 = ExtractIcon(filePath)
-                                    }
-                                };
-
-                                _ = Task.Run(async () => await AddMultipleGamesAsync(manualApp));
-                                webView.CoreWebView2.ExecuteScriptAsync("closeModal();");
+                                var manualApp = new List<InstalledApp>
+                {
+                    new InstalledApp
+                    {
+                        Name       = cleanName,
+                        Path       = filePath,
+                        IconBase64 = GetCachedIcon(filePath)
+                    }
+                };
+                                await AddMultipleGamesAsync(manualApp);
+                                await webView.CoreWebView2.ExecuteScriptAsync("closeModal();");
                             }
                         }
-                        catch (Exception ex)
-                        {
-                            System.Windows.MessageBox.Show("Erro ao abrir arquivo: " + ex.Message);
-                        }
+                        catch (Exception ex) { System.Windows.MessageBox.Show("Erro ao abrir arquivo: " + ex.Message); }
                     });
                 }
                 else if (action == "pickFolder")
                 {
-                    Dispatcher.InvokeAsync(() =>
+                    await Dispatcher.InvokeAsync(async () =>
                     {
                         try
                         {
-                            var dialog = new Microsoft.Win32.OpenFolderDialog
+                            var dlg = new Microsoft.Win32.OpenFolderDialog
                             {
                                 Title = "Selecione a pasta da biblioteca de jogos",
                                 Multiselect = false
                             };
-
-                            if (dialog.ShowDialog() == true)
+                            if (dlg.ShowDialog() == true)
                             {
-                                string selectedPath = dialog.FolderName;
-
+                                string selectedPath = dlg.FolderName;
                                 if (IsFolderForbidden(selectedPath))
                                 {
                                     System.Windows.MessageBox.Show(
                                         "Esta pasta ou unidade é protegida pelo sistema e não pode ser adicionada como biblioteca.\n\n" +
                                         "Por favor, selecione uma pasta específica onde seus jogos estão instalados (ex: C:\\Jogos ou D:\\SteamLibrary).",
-                                        "Pasta Não Permitida",
-                                        MessageBoxButton.OK,
-                                        MessageBoxImage.Warning);
+                                        "Pasta Não Permitida", MessageBoxButton.OK, MessageBoxImage.Warning);
                                     return;
                                 }
-
                                 SaveWatchedFolder(selectedPath);
-                                _ = SendInstalledAppsToUIAsync();
+                                await SendInstalledAppsToUIAsync();
                             }
                         }
-                        catch (Exception ex)
-                        {
-                            System.Windows.MessageBox.Show("Erro ao abrir seletor de pasta: " + ex.Message);
-                        }
+                        catch (Exception ex) { System.Windows.MessageBox.Show("Erro ao abrir seletor de pasta: " + ex.Message); }
                     });
                 }
-else if (action == "saveStaticFrame")
-{
-    string gameId = root.GetProperty("gameId").GetString() ?? "";
-    string imageType = root.GetProperty("imageType").GetString() ?? "";
-    string base64 = root.GetProperty("base64").GetString() ?? "";
-
-    if (!string.IsNullOrEmpty(gameId) && !string.IsNullOrEmpty(base64))
-    {
-        string cleanBase64 = base64.Contains(",") ? base64.Split(',')[1] : base64;
-        byte[] imageBytes = Convert.FromBase64String(cleanBase64);
-
-        var games = LoadGames();
-        var game = games.FirstOrDefault(g => g.Path == gameId || g.LaunchUrl == gameId);
-        
-        if (game != null)
-        {
-            string safeName = string.Concat(game.Name.Where(c => !Path.GetInvalidFileNameChars().Contains(c)));
-            string fileName = $"{safeName}_{imageType}.png";
-            
-            string folder = gridFolder;
-            string folderUrlName = "grid";
-
-            if (imageType == "HeroStatic") { folder = heroFolder; folderUrlName = "hero"; }
-            else if (imageType == "LogoStatic") { folder = logoFolder; folderUrlName = "logo"; }
-            else if (imageType == "HorizontalStatic") { folder = gridHorizontalFolder; folderUrlName = "grid-horizontal"; }
-
-            string fullPath = Path.Combine(folder, fileName);
-            await File.WriteAllBytesAsync(fullPath, imageBytes); // Async para não travar
-
-            string staticUrl = $"https://data.local/images/{folderUrlName}/{fileName}";
-
-            // Atualiza o modelo na memória e salva
-            if (imageType == "GridStatic") game.GridStaticImage = staticUrl;
-            else if (imageType == "HorizontalStatic") game.GridHorizontalStaticImage = staticUrl;
-            else if (imageType == "HeroStatic") game.HeroStaticImage = staticUrl;
-            else if (imageType == "LogoStatic") game.LogoStaticImage = staticUrl;
-
-            SaveGames(games);
-
-            // --- O PULO DO GATO: AVISA O JS PARA LIBERAR A MEMÓRIA ---
-            var response = new
-            {
-                type = "staticSaved",
-                gameId = gameId,
-                imageType = imageType,
-                newUrl = staticUrl
-            };
-            webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(response));
-        }
-    }
-}
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Erro no WebView Message: {ex.Message}");
-            }
-        }
-
-        private string? GetGameNameFromFile(string exePath)
-        {
-            try
-            {
-                FileVersionInfo fi = FileVersionInfo.GetVersionInfo(exePath);
-                if (!string.IsNullOrWhiteSpace(fi.ProductName)) return fi.ProductName;
-                if (!string.IsNullOrWhiteSpace(fi.FileDescription)) return fi.FileDescription;
-            }
-            catch { }
-            return null;
-        }
-
-        private async Task SendInstalledAppsToUIAsync()
-        {
-            var existingGames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var g in LoadGames())
-            {
-                if (!string.IsNullOrEmpty(g.LaunchUrl)) existingGames.Add(g.LaunchUrl);
-                else if (!string.IsNullOrEmpty(g.Path)) existingGames.Add(Path.GetFullPath(g.Path));
-            }
-
-            var apps = await Task.Run(() =>
-            {
-                var list = new List<InstalledApp>();
-
-               
-                var steam = GetSteamGames(); steam.ForEach(a => a.Source = "Steam");
-                var epic = GetEpicGames(); epic.ForEach(a => a.Source = "Epic");
-                var gog = GetGOGGames(); gog.ForEach(a => a.Source = "GOG");
-                var folders = GetWatchedFolderGames(); folders.ForEach(a => a.Source = "Folder");
-
-                list.AddRange(steam);
-                list.AddRange(epic);
-                list.AddRange(gog);
-                list.AddRange(folders);
-
-               
-                var registryPaths = new[] { @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall" };
-                foreach (var hive in new[] { RegistryHive.LocalMachine, RegistryHive.CurrentUser })
+                else if (action == "saveStaticFrame")
                 {
-                    foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+                    string gameId = root.GetProperty("gameId").GetString() ?? "";
+                    string imageType = root.GetProperty("imageType").GetString() ?? "";
+                    string base64 = root.GetProperty("base64").GetString() ?? "";
+
+                    if (!string.IsNullOrEmpty(gameId) && !string.IsNullOrEmpty(base64))
                     {
-                        using var baseKey = RegistryKey.OpenBaseKey(hive, view);
-                        foreach (var relPath in registryPaths)
+                        string cleanBase64 = base64.Contains(",") ? base64.Split(',')[1] : base64;
+                        byte[] imageBytes = Convert.FromBase64String(cleanBase64);
+
+                        var games = LoadGames();
+                        var game = games.FirstOrDefault(g => g.Path == gameId || g.LaunchUrl == gameId);
+
+                        if (game != null)
                         {
-                            using var key = baseKey.OpenSubKey(relPath);
-                            if (key == null) continue;
-                            foreach (var subKeyName in key.GetSubKeyNames())
-                            {
-                                try
-                                {
-                                    using var subKey = key.OpenSubKey(subKeyName);
-                                    if (subKey == null) continue;
-                                    var displayName = subKey.GetValue("DisplayName") as string;
-                                    if (string.IsNullOrWhiteSpace(displayName) || IsSystemComponent(displayName, subKey)) continue;
+                            string safeName = string.Concat(game.Name.Where(c => !Path.GetInvalidFileNameChars().Contains(c)));
+                            string fileName = $"{safeName}_{imageType}.png";
+                            string folder = gridFolder;
+                            string folderUrlName = "grid";
 
-                                    string folderPath = GetAppFolder(subKey);
-                                    if (string.IsNullOrEmpty(folderPath)) continue;
+                            if (imageType == "HeroStatic") { folder = heroFolder; folderUrlName = "hero"; }
+                            else if (imageType == "LogoStatic") { folder = logoFolder; folderUrlName = "logo"; }
+                            else if (imageType == "HorizontalStatic") { folder = gridHorizontalFolder; folderUrlName = "grid-horizontal"; }
 
-                                    var exeFiles = new DirectoryInfo(folderPath).GetFiles("*.exe", SearchOption.TopDirectoryOnly);
-                                    if (exeFiles.Length > 0)
-                                    {
+                            string fullPath = Path.Combine(folder, fileName);
+                            await File.WriteAllBytesAsync(fullPath, imageBytes);
 
-                                        var largestExe = exeFiles.OrderByDescending(f => f.Length).First();
-                                        string fullPath = Path.GetFullPath(largestExe.FullName);
+                            string staticUrl = $"https://data.local/images/{folderUrlName}/{fileName}";
 
-                                        list.Add(new InstalledApp
-                                        {
-                                            Name = displayName,
-                                            Path = fullPath,
-                                            Source = "Windows",
-                                            IconBase64 = ExtractIcon(fullPath)
-                                        });
-                                    }
-                                }
-                                catch { }
-                            }
-                        }
-                    }
-                }
+                            if (imageType == "GridStatic") game.GridStaticImage = staticUrl;
+                            else if (imageType == "HorizontalStatic") game.GridHorizontalStaticImage = staticUrl;
+                            else if (imageType == "HeroStatic") game.HeroStaticImage = staticUrl;
+                            else if (imageType == "LogoStatic") game.LogoStaticImage = staticUrl;
 
-                
-                foreach (var app in list)
-                {
-                    if (!string.IsNullOrEmpty(app.LaunchUrl)) app.IsAdded = existingGames.Contains(app.LaunchUrl);
-                    else app.IsAdded = existingGames.Contains(Path.GetFullPath(app.Path));
-                }
+                            SaveGames(games);
 
-               
-                return list
-                    .OrderBy(a => GetSourcePriority(a.Source)) 
-                    .GroupBy(a => NormalizeGameName(a.Name))  
-                    .Select(g => g.First())                    
-                    .OrderBy(a => a.Name)                     
-                    .ToList();
-            });
-
-            var payload = new { type = "installedAppsList", apps = apps };
-            Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(payload)));
-        }
-        private bool IsSystemComponent(string name, RegistryKey key)
-        {
-            var nameLower = name.ToLower();
-            string[] blacklist = {
-                "microsoft .net", "visual c++", "windows driver", "update for",
-                "redistributable", "sdk", "library", "directx", "web-deploy",
-                "security update", "language pack", "kb", "microsoft windows"
-            };
-
-            if (blacklist.Any(term => nameLower.Contains(term))) return true;
-            if (Convert.ToInt32(key.GetValue("SystemComponent") ?? 0) == 1) return true;
-            if (key.GetValue("DisplayIcon") == null && key.GetValue("InstallLocation") == null) return true;
-
-            return false;
-        }
-
-        private string GetAppFolder(RegistryKey key)
-        {
-            var location = key.GetValue("InstallLocation") as string;
-            if (!string.IsNullOrWhiteSpace(location) && Directory.Exists(location)) return location;
-
-            var icon = key.GetValue("DisplayIcon") as string;
-            if (!string.IsNullOrWhiteSpace(icon))
-            {
-                var path = icon.Split(',')[0].Replace("\"", "").Trim();
-                if (File.Exists(path)) return Path.GetDirectoryName(path);
-                if (Directory.Exists(path)) return path;
-            }
-            return null;
-        }
-
-        private string ExtractIcon(string filePath)
-        {
-            try
-            {
-                if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath)) return "";
-
-               
-                if (filePath.EndsWith(".ico", StringComparison.OrdinalIgnoreCase))
-                {
-                    using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                    var decoder = new System.Windows.Media.Imaging.IconBitmapDecoder(
-                        fs,
-                        System.Windows.Media.Imaging.BitmapCreateOptions.PreservePixelFormat,
-                        System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
-
-                   
-                    var bestFrame = decoder.Frames.OrderByDescending(f => f.PixelWidth).FirstOrDefault();
-
-                    if (bestFrame != null)
-                    {
-                        var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
-                        encoder.Frames.Add(bestFrame);
-                        using var ms = new MemoryStream();
-                        encoder.Save(ms);
-                        return Convert.ToBase64String(ms.ToArray());
-                    }
-                }
-
-               
-                using (var icon = System.Drawing.Icon.ExtractAssociatedIcon(filePath))
-                {
-                    if (icon != null)
-                    {
-                        using (var ms = new MemoryStream())
-                        {
-                            using (var bitmap = icon.ToBitmap())
-                            {
-                                bitmap.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
-                                return Convert.ToBase64String(ms.ToArray());
-                            }
+                            var response = new { type = "staticSaved", gameId, imageType, newUrl = staticUrl };
+                            webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(response));
                         }
                     }
                 }
             }
-            catch { }
-
-            return "";
+            catch (Exception ex) { Debug.WriteLine($"Erro no WebView Message: {ex.Message}"); }
         }
+
+        // ========================= ADICIONAR JOGOS =========================
 
         private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
         {
@@ -726,24 +910,22 @@ else if (action == "saveStaticFrame")
                 if (!string.IsNullOrEmpty(heroUrl)) localHero = await DownloadImageAsync(heroUrl, heroFolder, safeName);
                 if (!string.IsNullOrEmpty(logoUrl)) localLogo = await DownloadImageAsync(logoUrl, logoFolder, safeName + "_logo");
 
-                string finalGridImage = localGrid != null ? $"https://data.local/images/grid/{Path.GetFileName(localGrid)}" : "";
-
                 var game = new GameModel
                 {
                     Name = app.Name,
                     Path = app.Path,
                     LaunchUrl = app.LaunchUrl,
-                    GridImage = finalGridImage,
+                    GridImage = localGrid != null ? $"https://data.local/images/grid/{Path.GetFileName(localGrid)}" : "",
                     GridHorizontalImage = localGridHorizontal != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(localGridHorizontal)}" : "",
                     HeroImage = localHero != null ? $"https://data.local/images/hero/{Path.GetFileName(localHero)}" : "",
                     LogoImage = localLogo != null ? $"https://data.local/images/logo/{Path.GetFileName(localLogo)}" : "",
-                    LastPlayed = DateTime.MinValue
+                    LastPlayed = DateTime.MinValue,
+                    DateAdded = DateTime.Now             // ← usado pelo badge "Novo" no JS
                 };
 
                 existingGames.Add(game);
                 dbChanged = true;
-
-                SaveGames(existingGames); 
+                SaveGames(existingGames);
 
                 Dispatcher.Invoke(() => SendGameToUI(game, isFirstGame));
                 if (isFirstGame) isFirstGame = false;
@@ -752,104 +934,70 @@ else if (action == "saveStaticFrame")
             if (dbChanged) SaveGames(existingGames);
         }
 
+        // ========================= STEAMGRID =========================
+
+        /// <summary>
+        /// Pré-processa o nome antes de mandar pra API.
+        /// "ZenlessZoneZero" → "Zenless Zone Zero"
+        /// Só age se o nome não contém espaços (nomes normais passam direto).
+        /// </summary>
+        private string PrepareSearchName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return name;
+            if (!name.Contains(' '))
+            {
+                // CamelCase/PascalCase → espaços
+                var split = Regex.Replace(name, @"(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", " ");
+                // Letra/número colados → espaço
+                split = Regex.Replace(split, @"(?<=[a-zA-Z])(?=\d)|(?<=\d)(?=[a-zA-Z])", " ");
+                name = split.Trim();
+            }
+            return name;
+        }
+
         private async Task<(string?, string?, string?, string?)> FetchSteamGridAssetsAsync(string gameName)
         {
+            gameName = PrepareSearchName(gameName);
+
             try
             {
                 Debug.WriteLine("======================================");
-                Debug.WriteLine("SteamGridDB FETCH INICIADO");
-                Debug.WriteLine($"GameName recebido: {gameName}");
+                Debug.WriteLine($"SteamGridDB FETCH: {gameName}");
 
                 string searchUrl = $"https://www.steamgriddb.com/api/v2/search/autocomplete/{Uri.EscapeDataString(gameName)}";
-
-                Debug.WriteLine($"URL de busca: {searchUrl}");
-
                 var searchJson = await httpClient.GetStringAsync(searchUrl);
 
-                Debug.WriteLine("JSON retornado da busca:");
-                Debug.WriteLine(searchJson);
-
                 using var searchDoc = JsonDocument.Parse(searchJson);
-
-                if (!searchDoc.RootElement.GetProperty("success").GetBoolean())
-                {
-                    Debug.WriteLine("SteamGridDB retornou success=false");
-                    return (null, null, null, null);
-                }
+                if (!searchDoc.RootElement.GetProperty("success").GetBoolean()) return (null, null, null, null);
 
                 var results = searchDoc.RootElement.GetProperty("data");
-
-                Debug.WriteLine($"Quantidade de resultados encontrados: {results.GetArrayLength()}");
-
-                if (results.GetArrayLength() == 0)
-                {
-                    Debug.WriteLine("Nenhum resultado encontrado.");
-                    return (null, null, null, null);
-                }
+                if (results.GetArrayLength() == 0) return (null, null, null, null);
 
                 for (int i = 0; i < Math.Min(results.GetArrayLength(), 5); i++)
                 {
-                    var result = results[i];
+                    int id = results[i].GetProperty("id").GetInt32();
+                    string name = results[i].GetProperty("name").GetString() ?? "";
 
-                    int id = result.GetProperty("id").GetInt32();
-                    string name = result.GetProperty("name").GetString() ?? "";
+                    Debug.WriteLine($"[{i + 1}] {name} (id={id})");
 
-                    Debug.WriteLine("--------------------------------------");
-                    Debug.WriteLine($"Testando resultado {i + 1}");
-                    Debug.WriteLine($"Nome: {name}");
-                    Debug.WriteLine($"ID: {id}");
+                    string? grid = await GetFirstImageUrl($"grids/game/{id}?dimensions=600x900,342x482,660x930&types=static,animated&sort=score");
+                    if (string.IsNullOrEmpty(grid)) continue;
 
-                    string gridEndpoint = $"grids/game/{id}?dimensions=600x900,342x482,660x930&types=static,animated&sort=score";
+                    string? gridHorizontal = await GetFirstImageUrl($"grids/game/{id}?dimensions=460x215,920x430&types=static,animated&sort=score");
+                    string? hero = await GetFirstImageUrl($"heroes/game/{id}?types=static,animated&sort=score");
+                    string? logo = await GetFirstImageUrl($"logos/game/{id}?types=static,animated&sort=score");
 
-                    Debug.WriteLine($"Buscando GRID: {gridEndpoint}");
+                    if (string.IsNullOrEmpty(gridHorizontal)) gridHorizontal = hero;
 
-                    string? grid = await GetFirstImageUrl(gridEndpoint);
-
-                    if (string.IsNullOrEmpty(grid))
-                    {
-                        Debug.WriteLine("Nenhuma GRID encontrada. Pulando para próximo resultado.");
-                        continue;
-                    }
-
-                    Debug.WriteLine($"GRID encontrada: {grid}");
-
-                    string horizontalEndpoint = $"grids/game/{id}?dimensions=460x215,920x430&types=static,animated&sort=score";
-                    string heroEndpoint = $"heroes/game/{id}?types=static,animated&sort=score";
-                    string logoEndpoint = $"logos/game/{id}?types=static,animated&sort=score";
-
-                    Debug.WriteLine($"Buscando GRID Horizontal: {horizontalEndpoint}");
-                    string? gridHorizontal = await GetFirstImageUrl(horizontalEndpoint);
-                    Debug.WriteLine($"GRID Horizontal resultado: {gridHorizontal}");
-
-                    Debug.WriteLine($"Buscando HERO: {heroEndpoint}");
-                    string? hero = await GetFirstImageUrl(heroEndpoint);
-                    Debug.WriteLine($"HERO resultado: {hero}");
-
-                    Debug.WriteLine($"Buscando LOGO: {logoEndpoint}");
-                    string? logo = await GetFirstImageUrl(logoEndpoint);
-                    Debug.WriteLine($"LOGO resultado: {logo}");
-
-                    if (string.IsNullOrEmpty(gridHorizontal))
-                    {
-                        Debug.WriteLine("GRID Horizontal vazio. Usando HERO como fallback.");
-                        gridHorizontal = hero;
-                    }
-
-                    Debug.WriteLine("Resultado final selecionado.");
                     Debug.WriteLine("======================================");
-
                     return (grid, gridHorizontal, hero, logo);
                 }
-
-                Debug.WriteLine("Nenhum resultado válido com GRID encontrado.");
-                Debug.WriteLine("======================================");
 
                 return (null, null, null, null);
             }
             catch (Exception ex)
             {
-                Debug.WriteLine("ERRO SteamGridDB:");
-                Debug.WriteLine(ex.ToString());
+                Debug.WriteLine("ERRO SteamGridDB: " + ex.ToString());
                 return (null, null, null, null);
             }
         }
@@ -859,44 +1007,17 @@ else if (action == "saveStaticFrame")
             try
             {
                 string url = $"https://www.steamgriddb.com/api/v2/{endpoint}";
-
-                Debug.WriteLine($"Request imagens: {url}");
-
                 var json = await httpClient.GetStringAsync(url);
 
-                Debug.WriteLine("JSON imagens recebido:");
-                Debug.WriteLine(json);
-
                 using var doc = JsonDocument.Parse(json);
-
-                if (!doc.RootElement.GetProperty("success").GetBoolean())
-                {
-                    Debug.WriteLine("API imagens retornou success=false");
-                    return null;
-                }
+                if (!doc.RootElement.GetProperty("success").GetBoolean()) return null;
 
                 var data = doc.RootElement.GetProperty("data");
+                if (data.GetArrayLength() == 0) return null;
 
-                Debug.WriteLine($"Quantidade de imagens retornadas: {data.GetArrayLength()}");
-
-                if (data.GetArrayLength() == 0)
-                {
-                    Debug.WriteLine("Nenhuma imagem encontrada.");
-                    return null;
-                }
-
-                var urlImage = data[0].GetProperty("url").GetString();
-
-                Debug.WriteLine($"Imagem escolhida: {urlImage}");
-
-                return urlImage;
+                return data[0].GetProperty("url").GetString();
             }
-            catch (Exception ex)
-            {
-                Debug.WriteLine("Erro ao buscar imagem:");
-                Debug.WriteLine(ex.ToString());
-                return null;
-            }
+            catch (Exception ex) { Debug.WriteLine("Erro ao buscar imagem: " + ex.Message); return null; }
         }
 
         private async Task<string?> DownloadImageAsync(string url, string folder, string name)
@@ -907,11 +1028,8 @@ else if (action == "saveStaticFrame")
                 if (!response.IsSuccessStatusCode) return null;
 
                 var bytes = await response.Content.ReadAsByteArrayAsync();
-
-                
                 string ext = Path.GetExtension(url).Split('?')[0].ToLower();
 
-                
                 if (string.IsNullOrEmpty(ext))
                 {
                     string contentType = response.Content.Headers.ContentType?.MediaType ?? "";
@@ -920,193 +1038,75 @@ else if (action == "saveStaticFrame")
                         "image/png" => ".png",
                         "image/jpeg" => ".jpg",
                         "image/webp" => ".webp",
-                        _ => ".png" 
+                        _ => ".png"
                     };
                 }
 
                 string fileName = name + ext;
                 string fullPath = Path.Combine(folder, fileName);
-
                 await File.WriteAllBytesAsync(fullPath, bytes);
                 return fullPath;
             }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Erro ao baixar imagem {url}: {ex.Message}");
-                return null;
-            }
+            catch (Exception ex) { Debug.WriteLine($"Erro ao baixar imagem {url}: {ex.Message}"); return null; }
         }
 
-        private int GetSourcePriority(string source)
+        // ========================= LAUNCH =========================
+
+        private void LaunchGame(string? identifier)
         {
-            return source switch
-            {
-                "Steam" => 1,
-                "Epic" => 1,
-                "GOG" => 1,
-                "Folder" => 2,    
-                "Windows" => 3,   
-                _ => 4
-            };
-        }
-
-        private List<InstalledApp> GetWatchedFolderGames()
-        {
-            var list = new List<InstalledApp>();
-            long minSize = 2 * 1024 * 1024; 
-
-            foreach (var folder in LoadWatchedFolders())
-            {
-                if (!Directory.Exists(folder)) continue;
-
-                try
-                {
-                    var dirInfo = new DirectoryInfo(folder);
-                    var exeFiles = dirInfo.GetFiles("*.exe", SearchOption.AllDirectories);
-
-                    foreach (var exe in exeFiles)
-                    {
-                        string fileName = exe.Name.ToLower();
-
-                        
-                        if (fileName.Contains("unins") || fileName.Contains("crash")) continue;
-
-
-                        string exeNameOnly = Path.GetFileNameWithoutExtension(exe.Name);
-                        string parentFolderName = exe.Directory?.Name ?? "";
-
-                        bool isSimilar = IsNameSimilar(exeNameOnly, parentFolderName);
-
-    
-                        if (exe.Length >= minSize || isSimilar)
-                        {
-                            string name = GetGameNameFromFile(exe.FullName) ?? exeNameOnly;
-
-                            list.Add(new InstalledApp
-                            {
-                                Name = name,
-                                Path = exe.FullName,
-                                Source = "Folder",
-                                IconBase64 = ExtractIcon(exe.FullName)
-                            });
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"Erro ao escanear pasta {folder}: {ex.Message}");
-                }
-            }
-            return list;
-        }
-
-       
-        private bool IsNameSimilar(string exeName, string folderName)
-        {
-            if (string.IsNullOrEmpty(exeName) || string.IsNullOrEmpty(folderName)) return false;
-
-            
-            string cleanExe = new string(exeName.Where(char.IsLetterOrDigit).ToArray()).ToLower();
-            string cleanFolder = new string(folderName.Where(char.IsLetterOrDigit).ToArray()).ToLower();
-
-            
-            if (cleanExe.Length < 3) return cleanExe == cleanFolder;
-
-           
-            return cleanExe.Contains(cleanFolder) || cleanFolder.Contains(cleanExe);
-        }
-        private string NormalizeGameName(string name)
-        {
-            if (string.IsNullOrWhiteSpace(name)) return "";
-            return new string(name.Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant();
-        }
-
-        private List<InstalledApp> GetGOGGames()
-        {
-            var list = new List<InstalledApp>();
+            if (string.IsNullOrEmpty(identifier)) return;
             try
             {
-                using (var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\GOG.com\Games"))
+                var games = LoadGames();
+                var game = games.FirstOrDefault(g => g.Path == identifier || g.LaunchUrl == identifier);
+
+                if (game != null)
                 {
-                    if (key == null) return list;
+                    game.LastPlayed = DateTime.Now;
+                    SaveGames(games);
 
-                    foreach (var subKeyName in key.GetSubKeyNames())
+                    if (!string.IsNullOrWhiteSpace(game.LaunchUrl) &&
+                        game.LaunchUrl.StartsWith("goggalaxy://", StringComparison.OrdinalIgnoreCase))
                     {
-                        using (var gameKey = key.OpenSubKey(subKeyName))
+                        string gogClientPath = "";
+                        using (var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\GOG.com\GalaxyClient\paths"))
+                            gogClientPath = (key?.GetValue("client") as string ?? "").Replace("\"", "").Trim();
+
+                        string gameId = game.LaunchUrl.Replace("goggalaxy://launch/", "").Trim();
+
+                        if (File.Exists(gogClientPath))
                         {
-                            if (gameKey == null) continue;
-
-                            string name = gameKey.GetValue("gameName") as string ?? "";
-                            string folderPath = (gameKey.GetValue("path") as string ?? "").Replace("\"", "").Trim();
-                            string finalPath = "";
-
-                            if (!string.IsNullOrEmpty(folderPath) && Directory.Exists(folderPath))
+                            Process.Start(new ProcessStartInfo
                             {
-            
-                                var shortcuts = Directory.GetFiles(folderPath, "*.lnk", SearchOption.TopDirectoryOnly)
-                                    .Where(f => {
-                                        string fn = Path.GetFileName(f).ToLower();
-                                   
-                                        return !fn.Contains("galaxy") &&
-                                               !fn.Contains("uninstall") &&
-                                               !fn.Contains("manual") &&
-                                               !fn.Contains("support");
-                                    }).ToList();
-
-                                if (shortcuts.Any())
-                                {
-                                    
-                                    finalPath = shortcuts.FirstOrDefault(s => Path.GetFileName(s).StartsWith("Launch", StringComparison.OrdinalIgnoreCase))
-                                                ?? shortcuts.First();
-                                }
-                            }
-
-                            
-                            if (string.IsNullOrEmpty(finalPath))
-                            {
-                                string exePath = (gameKey.GetValue("launchCommand") as string ??
-                                                  gameKey.GetValue("exe") as string ??
-                                                  gameKey.GetValue("EXE") as string ?? "").Replace("\"", "").Trim();
-
-                                if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath) && !exePath.ToLower().Contains("unins"))
-                                {
-                                    finalPath = exePath;
-                                }
-                            }
-
-                       
-                            if (string.IsNullOrEmpty(finalPath) && !string.IsNullOrEmpty(folderPath) && Directory.Exists(folderPath))
-                            {
-                                var dirInfo = new DirectoryInfo(folderPath);
-                            
-                                var bestExe = dirInfo.GetFiles("*.exe", SearchOption.AllDirectories)
-                                    .Where(f => {
-                                        string fn = f.Name.ToLower();
-                                        return !fn.Contains("unins") && !fn.Contains("setup") && !fn.Contains("config") && f.Length > 1024 * 1024 * 2;
-                                    })
-                                    .OrderByDescending(f => f.Length)
-                                    .FirstOrDefault();
-
-                                if (bestExe != null) finalPath = bestExe.FullName;
-                            }
-
-                            if (!string.IsNullOrEmpty(finalPath))
-                            {
-                                list.Add(new InstalledApp
-                                {
-                                    Name = name,
-                                    Path = finalPath,
-                                    Source = "GOG",
-                                    IconBase64 = ExtractIcon(finalPath) 
-                                });
-                            }
+                                FileName = gogClientPath,
+                                Arguments = $"/command=launch /gameId={gameId}",
+                                UseShellExecute = true
+                            });
                         }
+                        else
+                        {
+                            Process.Start(new ProcessStartInfo(game.LaunchUrl) { UseShellExecute = true });
+                        }
+                    }
+                    else if (!string.IsNullOrWhiteSpace(game.LaunchUrl))
+                    {
+                        EnsureLauncherRunning(game.LaunchUrl);
+                        Process.Start(new ProcessStartInfo(game.LaunchUrl) { UseShellExecute = true });
+                    }
+                    else if (File.Exists(game.Path))
+                    {
+                        Process.Start(new ProcessStartInfo
+                        {
+                            FileName = game.Path,
+                            UseShellExecute = true,
+                            WorkingDirectory = Path.GetDirectoryName(game.Path)
+                        });
                     }
                 }
             }
-            catch (Exception ex) { Debug.WriteLine("Erro GOG: " + ex.Message); }
-            return list;
+            catch (Exception ex) { System.Windows.MessageBox.Show("Erro ao iniciar jogo: " + ex.Message); }
         }
+
         private void EnsureLauncherRunning(string launchUrl)
         {
             try
@@ -1114,38 +1114,20 @@ else if (action == "saveStaticFrame")
                 string processName = "";
                 string exePath = "";
 
-           
                 if (launchUrl.StartsWith("steam://", StringComparison.OrdinalIgnoreCase))
                 {
                     processName = "steam";
-               
                     using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam"))
-                    {
-                        if (key != null)
-                        {
-                            exePath = key.GetValue("SteamExe") as string ?? "";
-                        }
-                        else
-                        {
-                            
-                            using (var keyLM = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\Valve\Steam"))
-                            {
-                                if (keyLM != null) exePath = keyLM.GetValue("InstallPath") as string ?? "";
-                            }
-                        }
-                    }
+                        exePath = key?.GetValue("SteamExe") as string ?? "";
 
-                   
                     if (!string.IsNullOrEmpty(exePath) && !exePath.Contains(@"\"))
                     {
-                        using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam"))
-                        {
-                            var installPath = key?.GetValue("SteamPath") as string;
-                            if (!string.IsNullOrEmpty(installPath)) exePath = Path.Combine(installPath, "steam.exe");
-                        }
+                        using var key = Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam");
+                        var installPath = key?.GetValue("SteamPath") as string;
+                        if (!string.IsNullOrEmpty(installPath))
+                            exePath = Path.Combine(installPath, "steam.exe");
                     }
                 }
-        
                 else if (launchUrl.StartsWith("com.epicgames.launcher://", StringComparison.OrdinalIgnoreCase))
                 {
                     processName = "EpicGamesLauncher";
@@ -1153,60 +1135,48 @@ else if (action == "saveStaticFrame")
                     {
                         string? installRoot = key?.GetValue("INSTALLS") as string;
                         if (!string.IsNullOrEmpty(installRoot))
-                        {
                             exePath = Path.Combine(installRoot, "Launcher", "Portal", "Binaries", "Win64", "EpicGamesLauncher.exe");
-                        }
                     }
 
                     if (string.IsNullOrEmpty(exePath) || !File.Exists(exePath))
                     {
-                        using (var keyUn = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\EpicGamesLauncher"))
-                        {
-                            exePath = keyUn?.GetValue("DisplayIcon") as string ?? "";
-                        }
+                        using var keyUn = Registry.LocalMachine.OpenSubKey(
+                            @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\EpicGamesLauncher");
+                        exePath = keyUn?.GetValue("DisplayIcon") as string ?? "";
                     }
                 }
-             
                 else if (launchUrl.StartsWith("goggalaxy://", StringComparison.OrdinalIgnoreCase))
                 {
                     processName = "GalaxyClient";
-                    using (var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\GOG.com\GalaxyClient\paths"))
-                    {
-                        if (key != null) exePath = key.GetValue("client") as string ?? "";
-                    }
+                    using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\GOG.com\GalaxyClient\paths");
+                    if (key != null) exePath = key.GetValue("client") as string ?? "";
                 }
 
                 if (string.IsNullOrEmpty(processName)) return;
 
-                var processes = Process.GetProcessesByName(processName);
-                if (processes.Length == 0)
+                if (Process.GetProcessesByName(processName).Length == 0 && !string.IsNullOrEmpty(exePath))
                 {
-                    if (!string.IsNullOrEmpty(exePath))
+                    exePath = exePath.Split(',')[0].Replace("\"", "").Trim();
+                    if (File.Exists(exePath))
                     {
-                        exePath = exePath.Split(',')[0].Replace("\"", "").Trim();
-
-                        if (File.Exists(exePath))
+                        Process.Start(new ProcessStartInfo(exePath)
                         {
-                            Process.Start(new ProcessStartInfo(exePath)
-                            {
-                                UseShellExecute = true,
-                                WindowStyle = ProcessWindowStyle.Minimized
-                            });
-
-                            
-                            System.Threading.Thread.Sleep(3000);
-                        }
+                            UseShellExecute = true,
+                            WindowStyle = ProcessWindowStyle.Minimized
+                        });
+                        System.Threading.Thread.Sleep(3000);
                     }
                 }
             }
-            catch (Exception ex)
-            {
-                Debug.WriteLine("Erro ao garantir launcher: " + ex.Message);
-            }
+            catch (Exception ex) { Debug.WriteLine("Erro ao garantir launcher: " + ex.Message); }
         }
+
+        // ========================= GAMES DB =========================
+
         private void SaveGames(List<GameModel> games)
         {
-            File.WriteAllText(gamesFile, JsonSerializer.Serialize(games, new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(gamesFile, JsonSerializer.Serialize(games,
+                new JsonSerializerOptions { WriteIndented = true }));
         }
 
         private List<GameModel> LoadGames()
@@ -1230,90 +1200,125 @@ else if (action == "saveStaticFrame")
                 name = game.Name,
                 path = game.Path,
                 launchUrl = game.LaunchUrl,
-
                 imageData = game.GridImage,
-                staticImageData = game.GridStaticImage, 
-
+                staticImageData = game.GridStaticImage,
                 horizontalImage = game.GridHorizontalImage,
-                staticHorizontalImage = game.GridHorizontalStaticImage, 
-
+                staticHorizontalImage = game.GridHorizontalStaticImage,
                 hero = game.HeroImage,
-                staticHero = game.HeroStaticImage, 
-
+                staticHero = game.HeroStaticImage,
                 logo = game.LogoImage,
-                staticLogo = game.LogoStaticImage, 
-
-                isFeatured = isFeatured
+                staticLogo = game.LogoStaticImage,
+                isFeatured = isFeatured,
+                isNew = (DateTime.Now - game.DateAdded).TotalHours < 48
             };
-
             webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(data));
         }
 
-        private void LaunchGame(string? identifier)
-        {
-            if (string.IsNullOrEmpty(identifier)) return;
+        // ========================= HELPERS =========================
 
+        private string? GetGameNameFromFile(string exePath)
+        {
             try
             {
-                var games = LoadGames();
-                var game = games.FirstOrDefault(g => g.Path == identifier || g.LaunchUrl == identifier);
+                FileVersionInfo fi = FileVersionInfo.GetVersionInfo(exePath);
+                if (!string.IsNullOrWhiteSpace(fi.ProductName)) return fi.ProductName;
+                if (!string.IsNullOrWhiteSpace(fi.FileDescription)) return fi.FileDescription;
+            }
+            catch { }
+            return null;
+        }
 
-                if (game != null)
+        private bool IsSystemComponent(string name, RegistryKey key)
+        {
+            var nameLower = name.ToLower();
+            string[] blacklist =
+            {
+                "microsoft .net", "visual c++", "windows driver", "update for",
+                "redistributable", "sdk", "library", "directx", "web-deploy",
+                "security update", "language pack", "kb", "microsoft windows"
+            };
+            if (blacklist.Any(term => nameLower.Contains(term))) return true;
+            if (Convert.ToInt32(key.GetValue("SystemComponent") ?? 0) == 1) return true;
+            if (key.GetValue("DisplayIcon") == null && key.GetValue("InstallLocation") == null) return true;
+            return false;
+        }
+
+        private string GetAppFolder(RegistryKey key)
+        {
+            var location = key.GetValue("InstallLocation") as string;
+            if (!string.IsNullOrWhiteSpace(location) && Directory.Exists(location)) return location;
+
+            var icon = key.GetValue("DisplayIcon") as string;
+            if (!string.IsNullOrWhiteSpace(icon))
+            {
+                var path = icon.Split(',')[0].Replace("\"", "").Trim();
+                if (File.Exists(path)) return Path.GetDirectoryName(path) ?? "";
+                if (Directory.Exists(path)) return path;
+            }
+            return "";
+        }
+
+        private string ExtractIcon(string filePath)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath)) return "";
+
+                if (filePath.EndsWith(".ico", StringComparison.OrdinalIgnoreCase))
                 {
-                    game.LastPlayed = DateTime.Now;
-                    SaveGames(games);
+                    using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    var decoder = new System.Windows.Media.Imaging.IconBitmapDecoder(
+                        fs,
+                        System.Windows.Media.Imaging.BitmapCreateOptions.PreservePixelFormat,
+                        System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
 
-                    
-                    if (!string.IsNullOrWhiteSpace(game.LaunchUrl) && game.LaunchUrl.StartsWith("goggalaxy://", StringComparison.OrdinalIgnoreCase))
+                    var bestFrame = decoder.Frames.OrderByDescending(f => f.PixelWidth).FirstOrDefault();
+                    if (bestFrame != null)
                     {
-                        string gogClientPath = "";
-                       
-                        using (var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\GOG.com\GalaxyClient\paths"))
-                        {
-                            gogClientPath = key?.GetValue("client") as string ?? "";
-                            gogClientPath = gogClientPath.Replace("\"", "").Trim();
-                        }
-
-                        string gameId = game.LaunchUrl.Replace("goggalaxy://launch/", "").Trim();
-
-                        if (File.Exists(gogClientPath))
-                        {
-                            
-                            Process.Start(new ProcessStartInfo
-                            {
-                                FileName = gogClientPath,
-                                Arguments = $"/command=launch /gameId={gameId}",
-                                UseShellExecute = true
-                            });
-                        }
-                        else
-                        {
-                            
-                            Process.Start(new ProcessStartInfo(game.LaunchUrl) { UseShellExecute = true });
-                        }
-                    }
-                  
-                    else if (!string.IsNullOrWhiteSpace(game.LaunchUrl))
-                    {
-                        EnsureLauncherRunning(game.LaunchUrl);
-                        Process.Start(new ProcessStartInfo(game.LaunchUrl) { UseShellExecute = true });
-                    }
-                   
-                    else if (File.Exists(game.Path))
-                    {
-                        Process.Start(new ProcessStartInfo
-                        {
-                            FileName = game.Path,
-                            UseShellExecute = true,
-                            WorkingDirectory = Path.GetDirectoryName(game.Path)
-                        });
+                        var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                        encoder.Frames.Add(bestFrame);
+                        using var ms = new MemoryStream();
+                        encoder.Save(ms);
+                        return Convert.ToBase64String(ms.ToArray());
                     }
                 }
+
+                using var icon = System.Drawing.Icon.ExtractAssociatedIcon(filePath);
+                if (icon != null)
+                {
+                    using var ms = new MemoryStream();
+                    using var bitmap = icon.ToBitmap();
+                    bitmap.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+                    return Convert.ToBase64String(ms.ToArray());
+                }
             }
-            catch (Exception ex)
-            {
-                System.Windows.MessageBox.Show("Erro ao iniciar jogo: " + ex.Message);
-            }
+            catch { }
+            return "";
+        }
+
+        private int GetSourcePriority(string source) => source switch
+        {
+            "Steam" => 1,
+            "Epic" => 1,
+            "GOG" => 1,
+            "Folder" => 2,
+            "Windows" => 3,
+            _ => 4
+        };
+
+        private string NormalizeGameName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return "";
+            return new string(name.Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant();
+        }
+
+        private bool IsNameSimilar(string exeName, string folderName)
+        {
+            if (string.IsNullOrEmpty(exeName) || string.IsNullOrEmpty(folderName)) return false;
+            string cleanExe = new string(exeName.Where(char.IsLetterOrDigit).ToArray()).ToLower();
+            string cleanFolder = new string(folderName.Where(char.IsLetterOrDigit).ToArray()).ToLower();
+            if (cleanExe.Length < 3) return cleanExe == cleanFolder;
+            return cleanExe.Contains(cleanFolder) || cleanFolder.Contains(cleanExe);
         }
     }
 }

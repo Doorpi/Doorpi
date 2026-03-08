@@ -12,7 +12,7 @@ namespace Doorpi
         public string Path { get; set; } = "";
         public string LaunchUrl { get; set; } = "";
 
-       
+        public DateTime DateAdded { get; set; } = DateTime.Now;
         public string GridImage { get; set; } = "";
         public string GridHorizontalImage { get; set; } = "";
         public string HeroImage { get; set; } = "";

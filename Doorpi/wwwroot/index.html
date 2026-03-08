@@ -8,6 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+
 </head>
 <body>
 
@@ -37,8 +38,6 @@
     <!-- Logo fora do capaJogo para ficar acima do frosted strip -->
     <img id="gameLogo" />
 
-    <!-- Frosted strip atrás do carrossel -->
-    <div class="frosted-strip"></div>
 
     <!-- Background desfocado atrás do carrossel (capa vertical duplicada) -->
     <div class="grid-bg">
@@ -80,19 +79,14 @@
                 <div id="view-apps" class="view-section active">
                     <div class="view-header">
                         <h2 id="modalTitle">Selecione os aplicativos</h2>
-                        <div class="filter-bar">
-                            <button class="filter-btn active" tabindex="0" data-source="all">Todos</button>
-                            <button class="filter-btn" tabindex="0" data-source="windows">Windows</button>
-                            <button class="filter-btn" tabindex="0" data-source="steam">Steam</button>
-                            <button class="filter-btn" tabindex="0" data-source="epic">Epic</button>
-                            <button class="filter-btn" tabindex="0" data-source="gog">GOG</button>
-                        </div>
+                        <div class="filter-bar" id="filterBar"></div>
+
                     </div>
 
                     <!-- Wrapper com fade na borda inferior -->
                     <div class="applist-wrapper">
                         <div id="appList"></div>
-                        <div class="applist-fade"></div>
+
                     </div>
 
                     <!-- Barra de Ações Fixa -->
