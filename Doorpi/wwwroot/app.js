@@ -1,337 +1,213 @@
-﻿let isModalOpen = false;
-let allInstalledApps = [];
-let currentSourceFilter = "all";
+// =============================================================================
+// app.js — Aplicação
+// Bridge com C#, modal, cards, hero, badges e loading.
+// Depende de: strings.js (t()), navigation.js (isModalOpen, pendingInteractionCard,
+//             signalNavigation(), focusItemByIndex())
+// =============================================================================
 
-// Memória de foco por grupo (para retorno suave ao sair de um grupo)
-let lastFocusedApp = null;
-let lastFocusedFilter = null;
-let lastFocusedSidebar = null;
-let currentInteractiveCard = null;
-
-// ========================= IDLE NAVIGATION =========================
-const IDLE_MS = 180;
-let navIdleTimeout = null;
-let pendingInteractionCard = null;
-
-// Opção A — jogos adicionados nesta sessão
+// ── Estado da aplicação ────────────────────────────────────────────────────────
+let allInstalledApps    = [];
+let currentSourceFilter = 'all';
 const newGameIdsThisSession = new Set();
 
-function onNavigationIdle() {
-    if (pendingInteractionCard) {
-        const card = pendingInteractionCard;
-        pendingInteractionCard = null;
-        if (document.activeElement === card || card.matches(':hover')) {
-            card._startInteraction && card._startInteraction();
-        }
-    }
-}
+// ── Plataformas ────────────────────────────────────────────────────────────────
 
-function signalNavigation() {
-    if (navIdleTimeout) clearTimeout(navIdleTimeout);
-    navIdleTimeout = setTimeout(onNavigationIdle, IDLE_MS);
-}
+const PLATFORMS = {
+    Steam:   { type: 'url', icon: 'https://cdn.simpleicons.org/steam/1b9bd4' },
+    Epic:    { type: 'url', icon: 'https://cdn.simpleicons.org/epicgames/a0a0a0' },
+    GOG:     { type: 'url', icon: 'https://cdn.simpleicons.org/gogdotcom/8a4fff' },
+    Folder:  { type: 'url', icon: 'https://cdn.simpleicons.org/files/f0a500' },
+    Windows: { type: 'svg', icon: `<svg viewBox="0 0 88 88" fill="#0078d4" xmlns="http://www.w3.org/2000/svg"><path d="M0 12.4 35.7 7.6V42H0zm40.3-5.5L88 0v42H40.3zM0 46h35.7v34.4L0 75.6zm40.3.1H88V88L40.3 81.4z"/></svg>` },
+};
 
-// ========================= SELEÇÃO =========================
-function updateSelectionCounter() {
-    const count = document.querySelectorAll('.app-item.selected').length;
-    const counter = document.getElementById('selectionCounter');
-    const counterText = document.getElementById('selectionCounterText');
-    if (!counter || !counterText) return;
-    counterText.innerText = count === 1 ? '1 jogo selecionado' : `${count} jogos selecionados`;
-    counter.classList.toggle('visible', count > 0);
-}
+// Chave do filtro → Sources do C# que representa
+const FILTER_SOURCES = {
+    all:     null,
+    Steam:   ['Steam'],
+    Epic:    ['Epic'],
+    GOG:     ['GOG'],
+    Windows: ['Windows', 'Folder'],
+};
 
-function resetSelectionCounter() {
-    const counter = document.getElementById('selectionCounter');
-    if (counter) counter.classList.remove('visible');
-}
+// Plataformas na ordem da animação de loading
+const SCAN_LIBS = ['Steam', 'Epic', 'GOG', 'Windows', 'Folder'];
 
-// ========================= CLOCK =========================
+// ── Relógio ────────────────────────────────────────────────────────────────────
 setInterval(() => {
-    const now = new Date();
     document.getElementById('clock').innerText =
-        now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }, 1000);
 
-// ========================= WEBVIEW =========================
-if (window.chrome && window.chrome.webview) {
+// ── WebView Bridge ─────────────────────────────────────────────────────────────
+if (window.chrome?.webview) {
     window.chrome.webview.addEventListener('message', event => {
         try {
             const data = JSON.parse(event.data);
-            if (data.type === 'newGame') createGameCard(data);
+            if      (data.type === 'newGame')           createGameCard(data);
             else if (data.type === 'installedAppsList') { allInstalledApps = data.apps; applyFilterAndRender(); }
-            else if (data.type === 'staticSaved') updateToLocalFile(data.gameId, data.imageType, data.newUrl);
-        } catch (e) { console.error("Erro ao receber dados:", e); }
+            else if (data.type === 'staticSaved')       updateToLocalFile(data.gameId, data.imageType, data.newUrl);
+        } catch (e) { console.error('[bridge] Erro:', e); }
     });
 }
 
-function updateToLocalFile(gameId, imageType, newUrl) {
-    const targetCard = document.querySelector(`.card[data-game-id="${gameId.replace(/\\/g, '\\\\')}"]`);
-    if (!targetCard) return;
-
-    const keyMap = { GridStatic: 'staticVertical', HorizontalStatic: 'staticHorizontal', HeroStatic: 'staticHero', LogoStatic: 'staticLogo' };
-    const datasetKey = keyMap[imageType];
-    if (!datasetKey) return;
-
-    targetCard.dataset[datasetKey] = newUrl;
-
-    const img = targetCard.querySelector('img');
-    const isFeatured = targetCard.classList.contains('featured');
-    if (img && document.activeElement !== targetCard && !targetCard.matches(':hover')) {
-        if ((isFeatured && datasetKey === "staticHorizontal") || (!isFeatured && datasetKey === "staticVertical")) {
-            img.src = newUrl;
-            img.style.opacity = "1";
-        }
-    }
-
-    if (isFeatured) {
-        if (datasetKey === "staticHero") switchHeroBackground(newUrl, targetCard.dataset.staticLogo || targetCard.dataset.logo);
-    }
+function postToHost(payload) {
+    window.chrome?.webview?.postMessage(JSON.stringify(payload));
 }
 
-// ========================= FILTROS =========================
+// Atualiza o dataset e a imagem do card quando o C# persiste um frame estático
+function updateToLocalFile(gameId, imageType, newUrl) {
+    const card = document.querySelector(`.card[data-game-id="${gameId.replace(/\\/g, '\\\\')}"]`);
+    if (!card) return;
 
-// Mapeamento: chave do filtro → quais Sources do C# ele representa
-const FILTER_SOURCES = {
-    all: null,                      // null = sem filtro
-    Steam: ["Steam"],
-    Epic: ["Epic"],
-    GOG: ["GOG"],
-    Windows: ["Windows", "Folder"],     // "Adicionar/Remover" + pastas configuradas
-};
+    const keyMap = { GridStatic: 'staticVertical', HorizontalStatic: 'staticHorizontal', HeroStatic: 'staticHero', LogoStatic: 'staticLogo' };
+    const key    = keyMap[imageType];
+    if (!key) return;
 
-// Labels exibidas no botão (chave → texto)
-const FILTER_LABELS = {
-    all: "Todos",
-    Steam: "Steam",
-    Epic: "Epic",
-    GOG: "GOG",
-    Windows: "Windows & Pastas",
-};
+    card.dataset[key] = newUrl;
 
+    const img        = card.querySelector('img');
+    const isFeatured = card.classList.contains('featured');
+    if (img && document.activeElement !== card && !card.matches(':hover')) {
+        if ((isFeatured && key === 'staticHorizontal') || (!isFeatured && key === 'staticVertical')) {
+            img.src = newUrl;
+            img.style.opacity = '1';
+        }
+    }
+    if (isFeatured && key === 'staticHero')
+        switchHeroBackground(newUrl, card.dataset.staticLogo || card.dataset.logo);
+}
+
+// ── Filtros ────────────────────────────────────────────────────────────────────
 function buildFilterBar(apps) {
     const bar = document.getElementById('filterBar');
     if (!bar) return;
 
-    // Descobre quais fontes realmente existem na lista atual
-    const presentSources = new Set(apps.map(a => a.Source || a.source));
+    const present = new Set(apps.map(a => a.Source || a.source));
+    const keys    = ['all', ...Object.keys(FILTER_SOURCES).filter(k =>
+        k !== 'all' && FILTER_SOURCES[k].some(s => present.has(s))
+    )];
 
-    // Monta a ordem desejada, incluindo só os que têm dados
-    const filtersToShow = ['all', ...Object.keys(FILTER_SOURCES).filter(k => {
-        if (k === 'all') return false;
-        return FILTER_SOURCES[k].some(s => presentSources.has(s));
-    })];
-
-    bar.innerHTML = filtersToShow.map(key => `
-        <button class="filter-btn ${currentSourceFilter === key ? 'active' : ''}"
-                tabindex="0"
-                data-source="${key}">
-            ${FILTER_LABELS[key]}
+    bar.innerHTML = keys.map(k => `
+        <button class="filter-btn ${currentSourceFilter === k ? 'active' : ''}" tabindex="0" data-source="${k}">
+            ${t('filterLabels.' + k)}
         </button>
     `).join('');
 
-    // Bind dos eventos
-    bar.querySelectorAll('.filter-btn').forEach(btn => {
+    bar.querySelectorAll('.filter-btn').forEach(btn =>
         btn.addEventListener('click', () => {
             currentSourceFilter = btn.dataset.source;
             applyFilterAndRender();
-            setTimeout(() => {
-                document.querySelector(`.filter-btn[data-source="${currentSourceFilter}"]`)?.focus();
-            }, 50);
-        });
-    });
+            setTimeout(() => document.querySelector(`.filter-btn[data-source="${currentSourceFilter}"]`)?.focus(), 50);
+        })
+    );
 }
 
 function applyFilterAndRender() {
-    const sources = FILTER_SOURCES[currentSourceFilter]; // null = todos
-
+    const sources  = FILTER_SOURCES[currentSourceFilter];
     const filtered = !sources
         ? allInstalledApps
-        : allInstalledApps.filter(app => sources.includes(app.Source || app.source));
-
+        : allInstalledApps.filter(a => sources.includes(a.Source || a.source));
     populateAppModal(filtered);
 }
 
-function setupFilterEvents() {
-    // Agora só atualiza o estado ativo visualmente — buildFilterBar já faz o bind
-    document.querySelectorAll('.filter-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.source === currentSourceFilter);
-    });
-}
-// ========================= MODAL =========================
+// ── Modal ──────────────────────────────────────────────────────────────────────
 document.getElementById('btnAdd').addEventListener('click', () => {
-    if (window.chrome && window.chrome.webview)
-        window.chrome.webview.postMessage(JSON.stringify({ action: 'requestInstalledApps' }));
-    showModalLoading();
+    postToHost({ action: 'requestInstalledApps' });
+    isModalOpen = true;
+    document.getElementById('modalActions').style.display     = 'none';
+    document.getElementById('gameGrid').style.overflowX       = 'hidden';
+    document.getElementById('addGameContainer').style.display = 'flex';
+    document.getElementById('modalTitle').innerText           = t('detectingLibrary');
+    renderModalLoading();
 });
 
-function showModalLoading() {
-    isModalOpen = true;
-    document.getElementById('modalActions').style.display = "none";
-    document.getElementById("gameGrid").style.overflowX = "hidden";
-    document.getElementById('addGameContainer').style.display = 'flex';
-    document.getElementById('modalTitle').innerText = "Detectando Biblioteca";
-
-    document.getElementById('appList').innerHTML = `
-        <div class="vb-wrap">
-            <div class="vb-scanline"></div>
-            <div class="vb-ghost-grid">
-                ${'<div class="vb-ghost-tile"></div>'.repeat(15)}
-            </div>
-            <div class="vb-center">
-                <div class="vb-ring-wrap">
-                    <div class="vb-ring outer"></div>
-                    <div class="vb-ring inner"></div>
-                    <div class="vb-ring core"></div>
-                    <div class="vb-ring-dot"></div>
-                </div>
-                <div class="vb-text">
-                    <div class="vb-title">Detectando Biblioteca</div>
-                    <div class="vb-subtitle">Lendo aplicativos instalados</div>
-                    <div class="vb-dots"><span></span><span></span><span></span></div>
-                    <div class="vb-libs" id="vbLibs">
-                        <div class="vb-lib scanning">Steam</div>
-                        <div class="vb-lib">Epic</div>
-                        <div class="vb-lib">GOG</div>
-                        <div class="vb-lib">Windows</div>
-                        <div class="vb-lib">Pastas</div>
-                    </div>
-                </div>
-            </div>
-            <div class="vb-progress"><div class="vb-progress-fill"></div></div>
-        </div>
-    `;
-
-    const libs = document.querySelectorAll('#vbLibs .vb-lib');
-    let current = 0;
-    const libInterval = setInterval(() => {
-        if (!isModalOpen) { clearInterval(libInterval); return; }
-        libs.forEach(l => l.classList.remove('scanning'));
-        libs[current].classList.add('scanning');
-        current = (current + 1) % libs.length;
-    }, 700);
-}
-// ========================= PLATFORM BADGES =========================
-
-function getPlatformBadge(source) {
-    const platforms = {
-        Steam: { type: 'url', value: 'https://cdn.simpleicons.org/steam/1b9bd4', label: 'Steam' },
-        Epic: { type: 'url', value: 'https://cdn.simpleicons.org/epicgames/a0a0a0', label: 'Epic' },
-        GOG: { type: 'url', value: 'https://cdn.simpleicons.org/gogdotcom/8a4fff', label: 'GOG' },
-        Folder: { type: 'url', value: 'https://cdn.simpleicons.org/files/f0a500', label: 'Pasta' },
-        Windows: {
-            type: 'svg', label: 'Windows', value: `
-            <svg viewBox="0 0 88 88" fill="#0078d4" xmlns="http://www.w3.org/2000/svg">
-                <path d="M0 12.4 35.7 7.6V42H0zm40.3-5.5L88 0v42H40.3zM0 46h35.7v34.4L0 75.6zm40.3.1H88V88L40.3 81.4z"/>
-            </svg>`
-        },
-    };
-
-    const p = platforms[source];
-    if (!p) return '';
-
-    const inner = p.type === 'url'
-        ? `<img src="${p.value}" alt="${p.label}" />`
-        : p.value;
-
-    return `<span class="platform-badge" title="${p.label}">${inner}</span>`;
-}
 function closeModal() {
     document.getElementById('addGameContainer').style.display = 'none';
-    document.getElementById("gameGrid").style.overflowX = "auto";
-    resetSelectionCounter();
+    document.getElementById('gameGrid').style.overflowX       = 'auto';
+    document.getElementById('selectionCounter')?.classList.remove('visible');
     isModalOpen = false;
     focusItemByIndex(0);
 }
 
 function formatBytes(kb) {
-    if (!kb) return "";
+    if (!kb) return '';
     const mb = kb / 1024;
-    return mb > 1024 ? (mb / 1024).toFixed(2) + " GB" : mb.toFixed(0) + " MB";
+    return mb > 1024 ? t('unitGB', (mb / 1024).toFixed(2)) : t('unitMB', mb.toFixed(0));
 }
 
 function populateAppModal(apps) {
     const titleEl = document.getElementById('modalTitle');
-    titleEl.innerText = currentSourceFilter === "all"
-        ? "Selecione os aplicativos para adicionar"
-        : `Mostrando jogos da loja: ${currentSourceFilter}`;
+    titleEl.innerText = currentSourceFilter === 'all' ? t('selectApps') : t('showingStore', currentSourceFilter);
 
-    ['btnSearch', 'btnScanFolder'].forEach(id => {
+    // Rebind dos botões do header (evita listeners duplicados)
+    const rebind = (id, fn) => {
         const btn = document.getElementById(id);
         if (!btn) return;
-        const newBtn = btn.cloneNode(true);
-        btn.replaceWith(newBtn);
-        if (id === 'btnSearch') {
-            newBtn.addEventListener('click', () => {
-                if (window.chrome && window.chrome.webview)
-                    window.chrome.webview.postMessage(JSON.stringify({ action: 'browseManual' }));
-            });
-        } else {
-            newBtn.addEventListener('click', () => {
-                titleEl.innerText = "Aguardando seleção de pasta...";
-                if (window.chrome && window.chrome.webview)
-                    window.chrome.webview.postMessage(JSON.stringify({ action: 'pickFolder' }));
-            });
-        }
-    });
+        const fresh = btn.cloneNode(true);
+        btn.replaceWith(fresh);
+        fresh.addEventListener('click', fn);
+    };
+    rebind('btnSearch',    () => postToHost({ action: 'browseManual' }));
+    rebind('btnScanFolder', () => { titleEl.innerText = t('waitingFolder'); postToHost({ action: 'pickFolder' }); });
 
     buildFilterBar(allInstalledApps);
 
     const appList = document.getElementById('appList');
     appList.innerHTML = apps.map(app => {
-        const isAdded = app.IsAdded === true || app.isAdded === true;
-        const iconData = app.IconBase64 || app.iconBase64;
-        const appName = app.Name || app.name;
-        const appPath = app.Path || app.path;
-        const appSize = app.Size ?? app.size;
-        const appLaunch = app.LaunchUrl || app.launchUrl || "";
+        const isAdded  = app.IsAdded  === true || app.isAdded === true;
+        const icon     = app.IconBase64 || app.iconBase64;
+        const name     = app.Name     || app.name;
+        const path     = app.Path     || app.path;
+        const size     = app.Size     ?? app.size;
+        const launch   = app.LaunchUrl || app.launchUrl || '';
+        const source   = app.Source   || app.source;
 
         return `
-    <div class="app-item ${isAdded ? 'already-added' : ''}" ${isAdded ? '' : 'tabindex="0"'}
-         data-path="${appPath.replace(/\\/g, '\\\\')}"
-         data-launch="${appLaunch}"
-         data-name="${appName.replace(/"/g, '&quot;')}">
-        ${iconData ? `<img class="app-icon" src="data:image/png;base64,${iconData}" />` : ''}
-        <div class="app-item-info">
-            <span class="app-name">${appName}</span>
-            ${appSize ? `<span class="size">${formatBytes(appSize)}</span>` : ''}
-        </div>
-        ${getPlatformBadge(app.Source || app.source)}
-    </div>`;
+        <div class="app-item ${isAdded ? 'already-added' : ''}" ${isAdded ? '' : 'tabindex="0"'}
+             data-path="${path.replace(/\\/g, '\\\\')}" data-launch="${launch}"
+             data-name="${name.replace(/"/g, '&quot;')}">
+            ${icon ? `<img class="app-icon" src="data:image/png;base64,${icon}" />` : ''}
+            <div class="app-item-info">
+                <span class="app-name">${name}</span>
+                ${size ? `<span class="size">${formatBytes(size)}</span>` : ''}
+            </div>
+            ${getPlatformBadge(source)}
+        </div>`;
     }).join('');
 
-    document.getElementById('modalActions').style.display = "flex";
-    resetSelectionCounter();
+    document.getElementById('modalActions').style.display = 'flex';
+    document.getElementById('selectionCounter')?.classList.remove('visible');
 
-    document.querySelectorAll('.app-item:not(.already-added)').forEach(item => {
+    appList.querySelectorAll('.app-item:not(.already-added)').forEach(item =>
         item.addEventListener('click', function () {
             this.classList.toggle('selected');
-            updateSelectionCounter();
-        });
-    });
+            const count = appList.querySelectorAll('.app-item.selected').length;
+            const counter = document.getElementById('selectionCounter');
+            const text    = document.getElementById('selectionCounterText');
+            if (text) text.innerText = count === 1 ? t('selectedOne') : t('selectedMany', count);
+            counter?.classList.toggle('visible', count > 0);
+        })
+    );
 
-    const btnCancel = document.getElementById('btnCancelAdd');
-    const btnConfirm = document.getElementById('btnConfirmAdd');
-    const newCancel = btnCancel.cloneNode(true);
-    const newConfirm = btnConfirm.cloneNode(true);
-    btnCancel.replaceWith(newCancel);
-    btnConfirm.replaceWith(newConfirm);
+    const rebindAction = (id, fn) => {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        const fresh = btn.cloneNode(true);
+        btn.replaceWith(fresh);
+        fresh.addEventListener('click', fn);
+    };
 
-    newCancel.addEventListener('click', closeModal);
-
-    newConfirm.addEventListener('click', () => {
-        const selected = Array.from(document.querySelectorAll('.app-item.selected')).map(el => ({
-            Name: el.dataset.name, Path: el.dataset.path, LaunchUrl: el.dataset.launch
+    rebindAction('btnCancelAdd', closeModal);
+    rebindAction('btnConfirmAdd', () => {
+        const selected = Array.from(appList.querySelectorAll('.app-item.selected')).map(el => ({
+            Name: el.dataset.name, Path: el.dataset.path, LaunchUrl: el.dataset.launch,
         }));
         if (selected.length > 0) {
-            // Marca os IDs como novos nesta sessão (Opção A)
             selected.forEach(g => newGameIdsThisSession.add(g.LaunchUrl || g.Path));
-
-            if (window.chrome && window.chrome.webview)
-                window.chrome.webview.postMessage(JSON.stringify({ action: 'addSelectedGames', games: selected }));
-            titleEl.innerText = "Baixando capas e adicionando... (Aguarde)";
-            appList.innerHTML = "";
-            document.getElementById('modalActions').style.display = "none";
+            postToHost({ action: 'addSelectedGames', games: selected });
+            titleEl.innerText = t('downloadingCovers');
+            appList.innerHTML = '';
+            document.getElementById('modalActions').style.display = 'none';
             setTimeout(closeModal, 3000);
         } else {
             closeModal();
@@ -339,525 +215,137 @@ function populateAppModal(apps) {
     });
 
     setTimeout(() => {
-        const first = document.querySelector('.app-item[tabindex="0"]');
+        const first = appList.querySelector('.app-item[tabindex="0"]');
         if (first) first.focus();
         else document.getElementById('btnScanFolder')?.focus();
     }, 150);
 }
 
-// ========================= NAVEGAÇÃO =========================
-function getModalGroups() {
-    const sidebar = Array.from(document.querySelectorAll(".sidebar-menu .menu-tab"));
-    const filters = Array.from(document.querySelectorAll(".filter-bar .filter-btn"));
-    const apps = Array.from(document.querySelectorAll("#appList .app-item:not(.already-added)"));
-    const actions = Array.from(document.querySelectorAll("#modalActions button"));
-    return { sidebar, filters, apps, actions };
-}
-
-function getNavigableItems() {
-    if (!isModalOpen) {
-        return Array.from(document.getElementById("gameGrid").querySelectorAll("[tabindex='0']"));
-    }
-    const { sidebar, filters, apps, actions } = getModalGroups();
-    return [...sidebar, ...filters, ...apps, ...actions];
-}
-
-function findSpatialCandidate(groupItems, current, direction) {
-    const cr = current.getBoundingClientRect();
-    const currCX = cr.left + cr.width / 2;
-    const currCY = cr.top + cr.height / 2;
-
-    let best = null, bestScore = Infinity;
-
-    groupItems.forEach(item => {
-        if (item === current) return;
-        const r = item.getBoundingClientRect();
-        const cx = r.left + r.width / 2;
-        const cy = r.top + r.height / 2;
-
-        let isValid = false, dist = 0, overlap = 0;
-
-        switch (direction) {
-            case "RIGHT": isValid = cx > currCX; dist = cx - currCX; overlap = Math.min(cr.bottom, r.bottom) - Math.max(cr.top, r.top); break;
-            case "LEFT": isValid = cx < currCX; dist = currCX - cx; overlap = Math.min(cr.bottom, r.bottom) - Math.max(cr.top, r.top); break;
-            case "DOWN": isValid = cy > currCY; dist = cy - currCY; overlap = Math.min(cr.right, r.right) - Math.max(cr.left, r.left); break;
-            case "UP": isValid = cy < currCY; dist = currCY - cy; overlap = Math.min(cr.right, r.right) - Math.max(cr.left, r.left); break;
-        }
-
-        if (isValid && overlap > 0 && dist < bestScore) {
-            bestScore = dist;
-            best = item;
-        }
-    });
-
-    return best;
-}
-
-function findWrapCandidate(groupItems, current, direction) {
-    const cr = current.getBoundingClientRect();
-    const currCX = cr.left + cr.width / 2;
-    const currCY = cr.top + cr.height / 2;
-
-    let best = null, maxDist = -1;
-
-    groupItems.forEach(item => {
-        if (item === current) return;
-        const r = item.getBoundingClientRect();
-        const cx = r.left + r.width / 2;
-        const cy = r.top + r.height / 2;
-
-        let isValidOpp = false, dist = 0, overlap = 0;
-
-        switch (direction) {
-            case "RIGHT": isValidOpp = cx < currCX; dist = currCX - cx; overlap = Math.min(cr.bottom, r.bottom) - Math.max(cr.top, r.top); break;
-            case "LEFT": isValidOpp = cx > currCX; dist = cx - currCX; overlap = Math.min(cr.bottom, r.bottom) - Math.max(cr.top, r.top); break;
-            case "DOWN": isValidOpp = cy < currCY; dist = currCY - cy; overlap = Math.min(cr.right, r.right) - Math.max(cr.left, r.left); break;
-            case "UP": isValidOpp = cy > currCY; dist = cy - currCY; overlap = Math.min(cr.right, r.right) - Math.max(cr.left, r.left); break;
-        }
-
-        if (isValidOpp && overlap > 0 && dist > maxDist) {
-            maxDist = dist;
-            best = item;
-        }
-    });
-
-    return best;
-}
-
-function getGroupTransition(direction, groupName, groups) {
-    const { sidebar, filters, apps, actions } = groups;
-
-    if (groupName === "app") {
-        if (direction === "DOWN" || direction === "RIGHT") return actions[0] || null;
-        if (direction === "LEFT") return (lastFocusedSidebar && sidebar.includes(lastFocusedSidebar)) ? lastFocusedSidebar : sidebar.find(el => el.classList.contains('active')) || sidebar[0] || null;
-        if (direction === "UP") return (lastFocusedFilter && filters.includes(lastFocusedFilter)) ? lastFocusedFilter : filters.find(el => el.classList.contains('active')) || filters[0] || null;
-    }
-
-    if (groupName === "action") {
-        if (direction === "LEFT" || direction === "UP") {
-            return (lastFocusedApp && apps.includes(lastFocusedApp)) ? lastFocusedApp : apps[apps.length - 1] || null;
-        }
-    }
-
-    if (groupName === "filter") {
-        if (direction === "DOWN") return (lastFocusedApp && apps.includes(lastFocusedApp)) ? lastFocusedApp : apps[0] || null;
-        if (direction === "LEFT") return (lastFocusedSidebar && sidebar.includes(lastFocusedSidebar)) ? lastFocusedSidebar : sidebar.find(el => el.classList.contains('active')) || sidebar[0] || null;
-        if (direction === "RIGHT") return (lastFocusedApp && apps.includes(lastFocusedApp)) ? lastFocusedApp : apps[0] || null;
-    }
-
-    if (groupName === "sidebar") {
-        if (direction === "RIGHT") return (lastFocusedApp && apps.includes(lastFocusedApp)) ? lastFocusedApp : filters[0] || apps[0] || null;
-    }
-
-    return null;
-}
-
-function moveFocus(direction) {
-    const items = getNavigableItems();
-    if (!items.length) return;
-
-    const current = document.activeElement;
-
-    if (!items.includes(current)) {
-        items[0].focus();
-        return;
-    }
-
-    // ── Tela principal (sem modal) ──
-    if (!isModalOpen) {
-        let candidate = findSpatialCandidate(items, current, direction);
-        if (!candidate) {
-            if (direction === "RIGHT") candidate = items[0];
-            else if (direction === "LEFT") candidate = items[items.length - 1];
-            else candidate = findWrapCandidate(items, current, direction);
-        }
-        if (candidate) {
-            if (current && current._stopInteraction) current._stopInteraction();
-            if (heroFadeTimeout) { clearTimeout(heroFadeTimeout); heroFadeTimeout = null; }
-
-            candidate.focus();
-            pendingInteractionCard = null;
-
-            smoothHorizontalScroll(candidate, direction, () => {
-                if (document.activeElement === candidate || candidate.matches(':hover')) {
-                    candidate._startInteraction?.();
-                }
-            });
-        }
-        return;
-    }
-
-    // ── Modal: navegação por grupos ──
-    const groups = getModalGroups();
-    const { sidebar, filters, apps, actions } = groups;
-
-    let groupName, groupItems;
-    if (current.classList.contains("menu-tab")) { groupName = "sidebar"; groupItems = sidebar; }
-    else if (current.classList.contains("filter-btn")) { groupName = "filter"; groupItems = filters; }
-    else if (current.classList.contains("app-item")) { groupName = "app"; groupItems = apps; }
-    else { groupName = "action"; groupItems = actions; }
-
-    if (groupName === "app") lastFocusedApp = current;
-    if (groupName === "filter") lastFocusedFilter = current;
-    if (groupName === "sidebar") lastFocusedSidebar = current;
-
-    let candidate = findSpatialCandidate(groupItems, current, direction);
-    if (!candidate) candidate = getGroupTransition(direction, groupName, groups);
-    if (!candidate) candidate = findWrapCandidate(groupItems, current, direction);
-
-    if (candidate) {
-        candidate.focus();
-        ensureModalItemVisible(candidate);
-        if (isModalOpen) signalNavigation();
-    }
-}
-
-// ========================= FOCO INICIAL =========================
-function focusItemByIndex(index) {
-    const items = getNavigableItems();
-    if (!items.length) return;
-    const el = items[(index + items.length) % items.length];
-    el.focus();
-    if (isModalOpen) ensureModalItemVisible(el); else smoothHorizontalScroll(el);
-}
-
-function ensureModalItemVisible(element) {
-    if (!element) return;
-    element.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
-}
-
-// ========================= SCROLL HORIZONTAL =========================
-function smoothHorizontalScroll(element, direction, onDone) {
-    if (isModalOpen) { onDone?.(); return; }
-    const container = document.getElementById("gameGrid");
-    const cRect = container.getBoundingClientRect();
-    const eRect = element.getBoundingClientRect();
-
-    const TOLERANCE = 2;
-    const visibleLeft = eRect.left >= cRect.left - TOLERANCE;
-    const visibleRight = eRect.right <= cRect.right + TOLERANCE;
-
-    if (visibleLeft && visibleRight) { onDone?.(); return; }
-
-    let targetScrollLeft;
-    if (!visibleRight) {
-        targetScrollLeft = container.scrollLeft + (eRect.left - cRect.left);
-    } else {
-        targetScrollLeft = container.scrollLeft + (eRect.right - cRect.right);
-    }
-
-    targetScrollLeft = Math.max(0, Math.min(container.scrollWidth - container.clientWidth, targetScrollLeft));
-
-    const start = container.scrollLeft;
-    const delta = targetScrollLeft - start;
-    if (Math.abs(delta) < 1) { onDone?.(); return; }
-
-    const duration = 300;
-    const startTime = performance.now();
-
-    (function animate(time) {
-        const t = Math.min((time - startTime) / duration, 1);
-        container.scrollLeft = start + delta * (1 - Math.pow(1 - t, 3));
-        if (t < 1) requestAnimationFrame(animate);
-        else onDone?.();
-    })(performance.now());
-}
-
-document.getElementById("gameGrid").addEventListener("wheel", (e) => {
-    if (isModalOpen) return;
-    e.preventDefault();
-    document.getElementById("gameGrid").scrollLeft += e.deltaY * 1.2;
-}, { passive: false });
-
-// ========================= TECLADO =========================
-document.addEventListener('keydown', (e) => {
-    const map = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' };
-    if (map[e.key]) { e.preventDefault(); moveFocus(map[e.key]); return; }
-    if (e.key === 'Enter') { e.preventDefault(); document.activeElement?.click(); }
-});
-
-// ========================= GAMEPAD =========================
-let gamepadIndex = null, buttonCooldown = false;
-let lastMoveTime = 0, moveState = 0, currentDirection = null;
-const INITIAL_DELAY = 400, REPEAT_DELAY = 80;
-
-window.addEventListener("gamepadconnected", e => { gamepadIndex = e.gamepad.index; });
-
-function handleGamepad() {
-    if (gamepadIndex === null) { requestAnimationFrame(handleGamepad); return; }
-    const gamepad = navigator.getGamepads()[gamepadIndex];
-    if (!gamepad) { requestAnimationFrame(handleGamepad); return; }
-
-    const items = getNavigableItems();
-    if (!items.length) { requestAnimationFrame(handleGamepad); return; }
-
-    if (!items.includes(document.activeElement)) { focusItemByIndex(0); requestAnimationFrame(handleGamepad); return; }
-
-    const ax = gamepad.axes[0], ay = gamepad.axes[1];
-    const now = performance.now();
-    let newDir = null;
-
-    if (ax > 0.6 || gamepad.buttons[15]?.pressed) newDir = 'RIGHT';
-    else if (ax < -0.6 || gamepad.buttons[14]?.pressed) newDir = 'LEFT';
-    else if (ay > 0.6 || gamepad.buttons[13]?.pressed) newDir = 'DOWN';
-    else if (ay < -0.6 || gamepad.buttons[12]?.pressed) newDir = 'UP';
-
-    if (newDir) {
-        if (newDir !== currentDirection) {
-            moveFocus(newDir); lastMoveTime = now; moveState = 1; currentDirection = newDir;
-        } else if (moveState === 1 && now - lastMoveTime > INITIAL_DELAY) {
-            moveFocus(newDir); lastMoveTime = now; moveState = 2;
-        } else if (moveState === 2 && now - lastMoveTime > REPEAT_DELAY) {
-            moveFocus(newDir); lastMoveTime = now;
-        }
-    } else {
-        moveState = 0; currentDirection = null;
-    }
-
-    if (gamepad.buttons[0].pressed) {
-        if (!buttonCooldown) { document.activeElement?.click(); buttonCooldown = true; }
-    } else { buttonCooldown = false; }
-
-    requestAnimationFrame(handleGamepad);
-}
-
-requestAnimationFrame(handleGamepad);
-window.addEventListener('load', () => {
-    setTimeout(() => focusItemByIndex(0), 300);
-});
-
-// ========================= HERO BACKGROUND =========================
-let heroFadeTimeout = null;
-let currentBgSrc = "";
-
-function switchHeroBackground(bgSrc, logoSrc, heroSrc) {
-    const bgBlur = document.getElementById('bgBlur');
-    const heroImg = document.getElementById('heroImage');
-    const logoImg = document.getElementById('gameLogo');
-    if (!bgBlur || !bgSrc) return;
-
-    const cleanNew = bgSrc.split('?')[0];
-    if (currentBgSrc.split('?')[0] === cleanNew) return;
-    currentBgSrc = bgSrc;
-
-    bgBlur.style.opacity = "0";
-    if (heroImg) heroImg.style.opacity = "0";
-    if (logoImg) logoImg.classList.remove('visible');
-
-    if (heroFadeTimeout) clearTimeout(heroFadeTimeout);
-
-    heroFadeTimeout = setTimeout(async () => {
-        await setImgSrc(bgBlur, bgSrc);
-        bgBlur.style.opacity = "1";
-
-        const gridBgImg = document.getElementById('gridBgImg');
-        if (gridBgImg) setImgSrc(gridBgImg, heroSrc);
-
-        if (heroImg) {
-            await setImgSrc(heroImg, heroSrc || bgSrc);
-            heroImg.style.opacity = "1";
-        }
-
-        if (logoImg && logoSrc) {
-            await setImgSrc(logoImg, logoSrc);
-            logoImg.classList.add('visible');
-        }
-    }, 150);
-}
-
-// ========================= CARDS =========================
-async function getAnimatedBlob(url) {
-    if (!url) return null;
-    try {
-        const response = await fetch(url);
-        if (!response.ok) return null;
-        const blob = await response.blob();
-        const bytes = new Uint8Array(await blob.slice(0, 256).arrayBuffer());
-        const APNG = [0x61, 0x63, 0x54, 0x4C], WEBP = [0x41, 0x4E, 0x49, 0x4D];
-        let isAnim = bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46; // GIF
-        for (let i = 0; !isAnim && i < bytes.length - 4; i++) {
-            if (bytes.slice(i, i + 4).every((v, j) => v === APNG[j])) isAnim = true;
-            if (bytes.slice(i, i + 4).every((v, j) => v === WEBP[j])) isAnim = true;
-        }
-        return isAnim ? blob : null;
-    } catch { return null; }
-}
-
-async function setImgSrc(imgEl, src) {
-    if (!imgEl) return;
-
-    const currentReq = Symbol();
-    imgEl.__pendingReq = currentReq;
-
-    if (!src) { imgEl.removeAttribute('src'); return; }
-    if (imgEl.src === src || imgEl.src.endsWith(src)) return;
-
-    const tmp = new Image();
-    tmp.src = src;
-    try { await tmp.decode(); } catch (_) { }
-
-    if (imgEl.__pendingReq !== currentReq) return;
-    imgEl.src = src;
-}
-
+// ── Cards ──────────────────────────────────────────────────────────────────────
 function createGameCard(data) {
-    const grid = document.getElementById('gameGrid');
+    const grid   = document.getElementById('gameGrid');
     const btnAdd = document.getElementById('btnAdd');
-    const card = document.createElement('div');
+    const card   = document.createElement('div');
+
     card.className = 'card';
-    card.tabIndex = 0;
+    card.tabIndex  = 0;
 
     const gameId = data.launchUrl || data.path;
-    card.dataset.gameId = gameId;
-    card.dataset.hero = data.hero || "";
-    card.dataset.logo = data.logo || "";
-    card.dataset.vertical = data.imageData || "";
-    card.dataset.horizontal = data.horizontalImage || "";
-    card.dataset.staticVertical = data.staticImageData || "";
-    card.dataset.staticHorizontal = data.staticHorizontalImage || "";
-    card.dataset.staticHero = data.staticHero || "";
-    card.dataset.staticLogo = data.staticLogo || "";
+    card.dataset.gameId            = gameId;
+    card.dataset.hero              = data.hero                  || '';
+    card.dataset.logo              = data.logo                  || '';
+    card.dataset.vertical          = data.imageData             || '';
+    card.dataset.horizontal        = data.horizontalImage       || '';
+    card.dataset.staticVertical    = data.staticImageData       || '';
+    card.dataset.staticHorizontal  = data.staticHorizontalImage || '';
+    card.dataset.staticHero        = data.staticHero            || '';
+    card.dataset.staticLogo        = data.staticLogo            || '';
 
     if (data.isFeatured) card.classList.add('featured');
+    if (newGameIdsThisSession.has(gameId)) card.classList.add('new-game');
 
-    // ── Imagem principal ──
-    const img = document.createElement('img');
-    img.decoding = "async";
+    const img    = document.createElement('img');
+    img.decoding = 'async';
 
-    const processImage = async (src, key, imageType) => {
-        if (!src || card.dataset[key]) return;
+    // Extrai frame estático de imagens animadas e manda o C# persistir
+    const processImage = async (src, dsKey, imageType) => {
+        if (!src || card.dataset[dsKey]) return;
         const blob = await getAnimatedBlob(src);
-        if (!blob) { card.dataset[key] = src; return; }
-
+        if (!blob) { card.dataset[dsKey] = src; return; }
         return new Promise(resolve => {
-            const tempImg = new Image();
-            const blobUrl = URL.createObjectURL(blob);
-            tempImg.onload = () => {
+            const tmp = new Image(), blobUrl = URL.createObjectURL(blob);
+            tmp.onload = () => {
                 try {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = tempImg.naturalWidth;
-                    canvas.height = tempImg.naturalHeight;
-                    canvas.getContext('2d').drawImage(tempImg, 0, 0);
-                    if (window.chrome && window.chrome.webview)
-                        window.chrome.webview.postMessage(JSON.stringify({
-                            action: 'saveStaticFrame', gameId, imageType,
-                            base64: canvas.toDataURL('image/png')
-                        }));
-                } catch { card.dataset[key] = src; }
+                    const c = document.createElement('canvas');
+                    c.width = tmp.naturalWidth; c.height = tmp.naturalHeight;
+                    c.getContext('2d').drawImage(tmp, 0, 0);
+                    postToHost({ action: 'saveStaticFrame', gameId, imageType, base64: c.toDataURL('image/png') });
+                } catch { card.dataset[dsKey] = src; }
                 finally { URL.revokeObjectURL(blobUrl); resolve(); }
             };
-            tempImg.onerror = () => { card.dataset[key] = src; URL.revokeObjectURL(blobUrl); resolve(); };
-            tempImg.src = blobUrl;
+            tmp.onerror = () => { card.dataset[dsKey] = src; URL.revokeObjectURL(blobUrl); resolve(); };
+            tmp.src = blobUrl;
         });
     };
 
     Promise.all([
-        processImage(card.dataset.vertical, 'staticVertical', 'GridStatic'),
-        processImage(card.dataset.horizontal, 'staticHorizontal', 'HorizontalStatic'),
-        processImage(card.dataset.hero, 'staticHero', 'HeroStatic'),
-        processImage(card.dataset.logo, 'staticLogo', 'LogoStatic'),
+        processImage(card.dataset.vertical,   'staticVertical',   'GridStatic'),
+        processImage(card.dataset.horizontal,  'staticHorizontal', 'HorizontalStatic'),
+        processImage(card.dataset.hero,        'staticHero',       'HeroStatic'),
+        processImage(card.dataset.logo,        'staticLogo',       'LogoStatic'),
     ]).then(() => {
-        const src = card.classList.contains('featured')
-            ? card.dataset.staticHorizontal
-            : card.dataset.staticVertical;
-        if (src) { img.src = src; img.style.opacity = "1"; }
+        const src = card.classList.contains('featured') ? card.dataset.staticHorizontal : card.dataset.staticVertical;
+        if (src) { img.src = src; img.style.opacity = '1'; }
     });
 
-    // ── Interações ──
-    const handleStartInteraction = async () => {
-        const bgSrc = card.dataset.staticVertical || card.dataset.vertical;
-        const logoSrc = card.dataset.staticLogo || card.dataset.logo;
-        const heroSrc = card.dataset.staticHero || card.dataset.hero
-            || card.dataset.staticHorizontal || card.dataset.horizontal
-            || bgSrc;
-        const animGrid = card.classList.contains('featured')
-            ? (card.dataset.horizontal || card.dataset.vertical)
-            : card.dataset.vertical;
+    // Interações de hover / foco
+    const startInteraction = async () => {
+        const bgSrc   = card.dataset.staticVertical   || card.dataset.vertical;
+        const logoSrc = card.dataset.staticLogo       || card.dataset.logo;
+        const heroSrc = card.dataset.staticHero       || card.dataset.hero
+                     || card.dataset.staticHorizontal  || card.dataset.horizontal || bgSrc;
 
         switchHeroBackground(bgSrc, logoSrc, heroSrc);
 
-        if (card._animationTimeout) clearTimeout(card._animationTimeout);
+        if (card._animTimer) clearTimeout(card._animTimer);
+        card._animTimer = setTimeout(async () => {
+            const active = () => document.activeElement === card || card.matches(':hover');
+            if (!active()) return;
 
-        card._animationTimeout = setTimeout(async () => {
-            if (document.activeElement !== card && !card.matches(':hover')) return;
-            const stillActive = () => document.activeElement === card || card.matches(':hover');
-
+            const animGrid = card.classList.contains('featured')
+                ? (card.dataset.horizontal || card.dataset.vertical)
+                : card.dataset.vertical;
             if (animGrid) await setImgSrc(img, animGrid);
 
             const animHero = card.dataset.hero;
-            const staticHero = card.dataset.staticHero || animHero;
-            if (animHero && animHero !== staticHero && stillActive()) {
-                const heroImg = document.getElementById('heroImage');
-                if (heroImg) await setImgSrc(heroImg, animHero);
-            }
+            if (animHero && animHero !== (card.dataset.staticHero || animHero) && active())
+                await setImgSrc(document.getElementById('heroImage'), animHero);
 
             const animLogo = card.dataset.logo;
-            const staticLogo = card.dataset.staticLogo || animLogo;
-            if (animLogo && animLogo !== staticLogo && stillActive()) {
-                const logoImg = document.getElementById('gameLogo');
-                if (logoImg) { await setImgSrc(logoImg, animLogo); logoImg.classList.add('visible'); }
+            if (animLogo && animLogo !== (card.dataset.staticLogo || animLogo) && active()) {
+                const logoEl = document.getElementById('gameLogo');
+                if (logoEl) { await setImgSrc(logoEl, animLogo); logoEl.classList.add('visible'); }
             }
         }, 200);
     };
 
-    const handleStopInteraction = () => {
-        if (card._animationTimeout) clearTimeout(card._animationTimeout);
+    const stopInteraction = () => {
+        if (card._animTimer) clearTimeout(card._animTimer);
         if (document.activeElement === card || card.matches(':hover')) return;
 
         const staticGrid = card.classList.contains('featured')
             ? (card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical)
-            : (card.dataset.staticVertical || card.dataset.vertical);
-
+            : (card.dataset.staticVertical   || card.dataset.vertical);
         setImgSrc(img, staticGrid);
 
-        const heroImg = document.getElementById('heroImage');
         const staticHero = card.dataset.staticHero || card.dataset.hero;
-        if (heroImg && staticHero) setImgSrc(heroImg, staticHero);
+        if (staticHero) setImgSrc(document.getElementById('heroImage'), staticHero);
 
-        const logoImg = document.getElementById('gameLogo');
         const staticLogo = card.dataset.staticLogo || card.dataset.logo;
-        if (logoImg && staticLogo) setImgSrc(logoImg, staticLogo);
+        const logoEl     = document.getElementById('gameLogo');
+        if (logoEl && staticLogo) setImgSrc(logoEl, staticLogo);
     };
 
-    card._startInteraction = handleStartInteraction;
-    card._stopInteraction = handleStopInteraction;
+    // Expõe para navigation.js
+    card._startInteraction = startInteraction;
+    card._stopInteraction  = stopInteraction;
+
+    card.addEventListener('mouseenter', startInteraction);
+    card.addEventListener('mouseleave', stopInteraction);
+    card.addEventListener('focus', () => { pendingInteractionCard = card; signalNavigation(); });
+    card.addEventListener('blur',  () => { if (pendingInteractionCard === card) pendingInteractionCard = null; stopInteraction(); });
+    card.addEventListener('click', () => { postToHost({ action: 'launch', path: gameId }); moveCardToTop(card); });
 
     card.appendChild(img);
-
-    card.addEventListener('mouseenter', handleStartInteraction);
-    card.addEventListener('focus', () => {
-        pendingInteractionCard = card;
-        signalNavigation();
-    });
-    card.addEventListener('mouseleave', handleStopInteraction);
-    card.addEventListener('blur', () => {
-        if (pendingInteractionCard === card) pendingInteractionCard = null;
-        handleStopInteraction();
-    });
-
     const title = document.createElement('div');
     title.className = 'title';
     title.innerText = data.name;
     card.appendChild(title);
 
-    card.addEventListener('click', () => {
-        if (window.chrome && window.chrome.webview)
-            window.chrome.webview.postMessage(JSON.stringify({ action: 'launch', path: gameId }));
-        moveCardToTop(card);
-    });
-
-    
-
-    if (newGameIdsThisSession.has(gameId)) {
-        card.classList.add('new-game');
-    }
-
-
     if (data.isFeatured) {
         grid.insertBefore(card, btnAdd);
-        handleStartInteraction();
+        startInteraction();
     } else {
-
         const featured = grid.querySelector('.card.featured');
         grid.insertBefore(card, featured ? featured.nextSibling : grid.firstChild);
     }
@@ -874,5 +362,117 @@ function moveCardToTop(card) {
     card.classList.add('featured');
     grid.prepend(card);
     const img = card.querySelector('img');
-    if (img) img.src = card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical;
+    if (img) img.src = card.dataset.staticHorizontal || card.dataset.horizontal
+                    || card.dataset.staticVertical   || card.dataset.vertical;
+}
+
+// ── Hero background ────────────────────────────────────────────────────────────
+let _heroTimer   = null;
+let _currentBgSrc = '';
+
+function cancelHeroTransition() {
+    if (_heroTimer) { clearTimeout(_heroTimer); _heroTimer = null; }
+}
+
+function switchHeroBackground(bgSrc, logoSrc, heroSrc) {
+    const bgBlur  = document.getElementById('bgBlur');
+    const heroImg = document.getElementById('heroImage');
+    const logoImg = document.getElementById('gameLogo');
+    if (!bgBlur || !bgSrc) return;
+
+    if (_currentBgSrc.split('?')[0] === bgSrc.split('?')[0]) return;
+    _currentBgSrc = bgSrc;
+
+    bgBlur.style.opacity = '0';
+    if (heroImg) heroImg.style.opacity = '0';
+    if (logoImg) logoImg.classList.remove('visible');
+    cancelHeroTransition();
+
+    _heroTimer = setTimeout(async () => {
+        await setImgSrc(bgBlur, bgSrc);
+        bgBlur.style.opacity = '1';
+
+        const gridBg = document.getElementById('gridBgImg');
+        if (gridBg) setImgSrc(gridBg, heroSrc);
+
+        if (heroImg) { await setImgSrc(heroImg, heroSrc || bgSrc); heroImg.style.opacity = '1'; }
+        if (logoImg && logoSrc) { await setImgSrc(logoImg, logoSrc); logoImg.classList.add('visible'); }
+    }, 150);
+}
+
+// ── Badge de plataforma ────────────────────────────────────────────────────────
+function getPlatformBadge(source) {
+    const p = PLATFORMS[source];
+    if (!p) return '';
+    const label = t('platformLabels.' + source);
+    const inner = p.type === 'url' ? `<img src="${p.icon}" alt="${label}" />` : p.icon;
+    return `<span class="platform-badge" title="${label}">${inner}</span>`;
+}
+
+// ── Modal loading ──────────────────────────────────────────────────────────────
+function renderModalLoading() {
+    const libs = SCAN_LIBS
+        .map((k, i) => `<div class="vb-lib ${i === 0 ? 'scanning' : ''}">${t('scanLibLabels.' + k)}</div>`)
+        .join('');
+
+    document.getElementById('appList').innerHTML = `
+        <div class="vb-wrap">
+            <div class="vb-scanline"></div>
+            <div class="vb-ghost-grid">${'<div class="vb-ghost-tile"></div>'.repeat(15)}</div>
+            <div class="vb-center">
+                <div class="vb-ring-wrap">
+                    <div class="vb-ring outer"></div>
+                    <div class="vb-ring inner"></div>
+                    <div class="vb-ring core"></div>
+                    <div class="vb-ring-dot"></div>
+                </div>
+                <div class="vb-text">
+                    <div class="vb-title">${t('detectingLibrary')}</div>
+                    <div class="vb-subtitle">${t('readingApps')}</div>
+                    <div class="vb-dots"><span></span><span></span><span></span></div>
+                    <div class="vb-libs" id="vbLibs">${libs}</div>
+                </div>
+            </div>
+            <div class="vb-progress"><div class="vb-progress-fill"></div></div>
+        </div>`;
+
+    let cur = 0;
+    const libEls = document.querySelectorAll('#vbLibs .vb-lib');
+    const iv = setInterval(() => {
+        if (!isModalOpen) { clearInterval(iv); return; }
+        libEls.forEach(l => l.classList.remove('scanning'));
+        libEls[cur].classList.add('scanning');
+        cur = (cur + 1) % libEls.length;
+    }, 700);
+}
+
+// ── Utilitários de imagem ──────────────────────────────────────────────────────
+async function getAnimatedBlob(url) {
+    if (!url) return null;
+    try {
+        const res   = await fetch(url);
+        if (!res.ok) return null;
+        const blob  = await res.blob();
+        const bytes = new Uint8Array(await blob.slice(0, 256).arrayBuffer());
+        const APNG  = [0x61, 0x63, 0x54, 0x4C], WEBP = [0x41, 0x4E, 0x49, 0x4D];
+        let isAnim  = bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46;
+        for (let i = 0; !isAnim && i < bytes.length - 4; i++) {
+            if (bytes.slice(i, i + 4).every((v, j) => v === APNG[j])) isAnim = true;
+            if (bytes.slice(i, i + 4).every((v, j) => v === WEBP[j])) isAnim = true;
+        }
+        return isAnim ? blob : null;
+    } catch { return null; }
+}
+
+async function setImgSrc(imgEl, src) {
+    if (!imgEl) return;
+    const req = Symbol();
+    imgEl.__req = req;
+    if (!src) { imgEl.removeAttribute('src'); return; }
+    if (imgEl.src === src || imgEl.src.endsWith(src)) return;
+    const tmp = new Image();
+    tmp.src = src;
+    try { await tmp.decode(); } catch (_) {}
+    if (imgEl.__req !== req) return;
+    imgEl.src = src;
 }

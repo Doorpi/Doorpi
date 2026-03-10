@@ -1,18 +1,16 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Launcher UI - Console Edition</title>
+    <title>Doorpi</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
-
 </head>
 <body>
 
-    <!-- SVG Noise Filter (usado como textura sutil no modal) -->
+    <!-- SVG Noise Filter -->
     <svg style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true">
         <defs>
             <filter id="grain-filter" x="0%" y="0%" width="100%" height="100%">
@@ -24,116 +22,142 @@
         </defs>
     </svg>
 
-    <!-- Topo e Relógio -->
+    <!-- Topo -->
     <div class="top-bar">
         <div id="clock">00:00</div>
     </div>
 
-    <!-- Fundo atmosférico (blur da capa vertical) + banner hero -->
-    <div class="capaJogo" id="capaJogo">
+    <!-- Fundo atmosférico -->
+    <div class="capaJogo">
         <img id="bgBlur" />
         <img id="heroImage" />
     </div>
 
-    <!-- Logo fora do capaJogo para ficar acima do frosted strip -->
+    <!-- Logo do jogo -->
     <img id="gameLogo" />
 
-
-    <!-- Background desfocado atrás do carrossel (capa vertical duplicada) -->
-    <div class="grid-bg" id="gridBg">
+    <!-- Grid -->
+    <div class="grid-bg">
         <img id="gridBgImg" />
         <div class="game-grid" id="gameGrid">
             <div class="card add-card" tabindex="0" id="btnAdd">
                 <div class="plus">+</div>
-                <div class="title">Adicionar Jogo</div>
+                <!--
+                    data-i18n direto aqui é seguro: .title não recebe ícone de gamepad.
+                    O ícone de controle fica no .plus (tratado em navigation.js).
+                -->
+                <div class="title" data-i18n="btnAddLabel">Adicionar Jogo</div>
             </div>
         </div>
     </div>
 
-    <!-- MODAL ESTILO PS5 -->
+    <!-- Modal -->
     <div id="addGameContainer">
         <div class="modal-layout">
 
-            <!-- MENU LATERAL -->
             <div class="modal-sidebar">
-                <p class="sidebar-eyebrow">Menu</p>
-                <h1 class="sidebar-title">Configurações</h1>
+                <!--
+                    Elementos folha sem filhos: data-i18n vai direto no elemento.
+                -->
+                <p class="sidebar-eyebrow" data-i18n="sidebarEyebrow">Menu</p>
+                <h1 class="sidebar-title" data-i18n="sidebarTitle">Configurações</h1>
                 <div class="sidebar-menu">
+                    <!--
+                        Botões com ícone interno (.tab-icon): data-i18n no <span> de texto,
+                        não no <button>, para preservar o ícone ao trocar idioma.
+                    -->
                     <button class="menu-tab active" tabindex="0" onclick="switchTab('apps')">
                         <span class="tab-icon">⊞</span>
-                        Aplicativos
+                        <span data-i18n="tabApps">Aplicativos</span>
                     </button>
                     <button class="menu-tab" tabindex="0" onclick="switchTab('folders')">
                         <span class="tab-icon">◫</span>
-                        Gerenciar Pastas
+                        <span data-i18n="tabFolders">Gerenciar Pastas</span>
                     </button>
                 </div>
             </div>
 
-            <!-- ÁREA DE CONTEÚDO PRINCIPAL -->
             <div class="modal-content-area">
 
-                <!-- === TELA 1: APLICATIVOS === -->
+                <!-- ── View: Aplicativos ──────────────────────────────────── -->
                 <div id="view-apps" class="view-section active">
                     <div class="view-header">
-                        <h2 id="modalTitle">Selecione os aplicativos</h2>
+                        <!--
+                            #modalTitle pode ser sobrescrito por app.js (ex: showingStore).
+                            O data-i18n garante o texto padrão e a tradução ao trocar idioma.
+                        -->
+                        <h2 id="modalTitle" data-i18n="selectApps">Selecione os aplicativos para adicionar</h2>
                         <div class="filter-bar" id="filterBar"></div>
-
                     </div>
-
-                    <!-- Wrapper com fade na borda inferior -->
                     <div class="applist-wrapper">
                         <div id="appList"></div>
-
                     </div>
-
-                    <!-- Barra de Ações Fixa -->
                     <div class="action-bar" id="modalActions">
-                        <!-- Counter de seleção: aparece com CSS quando tem itens selecionados -->
                         <div class="selection-counter" id="selectionCounter">
                             <span class="counter-dot"></span>
-                            <span id="selectionCounterText">0 selecionados</span>
+                            <span id="selectionCounterText"></span>
                         </div>
-
                         <div class="action-buttons">
-                            <button class="modal-btn primary" id="btnConfirmAdd" tabindex="0">
-                                Adicionar Selecionados
+                            <!--
+                                Botões com data-gamepad-hint recebem um <span class="gp-hint">
+                                injetado ANTES do conteúdo pelo navigation.js.
+                                Para que applyI18n() não destrua esse ícone, o TEXTO fica
+                                num <span data-i18n> interno — nunca no próprio <button>.
+
+                                Mapeamento de ações:
+                                  start    → OPTIONS / Menu  → confirma adição
+                                  cancel   → ◯ Circle / B   → fecha modal
+                                  triangle → △ Triangle / Y → busca manual
+                            -->
+                            <button class="modal-btn primary"
+                                    id="btnConfirmAdd"
+                                    data-gamepad-hint="start"
+                                    tabindex="0">
+                                <span data-i18n="btnConfirmLabel">Adicionar Selecionados</span>
                             </button>
-                            <button class="modal-btn secondary" id="btnSearch" tabindex="0">
-                                Procurar Manualmente
+                            <button class="modal-btn secondary"
+                                    id="btnSearch"
+                                    data-gamepad-hint="triangle"
+                                    tabindex="0">
+                                <span data-i18n="btnSearchLabel">Procurar Manualmente</span>
                             </button>
-                            <button class="modal-btn cancel" id="btnCancelAdd" tabindex="0">Voltar</button>
+                            <button class="modal-btn cancel"
+                                    id="btnCancelAdd"
+                                    data-gamepad-hint="cancel"
+                                    tabindex="0">
+                                <span data-i18n="btnCancelLabel">Voltar</span>
+                            </button>
                         </div>
                     </div>
                 </div>
 
-                <!-- === TELA 2: GERENCIAR PASTAS === -->
+                <!-- ── View: Pastas ───────────────────────────────────────── -->
                 <div id="view-folders" class="view-section hidden">
                     <div class="view-header">
-                        <h2>Pastas Monitoradas</h2>
-                        <p class="subtitle">O sistema buscará jogos automaticamente nestes diretórios.</p>
+                        <h2 data-i18n="foldersTitle">Pastas Monitoradas</h2>
+                        <p class="subtitle" data-i18n="foldersSubtitle">O sistema buscará jogos automaticamente nestes diretórios.</p>
                     </div>
-
                     <div class="applist-wrapper">
-                        <div id="folderList">
-                            <div class="folder-item" tabindex="0">
-                                <div class="folder-info">
-                                    <span class="folder-icon">◫</span>
-                                    <span class="folder-path">C:\Program Files (x86)\Steam\steamapps\common</span>
-                                </div>
-                                <div class="folder-actions">
-                                    <button class="icon-btn edit-btn" tabindex="0">Editar</button>
-                                    <button class="icon-btn delete-btn" tabindex="0">Remover</button>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="applist-fade"></div>
+                        <div id="folderList"></div>
                     </div>
-
                     <div class="action-bar">
                         <div class="action-buttons">
-                            <button class="modal-btn primary" id="btnScanFolder" tabindex="0">Adicionar Nova Pasta</button>
-                            <button class="modal-btn cancel" tabindex="0" onclick="closeModal()">Voltar</button>
+                            <!--
+                                btnScanFolder: ✕ / A via foco normal (sem atalho dedicado).
+                                data-gamepad-hint="confirm" mostra o ícone de confirmação.
+                            -->
+                            <button class="modal-btn primary"
+                                    id="btnScanFolder"
+                                    data-gamepad-hint="confirm"
+                                    tabindex="0">
+                                <span data-i18n="btnAddFolderLabel">Adicionar Nova Pasta</span>
+                            </button>
+                            <button class="modal-btn cancel"
+                                    data-gamepad-hint="cancel"
+                                    tabindex="0"
+                                    onclick="closeModal()">
+                                <span data-i18n="btnBackLabel">Voltar</span>
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -142,25 +166,27 @@
         </div>
     </div>
 
+    <!--
+        Ordem obrigatória:
+          1. strings.js    — t() disponível para todos
+          2. navigation.js — declara isModalOpen, pendingInteractionCard e toda lógica de input
+          3. app.js        — usa os globals de navigation e as strings
+    -->
+    <script src="strings.js"></script>
+    <script src="navigation.js"></script>
     <script src="app.js"></script>
+
     <script>
         function switchTab(tabId) {
             document.querySelectorAll('.menu-tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.view-section').forEach(v => {
-                v.classList.remove('active');
-                v.classList.add('hidden');
-            });
-
-            if (tabId === 'apps') {
-                document.querySelectorAll('.menu-tab')[0].classList.add('active');
-                document.getElementById('view-apps').classList.remove('hidden');
-                document.getElementById('view-apps').classList.add('active');
-            } else {
-                document.querySelectorAll('.menu-tab')[1].classList.add('active');
-                document.getElementById('view-folders').classList.remove('hidden');
-                document.getElementById('view-folders').classList.add('active');
-            }
+            document.querySelectorAll('.view-section').forEach(v => { v.classList.remove('active'); v.classList.add('hidden'); });
+            const isApps = tabId === 'apps';
+            document.querySelectorAll('.menu-tab')[isApps ? 0 : 1].classList.add('active');
+            const view = document.getElementById(isApps ? 'view-apps' : 'view-folders');
+            view.classList.remove('hidden');
+            view.classList.add('active');
         }
     </script>
+
 </body>
 </html>
