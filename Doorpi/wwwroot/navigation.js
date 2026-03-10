@@ -22,7 +22,7 @@ const NAV = {
     GAMEPAD: {
         AXIS_THRESHOLD: 0.6, INITIAL_DELAY: 400, REPEAT_DELAY: 80,
         BTN_CONFIRM: 0, BTN_CANCEL: 1, BTN_SQUARE: 2, BTN_TRIANGLE: 3,
-        BTN_L1: 4, BTN_R1: 5,
+        BTN_L1: 4, BTN_R1: 5, BTN_L3: 10, 
         BTN_START: 9, BTN_UP: 12, BTN_DOWN: 13, BTN_LEFT: 14, BTN_RIGHT: 15,
     },
     KEYS: { UP: 'ArrowUp', DOWN: 'ArrowDown', LEFT: 'ArrowLeft', RIGHT: 'ArrowRight', CONFIRM: 'Enter', CANCEL: 'Escape' },
@@ -414,7 +414,7 @@ document.addEventListener('keydown', e => {
 });
 
 let _gamepadIndex = null, _controllerType = 'generic', _btnCooldown = {}, _lastMoveTime = 0, _moveState = 0, _currentDirection = null;
-
+let _cursorHoldState = { l1: 0, r1: 0 }, _cursorLastTime = { l1: 0, r1: 0 }; 
 function buttonJustPressed(btn, index) {
     if (btn?.pressed) { if (!_btnCooldown[index]) { _btnCooldown[index] = true; return true; } return false; }
     _btnCooldown[index] = false; return false;
@@ -455,10 +455,34 @@ window.addEventListener('gamepaddisconnected', e => {
         if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
         if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) window._vkbCancel?.();
         if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) window._editModalSave?.();
+
+        
+        [['l1', GAMEPAD.BTN_L1, 'left'], ['r1', GAMEPAD.BTN_R1, 'right']].forEach(([id, idx, dir]) => {
+            const pressed = buttons[idx]?.pressed;
+            if (pressed) {
+                if (_cursorHoldState[id] === 0) {
+                    window._vkbMoveCursor?.(dir);
+                    _cursorLastTime[id] = now;
+                    _cursorHoldState[id] = 1;
+                } else if (_cursorHoldState[id] === 1 && now - _cursorLastTime[id] > GAMEPAD.INITIAL_DELAY) {
+                    window._vkbMoveCursor?.(dir);
+                    _cursorLastTime[id] = now;
+                    _cursorHoldState[id] = 2;
+                } else if (_cursorHoldState[id] === 2 && now - _cursorLastTime[id] > GAMEPAD.REPEAT_DELAY) {
+                    window._vkbMoveCursor?.(dir);
+                    _cursorLastTime[id] = now;
+                }
+            } else {
+                _cursorHoldState[id] = 0;
+            }
+        });
+
+        if (buttonJustPressed(buttons[GAMEPAD.BTN_L3], GAMEPAD.BTN_L3)) window._vkbToggleShift?.();
+
         if (buttonJustPressed(buttons[GAMEPAD.BTN_TRIANGLE], GAMEPAD.BTN_TRIANGLE)) window._vkbPhysicalKey?.(' ');
         if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) window._vkbPhysicalKey?.('Backspace');
-        if (buttonJustPressed(buttons[GAMEPAD.BTN_L1], GAMEPAD.BTN_L1)) window._vkbToggleShift?.();
-    } else {
+    }
+ else {
         if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
         if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
             if (isCtxMenuOpen) closeCtxMenu();

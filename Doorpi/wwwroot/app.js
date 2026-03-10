@@ -217,19 +217,11 @@ function buildFilterBar(apps) {
             applyFilterAndRender();
 
             setTimeout(() => {
-                const todosBotoes = Array.from(document.querySelectorAll('.filter-bar .filter-btn'));
-
-               
-                const disponiveis = todosBotoes.filter(b => !b.classList.contains('active') && b.offsetWidth > 0);
-
-               
-                const indexAtual = disponiveis.indexOf(btn);
-
-                if (indexAtual > -1 && disponiveis[indexAtual + 1]) {
-                    disponiveis[indexAtual + 1].focus();
-                } else if (disponiveis.length > 0) {
-                 
-                    disponiveis[0].focus();
+                const alvo = document.querySelector(`.filter-bar .filter-btn[data-source="${clicked}"]`);
+                if (alvo) {
+                    alvo.focus();
+                } else {
+                    document.querySelector('.filter-bar .filter-btn')?.focus();
                 }
             }, 10);
         })
@@ -1161,6 +1153,7 @@ const VKB = (() => {
     let _el = null;
     let _shifted = true;
     let _inputEl = null;
+    let _cursorPos = 0;
 
     function _build() {
         if (_el) return;
@@ -1192,9 +1185,8 @@ const VKB = (() => {
         const el = document.getElementById('vkbPreview');
         if (!el || !_inputEl) return;
         const txt = _inputEl.value || '';
-        el.innerHTML = txt
-            ? `${_esc(txt)}<span class="vkb-cursor"></span>`
-            : `<span class="vkb-cursor"></span>`;
+        const fmt = (str) => _esc(str).replace(/ /g, '&nbsp;');
+        el.innerHTML = `${fmt(txt.slice(0, _cursorPos))}<span class="vkb-cursor"></span>${fmt(txt.slice(_cursorPos))}`;
     }
 
     function _setShiftVisual(on) {
@@ -1210,12 +1202,25 @@ const VKB = (() => {
 
     function _pressKey(key) {
         if (!_inputEl) return;
-        if (key === '⌫') { _inputEl.value = _inputEl.value.slice(0, -1); }
-        else if (key === 'shift') { _setShiftVisual(!_shifted); return; }
-        else if (key === 'space') { _inputEl.value += ' '; }
-        else if (key === 'ok') { window._editModalSave?.(); return; }
-        else if (key === 'cancel') { window._editModalClose?.(); return; }
-        else { _inputEl.value += _shifted ? key.toUpperCase() : key; }
+        if (key === '⌫') {
+            if (_cursorPos > 0) {
+                _inputEl.value = _inputEl.value.slice(0, _cursorPos - 1) + _inputEl.value.slice(_cursorPos);
+                _cursorPos--;
+            }
+        } else if (key === 'shift') {
+            _setShiftVisual(!_shifted); return;
+        } else if (key === 'space') {
+            _inputEl.value = _inputEl.value.slice(0, _cursorPos) + ' ' + _inputEl.value.slice(_cursorPos);
+            _cursorPos++;
+        } else if (key === 'ok') {
+            window._editModalSave?.(); return;
+        } else if (key === 'cancel') {
+            window._editModalClose?.(); return;
+        } else {
+            const char = _shifted ? key.toUpperCase() : key;
+            _inputEl.value = _inputEl.value.slice(0, _cursorPos) + char + _inputEl.value.slice(_cursorPos);
+            _cursorPos++;
+        }
         _inputEl.dispatchEvent(new Event('input', { bubbles: true }));
         _renderPreview();
     }
@@ -1223,6 +1228,7 @@ const VKB = (() => {
     function _open() {
         _inputEl = document.getElementById('editNameInput');
         if (!_inputEl) return;
+        _cursorPos = _inputEl.value.length; 
         _build();
 
         if (_el) {
@@ -1267,15 +1273,31 @@ const VKB = (() => {
     function _physicalKey(key) {
         if (!_inputEl) return;
         if (key === 'Backspace') {
-            _inputEl.value = _inputEl.value.slice(0, -1);
+            if (_cursorPos > 0) {
+                _inputEl.value = _inputEl.value.slice(0, _cursorPos - 1) + _inputEl.value.slice(_cursorPos);
+                _cursorPos--;
+            }
         } else if (key.length === 1) {
-            _inputEl.value += key;
+            _inputEl.value = _inputEl.value.slice(0, _cursorPos) + key + _inputEl.value.slice(_cursorPos);
+            _cursorPos++;
         }
         _inputEl.dispatchEvent(new Event('input', { bubbles: true }));
         _renderPreview();
     }
-
-    return { open: _open, forceClose: _forceClose, cancel: _cancel, physicalKey: _physicalKey, toggleShift: () => _setShiftVisual(!_shifted) };
+    function _moveCursor(direction) {
+        if (!_inputEl) return;
+        if (direction === 'left') _cursorPos = Math.max(0, _cursorPos - 1);
+        if (direction === 'right') _cursorPos = Math.min(_inputEl.value.length, _cursorPos + 1);
+        _renderPreview();
+    }
+    return {
+        open: _open,
+        forceClose: _forceClose,
+        cancel: _cancel,
+        physicalKey: _physicalKey,
+        toggleShift: () => _setShiftVisual(!_shifted),
+        moveCursor: _moveCursor 
+    };
 })();
 
 window._vkbOpen = () => VKB.open();
@@ -1283,6 +1305,7 @@ window._vkbCancel = () => VKB.cancel();
 window._vkbForceClose = () => VKB.forceClose();
 window._vkbPhysicalKey = (k) => VKB.physicalKey(k);
 window._vkbToggleShift = () => VKB.toggleShift();
+window._vkbMoveCursor = (dir) => VKB.moveCursor(dir);
 
 function _esc(str) {
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
