@@ -42,10 +42,6 @@
         <div class="game-grid" id="gameGrid">
             <div class="card add-card" tabindex="0" id="btnAdd">
                 <div class="plus">+</div>
-                <!--
-                    data-i18n direto aqui é seguro: .title não recebe ícone de gamepad.
-                    O ícone de controle fica no .plus (tratado em navigation.js).
-                -->
                 <div class="title" data-i18n="btnAddLabel">Adicionar Jogo</div>
             </div>
         </div>
@@ -56,16 +52,9 @@
         <div class="modal-layout">
 
             <div class="modal-sidebar">
-                <!--
-                    Elementos folha sem filhos: data-i18n vai direto no elemento.
-                -->
                 <p class="sidebar-eyebrow" data-i18n="sidebarEyebrow">Menu</p>
                 <h1 class="sidebar-title" data-i18n="sidebarTitle">Configurações</h1>
                 <div class="sidebar-menu">
-                    <!--
-                        Botões com ícone interno (.tab-icon): data-i18n no <span> de texto,
-                        não no <button>, para preservar o ícone ao trocar idioma.
-                    -->
                     <button class="menu-tab active" tabindex="0" onclick="switchTab('apps')">
                         <span class="tab-icon">⊞</span>
                         <span data-i18n="tabApps">Aplicativos</span>
@@ -82,10 +71,6 @@
                 <!-- ── View: Aplicativos ──────────────────────────────────── -->
                 <div id="view-apps" class="view-section active">
                     <div class="view-header">
-                        <!--
-                            #modalTitle pode ser sobrescrito por app.js (ex: showingStore).
-                            O data-i18n garante o texto padrão e a tradução ao trocar idioma.
-                        -->
                         <h2 id="modalTitle" data-i18n="selectApps">Selecione os aplicativos para adicionar</h2>
                         <div class="filter-bar" id="filterBar"></div>
                     </div>
@@ -98,17 +83,6 @@
                             <span id="selectionCounterText"></span>
                         </div>
                         <div class="action-buttons">
-                            <!--
-                                Botões com data-gamepad-hint recebem um <span class="gp-hint">
-                                injetado ANTES do conteúdo pelo navigation.js.
-                                Para que applyI18n() não destrua esse ícone, o TEXTO fica
-                                num <span data-i18n> interno — nunca no próprio <button>.
-
-                                Mapeamento de ações:
-                                  start    → OPTIONS / Menu  → confirma adição
-                                  cancel   → ◯ Circle / B   → fecha modal
-                                  triangle → △ Triangle / Y → busca manual
-                            -->
                             <button class="modal-btn primary"
                                     id="btnConfirmAdd"
                                     data-gamepad-hint="start"
@@ -141,14 +115,18 @@
                         <div id="folderList"></div>
                     </div>
                     <div class="action-bar">
+                        <!--
+                            Barra de total: oculta por padrão (display:none no CSS).
+                            app.js mostra e preenche ao receber foldersList do C#.
+                        -->
+                        <div class="folder-total-bar" id="folderTotalTime">
+                            <span class="folder-total-label" data-i18n="folderTotalLabel">Tempo total estimado de leitura</span>
+                            <span class="folder-total-value">—</span>
+                        </div>
                         <div class="action-buttons">
-                            <!--
-                                btnScanFolder: ✕ / A via foco normal (sem atalho dedicado).
-                                data-gamepad-hint="confirm" mostra o ícone de confirmação.
-                            -->
                             <button class="modal-btn primary"
                                     id="btnScanFolder"
-                                    data-gamepad-hint="confirm"
+                                    data-gamepad-hint="triangle"
                                     tabindex="0">
                                 <span data-i18n="btnAddFolderLabel">Adicionar Nova Pasta</span>
                             </button>
@@ -170,23 +148,11 @@
         Ordem obrigatória:
           1. strings.js    — t() disponível para todos
           2. navigation.js — declara isModalOpen, pendingInteractionCard e toda lógica de input
-          3. app.js        — usa os globals de navigation e as strings
+          3. app.js        — define switchTab + toda lógica de app (NÃO redefinir switchTab aqui)
     -->
     <script src="strings.js"></script>
     <script src="navigation.js"></script>
     <script src="app.js"></script>
-
-    <script>
-        function switchTab(tabId) {
-            document.querySelectorAll('.menu-tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.view-section').forEach(v => { v.classList.remove('active'); v.classList.add('hidden'); });
-            const isApps = tabId === 'apps';
-            document.querySelectorAll('.menu-tab')[isApps ? 0 : 1].classList.add('active');
-            const view = document.getElementById(isApps ? 'view-apps' : 'view-folders');
-            view.classList.remove('hidden');
-            view.classList.add('active');
-        }
-    </script>
 
 </body>
 </html>

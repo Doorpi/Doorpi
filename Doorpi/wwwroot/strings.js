@@ -1,31 +1,33 @@
 // =============================================================================
 // strings.js — i18n
-// Todos os textos visíveis ao usuário ficam aqui.
-//
-// Uso:
-//   t('detectingLibrary')         → 'Detectando Biblioteca'
-//   t('selectedMany', 5)          → '5 jogos selecionados'
-//   t('filterLabels.all')         → 'Todos'
-//   t('platformLabels.Steam')     → 'Steam'
-//
-// Para adicionar um idioma: copie o bloco 'pt-BR' com a nova chave e traduza.
-// Para trocar o idioma ativo: setLang('en-US')
-//
-// ── Regra para botões com ícones de controle ──────────────────────────────────
-// Botões que recebem data-gamepad-hint (e portanto ganham um <span class="gp-hint">
-// injetado por navigation.js) devem ter o texto num <span data-i18n> INTERNO.
-// Nunca coloque data-i18n no próprio <button>: applyI18n usa textContent e
-// destruiria o ícone injetado.
 // =============================================================================
 const STRINGS = {
     'pt-BR': {
-        // ── Modal — loading ───────────────────────────────────────────────────
         detectingLibrary: 'Detectando Biblioteca',
         readingApps: 'Lendo aplicativos instalados',
-        waitingFolder: 'Aguardando seleção de pasta...',
+        analysing: 'Analisando...',
+        waitingFolder: 'Aguardando Pasta...',
+        waitingWindows: 'Aguardando nova Pasta',
+        updatingLibrary: 'Atualizando Biblioteca',
         downloadingCovers: 'Baixando capas e adicionando... (Aguarde)',
 
-        // ── Modal — seleção de apps ───────────────────────────────────────────
+        dlgBrowseTitle: 'Selecione o executável do jogo',
+        dlgBrowseFilter: 'Executáveis (*.exe)|*.exe',
+        dlgFolderTitle: 'Selecione a pasta da biblioteca de jogos',
+        dlgEditFolderTitle: 'Selecione a nova pasta para substituir',
+        msgFolderForbidden: 'Esta pasta ou unidade é protegida pelo sistema e não pode ser adicionada.\n\nTente selecionar uma pasta específica onde seus jogos estão instalados (ex: C:\\Jogos).',
+        msgFolderForbiddenTitle: 'Pasta Não Permitida',
+        msgErrorOpenFile: 'Erro ao abrir arquivo: ',
+        msgErrorOpenFolder: 'Erro ao abrir seletor: ',
+        msgErrorEditFolder: 'Erro ao editar pasta: ',
+        msgErrorLaunch: 'Erro ao iniciar jogo: ',
+
+        loadingAddingGame: 'Adicionando jogo',
+        loadingFetchingCovers: 'Buscando capas e informações...',
+        loadingUpdatingLibrary: 'Atualizando biblioteca',
+        loadingScanningDoNotClose: 'Procurando aplicativos. NÃO FECHE o aplicativo durante este processo!',
+        loadingAnalyzingNewFolder: 'Analisando a nova pasta...',
+
         selectApps: 'Selecione os aplicativos para adicionar',
         showingStore: (name) => `Mostrando jogos da loja: ${name}`,
         noAppsFound: 'Nenhum aplicativo encontrado',
@@ -33,70 +35,91 @@ const STRINGS = {
         selectedOne: '1 jogo selecionado',
         selectedMany: (n) => `${n} jogos selecionados`,
 
-        // ── Sidebar do modal ──────────────────────────────────────────────────
         sidebarEyebrow: 'Menu',
         sidebarTitle: 'Configurações',
         tabApps: 'Aplicativos',
         tabFolders: 'Gerenciar Pastas',
 
-        // ── View: Pastas ──────────────────────────────────────────────────────
         foldersTitle: 'Pastas Monitoradas',
-        foldersSubtitle: 'O sistema buscará jogos automaticamente nestes diretórios.',
+        foldersSubtitle: 'O sistema varre estes diretórios sempre que você abre esta tela. Evite adicionar unidades inteiras (ex: C:\\).',
+        foldersEmpty: 'Nenhuma pasta configurada',
+        foldersEmptyHint: 'Clique em "Adicionar Nova Pasta" para começar',
+        folderTotalLabel: 'Custo de tempo total da busca',
 
-        // ── Botões — tela principal ───────────────────────────────────────────
+        btnEditLabel: 'Editar',
+        btnDeleteLabel: 'Remover',
+
         btnAddLabel: 'Adicionar Jogo',
 
-        // ── Botões — modal view-apps ──────────────────────────────────────────
-        // Estes textos ficam em <span data-i18n> DENTRO do <button data-gamepad-hint>.
-        // O ícone do controle é injetado por navigation.js como irmão anterior ao span.
+        statSubfolders: 'Subpastas',
+        statExeFiles: 'Executáveis',
+        statScanTime: 'Tempo por busca',
+        folderWarningSlow: 'Esta pasta possui arquivos demais e vai deixar o menu de "Adicionar Jogos" lento. Tente especificar uma subpasta mais exata.',
+
+        perfFast: 'Rápida',
+        perfMedium: 'Moderada',
+        perfSlow: 'Lenta',
+        perfMs: (ms) => `${ms}ms`,
+        perfSec: (s) => `${s}s`,
+
         btnConfirmLabel: 'Adicionar Selecionados',
         btnSearchLabel: 'Procurar Manualmente',
         btnCancelLabel: 'Voltar',
 
-        // ── Botões — modal view-folders ───────────────────────────────────────
         btnAddFolderLabel: 'Adicionar Nova Pasta',
         btnBackLabel: 'Voltar',
 
-        // ── Unidades de tamanho ───────────────────────────────────────────────
         unitGB: (v) => `${v} GB`,
         unitMB: (v) => `${v} MB`,
 
-        // ── Filtros ───────────────────────────────────────────────────────────
-        filterLabels: {
-            all: 'Todos',
-            Steam: 'Steam',
-            Epic: 'Epic',
-            GOG: 'GOG',
-            Windows: 'Windows & Pastas',
-        },
+        // Context Menu, Edit Modal e Teclado
+        ctxEditName: 'Editar Nome',
+        ctxRemoveGame: 'Remover da Biblioteca',
 
-        // ── Badges de plataforma ──────────────────────────────────────────────
-        platformLabels: {
-            Steam: 'Steam',
-            Epic: 'Epic',
-            GOG: 'GOG',
-            Folder: 'Pasta',
-            Windows: 'Windows',
-        },
+        editModalTitle: 'Editar Jogo',
+        editModalSubtitle: 'Clique em um campo para editar',
+        editModalFieldName: 'Nome',
+        editModalHint: '⌨ Clique para abrir o teclado',
+        editModalCancel: 'Cancelar',
+        editModalSave: 'Salvar',
 
-        // ── Labels de scan no loading ─────────────────────────────────────────
-        scanLibLabels: {
-            Steam: 'Steam',
-            Epic: 'Epic',
-            GOG: 'GOG',
-            Windows: 'Windows',
-            Folder: 'Pastas',
-        },
+        vkbPreviewLabel: 'Editando',
+        vkbSpace: 'ESPAÇO',
+        vkbCancel: 'CANCELAR',
+        vkbOk: 'OK',
+
+        filterLabels: { all: 'Todos', Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Windows: 'Windows & Pastas' },
+        platformLabels: { Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Folder: 'Pasta', Windows: 'Windows' },
+        scanLibLabels: { Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Windows: 'Windows', Folder: 'Pastas' },
     },
 
     'en-US': {
-        // ── Modal — loading ───────────────────────────────────────────────────
         detectingLibrary: 'Detecting Library',
         readingApps: 'Reading installed applications',
-        waitingFolder: 'Waiting for folder selection...',
+        analysing: 'Analysing...',
+        waitingFolder: 'Waiting for folder...',
+        waitingWindows: 'Waiting for new folder',
+        updatingLibrary: 'Updating Library',
         downloadingCovers: 'Downloading covers and adding... (Please wait)',
 
-        // ── Modal — seleção de apps ───────────────────────────────────────────
+        // Native Dialogs & Loading
+        dlgBrowseTitle: 'Select game executable',
+        dlgBrowseFilter: 'Executables (*.exe)|*.exe',
+        dlgFolderTitle: 'Select the game library folder',
+        dlgEditFolderTitle: 'Select the new folder to replace',
+        msgFolderForbidden: 'This folder or drive is protected by the system and cannot be added.\n\nTry selecting a specific folder where your games are installed (e.g., C:\\Games).',
+        msgFolderForbiddenTitle: 'Folder Not Allowed',
+        msgErrorOpenFile: 'Error opening file: ',
+        msgErrorOpenFolder: 'Error opening picker: ',
+        msgErrorEditFolder: 'Error editing folder: ',
+        msgErrorLaunch: 'Error launching game: ',
+
+        loadingAddingGame: 'Adding game',
+        loadingFetchingCovers: 'Fetching covers and info...',
+        loadingUpdatingLibrary: 'Updating library',
+        loadingScanningDoNotClose: 'Looking for applications. DO NOT CLOSE the app during this process!',
+        loadingAnalyzingNewFolder: 'Analyzing the new folder...',
+
         selectApps: 'Select applications to add',
         showingStore: (name) => `Showing games from: ${name}`,
         noAppsFound: 'No applications found',
@@ -104,67 +127,89 @@ const STRINGS = {
         selectedOne: '1 game selected',
         selectedMany: (n) => `${n} games selected`,
 
-        // ── Sidebar do modal ──────────────────────────────────────────────────
         sidebarEyebrow: 'Menu',
         sidebarTitle: 'Settings',
         tabApps: 'Applications',
         tabFolders: 'Manage Folders',
 
-        // ── View: Pastas ──────────────────────────────────────────────────────
         foldersTitle: 'Monitored Folders',
-        foldersSubtitle: 'The system will automatically search for games in these directories.',
+        foldersSubtitle: 'The system scans these directories every time you open this screen. Avoid adding entire drives (e.g., C:\\).',
+        foldersEmpty: 'No folders configured',
+        foldersEmptyHint: 'Click "Add New Folder" to get started',
+        folderTotalLabel: 'Total estimated scan cost',
 
-        // ── Botões — tela principal ───────────────────────────────────────────
+        btnEditLabel: 'Edit',
+        btnDeleteLabel: 'Remove',
+
         btnAddLabel: 'Add Game',
 
-        // ── Botões — modal view-apps ──────────────────────────────────────────
+        statSubfolders: 'Subfolders',
+        statExeFiles: 'Executables',
+        statScanTime: 'Time per scan',
+        folderWarningSlow: 'This folder has too many files and will make the "Add Games" menu slow. Try specifying a more exact subfolder.',
+
+        perfFast: 'Fast',
+        perfMedium: 'Moderate',
+        perfSlow: 'Slow',
+        perfMs: (ms) => `${ms}ms`,
+        perfSec: (s) => `${s}s`,
+
         btnConfirmLabel: 'Add Selected',
         btnSearchLabel: 'Browse Manually',
         btnCancelLabel: 'Back',
 
-        // ── Botões — modal view-folders ───────────────────────────────────────
         btnAddFolderLabel: 'Add New Folder',
         btnBackLabel: 'Back',
 
-        // ── Unidades de tamanho ───────────────────────────────────────────────
         unitGB: (v) => `${v} GB`,
         unitMB: (v) => `${v} MB`,
 
-        // ── Filtros ───────────────────────────────────────────────────────────
-        filterLabels: {
-            all: 'All',
-            Steam: 'Steam',
-            Epic: 'Epic',
-            GOG: 'GOG',
-            Windows: 'Windows & Folders',
-        },
+        // Context Menu, Edit Modal and Keyboard
+        ctxEditName: 'Edit Name',
+        ctxRemoveGame: 'Remove from Library',
 
-        // ── Badges de plataforma ──────────────────────────────────────────────
-        platformLabels: {
-            Steam: 'Steam',
-            Epic: 'Epic',
-            GOG: 'GOG',
-            Folder: 'Folder',
-            Windows: 'Windows',
-        },
+        editModalTitle: 'Edit Game',
+        editModalSubtitle: 'Click a field to edit',
+        editModalFieldName: 'Name',
+        editModalHint: '⌨ Click to open the keyboard',
+        editModalCancel: 'Cancel',
+        editModalSave: 'Save',
 
-        // ── Labels de scan no loading ─────────────────────────────────────────
-        scanLibLabels: {
-            Steam: 'Steam',
-            Epic: 'Epic',
-            GOG: 'GOG',
-            Windows: 'Windows',
-            Folder: 'Folders',
-        },
+        vkbPreviewLabel: 'Editing',
+        vkbSpace: 'SPACE',
+        vkbCancel: 'CANCEL',
+        vkbOk: 'OK',
+
+        filterLabels: { all: 'All', Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Windows: 'Windows & Folders' },
+        platformLabels: { Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Folder: 'Folder', Windows: 'Windows' },
+        scanLibLabels: { Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Windows: 'Windows', Folder: 'Folders' },
     },
 };
 
-const DEFAULT_LANG = 'en-US';
+
+const FALLBACK_LANG = 'en-US';
+
+
+function detectSystemLanguage() {
+    const navLang = navigator.language || FALLBACK_LANG;
+
+  
+    if (STRINGS[navLang]) return navLang;
+
+   
+    const baseLang = navLang.split('-')[0];
+    const match = Object.keys(STRINGS).find(key => key.startsWith(baseLang));
+
+    return match || FALLBACK_LANG;
+}
+
+
+const DEFAULT_LANG = detectSystemLanguage();
 let currentLang = DEFAULT_LANG;
 
 function t(key, ...args) {
-    const locale = STRINGS[currentLang] ?? STRINGS[DEFAULT_LANG];
-    const fallback = STRINGS[DEFAULT_LANG];
+    const locale = STRINGS[currentLang] ?? STRINGS[FALLBACK_LANG];
+    const fallback = STRINGS[FALLBACK_LANG];
     const resolve = (obj, keys) => keys.reduce((v, k) => v?.[k], obj);
     const parts = key.split('.');
     const val = resolve(locale, parts) ?? resolve(fallback, parts);
@@ -173,27 +218,19 @@ function t(key, ...args) {
 }
 
 function setLang(lang) {
-    if (STRINGS[lang]) { currentLang = lang; applyI18n(); }
-    else console.warn(`[strings] Idioma '${lang}' não encontrado. Disponíveis: ${Object.keys(STRINGS).join(', ')}`);
+    if (STRINGS[lang]) {
+        currentLang = lang;
+        applyI18n();
+    } else {
+        console.warn(`[strings] Idioma '${lang}' não encontrado. Mantendo ${currentLang}.`);
+    }
 }
 
-// ── i18n automático via data-i18n ─────────────────────────────────────────────
-// Coloque data-i18n="chave" em elementos FOLHA (sem filhos que precisem sobreviver).
-//
-// Em botões que recebem ícones de controle (data-gamepad-hint), aplique data-i18n
-// no <span> INTERNO, não no <button> — para que o ícone injetado por navigation.js
-// não seja destruído ao trocar o idioma.
-//
-// Exemplo correto:
-//   <button data-gamepad-hint="start">
-//       <span data-i18n="btnConfirmLabel">Adicionar Selecionados</span>
-//   </button>
 function applyI18n() {
     document.querySelectorAll('[data-i18n]').forEach(el => {
         el.textContent = t(el.dataset.i18n);
     });
 }
 
-// Aplica ao carregar (scripts ficam no final do body, DOM já está pronto)
 if (document.readyState !== 'loading') applyI18n();
 else document.addEventListener('DOMContentLoaded', applyI18n);

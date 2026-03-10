@@ -36,6 +36,14 @@ namespace Doorpi
         public List<InstalledApp> FolderApps { get; set; } = new();
     }
 
+    public class FolderStats
+    {
+        public string Path { get; set; } = "";
+        public int SubfolderCount { get; set; }
+        public int ExeCount { get; set; }
+        public long EstimatedMs { get; set; }
+    }
+
     // ========================= MAIN WINDOW =========================
 
     public partial class MainWindow : Window
@@ -50,7 +58,10 @@ namespace Doorpi
         private readonly string gridHorizontalFolder;
         private readonly string logoFolder;
         private readonly string iconCacheFolder;
-
+        private string GetStr(JsonElement root, string propName, string fallback = "")
+        {
+            return root.TryGetProperty(propName, out var prop) ? (prop.GetString() ?? fallback) : fallback;
+        }
         // Arquivos de estado
         private readonly string gamesFile;
         private readonly string foldersFile;
@@ -119,7 +130,7 @@ namespace Doorpi
                     Topmost = true;
                     Activate();
                     Topmost = false;
-                    webView.Focus(); 
+                    webView.Focus();
                 });
             };
 
@@ -135,8 +146,13 @@ namespace Doorpi
 
         private void StartWatchers()
         {
-            foreach (var folder in LoadWatchedFolders())
+            foreach (var folder in GetWatchedFolderPaths())
+            {
                 AddFolderWatcher(folder);
+            }
+
+    
+            ResumePendingAnalyses();
         }
 
         private void AddFolderWatcher(string path)
@@ -170,11 +186,6 @@ namespace Doorpi
 
         // ========================= ICON CACHE =========================
 
-        /// <summary>
-        /// Retorna ícone em base64. Na primeira chamada extrai do binário e persiste em disco.
-        /// Nas chamadas seguintes retorna do arquivo em disco — zero custo de I/O de binário.
-        /// Chave: path + LastWriteTime, então atualiza automaticamente se o exe mudar.
-        /// </summary>
         private string GetCachedIcon(string exePath)
         {
             if (string.IsNullOrEmpty(exePath) || !File.Exists(exePath)) return "";
@@ -189,9 +200,8 @@ namespace Doorpi
                 string iconPath = Path.Combine(iconCacheFolder, $"{hash}.b64");
 
                 if (File.Exists(iconPath))
-                    return File.ReadAllText(iconPath); // hit — apenas leitura de texto
+                    return File.ReadAllText(iconPath);
 
-                // miss — extrai e persiste para sempre
                 string b64 = ExtractIcon(exePath);
                 if (!string.IsNullOrEmpty(b64))
                     File.WriteAllText(iconPath, b64);
@@ -236,7 +246,6 @@ namespace Doorpi
 
                             string iconBase64 = "";
 
-                            // Tenta ícone nativo do Steam primeiro
                             string iconHash = Regex.Match(acfContent, @"""(?:clienticon|icon)""\s+""([a-fA-F0-9]+)""").Groups[1].Value;
                             if (!string.IsNullOrEmpty(iconHash))
                             {
@@ -244,7 +253,6 @@ namespace Doorpi
                                 if (File.Exists(icoPath)) iconBase64 = GetCachedIcon(icoPath);
                             }
 
-                            // Fallback: melhor exe da pasta do jogo
                             if (string.IsNullOrEmpty(iconBase64) && !string.IsNullOrEmpty(installDir))
                             {
                                 string gameFolder = Path.Combine(libraryPath, "steamapps", "common", installDir);
@@ -280,7 +288,6 @@ namespace Doorpi
                                 }
                             }
 
-                            // Último fallback: librarycache do Steam
                             if (string.IsNullOrEmpty(iconBase64))
                             {
                                 string libraryCachePath = Path.Combine(steamPath, "appcache", "librarycache", $"{appId}_icon.jpg");
@@ -436,64 +443,104 @@ namespace Doorpi
         private List<InstalledApp> GetWatchedFolderGames()
         {
             var list = new List<InstalledApp>();
-            long minSize = 2 * 1024 * 1024;
+            long minSize = 2 * 1024 * 1024; // 2MB mínimo
 
-            foreach (var folder in LoadWatchedFolders())
+            var options = new EnumerationOptions
+            {
+                IgnoreInaccessible = true,
+                RecurseSubdirectories = true
+            };
+
+            foreach (var folder in GetWatchedFolderPaths())
             {
                 if (!Directory.Exists(folder)) continue;
                 try
                 {
-                    foreach (var exe in new DirectoryInfo(folder).GetFiles("*.exe", SearchOption.AllDirectories))
+                    // Agora usamos o EnumerateFiles à prova de falhas de permissão!
+                    foreach (var exePath in Directory.EnumerateFiles(folder, "*.exe", options))
                     {
-                        string fileName = exe.Name.ToLower();
+                        var fileInfo = new FileInfo(exePath);
+                        string fileName = fileInfo.Name.ToLower();
+
+                        // Pula desinstaladores e arquivos de crash
                         if (fileName.Contains("unins") || fileName.Contains("crash")) continue;
 
-                        string exeNameOnly = Path.GetFileNameWithoutExtension(exe.Name);
-                        string parentFolderName = exe.Directory?.Name ?? "";
+                        string exeNameOnly = Path.GetFileNameWithoutExtension(fileInfo.Name);
+                        string parentFolderName = fileInfo.Directory?.Name ?? "";
                         bool isSimilar = IsNameSimilar(exeNameOnly, parentFolderName);
 
-                        if (exe.Length >= minSize || isSimilar)
+                        // Aplica o filtro: Maior que 2MB ou tem o mesmo nome da pasta
+                        if (fileInfo.Length >= minSize || isSimilar)
                         {
-                            string name = GetGameNameFromFile(exe.FullName) ?? exeNameOnly;
+                            string name = GetGameNameFromFile(fileInfo.FullName) ?? exeNameOnly;
                             list.Add(new InstalledApp
                             {
                                 Name = name,
-                                Path = exe.FullName,
+                                Path = fileInfo.FullName,
                                 Source = "Folder",
-                                IconBase64 = GetCachedIcon(exe.FullName)
+                                IconBase64 = GetCachedIcon(fileInfo.FullName)
                             });
                         }
                     }
                 }
-                catch (Exception ex) { Debug.WriteLine($"Erro ao escanear pasta {folder}: {ex.Message}"); }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Erro ao escanear pasta {folder}: {ex.Message}");
+                }
             }
             return list;
         }
 
-        private void SaveWatchedFolder(string path)
+        // ========================= PASTAS VIGIADAS (NOVA LÓGICA) =========================
+
+        private List<FolderStats> LoadFoldersData()
         {
-            var folders = LoadWatchedFolders();
-            if (!folders.Contains(path, StringComparer.OrdinalIgnoreCase))
+            if (!File.Exists(foldersFile)) return new List<FolderStats>();
+            try
             {
-                folders.Add(path);
+                string json = File.ReadAllText(foldersFile);
+
+                // Tenta carregar no formato novo (Lista de objetos)
                 try
                 {
-                    File.WriteAllText(foldersFile, JsonSerializer.Serialize(folders));
-                    AddFolderWatcher(path); // registra watcher imediatamente
+                    var data = JsonSerializer.Deserialize<List<FolderStats>>(json);
+                    if (data != null && data.Count > 0 && !string.IsNullOrEmpty(data[0].Path))
+                        return data;
                 }
-                catch (Exception ex) { Debug.WriteLine("Erro ao salvar pasta: " + ex.Message); }
+                catch { /* Ignora e tenta fallback */ }
+
+                // Fallback: Se o JSON for uma lista de strings (formato antigo), faz a migração
+                var oldPaths = JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>();
+                var migratedData = oldPaths.Select(path => GetFolderStats(path)).ToList();
+
+                // Salva já no formato novo para as próximas vezes
+                SaveFoldersData(migratedData);
+                return migratedData;
             }
+            catch { return new List<FolderStats>(); }
         }
 
-        private List<string> LoadWatchedFolders()
+        private void SaveFoldersData(List<FolderStats> folders)
         {
-            if (!File.Exists(foldersFile)) return new List<string>();
-            try { return JsonSerializer.Deserialize<List<string>>(File.ReadAllText(foldersFile)) ?? new List<string>(); }
-            catch { return new List<string>(); }
+            File.WriteAllText(foldersFile, JsonSerializer.Serialize(folders, new JsonSerializerOptions { WriteIndented = true }));
+        }
+
+        // Helper para manter compatibilidade com os scanners que só precisam dos caminhos
+        private List<string> GetWatchedFolderPaths()
+        {
+            return LoadFoldersData().Select(f => f.Path).ToList();
         }
 
         private bool IsFolderForbidden(string path)
         {
+            // =========================================================
+            // MODO DE TESTE: Retornando 'false' para ignorar as travas 
+            // de segurança e permitir adicionar o C:\ ou D:\
+            // Lembre-se de reverter isso depois!
+            // =========================================================
+            return false;
+
+            /*
             try
             {
                 string fullPath = Path.GetFullPath(path);
@@ -524,6 +571,87 @@ namespace Doorpi
             catch (Exception ex) { Debug.WriteLine($"Erro na validação de pasta: {ex.Message}"); return true; }
 
             return false;
+            */
+        }
+
+        /// <summary>
+        /// Enumera a pasta e mede o tempo real de leitura do sistema de arquivos.
+        /// SubfolderCount e ExeCount informam o "peso" estrutural.
+        /// EstimatedMs é o tempo medido — é exatamente o que o scan vai custar.
+        /// </summary>
+        private FolderStats GetFolderStats(string path)
+        {
+            var stats = new FolderStats { Path = path };
+            if (!Directory.Exists(path)) return stats;
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            try
+            {
+                // Esta opção faz o C# pular pastas protegidas sem disparar erro
+                var options = new EnumerationOptions
+                {
+                    IgnoreInaccessible = true,
+                    RecurseSubdirectories = true
+                };
+
+                // 1. Conta todas as subpastas (ignorando as inacessíveis)
+                stats.SubfolderCount = Directory.EnumerateDirectories(path, "*", options).Count();
+
+                // 2. Conta os executáveis e faz a amostragem
+                int exeCount = 0;
+                int samples = 0;
+
+                foreach (var file in Directory.EnumerateFiles(path, "*.exe", options))
+                {
+                    exeCount++;
+                    if (samples < 5)
+                    {
+                        // Extrai o ícone para gerar a amostragem de peso
+                        ExtractIcon(file);
+                        samples++;
+                    }
+                }
+                stats.ExeCount = exeCount;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[FolderStats] Erro ao varrer {path}: {ex.Message}");
+            }
+            sw.Stop();
+
+            stats.EstimatedMs = sw.ElapsedMilliseconds;
+            return stats;
+        }
+
+        /// <summary>
+        /// Coleta stats de todas as pastas em paralelo e envia foldersList ao UI.
+        /// Chamado em background — não bloqueia o Dispatcher.
+        /// </summary>
+        private void SendFoldersToUI()
+        {
+            // Apenas carrega os dados já cacheados no JSON, sem acessar o HD!
+            var stats = LoadFoldersData();
+
+            var payload = new { type = "foldersList", folders = stats };
+            Dispatcher.Invoke(() =>
+                webView.CoreWebView2.PostWebMessageAsString(
+                    JsonSerializer.Serialize(payload)));
+        }
+
+        /// <summary>
+        /// Remove uma pasta do JSON e descarta o watcher correspondente.
+        /// </summary>
+        private void DeleteWatchedFolder(string path)
+        {
+            var folders = LoadFoldersData();
+            folders.RemoveAll(f => string.Equals(f.Path, path, StringComparison.OrdinalIgnoreCase));
+            SaveFoldersData(folders);
+
+            var dead = _folderWatchers
+                .Where(w => string.Equals(w.Path, path, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            foreach (var w in dead) { w.EnableRaisingEvents = false; w.Dispose(); }
+            foreach (var w in dead) _folderWatchers.Remove(w);
         }
 
         // ========================= WINDOWS APPS (scan) =========================
@@ -617,7 +745,7 @@ namespace Doorpi
         private HashSet<string> GetFolderFingerprint()
         {
             var entries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var folder in LoadWatchedFolders())
+            foreach (var folder in GetWatchedFolderPaths())
             {
                 if (!Directory.Exists(folder)) continue;
                 try
@@ -764,7 +892,23 @@ namespace Doorpi
         }
 
         // ========================= WEBVIEW MESSAGES =========================
+        private void PerformBackgroundAnalysis(string path)
+        {
+            // Realiza o scan pesado
+            var stats = GetFolderStats(path);
 
+            // Atualiza o JSON com o resultado real
+            var folders = LoadFoldersData();
+            int idx = folders.FindIndex(f => string.Equals(f.Path, path, StringComparison.OrdinalIgnoreCase));
+            if (idx >= 0)
+            {
+                folders[idx] = stats;
+                SaveFoldersData(folders);
+            }
+
+            // Atualiza o front-end com os dados reais
+            SendFoldersToUI();
+        }
         private async void WebView_WebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
         {
             var jsonMessage = e.TryGetWebMessageAsString();
@@ -779,7 +923,10 @@ namespace Doorpi
 
                 if (action == "requestInstalledApps")
                 {
-                    _ = SendInstalledAppsToUIAsync();
+                    _ = Task.Run(async () => {
+                        try { await SendInstalledAppsToUIAsync(); }
+                        finally { Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}")); }
+                    });
                 }
                 else if (action == "addSelectedGames" && root.TryGetProperty("games", out var gamesElement))
                 {
@@ -789,68 +936,237 @@ namespace Doorpi
                 }
                 else if (action == "launch" && root.TryGetProperty("path", out var pathElement))
                 {
-                    LaunchGame(pathElement.GetString());
+                    string errorMsg = GetStr(root, "errorMsg", "Erro ao iniciar jogo: ");
+                    LaunchGame(pathElement.GetString(), errorMsg); 
                 }
                 else if (action == "browseManual")
                 {
-                    await Dispatcher.InvokeAsync(async () =>
+                    string dialogTitle = GetStr(root, "dialogTitle", "Select Executable");
+                    string dialogFilter = GetStr(root, "dialogFilter", "Executables (*.exe)|*.exe");
+                    string loadTitle = GetStr(root, "loadingTitle", "Adding");
+                    string loadSub = GetStr(root, "loadingSub", "Fetching covers...");
+                    string errMsg = GetStr(root, "errorMsg", "Error: ");
 
+                    await Dispatcher.InvokeAsync(async () =>
                     {
                         try
                         {
                             var dlg = new Microsoft.Win32.OpenFileDialog
                             {
-                                Filter = "Executáveis (*.exe)|*.exe",
-                                Title = "Selecione o executável do jogo"
+                                Filter = dialogFilter,
+                                Title = dialogTitle
                             };
                             if (dlg.ShowDialog() == true)
                             {
+                                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                                {
+                                    type = "updateLoadingText",
+                                    title = loadTitle,
+                                    subtitle = loadSub
+                                }));
                                 string filePath = dlg.FileName;
                                 string cleanName = GetGameNameFromFile(filePath) ?? Path.GetFileNameWithoutExtension(filePath);
                                 var manualApp = new List<InstalledApp>
-                {
-                    new InstalledApp
-                    {
-                        Name       = cleanName,
-                        Path       = filePath,
-                        IconBase64 = GetCachedIcon(filePath)
-                    }
-                };
+                                {
+                                    new InstalledApp { Name = cleanName, Path = filePath, IconBase64 = GetCachedIcon(filePath) }
+                                };
                                 await AddMultipleGamesAsync(manualApp);
                                 await webView.CoreWebView2.ExecuteScriptAsync("closeModal();");
                             }
+                            else
+                            {
+                                webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}");
+                            }
                         }
-                        catch (Exception ex) { System.Windows.MessageBox.Show("Erro ao abrir arquivo: " + ex.Message); }
+                        catch (Exception ex)
+                        {
+                            System.Windows.MessageBox.Show(errMsg + ex.Message);
+                            webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}");
+                        }
+                    });
+                }
+                else if (action == "requestFolders")
+                {
+                    _ = Task.Run(() => {
+                        try { SendFoldersToUI(); }
+                        finally { Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}")); }
                     });
                 }
                 else if (action == "pickFolder")
                 {
-                    await Dispatcher.InvokeAsync(async () =>
+                    string dialogTitle = GetStr(root, "dialogTitle");
+                    string forbiddenMsg = GetStr(root, "forbiddenMsg");
+                    string forbiddenTitle = GetStr(root, "forbiddenTitle");
+                    string loadTitle = GetStr(root, "loadingTitle");
+                    string loadSub = GetStr(root, "loadingSub");
+                    string errMsg = GetStr(root, "errorMsg");
+
+                    await Dispatcher.InvokeAsync(() =>
                     {
                         try
                         {
                             var dlg = new Microsoft.Win32.OpenFolderDialog
                             {
-                                Title = "Selecione a pasta da biblioteca de jogos",
+                                Title = dialogTitle,
                                 Multiselect = false
                             };
+
                             if (dlg.ShowDialog() == true)
                             {
                                 string selectedPath = dlg.FolderName;
                                 if (IsFolderForbidden(selectedPath))
                                 {
-                                    System.Windows.MessageBox.Show(
-                                        "Esta pasta ou unidade é protegida pelo sistema e não pode ser adicionada como biblioteca.\n\n" +
-                                        "Por favor, selecione uma pasta específica onde seus jogos estão instalados (ex: C:\\Jogos ou D:\\SteamLibrary).",
-                                        "Pasta Não Permitida", MessageBoxButton.OK, MessageBoxImage.Warning);
+                                    System.Windows.MessageBox.Show(forbiddenMsg, forbiddenTitle, MessageBoxButton.OK, MessageBoxImage.Warning);
+                                    webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}");
                                     return;
                                 }
-                                SaveWatchedFolder(selectedPath);
-                                await SendInstalledAppsToUIAsync();
+
+                                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                                {
+                                    type = "updateLoadingText",
+                                    title = loadTitle,
+                                    subtitle = loadSub
+                                }));
+
+                                var folders = LoadFoldersData();
+                                if (!folders.Any(f => string.Equals(f.Path, selectedPath, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    var placeholder = new FolderStats { Path = selectedPath, EstimatedMs = -1 };
+                                    folders.Add(placeholder);
+                                    SaveFoldersData(folders);
+                                    AddFolderWatcher(selectedPath);
+                                }
+
+                                _folderCacheInvalid = true;
+
+                                _ = Task.Run(async () => {
+                                    try
+                                    {
+                                        SendFoldersToUI();
+                                        await SendInstalledAppsToUIAsync();
+                                    }
+                                    finally
+                                    {
+                                        Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}"));
+                                    }
+                                    PerformBackgroundAnalysis(selectedPath);
+                                });
+                            }
+                            else
+                            {
+                                webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}");
                             }
                         }
-                        catch (Exception ex) { System.Windows.MessageBox.Show("Erro ao abrir seletor de pasta: " + ex.Message); }
+                        catch (Exception ex)
+                        {
+                            System.Windows.MessageBox.Show(errMsg + ex.Message);
+                            webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}");
+                        }
                     });
+                }
+                else if (action == "editFolder" && root.TryGetProperty("path", out var oldPathEl))
+                {
+                    string oldPath = oldPathEl.GetString() ?? "";
+                    string dialogTitle = GetStr(root, "dialogTitle");
+                    string forbiddenMsg = GetStr(root, "forbiddenMsg");
+                    string forbiddenTitle = GetStr(root, "forbiddenTitle");
+                    string loadTitle = GetStr(root, "loadingTitle");
+                    string loadSub = GetStr(root, "loadingSub");
+                    string errMsg = GetStr(root, "errorMsg");
+
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        try
+                        {
+                            var dlg = new Microsoft.Win32.OpenFolderDialog
+                            {
+                                Title = dialogTitle,
+                                Multiselect = false
+                            };
+
+                            if (dlg.ShowDialog() == true)
+                            {
+                                string newPath = dlg.FolderName;
+
+                                if (IsFolderForbidden(newPath))
+                                {
+                                    System.Windows.MessageBox.Show(forbiddenMsg, forbiddenTitle, MessageBoxButton.OK, MessageBoxImage.Warning);
+                                    webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}");
+                                    return;
+                                }
+
+                                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                                {
+                                    type = "updateLoadingText",
+                                    title = loadTitle,
+                                    subtitle = loadSub
+                                }));
+
+                                var folders = LoadFoldersData();
+                                int idx = folders.FindIndex(f => string.Equals(f.Path, oldPath, StringComparison.OrdinalIgnoreCase));
+                                var placeholder = new FolderStats { Path = newPath, EstimatedMs = -1 };
+
+                                if (idx >= 0) folders[idx] = placeholder;
+                                else folders.Add(placeholder);
+
+                                SaveFoldersData(folders);
+
+                                var dead = _folderWatchers.Where(w => string.Equals(w.Path, oldPath, StringComparison.OrdinalIgnoreCase)).ToList();
+                                foreach (var w in dead) { w.EnableRaisingEvents = false; w.Dispose(); }
+                                foreach (var w in dead) _folderWatchers.Remove(w);
+                                AddFolderWatcher(newPath);
+
+                                _folderCacheInvalid = true;
+
+                                _ = Task.Run(async () => {
+                                    try
+                                    {
+                                        SendFoldersToUI();
+                                        await SendInstalledAppsToUIAsync();
+                                    }
+                                    finally
+                                    {
+                                        Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}"));
+                                    }
+                                    PerformBackgroundAnalysis(newPath);
+                                });
+                            }
+                            else
+                            {
+                                webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Windows.MessageBox.Show(errMsg + ex.Message);
+                            webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}");
+                        }
+                    });
+                }
+                else if (action == "deleteFolder" && root.TryGetProperty("path", out var delPathEl))
+                {
+                    string delPath = delPathEl.GetString() ?? "";
+                    if (!string.IsNullOrEmpty(delPath))
+                    {
+                        DeleteWatchedFolder(delPath);
+                        _folderCacheInvalid = true;
+
+                        _ = Task.Run(async () => {
+                            try
+                            {
+                                await SendInstalledAppsToUIAsync();
+                                SendFoldersToUI();
+                            }
+                            finally
+                            {
+                                Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}"));
+                            }
+                        });
+                    }
+                    else
+                    {
+                        webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}");
+                    }
                 }
                 else if (action == "saveStaticFrame")
                 {
@@ -878,7 +1194,7 @@ namespace Doorpi
                             else if (imageType == "HorizontalStatic") { folder = gridHorizontalFolder; folderUrlName = "grid-horizontal"; }
 
                             string fullPath = Path.Combine(folder, fileName);
-                            await File.WriteAllBytesAsync(fullPath, imageBytes);
+                            File.WriteAllBytes(fullPath, imageBytes); // Sincrono para evitar lock de arquivo
 
                             string staticUrl = $"https://data.local/images/{folderUrlName}/{fileName}";
 
@@ -894,12 +1210,61 @@ namespace Doorpi
                         }
                     }
                 }
+
+
+                // ── Deletar jogo ────────────────────────────────────────────────────────────
+                else if (action == "deleteGame" && root.TryGetProperty("gameId", out var delGameIdEl))
+                {
+                    string gameId = delGameIdEl.GetString() ?? "";
+                    if (!string.IsNullOrEmpty(gameId))
+                    {
+                        var games = LoadGames();
+                        games.RemoveAll(g =>
+                            string.Equals(g.Path, gameId, StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(g.LaunchUrl, gameId, StringComparison.OrdinalIgnoreCase));
+                        SaveGames(games);
+                        Debug.WriteLine($"[deleteGame] Removido: {gameId}");
+                    }
+                }
+
+                // ── Editar nome do jogo ─────────────────────────────────────────────────────
+                else if (action == "editGame" &&
+                         root.TryGetProperty("gameId", out var editIdEl) &&
+                         root.TryGetProperty("newName", out var editNameEl))
+                {
+                    string gameId = editIdEl.GetString() ?? "";
+                    string newName = editNameEl.GetString() ?? "";
+
+                    if (!string.IsNullOrEmpty(gameId) && !string.IsNullOrEmpty(newName))
+                    {
+                        var games = LoadGames();
+                        var game = games.FirstOrDefault(g =>
+                            string.Equals(g.Path, gameId, StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(g.LaunchUrl, gameId, StringComparison.OrdinalIgnoreCase));
+
+                        if (game != null)
+                        {
+                            game.Name = newName;
+                            SaveGames(games);
+                            Debug.WriteLine($"[editGame] '{game.Path}' renomeado para: {newName}");
+                        }
+                    }
+                }
             }
             catch (Exception ex) { Debug.WriteLine($"Erro no WebView Message: {ex.Message}"); }
         }
 
         // ========================= ADICIONAR JOGOS =========================
-
+        private void ResumePendingAnalyses()
+        {
+            var folders = LoadFoldersData();
+            foreach (var folder in folders.Where(f => f.EstimatedMs == -1))
+            {
+                string pendingPath = folder.Path;
+            
+                _ = Task.Run(() => PerformBackgroundAnalysis(pendingPath));
+            }
+        }
         private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
         {
             var existingGames = LoadGames();
@@ -931,7 +1296,7 @@ namespace Doorpi
                     HeroImage = localHero != null ? $"https://data.local/images/hero/{Path.GetFileName(localHero)}" : "",
                     LogoImage = localLogo != null ? $"https://data.local/images/logo/{Path.GetFileName(localLogo)}" : "",
                     LastPlayed = DateTime.MinValue,
-                    DateAdded = DateTime.Now             // ← usado pelo badge "Novo" no JS
+                    DateAdded = DateTime.Now
                 };
 
                 existingGames.Add(game);
@@ -947,19 +1312,12 @@ namespace Doorpi
 
         // ========================= STEAMGRID =========================
 
-        /// <summary>
-        /// Pré-processa o nome antes de mandar pra API.
-        /// "ZenlessZoneZero" → "Zenless Zone Zero"
-        /// Só age se o nome não contém espaços (nomes normais passam direto).
-        /// </summary>
         private string PrepareSearchName(string name)
         {
             if (string.IsNullOrWhiteSpace(name)) return name;
             if (!name.Contains(' '))
             {
-                // CamelCase/PascalCase → espaços
                 var split = Regex.Replace(name, @"(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", " ");
-                // Letra/número colados → espaço
                 split = Regex.Replace(split, @"(?<=[a-zA-Z])(?=\d)|(?<=\d)(?=[a-zA-Z])", " ");
                 name = split.Trim();
             }
@@ -1063,7 +1421,8 @@ namespace Doorpi
 
         // ========================= LAUNCH =========================
 
-        private void LaunchGame(string? identifier)
+
+        private void LaunchGame(string? identifier, string errorMsg)
         {
             if (string.IsNullOrEmpty(identifier)) return;
             try
@@ -1115,7 +1474,7 @@ namespace Doorpi
                     }
                 }
             }
-            catch (Exception ex) { System.Windows.MessageBox.Show("Erro ao iniciar jogo: " + ex.Message); }
+            catch (Exception ex) { System.Windows.MessageBox.Show(errorMsg + ex.Message); }
         }
 
         private void EnsureLauncherRunning(string launchUrl)

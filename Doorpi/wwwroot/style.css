@@ -549,7 +549,7 @@ body {
 
 .filter-btn {
     background: rgba(255,255,255,0.07);
-    border: 1px solid rgba(255,255,255,0.12);
+    border: 3px solid rgba(255,255,255,0.12);
     color: rgba(255,255,255,0.52);
     padding: clamp(6px, 0.50vw, 10px) clamp(14px, 1.25vw, 26px);
     border-radius: 50px;
@@ -564,14 +564,13 @@ body {
     .filter-btn:focus,
     .filter-btn:hover {
         background: rgba(255,255,255,0.14);
-        border-color: rgba(255,255,255,0.28);
+        border-color: #2a2ac1;
         color: rgba(255,255,255,0.94);
         outline: none;
     }
 
     .filter-btn.active {
         background: rgba(255,255,255,0.96);
-        border-color: transparent;
         color: #06060e;
     }
 
@@ -743,55 +742,68 @@ body {
 }
 
 
+/* ── View: Pastas (Layout Premium) ────────────────────────────────────────── */
 #folderList {
     height: 100%;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: clamp(6px, 0.50vw, 10px);
-    padding: 6px 6px 100px;
+    gap: clamp(12px, 1vw, 16px);
+    padding: 6px 12px 100px 6px;
 }
 
 .folder-item {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    background: rgba(255,255,255,0.06);
-    padding: clamp(14px, 1.25vw, 26px) clamp(16px, 1.41vw, 30px);
-    border-radius: clamp(8px, 0.78vw, 15px);
-    border: 1.5px solid rgba(255,255,255,0.08);
-    transition: all 0.2s;
+    flex-direction: column;
+    gap: clamp(12px, 1.2vw, 18px);
+    background: rgba(255,255,255,0.04);
+    padding: clamp(16px, 1.5vw, 24px);
+    border-radius: clamp(10px, 0.9vw, 16px);
+    border: 1.5px solid rgba(255,255,255,0.06);
+    transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
     .folder-item:focus,
     .folder-item:hover {
-        border-color: rgba(255,255,255,0.48);
-        background: rgba(255,255,255,0.12);
+        border-color: rgba(255,255,255,0.3);
+        background: rgba(255,255,255,0.08);
         transform: scale(1.01);
         outline: none;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.4);
     }
+
+.folder-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
 
 .folder-info {
     display: flex;
     align-items: center;
     gap: clamp(12px, 0.98vw, 19px);
+    overflow: hidden;
 }
 
 .folder-icon {
-    font-size: clamp(1.2rem, 1.41vw, 1.55rem);
-    opacity: 0.5;
+    font-size: clamp(1.4rem, 1.6vw, 1.8rem);
+    opacity: 0.6;
+    color: #3b82f6;
 }
 
 .folder-path {
-    font-size: clamp(0.88rem, 0.88vw, 1.10rem);
+    font-size: clamp(0.95rem, 1vw, 1.15rem);
     font-family: 'SF Mono', 'Cascadia Code', monospace;
-    color: rgba(255,255,255,0.65);
+    color: rgba(255,255,255,0.85);
     letter-spacing: 0.02em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .folder-actions {
     display: flex;
-    gap: clamp(6px, 0.50vw, 10px);
+    gap: clamp(8px, 0.6vw, 12px);
 }
 
 .icon-btn {
@@ -801,7 +813,7 @@ body {
     padding: clamp(6px, 0.50vw, 10px) clamp(12px, 1.09vw, 20px);
     border-radius: clamp(6px, 0.50vw, 10px);
     cursor: pointer;
-    font-family: 'Outfit', sans-serif;
+    font-family: inherit;
     font-size: clamp(0.85rem, 0.85vw, 1.05rem);
     font-weight: 600;
     transition: all 0.18s;
@@ -813,14 +825,149 @@ body {
         color: #06060e;
         border-color: transparent;
         outline: none;
+        transform: translateY(-2px);
     }
 
     .icon-btn.delete-btn:focus,
     .icon-btn.delete-btn:hover {
         background: #dc2626;
         color: #fff;
+        box-shadow: 0 4px 14px rgba(220,38,38,0.4);
     }
 
+/* Dashboard de Estatísticas da Pasta */
+.folder-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1.2fr auto;
+    background: rgba(0,0,0,0.3);
+    padding: clamp(12px, 1.2vw, 18px) clamp(16px, 1.5vw, 24px);
+    border-radius: clamp(8px, 0.6vw, 12px);
+    gap: 12px;
+    align-items: center;
+}
+
+.folder-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.folder-stat-value {
+    font-size: clamp(1.1rem, 1.2vw, 1.4rem);
+    font-weight: 600;
+    color: #fff;
+}
+
+.folder-stat-label {
+    font-size: clamp(0.7rem, 0.75vw, 0.9rem);
+    color: rgba(255,255,255,0.45);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+/* Indicador de Performance */
+.folder-perf {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    justify-content: flex-end;
+}
+
+.folder-perf-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+}
+
+    .folder-perf-dot.fast {
+        background: #10b981;
+        box-shadow: 0 0 10px #10b981;
+    }
+
+    .folder-perf-dot.medium {
+        background: #f59e0b;
+        box-shadow: 0 0 10px #f59e0b;
+    }
+
+    .folder-perf-dot.slow {
+        background: #ef4444;
+        box-shadow: 0 0 10px #ef4444;
+    }
+
+.folder-perf-label {
+    font-size: clamp(0.8rem, 0.85vw, 1rem);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+    .folder-perf-label.fast {
+        color: #10b981;
+    }
+
+    .folder-perf-label.medium {
+        color: #f59e0b;
+    }
+
+    .folder-perf-label.slow {
+        color: #ef4444;
+    }
+
+/* Barra Inferior (Total & Botões) */
+.action-bar {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(10px, 1vw, 16px);
+    padding: clamp(16px, 1.5vw, 30px) 0 clamp(20px, 1.8vw, 38px);
+    border-top: 1px solid rgba(255,255,255,0.08);
+    background: rgba(16,16,28,0.85);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+}
+
+.folder-total-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    background: rgba(255,255,255,0.05);
+    padding: clamp(12px, 1vw, 16px) clamp(20px, 1.8vw, 28px);
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.08);
+}
+
+.folder-total-label {
+    color: rgba(255,255,255,0.6);
+    font-size: clamp(0.85rem, 0.9vw, 1.1rem);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 500;
+}
+
+.folder-total-value {
+    color: #fff;
+    font-weight: 700;
+    font-size: clamp(1.2rem, 1.3vw, 1.5rem);
+    text-shadow: 0 0 10px rgba(255,255,255,0.3);
+}
+
+
+.modal-btn.loading {
+    opacity: 0.6;
+    pointer-events: none;
+    animation: btn-loading-pulse 1s alternate infinite ease-in-out;
+}
+
+@keyframes btn-loading-pulse {
+    from {
+        filter: brightness(1.2);
+    }
+
+    to {
+        filter: brightness(0.5);
+    }
+}
 
 .action-bar {
     flex-shrink: 0;
@@ -878,7 +1025,7 @@ body {
     display: flex;
     gap: clamp(8px, 0.78vw, 15px);
     flex-wrap: wrap;
-    width: 91%;
+    width: 100%;
     justify-content: flex-end;
     row-gap: clamp(6px, 0.5vw, 10px);
 }
@@ -1755,4 +1902,72 @@ body {
     100% {
         background-position: 200% 0;
     }
+}
+/* Overlay de Carregamento Global do Modal */
+.global-loading-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(16,16,28,0.98);
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+.card.ctx-active {
+    transform: scale(0.98);
+    transition: filter 0.2s ease, transform 0.2s ease;
+    opacity: 1;
+    z-index: 10;
+    box-shadow: 0 0 20px 100vw rgba(0, 0, 0, 0.6);
+}
+
+@keyframes pulseAnalyzing {
+    0% {
+        opacity: 0.4;
+    }
+
+    50% {
+        opacity: 1;
+    }
+
+    100% {
+        opacity: 0.4;
+    }
+}
+
+
+.folder-perf-dot.loading, .folder-perf-label.loading {
+    animation: pulseAnalyzing 1.5s ease-in-out infinite;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.folder-perf-dot.loading {
+    background: rgba(255, 255, 255, 0.5) !important;
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
+}
+
+.folder-warning {
+    display: none;
+    background: rgba(220, 50, 50, 0.12);
+    border: 1px solid rgba(220, 50, 50, 0.25);
+    color: #ff8a8a;
+    padding: 10px 14px;
+    border-radius: 8px;
+    margin-top: 14px;
+    font-size: 11px;
+    align-items: center;
+    gap: 10px;
+    line-height: 1.4;
+}
+
+
+.folder-item.is-slow .folder-warning {
+    display: flex;
+    animation: editOverlayIn 0.3s ease;
+}
+
+.folder-item.is-slow {
+    border-color: rgba(220, 50, 50, 0.3);
+    background: rgba(220, 50, 50, 0.03);
 }
