@@ -157,12 +157,7 @@ function switchTab(tabId) {
     view.classList.remove('hidden');
     view.classList.add('active');
 
-    if (isApps) {
-        const firstApp = document.querySelector('#appList .app-item[tabindex="0"]');
-        if (firstApp) {
-            firstApp.focus();
-        }
-    }
+
     // ---------------------------
 
     if (tabId === 'folders') {
@@ -177,7 +172,7 @@ function switchTab(tabId) {
 
 /* Seção: Filtros e barra de filtros */
 currentSourceFilter = ['all'];
-
+let hasFocusBeenSet = false; 
 function buildFilterBar(apps) {
     const bar = document.getElementById('filterBar');
     if (!bar) return;
@@ -245,6 +240,7 @@ function applyFilterAndRender() {
 /* Seção: Modal de adição de jogos */
 document.getElementById('btnAdd').addEventListener('click', () => {
     isModalOpen = true;
+    hasFocusBeenSet = false;
 
     document.getElementById('modalActions').style.display = 'none';
     document.getElementById('gameGrid').style.overflowX = 'hidden';
@@ -272,11 +268,14 @@ function formatBytes(kb) {
 }
 
 function populateAppModal(apps) {
+    // Salva estado ANTES de reconstruir o DOM
+    const appListEl = document.getElementById('appList');
 
 
     const titleEl = document.getElementById('modalTitle');
-    titleEl.innerText = currentSourceFilter === 'all' ? t('selectApps') : t('showingStore', currentSourceFilter);
-
+    titleEl.innerText = currentSourceFilter.includes('all') ? t('selectApps') : t('showingStore', currentSourceFilter);
+   
+    // --
     const rebind = (id, fn) => {
         const btn = document.getElementById(id);
         if (!btn) return;
@@ -336,11 +335,15 @@ function populateAppModal(apps) {
         </div>`;
     }).join('');
 
+
+    // =========================================================
+
     document.getElementById('modalActions').style.display = 'flex';
     document.getElementById('selectionCounter')?.classList.remove('visible');
 
     appList.querySelectorAll('.app-item:not(.already-added)').forEach(item =>
         item.addEventListener('click', function () {
+
             this.classList.toggle('selected');
             const count = appList.querySelectorAll('.app-item.selected').length;
             const counter = document.getElementById('selectionCounter');
@@ -373,22 +376,23 @@ function populateAppModal(apps) {
         }
     });
 
-    const first = appList.querySelector('.app-item[tabindex="0"]');
-    if (first) {
-        first.focus();
-    } else {
-        document.getElementById('btnScanFolder')?.focus();
-    }
 
- 
     if (!isFolderOperationInProgress) {
         hideGlobalLoading();
+        const firstApp = appList.querySelector('.app-item:not(.already-added)');
+        
+ 
+       
     }
+
+
 }
 
 /* Seção: Pastas */
 function requestFolders() {
+
     postToHost({ action: 'requestFolders' });
+   
 }
 
 function renderFolderList(folders) {

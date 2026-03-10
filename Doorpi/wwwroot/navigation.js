@@ -22,7 +22,7 @@ const NAV = {
     GAMEPAD: {
         AXIS_THRESHOLD: 0.6, INITIAL_DELAY: 400, REPEAT_DELAY: 80,
         BTN_CONFIRM: 0, BTN_CANCEL: 1, BTN_SQUARE: 2, BTN_TRIANGLE: 3,
-        BTN_L1: 4, BTN_R1: 5, BTN_L3: 10, 
+        BTN_L1: 4, BTN_R1: 5, BTN_L3: 10,
         BTN_START: 9, BTN_UP: 12, BTN_DOWN: 13, BTN_LEFT: 14, BTN_RIGHT: 15,
     },
     KEYS: { UP: 'ArrowUp', DOWN: 'ArrowDown', LEFT: 'ArrowLeft', RIGHT: 'ArrowRight', CONFIRM: 'Enter', CANCEL: 'Escape' },
@@ -91,6 +91,7 @@ function triggerContextMenu() {
     const focused = document.activeElement;
     if (!focused?.classList.contains('card') || focused.classList.contains('add-card')) return;
     const r = focused.getBoundingClientRect();
+
     window._ctxMenuOpen?.(focused, r.right + 2, r.top);
 }
 
@@ -342,6 +343,34 @@ function moveFocus(direction) {
 
     let target = findSpatialCandidate(groupItems.filter(i => items.includes(i)), current, direction);
     if (!target) target = getGroupTransition(direction, groupName, groups, current);
+    if (!target) {
+        const skipWrap = groupName === 'app' && (direction === 'UP' || direction === 'DOWN');
+        if (!skipWrap) target = findWrapCandidate(groupItems.filter(i => items.includes(i)), current, direction);
+    }
+
+    // ← COLA AQUI, entre o wrap e o if(target)
+    if (!target && groupName === 'app') {
+        const appList = document.getElementById('appList');
+        if (appList) {
+            if (direction === 'UP' && appList.scrollTop > 0) {
+                appList.scrollTop = Math.max(0, appList.scrollTop - 150);
+                return;
+            }
+            if (direction === 'DOWN') {
+                const maxScroll = appList.scrollHeight - appList.clientHeight;
+                if (appList.scrollTop < maxScroll - 2) {
+                    appList.scrollTop = Math.min(maxScroll, appList.scrollTop + 150);
+                    return;
+                }
+            }
+        }
+    }
+
+    if (target) {
+        target.focus();
+        target.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+        signalNavigation();
+    }
     if (!target) target = findWrapCandidate(groupItems.filter(i => items.includes(i)), current, direction);
 
     if (target) {
@@ -414,7 +443,7 @@ document.addEventListener('keydown', e => {
 });
 
 let _gamepadIndex = null, _controllerType = 'generic', _btnCooldown = {}, _lastMoveTime = 0, _moveState = 0, _currentDirection = null;
-let _cursorHoldState = { l1: 0, r1: 0 }, _cursorLastTime = { l1: 0, r1: 0 }; 
+let _cursorHoldState = { l1: 0, r1: 0 }, _cursorLastTime = { l1: 0, r1: 0 };
 function buttonJustPressed(btn, index) {
     if (btn?.pressed) { if (!_btnCooldown[index]) { _btnCooldown[index] = true; return true; } return false; }
     _btnCooldown[index] = false; return false;
@@ -456,7 +485,7 @@ window.addEventListener('gamepaddisconnected', e => {
         if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) window._vkbCancel?.();
         if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) window._editModalSave?.();
 
-        
+
         [['l1', GAMEPAD.BTN_L1, 'left'], ['r1', GAMEPAD.BTN_R1, 'right']].forEach(([id, idx, dir]) => {
             const pressed = buttons[idx]?.pressed;
             if (pressed) {
@@ -482,7 +511,7 @@ window.addEventListener('gamepaddisconnected', e => {
         if (buttonJustPressed(buttons[GAMEPAD.BTN_TRIANGLE], GAMEPAD.BTN_TRIANGLE)) window._vkbPhysicalKey?.(' ');
         if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) window._vkbPhysicalKey?.('Backspace');
     }
- else {
+    else {
         if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
         if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
             if (isCtxMenuOpen) closeCtxMenu();

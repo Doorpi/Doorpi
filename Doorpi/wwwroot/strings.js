@@ -9,7 +9,7 @@ const STRINGS = {
         waitingFolder: 'Aguardando Pasta...',
         waitingWindows: 'Aguardando nova Pasta',
         updatingLibrary: 'Atualizando Biblioteca',
-        downloadingCovers: 'Baixando capas e adicionando... (Aguarde)',
+        downloadingCovers: 'Baixando capas e adicionando...',
 
         dlgBrowseTitle: 'Selecione o executável do jogo',
         dlgBrowseFilter: 'Executáveis (*.exe)|*.exe',
@@ -100,7 +100,7 @@ const STRINGS = {
         waitingFolder: 'Waiting for folder...',
         waitingWindows: 'Waiting for new folder',
         updatingLibrary: 'Updating Library',
-        downloadingCovers: 'Downloading covers and adding... (Please wait)',
+        downloadingCovers: 'Downloading covers and adding...',
 
         // Native Dialogs & Loading
         dlgBrowseTitle: 'Select game executable',

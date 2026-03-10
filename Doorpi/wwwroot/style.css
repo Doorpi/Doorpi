@@ -1919,7 +1919,7 @@ body {
     transition: filter 0.2s ease, transform 0.2s ease;
     opacity: 1;
     z-index: 10;
-    box-shadow: 0 0 20px 100vw rgba(0, 0, 0, 0.6);
+    box-shadow: 0 0 20px 100vw rgb(0 0 0 / 88%);
 }
 
 @keyframes pulseAnalyzing {

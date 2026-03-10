@@ -892,6 +892,45 @@ namespace Doorpi
         }
 
         // ========================= WEBVIEW MESSAGES =========================
+
+        private void DeleteGameImages(GameModel game)
+        {
+            var imageUrls = new[]
+            {
+        game.GridImage,
+        game.GridStaticImage,
+        game.GridHorizontalImage,
+        game.GridHorizontalStaticImage,
+        game.HeroImage,
+        game.HeroStaticImage,
+        game.LogoImage,
+        game.LogoStaticImage,
+    };
+
+            foreach (var url in imageUrls)
+            {
+                if (string.IsNullOrEmpty(url)) continue;
+
+                try
+                {
+                    // Converte "https://data.local/images/grid/filename.png"
+                    // para o caminho físico real em Data/images/grid/filename.png
+                    var uri = new Uri(url);
+                    string relativePath = uri.AbsolutePath.TrimStart('/'); // "images/grid/filename.png"
+                    string fullPath = Path.Combine(dataFolder, relativePath.Replace('/', Path.DirectorySeparatorChar));
+
+                    if (File.Exists(fullPath))
+                    {
+                        File.Delete(fullPath);
+                        Debug.WriteLine($"[deleteGame] Imagem deletada: {fullPath}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[deleteGame] Erro ao deletar imagem {url}: {ex.Message}");
+                }
+            }
+        }
         private void PerformBackgroundAnalysis(string path)
         {
             // Realiza o scan pesado
@@ -1038,7 +1077,6 @@ namespace Doorpi
                                 }
 
                                 _folderCacheInvalid = true;
-
                                 _ = Task.Run(async () => {
                                     try
                                     {
@@ -1049,8 +1087,10 @@ namespace Doorpi
                                     {
                                         Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}"));
                                     }
-                                    PerformBackgroundAnalysis(selectedPath);
                                 });
+
+                              
+                                _ = Task.Run(() => PerformBackgroundAnalysis(selectedPath));
                             }
                             else
                             {
@@ -1128,8 +1168,9 @@ namespace Doorpi
                                     {
                                         Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}"));
                                     }
-                                    PerformBackgroundAnalysis(newPath);
                                 });
+
+                                _ = Task.Run(() => PerformBackgroundAnalysis(newPath));
                             }
                             else
                             {
@@ -1219,11 +1260,18 @@ namespace Doorpi
                     if (!string.IsNullOrEmpty(gameId))
                     {
                         var games = LoadGames();
-                        games.RemoveAll(g =>
+                        var game = games.FirstOrDefault(g =>
                             string.Equals(g.Path, gameId, StringComparison.OrdinalIgnoreCase) ||
                             string.Equals(g.LaunchUrl, gameId, StringComparison.OrdinalIgnoreCase));
-                        SaveGames(games);
-                        Debug.WriteLine($"[deleteGame] Removido: {gameId}");
+
+                        if (game != null)
+                        {
+                        
+                            DeleteGameImages(game);
+                            games.Remove(game);
+                            SaveGames(games);
+                            Debug.WriteLine($"[deleteGame] Removido: {gameId}");
+                        }
                     }
                 }
 
@@ -1265,50 +1313,55 @@ namespace Doorpi
                 _ = Task.Run(() => PerformBackgroundAnalysis(pendingPath));
             }
         }
-        private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
+private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
+{
+    var existingGames = LoadGames();
+    bool isFirstGame = existingGames.Count == 0;
+    bool dbChanged = false;
+
+    foreach (var app in selectedApps)
+    {
+        if (existingGames.Any(g => g.Path.Equals(app.Path, StringComparison.OrdinalIgnoreCase)))
+            continue;
+
+        // ✅ Extrai steamAppId ANTES de chamar o fetch
+        string? steamAppId = null;
+        if (!string.IsNullOrEmpty(app.LaunchUrl) && app.LaunchUrl.StartsWith("steam://run/"))
+            steamAppId = app.LaunchUrl.Replace("steam://run/", "").Trim();
+
+        var (gridUrl, gridHorizontalUrl, heroUrl, logoUrl) = await FetchSteamGridAssetsAsync(app.Name, steamAppId);
+
+        string safeName = app.Path.GetHashCode().ToString();
+        string? localGrid = null, localGridHorizontal = null, localHero = null, localLogo = null;
+
+        if (!string.IsNullOrEmpty(gridHorizontalUrl)) localGridHorizontal = await DownloadImageAsync(gridHorizontalUrl, gridHorizontalFolder, safeName + "_h");
+        if (!string.IsNullOrEmpty(gridUrl)) localGrid = await DownloadImageAsync(gridUrl, gridFolder, safeName);
+        if (!string.IsNullOrEmpty(heroUrl)) localHero = await DownloadImageAsync(heroUrl, heroFolder, safeName);
+        if (!string.IsNullOrEmpty(logoUrl)) localLogo = await DownloadImageAsync(logoUrl, logoFolder, safeName + "_logo");
+
+        var game = new GameModel
         {
-            var existingGames = LoadGames();
-            bool isFirstGame = existingGames.Count == 0;
-            bool dbChanged = false;
+            Name = app.Name,
+            Path = app.Path,
+            LaunchUrl = app.LaunchUrl,
+            GridImage = localGrid != null ? $"https://data.local/images/grid/{Path.GetFileName(localGrid)}" : "",
+            GridHorizontalImage = localGridHorizontal != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(localGridHorizontal)}" : "",
+            HeroImage = localHero != null ? $"https://data.local/images/hero/{Path.GetFileName(localHero)}" : "",
+            LogoImage = localLogo != null ? $"https://data.local/images/logo/{Path.GetFileName(localLogo)}" : "",
+            LastPlayed = DateTime.MinValue,
+            DateAdded = DateTime.Now
+        };
 
-            foreach (var app in selectedApps)
-            {
-                if (existingGames.Any(g => g.Path.Equals(app.Path, StringComparison.OrdinalIgnoreCase)))
-                    continue;
+        existingGames.Add(game);
+        dbChanged = true;
+        SaveGames(existingGames);
 
-                var (gridUrl, gridHorizontalUrl, heroUrl, logoUrl) = await FetchSteamGridAssetsAsync(app.Name);
-                string safeName = app.Path.GetHashCode().ToString();
+        Dispatcher.Invoke(() => SendGameToUI(game, isFirstGame));
+        if (isFirstGame) isFirstGame = false;
+    }
 
-                string? localGrid = null, localGridHorizontal = null, localHero = null, localLogo = null;
-
-                if (!string.IsNullOrEmpty(gridHorizontalUrl)) localGridHorizontal = await DownloadImageAsync(gridHorizontalUrl, gridHorizontalFolder, safeName + "_h");
-                if (!string.IsNullOrEmpty(gridUrl)) localGrid = await DownloadImageAsync(gridUrl, gridFolder, safeName);
-                if (!string.IsNullOrEmpty(heroUrl)) localHero = await DownloadImageAsync(heroUrl, heroFolder, safeName);
-                if (!string.IsNullOrEmpty(logoUrl)) localLogo = await DownloadImageAsync(logoUrl, logoFolder, safeName + "_logo");
-
-                var game = new GameModel
-                {
-                    Name = app.Name,
-                    Path = app.Path,
-                    LaunchUrl = app.LaunchUrl,
-                    GridImage = localGrid != null ? $"https://data.local/images/grid/{Path.GetFileName(localGrid)}" : "",
-                    GridHorizontalImage = localGridHorizontal != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(localGridHorizontal)}" : "",
-                    HeroImage = localHero != null ? $"https://data.local/images/hero/{Path.GetFileName(localHero)}" : "",
-                    LogoImage = localLogo != null ? $"https://data.local/images/logo/{Path.GetFileName(localLogo)}" : "",
-                    LastPlayed = DateTime.MinValue,
-                    DateAdded = DateTime.Now
-                };
-
-                existingGames.Add(game);
-                dbChanged = true;
-                SaveGames(existingGames);
-
-                Dispatcher.Invoke(() => SendGameToUI(game, isFirstGame));
-                if (isFirstGame) isFirstGame = false;
-            }
-
-            if (dbChanged) SaveGames(existingGames);
-        }
+    if (dbChanged) SaveGames(existingGames);
+}
 
         // ========================= STEAMGRID =========================
 
@@ -1323,52 +1376,103 @@ namespace Doorpi
             }
             return name;
         }
-
-        private async Task<(string?, string?, string?, string?)> FetchSteamGridAssetsAsync(string gameName)
+    
+        private async Task<(string?, string?, string?, string?)> FetchSteamGridAssetsAsync(string gameName, string? steamAppId = null)
         {
-            gameName = PrepareSearchName(gameName);
+            // 1. Steam CDN direto — sem API, sem rate limit, perfeito pra jogos Steam
+            if (!string.IsNullOrEmpty(steamAppId))
+            {
+                var steam = await TryFetchFromSteamCDN(steamAppId);
+                if (steam.Item1 != null)
+                {
+                    Debug.WriteLine($"[Steam CDN] Achou assets direto pra AppId {steamAppId}");
+                    return steam;
+                }
+            }
 
+            // 2. SteamGridDB via SGDB id do jogo Steam (busca por appId na API deles)
+            if (!string.IsNullOrEmpty(steamAppId))
+            {
+                var byId = await TryFetchBySteamAppId(steamAppId);
+                if (byId.Item1 != null) return byId;
+            }
+
+            // 3. SteamGridDB por nome (Epic, GOG, Folder, etc)
+            return await TryFetchByName(gameName);
+        }
+
+        private async Task<(string?, string?, string?, string?)> TryFetchFromSteamCDN(string appId)
+        {
             try
             {
-                Debug.WriteLine("======================================");
-                Debug.WriteLine($"SteamGridDB FETCH: {gameName}");
+                string grid = $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appId}/library_600x900.jpg";
+                string horizontal = $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appId}/header.jpg";
+                string hero = $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appId}/library_hero.jpg";
+                string logo = $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appId}/logo.png";
 
-                string searchUrl = $"https://www.steamgriddb.com/api/v2/search/autocomplete/{Uri.EscapeDataString(gameName)}";
-                var searchJson = await httpClient.GetStringAsync(searchUrl);
+                // Verifica se o grid existe (basta checar um, se o jogo existe no Steam todos existem)
+                var response = await httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Head, grid));
+                if (!response.IsSuccessStatusCode) return (null, null, null, null);
 
-                using var searchDoc = JsonDocument.Parse(searchJson);
-                if (!searchDoc.RootElement.GetProperty("success").GetBoolean()) return (null, null, null, null);
+                return (grid, horizontal, hero, logo);
+            }
+            catch { return (null, null, null, null); }
+        }
 
-                var results = searchDoc.RootElement.GetProperty("data");
+        private async Task<(string?, string?, string?, string?)> TryFetchBySteamAppId(string steamAppId)
+        {
+            try
+            {
+                var json = await httpClient.GetStringAsync($"https://www.steamgriddb.com/api/v2/games/steam/{steamAppId}");
+                using var doc = JsonDocument.Parse(json);
+                if (!doc.RootElement.GetProperty("success").GetBoolean()) return (null, null, null, null);
+
+                int id = doc.RootElement.GetProperty("data").GetProperty("id").GetInt32();
+                return await FetchAssetsByGameId(id);
+            }
+            catch { return (null, null, null, null); }
+        }
+
+        private async Task<(string?, string?, string?, string?)> TryFetchByName(string gameName)
+        {
+            try
+            {
+                string safe = Uri.EscapeDataString(gameName);
+                var json = await httpClient.GetStringAsync($"https://www.steamgriddb.com/api/v2/search/autocomplete/{safe}");
+                using var doc = JsonDocument.Parse(json);
+                if (!doc.RootElement.GetProperty("success").GetBoolean()) return (null, null, null, null);
+
+                var results = doc.RootElement.GetProperty("data");
                 if (results.GetArrayLength() == 0) return (null, null, null, null);
 
-                for (int i = 0; i < Math.Min(results.GetArrayLength(), 5); i++)
+                // Tenta os 3 primeiros resultados, usa o primeiro que tiver grid
+                foreach (var game in results.EnumerateArray().Take(3))
                 {
-                    int id = results[i].GetProperty("id").GetInt32();
-                    string name = results[i].GetProperty("name").GetString() ?? "";
-
-                    Debug.WriteLine($"[{i + 1}] {name} (id={id})");
-
-                    string? grid = await GetFirstImageUrl($"grids/game/{id}?dimensions=600x900,342x482,660x930&types=static,animated&sort=score");
-                    if (string.IsNullOrEmpty(grid)) continue;
-
-                    string? gridHorizontal = await GetFirstImageUrl($"grids/game/{id}?dimensions=460x215,920x430&types=static,animated&sort=score");
-                    string? hero = await GetFirstImageUrl($"heroes/game/{id}?types=static,animated&sort=score");
-                    string? logo = await GetFirstImageUrl($"logos/game/{id}?types=static,animated&sort=score");
-
-                    if (string.IsNullOrEmpty(gridHorizontal)) gridHorizontal = hero;
-
-                    Debug.WriteLine("======================================");
-                    return (grid, gridHorizontal, hero, logo);
+                    int id = game.GetProperty("id").GetInt32();
+                    var assets = await FetchAssetsByGameId(id);
+                    if (assets.Item1 != null) return assets;
                 }
 
                 return (null, null, null, null);
             }
-            catch (Exception ex)
-            {
-                Debug.WriteLine("ERRO SteamGridDB: " + ex.ToString());
-                return (null, null, null, null);
-            }
+            catch { return (null, null, null, null); }
+        }
+
+        private async Task<(string?, string?, string?, string?)> FetchAssetsByGameId(int id)
+        {
+            // Tenta dimensões específicas primeiro, depois qualquer uma
+            string? grid = await GetFirstImageUrl($"grids/game/{id}?dimensions=600x900,342x482,660x930&types=static,animated&sort=score")
+                        ?? await GetFirstImageUrl($"grids/game/{id}?types=static,animated&sort=score");
+
+            if (string.IsNullOrEmpty(grid)) return (null, null, null, null);
+
+            string? horizontal = await GetFirstImageUrl($"grids/game/{id}?dimensions=460x215,920x430&types=static,animated&sort=score");
+            string? hero = await GetFirstImageUrl($"heroes/game/{id}?types=static,animated&sort=score");
+            string? logo = await GetFirstImageUrl($"logos/game/{id}?types=static,animated&sort=score");
+
+            if (string.IsNullOrEmpty(horizontal)) horizontal = hero;
+
+            return (grid, horizontal, hero, logo);
         }
 
         private async Task<string?> GetFirstImageUrl(string endpoint)
