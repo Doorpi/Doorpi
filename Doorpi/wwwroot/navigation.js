@@ -27,6 +27,7 @@ const NAV = {
     },
     KEYS: { UP: 'ArrowUp', DOWN: 'ArrowDown', LEFT: 'ArrowLeft', RIGHT: 'ArrowRight', CONFIRM: 'Enter', CANCEL: 'Escape' },
 };
+const VKB_BOTTOM_KEYS = ['space', 'cancel', 'ok'];
 
 const GAMEPAD_ICONS = {
     ps: {
@@ -119,7 +120,6 @@ function getModalGroups() {
     }
     return { sidebar, filters, apps, actions, folderBtns, activeTab };
 }
-
 function getNavigableItems() {
     if (window._vkbIsOpen) return Array.from(document.querySelectorAll('.vkb-key[tabindex="0"]'));
     if (isCtxMenuOpen) return getCtxMenuItems();
@@ -131,7 +131,12 @@ function getNavigableItems() {
 
     const g = getModalGroups();
     const isVisible = (el) => el.offsetWidth > 0 && el.offsetHeight > 0;
+
+    // RESTAURADO: A regra original que ignora a aba ativa!
     const isNavigable = (el) => !(el.classList.contains('menu-tab') && el.classList.contains('active'));
+
+    // MANTIDO: Garante que as abas inativas aceitarão o foco do controle
+    g.sidebar.forEach(el => el.setAttribute('tabindex', '0'));
 
     if (g.activeTab === 'view-apps')
         return [...g.sidebar, ...g.filters, ...g.apps, ...g.actions].filter(el => isVisible(el) && isNavigable(el));
@@ -191,39 +196,28 @@ function findVkbCandidate(items, current, direction) {
     });
     return best;
 }
-
-function findWrapCandidate(items, current, direction) {
-    const cr = current.getBoundingClientRect();
-    const cx = cr.left + cr.width / 2, cy = cr.top + cr.height / 2;
-    let best = null, maxDist = -1;
-    items.forEach(item => {
-        if (item === current) return;
-        const r = item.getBoundingClientRect();
-        const icx = r.left + r.width / 2, icy = r.top + r.height / 2;
-        let opp = false, dist = 0, overlap = 0;
-        switch (direction) {
-            case 'RIGHT': opp = icx < cx; dist = cx - icx; overlap = Math.min(cr.bottom, r.bottom) - Math.max(cr.top, r.top); break;
-            case 'LEFT': opp = icx > cx; dist = cx - icx; overlap = Math.min(cr.bottom, r.bottom) - Math.max(cr.top, r.top); break;
-            case 'DOWN': opp = icy < cy; dist = cy - icy; overlap = Math.min(cr.right, r.right) - Math.max(cr.left, r.left); break;
-            case 'UP': opp = icy > cy; dist = icy - cy; overlap = Math.min(cr.right, r.right) - Math.max(cr.left, r.left); break;
-        }
-        if (opp && overlap > -10 && dist > maxDist) { maxDist = dist; best = item; }
-    });
-    return best;
-}
-
-const VKB_BOTTOM_KEYS = ['space', 'cancel', 'ok'];
-
 function getGroupTransition(direction, groupName, groups, current) {
     const { sidebar, filters, apps, actions, folderBtns, activeTab } = groups;
     const firstVisible = (arr) => arr.find(el => el.offsetWidth > 0 && el.offsetHeight > 0);
-    const bestSidebar = () => (_lastFocusedSidebar && sidebar.includes(_lastFocusedSidebar))
-        ? _lastFocusedSidebar
-        : sidebar.find(el => el.classList.contains('active')) || sidebar[0] || null;
+
+    const bestSidebar = () => {
+        // RESTAURADO: Ao ir para a esquerda, foca apenas nas abas INATIVAS
+        const navigable = sidebar.filter(el => !el.classList.contains('active'));
+        if (_lastFocusedSidebar && navigable.includes(_lastFocusedSidebar)) return _lastFocusedSidebar;
+        return navigable[0] || null;
+    };
+
+    const bestFilter = () => {
+        const navigableFilters = filters.filter(el => el.offsetWidth > 0 && el.offsetHeight > 0);
+        if (_lastFocusedFilter && navigableFilters.includes(_lastFocusedFilter)) return _lastFocusedFilter;
+        return navigableFilters[0] || null;
+    };
 
     if (activeTab === 'view-apps') {
         const bestApp = () => firstVisible(apps);
+
         if (groupName === 'filter') {
+            if (direction === 'UP') return current;
             if (direction === 'DOWN') return bestApp();
             if (direction === 'LEFT' || direction === 'RIGHT') {
                 const target = findSpatialCandidate(filters, current, direction);
@@ -235,11 +229,18 @@ function getGroupTransition(direction, groupName, groups, current) {
         if (groupName === 'app') {
             if (direction === 'DOWN' || direction === 'RIGHT') return actions[0] ?? null;
             if (direction === 'LEFT') return bestSidebar();
-            if (direction === 'UP') return _lastFocusedFilter || firstVisible(filters) || null;
+            if (direction === 'UP') return bestFilter();
         }
-        if (groupName === 'sidebar' && direction === 'RIGHT') return firstVisible(filters) || bestApp();
+
+        if (groupName === 'sidebar') {
+            if (direction === 'RIGHT') return bestApp();
+            if (direction === 'DOWN') return bestApp();
+            if (direction === 'UP') return bestFilter();
+        }
+
         if (groupName === 'action' && (direction === 'LEFT' || direction === 'UP')) return bestApp();
-    } else {
+
+    } else { // Regras para a aba view-folders
         const bestFolderBtn = () => firstVisible(folderBtns);
         if (groupName === 'folderBtn') {
             if (direction === 'LEFT') return bestSidebar();
@@ -249,7 +250,10 @@ function getGroupTransition(direction, groupName, groups, current) {
             if (direction === 'UP') return folderBtns[folderBtns.length - 1] ?? null;
             if (direction === 'LEFT') return bestSidebar();
         }
-        if (groupName === 'sidebar' && direction === 'RIGHT') return bestFolderBtn() || actions[0];
+        if (groupName === 'sidebar') {
+            if (direction === 'RIGHT') return bestFolderBtn() || actions[0];
+            if (direction === 'DOWN') return bestFolderBtn() || actions[0];
+        }
     }
     return null;
 }
@@ -263,7 +267,6 @@ function gamepadStart() {
     document.getElementById('btnAdd')?.click();
 }
 function gamepadTriangle() { if (isModalOpen && !window.isGlobalLoading) document.getElementById('btnSearch')?.click(); }
-
 function moveFocus(direction) {
     if (window.isGlobalLoading) return;
 
@@ -271,8 +274,9 @@ function moveFocus(direction) {
         const items = Array.from(document.querySelectorAll('.vkb-key[tabindex="0"]'));
         const current = document.activeElement;
         if (!items.includes(current)) { items[0]?.focus(); return; }
-        const target = findVkbCandidate(items, current, direction);
-        if (target) target.focus();
+        let target = findVkbCandidate(items, current, direction);
+        if (!target) target = current; // Fallback
+        if (target && target !== current) target.focus();
         return;
     }
 
@@ -290,9 +294,9 @@ function moveFocus(direction) {
         if (!items.length) return;
         const current = document.activeElement;
         if (!items.includes(current)) { items[0]?.focus(); return; }
-        let target = findSpatialCandidate(items, current, direction)
-            || findWrapCandidate(items, current, direction);
-        target?.focus();
+        let target = findSpatialCandidate(items, current, direction) || findWrapCandidate(items, current, direction);
+        if (!target) target = current; // Fallback
+        if (target && target !== current) target.focus();
         return;
     }
 
@@ -317,7 +321,10 @@ function moveFocus(direction) {
             else if (direction === 'LEFT') target = items[items.length - 1];
             else target = findWrapCandidate(items, current, direction);
         }
-        if (target) {
+
+        if (!target) target = current; // Fallback
+
+        if (target && target !== current) {
             current._stopInteraction?.();
             cancelHeroTransition?.();
             pendingInteractionCard = null;
@@ -342,13 +349,25 @@ function moveFocus(direction) {
     if (groupName === 'sidebar') _lastFocusedSidebar = current;
 
     let target = findSpatialCandidate(groupItems.filter(i => items.includes(i)), current, direction);
-    if (!target) target = getGroupTransition(direction, groupName, groups, current);
-    if (!target) {
-        const skipWrap = groupName === 'app' && (direction === 'UP' || direction === 'DOWN');
-        if (!skipWrap) target = findWrapCandidate(groupItems.filter(i => items.includes(i)), current, direction);
+
+    if (!target && groupName === 'app' && (direction === 'DOWN' || direction === 'UP')) {
+        const navigableApps = groups.apps.filter(i => items.includes(i));
+        const currentIdx = navigableApps.indexOf(current);
+        const currentTop = current.getBoundingClientRect().top;
+
+        if (direction === 'DOWN') {
+            target = navigableApps.slice(currentIdx + 1)
+                .find(a => a.getBoundingClientRect().top > currentTop + 10) || null;
+        } else {
+            const candidates = navigableApps.slice(0, currentIdx)
+                .filter(a => a.getBoundingClientRect().top < currentTop - 10);
+            target = candidates[candidates.length - 1] || null;
+        }
     }
 
-    // ← COLA AQUI, entre o wrap e o if(target)
+    if (!target) target = getGroupTransition(direction, groupName, groups, current);
+
+    // Regra de scroll da AppList
     if (!target && groupName === 'app') {
         const appList = document.getElementById('appList');
         if (appList) {
@@ -366,19 +385,24 @@ function moveFocus(direction) {
         }
     }
 
-    if (target) {
-        target.focus();
-        target.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
-        signalNavigation();
+    // Tenta wrap dentro do mesmo grupo se as regras acima não definiram nada
+    if (!target) {
+        const skipWrap = groupName === 'app' && (direction === 'UP' || direction === 'DOWN');
+        if (!skipWrap) target = findWrapCandidate(groupItems.filter(i => items.includes(i)), current, direction);
     }
-    if (!target) target = findWrapCandidate(groupItems.filter(i => items.includes(i)), current, direction);
 
-    if (target) {
+    // >>> O SUPER FALLBACK GLOBAL <<<
+    // Se depois de TUDO isso ele não sabe pra onde ir, ele simplesmente fica parado.
+    if (!target) target = current;
+
+    // Só aplica o foco se de fato for para um elemento diferente
+    if (target && target !== current) {
         target.focus();
         target.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
         signalNavigation();
     }
 }
+
 
 function focusItemByIndex(index) {
     const items = getNavigableItems();
@@ -459,79 +483,89 @@ window.addEventListener('gamepaddisconnected', e => {
     const pads = navigator.getGamepads();
     for (const pad of pads) if (pad) { _gamepadIndex = pad.index; _controllerType = detectControllerType(pad); isGamepadConnected = true; updateGamepadUI(true, _controllerType); break; }
 });
-
 (function gamepadLoop() {
-    const gamepad = _gamepadIndex !== null ? navigator.getGamepads()[_gamepadIndex] : null;
-    if (!gamepad) { requestAnimationFrame(gamepadLoop); return; }
-    if (window.isGlobalLoading) { requestAnimationFrame(gamepadLoop); return; }
-    const items = getNavigableItems();
-    if (!items.length) { requestAnimationFrame(gamepadLoop); return; }
-    if (!items.includes(document.activeElement)) { focusItemByIndex(0); requestAnimationFrame(gamepadLoop); return; }
-    const { GAMEPAD } = NAV, buttons = gamepad.buttons;
-    const ax = gamepad.axes[0], ay = gamepad.axes[1], thr = GAMEPAD.AXIS_THRESHOLD, now = performance.now();
-    let dir = null;
-    if (ax > thr || buttons[GAMEPAD.BTN_RIGHT]?.pressed) dir = 'RIGHT';
-    else if (ax < -thr || buttons[GAMEPAD.BTN_LEFT]?.pressed) dir = 'LEFT';
-    else if (ay > thr || buttons[GAMEPAD.BTN_DOWN]?.pressed) dir = 'DOWN';
-    else if (ay < -thr || buttons[GAMEPAD.BTN_UP]?.pressed) dir = 'UP';
-    if (dir) {
-        if (dir !== _currentDirection) { moveFocus(dir); _lastMoveTime = now; _moveState = 1; _currentDirection = dir; }
-        else if (_moveState === 1 && now - _lastMoveTime > GAMEPAD.INITIAL_DELAY) { moveFocus(dir); _lastMoveTime = now; _moveState = 2; }
-        else if (_moveState === 2 && now - _lastMoveTime > GAMEPAD.REPEAT_DELAY) { moveFocus(dir); _lastMoveTime = now; }
-    } else { _moveState = 0; _currentDirection = null; }
+    try {
+        const gamepad = _gamepadIndex !== null ? navigator.getGamepads()[_gamepadIndex] : null;
+        if (!gamepad) return;
+        if (window.isGlobalLoading) return;
 
-    if (window._vkbIsOpen) {
-        if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
-        if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) window._vkbCancel?.();
-        if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) window._editModalSave?.();
+        const items = getNavigableItems();
+        if (!items.length) return;
+        if (!items.includes(document.activeElement)) {
+            focusItemByIndex(0);
+            return;
+        }
 
+        const { GAMEPAD } = NAV, buttons = gamepad.buttons;
+        const ax = gamepad.axes[0], ay = gamepad.axes[1], thr = GAMEPAD.AXIS_THRESHOLD, now = performance.now();
+        let dir = null;
 
-        [['l1', GAMEPAD.BTN_L1, 'left'], ['r1', GAMEPAD.BTN_R1, 'right']].forEach(([id, idx, dir]) => {
-            const pressed = buttons[idx]?.pressed;
-            if (pressed) {
-                if (_cursorHoldState[id] === 0) {
-                    window._vkbMoveCursor?.(dir);
-                    _cursorLastTime[id] = now;
-                    _cursorHoldState[id] = 1;
-                } else if (_cursorHoldState[id] === 1 && now - _cursorLastTime[id] > GAMEPAD.INITIAL_DELAY) {
-                    window._vkbMoveCursor?.(dir);
-                    _cursorLastTime[id] = now;
-                    _cursorHoldState[id] = 2;
-                } else if (_cursorHoldState[id] === 2 && now - _cursorLastTime[id] > GAMEPAD.REPEAT_DELAY) {
-                    window._vkbMoveCursor?.(dir);
-                    _cursorLastTime[id] = now;
+        if (ax > thr || buttons[GAMEPAD.BTN_RIGHT]?.pressed) dir = 'RIGHT';
+        else if (ax < -thr || buttons[GAMEPAD.BTN_LEFT]?.pressed) dir = 'LEFT';
+        else if (ay > thr || buttons[GAMEPAD.BTN_DOWN]?.pressed) dir = 'DOWN';
+        else if (ay < -thr || buttons[GAMEPAD.BTN_UP]?.pressed) dir = 'UP';
+
+        if (dir) {
+            if (dir !== _currentDirection) { moveFocus(dir); _lastMoveTime = now; _moveState = 1; _currentDirection = dir; }
+            else if (_moveState === 1 && now - _lastMoveTime > GAMEPAD.INITIAL_DELAY) { moveFocus(dir); _lastMoveTime = now; _moveState = 2; }
+            else if (_moveState === 2 && now - _lastMoveTime > GAMEPAD.REPEAT_DELAY) { moveFocus(dir); _lastMoveTime = now; }
+        } else { _moveState = 0; _currentDirection = null; }
+
+        if (window._vkbIsOpen) {
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) window._vkbCancel?.();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) window._editModalSave?.();
+
+            [['l1', GAMEPAD.BTN_L1, 'left'], ['r1', GAMEPAD.BTN_R1, 'right']].forEach(([id, idx, dir]) => {
+                const pressed = buttons[idx]?.pressed;
+                if (pressed) {
+                    if (_cursorHoldState[id] === 0) {
+                        window._vkbMoveCursor?.(dir);
+                        _cursorLastTime[id] = now;
+                        _cursorHoldState[id] = 1;
+                    } else if (_cursorHoldState[id] === 1 && now - _cursorLastTime[id] > GAMEPAD.INITIAL_DELAY) {
+                        window._vkbMoveCursor?.(dir);
+                        _cursorLastTime[id] = now;
+                        _cursorHoldState[id] = 2;
+                    } else if (_cursorHoldState[id] === 2 && now - _cursorLastTime[id] > GAMEPAD.REPEAT_DELAY) {
+                        window._vkbMoveCursor?.(dir);
+                        _cursorLastTime[id] = now;
+                    }
+                } else {
+                    _cursorHoldState[id] = 0;
                 }
-            } else {
-                _cursorHoldState[id] = 0;
+            });
+
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_L3], GAMEPAD.BTN_L3)) window._vkbToggleShift?.();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_TRIANGLE], GAMEPAD.BTN_TRIANGLE)) window._vkbPhysicalKey?.(' ');
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) window._vkbPhysicalKey?.('Backspace');
+        }
+        else {
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
+                if (isCtxMenuOpen) closeCtxMenu();
+                else if (isEditModalOpen) window._editModalClose?.();
+                else gamepadCancel();
             }
-        });
-
-        if (buttonJustPressed(buttons[GAMEPAD.BTN_L3], GAMEPAD.BTN_L3)) window._vkbToggleShift?.();
-
-        if (buttonJustPressed(buttons[GAMEPAD.BTN_TRIANGLE], GAMEPAD.BTN_TRIANGLE)) window._vkbPhysicalKey?.(' ');
-        if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) window._vkbPhysicalKey?.('Backspace');
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) {
+                if (isModalOpen) document.getElementById('btnConfirmAdd')?.click();
+                else gamepadStart();
+            }
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_TRIANGLE], GAMEPAD.BTN_TRIANGLE)) {
+                if (isModalOpen) gamepadAddFolder();
+                gamepadTriangle();
+            }
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) {
+                if (isEditModalOpen) window._editModalClose?.();
+                else triggerContextMenu();
+            }
+        }
+    } catch (e) {
+        console.error('Gamepad protegida interceptou um erro:', e);
+    } finally {
+      
+        requestAnimationFrame(gamepadLoop);
     }
-    else {
-        if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
-        if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
-            if (isCtxMenuOpen) closeCtxMenu();
-            else if (isEditModalOpen) window._editModalClose?.();
-            else gamepadCancel();
-        }
-        if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) {
-            if (isModalOpen) document.getElementById('btnConfirmAdd')?.click();
-            else gamepadStart();
-        }
-        if (buttonJustPressed(buttons[GAMEPAD.BTN_TRIANGLE], GAMEPAD.BTN_TRIANGLE)) {
-            if (isModalOpen) gamepadAddFolder();
-            gamepadTriangle();
-        }
-        if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) {
-            if (isEditModalOpen) window._editModalClose?.();
-            else triggerContextMenu();
-        }
-    }
-    requestAnimationFrame(gamepadLoop);
 })();
 
 window.addEventListener('load', () => {
@@ -549,3 +583,66 @@ function showCursor() {
 }
 document.addEventListener('mousemove', showCursor);
 showCursor();
+
+// =============================================================================
+// Auto-Foco Inteligente Centralizado (Navegação & Modal)
+// =============================================================================
+
+// 1. Ao clicar/confirmar em uma aba lateral
+document.addEventListener('click', (e) => {
+    const tab = e.target.closest('.menu-tab');
+    if (tab) {
+        setTimeout(() => {
+            const groups = getModalGroups();
+            const firstVisible = (arr) => arr.find(el => el.offsetWidth > 0 && el.offsetHeight > 0);
+
+            let target = null;
+            if (groups.activeTab === 'view-apps') {
+                // Foca direto no primeiro APP (ignorando os filtros)
+                target = firstVisible(groups.apps);
+            } else {
+                target = firstVisible(groups.folderBtns) || groups.actions[0];
+            }
+
+            if (target) {
+                target.focus();
+                if (isModalOpen) target.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+                signalNavigation();
+            }
+        }, 100);
+    }
+});
+
+// 2. Ao abrir o Modal de Adicionar Jogo pela primeira vez (Botão +)
+document.getElementById('btnAdd')?.addEventListener('click', () => {
+    const checkReady = setInterval(() => {
+        if (typeof _modalReady !== 'undefined' && _modalReady) {
+            clearInterval(checkReady);
+            const firstApp = document.querySelector('#appList .app-item[tabindex="0"]');
+            if (firstApp) {
+                firstApp.focus();
+                signalNavigation();
+            }
+        }
+    }, 50);
+});
+
+function findWrapCandidate(items, current, direction) {
+    const cr = current.getBoundingClientRect();
+    const cx = cr.left + cr.width / 2, cy = cr.top + cr.height / 2;
+    let best = null, maxDist = -1;
+    items.forEach(item => {
+        if (item === current) return;
+        const r = item.getBoundingClientRect();
+        const icx = r.left + r.width / 2, icy = r.top + r.height / 2;
+        let opp = false, dist = 0, overlap = 0;
+        switch (direction) {
+            case 'RIGHT': opp = icx < cx; dist = cx - icx; overlap = Math.min(cr.bottom, r.bottom) - Math.max(cr.top, r.top); break;
+            case 'LEFT': opp = icx > cx; dist = cx - icx; overlap = Math.min(cr.bottom, r.bottom) - Math.max(cr.top, r.top); break;
+            case 'DOWN': opp = icy < cy; dist = cy - icy; overlap = Math.min(cr.right, r.right) - Math.max(cr.left, r.left); break;
+            case 'UP': opp = icy > cy; dist = icy - cy; overlap = Math.min(cr.right, r.right) - Math.max(cr.left, r.left); break;
+        }
+        if (opp && overlap > -10 && dist > maxDist) { maxDist = dist; best = item; }
+    });
+    return best;
+}

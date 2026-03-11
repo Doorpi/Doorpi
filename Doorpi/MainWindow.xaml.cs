@@ -771,44 +771,25 @@ namespace Doorpi
             var existingGames = BuildExistingGamesSet();
             var cache = LoadAppCache() ?? new AppCacheModel();
 
-            // ── Fase 1: feedback visual imediato via cache ──────────────────────
-            if (cache.WindowsApps.Any() || cache.FolderApps.Any())
-            {
-                var s = Task.Run(() => { var r = GetSteamGames(); r.ForEach(a => a.Source = "Steam"); return r; });
-                var e = Task.Run(() => { var r = GetEpicGames(); r.ForEach(a => a.Source = "Epic"); return r; });
-                var g = Task.Run(() => { var r = GetGOGGames(); r.ForEach(a => a.Source = "GOG"); return r; });
-                await Task.WhenAll(s, e, g);
-                SendAppsToUI(BuildFinalList(s.Result, e.Result, g.Result,
-                    cache.WindowsApps, cache.FolderApps, existingGames));
-            }
-
-            // ── Fase 2: scan completo paralelo ──────────────────────────────────
+            // ── Scan completo paralelo — envia UMA vez, quando tudo estiver pronto ──
             var steamTask = Task.Run(() => { var r = GetSteamGames(); r.ForEach(a => a.Source = "Steam"); return r; });
             var epicTask = Task.Run(() => { var r = GetEpicGames(); r.ForEach(a => a.Source = "Epic"); return r; });
             var gogTask = Task.Run(() => { var r = GetGOGGames(); r.ForEach(a => a.Source = "GOG"); return r; });
 
             var winTask = Task.Run(() =>
             {
-                bool hit = !_windowsCacheInvalid &&
-                            cache.WindowsApps.Any() &&
-                            GetWindowsRegistryFingerprint().SetEquals(cache.WindowsFingerprint);
-
-                if (hit) { Debug.WriteLine("[Cache] Windows: hit"); return (cache.WindowsApps, false); }
-
-                Debug.WriteLine("[Cache] Windows: miss — rescaneando");
+                bool hit = !_windowsCacheInvalid && cache.WindowsApps.Any() &&
+                           GetWindowsRegistryFingerprint().SetEquals(cache.WindowsFingerprint);
+                if (hit) return (cache.WindowsApps, false);
                 _windowsCacheInvalid = false;
                 return (ScanWindowsApps(), true);
             });
 
             var folderTask = Task.Run(() =>
             {
-                bool hit = !_folderCacheInvalid &&
-                            cache.FolderApps.Any() &&
-                            GetFolderFingerprint().SetEquals(cache.FolderFingerprint);
-
-                if (hit) { Debug.WriteLine("[Cache] Pastas: hit"); return (cache.FolderApps, false); }
-
-                Debug.WriteLine("[Cache] Pastas: miss — rescaneando");
+                bool hit = !_folderCacheInvalid && cache.FolderApps.Any() &&
+                           GetFolderFingerprint().SetEquals(cache.FolderFingerprint);
+                if (hit) return (cache.FolderApps, false);
                 _folderCacheInvalid = false;
                 var r = GetWatchedFolderGames();
                 r.ForEach(a => a.Source = "Folder");
@@ -820,25 +801,15 @@ namespace Doorpi
             var (windows, winChanged) = winTask.Result;
             var (folders, folderChanged) = folderTask.Result;
 
-            // ── Fase 3: persiste cache se houve rescan ──────────────────────────
             if (winChanged || folderChanged)
             {
-                if (winChanged)
-                {
-                    cache.WindowsApps = windows;
-                    cache.WindowsFingerprint = GetWindowsRegistryFingerprint();
-                }
-                if (folderChanged)
-                {
-                    cache.FolderApps = folders;
-                    cache.FolderFingerprint = GetFolderFingerprint();
-                }
-                _ = Task.Run(() => SaveAppCache(cache)); // async — não bloqueia UI
+                if (winChanged) { cache.WindowsApps = windows; cache.WindowsFingerprint = GetWindowsRegistryFingerprint(); }
+                if (folderChanged) { cache.FolderApps = folders; cache.FolderFingerprint = GetFolderFingerprint(); }
+                _ = Task.Run(() => SaveAppCache(cache));
             }
 
-            // Envia lista final (sempre garante Steam/Epic/GOG atualizados)
-            SendAppsToUI(BuildFinalList(
-                steamTask.Result, epicTask.Result, gogTask.Result,
+            // Um único envio, quando tudo está pronto
+            SendAppsToUI(BuildFinalList(steamTask.Result, epicTask.Result, gogTask.Result,
                 windows, folders, existingGames));
         }
 

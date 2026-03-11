@@ -120,12 +120,8 @@ function hideGlobalLoading() {
         overlay.style.display = 'none';
         if (overlay._iv) clearInterval(overlay._iv);
     }
-
-    if (!isModalOpen) {
-        setTimeout(() => focusItemByIndex(0), 50);
-    }
+    // sem nenhum focus/setTimeout aqui
 }
-
 /* Seção: Utilitários de atualização de imagens */
 function updateToLocalFile(gameId, imageType, newUrl) {
     const card = document.querySelector(`.card[data-game-id="${gameId.replace(/\\/g, '\\\\')}"]`);
@@ -172,7 +168,7 @@ function switchTab(tabId) {
 
 /* Seção: Filtros e barra de filtros */
 currentSourceFilter = ['all'];
-let hasFocusBeenSet = false; 
+
 function buildFilterBar(apps) {
     const bar = document.getElementById('filterBar');
     if (!bar) return;
@@ -240,7 +236,7 @@ function applyFilterAndRender() {
 /* Seção: Modal de adição de jogos */
 document.getElementById('btnAdd').addEventListener('click', () => {
     isModalOpen = true;
-    hasFocusBeenSet = false;
+    _modalReady = false;
 
     document.getElementById('modalActions').style.display = 'none';
     document.getElementById('gameGrid').style.overflowX = 'hidden';
@@ -376,13 +372,14 @@ function populateAppModal(apps) {
         }
     });
 
-
     if (!isFolderOperationInProgress) {
-        hideGlobalLoading();
-        const firstApp = appList.querySelector('.app-item:not(.already-added)');
-        
- 
-       
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                hideGlobalLoading();
+                _modalReady = true;
+
+            });
+        });
     }
 
 
@@ -510,7 +507,7 @@ function renderFolderList(folders) {
         totalBar.style.display = 'flex';
     }
 
-    setTimeout(() => list.querySelector('.icon-btn[tabindex="0"]')?.focus(), 80);
+   
 }
 
 /* Seção: Cards e interações */
