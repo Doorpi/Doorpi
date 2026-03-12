@@ -1,7 +1,7 @@
 // =============================================================================
 // navigation.js — Input & Navegação
 // =============================================================================
-
+let isSetupOpen = false;
 let isModalOpen = false;
 let isCtxMenuOpen = false;
 let isEditModalOpen = false;
@@ -122,6 +122,7 @@ function getModalGroups() {
 }
 function getNavigableItems() {
     if (window._vkbIsOpen) return Array.from(document.querySelectorAll('.vkb-key[tabindex="0"]'));
+    if (isSetupOpen) return typeof getSetupItems === 'function' ? getSetupItems() : []; 
     if (isCtxMenuOpen) return getCtxMenuItems();
     if (isEditModalOpen) {
         return Array.from(document.querySelectorAll('.edit-modal-input, .edit-modal-actions button'))
@@ -300,6 +301,17 @@ function moveFocus(direction) {
         return;
     }
 
+    if (isSetupOpen) {
+        const items = getSetupItems();
+        if (!items.length) return;
+        const current = document.activeElement;
+        if (!items.includes(current)) { items[0]?.focus(); return; }
+        let target = findSpatialCandidate(items, current, direction)
+            || findWrapCandidate(items, current, direction);
+        if (target && target !== current) target.focus();
+        return;
+    }
+
     const items = getNavigableItems();
     if (!items.length) return;
     const current = document.activeElement;
@@ -462,6 +474,7 @@ document.addEventListener('keydown', e => {
         e.preventDefault();
         if (isCtxMenuOpen) { closeCtxMenu(); return; }
         if (isEditModalOpen) { window._editModalClose?.(); return; }
+        if (isSetupOpen) { setupBack(); return; }  
         if (isModalOpen) { gamepadCancel(); return; }
     }
 });
@@ -538,13 +551,32 @@ window.addEventListener('gamepaddisconnected', e => {
 
             if (buttonJustPressed(buttons[GAMEPAD.BTN_L3], GAMEPAD.BTN_L3)) window._vkbToggleShift?.();
             if (buttonJustPressed(buttons[GAMEPAD.BTN_TRIANGLE], GAMEPAD.BTN_TRIANGLE)) window._vkbPhysicalKey?.(' ');
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) window._vkbPhysicalKey?.('Backspace');
+            {
+                const pressed = buttons[GAMEPAD.BTN_SQUARE]?.pressed;
+                if (pressed) {
+                    if (_cursorHoldState['sq'] === 0) {
+                        window._vkbPhysicalKey?.('Backspace');
+                        _cursorLastTime['sq'] = now;
+                        _cursorHoldState['sq'] = 1;
+                    } else if (_cursorHoldState['sq'] === 1 && now - _cursorLastTime['sq'] > GAMEPAD.INITIAL_DELAY) {
+                        window._vkbPhysicalKey?.('Backspace');
+                        _cursorLastTime['sq'] = now;
+                        _cursorHoldState['sq'] = 2;
+                    } else if (_cursorHoldState['sq'] === 2 && now - _cursorLastTime['sq'] > GAMEPAD.REPEAT_DELAY) {
+                        window._vkbPhysicalKey?.('Backspace');
+                        _cursorLastTime['sq'] = now;
+                    }
+                } else {
+                    _cursorHoldState['sq'] = 0;
+                }
+            }
         }
         else {
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
                 if (isCtxMenuOpen) closeCtxMenu();
                 else if (isEditModalOpen) window._editModalClose?.();
+                else if (isSetupOpen) setupBack();          
                 else gamepadCancel();
             }
             if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) {

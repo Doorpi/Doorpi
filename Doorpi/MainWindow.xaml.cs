@@ -26,8 +26,14 @@ namespace Doorpi
         public string IconBase64 { get; set; } = "";
         public bool IsAdded { get; set; }
         public string Source { get; set; } = "";
-    }
 
+    }
+    public class UserProfile
+    {
+        public string Name { get; set; } = "";
+        public string PhotoBase64 { get; set; } = "";
+        public string SteamGridApiKey { get; set; } = "";
+    }
     public class AppCacheModel
     {
         public HashSet<string> WindowsFingerprint { get; set; } = new();
@@ -48,7 +54,7 @@ namespace Doorpi
 
     public partial class MainWindow : Window
     {
-        private const string SteamGridApiKey = "5b36e29336a851ae1c85656b2bfc5cf7";
+       
         private static readonly HttpClient httpClient = new HttpClient();
 
         // Pastas de dados
@@ -58,6 +64,7 @@ namespace Doorpi
         private readonly string gridHorizontalFolder;
         private readonly string logoFolder;
         private readonly string iconCacheFolder;
+        private readonly string userFile;
         private string GetStr(JsonElement root, string propName, string fallback = "")
         {
             return root.TryGetProperty(propName, out var prop) ? (prop.GetString() ?? fallback) : fallback;
@@ -88,6 +95,7 @@ namespace Doorpi
             gamesFile = Path.Combine(dataFolder, "games.json");
             foldersFile = Path.Combine(dataFolder, "folders.json");
             appCacheFile = Path.Combine(dataFolder, "appcache.json");
+            userFile = Path.Combine(dataFolder, "user.json");
 
             Directory.CreateDirectory(dataFolder);
             Directory.CreateDirectory(gridFolder);
@@ -99,8 +107,6 @@ namespace Doorpi
             if (!File.Exists(gamesFile)) File.WriteAllText(gamesFile, "[]");
             if (!File.Exists(foldersFile)) File.WriteAllText(foldersFile, "[]");
 
-            httpClient.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue("Bearer", SteamGridApiKey);
 
             InitializeAsync();
         }
@@ -125,12 +131,15 @@ namespace Doorpi
             {
                 LoadGamesIntoUI();
 
+                if (NeedsSetup())
+                {
+                    Dispatcher.InvokeAsync(() =>
+                        webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"showSetup\"}"));
+                }
+
                 Dispatcher.InvokeAsync(() =>
                 {
-                    Topmost = true;
-                    Activate();
-                    Topmost = false;
-                    webView.Focus();
+                    Topmost = true; Activate(); Topmost = false; webView.Focus();
                 });
             };
 
@@ -143,7 +152,67 @@ namespace Doorpi
         }
 
         // ========================= WATCHERS =========================
+        private UserProfile LoadUserProfile()
+        {
+            if (!File.Exists(userFile)) return new UserProfile();
+            try { return JsonSerializer.Deserialize<UserProfile>(File.ReadAllText(userFile)) ?? new UserProfile(); }
+            catch { return new UserProfile(); }
+        }
 
+        private void SaveUserProfile(UserProfile profile)
+        {
+            File.WriteAllText(userFile, JsonSerializer.Serialize(profile,
+                new JsonSerializerOptions { WriteIndented = true }));
+        }
+
+        private string GetSteamGridApiKey() => LoadUserProfile().SteamGridApiKey;
+
+        private void EnsureSteamGridAuth()
+        {
+            var key = GetSteamGridApiKey();
+            if (!string.IsNullOrEmpty(key))
+                httpClient.DefaultRequestHeaders.Authorization =
+                    new AuthenticationHeaderValue("Bearer", key);
+        }
+
+        private bool NeedsSetup()
+        {
+            var profile = LoadUserProfile();
+            return string.IsNullOrWhiteSpace(profile.SteamGridApiKey);
+        }
+
+        private async Task BuildAppCacheAndLoadUIAsync()
+        {
+            // ── 1. Scan de todas as fontes ──────────────────────────────────────────
+            EnsureSteamGridAuth();
+
+            var steamTask = Task.Run(() => { var r = GetSteamGames(); r.ForEach(a => a.Source = "Steam"); return r; });
+            var epicTask = Task.Run(() => { var r = GetEpicGames(); r.ForEach(a => a.Source = "Epic"); return r; });
+            var gogTask = Task.Run(() => { var r = GetGOGGames(); r.ForEach(a => a.Source = "GOG"); return r; });
+            var winTask = Task.Run(() => { return (ScanWindowsApps(), true); });
+            var folderTask = Task.Run(() => {
+                var r = GetWatchedFolderGames();
+                r.ForEach(a => a.Source = "Folder");
+                return (r, true);
+            });
+
+            await Task.WhenAll(steamTask, epicTask, gogTask, winTask, folderTask);
+
+            var (windows, _) = winTask.Result;
+            var (folders, __) = folderTask.Result;
+
+            // ── 2. Persiste cache ───────────────────────────────────────────────────
+            var cache = new AppCacheModel
+            {
+                WindowsApps = windows,
+                FolderApps = folders,
+                WindowsFingerprint = GetWindowsRegistryFingerprint(),
+                FolderFingerprint = GetFolderFingerprint(),
+            };
+            await Task.Run(() => SaveAppCache(cache));
+
+            Debug.WriteLine("[Setup] Cache construído. Aguardando hideLoading do JS.");
+        }
         private void StartWatchers()
         {
             foreach (var folder in GetWatchedFolderPaths())
@@ -1269,6 +1338,97 @@ namespace Doorpi
                         }
                     }
                 }
+                else if (action == "saveUserProfile")
+                {
+                    var profile = new UserProfile
+                    {
+                        Name = GetStr(root, "name"),
+                        PhotoBase64 = GetStr(root, "photoBase64"),
+                        SteamGridApiKey = GetStr(root, "apiKey"),
+                    };
+                    SaveUserProfile(profile);
+
+                    // Salva as pastas recebidas no setup
+                    if (root.TryGetProperty("folders", out var foldersEl))
+                    {
+                        var paths = JsonSerializer.Deserialize<List<string>>(foldersEl.GetRawText()) ?? new();
+                        var existing = LoadFoldersData();
+                        foreach (var path in paths)
+                        {
+                            if (!existing.Any(f => string.Equals(f.Path, path, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                existing.Add(new FolderStats { Path = path, EstimatedMs = -1 });
+                                AddFolderWatcher(path);
+                            }
+                        }
+                        SaveFoldersData(existing);
+                    }
+
+                    // Constrói cache silenciosamente, depois avisa o JS
+                    _ = Task.Run(async () => {
+                        try { await BuildAppCacheAndLoadUIAsync(); }
+                        finally
+                        {
+                            Dispatcher.Invoke(() =>
+                                webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}"));
+                        }
+                    });
+                }
+                else if (action == "pickProfilePhoto")
+                {
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        var dlg = new Microsoft.Win32.OpenFileDialog
+                        {
+                            Title = "Selecionar foto de perfil",
+                            Filter = "Imagens (*.png;*.jpg;*.jpeg;*.webp;*.gif)|*.png;*.jpg;*.jpeg;*.webp;*.gif"
+                        };
+                        if (dlg.ShowDialog() == true)
+                        {
+                            string b64 = Convert.ToBase64String(File.ReadAllBytes(dlg.FileName));
+                            webView.CoreWebView2.PostWebMessageAsString(
+                                JsonSerializer.Serialize(new { type = "profilePhotoSelected", base64 = b64 }));
+                        }
+                    });
+                }
+                else if (action == "openUrl" && root.TryGetProperty("url", out var urlEl))
+                {
+                    string url = urlEl.GetString() ?? "";
+                    if (!string.IsNullOrEmpty(url))
+                        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+                }
+                else if (action == "pickFolderForSetup")
+                {
+                    string dialogTitle = GetStr(root, "dialogTitle");
+                    string forbiddenMsg = GetStr(root, "forbiddenMsg");
+                    string forbiddenTitle = GetStr(root, "forbiddenTitle");
+
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        var dlg = new Microsoft.Win32.OpenFolderDialog { Title = dialogTitle };
+                        if (dlg.ShowDialog() == true)
+                        {
+                            string path = dlg.FolderName;
+                            if (IsFolderForbidden(path))
+                            {
+                                System.Windows.MessageBox.Show(forbiddenMsg, forbiddenTitle,
+                                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                                return;
+                            }
+                            webView.CoreWebView2.PostWebMessageAsString(
+                                JsonSerializer.Serialize(new { type = "setupFolderAdded", path }));
+                        }
+                    });
+                }
+                else if (action == "readClipboard")
+                {
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        string text = System.Windows.Clipboard.GetText();
+                        webView.CoreWebView2.PostWebMessageAsString(
+                            JsonSerializer.Serialize(new { type = "clipboardText", text }));
+                    });
+                }
             }
             catch (Exception ex) { Debug.WriteLine($"Erro no WebView Message: {ex.Message}"); }
         }
@@ -1350,6 +1510,7 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
     
         private async Task<(string?, string?, string?, string?)> FetchSteamGridAssetsAsync(string gameName, string? steamAppId = null)
         {
+            EnsureSteamGridAuth();
             // 1. Steam CDN direto — sem API, sem rate limit, perfeito pra jogos Steam
             if (!string.IsNullOrEmpty(steamAppId))
             {

@@ -91,9 +91,79 @@ const STRINGS = {
         filterLabels: { all: 'Todos', Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Windows: 'Windows & Pastas' },
         platformLabels: { Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Folder: 'Pasta', Windows: 'Windows' },
         scanLibLabels: { Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Windows: 'Windows', Folder: 'Pastas' },
+
+
+        // Setup
+        setupEyebrow: 'Bem-vindo ao Doorpi',
+        setupStep1Title: 'Como podemos te chamar?',
+        setupStep1Subtitle: 'Seu nome será exibido no launcher.',
+        setupStep1Placeholder: 'Seu nome...',
+        setupStep1Next: 'Continuar',
+
+        setupStep2Title: 'Foto de perfil',
+        setupStep2Subtitle: 'Opcional. Você pode pular esta etapa.',
+        setupStep2Choose: 'Escolher Foto',
+        setupStep2Skip: 'Pular',
+        setupStep2NoPhoto: 'Nenhuma foto selecionada',
+
+        setupStep3Title: 'Chave da API SteamGridDB',
+        setupStep3Subtitle: 'Necessária para buscar capas e imagens dos seus jogos automaticamente.',
+        setupStep3Placeholder: 'Cole sua chave aqui...',
+        setupStep3LinkText: 'Criar conta gratuita e obter chave →',
+        setupStep3Next: 'Continuar',
+        setupStep3Back: 'Voltar',
+
+        setupStep4Title: 'Pastas de Jogos',
+        setupStep4Subtitle: 'Steam, Epic, GOG e programas Windows são detectados automaticamente. Adicione pastas extras apenas para jogos locais.',
+        setupStep4AddFolder: 'Adicionar Pasta',
+        setupStep4Finish: 'Concluir',
+        setupStep4Back: 'Voltar',
+        setupStep4FoldersHint: 'Esta etapa é opcional — você pode adicionar pastas depois.',
+
+        setupLoadingTitle: 'Preparando sua biblioteca',
+        setupLoadingSubtitle: 'Isso pode levar alguns segundos na primeira vez.',
+        setupStep3PasteMode: 'Colar Chave',
+        setupStep3TypeMode: 'Digitar',
+        setupStep3PasteHint: 'Pressione Ctrl+V ou clique em "Colar Chave"',
+        setupStep3PasteSuccess: '✓ Chave colada',
     },
 
     'en-US': {
+        // Setup
+        setupStep3PasteMode: 'Paste Key',
+        setupStep3TypeMode: 'Type',
+        setupStep3PasteHint: 'Press Ctrl+V or click "Paste Key"',
+        setupStep3PasteSuccess: '✓ Key pasted',
+        setupEyebrow: 'Welcome to Doorpi',
+        setupStep1Title: 'What should we call you?',
+        setupStep1Subtitle: 'Your name will be displayed in the launcher.',
+        setupStep1Placeholder: 'Your name...',
+        setupStep1Next: 'Continue',
+
+        setupStep2Title: 'Profile photo',
+        setupStep2Subtitle: 'Optional. You can skip this step.',
+        setupStep2Choose: 'Choose Photo',
+        setupStep2Skip: 'Skip',
+        setupStep2NoPhoto: 'No photo selected',
+
+        setupStep3Title: 'SteamGridDB API Key',
+        setupStep3Subtitle: 'Required to automatically fetch covers and images for your games.',
+        setupStep3Placeholder: 'Paste your key here...',
+        setupStep3LinkText: 'Create a free account and get your key →',
+        setupStep3Next: 'Continue',
+        setupStep3Back: 'Back',
+
+        setupStep4Title: 'Game Folders',
+        setupStep4Subtitle: 'Games from Steam, Epic, GOG, and installed Windows programs are detected automatically. Add folders only if you have local or portable games that don\'t appear in those stores — the system will monitor the executables inside them.',
+        setupStep4AddFolder: 'Add Folder',
+        setupStep4Finish: 'Finish',
+        setupStep4Back: 'Back',
+        setupStep4FoldersHint: 'This step is optional — you can add folders later.',
+
+        setupLoadingTitle: 'Preparing your library',
+        setupLoadingSubtitle: 'This may take a few seconds the first time.',
+
+
         detectingLibrary: 'Detecting Library',
         readingApps: 'Reading installed applications',
         analysing: 'Analysing...',

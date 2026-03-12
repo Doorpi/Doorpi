@@ -185,7 +185,7 @@ body {
     width: calc(100% + 31vw);
     height: calc(100% + 18%);
     object-fit: cover;
-    filter: blur(82px) brightness(0.68) saturate(2);
+    filter: blur(214px) brightness(0.68) saturate(2);
     z-index: -1;
 }
 
@@ -233,8 +233,7 @@ body {
     flex-direction: column;
     justify-content: flex-end;
     align-items: flex-end;
-    opacity: 0.6;
-    filter: saturate(0.85) brightness(0.95);
+    filter: saturate(0.85) brightness(0.55);
     border: 3px solid rgba(255,255,255,0.00);
     transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.4s cubic-bezier(0.22, 1, 0.36, 1), filter 0.4s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.4s ease;
     will-change: transform, opacity;
@@ -283,16 +282,13 @@ body {
         border-color: white;
         outline: none;
         z-index: 20;
-        box-shadow: 0px 0px 20px 100vw rgb(0 0 0 / 21%);
     }
 
 .grid-bg::after {
     content: "";
-    box-shadow: inset 1px 1px 16px -7px black;
     position: absolute;
     inset: 0;
     pointer-events: none;
-    background: radial-gradient(ellipse 90% 70% at 50% 60%, rgba(6, 6, 14, 0) 0%, rgba(6, 6, 14, 0.25) 45%, rgb(6 6 14 / 28%) 100%);
     z-index: 1;
 }
 
@@ -300,12 +296,13 @@ body {
 .card.featured {
     width: var(--card-featured-w);
     opacity: 0.88;
-    filter: saturate(1) brightness(1);
+    filter: saturate(1) brightness(0.4);
 }
 
     .card.featured:focus,
     .card.featured:hover {
         opacity: 1;
+        filter: saturate(1) brightness(1.05);
     }
 
 
@@ -1917,11 +1914,11 @@ body {
     justify-content: center;
 }
 .card.ctx-active {
-    transform: scale(0.98);
+    transform: scale(1.02);
     transition: filter 0.2s ease, transform 0.2s ease;
     opacity: 1;
+    filter: brightness(1.05);
     z-index: 10;
-    box-shadow: 0 0 20px 100vw rgb(0 0 0 / 88%);
 }
 
 @keyframes pulseAnalyzing {
@@ -1962,7 +1959,10 @@ body {
     gap: 10px;
     line-height: 1.4;
 }
-
+.game-grid:has(.card.ctx-active) .card:not(.ctx-active)::after {
+    height: 100%;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0) -6%, rgb(0 0 0 / 3%) -26%, rgb(0 0 0 / 80%) -9%);
+}
 
 .folder-item.is-slow .folder-warning {
     display: flex;

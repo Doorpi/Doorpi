@@ -42,6 +42,15 @@ window.chrome.webview.addEventListener('message', event => {
             allInstalledApps = data.apps;
             applyFilterAndRender();
         }
+        else if (data.type === 'showSetup') {
+            if (typeof openSetup === 'function') openSetup();
+        }
+        else if (data.type === 'profilePhotoSelected') {
+            window._setupHandlePhotoSelected?.(data.base64);
+        }
+        else if (data.type === 'setupFolderAdded') {
+            window._setupHandleFolderAdded?.(data.path);
+        }
         else if (data.type === 'staticSaved') {
             updateToLocalFile(data.gameId, data.imageType, data.newUrl);
         }
@@ -57,6 +66,25 @@ window.chrome.webview.addEventListener('message', event => {
         else if (data.type === 'hideLoading') {
             hideGlobalLoading();
             isFolderOperationInProgress = false;
+        }
+        else if (data.type === 'clipboardText') {
+            const input = document.getElementById('setupApiInput');
+            if (input && data.text?.trim()) {
+                input.value = data.text.trim();
+                _setupData.apiKey = data.text.trim();
+                const hint = document.getElementById('setupApiHint');
+                if (hint) hint.textContent = t('setupStep3PasteSuccess');
+                document.getElementById('btnSetupApiNext')?.focus();
+            }
+        }
+        else if (data.type === 'showSetup') {
+            if (typeof openSetup === 'function') openSetup();
+        }
+        else if (data.type === 'profilePhotoSelected') {
+            window._setupHandlePhotoSelected?.(data.base64);
+        }
+        else if (data.type === 'setupFolderAdded') {
+            window._setupHandleFolderAdded?.(data.path);
         }
     } catch (e) { console.error('[bridge] Erro:', e); }
 });
@@ -237,7 +265,7 @@ function applyFilterAndRender() {
 document.getElementById('btnAdd').addEventListener('click', () => {
     isModalOpen = true;
     _modalReady = false;
-
+    if (isSetupOpen) return;
     document.getElementById('modalActions').style.display = 'none';
     document.getElementById('gameGrid').style.overflowX = 'hidden';
     document.getElementById('addGameContainer').style.display = 'flex';
@@ -1214,9 +1242,11 @@ const VKB = (() => {
             _inputEl.value = _inputEl.value.slice(0, _cursorPos) + ' ' + _inputEl.value.slice(_cursorPos);
             _cursorPos++;
         } else if (key === 'ok') {
-            window._editModalSave?.(); return;
+            if (_onVkbOk) { _onVkbOk(); } else { window._editModalSave?.(); }
+            return;
         } else if (key === 'cancel') {
-            window._editModalClose?.(); return;
+            if (_onVkbCancel) { _onVkbCancel(); } else { window._editModalClose?.(); }
+            return;
         } else {
             const char = _shifted ? key.toUpperCase() : key;
             _inputEl.value = _inputEl.value.slice(0, _cursorPos) + char + _inputEl.value.slice(_cursorPos);
@@ -1226,10 +1256,11 @@ const VKB = (() => {
         _renderPreview();
     }
 
-    function _open() {
-        _inputEl = document.getElementById('editNameInput');
-        if (!_inputEl) return;
-        _cursorPos = _inputEl.value.length; 
+    function _open(targetEl, options = {}) {
+        _inputEl = targetEl || document.getElementById('editNameInput');
+        _onVkbOk = options.onOk || null;
+        _onVkbCancel = options.onCancel || null;
+        _cursorPos = _inputEl.value.length;
         _build();
 
         if (_el) {
@@ -1301,7 +1332,7 @@ const VKB = (() => {
     };
 })();
 
-window._vkbOpen = () => VKB.open();
+window._vkbOpen = (targetEl, options) => VKB.open(targetEl, options);
 window._vkbCancel = () => VKB.cancel();
 window._vkbForceClose = () => VKB.forceClose();
 window._vkbPhysicalKey = (k) => VKB.physicalKey(k);
