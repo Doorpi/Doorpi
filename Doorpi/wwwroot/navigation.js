@@ -300,15 +300,39 @@ function moveFocus(direction) {
         if (target && target !== current) target.focus();
         return;
     }
-
     if (isSetupOpen) {
         const items = getSetupItems();
         if (!items.length) return;
         const current = document.activeElement;
-        if (!items.includes(current)) { items[0]?.focus(); return; }
-        let target = findSpatialCandidate(items, current, direction)
-            || findWrapCandidate(items, current, direction);
-        if (target && target !== current) target.focus();
+        const scrollSetup = (el) => {
+            const container = document.getElementById('setupContainer');
+            if (!container || !el) return;
+            const cr = container.getBoundingClientRect();
+            const er = el.getBoundingClientRect();
+            const MARGIN = 32;
+            if (er.top < cr.top + MARGIN) {
+                container.scrollTop -= (cr.top + MARGIN - er.top);
+            } else if (er.bottom > cr.bottom - MARGIN) {
+                container.scrollTop += (er.bottom - cr.bottom + MARGIN);
+            }
+        };
+        if (!items.includes(current)) {
+            items[0]?.focus();
+            scrollSetup(items[0]);
+            return;
+        }
+
+        let target = findSpatialCandidate(items, current, direction);
+
+        if (!target) {
+            const idx = items.indexOf(current);
+            if (direction === 'DOWN' && idx < items.length - 1) target = items[idx + 1];
+            else if (direction === 'UP' && idx > 0) target = items[idx - 1];
+        }
+        if (target && target !== current) {
+            target.focus();
+            scrollSetup(target);
+        }
         return;
     }
 
@@ -469,9 +493,9 @@ document.addEventListener('keydown', e => {
     }
     if (e.key === 'Escape') {
         e.preventDefault();
+        if (isSetupOpen) return; 
         if (isCtxMenuOpen) { closeCtxMenu(); return; }
         if (isEditModalOpen) { window._editModalClose?.(); return; }
-        if (isSetupOpen) { setupBack(); return; }  
         if (isModalOpen) { gamepadCancel(); return; }
     }
 });
@@ -573,8 +597,7 @@ window.addEventListener('gamepaddisconnected', e => {
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
                 if (isCtxMenuOpen) closeCtxMenu();
                 else if (isEditModalOpen) window._editModalClose?.();
-                else if (isSetupOpen) setupBack();          
-                else gamepadCancel();
+                else if (!isSetupOpen) gamepadCancel();
             }
             if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) {
                 if (isModalOpen) document.getElementById('btnConfirmAdd')?.click();

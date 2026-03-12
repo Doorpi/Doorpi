@@ -94,8 +94,8 @@ const STRINGS = {
 
 
         // Setup
-        setupEyebrow: 'Bem-vindo ao Doorpi',
-        setupStep1Title: 'Como podemos te chamar?',
+        setupEyebrow: 'Bem-vindo',
+        setupStep1Title: 'Doorpi',
         setupStep1Subtitle: 'Seu nome será exibido no launcher.',
         setupStep1Placeholder: 'Seu nome...',
         setupStep1Next: 'Continuar',
@@ -108,7 +108,7 @@ const STRINGS = {
 
         setupStep3Title: 'Chave da API SteamGridDB',
         setupStep3Subtitle: 'Necessária para buscar capas e imagens dos seus jogos automaticamente.',
-        setupStep3Placeholder: 'Cole sua chave aqui...',
+        setupStep3Placeholder: 'API...',
         setupStep3LinkText: 'Criar conta gratuita e obter chave →',
         setupStep3Next: 'Continuar',
         setupStep3Back: 'Voltar',
@@ -126,16 +126,43 @@ const STRINGS = {
         setupStep3TypeMode: 'Digitar',
         setupStep3PasteHint: 'Pressione Ctrl+V ou clique em "Colar Chave"',
         setupStep3PasteSuccess: '✓ Chave colada',
+        setupSectionIdentity: 'Identidade',
+        setupSectionApiKey: 'SteamGridDB API Key',
+        setupSectionFolders: 'Pastas de jogos locais',
+      
+        setupHeaderSubtitle: 'Configuração inicial',
+        setupIdentityDesc: 'Defina o nome do perfil e a imagem exibidos na tela inicial.',
+        setupApiDesc: 'Usado para baixar capas, logos e artes via SteamGridDB. Sem a chave, imagens não serão exibidas.',
+        setupFoldersDesc: 'Selecione pastas onde os jogos estão instalados. Executáveis serão detectados automaticamente.',
+        setupSectionIdentity: 'Perfil',
+        setupSectionApiKey: 'SteamGridDB API Key',
+        setupSectionFolders: 'Pastas de jogos',
+        setupOptional: 'Opcional',
+        setupNameLabel: 'Nome do perfil',
+
+       
     },
 
     'en-US': {
         // Setup
-        setupStep3PasteMode: 'Paste Key',
+        setupHeaderSubtitle: 'Initial setup',
+        setupIdentityDesc: 'Set the profile name and image shown on the home screen.',
+        setupApiDesc: 'Used to download covers, logos, and artwork from SteamGridDB. Without the key, images will not be displayed.',
+        setupFoldersDesc: 'Select folders where games are installed. Executables will be detected automatically.',
+        setupSectionIdentity: 'Profile',
+        setupSectionApiKey: 'SteamGridDB API Key',
+        setupSectionFolders: 'Game folders',
+        setupOptional: 'Optional',
+        setupNameLabel: 'Profile name',
+        setupSectionIdentity: 'Identity',
+        setupSectionApiKey: 'SteamGridDB API Key',
+        setupSectionFolders: 'Local game folders',
+        setupStep3PasteMode: 'API..',
         setupStep3TypeMode: 'Type',
         setupStep3PasteHint: 'Press Ctrl+V or click "Paste Key"',
         setupStep3PasteSuccess: '✓ Key pasted',
-        setupEyebrow: 'Welcome to Doorpi',
-        setupStep1Title: 'What should we call you?',
+        setupEyebrow: 'Welcome',
+        setupStep1Title: 'Doorpi',
         setupStep1Subtitle: 'Your name will be displayed in the launcher.',
         setupStep1Placeholder: 'Your name...',
         setupStep1Next: 'Continue',
