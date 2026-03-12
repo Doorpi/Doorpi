@@ -525,20 +525,20 @@ namespace Doorpi
                 if (!Directory.Exists(folder)) continue;
                 try
                 {
-                    // Agora usamos o EnumerateFiles à prova de falhas de permissão!
+             
                     foreach (var exePath in Directory.EnumerateFiles(folder, "*.exe", options))
                     {
                         var fileInfo = new FileInfo(exePath);
                         string fileName = fileInfo.Name.ToLower();
 
-                        // Pula desinstaladores e arquivos de crash
+                  
                         if (fileName.Contains("unins") || fileName.Contains("crash")) continue;
 
                         string exeNameOnly = Path.GetFileNameWithoutExtension(fileInfo.Name);
                         string parentFolderName = fileInfo.Directory?.Name ?? "";
                         bool isSimilar = IsNameSimilar(exeNameOnly, parentFolderName);
 
-                        // Aplica o filtro: Maior que 2MB ou tem o mesmo nome da pasta
+                    
                         if (fileInfo.Length >= minSize || isSimilar)
                         {
                             string name = GetGameNameFromFile(fileInfo.FullName) ?? exeNameOnly;
@@ -569,14 +569,14 @@ namespace Doorpi
             {
                 string json = File.ReadAllText(foldersFile);
 
-                // Tenta carregar no formato novo (Lista de objetos)
+              
                 try
                 {
                     var data = JsonSerializer.Deserialize<List<FolderStats>>(json);
                     if (data != null && data.Count > 0 && !string.IsNullOrEmpty(data[0].Path))
                         return data;
                 }
-                catch { /* Ignora e tenta fallback */ }
+                catch {  }
 
                 // Fallback: Se o JSON for uma lista de strings (formato antigo), faz a migração
                 var oldPaths = JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>();
@@ -602,11 +602,7 @@ namespace Doorpi
 
         private bool IsFolderForbidden(string path)
         {
-            // =========================================================
-            // MODO DE TESTE: Retornando 'false' para ignorar as travas 
-            // de segurança e permitir adicionar o C:\ ou D:\
-            // Lembre-se de reverter isso depois!
-            // =========================================================
+
             return false;
 
             /*
@@ -656,17 +652,17 @@ namespace Doorpi
             var sw = System.Diagnostics.Stopwatch.StartNew();
             try
             {
-                // Esta opção faz o C# pular pastas protegidas sem disparar erro
+         
                 var options = new EnumerationOptions
                 {
                     IgnoreInaccessible = true,
                     RecurseSubdirectories = true
                 };
 
-                // 1. Conta todas as subpastas (ignorando as inacessíveis)
+            
                 stats.SubfolderCount = Directory.EnumerateDirectories(path, "*", options).Count();
 
-                // 2. Conta os executáveis e faz a amostragem
+         
                 int exeCount = 0;
                 int samples = 0;
 
@@ -692,13 +688,10 @@ namespace Doorpi
             return stats;
         }
 
-        /// <summary>
-        /// Coleta stats de todas as pastas em paralelo e envia foldersList ao UI.
-        /// Chamado em background — não bloqueia o Dispatcher.
-        /// </summary>
+
         private void SendFoldersToUI()
         {
-            // Apenas carrega os dados já cacheados no JSON, sem acessar o HD!
+           
             var stats = LoadFoldersData();
 
             var payload = new { type = "foldersList", folders = stats };
@@ -707,9 +700,6 @@ namespace Doorpi
                     JsonSerializer.Serialize(payload)));
         }
 
-        /// <summary>
-        /// Remove uma pasta do JSON e descarta o watcher correspondente.
-        /// </summary>
         private void DeleteWatchedFolder(string path)
         {
             var folders = LoadFoldersData();
@@ -829,18 +819,13 @@ namespace Doorpi
 
         // ========================= ENVIO DE APPS PRO UI =========================
 
-        /// <summary>
-        /// Fluxo de 3 fases:
-        /// 1. Se há cache → mostra imediatamente (percepção instantânea)
-        /// 2. Todas as fontes rodam em paralelo — fingerprint decide se rescaneia ou usa cache
-        /// 3. Persiste cache atualizado e envia lista final
-        /// </summary>
+
         private async Task SendInstalledAppsToUIAsync()
         {
             var existingGames = BuildExistingGamesSet();
             var cache = LoadAppCache() ?? new AppCacheModel();
 
-            // ── Scan completo paralelo — envia UMA vez, quando tudo estiver pronto ──
+          
             var steamTask = Task.Run(() => { var r = GetSteamGames(); r.ForEach(a => a.Source = "Steam"); return r; });
             var epicTask = Task.Run(() => { var r = GetEpicGames(); r.ForEach(a => a.Source = "Epic"); return r; });
             var gogTask = Task.Run(() => { var r = GetGOGGames(); r.ForEach(a => a.Source = "GOG"); return r; });
@@ -877,7 +862,7 @@ namespace Doorpi
                 _ = Task.Run(() => SaveAppCache(cache));
             }
 
-            // Um único envio, quando tudo está pronto
+       
             SendAppsToUI(BuildFinalList(steamTask.Result, epicTask.Result, gogTask.Result,
                 windows, folders, existingGames));
         }
@@ -953,10 +938,9 @@ namespace Doorpi
 
                 try
                 {
-                    // Converte "https://data.local/images/grid/filename.png"
-                    // para o caminho físico real em Data/images/grid/filename.png
+
                     var uri = new Uri(url);
-                    string relativePath = uri.AbsolutePath.TrimStart('/'); // "images/grid/filename.png"
+                    string relativePath = uri.AbsolutePath.TrimStart('/'); 
                     string fullPath = Path.Combine(dataFolder, relativePath.Replace('/', Path.DirectorySeparatorChar));
 
                     if (File.Exists(fullPath))
@@ -973,10 +957,10 @@ namespace Doorpi
         }
         private void PerformBackgroundAnalysis(string path)
         {
-            // Realiza o scan pesado
+            
             var stats = GetFolderStats(path);
 
-            // Atualiza o JSON com o resultado real
+           
             var folders = LoadFoldersData();
             int idx = folders.FindIndex(f => string.Equals(f.Path, path, StringComparison.OrdinalIgnoreCase));
             if (idx >= 0)
@@ -985,7 +969,7 @@ namespace Doorpi
                 SaveFoldersData(folders);
             }
 
-            // Atualiza o front-end com os dados reais
+            
             SendFoldersToUI();
         }
         private async void WebView_WebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
@@ -1542,7 +1526,7 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
                 string hero = $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appId}/library_hero.jpg";
                 string logo = $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appId}/logo.png";
 
-                // Verifica se o grid existe (basta checar um, se o jogo existe no Steam todos existem)
+              
                 var response = await httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Head, grid));
                 if (!response.IsSuccessStatusCode) return (null, null, null, null);
 
@@ -1577,7 +1561,7 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
                 var results = doc.RootElement.GetProperty("data");
                 if (results.GetArrayLength() == 0) return (null, null, null, null);
 
-                // Tenta os 3 primeiros resultados, usa o primeiro que tiver grid
+         
                 foreach (var game in results.EnumerateArray().Take(3))
                 {
                     int id = game.GetProperty("id").GetInt32();
@@ -1592,7 +1576,7 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
 
         private async Task<(string?, string?, string?, string?)> FetchAssetsByGameId(int id)
         {
-            // Tenta dimensões específicas primeiro, depois qualquer uma
+            
             string? grid = await GetFirstImageUrl($"grids/game/{id}?dimensions=600x900,342x482,660x930&types=static,animated&sort=score")
                         ?? await GetFirstImageUrl($"grids/game/{id}?types=static,animated&sort=score");
 

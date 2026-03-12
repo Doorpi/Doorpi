@@ -5,7 +5,7 @@ let isSetupOpen = false;
 let isModalOpen = false;
 let isCtxMenuOpen = false;
 let isEditModalOpen = false;
-// window._vkbIsOpen  — definido em context-menu-additions.js
+
 
 let pendingInteractionCard = null;
 let isGamepadConnected = false;
@@ -133,10 +133,10 @@ function getNavigableItems() {
     const g = getModalGroups();
     const isVisible = (el) => el.offsetWidth > 0 && el.offsetHeight > 0;
 
-    // RESTAURADO: A regra original que ignora a aba ativa!
+    
     const isNavigable = (el) => !(el.classList.contains('menu-tab') && el.classList.contains('active'));
 
-    // MANTIDO: Garante que as abas inativas aceitarão o foco do controle
+    
     g.sidebar.forEach(el => el.setAttribute('tabindex', '0'));
 
     if (g.activeTab === 'view-apps')
@@ -202,7 +202,7 @@ function getGroupTransition(direction, groupName, groups, current) {
     const firstVisible = (arr) => arr.find(el => el.offsetWidth > 0 && el.offsetHeight > 0);
 
     const bestSidebar = () => {
-        // RESTAURADO: Ao ir para a esquerda, foca apenas nas abas INATIVAS
+       
         const navigable = sidebar.filter(el => !el.classList.contains('active'));
         if (_lastFocusedSidebar && navigable.includes(_lastFocusedSidebar)) return _lastFocusedSidebar;
         return navigable[0] || null;
@@ -397,17 +397,14 @@ function moveFocus(direction) {
         }
     }
 
-    // Tenta wrap dentro do mesmo grupo se as regras acima não definiram nada
     if (!target) {
         const skipWrap = groupName === 'app' && (direction === 'UP' || direction === 'DOWN');
         if (!skipWrap) target = findWrapCandidate(groupItems.filter(i => items.includes(i)), current, direction);
     }
 
-    // >>> O SUPER FALLBACK GLOBAL <<<
-    // Se depois de TUDO isso ele não sabe pra onde ir, ele simplesmente fica parado.
+
     if (!target) target = current;
 
-    // Só aplica o foco se de fato for para um elemento diferente
     if (target && target !== current) {
         target.focus();
         target.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
@@ -630,7 +627,7 @@ document.addEventListener('click', (e) => {
 
             let target = null;
             if (groups.activeTab === 'view-apps') {
-                // Foca direto no primeiro APP (ignorando os filtros)
+             
                 target = firstVisible(groups.apps);
             } else {
                 target = firstVisible(groups.folderBtns) || groups.actions[0];

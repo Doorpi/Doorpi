@@ -148,7 +148,7 @@ function hideGlobalLoading() {
         overlay.style.display = 'none';
         if (overlay._iv) clearInterval(overlay._iv);
     }
-    // sem nenhum focus/setTimeout aqui
+
 }
 /* Seção: Utilitários de atualização de imagens */
 function updateToLocalFile(gameId, imageType, newUrl) {
@@ -253,7 +253,7 @@ function applyFilterAndRender() {
     if (currentSourceFilter.includes('all')) {
         filtered = allInstalledApps;
     } else {
-        // Criamos uma lista de todas as plataformas permitidas (ex: ['Steam', 'Epic'])
+
         const allowedPlatforms = currentSourceFilter.flatMap(f => FILTER_SOURCES[f]);
         filtered = allInstalledApps.filter(a => allowedPlatforms.includes(a.Source || a.source));
     }
@@ -292,7 +292,7 @@ function formatBytes(kb) {
 }
 
 function populateAppModal(apps) {
-    // Salva estado ANTES de reconstruir o DOM
+
     const appListEl = document.getElementById('appList');
 
 
