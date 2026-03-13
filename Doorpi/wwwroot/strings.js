@@ -106,7 +106,7 @@ const STRINGS = {
         setupStep2Skip: 'Pular',
         setupStep2NoPhoto: 'Nenhuma foto selecionada',
 
-        setupStep3Title: 'Chave da API SteamGridDB',
+        setupStep3Title: 'Chave da API SteamGrid',
         setupStep3Subtitle: 'Necessária para buscar capas e imagens dos seus jogos automaticamente.',
         setupStep3Placeholder: 'API...',
         setupStep3LinkText: 'Criar conta gratuita e obter chave →',
@@ -127,35 +127,46 @@ const STRINGS = {
         setupStep3PasteHint: 'Pressione Ctrl+V ou clique em "Colar Chave"',
         setupStep3PasteSuccess: '✓ Chave colada',
         setupSectionIdentity: 'Identidade',
-        setupSectionApiKey: 'SteamGridDB API Key',
+        setupSectionApiKey: 'SteamGrid API Key',
         setupSectionFolders: 'Pastas de jogos locais',
       
         setupHeaderSubtitle: 'Configuração inicial',
         setupIdentityDesc: 'Defina o nome do perfil e a imagem exibidos na tela inicial.',
-        setupApiDesc: 'Usado para baixar capas, logos e artes via SteamGridDB. Sem a chave, imagens não serão exibidas.',
+        setupApiDesc: 'Usado para baixar capas, logos e artes via SteamGrid. Sem a chave, imagens não serão exibidas.',
         setupFoldersDesc: 'Selecione pastas onde os jogos estão instalados. Executáveis serão detectados automaticamente.',
         setupSectionIdentity: 'Perfil',
-        setupSectionApiKey: 'SteamGridDB API Key',
+        setupSectionApiKey: 'SteamGrid API Key',
         setupSectionFolders: 'Pastas de jogos',
         setupOptional: 'Opcional',
         setupNameLabel: 'Nome do perfil',
+
+        setupSectionBrowser: 'Navegador para aplicativos',
+        setupBrowserDesc: 'Escolha o navegador que será usado para abrir aplicativos de streaming como Netflix, Twitch e Disney+. O Doorpi abre esses serviços em modo tela cheia, sem barras ou abas visíveis.',
+        setupBrowserScanning: 'Detectando navegadores instalados...',
+        setupBrowserNone: 'Nenhum navegador compatível encontrado.',
 
        
     },
 
     'en-US': {
         // Setup
+
+        setupSectionBrowser: 'Apps browser',
+        setupBrowserDesc: 'Choose the browser used to open streaming apps like Netflix, Twitch and Disney+. Doorpi launches these services in fullscreen mode, with no visible bars or tabs.',
+        setupBrowserScanning: 'Detecting installed browsers...',
+        setupBrowserNone: 'No compatible browser found.',
+
         setupHeaderSubtitle: 'Initial setup',
         setupIdentityDesc: 'Set the profile name and image shown on the home screen.',
-        setupApiDesc: 'Used to download covers, logos, and artwork from SteamGridDB. Without the key, images will not be displayed.',
+        setupApiDesc: 'Used to download covers, logos, and artwork from SteamGrid. Without the key, images will not be displayed.',
         setupFoldersDesc: 'Select folders where games are installed. Executables will be detected automatically.',
         setupSectionIdentity: 'Profile',
-        setupSectionApiKey: 'SteamGridDB API Key',
+        setupSectionApiKey: 'SteamGrid API Key',
         setupSectionFolders: 'Game folders',
         setupOptional: 'Optional',
         setupNameLabel: 'Profile name',
         setupSectionIdentity: 'Identity',
-        setupSectionApiKey: 'SteamGridDB API Key',
+        setupSectionApiKey: 'SteamGrid API Key',
         setupSectionFolders: 'Local game folders',
         setupStep3PasteMode: 'API..',
         setupStep3TypeMode: 'Type',

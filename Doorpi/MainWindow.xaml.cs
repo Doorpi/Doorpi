@@ -33,6 +33,9 @@ namespace Doorpi
         public string Name { get; set; } = "";
         public string PhotoBase64 { get; set; } = "";
         public string SteamGridApiKey { get; set; } = "";
+        public string BrowserPath { get; set; } = "";
+        public string BrowserExe { get; set; } = "";
+        public bool BrowserClaimed { get; set; } = false;
     }
     public class AppCacheModel
     {
@@ -1329,6 +1332,9 @@ namespace Doorpi
                         Name = GetStr(root, "name"),
                         PhotoBase64 = GetStr(root, "photoBase64"),
                         SteamGridApiKey = GetStr(root, "apiKey"),
+                        BrowserPath = GetStr(root, "browserPath"),
+                        BrowserExe = GetStr(root, "browserExe"),
+                        BrowserClaimed = !string.IsNullOrEmpty(GetStr(root, "browserPath")),
                     };
                     SaveUserProfile(profile);
 
@@ -1412,6 +1418,27 @@ namespace Doorpi
                         webView.CoreWebView2.PostWebMessageAsString(
                             JsonSerializer.Serialize(new { type = "clipboardText", text }));
                     });
+                }
+                else if (action == "detectBrowsers")
+                {
+                    var candidates = new[]
+                    {
+        new { name = "Google Chrome", exe = "chrome.exe",   path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),    "Google", "Chrome", "Application", "chrome.exe") },
+        new { name = "Google Chrome", exe = "chrome.exe",   path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Google", "Chrome", "Application", "chrome.exe") },
+        new { name = "Microsoft Edge", exe = "msedge.exe",  path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Microsoft", "Edge", "Application", "msedge.exe") },
+        new { name = "Brave",          exe = "brave.exe",   path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BraveSoftware", "Brave-Browser", "Application", "brave.exe") },
+        new { name = "Firefox",        exe = "firefox.exe", path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),    "Mozilla Firefox", "firefox.exe") },
+        new { name = "Firefox",        exe = "firefox.exe", path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Mozilla Firefox", "firefox.exe") },
+    };
+
+                    var found = candidates
+                        .Where(b => File.Exists(b.path))
+                        .GroupBy(b => b.exe)
+                        .Select(g => g.First())
+                        .ToList();
+
+                    var json = JsonSerializer.Serialize(new { type = "browsersDetected", browsers = found });
+                    webView.CoreWebView2.PostWebMessageAsString(json);
                 }
             }
             catch (Exception ex) { Debug.WriteLine($"Erro no WebView Message: {ex.Message}"); }

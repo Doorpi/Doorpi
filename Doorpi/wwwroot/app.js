@@ -51,6 +51,9 @@ window.chrome.webview.addEventListener('message', event => {
         else if (data.type === 'setupFolderAdded') {
             window._setupHandleFolderAdded?.(data.path);
         }
+        else if (data.type === 'browsersDetected') {
+            window._setupRenderBrowsers?.(data.browsers);
+        }
         else if (data.type === 'staticSaved') {
             updateToLocalFile(data.gameId, data.imageType, data.newUrl);
         }

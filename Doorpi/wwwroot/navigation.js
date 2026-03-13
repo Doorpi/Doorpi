@@ -304,21 +304,28 @@ function moveFocus(direction) {
         const items = getSetupItems();
         if (!items.length) return;
         const current = document.activeElement;
-        const scrollSetup = (el) => {
+        const scrollSetup = (el, dir) => {
             const container = document.getElementById('setupContainer');
             if (!container || !el) return;
             const cr = container.getBoundingClientRect();
             const er = el.getBoundingClientRect();
-            const MARGIN = 32;
-            if (er.top < cr.top + MARGIN) {
-                container.scrollTop -= (cr.top + MARGIN - er.top);
-            } else if (er.bottom > cr.bottom - MARGIN) {
-                container.scrollTop += (er.bottom - cr.bottom + MARGIN);
+            let targetScrollTop = container.scrollTop;
+
+            if (dir === 'UP' && er.top < cr.top + 600) {
+                targetScrollTop = container.scrollTop - (cr.top + 600 - er.top);
+            } else if (dir === 'DOWN' && er.bottom > cr.bottom - 40) {
+                targetScrollTop = container.scrollTop + (er.bottom - cr.bottom + 40);
+            } else {
+                return;
             }
+
+            targetScrollTop = Math.max(0, Math.min(container.scrollHeight - container.clientHeight, targetScrollTop));
+            window._setupSmoothScroll?.(targetScrollTop);
         };
+
         if (!items.includes(current)) {
             items[0]?.focus();
-            scrollSetup(items[0]);
+            scrollSetup(items[0], 'UP');
             return;
         }
 
@@ -331,7 +338,7 @@ function moveFocus(direction) {
         }
         if (target && target !== current) {
             target.focus();
-            scrollSetup(target);
+            scrollSetup(target, direction); 
         }
         return;
     }
