@@ -133,7 +133,7 @@ const STRINGS = {
         setupHeaderSubtitle: 'Configuração inicial',
         setupIdentityDesc: 'Defina o nome do perfil e a imagem exibidos na tela inicial.',
         setupApiDesc: 'Usado para baixar capas, logos e artes via SteamGrid. Sem a chave, imagens não serão exibidas.',
-        setupFoldersDesc: 'Instalações da Steam, Epic, GOG e do Windows são detectadas automaticamente.  IMPORTANTE: Adicione pastas somente para jogos locais, portáteis ou em dispositivos externos.',
+        setupFoldersDesc: 'Instalações da Steam, Epic, GOG e do Windows são detectadas automaticamente. Adicione pastas somente para jogos locais, portáteis ou em dispositivos externos.',
         setupSectionIdentity: 'Perfil',
         setupSectionApiKey: 'SteamGrid API Key',
         setupSectionFolders: 'Pastas de jogos',
