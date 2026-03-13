@@ -233,11 +233,12 @@ namespace Doorpi
             var w = new FileSystemWatcher(path, "*.exe")
             {
                 IncludeSubdirectories = true,
-                NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite,
+                NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.DirectoryName,
                 EnableRaisingEvents = true
             };
             w.Created += (_, _) => _folderCacheInvalid = true;
             w.Deleted += (_, _) => _folderCacheInvalid = true;
+            w.Renamed += (_, _) => _folderCacheInvalid = true;
             _folderWatchers.Add(w);
         }
 
@@ -844,6 +845,10 @@ namespace Doorpi
 
             var folderTask = Task.Run(() =>
             {
+
+                if (GetWatchedFolderPaths().Any(p => !Directory.Exists(p)))
+                    _folderCacheInvalid = true;
+
                 bool hit = !_folderCacheInvalid && cache.FolderApps.Any() &&
                            GetFolderFingerprint().SetEquals(cache.FolderFingerprint);
                 if (hit) return (cache.FolderApps, false);
@@ -1343,15 +1348,25 @@ namespace Doorpi
                     {
                         var paths = JsonSerializer.Deserialize<List<string>>(foldersEl.GetRawText()) ?? new();
                         var existing = LoadFoldersData();
+                        var newPaths = new List<string>(); 
+
                         foreach (var path in paths)
                         {
                             if (!existing.Any(f => string.Equals(f.Path, path, StringComparison.OrdinalIgnoreCase)))
                             {
                                 existing.Add(new FolderStats { Path = path, EstimatedMs = -1 });
                                 AddFolderWatcher(path);
+                                newPaths.Add(path); 
                             }
                         }
                         SaveFoldersData(existing);
+
+                       
+                        foreach (var p in newPaths)
+                        {
+                            string captured = p;
+                            _ = Task.Run(() => PerformBackgroundAnalysis(captured));
+                        }
                     }
 
                     // Constrói cache silenciosamente, depois avisa o JS
