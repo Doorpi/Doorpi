@@ -543,6 +543,128 @@ const _setupData = { name: '', photoBase64: '', apiKey: '', browserPath: '', bro
         transform: translateY(-2px) scale(1.03);
         box-shadow: 0 0 0 5px rgba(255,255,255,0.2), 0 16px 36px rgba(0,0,0,0.5);
     }
+
+    /* ── Escalonamento para resoluções até 900p (≤1600px × ≤900px) ── */
+    @media (max-height: 900px), (max-width: 1600px) {
+        .setup-form {
+            width: min(620px, 92vw);
+            gap: 7px;
+        }
+        .setup-header {
+            margin-bottom: 14px;
+        }
+        .setup-header-eyebrow {
+            font-size: 0.68rem;
+            margin-bottom: 8px;
+        }
+        .setup-header-title {
+            font-size: clamp(1.7rem, 3vw, 2.8rem);
+            margin-bottom: 8px;
+        }
+        .setup-header-subtitle {
+            font-size: clamp(0.82rem, 1vw, 1.05rem);
+        }
+        .setup-section-header {
+            padding: 14px 20px;
+            gap: 10px;
+        }
+        .setup-section-label {
+            font-size: clamp(0.72rem, 0.85vw, 0.95rem);
+        }
+        .setup-section-step {
+            font-size: 0.68rem;
+        }
+        .setup-section-status {
+            width: 18px;
+            height: 18px;
+            font-size: 0.58rem;
+        }
+        .setup-section-chevron {
+            width: 16px;
+            height: 16px;
+        }
+        .setup-optional-badge {
+            font-size: 0.56rem;
+            padding: 2px 6px;
+        }
+        .setup-section-content {
+            padding: 0 20px 18px;
+            gap: 12px;
+        }
+        .setup-section-desc {
+            font-size: clamp(0.76rem, 0.88vw, 0.95rem);
+        }
+        .setup-input {
+            font-size: clamp(0.85rem, 1vw, 1.1rem);
+            padding: 11px 14px;
+        }
+        .setup-icon-btn,
+        .setup-api-link-btn {
+            font-size: clamp(0.72rem, 0.82vw, 0.92rem);
+            padding: 0 14px;
+        }
+        .setup-api-hint {
+            font-size: 0.76rem;
+        }
+        .setup-field-label {
+            font-size: 0.62rem;
+        }
+        .setup-photo-btn {
+            width: 56px;
+            height: 56px;
+        }
+        .setup-browser-item {
+            padding: 12px 16px;
+            gap: 12px;
+        }
+        .setup-browser-name {
+            font-size: clamp(0.82rem, 0.92vw, 1rem);
+        }
+        .setup-browser-path {
+            font-size: 0.64rem;
+        }
+        .setup-browser-radio {
+            width: 16px;
+            height: 16px;
+        }
+        .setup-browser-radio-dot {
+            width: 7px;
+            height: 7px;
+        }
+        .setup-folder-path {
+            font-size: 0.76rem;
+        }
+        .setup-finish-btn {
+            font-size: clamp(0.88rem, 1vw, 1.1rem);
+            padding: 13px 48px;
+        }
+        .setup-footer {
+            padding: 8px 0 16px;
+        }
+    }
+
+    /* ── 720p exato — aperto extra ── */
+    @media (max-height: 768px) {
+        .setup-header-title {
+            font-size: clamp(1.45rem, 2.6vw, 2.2rem);
+        }
+        .setup-header {
+            margin-bottom: 10px;
+        }
+        .setup-section-header {
+            padding: 19px 20px;
+        }
+        .setup-section-content {
+            padding: 0 18px 14px;
+            gap: 10px;
+        }
+        .setup-input {
+            padding: 9px 13px;
+        }
+        .setup-form {
+            gap: 5px;
+        }
+    }
     `;
     document.head.appendChild(s);
 })();
