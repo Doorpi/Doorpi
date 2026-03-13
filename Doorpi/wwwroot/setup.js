@@ -235,7 +235,7 @@ const _setupData = { name: '', photoBase64: '', apiKey: '', browserPath: '', bro
         font-size: clamp(0.85rem, 0.95vw, 1.15rem);
         color: rgba(255,255,255,0.50);
         margin: 0;
-        line-height: 1.6;
+        line-height: 3.6;
         font-weight: 300;
     }
     .setup-section-desc strong { color: rgba(255,255,255,0.78); font-weight: 500; }
