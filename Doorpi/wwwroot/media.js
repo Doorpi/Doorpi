@@ -292,13 +292,11 @@ window.cycleHomeTab = cycleHomeTab;
 window.getCurrentHomeTab = () => _currentHomeTab;
 
 // ── Criar card de mídia ───────────────────────────────────────────────────────
-// Espelha createGameCard completamente: processImage, startInteraction,
-// stopInteraction, hero background, animated ↔ static, mouse + gamepad.
+
 function _moveMediaCardToTop(card) {
     if (!card) return;
     const grid = document.getElementById('mediaGrid');
 
-    // Remove featured só dos cards de mídia
     grid.querySelectorAll('.card.featured').forEach(c => {
         c.classList.remove('featured');
         const img = c.querySelector('img');
@@ -307,13 +305,13 @@ function _moveMediaCardToTop(card) {
 
     card.classList.add('featured');
 
-    // Move pra frente preservando o btnAddMedia no final
+
     const btnAddMedia = document.getElementById('btnAddMedia');
     grid.insertBefore(card, grid.firstChild);
-    // Garante que btnAddMedia continua no final
+
     grid.appendChild(btnAddMedia);
 
-    // Atualiza imagem para horizontal (featured usa horizontal)
+
     const img = card.querySelector('img');
     if (img) {
         const src = card.dataset.staticHorizontal || card.dataset.horizontal
@@ -321,7 +319,7 @@ function _moveMediaCardToTop(card) {
         if (src) img.src = src;
     }
 
-    // Dispara hero se estiver na aba mídia
+
     if (_currentHomeTab === 'media') card._startInteraction?.();
 }
 function createMediaCard(data) {
@@ -458,11 +456,10 @@ function createMediaCard(data) {
     title.innerText = appName;
     card.appendChild(title);
 
-    // Insere antes do btnAddMedia, mantendo o botão sempre no final
+
     const btnAddMedia = document.getElementById('btnAddMedia');
     grid.insertBefore(card, btnAddMedia);
 
-    // Se já estamos na aba mídia e é o featured, dispara hero imediatamente
     if (card.classList.contains('featured') && _currentHomeTab === 'media') {
         startInteraction();
     }
