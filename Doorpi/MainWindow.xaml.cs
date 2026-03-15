@@ -15,6 +15,22 @@ using System.Windows;
 namespace Doorpi
 {
     // ========================= MODELS =========================
+    public class MediaAppModel
+    {
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string Url { get; set; } = "";
+        public string Type { get; set; } = "browser"; // "browser" | "webview"
+        public bool MultiUser { get; set; } = true;
+        public string GridImage { get; set; } = "";
+        public string GridStaticImage { get; set; } = "";
+        public string GridHorizontalImage { get; set; } = "";
+        public string GridHorizontalStaticImage { get; set; } = "";
+        public string HeroImage { get; set; } = "";
+        public string HeroStaticImage { get; set; } = "";
+        public string LogoImage { get; set; } = "";
+        public string LogoStaticImage { get; set; } = "";
+    }
 
     public class InstalledApp
     {
@@ -57,8 +73,9 @@ namespace Doorpi
 
     public partial class MainWindow : Window
     {
-       
+
         private static readonly HttpClient httpClient = new HttpClient();
+        private static readonly HttpClient downloadClient = new HttpClient(); 
 
         // Pastas de dados
         private readonly string dataFolder;
@@ -68,6 +85,8 @@ namespace Doorpi
         private readonly string logoFolder;
         private readonly string iconCacheFolder;
         private readonly string userFile;
+        private readonly string mediaFile;
+
         private string GetStr(JsonElement root, string propName, string fallback = "")
         {
             return root.TryGetProperty(propName, out var prop) ? (prop.GetString() ?? fallback) : fallback;
@@ -99,6 +118,7 @@ namespace Doorpi
             foldersFile = Path.Combine(dataFolder, "folders.json");
             appCacheFile = Path.Combine(dataFolder, "appcache.json");
             userFile = Path.Combine(dataFolder, "user.json");
+            mediaFile = Path.Combine(dataFolder, "media.json");
 
             Directory.CreateDirectory(dataFolder);
             Directory.CreateDirectory(gridFolder);
@@ -133,7 +153,10 @@ namespace Doorpi
             webView.CoreWebView2.NavigationCompleted += (s, e) =>
             {
                 LoadGamesIntoUI();
-
+                _ = Task.Run(() => {
+                    var apps = LoadMediaApps();
+                    if (apps.Any()) SendMediaAppsToUI(apps);
+                });
                 if (NeedsSetup())
                 {
                     Dispatcher.InvokeAsync(() =>
@@ -282,6 +305,200 @@ namespace Doorpi
                 return b64;
             }
             catch { return ""; }
+        }
+
+        // Lista hardcoded — espelha NATIVE_APPS do media.js
+        private static readonly List<(string Id, string Name, string SgdbQuery, string Url, string Type, bool MultiUser)> _nativeApps = new()
+{
+    ("youtube",     "YouTube",      "YouTube (Website)",         "https://www.youtube.com/tv",   "webview", true ),
+    ("netflix",     "Netflix",      "Netflix (Website)",         "https://www.netflix.com",      "browser", true ),
+    ("twitch",      "Twitch",       "Twitch (Website)",          "https://www.twitch.tv",        "browser", false),
+    ("kick",        "Kick",         "Kick (Website)",            "https://www.kick.com",         "browser", false),
+    ("disneyplus",  "Disney +",      "Disney + (Website)",     "https://www.disneyplus.com",   "browser", true ),
+    ("primevideo",  "Prime Vídeo",  "Prime Video (Website)",     "https://www.primevideo.com",   "browser", true ),
+    ("appletv",     "Apple TV",    "Apple TV (Website)",   "https://tv.apple.com",         "browser", true ),
+    ("max",         "Max",          "HBO Max (Website)",         "https://www.max.com",          "browser", true ),
+    ("crunchyroll", "Crunchyroll",  "Crunchyroll (Website)",     "https://www.crunchyroll.com",  "browser", true ),
+  
+};
+
+
+        // ─────────────────────────────────────────────────────────────────────────────
+        // [3] MÉTODOS DE MÍDIA — adicione em uma nova seção "MEDIA APPS"
+        // ─────────────────────────────────────────────────────────────────────────────
+
+        // ========================= MEDIA APPS =========================
+
+        /// <summary>
+        /// Inicializa os apps nativos após o setup.
+        /// Se media.json já tem todos os apps, apenas carrega e envia.
+        /// Se falta algum, baixa as capas e salva.
+        /// Reporta progresso para o JS via 'nativeAppProgress'.
+        /// </summary>
+        /// 
+
+
+        private async Task<(string?, string?, string?, string?)> FetchMediaAppAssetsAsync(string name, string sgdbQuery)
+        {
+            // Tenta as queries em ordem até encontrar resultado com grid
+            var queries = new[]
+            {
+        sgdbQuery,                                    // ex: "Kick (Website)"
+        name,                                         // ex: "Kick"
+        name + " streaming",                          // ex: "Kick streaming"
+        name + " platform",                           // ex: "Kick platform"
+    };
+
+            foreach (var query in queries)
+            {
+                var result = await TryFetchByName(query);
+                if (result.Item1 != null)
+                {
+                    Debug.WriteLine($"[Media] Achou '{name}' com query: '{query}'");
+                    return result;
+                }
+                // Pequena pausa para não sobrecarregar a API
+                await Task.Delay(150);
+            }
+
+            Debug.WriteLine($"[Media] Não encontrou assets para '{name}' em nenhuma query");
+            return (null, null, null, null);
+        }
+        private async Task InitializeNativeAppsAsync()
+        {
+            EnsureSteamGridAuth();
+
+            var existing = LoadMediaApps();
+            var existingById = existing.ToDictionary(a => a.Id, StringComparer.OrdinalIgnoreCase);
+
+            // Processa todos os apps em paralelo
+            var tasks = _nativeApps.Select(async app =>
+            {
+                var (id, name, query, url, type, multiUser) = app;
+
+                PostProgress(id, "active");
+
+                // Já tem grid e hero — reutiliza sem buscar nada
+                var existingEntry = existingById.TryGetValue(id, out var prev) ? prev : new MediaAppModel();
+                if (!string.IsNullOrEmpty(existingEntry.GridImage) && !string.IsNullOrEmpty(existingEntry.HeroImage))
+                {
+                    PostProgress(id, "done");
+                    return existingEntry;
+                }
+
+                // Busca URLs no SteamGrid
+                var (gridUrl, horizontalUrl, heroUrl, logoUrl) = await FetchMediaAppAssetsAsync(name, query);
+
+                // Baixa as 4 imagens em paralelo — sem delays (401 já resolvido com downloadClient)
+                var gridDlTask = !string.IsNullOrEmpty(gridUrl) ? DownloadImageAsync(gridUrl, gridFolder, id) : Task.FromResult<string?>(null);
+                var hDlTask = !string.IsNullOrEmpty(horizontalUrl) ? DownloadImageAsync(horizontalUrl, gridHorizontalFolder, id + "_h") : Task.FromResult<string?>(null);
+                var heroDlTask = !string.IsNullOrEmpty(heroUrl) ? DownloadImageAsync(heroUrl, heroFolder, id) : Task.FromResult<string?>(null);
+                var logoDlTask = !string.IsNullOrEmpty(logoUrl) ? DownloadImageAsync(logoUrl, logoFolder, id + "_logo") : Task.FromResult<string?>(null);
+
+                await Task.WhenAll(gridDlTask, hDlTask, heroDlTask, logoDlTask);
+
+                var localGrid = gridDlTask.Result;
+                var localHorizontal = hDlTask.Result;
+                var localHero = heroDlTask.Result;
+                var localLogo = logoDlTask.Result;
+
+                PostProgress(id, "done");
+
+                return new MediaAppModel
+                {
+                    Id = id,
+                    Name = name,
+                    Url = url,
+                    Type = type,
+                    MultiUser = multiUser,
+                    GridImage = localGrid != null ? $"https://data.local/images/grid/{Path.GetFileName(localGrid)}" : existingEntry.GridImage,
+                    GridHorizontalImage = localHorizontal != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(localHorizontal)}" : existingEntry.GridHorizontalImage,
+                    HeroImage = localHero != null ? $"https://data.local/images/hero/{Path.GetFileName(localHero)}" : existingEntry.HeroImage,
+                    LogoImage = localLogo != null ? $"https://data.local/images/logo/{Path.GetFileName(localLogo)}" : existingEntry.LogoImage,
+                    GridStaticImage = existingEntry.GridStaticImage,
+                    GridHorizontalStaticImage = existingEntry.GridHorizontalStaticImage,
+                    HeroStaticImage = existingEntry.HeroStaticImage,
+                    LogoStaticImage = existingEntry.LogoStaticImage,
+                };
+            });
+
+            var apps = (await Task.WhenAll(tasks)).ToList();
+
+            await Task.Run(() => SaveMediaApps(apps));
+            SendMediaAppsToUI(apps);
+        }
+        private void PostProgress(string appId, string state)
+        {
+            Dispatcher.Invoke(() =>
+                webView.CoreWebView2.PostWebMessageAsString(
+                    JsonSerializer.Serialize(new { type = "nativeAppProgress", appId, state })));
+        }
+
+        private List<MediaAppModel> LoadMediaApps()
+        {
+            if (!File.Exists(mediaFile)) return new List<MediaAppModel>();
+            try
+            {
+                return JsonSerializer.Deserialize<List<MediaAppModel>>(File.ReadAllText(mediaFile))
+                       ?? new List<MediaAppModel>();
+            }
+            catch { return new List<MediaAppModel>(); }
+        }
+
+        private void SaveMediaApps(List<MediaAppModel> apps)
+        {
+            File.WriteAllText(mediaFile,
+                JsonSerializer.Serialize(apps, new JsonSerializerOptions { WriteIndented = true }));
+        }
+
+        private void SendMediaAppsToUI(List<MediaAppModel> apps)
+        {
+            var payload = new { type = "nativeAppsLoaded", apps };
+            Dispatcher.Invoke(() =>
+                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(payload)));
+        }
+
+        private YouTubeWindow? _youTubeWindow;
+
+        private void LaunchMediaApp(string url, string appType)
+        {
+            try
+            {
+                if (appType == "webview")
+                {
+                    if (_youTubeWindow == null)
+                        _youTubeWindow = new YouTubeWindow();
+
+                    _youTubeWindow.Show();
+                    _youTubeWindow.Activate();
+                    _youTubeWindow.WindowState = WindowState.Maximized;
+                }
+                else
+                {
+                    OpenInBrowser(url);
+                }
+            }
+            catch (Exception ex) { Debug.WriteLine($"[LaunchMediaApp] Erro: {ex.Message}"); }
+        }
+        private void OpenInBrowser(string url)
+        {
+            var profile = LoadUserProfile();
+            string browserPath = profile.BrowserPath;
+
+            if (!string.IsNullOrEmpty(browserPath) && File.Exists(browserPath))
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = browserPath,
+                    Arguments = $"--kiosk \"{url}\"",
+                    UseShellExecute = true
+                });
+            }
+            else
+            {
+                // Fallback: browser padrão do sistema
+                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            }
         }
 
         // ========================= STEAM =========================
@@ -1253,6 +1470,7 @@ namespace Doorpi
                         byte[] imageBytes = Convert.FromBase64String(cleanBase64);
 
                         var games = LoadGames();
+
                         var game = games.FirstOrDefault(g => g.Path == gameId || g.LaunchUrl == gameId);
 
                         if (game != null)
@@ -1267,8 +1485,7 @@ namespace Doorpi
                             else if (imageType == "HorizontalStatic") { folder = gridHorizontalFolder; folderUrlName = "grid-horizontal"; }
 
                             string fullPath = Path.Combine(folder, fileName);
-                            File.WriteAllBytes(fullPath, imageBytes); // Sincrono para evitar lock de arquivo
-
+                            File.WriteAllBytes(fullPath, imageBytes);
                             string staticUrl = $"https://data.local/images/{folderUrlName}/{fileName}";
 
                             if (imageType == "GridStatic") game.GridStaticImage = staticUrl;
@@ -1277,9 +1494,38 @@ namespace Doorpi
                             else if (imageType == "LogoStatic") game.LogoStaticImage = staticUrl;
 
                             SaveGames(games);
-
                             var response = new { type = "staticSaved", gameId, imageType, newUrl = staticUrl };
                             webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(response));
+                        }
+                        else
+                        {
+                            // Tenta em media apps
+                            var mediaApps = LoadMediaApps();
+                            var mediaApp = mediaApps.FirstOrDefault(a => a.Id == gameId);
+
+                            if (mediaApp != null)
+                            {
+                                string fileName = $"{mediaApp.Id}_{imageType}.png";
+                                string folder = gridFolder;
+                                string folderUrlName = "grid";
+
+                                if (imageType == "HeroStatic") { folder = heroFolder; folderUrlName = "hero"; }
+                                else if (imageType == "LogoStatic") { folder = logoFolder; folderUrlName = "logo"; }
+                                else if (imageType == "HorizontalStatic") { folder = gridHorizontalFolder; folderUrlName = "grid-horizontal"; }
+
+                                string fullPath = Path.Combine(folder, fileName);
+                                File.WriteAllBytes(fullPath, imageBytes);
+                                string staticUrl = $"https://data.local/images/{folderUrlName}/{fileName}";
+
+                                if (imageType == "GridStatic") mediaApp.GridStaticImage = staticUrl;
+                                else if (imageType == "HorizontalStatic") mediaApp.GridHorizontalStaticImage = staticUrl;
+                                else if (imageType == "HeroStatic") mediaApp.HeroStaticImage = staticUrl;
+                                else if (imageType == "LogoStatic") mediaApp.LogoStaticImage = staticUrl;
+
+                                SaveMediaApps(mediaApps);
+                                var response = new { type = "staticSaved", gameId, imageType, newUrl = staticUrl };
+                                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(response));
+                            }
                         }
                     }
                 }
@@ -1371,11 +1617,17 @@ namespace Doorpi
 
                     // Constrói cache silenciosamente, depois avisa o JS
                     _ = Task.Run(async () => {
-                        try { await BuildAppCacheAndLoadUIAsync(); }
+                        try
+                        {
+                            await Task.WhenAll(
+                                BuildAppCacheAndLoadUIAsync(),
+                                InitializeNativeAppsAsync()
+                            );
+                        }
                         finally
                         {
                             Dispatcher.Invoke(() =>
-                                webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}"));
+                                webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideSystemLoading\"}"));
                         }
                     });
                 }
@@ -1401,6 +1653,14 @@ namespace Doorpi
                     string url = urlEl.GetString() ?? "";
                     if (!string.IsNullOrEmpty(url))
                         Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+                }
+                else if (action == "launchMediaApp" && root.TryGetProperty("url", out var mediaUrlEl))
+                {
+                    string mediaUrl = mediaUrlEl.GetString() ?? "";
+                    string appType = root.TryGetProperty("appType", out var atEl)
+                                      ? (atEl.GetString() ?? "browser") : "browser";
+                    if (!string.IsNullOrEmpty(mediaUrl))
+                        Dispatcher.Invoke(() => LaunchMediaApp(mediaUrl, appType));
                 }
                 else if (action == "pickFolderForSetup")
                 {
@@ -1602,9 +1862,11 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
 
                 var results = doc.RootElement.GetProperty("data");
                 if (results.GetArrayLength() == 0) return (null, null, null, null);
+                Debug.WriteLine($"[SGDB] query='{gameName}' | resultados: {string.Join(", ", results.EnumerateArray().Take(10).Select(g => $"{g.GetProperty("id").GetInt32()}:{g.GetProperty("name").GetString()}"))}");
 
-         
-                foreach (var game in results.EnumerateArray().Take(3))
+
+                foreach (var game in results.EnumerateArray().Take(10))
+
                 {
                     int id = game.GetProperty("id").GetInt32();
                     var assets = await FetchAssetsByGameId(id);
@@ -1618,17 +1880,24 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
 
         private async Task<(string?, string?, string?, string?)> FetchAssetsByGameId(int id)
         {
-            
+            // Grid ainda precisa de fallback sequencial
             string? grid = await GetFirstImageUrl($"grids/game/{id}?dimensions=600x900,342x482,660x930&types=static,animated&sort=score")
-                        ?? await GetFirstImageUrl($"grids/game/{id}?types=static,animated&sort=score");
+                        ?? await GetFirstImageUrl($"grids/game/{id}?dimensions=600x900&types=static,animated&sort=score&styles=alternate,blurred,white_logo,material,no_logo")
+                        ?? await GetFirstImageUrl($"grids/game/{id}?types=static,animated&sort=score&nsfw=any&humor=any")
+                        ?? await GetFirstImageUrl($"grids/game/{id}?nsfw=any&humor=any");
 
             if (string.IsNullOrEmpty(grid)) return (null, null, null, null);
 
-            string? horizontal = await GetFirstImageUrl($"grids/game/{id}?dimensions=460x215,920x430&types=static,animated&sort=score");
-            string? hero = await GetFirstImageUrl($"heroes/game/{id}?types=static,animated&sort=score");
-            string? logo = await GetFirstImageUrl($"logos/game/{id}?types=static,animated&sort=score");
+            // Horizontal, hero e logo em paralelo
+            var horizontalTask = GetFirstImageUrl($"grids/game/{id}?dimensions=460x215,920x430&types=static,animated&sort=score");
+            var heroTask = GetFirstImageUrl($"heroes/game/{id}?types=static,animated&sort=score");
+            var logoTask = GetFirstImageUrl($"logos/game/{id}?types=static,animated&sort=score");
 
-            if (string.IsNullOrEmpty(horizontal)) horizontal = hero;
+            await Task.WhenAll(horizontalTask, heroTask, logoTask);
+
+            string? horizontal = horizontalTask.Result ?? heroTask.Result;
+            string? hero = heroTask.Result;
+            string? logo = logoTask.Result;
 
             return (grid, horizontal, hero, logo);
         }
@@ -1653,32 +1922,46 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
 
         private async Task<string?> DownloadImageAsync(string url, string folder, string name)
         {
-            try
+            for (int attempt = 1; attempt <= 3; attempt++)
             {
-                var response = await httpClient.GetAsync(url);
-                if (!response.IsSuccessStatusCode) return null;
-
-                var bytes = await response.Content.ReadAsByteArrayAsync();
-                string ext = Path.GetExtension(url).Split('?')[0].ToLower();
-
-                if (string.IsNullOrEmpty(ext))
+                try
                 {
-                    string contentType = response.Content.Headers.ContentType?.MediaType ?? "";
-                    ext = contentType switch
+                    // downloadClient não tem Authorization header — CDN rejeita o Bearer token
+                    var response = await downloadClient.GetAsync(url);
+                    if (!response.IsSuccessStatusCode)
                     {
-                        "image/png" => ".png",
-                        "image/jpeg" => ".jpg",
-                        "image/webp" => ".webp",
-                        _ => ".png"
-                    };
-                }
+                        Debug.WriteLine($"[Download] tentativa {attempt} | HTTP {(int)response.StatusCode} | {url}");
+                        if (attempt < 3) await Task.Delay(800 * attempt);
+                        continue;
+                    }
 
-                string fileName = name + ext;
-                string fullPath = Path.Combine(folder, fileName);
-                await File.WriteAllBytesAsync(fullPath, bytes);
-                return fullPath;
+                    var bytes = await response.Content.ReadAsByteArrayAsync();
+                    string ext = Path.GetExtension(url).Split('?')[0].ToLower();
+
+                    if (string.IsNullOrEmpty(ext))
+                    {
+                        string contentType = response.Content.Headers.ContentType?.MediaType ?? "";
+                        ext = contentType switch
+                        {
+                            "image/png" => ".png",
+                            "image/jpeg" => ".jpg",
+                            "image/webp" => ".webp",
+                            _ => ".png"
+                        };
+                    }
+
+                    string fileName = name + ext;
+                    string fullPath = Path.Combine(folder, fileName);
+                    await File.WriteAllBytesAsync(fullPath, bytes);
+                    return fullPath;
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[Download ERRO] tentativa {attempt} | {url} | {ex.Message}");
+                    if (attempt < 3) await Task.Delay(800 * attempt);
+                }
             }
-            catch (Exception ex) { Debug.WriteLine($"Erro ao baixar imagem {url}: {ex.Message}"); return null; }
+            return null;
         }
 
         // ========================= LAUNCH =========================

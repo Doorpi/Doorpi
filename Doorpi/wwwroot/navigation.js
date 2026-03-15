@@ -128,7 +128,14 @@ function getNavigableItems() {
         return Array.from(document.querySelectorAll('.edit-modal-input, .edit-modal-actions button'))
             .filter(el => el.offsetWidth > 0);
     }
-    if (!isModalOpen) return Array.from(document.getElementById('gameGrid').querySelectorAll("[tabindex='0']"));
+    if (!isModalOpen) {
+        const tabs = Array.from(document.querySelectorAll('.home-tab'));
+        const activeGrid = window.getCurrentHomeTab?.() === 'media'
+            ? document.getElementById('mediaGrid')
+            : document.getElementById('gameGrid');
+        const cards = Array.from(activeGrid?.querySelectorAll("[tabindex='0']") ?? []);
+        return [...tabs, ...cards];
+    }
 
     const g = getModalGroups();
     const isVisible = (el) => el.offsetWidth > 0 && el.offsetHeight > 0;
@@ -358,13 +365,18 @@ function moveFocus(direction) {
     }
 
     if (!isModalOpen) {
+        // UP a partir de qualquer card sempre vai para a aba ativa
+        if (direction === 'UP' && current.classList.contains('card')) {
+            const activeTab = document.querySelector('.home-tab.active');
+            if (activeTab) { activeTab.focus(); return; }
+        }
+
         let target = findSpatialCandidate(items, current, direction);
         if (!target) {
             if (direction === 'RIGHT') target = items[0];
             else if (direction === 'LEFT') target = items[items.length - 1];
             else target = findWrapCandidate(items, current, direction);
         }
-
         if (!target) target = current; // Fallback
 
         if (target && target !== current) {
@@ -429,6 +441,12 @@ function moveFocus(direction) {
     }
 
     if (!target) {
+        if (!isModalOpen) {
+            const tabs = Array.from(document.querySelectorAll('.home-tab'));
+            const activeGridId = window.getCurrentHomeTab?.() === 'media' ? 'mediaGrid' : 'gameGrid';
+            const cards = Array.from(document.getElementById(activeGridId)?.querySelectorAll("[tabindex='0']") ?? []);
+            return [...tabs, ...cards];
+        }
         const skipWrap = groupName === 'app' && (direction === 'UP' || direction === 'DOWN');
         if (!skipWrap) target = findWrapCandidate(groupItems.filter(i => items.includes(i)), current, direction);
     }
@@ -455,7 +473,8 @@ function focusItemByIndex(index) {
 
 function smoothHorizontalScroll(element, onDone) {
     if (isModalOpen) { onDone?.(); return; }
-    const grid = document.getElementById('gameGrid');
+    const activeGridId = window.getCurrentHomeTab?.() === 'media' ? 'mediaGrid' : 'gameGrid';
+    const grid = document.getElementById(activeGridId);
     const gr = grid.getBoundingClientRect(), er = element.getBoundingClientRect();
     const visL = er.left >= gr.left - 2, visR = er.right <= gr.right + 2;
     if (visL && visR) { onDone?.(); return; }
@@ -471,11 +490,13 @@ function smoothHorizontalScroll(element, onDone) {
     })(performance.now());
 }
 
-document.getElementById('gameGrid').addEventListener('wheel', e => {
-    if (isModalOpen) return;
-    e.preventDefault();
-    document.getElementById('gameGrid').scrollLeft += e.deltaY * NAV.WHEEL_MULTIPLIER;
-}, { passive: false });
+['gameGrid', 'mediaGrid'].forEach(id => {
+    document.getElementById(id)?.addEventListener('wheel', e => {
+        if (isModalOpen) return;
+        e.preventDefault();
+        document.getElementById(id).scrollLeft += e.deltaY * NAV.WHEEL_MULTIPLIER;
+    }, { passive: false });
+});
 
 document.addEventListener('keydown', e => {
     if (window.isGlobalLoading) { e.preventDefault(); return; }
@@ -529,6 +550,7 @@ window.addEventListener('gamepaddisconnected', e => {
         const gamepad = _gamepadIndex !== null ? navigator.getGamepads()[_gamepadIndex] : null;
         if (!gamepad) return;
         if (window.isGlobalLoading) return;
+        if (!document.hasFocus()) return;
 
         const items = getNavigableItems();
         if (!items.length) return;
@@ -617,6 +639,31 @@ window.addEventListener('gamepaddisconnected', e => {
             if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) {
                 if (isEditModalOpen) window._editModalClose?.();
                 else triggerContextMenu();
+            }
+            else {
+                if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
+                if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
+                    if (isCtxMenuOpen) closeCtxMenu();
+                    else if (isEditModalOpen) window._editModalClose?.();
+                    else if (!isSetupOpen) gamepadCancel();
+                }
+                if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) {
+                    if (isModalOpen) document.getElementById('btnConfirmAdd')?.click();
+                    else gamepadStart();
+                }
+                if (buttonJustPressed(buttons[GAMEPAD.BTN_TRIANGLE], GAMEPAD.BTN_TRIANGLE)) {
+                    if (isModalOpen) gamepadAddFolder();
+                    gamepadTriangle();
+                }
+                if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) {
+                    if (isEditModalOpen) window._editModalClose?.();
+                    else triggerContextMenu();
+                }
+                // ── Alternância de abas Jogos / Mídia ──────────────────────────
+                if (!isModalOpen && !isSetupOpen && !isCtxMenuOpen && !isEditModalOpen) {
+                    if (buttonJustPressed(buttons[GAMEPAD.BTN_R1], GAMEPAD.BTN_R1)) window.cycleHomeTab?.(1);
+                    if (buttonJustPressed(buttons[GAMEPAD.BTN_L1], GAMEPAD.BTN_L1)) window.cycleHomeTab?.(-1);
+                }
             }
         }
     } catch (e) {

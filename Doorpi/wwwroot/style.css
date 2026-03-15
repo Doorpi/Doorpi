@@ -8,7 +8,7 @@
     --card-featured-w: clamp(430px, 34vw, 1080px);
     --card-radius: clamp(8px, 0.63vw, 24px);
     --card-gap: clamp(16px, 0.78vw, 14px);
-    --grid-pad-top: clamp(30px, 2.3vw, 85px);
+    --grid-pad-top: clamp(20px, 2.3vw, 39px);
     --grid-pad-side: clamp(30px, 3.1vw, 60px);
     --grid-pad-bottom: clamp(26px, 2.03vw, 78px);
     --logo-left: clamp(36px, 2.81vw, 108px);
@@ -27,7 +27,6 @@
     --fs-card-title: clamp(0.75rem, 0.75vw, 1.55rem);
     --fs-app-item: clamp(0.78rem, 0.78vw, 1.65rem);
     --accent: rgba(255,255,255,0.92);
-
     --fs-btn: clamp(0.78rem, 0.9vw, 1.85rem);
 }
 .gp-hint {
@@ -176,7 +175,7 @@ body {
     left: 0;
     right: 0;
     z-index: 7;
-    pointer-events: none;
+    
 }
 
 #gridBgImg {
@@ -288,7 +287,7 @@ body {
     content: "";
     position: absolute;
     inset: 0;
-    pointer-events: none;
+   
     z-index: 1;
 }
 

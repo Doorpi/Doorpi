@@ -1021,7 +1021,7 @@ function _validateAndFinish() {
         folders: _setupData.folders,
     });
     closeSetup();
-    showGlobalLoading(t('setupLoadingTitle'), t('setupLoadingSubtitle'));
+    showSystemLoading(t('preparingSystem'), t('preparingSystemSub'));
 }
 
 // ── Eventos ───────────────────────────────────────────────────────────────────

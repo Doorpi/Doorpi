@@ -67,7 +67,7 @@ window.chrome.webview.addEventListener('message', event => {
             renderFolderList(cachedFolders);
         }
         else if (data.type === 'hideLoading') {
-            hideGlobalLoading();
+            hideGlobalLoading();         
             isFolderOperationInProgress = false;
         }
         else if (data.type === 'clipboardText') {
@@ -89,6 +89,9 @@ window.chrome.webview.addEventListener('message', event => {
         else if (data.type === 'setupFolderAdded') {
             window._setupHandleFolderAdded?.(data.path);
         }
+
+        
+        window._mediaHandleMessage?.(data);
     } catch (e) { console.error('[bridge] Erro:', e); }
 });
 
@@ -155,7 +158,9 @@ function hideGlobalLoading() {
 }
 /* Seção: Utilitários de atualização de imagens */
 function updateToLocalFile(gameId, imageType, newUrl) {
-    const card = document.querySelector(`.card[data-game-id="${gameId.replace(/\\/g, '\\\\')}"]`);
+    const safeId = gameId.replace(/\\/g, '\\\\');
+    const card = document.querySelector(`.card[data-game-id="${safeId}"]`)
+        ?? document.querySelector(`.card[data-app-id="${safeId}"]`);
     if (!card) return;
     const keyMap = { GridStatic: 'staticVertical', HorizontalStatic: 'staticHorizontal', HeroStatic: 'staticHero', LogoStatic: 'staticLogo' };
     const key = keyMap[imageType];
@@ -263,9 +268,20 @@ function applyFilterAndRender() {
 
     populateAppModal(filtered);
 }
-
-/* Seção: Modal de adição de jogos */
 document.getElementById('btnAdd').addEventListener('click', () => {
+    isModalOpen = true;
+    _modalReady = false;
+    if (isSetupOpen) return;
+    document.getElementById('modalActions').style.display = 'none';
+    document.getElementById('gameGrid').style.overflowX = 'hidden';
+    document.getElementById('addGameContainer').style.display = 'flex';
+    document.getElementById('modalTitle').innerText = t('detectingLibrary');
+    showGlobalLoading(t('detectingLibrary'), t('readingApps'));
+    switchTab('apps');
+    postToHost({ action: 'requestInstalledApps' });
+});
+/* Seção: Modal de adição de jogos */
+document.getElementById('btnAddMedia')?.addEventListener('click', () => {
     isModalOpen = true;
     _modalReady = false;
     if (isSetupOpen) return;
@@ -275,7 +291,7 @@ document.getElementById('btnAdd').addEventListener('click', () => {
     document.getElementById('modalTitle').innerText = t('detectingLibrary');
 
     showGlobalLoading(t('detectingLibrary'), t('readingApps'));
-    switchTab('apps');
+    switchTab('apps'); 
     postToHost({ action: 'requestInstalledApps' });
 });
 
@@ -540,12 +556,37 @@ function renderFolderList(folders) {
 
    
 }
-
+// ── Utilitário compartilhado — detecta animação e salva frame estático ────────
+// Usado tanto por createGameCard quanto por createMediaCard (media.js)
+async function processImage(card, src, dsKey, imageType, entityId) {
+    if (!src || card.dataset[dsKey]) return;
+    const blob = await getAnimatedBlob(src);
+    if (!blob) { card.dataset[dsKey] = src; return; }
+    return new Promise(resolve => {
+        const tmp = new Image(), blobUrl = URL.createObjectURL(blob);
+        tmp.onload = () => {
+            try {
+                const c = document.createElement('canvas');
+                c.width = tmp.naturalWidth; c.height = tmp.naturalHeight;
+                c.getContext('2d').drawImage(tmp, 0, 0);
+                postToHost({ action: 'saveStaticFrame', gameId: entityId, imageType, base64: c.toDataURL('image/png') });
+            } catch { card.dataset[dsKey] = src; }
+            finally { URL.revokeObjectURL(blobUrl); resolve(); }
+        };
+        tmp.onerror = () => { card.dataset[dsKey] = src; URL.revokeObjectURL(blobUrl); resolve(); };
+        tmp.src = blobUrl;
+    });
+}
 /* Seção: Cards e interações */
 function createGameCard(data) {
     const grid = document.getElementById('gameGrid');
     const btnAdd = document.getElementById('btnAdd');
     const card = document.createElement('div');
+ 
+
+    if (grid.querySelectorAll('.card:not(.add-card)').length >= 12) return;
+  
+
     card.className = 'card';
     card.tabIndex = 0;
 
@@ -566,7 +607,7 @@ function createGameCard(data) {
     const img = document.createElement('img');
     img.decoding = 'async';
 
-    const processImage = async (src, dsKey, imageType) => {
+    /*const processImage = async (src, dsKey, imageType) => {
         if (!src || card.dataset[dsKey]) return;
         const blob = await getAnimatedBlob(src);
         if (!blob) { card.dataset[dsKey] = src; return; }
@@ -584,13 +625,13 @@ function createGameCard(data) {
             tmp.onerror = () => { card.dataset[dsKey] = src; URL.revokeObjectURL(blobUrl); resolve(); };
             tmp.src = blobUrl;
         });
-    };
+    };*/
 
     Promise.all([
-        processImage(card.dataset.vertical, 'staticVertical', 'GridStatic'),
-        processImage(card.dataset.horizontal, 'staticHorizontal', 'HorizontalStatic'),
-        processImage(card.dataset.hero, 'staticHero', 'HeroStatic'),
-        processImage(card.dataset.logo, 'staticLogo', 'LogoStatic'),
+        processImage(card, card.dataset.vertical, 'staticVertical', 'GridStatic', gameId),
+        processImage(card, card.dataset.horizontal, 'staticHorizontal', 'HorizontalStatic', gameId),
+        processImage(card, card.dataset.hero, 'staticHero', 'HeroStatic', gameId),
+        processImage(card, card.dataset.logo, 'staticLogo', 'LogoStatic', gameId),
     ]).then(() => {
         const src = card.classList.contains('featured') ? card.dataset.staticHorizontal : card.dataset.staticVertical;
         if (src) { img.src = src; img.style.opacity = '1'; }
@@ -667,7 +708,8 @@ function createGameCard(data) {
 function moveCardToTop(card) {
     if (!card) return;
     const grid = document.getElementById('gameGrid');
-    document.querySelectorAll('.card.featured').forEach(c => {
+    
+    grid.querySelectorAll('.card.featured').forEach(c => {
         c.classList.remove('featured');
         const img = c.querySelector('img');
         if (img) img.src = c.dataset.staticVertical || c.dataset.vertical;

@@ -16,6 +16,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="wwwroot\media.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="wwwroot\setup.js">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

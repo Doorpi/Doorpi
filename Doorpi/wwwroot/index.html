@@ -39,10 +39,26 @@
     <!-- Grid -->
     <div class="grid-bg">
         <img id="gridBgImg" />
+
+        <div class="home-tabs" id="homeTabs">
+            <button class="home-tab active" data-tab="games" tabindex="0" data-i18n="tabGames"></button>
+            <button class="home-tab" data-tab="media" tabindex="0" data-i18n="tabMedia"></button>
+            <span class="home-tabs-hint">
+                <b>L1</b> <b>R1</b> <span data-i18n="tabsHint"></span>
+            </span>
+        </div>
+
         <div class="game-grid" id="gameGrid">
             <div class="card add-card" tabindex="0" id="btnAdd">
                 <div class="plus">+</div>
-                <div class="title" data-i18n="btnAddLabel">Adicionar Jogo</div>
+                <div class="title" data-i18n="btnAddLabel"></div>
+            </div>
+        </div>
+
+        <div class="game-grid" id="mediaGrid">
+            <div class="card add-card" tabindex="0" id="btnAddMedia">
+                <div class="plus">+</div>
+                <div class="title" data-i18n="btnAddAppLabel">Adicionar App</div>
             </div>
         </div>
     </div>
@@ -155,6 +171,7 @@
     <script src="strings.js"></script>
     <script src="navigation.js"></script>
     <script src="app.js"></script>
+    <script src="media.js"></script>
     <script src="setup.js"></script>
 
 </body>

@@ -145,10 +145,31 @@ const STRINGS = {
         setupBrowserScanning: 'Detectando navegadores instalados...',
         setupBrowserNone: 'Nenhum navegador compatível encontrado.',
 
-       
+        // Home tabs
+        tabGames: 'Jogos',
+        tabMedia: 'Mídia',
+        tabsHint: 'alternar abas',
+        btnAddAppLabel: 'Adicionar App',
+        // System loading pós-setup
+        preparingSystem: 'Preparando o Doorpi',
+        preparingSystemSub: 'Baixando artes dos aplicativos...',
+
+        // Lançamento de app de mídia
+        msgErrorLaunchMedia: 'Erro ao abrir aplicativo: ',
     },
 
     'en-US': {
+        // Home tabs
+        tabGames: 'Games',
+        tabMedia: 'Media',
+        tabsHint: 'switch tabs',
+        btnAddAppLabel: 'Add App',
+        // System loading pós-setup
+        preparingSystem: 'Setting up Doorpi',
+        preparingSystemSub: 'Downloading app artwork...',
+
+        // Lançamento de app de mídia
+        msgErrorLaunchMedia: 'Error launching app: ',
         // Setup
 
         setupSectionBrowser: 'Apps browser',
