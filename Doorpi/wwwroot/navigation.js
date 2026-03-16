@@ -473,20 +473,36 @@ function focusItemByIndex(index) {
 
 function smoothHorizontalScroll(element, onDone) {
     if (isModalOpen) { onDone?.(); return; }
-    const activeGridId = window.getCurrentHomeTab?.() === 'media' ? 'mediaGrid' : 'gameGrid';
-    const grid = document.getElementById(activeGridId);
+    const grid = element.closest('#mediaGrid, #gameGrid')
+        ?? document.getElementById('gameGrid');
     const gr = grid.getBoundingClientRect(), er = element.getBoundingClientRect();
-    const visL = er.left >= gr.left - 2, visR = er.right <= gr.right + 2;
+
+    const MARGIN = Math.max(30, grid.clientWidth * 0.04);
+    const visL = er.left >= gr.left + MARGIN - 2;
+    const visR = er.right <= gr.right - MARGIN + 2;
     if (visL && visR) { onDone?.(); return; }
-    let target = !visR ? grid.scrollLeft + (er.left - gr.left) : grid.scrollLeft + (er.right - gr.right);
+
+    let target;
+    if (!visR) target = grid.scrollLeft + (er.left - gr.left) - MARGIN;
+    else target = grid.scrollLeft + (er.right - gr.right) + MARGIN;
     target = Math.max(0, Math.min(grid.scrollWidth - grid.clientWidth, target));
+
     const delta = target - grid.scrollLeft;
     if (Math.abs(delta) < 1) { onDone?.(); return; }
-    const start = grid.scrollLeft, t0 = performance.now();
+
+    const duration = Math.min(220, Math.max(80, Math.abs(delta) * 0.18));
+    const start = grid.scrollLeft;
+    const t0 = performance.now();
+
+
+    const ease = (t) => 1 - (1 - t) * (1 - t);
+
+    let _rafId;
     (function step(now) {
-        const p = Math.min((now - t0) / NAV.SCROLL_DURATION, 1);
-        grid.scrollLeft = start + delta * (1 - Math.pow(1 - p, 3));
-        if (p < 1) requestAnimationFrame(step); else onDone?.();
+        const p = Math.min((now - t0) / duration, 1);
+        grid.scrollLeft = start + delta * ease(p);
+        if (p < 1) _rafId = requestAnimationFrame(step);
+        else onDone?.();
     })(performance.now());
 }
 

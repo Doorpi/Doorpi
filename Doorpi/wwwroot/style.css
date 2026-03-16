@@ -3,31 +3,30 @@
 
 
 :root {
-    --card-w: clamp(140px, 10.8vw, 410px);
-    --card-h: clamp(210px, 16.2vw, 620px);
-    --card-featured-w: clamp(430px, 34vw, 1080px);
-    --card-radius: clamp(8px, 0.63vw, 24px);
-    --card-gap: clamp(16px, 0.78vw, 14px);
-    --grid-pad-top: clamp(20px, 2.3vw, 39px);
-    --grid-pad-side: clamp(30px, 3.1vw, 60px);
-    --grid-pad-bottom: clamp(26px, 2.03vw, 78px);
-    --logo-left: clamp(36px, 2.81vw, 108px);
-    --logo-bottom: clamp(300px, 23vw, 880px);
-    --logo-width: 30%;
-    --topbar-pad-v: clamp(22px, 1.72vw, 66px);
-    --topbar-pad-h: clamp(36px, 2.81vw, 108px);
-    --modal-sidebar-w: clamp(200px, 15.5vw, 560px);
-    --modal-pad-v: clamp(36px, 2.8vw, 108px);
-    --modal-pad-h: clamp(40px, 3.1vw, 120px);
-    --modal-radius: clamp(14px, 1.09vw, 42px);
-    --fs-clock: clamp(1rem, 1.25vw, 2.8rem);
-    --fs-h2: clamp(1.4rem, 1.75vw, 3.5rem);
-    --fs-sidebar-title: clamp(1rem, 1.25vw, 2.6rem);
-    --fs-btn: clamp(0.8rem, 0.85vw, 1.7rem);
-    --fs-card-title: clamp(0.75rem, 0.75vw, 1.55rem);
-    --fs-app-item: clamp(0.78rem, 0.78vw, 1.65rem);
+    --card-w: clamp(120px, min(10.8vw, 19.2vh), 320px);
+    --card-h: clamp(180px, min(16.2vw, 28.8vh), 490px);
+    --card-featured-w: clamp(360px, min(34vw, 60.5vh), 920px);
+    --card-radius: clamp(6px, min(0.63vw, 1.12vh), 20px);
+    --card-gap: clamp(10px, min(0.78vw, 1.39vh), 14px);
+    --grid-pad-top: clamp(16px, min(2.3vw, 4.1vh), 36px);
+    --grid-pad-side: clamp(24px, min(3.1vw, 5.5vh), 56px);
+    --grid-pad-bottom: clamp(20px, min(2.03vw, 3.6vh), 72px);
+    --logo-left: clamp(28px, min(2.81vw, 5vh), 88px);
+    --logo-bottom: clamp(220px, min(23vw, 40.9vh), 720px);
+    --logo-width: min(28%, 44vh);
+    --topbar-pad-v: clamp(16px, min(1.72vw, 3.06vh), 54px);
+    --topbar-pad-h: clamp(28px, min(2.81vw, 5vh), 88px);
+    --modal-sidebar-w: clamp(180px, min(15.5vw, 27.6vh), 500px);
+    --modal-pad-v: clamp(28px, min(2.8vw, 4.98vh), 88px);
+    --modal-pad-h: clamp(32px, min(3.1vw, 5.5vh), 100px);
+    --modal-radius: clamp(12px, min(1.09vw, 1.94vh), 38px);
+    --fs-clock: clamp(0.85rem, min(1.25vw, 2.22vh), 2.2rem);
+    --fs-h2: clamp(1.2rem, min(1.75vw, 3.11vh), 2.8rem);
+    --fs-sidebar-title: clamp(0.9rem, min(1.25vw, 2.22vh), 2.2rem);
+    --fs-btn: clamp(0.72rem, min(0.9vw, 1.6vh), 1.6rem);
+    --fs-card-title: clamp(0.65rem, min(0.75vw, 1.33vh), 1.25rem);
+    --fs-app-item: clamp(0.7rem, min(0.78vw, 1.39vh), 1.35rem);
     --accent: rgba(255,255,255,0.92);
-    --fs-btn: clamp(0.78rem, 0.9vw, 1.85rem);
 }
 .gp-hint {
     display: inline-flex;
@@ -197,7 +196,7 @@ body {
     padding: var(--grid-pad-top) 0 var(--grid-pad-bottom);
     scroll-padding-inline: var(--grid-pad-side);
     gap: var(--card-gap);
-    scroll-behavior: smooth;
+    scroll-behavior: auto;
     scrollbar-width: none;
     z-index: 2;
     align-items: flex-end;
