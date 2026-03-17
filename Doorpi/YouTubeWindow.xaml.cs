@@ -35,8 +35,7 @@ namespace Doorpi
         private async void OnLoaded(object sender, RoutedEventArgs e)
         {
             await ytWebView.EnsureCoreWebView2Async(null);
-
-            this.WindowState = WindowState.Normal;
+            this.WindowState = WindowState.Maximized;
 
 
             ytWebView.CoreWebView2.Settings.UserAgent = YT_API_UA;
@@ -74,11 +73,10 @@ namespace Doorpi
     const BG_ID    = 'doorpi-player-bg';
     const STYLE_ID = 'doorpi-player-style';
 
-    let _canvas  = null;
-    let _ctx     = null;
-    let _rafId   = null;
-    let _src     = null;
-    let _faded   = false;
+    let _canvas = null;
+    let _ctx    = null;
+    let _rafId  = null;
+    let _src    = null;
 
     function injectCSS() {
         if (document.getElementById(STYLE_ID)) return;
@@ -112,10 +110,16 @@ namespace Doorpi
             'position:absolute!important;inset:0!important;'
           + 'width:100%!important;height:100%!important;'
           + 'filter:blur(' + BLUR_PX + 'px)!important;'
-          + 'transform:scale(1.08)!important;'
-          + 'opacity:0!important;';          // começa invisível — body escuro do YT preenche o vazio
+          + 'opacity:' + OPACITY + '!important;'
+          + 'transform:scale(1.08)!important;';
 
         _ctx = _canvas.getContext('2d');
+
+        // Preenche com o cinza escuro do YouTube TV antes de qualquer video
+        // assim o canvas nunca fica vazio quando o CSS transparent for aplicado
+        _ctx.fillStyle = '#0f0f0f';
+        _ctx.fillRect(0, 0, _canvas.width, _canvas.height);
+
         bg.appendChild(_canvas);
         document.body.appendChild(bg);
 
@@ -123,6 +127,11 @@ namespace Doorpi
             if (!_canvas) return;
             _canvas.width  = window.innerWidth;
             _canvas.height = window.innerHeight;
+            // Repinta o fill ao redimensionar enquanto nao tem video
+            if (!_src) {
+                _ctx.fillStyle = '#0f0f0f';
+                _ctx.fillRect(0, 0, _canvas.width, _canvas.height);
+            }
         }, { passive: true });
     }
 
@@ -130,23 +139,8 @@ namespace Doorpi
         _rafId = requestAnimationFrame(drawLoop);
         if (!_src || !_ctx || !_canvas) return;
         if (_src.readyState < 2) return;
-        try {
-            _ctx.drawImage(_src, 0, 0, _canvas.width, _canvas.height);
-
-            if (!_faded) {
-                _faded = true;
-                // Primeiro frame real: fade-in do canvas
-                // Neste momento: player já é transparente, body escuro está visível,
-                // canvas tem pixel real → fade de escuro-do-body para blur do vídeo
-                _canvas.style.setProperty('transition', 'opacity 250ms ease', 'important');
-                _canvas.style.setProperty('opacity', String(OPACITY), 'important');
-                setTimeout(() => {
-                    if (!_canvas) return;
-                    _canvas.style.removeProperty('transition');
-                    _canvas.style.setProperty('opacity', String(OPACITY), 'important');
-                }, 280);
-            }
-        } catch(e) {}
+        try { _ctx.drawImage(_src, 0, 0, _canvas.width, _canvas.height); }
+        catch(e) {}
     }
 
     let _currentVideo = null;
@@ -166,7 +160,15 @@ namespace Doorpi
         const found = findVideo();
         if (found && found !== _currentVideo) {
             _currentVideo = found;
-            _src = found;
+
+            const tryStart = () => { _src = found; };
+
+            if (found.readyState >= 2) {
+                tryStart();
+            } else {
+                found.addEventListener('loadeddata', tryStart, { once: true, passive: true });
+                found.addEventListener('playing',    tryStart, { once: true, passive: true });
+            }
         } else if (!found && _currentVideo) {
             _currentVideo = null;
             _src = null;
@@ -176,7 +178,7 @@ namespace Doorpi
     function start() {
         if (!document.body) { setTimeout(start, 50); return; }
         ensureBg();
-        injectCSS();   // player transparente imediatamente — canvas opacity:0 cobre o vazio com body bg
+        injectCSS();
         drawLoop();
         domObserver.observe(document.documentElement, { childList: true, subtree: true });
     }
@@ -615,6 +617,11 @@ namespace Doorpi
         }
 
         // ── FORÇAR SELEÇÃO DE USUÁRIO ─────────────────────────────────────────
+        // Robusto para HDD/SSD lento:
+        // - Sem timeout fixo — espera o quanto for necessário
+        // - Intervalo de polling lento (250ms) em vez de rAF agressivo
+        // - Timeout de segurança de 60s que remove overlay mas não trava o app
+        // - Não interfere com WEB_PAGE_TYPE_WELCOME / CHANNEL_CREATION
         private async Task InjectForceUserSelectionAsync()
         {
             string script = @"
