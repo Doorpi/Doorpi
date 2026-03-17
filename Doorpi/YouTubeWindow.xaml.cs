@@ -35,10 +35,9 @@ namespace Doorpi
         private async void OnLoaded(object sender, RoutedEventArgs e)
         {
             await ytWebView.EnsureCoreWebView2Async(null);
-            this.Width = 2560;
-            this.Height = 1080;
+
             this.WindowState = WindowState.Normal;
-            ytWebView.CoreWebView2.OpenDevToolsWindow(); // ← adiciona aqui temporariamente
+
 
             ytWebView.CoreWebView2.Settings.UserAgent = YT_API_UA;
             ytWebView.CoreWebView2.Settings.IsStatusBarEnabled = false;
@@ -616,11 +615,6 @@ namespace Doorpi
         }
 
         // ── FORÇAR SELEÇÃO DE USUÁRIO ─────────────────────────────────────────
-        // Robusto para HDD/SSD lento:
-        // - Sem timeout fixo — espera o quanto for necessário
-        // - Intervalo de polling lento (250ms) em vez de rAF agressivo
-        // - Timeout de segurança de 60s que remove overlay mas não trava o app
-        // - Não interfere com WEB_PAGE_TYPE_WELCOME / CHANNEL_CREATION
         private async Task InjectForceUserSelectionAsync()
         {
             string script = @"
@@ -762,7 +756,7 @@ namespace Doorpi
             await ytWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
         }
 
-        // ── ADBLOCK NÍVEL C# ──────────────────────────────────────────────────
+        // ── ADBLOCK ──────────────────────────────────────────────────
         private void OnWebResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
         {
             try
