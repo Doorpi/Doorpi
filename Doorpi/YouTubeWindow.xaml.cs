@@ -75,38 +75,25 @@ namespace Doorpi
     const BG_ID    = 'doorpi-player-bg';
     const STYLE_ID = 'doorpi-player-style';
 
-    let _canvas      = null;
-    let _ctx         = null;
-    let _rafId       = null;
-    let _src         = null;
-    let _bgReady     = false;
+    let _canvas  = null;
+    let _ctx     = null;
+    let _rafId   = null;
+    let _src     = null;
+    let _faded   = false;
 
-    // Parte 1: remove as barras pretas imediatamente — não precisa de frame
-    // Parte 2: background:transparent só entra quando o canvas tiver pixel real
-    function injectCSSBars() {
-        let el = document.getElementById(STYLE_ID);
-        if (!el) {
-            const sn    = document.querySelector('style[nonce]');
-            const nonce = sn?.nonce || sn?.getAttribute('nonce') || '';
-            el = document.createElement('style');
-            el.id = STYLE_ID;
-            if (nonce) el.nonce = nonce;
-            (document.head || document.documentElement).appendChild(el);
-        }
-        el.textContent =
-            'ytlr-player::before,ytlr-player::after' +
-            '{display:none!important;background:transparent!important;}' +
-            'ytlr-player{position:relative!important;z-index:0!important;}';
-    }
-
-    function injectCSSBackground() {
-        const el = document.getElementById(STYLE_ID);
-        if (!el) return;
+    function injectCSS() {
+        if (document.getElementById(STYLE_ID)) return;
+        const sn    = document.querySelector('style[nonce]');
+        const nonce = sn?.nonce || sn?.getAttribute('nonce') || '';
+        const el    = document.createElement('style');
+        el.id       = STYLE_ID;
+        if (nonce) el.nonce = nonce;
         el.textContent =
             'ytlr-player::before,ytlr-player::after' +
             '{display:none!important;background:transparent!important;}' +
             'ytlr-player{background:transparent!important;' +
             'position:relative!important;z-index:0!important;}';
+        (document.head || document.documentElement).appendChild(el);
     }
 
     function ensureBg() {
@@ -126,10 +113,10 @@ namespace Doorpi
             'position:absolute!important;inset:0!important;'
           + 'width:100%!important;height:100%!important;'
           + 'filter:blur(' + BLUR_PX + 'px)!important;'
-          + 'opacity:' + OPACITY + '!important;'
-          + 'transform:scale(1.08)!important;';
-        _ctx = _canvas.getContext('2d');
+          + 'transform:scale(1.08)!important;'
+          + 'opacity:0!important;';          // começa invisível — body escuro do YT preenche o vazio
 
+        _ctx = _canvas.getContext('2d');
         bg.appendChild(_canvas);
         document.body.appendChild(bg);
 
@@ -146,9 +133,19 @@ namespace Doorpi
         if (_src.readyState < 2) return;
         try {
             _ctx.drawImage(_src, 0, 0, _canvas.width, _canvas.height);
-            if (!_bgReady) {
-                _bgReady = true;
-                injectCSSBackground();
+
+            if (!_faded) {
+                _faded = true;
+                // Primeiro frame real: fade-in do canvas
+                // Neste momento: player já é transparente, body escuro está visível,
+                // canvas tem pixel real → fade de escuro-do-body para blur do vídeo
+                _canvas.style.setProperty('transition', 'opacity 250ms ease', 'important');
+                _canvas.style.setProperty('opacity', String(OPACITY), 'important');
+                setTimeout(() => {
+                    if (!_canvas) return;
+                    _canvas.style.removeProperty('transition');
+                    _canvas.style.setProperty('opacity', String(OPACITY), 'important');
+                }, 280);
             }
         } catch(e) {}
     }
@@ -180,8 +177,8 @@ namespace Doorpi
     function start() {
         if (!document.body) { setTimeout(start, 50); return; }
         ensureBg();
-        injectCSSBars();   // barras somem imediatamente
-        drawLoop();        // background:transparent só entra no primeiro drawImage
+        injectCSS();   // player transparente imediatamente — canvas opacity:0 cobre o vazio com body bg
+        drawLoop();
         domObserver.observe(document.documentElement, { childList: true, subtree: true });
     }
 
