@@ -459,15 +459,50 @@ namespace Doorpi
         }
 
         private YouTubeWindow? _youTubeWindow;
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
+        public void ForceFocus()
+        {
+            Dispatcher.BeginInvoke(() =>
+            {
+                var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                ShowWindow(hwnd, 3); // SW_RESTORE
+                SetForegroundWindow(hwnd);
+                Activate();
+                webView?.Focus();
+            });
+        }
+
+        // Observa um processo e devolve foco ao Doorpi quando ele fechar
+        private void WatchAndRefocus(Process process)
+        {
+            if (process == null) return;
+            Task.Run(() =>
+            {
+                try { process.WaitForExit(); } catch { }
+                ForceFocus();
+            });
+        }
         private void LaunchMediaApp(string url, string appType)
         {
             try
             {
                 if (appType == "webview")
                 {
+                    // Se a janela for nula (nunca foi aberta ou já foi fechada e destruída)
                     if (_youTubeWindow == null)
+                    {
                         _youTubeWindow = new YouTubeWindow();
+
+                        // O SEGREDO: Quando a janela for fechada (apertando B), limpa essa variável!
+                        _youTubeWindow.Closed += (sender, args) =>
+                        {
+                            _youTubeWindow = null;
+                        };
+                    }
 
                     _youTubeWindow.Show();
                     _youTubeWindow.Activate();
@@ -478,16 +513,20 @@ namespace Doorpi
                     OpenInBrowser(url);
                 }
             }
-            catch (Exception ex) { Debug.WriteLine($"[LaunchMediaApp] Erro: {ex.Message}"); }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[LaunchMediaApp] Erro: {ex.Message}");
+            }
         }
         private void OpenInBrowser(string url)
         {
             var profile = LoadUserProfile();
             string browserPath = profile.BrowserPath;
 
+            Process? proc = null;
             if (!string.IsNullOrEmpty(browserPath) && File.Exists(browserPath))
             {
-                Process.Start(new ProcessStartInfo
+                proc = Process.Start(new ProcessStartInfo
                 {
                     FileName = browserPath,
                     Arguments = $"--kiosk \"{url}\"",
@@ -496,9 +535,10 @@ namespace Doorpi
             }
             else
             {
-                // Fallback: browser padrão do sistema
-                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+                proc = Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
             }
+
+            if (proc != null) WatchAndRefocus(proc);
         }
 
         // ========================= STEAM =========================
@@ -1980,6 +2020,8 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
                     game.LastPlayed = DateTime.Now;
                     SaveGames(games);
 
+                    Process? launched = null;
+
                     if (!string.IsNullOrWhiteSpace(game.LaunchUrl) &&
                         game.LaunchUrl.StartsWith("goggalaxy://", StringComparison.OrdinalIgnoreCase))
                     {
@@ -1991,7 +2033,7 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
 
                         if (File.Exists(gogClientPath))
                         {
-                            Process.Start(new ProcessStartInfo
+                            launched = Process.Start(new ProcessStartInfo
                             {
                                 FileName = gogClientPath,
                                 Arguments = $"/command=launch /gameId={gameId}",
@@ -2000,23 +2042,25 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
                         }
                         else
                         {
-                            Process.Start(new ProcessStartInfo(game.LaunchUrl) { UseShellExecute = true });
+                            launched = Process.Start(new ProcessStartInfo(game.LaunchUrl) { UseShellExecute = true });
                         }
                     }
                     else if (!string.IsNullOrWhiteSpace(game.LaunchUrl))
                     {
                         EnsureLauncherRunning(game.LaunchUrl);
-                        Process.Start(new ProcessStartInfo(game.LaunchUrl) { UseShellExecute = true });
+                        launched = Process.Start(new ProcessStartInfo(game.LaunchUrl) { UseShellExecute = true });
                     }
                     else if (File.Exists(game.Path))
                     {
-                        Process.Start(new ProcessStartInfo
+                        launched = Process.Start(new ProcessStartInfo
                         {
                             FileName = game.Path,
                             UseShellExecute = true,
                             WorkingDirectory = Path.GetDirectoryName(game.Path)
                         });
                     }
+
+                    if (launched != null) WatchAndRefocus(launched);
                 }
             }
             catch (Exception ex) { System.Windows.MessageBox.Show(errorMsg + ex.Message); }
