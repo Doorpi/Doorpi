@@ -94,13 +94,65 @@ namespace Doorpi
         }
 
         // ── Script para sites genéricos ───────────────────────────────────────
-        // ── Script para sites genéricos ───────────────────────────────────────
+
         private static async Task YtInjectGenericSiteAsync(CoreWebView2 cw)
         {
             const string script = @"
 (function() {
     if (window.__doorpiGenericInjected) return;
     window.__doorpiGenericInjected = true;
+
+// --- Detecta uso de mouse/teclado e desliga o VKB automaticamente ---
+let _preferPhysicalInput = false;
+let _lastPhysicalInputTs = 0;
+let _suppressPhysicalInput = false;
+const PHYSICAL_INPUT_TIMEOUT = 60000; // 60s sem atividade volta a permitir VKB
+
+function _onPhysicalInput(ev) {
+    // se estamos suprimindo (evento gerado pelo cursor virtual), ignora
+    if (_suppressPhysicalInput) return;
+
+    try {
+        // Ignore teclas de controle que não representam ""digitação física""
+        if (ev && ev.type === 'keydown') {
+            const k = ev.key;
+            if (k === 'Escape' || k.startsWith('F') || k === 'Meta' || k === 'Alt' || k === 'Control') return;
+        }
+    } catch(e){}
+
+    _lastPhysicalInputTs = Date.now();
+    _preferPhysicalInput = true;
+}
+
+
+function _physicalInputIsRecent() {
+    return _lastPhysicalInputTs && (Date.now() - _lastPhysicalInputTs) < PHYSICAL_INPUT_TIMEOUT;
+}
+
+// listeners que detectam mouse/teclado ""reais""
+window.addEventListener('mousemove', _onPhysicalInput, { passive: true });
+window.addEventListener('mousedown', _onPhysicalInput, { passive: true });
+window.addEventListener('wheel', _onPhysicalInput, { passive: true });
+// ESC fecha o app imediatamente
+window.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        try { e.preventDefault(); } catch(e){}
+        try { window.chrome.webview.postMessage('close_app'); } catch(err){}
+    }
+}, true);
+
+
+
+
+// detecta presença de ponteiro fino (mouse) no load
+if (window.matchMedia) {
+    try {
+        const mq = window.matchMedia('(pointer:fine)');
+        if (mq.matches) _onPhysicalInput();
+    } catch(e){}
+}
+
+
 
     function init() {
         if (!document.body) { setTimeout(init, 16); return; }
@@ -154,10 +206,16 @@ function leftClick() {
     const el = document.elementFromPoint(cursorX, cursorY);
     if (!el) return;
 
+    // suprime detecção de input físico enquanto simulamos o clique
+    _suppressPhysicalInput = true;
+
     // dispara eventos de mouse
     ['mouseover','mousedown','mouseup','click'].forEach(type => {
         el.dispatchEvent(new MouseEvent(type, { bubbles:true, cancelable:true, clientX:cursorX, clientY:cursorY, view:window }));
     });
+
+    // reativa detecção após um curto delay
+    setTimeout(() => { _suppressPhysicalInput = false; }, 60);
 
     // animação do cursor
     if (cursorEl) {
@@ -165,16 +223,16 @@ function leftClick() {
         setTimeout(() => { if (cursorEl) cursorEl.style.filter = ''; }, 150);
     }
 
-    // se for input, garante foco estável e abre o VKB explicitamente
+    // se for input, garante foco estável e abre o VKB explicitamente (forçando)
     if ((el.tagName === 'INPUT' && el.type !== 'hidden') || el.tagName === 'TEXTAREA' || el.isContentEditable) {
         try { el.focus(); } catch(e){}
-        // reforça o foco no próximo tick (evita blur por handlers assíncronos)
         setTimeout(() => { try { el.focus(); } catch(e){} }, 0);
 
-        // abre o VKB para esse elemento se a função existir
-        try { if (typeof _vkbOpen === 'function') _vkbOpen(el); } catch(e){}
+        // força abrir o VKB mesmo que haja atividade física recente
+        try { if (typeof _vkbOpen === 'function') _vkbOpen(el, true); } catch(e){}
     }
 }
+
 
 
 
@@ -196,7 +254,7 @@ function goBack() {
         const s = document.createElement('style');
         s.id = 'doorpi-vkb-style';
         s.textContent = [
-            '* { cursor: none !important; }', 
+
             '.doorpi-vkb-overlay{position:fixed;bottom:0;left:0;right:0;z-index:2147483647;',
             '.doorpi-vkb-overlay{position:fixed;bottom:0;left:0;right:0;z-index:2147483647;',
             'padding:0 clamp(24px,4vw,80px) clamp(24px,3vh,48px);',
@@ -239,6 +297,8 @@ function goBack() {
             '.doorpi-vkb-key[data-key=shift]{font-size:clamp(15px,1.6vw,22px);}',
             '.doorpi-vkb-key[data-key=shift].shifted{background:rgba(255,255,255,0.2);border-color:rgba(255,255,255,0.3);color:#fff;}',
             '.doorpi-vkb-key[data-key=shift].shifted.focused{background:rgba(255,255,255,0.97);color:#080810;}',
+             'body.doorpi-hide-native-cursor * { cursor: none !important; }',
+             '#doorpi-cursor { pointer-events: none; }',
         ].join('');
         document.head.appendChild(s);
     }
@@ -421,50 +481,71 @@ function goBack() {
         }
         _vkbRenderPreview();
     }
-
-    function _vkbOpen(targetEl) {
-        _vkbInputEl = targetEl;
-        const isEditable = targetEl.isContentEditable || targetEl.tagName === 'DIV';
-        _vkbCursorPos = isEditable ? (targetEl.textContent || '').length : 
-                        (targetEl.selectionStart !== undefined ? targetEl.selectionStart : (targetEl.value || '').length);
-        
-           _vkbBuild();
-    _vkbEl.style.display = 'block';
-    _vkbEl.style.opacity = '1';
-    _vkbEl.style.zIndex = '2147483647';
-    _vkbEl.classList.add('visible');
-        _vkbSetShift(_vkbShifted);
-        _vkbRenderPreview();
-        _vkbInputEl.addEventListener('input', _vkbRenderPreview);
-        if (cursorEl) cursorEl.style.display = 'none';
-        _vkbEl.style.display = 'block';
-        requestAnimationFrame(() => {
-            _vkbEl.classList.add('visible');
-            _vkbIsOpen = true;
-            _vkbSetFocus('q');
-        });
+function _vkbOpen(targetEl, force) {
+    // se não for forçado e houve input físico recentemente, bloqueia a abertura
+    if (!force && _physicalInputIsRecent()) {
+        _preferPhysicalInput = true;
+        return;
+    } else {
+        _preferPhysicalInput = false;
     }
+
+    _vkbInputEl = targetEl;
+    const isEditable = targetEl.isContentEditable || targetEl.tagName === 'DIV';
+    _vkbCursorPos = isEditable ? (targetEl.textContent || '').length :
+                    (targetEl.selectionStart !== undefined ? targetEl.selectionStart : (targetEl.value || '').length);
+
+    _vkbBuild();
+
+    // garante visibilidade e prioridade do overlay
+// dentro de _vkbOpen, logo após _vkbBuild()
+_vkbEl.style.display = 'block';
+_vkbEl.style.opacity = '1';
+_vkbEl.style.transform = 'translateY(0)';
+_vkbEl.style.zIndex = '2147483647';
+_vkbEl.style.background = 'rgba(0,0,0,0.85)'; // só para testar contraste
+_vkbEl.style.outline = '3px solid rgba(255,0,0,0.6)'; // destaca o overlay para debug
+
+
+    _vkbSetShift(_vkbShifted);
+    _vkbRenderPreview();
+    _vkbInputEl.addEventListener('input', _vkbRenderPreview);
+
+    // só oculta o cursor nativo se não estivermos preferindo input físico
+    if (!_preferPhysicalInput) {
+        document.body.classList.add('doorpi-hide-native-cursor');
+        if (cursorEl) cursorEl.style.display = 'none';
+    }
+
+    requestAnimationFrame(() => {
+        _vkbEl.classList.add('visible');
+        _vkbIsOpen = true;
+        _vkbSetFocus('q');
+    });
+}
+
 
 function _vkbClose() {
     if (!_vkbEl) return;
+
     _vkbIsOpen = false;
     _vkbEl.classList.remove('visible');
 
+    // restaura o cursor nativo e remove a classe
+    document.body.classList.remove('doorpi-hide-native-cursor');
     if (cursorEl) cursorEl.style.display = '';
 
     if (_vkbInputEl) {
         _vkbInputEl.removeEventListener('input', _vkbRenderPreview);
-        // blur apenas do elemento que estava sendo editado
         try { _vkbInputEl.blur(); } catch(e){}
         _vkbInputEl = null;
     }
-
-    // não chamar document.activeElement.blur() de forma global aqui
 
     setTimeout(() => {
         if (_vkbEl && !_vkbEl.classList.contains('visible')) _vkbEl.style.display = 'none';
     }, 340);
 }
+
 
 function bindInputFocus() {
     // Abre ao ganhar foco (Tab ou primeiro clique)
