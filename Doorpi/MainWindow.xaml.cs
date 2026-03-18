@@ -49,9 +49,6 @@ namespace Doorpi
         public string Name { get; set; } = "";
         public string PhotoBase64 { get; set; } = "";
         public string SteamGridApiKey { get; set; } = "";
-        public string BrowserPath { get; set; } = "";
-        public string BrowserExe { get; set; } = "";
-        public bool BrowserClaimed { get; set; } = false;
     }
     public class AppCacheModel
     {
@@ -119,7 +116,7 @@ namespace Doorpi
             appCacheFile = Path.Combine(dataFolder, "appcache.json");
             userFile = Path.Combine(dataFolder, "user.json");
             mediaFile = Path.Combine(dataFolder, "media.json");
-
+            Directory.CreateDirectory(Path.Combine(dataFolder, "extensions"));
             Directory.CreateDirectory(dataFolder);
             Directory.CreateDirectory(gridFolder);
             Directory.CreateDirectory(heroFolder);
@@ -204,7 +201,8 @@ namespace Doorpi
         private bool NeedsSetup()
         {
             var profile = LoadUserProfile();
-            return string.IsNullOrWhiteSpace(profile.SteamGridApiKey);
+            return string.IsNullOrWhiteSpace(profile.Name) ||
+                   string.IsNullOrWhiteSpace(profile.SteamGridApiKey);
         }
 
         private async Task BuildAppCacheAndLoadUIAsync()
@@ -458,7 +456,7 @@ namespace Doorpi
                 webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(payload)));
         }
 
-        private YouTubeWindow? _youTubeWindow;
+       
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern bool SetForegroundWindow(IntPtr hWnd);
         [System.Runtime.InteropServices.DllImport("user32.dll")]
@@ -486,57 +484,15 @@ namespace Doorpi
                 ForceFocus();
             });
         }
-        private void LaunchMediaApp(string url, string appType)
-        {
-            try
-            {
-                if (appType == "webview")
-                {
-                    // Se a janela for nula (nunca foi aberta ou já foi fechada e destruída)
-                    if (_youTubeWindow == null)
-                    {
-                        _youTubeWindow = new YouTubeWindow();
 
-                        // O SEGREDO: Quando a janela for fechada (apertando B), limpa essa variável!
-                        _youTubeWindow.Closed += (sender, args) =>
-                        {
-                            _youTubeWindow = null;
-                        };
-                    }
-
-                    _youTubeWindow.Show();
-                    _youTubeWindow.Activate();
-                    _youTubeWindow.WindowState = WindowState.Maximized;
-                }
-                else
-                {
-                    OpenInBrowser(url);
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[LaunchMediaApp] Erro: {ex.Message}");
-            }
-        }
         private void OpenInBrowser(string url)
         {
-            var profile = LoadUserProfile();
-            string browserPath = profile.BrowserPath;
-
             Process? proc = null;
-            if (!string.IsNullOrEmpty(browserPath) && File.Exists(browserPath))
-            {
-                proc = Process.Start(new ProcessStartInfo
-                {
-                    FileName = browserPath,
-                    Arguments = $"--kiosk \"{url}\"",
-                    UseShellExecute = true
-                });
-            }
-            else
+            try
             {
                 proc = Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
             }
+            catch (Exception ex) { Debug.WriteLine($"[OpenInBrowser] Erro: {ex.Message}"); }
 
             if (proc != null) WatchAndRefocus(proc);
         }
@@ -1623,9 +1579,6 @@ namespace Doorpi
                         Name = GetStr(root, "name"),
                         PhotoBase64 = GetStr(root, "photoBase64"),
                         SteamGridApiKey = GetStr(root, "apiKey"),
-                        BrowserPath = GetStr(root, "browserPath"),
-                        BrowserExe = GetStr(root, "browserExe"),
-                        BrowserClaimed = !string.IsNullOrEmpty(GetStr(root, "browserPath")),
                     };
                     SaveUserProfile(profile);
 
@@ -1699,8 +1652,14 @@ namespace Doorpi
                     string mediaUrl = mediaUrlEl.GetString() ?? "";
                     string appType = root.TryGetProperty("appType", out var atEl)
                                       ? (atEl.GetString() ?? "browser") : "browser";
+
                     if (!string.IsNullOrEmpty(mediaUrl))
-                        Dispatcher.Invoke(() => LaunchMediaApp(mediaUrl, appType));
+                    {
+                        if (appType == "webview" || appType == "browser")
+                            _ = Dispatcher.InvokeAsync(async () => await OpenWebViewInlineAsync(mediaUrl, mediaUrl.Contains("youtube.com")));
+                        else
+                            Dispatcher.Invoke(() => OpenInBrowser(mediaUrl));
+                    }
                 }
                 else if (action == "pickFolderForSetup")
                 {
