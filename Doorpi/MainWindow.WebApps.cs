@@ -10,6 +10,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -19,19 +20,26 @@ namespace Doorpi
 {
     public partial class MainWindow : Window
     {
+        // ── Win32: cursor real via gamepad ────────────────────────────────────
+        [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
+        [DllImport("user32.dll")] private static extern void mouse_event(uint dwFlags, int dx, int dy, uint dwData, UIntPtr dwExtraInfo);
+        private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+        private const uint MOUSEEVENTF_LEFTUP = 0x0004;
+
         // ── Campos ────────────────────────────────────────────────────────────
         private WebView2? _ytWebView;
-        private bool      _ytClosing = false;
+        private bool _ytClosing = false;
+        private bool _isCurrentSiteYouTube = false;
 
         private static HashSet<string>? _ytBlockedDomains;
-        private static readonly object  _ytBlockLock = new();
+        private static readonly object _ytBlockLock = new();
         private static readonly string[] _ytBlocklistUrls =
         {
             "https://easylist.to/easylist/easylist.txt",
             "https://easylist.to/easylist/easyprivacy.txt",
         };
 
-        private const string YT_UA     = "Mozilla/5.0 (PS4; Leanback Shell) Cobalt/26.lts.0-qa; compatible; Doorpi/1.6.1";
+        private const string YT_UA = "Mozilla/5.0 (PS4; Leanback Shell) Cobalt/26.lts.0-qa; compatible; Doorpi/1.6.1";
         private const string YT_TV_URL = "https://www.youtube.com/tv";
         private static readonly HttpClient _ytHttp = new();
         private Grid RootGrid => (Grid)this.Content;
@@ -94,7 +102,9 @@ namespace Doorpi
         }
 
         // ── Script para sites genéricos ───────────────────────────────────────
-
+        // Abordagem: o gamepad move o cursor REAL do Windows via postMessage → C# SetCursorPos.
+        // Cliques são reais (mouse_event Win32). Sem cursor virtual no DOM, sem dispatchEvent.
+        // Sites React (Twitch, Kick) recebem eventos de mouse genuínos → foco funciona corretamente.
         private static async Task YtInjectGenericSiteAsync(CoreWebView2 cw)
         {
             const string script = @"
@@ -102,150 +112,70 @@ namespace Doorpi
     if (window.__doorpiGenericInjected) return;
     window.__doorpiGenericInjected = true;
 
-// --- Detecta uso de mouse/teclado e desliga o VKB automaticamente ---
-let _preferPhysicalInput = false;
-let _lastPhysicalInputTs = 0;
-let _suppressPhysicalInput = false;
-const PHYSICAL_INPUT_TIMEOUT = 60000; // 60s sem atividade volta a permitir VKB
-
-function _onPhysicalInput(ev) {
-    // se estamos suprimindo (evento gerado pelo cursor virtual), ignora
-    if (_suppressPhysicalInput) return;
-
-    try {
-        // Ignore teclas de controle que não representam ""digitação física""
-        if (ev && ev.type === 'keydown') {
-            const k = ev.key;
-            if (k === 'Escape' || k.startsWith('F') || k === 'Meta' || k === 'Alt' || k === 'Control') return;
+    // ── ESC: fecha VKB primeiro, depois fecha o app ───────────────────────
+    // stopImmediatePropagation impede que SPAs (Twitch, Kick) consumam o evento.
+    window.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            try { e.preventDefault(); e.stopImmediatePropagation(); } catch(_) {}
+            if (_vkbIsOpen) { _vkbClose(); return; }
+            try { window.chrome.webview.postMessage('close_app'); } catch(_) {}
         }
-    } catch(e){}
+    }, true);
 
-    _lastPhysicalInputTs = Date.now();
-    _preferPhysicalInput = true;
-}
-
-
-function _physicalInputIsRecent() {
-    return _lastPhysicalInputTs && (Date.now() - _lastPhysicalInputTs) < PHYSICAL_INPUT_TIMEOUT;
-}
-
-// listeners que detectam mouse/teclado ""reais""
-window.addEventListener('mousemove', _onPhysicalInput, { passive: true });
-window.addEventListener('mousedown', _onPhysicalInput, { passive: true });
-window.addEventListener('wheel', _onPhysicalInput, { passive: true });
-// ESC fecha o app imediatamente
-window.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') {
-        try { e.preventDefault(); } catch(e){}
-        try { window.chrome.webview.postMessage('close_app'); } catch(err){}
+    function isInput(el) {
+        if (!el) return false;
+        return (el.tagName === 'INPUT' && el.type !== 'hidden') ||
+               el.tagName === 'TEXTAREA' ||
+               el.isContentEditable ||
+               (el.tagName === 'DIV' && el.getAttribute('role') === 'textbox');
     }
-}, true);
-
-
-
-
-// detecta presença de ponteiro fino (mouse) no load
-if (window.matchMedia) {
-    try {
-        const mq = window.matchMedia('(pointer:fine)');
-        if (mq.matches) _onPhysicalInput();
-    } catch(e){}
-}
-
-
 
     function init() {
         if (!document.body) { setTimeout(init, 16); return; }
         injectVkbStyles();
-        injectCursor();
         startGamepad();
         bindInputFocus();
         patchHistory();
     }
-function isInput(el) {
-        if (!el) return false;
-        return (el.tagName === 'INPUT' && el.type !== 'hidden') || 
-               el.tagName === 'TEXTAREA' || 
-               el.isContentEditable ||
-               (el.tagName === 'DIV' && el.getAttribute('role') === 'textbox');
-    }
+
     // ── Rastreamento de navegação ─────────────────────────────────────────
     let _navDepth = 0;
-
     function patchHistory() {
         const origPush = history.pushState.bind(history);
         history.pushState = function(...args) { origPush(...args); _navDepth++; };
         window.addEventListener('popstate', () => { _navDepth = Math.max(0, _navDepth - 1); });
     }
 
-    // ── Cursor virtual ────────────────────────────────────────────────────
-    let cursorX  = window.innerWidth  / 2;
-    let cursorY  = window.innerHeight / 2;
-    let cursorEl = null;
+    // ── Cursor real via C# ────────────────────────────────────────────────
+    // O JS rastreia posição lógica; C# recebe e chama SetCursorPos + mouse_event.
+    // Não há cursor SVG no DOM — o OS cursor é único, sem conflito.
+    let cursorX    = window.innerWidth  / 2;
+    let cursorY    = window.innerHeight / 2;
+    let _speedMult = 1;
     const SPEED_BASE = 1;
     const SPEED_MAX  = 3;
-    let _speedMult   = 1;
 
-    function injectCursor() {
-        if (document.getElementById('doorpi-cursor')) return;
-        const c = document.createElement('div');
-        c.id = 'doorpi-cursor';
-        c.style.cssText = 'position:fixed;z-index:2147483646;width:44px;height:44px;pointer-events:none;transform:translate(-4px,-4px);left:' + cursorX + 'px;top:' + cursorY + 'px;transition:filter 0.1s;';
-        c.innerHTML = '<svg viewBox=""0 0 24 24"" xmlns=""http://www.w3.org/2000/svg""><path d=""M4 2l16 10-7 1-4 7z"" fill=""white"" stroke=""rgba(0,0,0,0.6)"" stroke-width=""1""/></svg>';
-        document.body.appendChild(c);
-        cursorEl = c;
-    }
+    // Último valor enviado — evita postMessages redundantes
+    let _sentX = -1, _sentY = -1;
 
     function moveCursor(dx, dy) {
-        cursorX = Math.max(0, Math.min(window.innerWidth,  cursorX + dx));
-        cursorY = Math.max(0, Math.min(window.innerHeight, cursorY + dy));
-        if (cursorEl) { cursorEl.style.left = cursorX + 'px'; cursorEl.style.top = cursorY + 'px'; }
+        cursorX = Math.max(0, Math.min(window.innerWidth  - 1, cursorX + dx));
+        cursorY = Math.max(0, Math.min(window.innerHeight - 1, cursorY + dy));
+        const ix = Math.round(cursorX), iy = Math.round(cursorY);
+        if (ix !== _sentX || iy !== _sentY) {
+            _sentX = ix; _sentY = iy;
+            try { window.chrome.webview.postMessage('gp_move:' + ix + ':' + iy); } catch(_) {}
+        }
     }
 
-function leftClick() {
-    const el = document.elementFromPoint(cursorX, cursorY);
-    if (!el) return;
-
-    // suprime detecção de input físico enquanto simulamos o clique
-    _suppressPhysicalInput = true;
-
-    // dispara eventos de mouse
-    ['mouseover','mousedown','mouseup','click'].forEach(type => {
-        el.dispatchEvent(new MouseEvent(type, { bubbles:true, cancelable:true, clientX:cursorX, clientY:cursorY, view:window }));
-    });
-
-    // reativa detecção após um curto delay
-    setTimeout(() => { _suppressPhysicalInput = false; }, 60);
-
-    // animação do cursor
-    if (cursorEl) {
-        cursorEl.style.filter = 'drop-shadow(0 0 6px rgba(255,255,255,0.9))';
-        setTimeout(() => { if (cursorEl) cursorEl.style.filter = ''; }, 150);
+    function doClick() {
+        try { window.chrome.webview.postMessage('gp_click'); } catch(_) {}
     }
-
-    // se for input, garante foco estável e abre o VKB explicitamente (forçando)
-    if ((el.tagName === 'INPUT' && el.type !== 'hidden') || el.tagName === 'TEXTAREA' || el.isContentEditable) {
-        try { el.focus(); } catch(e){}
-        setTimeout(() => { try { el.focus(); } catch(e){} }, 0);
-
-        // força abrir o VKB mesmo que haja atividade física recente
-        try { if (typeof _vkbOpen === 'function') _vkbOpen(el, true); } catch(e){}
-    }
-}
-
-
-
 
     // ── Botão voltar ──────────────────────────────────────────────────────
-    let lastBackTime = 0;
-
-function goBack() {
-        if (_navDepth > 0) {
-            window.history.back();
-        } else {
-            // Se não houver histórico, manda fechar imediatamente
-            window.chrome.webview.postMessage('close_app');
-        }
+    function goBack() {
+        if (_navDepth > 0) { window.history.back(); }
+        else { try { window.chrome.webview.postMessage('close_app'); } catch(_) {} }
     }
 
     // ── VKB estilos ───────────────────────────────────────────────────────
@@ -253,12 +183,11 @@ function goBack() {
         if (document.getElementById('doorpi-vkb-style')) return;
         const s = document.createElement('style');
         s.id = 'doorpi-vkb-style';
+        // ATENÇÃO: cada string é uma linha CSS distinta; NÃO duplicar seletores de abertura.
         s.textContent = [
-
-            '.doorpi-vkb-overlay{position:fixed;bottom:0;left:0;right:0;z-index:2147483647;',
             '.doorpi-vkb-overlay{position:fixed;bottom:0;left:0;right:0;z-index:2147483647;',
             'padding:0 clamp(24px,4vw,80px) clamp(24px,3vh,48px);',
-            'background:linear-gradient(to top,rgba(5,5,10,1) 65%,rgba(5,5,10,0.96) 85%,transparent 100%);',
+            'background:linear-gradient(to top,rgba(5,5,10,0.99) 65%,rgba(5,5,10,0.95) 85%,transparent 100%);',
             'transform:translateY(100%);transition:transform 0.32s cubic-bezier(0.25,0.46,0.45,0.94);user-select:none;}',
             '.doorpi-vkb-overlay.visible{transform:translateY(0);}',
             '.doorpi-vkb-preview-wrap{display:flex;align-items:center;gap:12px;margin-bottom:clamp(12px,2vh,22px);padding:0 2px;}',
@@ -297,8 +226,8 @@ function goBack() {
             '.doorpi-vkb-key[data-key=shift]{font-size:clamp(15px,1.6vw,22px);}',
             '.doorpi-vkb-key[data-key=shift].shifted{background:rgba(255,255,255,0.2);border-color:rgba(255,255,255,0.3);color:#fff;}',
             '.doorpi-vkb-key[data-key=shift].shifted.focused{background:rgba(255,255,255,0.97);color:#080810;}',
-             'body.doorpi-hide-native-cursor * { cursor: none !important; }',
-             '#doorpi-cursor { pointer-events: none; }',
+            'body.doorpi-hide-native-cursor * { cursor: none !important; }',
+            '#doorpi-cursor { pointer-events: none; }',
         ].join('');
         document.head.appendChild(s);
     }
@@ -311,7 +240,6 @@ function goBack() {
         'shift','z','x','c','v','b','n','m',',','.',
         'space','cancel','ok',
     ];
-
     const KEY_ROWS = [
         ['1','2','3','4','5','6','7','8','9','0'],
         ['q','w','e','r','t','y','u','i','o','p'],
@@ -319,7 +247,6 @@ function goBack() {
         ['shift','z','x','c','v','b','n','m',',','.'],
         ['space','cancel','ok'],
     ];
-
     const LABELS = { '\u232b':'\u232b', shift:'\u21e7', space:'Espaço', cancel:'Cancelar', ok:'OK' };
 
     let _vkbEl        = null;
@@ -328,21 +255,34 @@ function goBack() {
     let _vkbCursorPos = 0;
     let _vkbFocusKey  = 'q';
     let _vkbIsOpen    = false;
+    let _vkbClosing   = false;   // flag para bloquear re-abertura imediata após fechar
 
     function _vkbBuild() {
         if (_vkbEl) return;
         _vkbEl = document.createElement('div');
         _vkbEl.className = 'doorpi-vkb-overlay';
-        const keysHtml = FLAT_KEYS.map(k => '<button class=""doorpi-vkb-key"" data-key=""' + k + '"" tabindex=""0"">' + (LABELS[k] || k) + '</button>').join('');
+        _vkbEl.style.display = 'none';
+
+        const keysHtml = FLAT_KEYS.map(k =>
+            '<button class=""doorpi-vkb-key"" data-key=""' + k + '"" tabindex=""-1"">' +
+            (LABELS[k] || k) + '</button>'
+        ).join('');
+
         _vkbEl.innerHTML =
             '<div class=""doorpi-vkb-preview-wrap"">' +
               '<span class=""doorpi-vkb-preview-label"">Digitando</span>' +
               '<div class=""doorpi-vkb-preview-text"" id=""doorpi-vkb-preview""></div>' +
             '</div>' +
             '<div class=""doorpi-vkb-grid"">' + keysHtml + '</div>';
+
         document.body.appendChild(_vkbEl);
+
+        // pointerdown + preventDefault: pressiona a tecla SEM roubar o foco do input
         _vkbEl.querySelectorAll('.doorpi-vkb-key').forEach(btn => {
-            btn.addEventListener('click', () => _vkbPressKey(btn.dataset.key));
+            btn.addEventListener('pointerdown', e => {
+                e.preventDefault();
+                _vkbPressKey(btn.dataset.key);
+            });
         });
     }
 
@@ -350,15 +290,12 @@ function goBack() {
         return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/""/g,'&quot;');
     }
 
-    // 🔥 HACK PARA BYPASS DO REACT (TWITCH/YT)
+    // Hack para bypass do setter sintético do React/frameworks
     function _setNativeValue(element, value) {
-        const prototype = element.tagName === 'INPUT' ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
-        const nativeSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
-        if (nativeSetter) {
-            nativeSetter.call(element, value);
-        } else {
-            element.value = value;
-        }
+        const proto = element.tagName === 'INPUT' ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
+        const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+        if (nativeSetter) { nativeSetter.call(element, value); }
+        else              { element.value = value; }
     }
 
     function _vkbRenderPreview() {
@@ -366,16 +303,18 @@ function goBack() {
         if (!el || !_vkbInputEl) return;
         const isEditable = _vkbInputEl.isContentEditable || _vkbInputEl.tagName === 'DIV';
         const txt = isEditable ? (_vkbInputEl.textContent || '') : (_vkbInputEl.value || '');
-        const fmt = function(s) { return _vkbEsc(s).replace(/ /g, '&nbsp;'); };
+        const fmt = s => _vkbEsc(s).replace(/ /g, '&nbsp;');
         const pos = Math.min(_vkbCursorPos, txt.length);
-        el.innerHTML = fmt(txt.slice(0, pos)) + '<span class=""doorpi-vkb-cursor""></span>' + fmt(txt.slice(pos));
+        el.innerHTML = fmt(txt.slice(0, pos)) +
+                       '<span class=""doorpi-vkb-cursor""></span>' +
+                       fmt(txt.slice(pos));
     }
 
     function _vkbSetShift(on) {
         _vkbShifted = on;
         const btn = _vkbEl ? _vkbEl.querySelector('[data-key=shift]') : null;
         if (btn) btn.classList.toggle('shifted', on);
-        if (_vkbEl) _vkbEl.querySelectorAll('.doorpi-vkb-key').forEach(function(k) {
+        if (_vkbEl) _vkbEl.querySelectorAll('.doorpi-vkb-key').forEach(k => {
             const key = k.dataset.key;
             if (key && key.length === 1 && key >= 'a' && key <= 'z')
                 k.textContent = on ? key.toUpperCase() : key;
@@ -384,21 +323,20 @@ function goBack() {
 
     function _vkbSetFocus(key) {
         _vkbFocusKey = key;
-        if (_vkbEl) _vkbEl.querySelectorAll('.doorpi-vkb-key').forEach(function(k) {
-            k.classList.toggle('focused', k.dataset.key === key);
-        });
+        if (_vkbEl) _vkbEl.querySelectorAll('.doorpi-vkb-key').forEach(k =>
+            k.classList.toggle('focused', k.dataset.key === key));
     }
 
     function _vkbMoveFocus(dir) {
-        var rIdx = 0, cIdx = 0, found = false;
-        for (var r = 0; r < KEY_ROWS.length && !found; r++) {
-            for (var c = 0; c < KEY_ROWS[r].length && !found; c++) {
+        let rIdx = 0, cIdx = 0, found = false;
+        for (let r = 0; r < KEY_ROWS.length && !found; r++) {
+            for (let c = 0; c < KEY_ROWS[r].length && !found; c++) {
                 if (KEY_ROWS[r][c] === _vkbFocusKey) { rIdx = r; cIdx = c; found = true; }
             }
         }
-        if (dir === 'up') rIdx = Math.max(0, rIdx - 1);
-        if (dir === 'down') rIdx = Math.min(KEY_ROWS.length - 1, rIdx + 1);
-        if (dir === 'left') cIdx = Math.max(0, cIdx - 1);
+        if (dir === 'up')    rIdx = Math.max(0, rIdx - 1);
+        if (dir === 'down')  rIdx = Math.min(KEY_ROWS.length - 1, rIdx + 1);
+        if (dir === 'left')  cIdx = Math.max(0, cIdx - 1);
         if (dir === 'right') cIdx = Math.min(KEY_ROWS[rIdx].length - 1, cIdx + 1);
         cIdx = Math.min(cIdx, KEY_ROWS[rIdx].length - 1);
         _vkbSetFocus(KEY_ROWS[rIdx][cIdx]);
@@ -409,15 +347,17 @@ function goBack() {
         const isEditable = _vkbInputEl.isContentEditable || _vkbInputEl.tagName === 'DIV';
         if (isEditable) {
             _vkbInputEl.focus();
-            const key = dir === 'left' ? 'ArrowLeft' : 'ArrowRight';
+            const key  = dir === 'left' ? 'ArrowLeft' : 'ArrowRight';
             const code = dir === 'left' ? 37 : 39;
-            _vkbInputEl.dispatchEvent(new KeyboardEvent('keydown', { bubbles:true, cancelable:true, key:key, keyCode:code, which:code, composed:true }));
-            setTimeout(() => { if(_vkbInputEl) _vkbInputEl.dispatchEvent(new KeyboardEvent('keyup', { bubbles:true, key:key, keyCode:code, composed:true })); }, 20);
+            _vkbInputEl.dispatchEvent(new KeyboardEvent('keydown', { bubbles:true, cancelable:true, key, keyCode:code, which:code, composed:true }));
+            setTimeout(() => {
+                if (_vkbInputEl) _vkbInputEl.dispatchEvent(new KeyboardEvent('keyup', { bubbles:true, key, keyCode:code, composed:true }));
+            }, 20);
         } else {
             const txt = _vkbInputEl.value || '';
-            if (dir === 'left') _vkbCursorPos = Math.max(0, _vkbCursorPos - 1);
+            if (dir === 'left')  _vkbCursorPos = Math.max(0, _vkbCursorPos - 1);
             if (dir === 'right') _vkbCursorPos = Math.min(txt.length, _vkbCursorPos + 1);
-            try { _vkbInputEl.setSelectionRange(_vkbCursorPos, _vkbCursorPos); } catch(e){}
+            try { _vkbInputEl.setSelectionRange(_vkbCursorPos, _vkbCursorPos); } catch(e) {}
         }
         _vkbRenderPreview();
     }
@@ -426,9 +366,7 @@ function goBack() {
         if (!_vkbInputEl) return;
         const isEditable = _vkbInputEl.isContentEditable || _vkbInputEl.tagName === 'DIV';
         _vkbInputEl.focus();
-
         if (isEditable) {
-            // Hack de Paste para sites React complexos (Twitch Chat)
             const dt = new DataTransfer();
             dt.setData('text/plain', char);
             const pasteEvt = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true, composed: true });
@@ -438,11 +376,11 @@ function goBack() {
             _vkbInputEl.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
             _vkbCursorPos = (_vkbInputEl.textContent || '').length;
         } else {
-            const val = _vkbInputEl.value || '';
+            const val     = _vkbInputEl.value || '';
             const newText = val.slice(0, _vkbCursorPos) + char + val.slice(_vkbCursorPos);
             _setNativeValue(_vkbInputEl, newText);
             _vkbCursorPos++;
-            _vkbInputEl.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+            _vkbInputEl.dispatchEvent(new Event('input',  { bubbles: true, composed: true }));
             _vkbInputEl.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
         }
     }
@@ -451,18 +389,17 @@ function goBack() {
         if (!_vkbInputEl) return;
         const isEditable = _vkbInputEl.isContentEditable || _vkbInputEl.tagName === 'DIV';
         _vkbInputEl.focus();
-
         if (isEditable) {
             document.execCommand('delete', false, null);
             _vkbInputEl.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
             _vkbCursorPos = Math.max(0, (_vkbInputEl.textContent || '').length);
         } else {
             if (_vkbCursorPos > 0) {
-                const val = _vkbInputEl.value || '';
+                const val     = _vkbInputEl.value || '';
                 const newText = val.slice(0, _vkbCursorPos - 1) + val.slice(_vkbCursorPos);
                 _setNativeValue(_vkbInputEl, newText);
                 _vkbCursorPos--;
-                _vkbInputEl.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+                _vkbInputEl.dispatchEvent(new Event('input',  { bubbles: true, composed: true }));
                 _vkbInputEl.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
             }
         }
@@ -470,10 +407,10 @@ function goBack() {
 
     function _vkbPressKey(key) {
         if (!_vkbInputEl) return;
-        if (key === '\u232b') { _vkbDelete(); }
-        else if (key === 'shift') { _vkbSetShift(!_vkbShifted); }
-        else if (key === 'space') { _vkbInsert(' '); }
-        else if (key === 'ok') { _vkbClose(); } // Apenas fecha como solicitado
+        if      (key === '\u232b') { _vkbDelete(); }
+        else if (key === 'shift')  { _vkbSetShift(!_vkbShifted); }
+        else if (key === 'space')  { _vkbInsert(' '); }
+        else if (key === 'ok')     { _vkbClose(); }
         else if (key === 'cancel') { _vkbClose(); }
         else {
             _vkbInsert(_vkbShifted ? key.toUpperCase() : key);
@@ -481,186 +418,216 @@ function goBack() {
         }
         _vkbRenderPreview();
     }
-function _vkbOpen(targetEl, force) {
-    // se não for forçado e houve input físico recentemente, bloqueia a abertura
-    if (!force && _physicalInputIsRecent()) {
-        _preferPhysicalInput = true;
-        return;
-    } else {
-        _preferPhysicalInput = false;
-    }
 
-    _vkbInputEl = targetEl;
-    const isEditable = targetEl.isContentEditable || targetEl.tagName === 'DIV';
-    _vkbCursorPos = isEditable ? (targetEl.textContent || '').length :
-                    (targetEl.selectionStart !== undefined ? targetEl.selectionStart : (targetEl.value || '').length);
+    function _vkbOpen(targetEl) {
+        if (_vkbClosing) return;
 
-    _vkbBuild();
+        // Já aberto para o mesmo input → no-op
+        if (_vkbIsOpen && _vkbInputEl === targetEl) return;
 
-    // garante visibilidade e prioridade do overlay
-// dentro de _vkbOpen, logo após _vkbBuild()
-_vkbEl.style.display = 'block';
-_vkbEl.style.opacity = '1';
-_vkbEl.style.transform = 'translateY(0)';
-_vkbEl.style.zIndex = '2147483647';
-_vkbEl.style.background = 'rgba(0,0,0,0.85)'; // só para testar contraste
-_vkbEl.style.outline = '3px solid rgba(255,0,0,0.6)'; // destaca o overlay para debug
-
-
-    _vkbSetShift(_vkbShifted);
-    _vkbRenderPreview();
-    _vkbInputEl.addEventListener('input', _vkbRenderPreview);
-
-    // só oculta o cursor nativo se não estivermos preferindo input físico
-    if (!_preferPhysicalInput) {
-        document.body.classList.add('doorpi-hide-native-cursor');
-        if (cursorEl) cursorEl.style.display = 'none';
-    }
-
-    requestAnimationFrame(() => {
-        _vkbEl.classList.add('visible');
-        _vkbIsOpen = true;
-        _vkbSetFocus('q');
-    });
-}
-
-
-function _vkbClose() {
-    if (!_vkbEl) return;
-
-    _vkbIsOpen = false;
-    _vkbEl.classList.remove('visible');
-
-    // restaura o cursor nativo e remove a classe
-    document.body.classList.remove('doorpi-hide-native-cursor');
-    if (cursorEl) cursorEl.style.display = '';
-
-    if (_vkbInputEl) {
-        _vkbInputEl.removeEventListener('input', _vkbRenderPreview);
-        try { _vkbInputEl.blur(); } catch(e){}
-        _vkbInputEl = null;
-    }
-
-    setTimeout(() => {
-        if (_vkbEl && !_vkbEl.classList.contains('visible')) _vkbEl.style.display = 'none';
-    }, 340);
-}
-
-
-function bindInputFocus() {
-    // Abre ao ganhar foco (Tab ou primeiro clique)
-    document.addEventListener('focusin', e => {
-        const el = e.target;
-        if (isInput(el)) _vkbOpen(el);
-    }, true);
-
-    // Abre ao clicar (mesmo se já tiver o foco) — sem delay
-    document.addEventListener('mousedown', e => {
-        const el = e.target;
-        // se clicou dentro do overlay, não fechar nem reabrir
-        if (el.closest && el.closest('.doorpi-vkb-overlay')) {
-            // evita que o overlay capture e cause blur em outros elementos
-            e.stopPropagation();
+        // Já aberto para UM OUTRO input → troca o input sem animar de novo
+        if (_vkbIsOpen && _vkbInputEl && _vkbInputEl !== targetEl) {
+            _vkbInputEl.removeEventListener('input', _vkbRenderPreview);
+            _vkbInputEl = targetEl;
+            const isEditable = targetEl.isContentEditable || targetEl.tagName === 'DIV';
+            _vkbCursorPos = isEditable
+                ? (targetEl.textContent || '').length
+                : (targetEl.selectionStart !== undefined
+                    ? targetEl.selectionStart
+                    : (targetEl.value || '').length);
+            _vkbInputEl.addEventListener('input', _vkbRenderPreview);
+            _vkbRenderPreview();
             return;
         }
-        if (isInput(el) && !_vkbIsOpen) {
-            _vkbOpen(el);
-        }
-    }, true);
 
-    // Fecha ao clicar fora de tudo, mas sem forçar blur global
-    document.addEventListener('click', e => {
-        const tgt = e.target;
-        if (_vkbIsOpen && !isInput(tgt) && !tgt.closest('.doorpi-vkb-overlay')) {
-            _vkbClose();
-            // só blur se o elemento ativo ainda for um input e estiver visível
-            try {
-                const ae = document.activeElement;
-                if (ae && isInput(ae)) ae.blur();
-            } catch(e){}
-        }
-    }, true);
-}
+        // Abrir pela primeira vez
+        _vkbInputEl = targetEl;
+        const isEditable = targetEl.isContentEditable || targetEl.tagName === 'DIV';
+        _vkbCursorPos = isEditable
+            ? (targetEl.textContent || '').length
+            : (targetEl.selectionStart !== undefined
+                ? targetEl.selectionStart
+                : (targetEl.value || '').length);
 
+        _vkbBuild();
+        _vkbEl.style.display = 'block';
+        _vkbSetShift(_vkbShifted);
+        _vkbRenderPreview();
+        _vkbInputEl.addEventListener('input', _vkbRenderPreview);
+
+        requestAnimationFrame(() => {
+            _vkbEl.classList.add('visible');
+            _vkbIsOpen = true;
+            _vkbSetFocus('q');
+        });
+    }
+
+    function _vkbClose() {
+        if (!_vkbEl || !_vkbIsOpen) return;
+
+        // _vkbClosing DEVE ser setado ANTES do blur para que o focusin handler
+        // que blur() vai disparar no próximo elemento não reabra o VKB.
+        _vkbClosing = true;
+        _vkbIsOpen  = false;
+        _vkbEl.classList.remove('visible');
+
+        if (_vkbInputEl) {
+            _vkbInputEl.removeEventListener('input', _vkbRenderPreview);
+            const elToBlur = _vkbInputEl;
+            _vkbInputEl = null;
+            // Blur em rAF para garantir que _vkbClosing já está true quando
+            // o evento focusout/focusin derivado disparar.
+            requestAnimationFrame(() => {
+                try { elToBlur.blur(); } catch(e) {}
+            });
+        }
+
+        setTimeout(() => {
+            if (_vkbEl && !_vkbEl.classList.contains('visible'))
+                _vkbEl.style.display = 'none';
+            _vkbClosing = false;
+        }, 400);   // >= duração da transição CSS (0.32s)
+    }
+
+    // ── Gerenciamento de foco nos inputs ──────────────────────────────────
+    function bindInputFocus() {
+        // Tab / foco programático → abre VKB com pequeno delay para evitar
+        // aberturas espúrias causadas pelo próprio _vkbClose
+        document.addEventListener('focusin', e => {
+            if (_vkbClosing) return;
+            const el = e.target;
+            if (isInput(el) && !_vkbIsOpen) {
+                setTimeout(() => {
+                    if (!_vkbClosing && document.activeElement === el)
+                        _vkbOpen(el);
+                }, 50);
+            }
+        }, true);
+
+        // Clique dentro do overlay → NÃO roubar foco do input (pointerdown já
+        // é tratado com preventDefault nos botões; aqui só bloqueamos propagação)
+        document.addEventListener('mousedown', e => {
+            if (e.target.closest && e.target.closest('.doorpi-vkb-overlay')) {
+                e.preventDefault();
+                return;
+            }
+            if (isInput(e.target) && !_vkbIsOpen && !_vkbClosing)
+                _vkbOpen(e.target);
+        }, true);
+
+        // Clique fora do input e do VKB → fecha
+        document.addEventListener('click', e => {
+            const tgt = e.target;
+            if (_vkbIsOpen &&
+                !isInput(tgt) &&
+                !(tgt.closest && tgt.closest('.doorpi-vkb-overlay'))) {
+                _vkbClose();
+            }
+        }, true);
+    }
 
     // ── Gamepad ───────────────────────────────────────────────────────────
-    var buttonStates = { }, buttonHoldTimes = { }, buttonRepeatCount = { };
+    let buttonStates = {}, buttonHoldTimes = {}, buttonRepeatCount = {};
+
+    // Dispara Tab/Shift+Tab para navegar entre elementos focáveis
+    function fireTab(shift) {
+        const el = document.activeElement || document.body;
+        el.dispatchEvent(new KeyboardEvent('keydown', {
+            bubbles: true, cancelable: true,
+            key: 'Tab', code: 'Tab', keyCode: 9, which: 9,
+            shiftKey: !!shift, composed: true
+        }));
+        setTimeout(() => {
+            el.dispatchEvent(new KeyboardEvent('keyup', {
+                bubbles: true,
+                key: 'Tab', code: 'Tab', keyCode: 9, which: 9,
+                shiftKey: !!shift, composed: true
+            }));
+        }, 20);
+    }
 
     function processButton(idx, pressed, action, canRepeat) {
         if (pressed) {
             if (!buttonStates[idx]) {
                 action();
-                buttonStates[idx] = true; buttonHoldTimes[idx] = Date.now(); buttonRepeatCount[idx] = 0;
+                buttonStates[idx] = true;
+                buttonHoldTimes[idx] = Date.now();
+                buttonRepeatCount[idx] = 0;
             } else if (canRepeat !== false) {
-                var held = Date.now() - buttonHoldTimes[idx];
-                if (held > 350) {
-                    var expected = Math.floor((held - 350) / 70);
-                    if (expected > buttonRepeatCount[idx]) { action(); buttonRepeatCount[idx] = expected; }
+                const held     = Date.now() - buttonHoldTimes[idx];
+                const expected = Math.floor((held - 350) / 70);
+                if (held > 350 && expected > buttonRepeatCount[idx]) {
+                    action();
+                    buttonRepeatCount[idx] = expected;
                 }
             }
-        } else { buttonStates[idx] = false; }
+        } else {
+            buttonStates[idx] = false;
+        }
     }
 
-function startGamepad() {
-    let _lastScrollTs = performance.now();
-    function poll() {
-        try {
-            var gp = (navigator.getGamepads ? navigator.getGamepads() : [])[0];
-            if (gp && document.hasFocus()) {
-                if (_vkbIsOpen) {
-                    // Navegação no Teclado (D-Pad e Analógico Esquerdo)
-                    processButton(12, !!gp.buttons[12]?.pressed, () => _vkbMoveFocus('up'));
-                    processButton(13, !!gp.buttons[13]?.pressed, () => _vkbMoveFocus('down'));
-                    processButton(14, !!gp.buttons[14]?.pressed, () => _vkbMoveFocus('left'));
-                    processButton(15, !!gp.buttons[15]?.pressed, () => _vkbMoveFocus('right'));
-                    processButton(100, gp.axes[1] < -0.5, () => _vkbMoveFocus('up'));
-                    processButton(101, gp.axes[1] > 0.5, () => _vkbMoveFocus('down'));
-                    processButton(102, gp.axes[0] < -0.5, () => _vkbMoveFocus('left'));
-                    processButton(103, gp.axes[0] > 0.5, () => _vkbMoveFocus('right'));
+    function startGamepad() {
+        let _lastScrollTs = performance.now();
 
-                    // Atalhos do Teclado
-                    processButton(0, !!gp.buttons[0]?.pressed, () => _vkbPressKey(_vkbFocusKey), false); 
-                    processButton(1, !!gp.buttons[1]?.pressed, _vkbClose, false); // B fecha e limpa foco
-                    processButton(2, !!gp.buttons[2]?.pressed, () => _vkbDelete(), true);
-                    processButton(3, !!gp.buttons[3]?.pressed, () => _vkbInsert(' '), true);
-                    processButton(4, !!gp.buttons[4]?.pressed, () => _vkbMoveCursor('left'), true);
-                    processButton(5, !!gp.buttons[5]?.pressed, () => _vkbMoveCursor('right'), true);
-                    processButton(9, !!gp.buttons[9]?.pressed, _vkbClose, false); // Start fecha e limpa foco
-                    processButton(10, !!gp.buttons[10]?.pressed, () => _vkbSetShift(!_vkbShifted), false);
-                } else {
-                                      // --- MODO NAVEGAÇÃO (FORA DO TECLADO) ---
-                    var dx = gp.axes[0], dy = gp.axes[1];
-                    if (Math.abs(dx) > 0.08 || Math.abs(dy) > 0.08) {
-                        _speedMult = Math.min(_speedMult + 0.12, SPEED_MAX / SPEED_BASE);
-                        moveCursor(dx * SPEED_BASE * _speedMult, dy * SPEED_BASE * _speedMult);
-                    } else { _speedMult = 1; }
+        function poll() {
+            try {
+                const gp = (navigator.getGamepads ? navigator.getGamepads() : [])[0];
+                if (gp && document.hasFocus()) {
+                    if (_vkbIsOpen) {
+                        // ── Modo VKB: navega com D-Pad/stick, confirma com A ──
+                        processButton(12,  !!gp.buttons[12]?.pressed, () => _vkbMoveFocus('up'));
+                        processButton(13,  !!gp.buttons[13]?.pressed, () => _vkbMoveFocus('down'));
+                        processButton(14,  !!gp.buttons[14]?.pressed, () => _vkbMoveFocus('left'));
+                        processButton(15,  !!gp.buttons[15]?.pressed, () => _vkbMoveFocus('right'));
+                        processButton(100, gp.axes[1] < -0.5,         () => _vkbMoveFocus('up'));
+                        processButton(101, gp.axes[1] >  0.5,         () => _vkbMoveFocus('down'));
+                        processButton(102, gp.axes[0] < -0.5,         () => _vkbMoveFocus('left'));
+                        processButton(103, gp.axes[0] >  0.5,         () => _vkbMoveFocus('right'));
 
-                    // Analógico Direito: Scroll Contínuo (Vertical) com normalização por delta time
-                    var rsY = gp.axes[3];
-                    const now = performance.now();
-                    const dt = Math.max(1, now - _lastScrollTs); // ms
-                    if (Math.abs(rsY) > 0.12) {
-                        const amount = rsY * 60 * (dt / 16.67); // ajuste sensibilidade aqui
-                        window.scrollBy(0, amount);
+                        processButton(0,  !!gp.buttons[0]?.pressed,  () => _vkbPressKey(_vkbFocusKey), false);
+                        processButton(1,  !!gp.buttons[1]?.pressed,  _vkbClose, false);  // B fecha VKB
+                        processButton(2,  !!gp.buttons[2]?.pressed,  () => _vkbDelete(), true);
+                        processButton(3,  !!gp.buttons[3]?.pressed,  () => _vkbInsert(' '), true);
+                        processButton(4,  !!gp.buttons[4]?.pressed,  () => _vkbMoveCursor('left'), true);
+                        processButton(5,  !!gp.buttons[5]?.pressed,  () => _vkbMoveCursor('right'), true);
+                        processButton(9,  !!gp.buttons[9]?.pressed,  _vkbClose, false);  // Start fecha VKB
+                        processButton(10, !!gp.buttons[10]?.pressed, () => _vkbSetShift(!_vkbShifted), false);
+                    } else {
+                        // ── Modo Navegação: stick esquerdo move cursor OS ──────
+                        const dx = gp.axes[0], dy = gp.axes[1];
+                        if (Math.abs(dx) > 0.08 || Math.abs(dy) > 0.08) {
+                            _speedMult = Math.min(_speedMult + 0.12, SPEED_MAX / SPEED_BASE);
+                            moveCursor(dx * SPEED_BASE * _speedMult, dy * SPEED_BASE * _speedMult);
+                        } else { _speedMult = 1; }
+
+                        // Analógico Direito: scroll vertical com delta-time
+                        const rsY = gp.axes[3];
+                        const now = performance.now();
+                        const dt  = Math.max(1, now - _lastScrollTs);
+                        if (Math.abs(rsY) > 0.12) window.scrollBy(0, rsY * 60 * (dt / 16.67));
+                        _lastScrollTs = now;
+
+                        // A = clique real via C# mouse_event
+                        processButton(0, !!gp.buttons[0]?.pressed, doClick, false);
+                        // B = voltar / fechar
+                        processButton(1, !!gp.buttons[1]?.pressed, goBack, false);
+
+                        // L1 = Tab anterior (foco anterior), R1 = Tab (próximo foco)
+                        processButton(4, !!gp.buttons[4]?.pressed, () => fireTab(true),  false);
+                        processButton(5, !!gp.buttons[5]?.pressed, () => fireTab(false), false);
+
+                        // D-Pad: scroll por saltos
+                        processButton(12, !!gp.buttons[12]?.pressed, () => window.scrollBy(0,  -120));
+                        processButton(13, !!gp.buttons[13]?.pressed, () => window.scrollBy(0,   120));
+                        processButton(14, !!gp.buttons[14]?.pressed, () => window.scrollBy(-120, 0));
+                        processButton(15, !!gp.buttons[15]?.pressed, () => window.scrollBy( 120, 0));
                     }
-                    _lastScrollTs = now;
-
-                    // Botões de Ação
-                    processButton(0, !!gp.buttons[0]?.pressed, leftClick, false);
-                    processButton(1, !!gp.buttons[1]?.pressed, goBack, false);
-
-                    // D-Pad: Scroll por cliques (opcional, mantido para precisão)
-                    processButton(12, !!gp.buttons[12]?.pressed, () => window.scrollBy(0, -120));
-                    processButton(13, !!gp.buttons[13]?.pressed, () => window.scrollBy(0, 120));
-                    processButton(14, !!gp.buttons[14]?.pressed, () => window.scrollBy(-120, 0));
-                    processButton(15, !!gp.buttons[15]?.pressed, () => window.scrollBy(120, 0));
                 }
-            }
-        } catch (e) { }
-        requestAnimationFrame(poll);
+            } catch(e) {}
+            requestAnimationFrame(poll);
+        }
+        poll();
     }
-    poll();
-}
 
     init();
 })();";
@@ -678,6 +645,7 @@ function startGamepad() {
             }
 
             _ytClosing = false;
+            _isCurrentSiteYouTube = isYouTube;
             webView.Visibility = Visibility.Collapsed;
 
             await YtEnsureBlocklistAsync();
@@ -685,12 +653,12 @@ function startGamepad() {
             _ytWebView = new WebView2
             {
                 HorizontalAlignment = HorizontalAlignment.Stretch,
-                VerticalAlignment   = VerticalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch,
             };
             Panel.SetZIndex(_ytWebView, 1000);
             RootGrid.Children.Add(_ytWebView);
 
-            var nativeApp  = _nativeApps.FirstOrDefault(a => url.Contains(a.Id));
+            var nativeApp = _nativeApps.FirstOrDefault(a => url.Contains(a.Id));
             bool multiUser = nativeApp != default && nativeApp.MultiUser;
 
             string profileName;
@@ -715,7 +683,7 @@ function startGamepad() {
                 AppDomain.CurrentDomain.BaseDirectory, "Data", "browser-profiles", profileName);
 
             var options = new CoreWebView2EnvironmentOptions { AreBrowserExtensionsEnabled = true };
-            var env     = await CoreWebView2Environment.CreateAsync(null, userDataPath, options);
+            var env = await CoreWebView2Environment.CreateAsync(null, userDataPath, options);
             await _ytWebView.EnsureCoreWebView2Async(env);
 
             await LoadExtensionsAsync(_ytWebView.CoreWebView2);
@@ -725,13 +693,13 @@ function startGamepad() {
             else
                 _ytWebView.CoreWebView2.Settings.UserAgent = "";
 
-            _ytWebView.CoreWebView2.Settings.IsStatusBarEnabled            = false;
+            _ytWebView.CoreWebView2.Settings.IsStatusBarEnabled = false;
             _ytWebView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
-            _ytWebView.CoreWebView2.Settings.IsZoomControlEnabled          = false;
+            _ytWebView.CoreWebView2.Settings.IsZoomControlEnabled = false;
 
             _ytWebView.CoreWebView2.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
             _ytWebView.CoreWebView2.WebResourceRequested += YtOnWebResourceRequested;
-            _ytWebView.CoreWebView2.WebMessageReceived   += YtOnWebMessageReceived;
+            _ytWebView.CoreWebView2.WebMessageReceived += YtOnWebMessageReceived;
 
             await YtInjectAdBlockerAsync(_ytWebView.CoreWebView2);
 
@@ -767,9 +735,9 @@ function startGamepad() {
             }
             catch { }
 
-            _ytWebView.KeyDown                           -= YtOnKeyDown;
+            _ytWebView.KeyDown -= YtOnKeyDown;
             _ytWebView.CoreWebView2.WebResourceRequested -= YtOnWebResourceRequested;
-            _ytWebView.CoreWebView2.WebMessageReceived   -= YtOnWebMessageReceived;
+            _ytWebView.CoreWebView2.WebMessageReceived -= YtOnWebMessageReceived;
 
             RootGrid.Children.Remove(_ytWebView);
             try { _ytWebView.Dispose(); } catch { }
@@ -786,17 +754,58 @@ function startGamepad() {
             if (e.Key == Key.Escape || e.Key == Key.BrowserBack)
             {
                 e.Handled = true;
-                _ytWebView?.CoreWebView2?.ExecuteScriptAsync(
-                    "if(window.handleBackButton) window.handleBackButton();");
+                if (_isCurrentSiteYouTube)
+                {
+                    // YouTube TV tem lógica própria de navegação (handleBackButton)
+                    _ytWebView?.CoreWebView2?.ExecuteScriptAsync(
+                        "if(window.handleBackButton) window.handleBackButton();");
+                }
+                else
+                {
+                    // Sites genéricos: ESC fecha o app diretamente via Dispatcher
+                    // (o JS também tenta via postMessage, mas o WPF é mais confiável)
+                    Dispatcher.Invoke(CloseYouTubeInline);
+                }
             }
         }
 
         private void YtOnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
         {
             var msg = e.TryGetWebMessageAsString();
-            if      (msg == "player_loaded")              Dispatcher.Invoke(() => { if (_ytWebView != null) _ytWebView.ZoomFactor = 1.0; });
-            else if (msg == "close_app")                  Dispatcher.Invoke(CloseYouTubeInline);
+            if (msg == null) return;
+
+            if (msg == "player_loaded")
+            {
+                Dispatcher.Invoke(() => { if (_ytWebView != null) _ytWebView.ZoomFactor = 1.0; });
+            }
+            else if (msg == "close_app")
+            {
+                Dispatcher.Invoke(CloseYouTubeInline);
+            }
             else if (msg == "doorpi_profile_hacked_done") { /* ack */ }
+            else if (msg.StartsWith("gp_move:"))
+            {
+                // Mover o cursor real do Windows — WebView2 recebe MouseMove genuíno.
+                // Formato: "gp_move:viewportX:viewportY"
+                // WebMessageReceived já dispara na UI thread no WPF, sem Dispatcher.Invoke.
+                var span = msg.AsSpan(8);
+                int sep = span.IndexOf(':');
+                if (sep > 0 &&
+                    int.TryParse(span[..sep], out int vx) &&
+                    int.TryParse(span[(sep + 1)..], out int vy) &&
+                    _ytWebView != null)
+                {
+                    // PointToScreen: DIP WPF → pixels físicos de tela (já corrige DPI)
+                    var pt = _ytWebView.PointToScreen(new System.Windows.Point(vx, vy));
+                    SetCursorPos((int)pt.X, (int)pt.Y);
+                }
+            }
+            else if (msg == "gp_click")
+            {
+                // Clique real no cursor atual — sites React/Kick/Twitch recebem MouseDown/Up genuíno
+                mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+                mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+            }
         }
 
         private void YtOnWebResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
@@ -812,22 +821,22 @@ function startGamepad() {
                     e.Request.Headers.SetHeader("User-Agent", YT_UA);
                 }
 
-                var uri       = new Uri(uriStr);
-                var host      = uri.Host.ToLowerInvariant();
+                var uri = new Uri(uriStr);
+                var host = uri.Host.ToLowerInvariant();
                 var pathQuery = uri.PathAndQuery.ToLowerInvariant();
 
                 if (host.Contains("googlevideo.com") && pathQuery.Contains("/videoplayback"))
                 {
                     if (pathQuery.Contains("adformat=") || pathQuery.Contains("vmap=") ||
-                        pathQuery.Contains("oad=")       || pathQuery.Contains("adext=") ||
+                        pathQuery.Contains("oad=") || pathQuery.Contains("adext=") ||
                         pathQuery.Contains("ad_type="))
                     { YtBlockRequest(e); return; }
                 }
 
                 if (host.Contains("googlesyndication.com") || host.Contains("doubleclick.net") ||
-                    host.Contains("googleadservices.com")   || host.Contains("csp.withgoogle.com") ||
-                    pathQuery.Contains("/pagead/")           || pathQuery.Contains("/ptracking") ||
-                    pathQuery.Contains("/api/stats/ads")     || pathQuery.Contains("/get_midroll_info"))
+                    host.Contains("googleadservices.com") || host.Contains("csp.withgoogle.com") ||
+                    pathQuery.Contains("/pagead/") || pathQuery.Contains("/ptracking") ||
+                    pathQuery.Contains("/api/stats/ads") || pathQuery.Contains("/get_midroll_info"))
                 { YtBlockRequest(e); return; }
 
                 if (_ytBlockedDomains is { Count: > 0 })
