@@ -228,6 +228,12 @@ namespace Doorpi
             '.doorpi-vkb-key[data-key=shift].shifted.focused{background:rgba(255,255,255,0.97);color:#080810;}',
             'body.doorpi-hide-native-cursor * { cursor: none !important; }',
             '#doorpi-cursor { pointer-events: none; }',
+            '.doorpi-vkb-hint{display:flex;align-items:center;gap:4px;flex-shrink:0;',
+            'font-size:clamp(11px,1vw,14px);color:rgba(255,255,255,0.35);letter-spacing:0.04em;white-space:nowrap;}',
+            '.doorpi-vkb-badge{display:inline-flex;align-items:center;justify-content:center;',
+            'padding:2px 6px;border-radius:5px;background:rgba(255,255,255,0.1);',
+            'border:1px solid rgba(255,255,255,0.18);font-size:clamp(9px,0.85vw,12px);',
+            'font-weight:700;color:rgba(255,255,255,0.5);letter-spacing:0.05em;}',
         ].join('');
         document.head.appendChild(s);
     }
@@ -272,6 +278,7 @@ namespace Doorpi
             '<div class=""doorpi-vkb-preview-wrap"">' +
               '<span class=""doorpi-vkb-preview-label"">Digitando</span>' +
               '<div class=""doorpi-vkb-preview-text"" id=""doorpi-vkb-preview""></div>' +
+              '<span class=""doorpi-vkb-hint""><span class=""doorpi-vkb-badge"">L1</span>◄ ►<span class=""doorpi-vkb-badge"">R1</span></span>' +
             '</div>' +
             '<div class=""doorpi-vkb-grid"">' + keysHtml + '</div>';
 
@@ -529,19 +536,20 @@ namespace Doorpi
     // ── Gamepad ───────────────────────────────────────────────────────────
     let buttonStates = {}, buttonHoldTimes = {}, buttonRepeatCount = {};
 
-    // Dispara Tab/Shift+Tab para navegar entre elementos focáveis
-    function fireTab(shift) {
-        const el = document.activeElement || document.body;
+    // Dispara ArrowLeft/ArrowRight para navegar nativamente (funciona em inputs, sliders, menus)
+    function fireArrow(left) {
+        const key  = left ? 'ArrowLeft'  : 'ArrowRight';
+        const code = left ? 'ArrowLeft'  : 'ArrowRight';
+        const kc   = left ? 37 : 39;
+        const el   = document.activeElement || document.body;
         el.dispatchEvent(new KeyboardEvent('keydown', {
             bubbles: true, cancelable: true,
-            key: 'Tab', code: 'Tab', keyCode: 9, which: 9,
-            shiftKey: !!shift, composed: true
+            key, code, keyCode: kc, which: kc, composed: true
         }));
         setTimeout(() => {
             el.dispatchEvent(new KeyboardEvent('keyup', {
                 bubbles: true,
-                key: 'Tab', code: 'Tab', keyCode: 9, which: 9,
-                shiftKey: !!shift, composed: true
+                key, code, keyCode: kc, which: kc, composed: true
             }));
         }, 20);
     }
@@ -564,6 +572,24 @@ namespace Doorpi
         } else {
             buttonStates[idx] = false;
         }
+    }
+
+    // Encontra o ancestral scrollável mais próximo sob o cursor.
+    // Sobe pelo DOM a partir do elemento sob (cursorX, cursorY) e retorna o
+    // primeiro nó que pode de fato scrollar na direção pedida (down=true/false).
+    function _findScrollable(cx, cy, down) {
+        let el = document.elementFromPoint(cx, cy);
+        while (el && el !== document.documentElement) {
+            const st = window.getComputedStyle(el);
+            const ov = st.overflowY;
+            const canScroll = ov === 'auto' || ov === 'scroll' || ov === 'overlay';
+            if (canScroll) {
+                if (down && el.scrollTop < el.scrollHeight - el.clientHeight - 1) return el;
+                if (!down && el.scrollTop > 0) return el;
+            }
+            el = el.parentElement;
+        }
+        return document.documentElement;
     }
 
     function startGamepad() {
@@ -600,11 +626,26 @@ namespace Doorpi
                             moveCursor(dx * SPEED_BASE * _speedMult, dy * SPEED_BASE * _speedMult);
                         } else { _speedMult = 1; }
 
-                        // Analógico Direito: scroll vertical com delta-time
-                        const rsY = gp.axes[3];
+                        // Analógico Direito: scroll vertical contínuo com delta-time
+                        // Scrola o container scrollável sob o cursor (funciona em Twitch, Netflix, etc.)
+                        const rsY = Math.abs(gp.axes[3] ?? 0) > Math.abs(gp.axes[2] ?? 0)
+                                    ? (gp.axes[3] ?? 0)
+                                    : 0;
                         const now = performance.now();
                         const dt  = Math.max(1, now - _lastScrollTs);
-                        if (Math.abs(rsY) > 0.12) window.scrollBy(0, rsY * 60 * (dt / 16.67));
+                        if (Math.abs(rsY) > 0.08) {
+                            const sign   = rsY > 0 ? 1 : -1;
+                            const mag    = (rsY * rsY) * sign;
+                            const amount = mag * 80 * (dt / 16.67);
+                            const target = _findScrollable(cursorX, cursorY, sign > 0);
+                            if (target === document.documentElement || target === document.body) {
+                                window.scrollBy({ top: amount, behavior: 'auto' });
+                            } else if (target) {
+                                target.scrollTop += amount;
+                            } else {
+                                window.scrollBy({ top: amount, behavior: 'auto' });
+                            }
+                        }
                         _lastScrollTs = now;
 
                         // A = clique real via C# mouse_event
@@ -612,9 +653,9 @@ namespace Doorpi
                         // B = voltar / fechar
                         processButton(1, !!gp.buttons[1]?.pressed, goBack, false);
 
-                        // L1 = Tab anterior (foco anterior), R1 = Tab (próximo foco)
-                        processButton(4, !!gp.buttons[4]?.pressed, () => fireTab(true),  false);
-                        processButton(5, !!gp.buttons[5]?.pressed, () => fireTab(false), false);
+                        // L1 = ArrowLeft, R1 = ArrowRight (navega nativamente em inputs, menus, sliders)
+                        processButton(4, !!gp.buttons[4]?.pressed, () => fireArrow(true),  false);
+                        processButton(5, !!gp.buttons[5]?.pressed, () => fireArrow(false), false);
 
                         // D-Pad: scroll por saltos
                         processButton(12, !!gp.buttons[12]?.pressed, () => window.scrollBy(0,  -120));
