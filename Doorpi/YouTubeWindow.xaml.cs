@@ -2,6 +2,7 @@ using Microsoft.Web.WebView2.Core;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Net.Http;
 using System.Threading.Tasks;
 using System.Windows;
@@ -24,6 +25,11 @@ namespace Doorpi
         private const string YT_TV_URL = "https://www.youtube.com/tv";
         private static readonly HttpClient _http = new();
         private bool _profileHackDone = false;
+        private bool _profileClearDone = false;
+
+        // Caminho do perfil dedicado do YouTube TV
+        private static readonly string _ytProfilePath = Path.Combine(
+            AppDomain.CurrentDomain.BaseDirectory, "Data", "browser-profiles", "youtube-tv");
 
         public YouTubeWindow()
         {
@@ -34,9 +40,12 @@ namespace Doorpi
 
         private async void OnLoaded(object sender, RoutedEventArgs e)
         {
-            await ytWebView.EnsureCoreWebView2Async(null);
-            this.WindowState = WindowState.Maximized;
+            // Perfil dedicado — necessário para poder deletar a pasta depois
+            var options = new CoreWebView2EnvironmentOptions();
+            var env = await CoreWebView2Environment.CreateAsync(null, _ytProfilePath, options);
+            await ytWebView.EnsureCoreWebView2Async(env);
 
+            this.WindowState = WindowState.Maximized;
 
             ytWebView.CoreWebView2.Settings.UserAgent = YT_API_UA;
             ytWebView.CoreWebView2.Settings.IsStatusBarEnabled = false;
@@ -56,11 +65,118 @@ namespace Doorpi
             await InjectUltrawideFixAsync();
             await InjectDebugAsync();
             await InjectPlayerBackgroundAsync();
+            await InjectAccountWatcherAsync();
 
             ytWebView.ZoomFactor = 0.3;
             ytWebView.CoreWebView2.Navigate(YT_TV_URL);
             ytWebView.Focus();
         }
+
+        // ── ACCOUNT WATCHER ───────────────────────────────────────────────────
+        // Avisa o C# quando o ytcfg estiver pronto para verificar os cookies
+        private async Task InjectAccountWatcherAsync()
+        {
+            string script = @"
+(function() {
+    if (window.__doorpiAccountWatcher) return;
+    window.__doorpiAccountWatcher = true;
+
+    const t = setInterval(() => {
+        try {
+            if (window.ytcfg?.get?.('LOGGED_IN') !== undefined) {
+                clearInterval(t);
+                window.chrome.webview.postMessage('check_accounts');
+            }
+        } catch(e) {}
+    }, 500);
+
+    setTimeout(() => clearInterval(t), 15000);
+})();";
+            await ytWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
+        }
+
+        // ── VERIFICA COOKIES E LIMPA PERFIL SE NÃO HÁ CONTAS ─────────────────
+        private async Task CheckAndClearProfileIfNeededAsync()
+        {
+            if (_profileClearDone) return;
+
+            try
+            {
+                var cookieManager = ytWebView?.CoreWebView2?.CookieManager;
+                if (cookieManager == null) return;
+
+                var cookies = await cookieManager.GetCookiesAsync("https://youtube.com");
+                bool hasAuthCookie = false;
+
+                foreach (var cookie in cookies)
+                {
+                    // Esses cookies só existem quando há pelo menos uma conta autenticada.
+                    // Se existir qualquer um → usuário tem contas e pode estar em modo
+                    // convidado intencionalmente (visita) → não limpa nada.
+                    if (cookie.Name is "SID" or "HSID" or "SSID" or "SAPISID" or "__Secure-3PSID")
+                    {
+                        hasAuthCookie = true;
+                        break;
+                    }
+                }
+
+                if (hasAuthCookie)
+                {
+                    Debug.WriteLine("[Doorpi] Contas cadastradas encontradas — convidado intencional, não limpa.");
+                    return;
+                }
+
+                // Nenhuma conta cadastrada — perfil bugado, limpa tudo
+                Debug.WriteLine("[Doorpi] Nenhuma conta cadastrada — limpando perfil do YouTube TV.");
+                _profileClearDone = true;
+
+                // Fecha a janela atual para liberar o lock na pasta do perfil
+                _profileHackDone = false;
+                this.Close();
+
+                // Aguarda o processo liberar os arquivos
+                await Task.Delay(800);
+
+                try
+                {
+                    if (Directory.Exists(_ytProfilePath))
+                        Directory.Delete(_ytProfilePath, recursive: true);
+
+                    Debug.WriteLine("[Doorpi] Pasta do perfil deletada com sucesso.");
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[Doorpi] Erro ao deletar perfil: {ex.Message}");
+                }
+
+                // Reabre o YouTube TV com perfil limpo
+                if (Application.Current.MainWindow is MainWindow mw)
+                {
+                    mw.Dispatcher.Invoke(() =>
+                    {
+                        var newWindow = new YouTubeWindow();
+                        newWindow.Show();
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Doorpi] Erro ao verificar cookies: {ex.Message}");
+                // Em caso de erro não faz nada — melhor não agir do que agir errado
+            }
+        }
+
+        // ── MENSAGENS DO WEBVIEW ──────────────────────────────────────────────
+        private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+        {
+            var msg = e.TryGetWebMessageAsString();
+            if (msg == "player_loaded") ytWebView.ZoomFactor = 1.0;
+            else if (msg == "close_app") CloseYouTube();
+            else if (msg == "doorpi_profile_hacked_done") _profileHackDone = true;
+            else if (msg == "check_accounts") _ = CheckAndClearProfileIfNeededAsync();
+        }
+
+        // ── PLAYER BACKGROUND ─────────────────────────────────────────────────
         private async Task InjectPlayerBackgroundAsync()
         {
             string script = @"
@@ -114,9 +230,6 @@ namespace Doorpi
           + 'transform:scale(1.08)!important;';
 
         _ctx = _canvas.getContext('2d');
-
-        // Preenche com o cinza escuro do YouTube TV antes de qualquer video
-        // assim o canvas nunca fica vazio quando o CSS transparent for aplicado
         _ctx.fillStyle = '#0f0f0f';
         _ctx.fillRect(0, 0, _canvas.width, _canvas.height);
 
@@ -127,7 +240,6 @@ namespace Doorpi
             if (!_canvas) return;
             _canvas.width  = window.innerWidth;
             _canvas.height = window.innerHeight;
-            // Repinta o fill ao redimensionar enquanto nao tem video
             if (!_src) {
                 _ctx.fillStyle = '#0f0f0f';
                 _ctx.fillRect(0, 0, _canvas.width, _canvas.height);
@@ -160,9 +272,7 @@ namespace Doorpi
         const found = findVideo();
         if (found && found !== _currentVideo) {
             _currentVideo = found;
-
             const tryStart = () => { _src = found; };
-
             if (found.readyState >= 2) {
                 tryStart();
             } else {
@@ -185,47 +295,41 @@ namespace Doorpi
 
     start();
 })();";
-
             await ytWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
         }
+
+        // ── DEBUG ─────────────────────────────────────────────────────────────
         private async Task InjectDebugAsync()
         {
             string script = @"
 (function() {
     setTimeout(() => {
-        // 1. Acha qualquer video na página
         const videos = document.querySelectorAll('video');
         console.log('[doorpi] videos encontrados:', videos.length);
         videos.forEach((v, i) => {
-            console.log(`[doorpi] video[${i}]`, 
-                'class:', v.className, 
+            console.log(`[doorpi] video[${i}]`,
+                'class:', v.className,
                 'readyState:', v.readyState,
                 'src:', v.src?.slice(0,60),
                 'currentSrc:', v.currentSrc?.slice(0,60),
                 'captureStream:', typeof v.captureStream
             );
         });
-
-        // 2. Acha ytlr-player
         const player = document.querySelector('ytlr-player');
         console.log('[doorpi] ytlr-player direto:', player);
-
-        // 3. Procura em shadow roots
         let found = null;
         document.querySelectorAll('*').forEach(el => {
             if (!el.shadowRoot) return;
             const p = el.shadowRoot.querySelector('ytlr-player');
             if (p) { found = p; console.log('[doorpi] ytlr-player no shadow de:', el.tagName); }
         });
-
-        // 4. Hash atual
         console.log('[doorpi] hash:', window.location.hash);
-
-    }, 3000); // espera 3s após carregar o vídeo
+    }, 3000);
 })();";
             await ytWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
         }
 
+        // ── ULTRAWIDE FIX ─────────────────────────────────────────────────────
         private async Task InjectUltrawideFixAsync()
         {
             string script = @"
@@ -365,9 +469,9 @@ namespace Doorpi
         }, 16);
     }
 })();";
-
             await ytWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
         }
+
         // ── MOTOR PRINCIPAL: YTCFG OVERRIDE + ADBLOCK ────────────────────────
         private async Task InjectAdBlockerAndOverridesAsync()
         {
@@ -521,12 +625,128 @@ namespace Doorpi
             await ytWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
         }
 
-        private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+        // ── FORÇAR SELEÇÃO DE USUÁRIO ─────────────────────────────────────────
+        private async Task InjectForceUserSelectionAsync()
         {
-            var msg = e.TryGetWebMessageAsString();
-            if (msg == "player_loaded") ytWebView.ZoomFactor = 1.0;
-            else if (msg == "close_app") CloseYouTube();
-            else if (msg == "doorpi_profile_hacked_done") _profileHackDone = true;
+            string script = @"
+(function() {
+    try {
+        if (sessionStorage.getItem('doorpi_profile_hacked_once')) return;
+        sessionStorage.setItem('doorpi_profile_hacked_once', '1');
+    } catch(e) {}
+
+    if (window.__doorpiProfileHacked) return;
+    window.__doorpiProfileHacked = true;
+
+    function showOverlay() {
+        try {
+            if (document.getElementById('doorpi-overlay-solid')) return;
+            const ov = document.createElement('div');
+            ov.id = 'doorpi-overlay-solid';
+            ov.style.cssText = 'position:fixed;inset:0;background:#282828;z-index:2147483647;pointer-events:auto;opacity:1;transition:none';
+            (document.documentElement || document.body).appendChild(ov);
+        } catch(e) {}
+    }
+
+    function hideOverlay() {
+        try {
+            const ov = document.getElementById('doorpi-overlay-solid');
+            if (ov) ov.remove();
+        } catch(e) {}
+    }
+
+    function isAccountSelector() {
+        try { return !!(document.body?.classList?.contains('WEB_PAGE_TYPE_ACCOUNT_SELECTOR')); }
+        catch(e) { return false; }
+    }
+    function isWelcomePage() {
+        try {
+            return !!(document.body?.classList?.contains('WEB_PAGE_TYPE_WELCOME') ||
+                      document.body?.classList?.contains('WEB_PAGE_TYPE_CHANNEL_CREATION'));
+        } catch(e) { return false; }
+    }
+    function isDone() { return isAccountSelector() || isWelcomePage(); }
+
+    function fireEscape() {
+        try {
+            document.dispatchEvent(new KeyboardEvent('keydown', { bubbles:true, cancelable:true, keyCode:27, which:27, key:'Escape' }));
+            setTimeout(() => {
+                document.dispatchEvent(new KeyboardEvent('keyup', { bubbles:true, cancelable:true, keyCode:27, which:27, key:'Escape' }));
+            }, 10);
+        } catch(e) {}
+    }
+
+    function finish() {
+        hideOverlay();
+        try { window.chrome.webview.postMessage('doorpi_profile_hacked_done'); } catch(e) {}
+    }
+
+    function startLoop() {
+        if (isDone()) { finish(); return; }
+
+        showOverlay();
+
+        const safetyTimer = setTimeout(() => {
+            clearInterval(poller);
+            hideOverlay();
+            try { window.chrome.webview.postMessage('doorpi_profile_hacked_done'); } catch(e) {}
+        }, 60000);
+
+        const poller = setInterval(() => {
+            try {
+                if (isWelcomePage()) {
+                    clearInterval(poller);
+                    clearTimeout(safetyTimer);
+                    hideOverlay();
+                    try { window.chrome.webview.postMessage('doorpi_profile_hacked_done'); } catch(e) {}
+                    return;
+                }
+                if (isAccountSelector()) {
+                    clearInterval(poller);
+                    clearTimeout(safetyTimer);
+                    finish();
+                    return;
+                }
+                fireEscape();
+                fireEscape();
+            } catch(e) {}
+        }, 80);
+    }
+
+    function waitForApp() {
+        const selectors = 'ytlr-app, ytlr-watch, #watch, .ytlr-masthead-renderer, #thumbnail-items';
+
+        if (document.querySelector(selectors)) { startLoop(); return; }
+
+        const observer = new MutationObserver(() => {
+            try {
+                if (document.querySelector(selectors)) {
+                    observer.disconnect();
+                    startLoop();
+                }
+            } catch(e) {}
+        });
+
+        const waitBody = setInterval(() => {
+            try {
+                if (document.body) {
+                    clearInterval(waitBody);
+                    if (isDone()) { finish(); return; }
+                    if (document.querySelector(selectors)) { startLoop(); return; }
+                    observer.observe(document.body, { childList: true, subtree: true });
+                }
+            } catch(e) {}
+        }, 16);
+    }
+
+    try {
+        window.addEventListener('beforeunload', hideOverlay);
+        window.addEventListener('unload',       hideOverlay);
+    } catch(e) {}
+
+    waitForApp();
+})();";
+            await ytWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
         }
 
         // ── GAMEPAD ───────────────────────────────────────────────────────────
@@ -616,154 +836,7 @@ namespace Doorpi
             await ytWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
         }
 
-        // ── FORÇAR SELEÇÃO DE USUÁRIO ─────────────────────────────────────────
-        // Robusto para HDD/SSD lento:
-        // - Sem timeout fixo — espera o quanto for necessário
-        // - Intervalo de polling lento (250ms) em vez de rAF agressivo
-        // - Timeout de segurança de 60s que remove overlay mas não trava o app
-        // - Não interfere com WEB_PAGE_TYPE_WELCOME / CHANNEL_CREATION
-        private async Task InjectForceUserSelectionAsync()
-        {
-            string script = @"
-(function() {
-    try {
-        if (sessionStorage.getItem('doorpi_profile_hacked_once')) return;
-        sessionStorage.setItem('doorpi_profile_hacked_once', '1');
-    } catch(e) {}
-
-    if (window.__doorpiProfileHacked) return;
-    window.__doorpiProfileHacked = true;
-
-    // ── Overlay ────────────────────────────────────────────────────────────
-    function showOverlay() {
-        try {
-            if (document.getElementById('doorpi-overlay-solid')) return;
-            const ov = document.createElement('div');
-            ov.id = 'doorpi-overlay-solid';
-            ov.style.cssText = 'position:fixed;inset:0;background:#282828;z-index:2147483647;pointer-events:auto;opacity:1;transition:none';
-            (document.documentElement || document.body).appendChild(ov);
-        } catch(e) {}
-    }
-
-    function hideOverlay() {
-        try {
-            const ov = document.getElementById('doorpi-overlay-solid');
-            if (ov) ov.remove();
-        } catch(e) {}
-    }
-
-    // ── Verificações de página ─────────────────────────────────────────────
-    function isAccountSelector() {
-        try { return !!(document.body?.classList?.contains('WEB_PAGE_TYPE_ACCOUNT_SELECTOR')); }
-        catch(e) { return false; }
-    }
-    function isWelcomePage() {
-        try {
-            return !!(document.body?.classList?.contains('WEB_PAGE_TYPE_WELCOME') ||
-                      document.body?.classList?.contains('WEB_PAGE_TYPE_CHANNEL_CREATION'));
-        } catch(e) { return false; }
-    }
-    function isDone() { return isAccountSelector() || isWelcomePage(); }
-
-    function fireEscape() {
-        try {
-            document.dispatchEvent(new KeyboardEvent('keydown', { bubbles:true, cancelable:true, keyCode:27, which:27, key:'Escape' }));
-            setTimeout(() => {
-                document.dispatchEvent(new KeyboardEvent('keyup', { bubbles:true, cancelable:true, keyCode:27, which:27, key:'Escape' }));
-            }, 10);
-        } catch(e) {}
-    }
-
-    function finish() {
-        hideOverlay();
-        try { window.chrome.webview.postMessage('doorpi_profile_hacked_done'); } catch(e) {}
-    }
-
-    // ── Loop principal ─────────────────────────────────────────────────────
-    // Usa setInterval em vez de rAF para não esgotar CPU em HDD lento.
-    // Intervalo de 250ms — paciente mas não trava o app.
-    function startLoop() {
-        if (isDone()) { finish(); return; }
-
-        showOverlay();
-
-        // Timeout de segurança: 60s máximo. Se depois disso ainda não chegou,
-        // remove o overlay e libera o usuário — melhor isso do que ficar travado.
-        const safetyTimer = setTimeout(() => {
-            clearInterval(poller);
-            hideOverlay();
-            // Não envia close_app — só libera a tela
-            try { window.chrome.webview.postMessage('doorpi_profile_hacked_done'); } catch(e) {}
-        }, 60000);
-
-        const poller = setInterval(() => {
-            try {
-                // Tela de novo usuário — para imediatamente sem enviar Escape
-                if (isWelcomePage()) {
-                    clearInterval(poller);
-                    clearTimeout(safetyTimer);
-                    hideOverlay();
-                    try { window.chrome.webview.postMessage('doorpi_profile_hacked_done'); } catch(e) {}
-                    return;
-                }
-
-                // Chegou no seletor de conta — sucesso
-                if (isAccountSelector()) {
-                    clearInterval(poller);
-                    clearTimeout(safetyTimer);
-                    finish();
-                    return;
-                }
-
-                // Ainda não chegou — manda mais escapes (com calma, 2 por tick)
-                fireEscape();
-                fireEscape();
-            } catch(e) {}
-        }, 80);
-    }
-
-    // ── Gatilho: espera o YouTube TV estar pronto no DOM ──────────────────
-    // Usa MutationObserver para não fazer polling do DOM também
-    function waitForApp() {
-        const selectors = 'ytlr-app, ytlr-watch, #watch, .ytlr-masthead-renderer, #thumbnail-items';
-
-        // Já está pronto?
-        if (document.querySelector(selectors)) { startLoop(); return; }
-
-        const observer = new MutationObserver(() => {
-            try {
-                if (document.querySelector(selectors)) {
-                    observer.disconnect();
-                    startLoop();
-                }
-            } catch(e) {}
-        });
-
-        const waitBody = setInterval(() => {
-            try {
-                if (document.body) {
-                    clearInterval(waitBody);
-                    // Checa se já temos o app antes de observar
-                    if (isDone()) { finish(); return; }
-                    if (document.querySelector(selectors)) { startLoop(); return; }
-                    observer.observe(document.body, { childList: true, subtree: true });
-                }
-            } catch(e) {}
-        }, 16);
-    }
-
-    // Limpa overlay em navegações para não deixar rastro
-    try {
-        window.addEventListener('beforeunload', hideOverlay);
-        window.addEventListener('unload',       hideOverlay);
-    } catch(e) {}
-
-    waitForApp();
-})();";
-            await ytWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
-        }
-
-        // ── ADBLOCK ──────────────────────────────────────────────────
+        // ── ADBLOCK ──────────────────────────────────────────────────────────
         private void OnWebResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
         {
             try
@@ -863,6 +936,7 @@ namespace Doorpi
             }
             catch { }
             _profileHackDone = false;
+            _profileClearDone = false;
             this.Close();
         }
 
