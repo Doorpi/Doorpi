@@ -156,9 +156,46 @@ const STRINGS = {
 
         // Lançamento de app de mídia
         msgErrorLaunchMedia: 'Erro ao abrir aplicativo: ',
+        // Lançamento de app de mídia
+        msgErrorLaunchMedia: 'Erro ao abrir aplicativo: ',
+
+        navGames: 'Jogos',
+        navMedia: 'Multimídia',
+        navSettings: 'Configurações',
+        navProfile: 'Perfil',
+        navBack: 'Início',
+        navGamesSub: 'Toda a sua biblioteca de jogos',
+        navMediaSub: 'Aplicativos e serviços de streaming',
+        navSettingsSub: 'Configurações do sistema e do Doorpi OS',
+        navProfileSub: 'Sua conta e preferências',
+        navNoGames: 'Nenhum jogo na biblioteca',
+        navNoMedia: 'Nenhum app configurado',
+        navSettingsSoon: 'Em breve',
+        navProfileHello: 'Bem-vindo de volta',
+        navProfileNameLabel: 'Nome',
+        navProfileApiLabel: 'API Key SteamGridDB',
     },
 
     'en-US': {
+        // Lançamento de app de mídia
+        msgErrorLaunchMedia: 'Error launching app: ',
+
+        navGames: 'Games',
+        navMedia: 'Media',
+        navSettings: 'Settings',
+        navProfile: 'Profile',
+        navBack: 'Home',
+        navGamesSub: 'Your entire game library',
+        navMediaSub: 'Applications and streaming services',
+        navSettingsSub: 'System and Doorpi OS settings',
+        navProfileSub: 'Your account and preferences',
+        navNoGames: 'No games in library',
+        navNoMedia: 'No apps configured',
+        navSettingsSoon: 'Coming soon',
+        navProfileHello: 'Welcome back',
+        navProfileNameLabel: 'Name',
+        navProfileApiLabel: 'SteamGridDB API Key',
+
         // Home tabs
         tabGames: 'Games',
         tabMedia: 'Media',

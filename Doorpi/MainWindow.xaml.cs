@@ -30,6 +30,9 @@ namespace Doorpi
         public string HeroStaticImage { get; set; } = "";
         public string LogoImage { get; set; } = "";
         public string LogoStaticImage { get; set; } = "";
+
+        public DateTime LastPlayed { get; set; } = DateTime.MinValue;
+        public DateTime DateAdded { get; set; } = DateTime.Now;
     }
 
     public class InstalledApp
@@ -417,6 +420,9 @@ namespace Doorpi
                     GridHorizontalStaticImage = existingEntry.GridHorizontalStaticImage,
                     HeroStaticImage = existingEntry.HeroStaticImage,
                     LogoStaticImage = existingEntry.LogoStaticImage,
+
+                    LastPlayed = existingEntry.LastPlayed,
+                    DateAdded = existingEntry.DateAdded == DateTime.MinValue ? DateTime.Now : existingEntry.DateAdded
                 };
             });
 
@@ -451,12 +457,17 @@ namespace Doorpi
 
         private void SendMediaAppsToUI(List<MediaAppModel> apps)
         {
-            var payload = new { type = "nativeAppsLoaded", apps };
+            
+            var sortedApps = apps
+                .OrderByDescending(a => a.LastPlayed > a.DateAdded ? a.LastPlayed : a.DateAdded)
+                .ToList();
+
+            var payload = new { type = "nativeAppsLoaded", apps = sortedApps };
             Dispatcher.Invoke(() =>
                 webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(payload)));
         }
 
-       
+
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern bool SetForegroundWindow(IntPtr hWnd);
         [System.Runtime.InteropServices.DllImport("user32.dll")]
@@ -1655,6 +1666,23 @@ namespace Doorpi
 
                     if (!string.IsNullOrEmpty(mediaUrl))
                     {
+                       
+                        var medias = LoadMediaApps();
+                        var media = medias.FirstOrDefault(m => m.Url == mediaUrl || m.Id == mediaUrl);
+                        if (media != null)
+                        {
+                            media.LastPlayed = DateTime.Now;
+                            SaveMediaApps(medias);
+
+                      
+                            webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                            {
+                                type = "updateFeaturedCard",
+                                tab = "media",
+                                id = media.Id
+                            }));
+                        }
+
                         if (appType == "webview" || appType == "browser")
                             _ = Dispatcher.InvokeAsync(async () => await OpenWebViewInlineAsync(mediaUrl, mediaUrl.Contains("youtube.com")));
                         else
@@ -1979,6 +2007,14 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
                     game.LastPlayed = DateTime.Now;
                     SaveGames(games);
 
+              
+                    Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                    {
+                        type = "updateFeaturedCard",
+                        tab = "games",
+                        id = identifier
+                    })));
+
                     Process? launched = null;
 
                     if (!string.IsNullOrWhiteSpace(game.LaunchUrl) &&
@@ -2106,7 +2142,11 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
 
         private void LoadGamesIntoUI()
         {
-            var games = LoadGames().OrderByDescending(g => g.LastPlayed).ToList();
+            
+            var games = LoadGames()
+                .OrderByDescending(g => g.LastPlayed > g.DateAdded ? g.LastPlayed : g.DateAdded)
+                .ToList();
+
             for (int i = 0; i < games.Count; i++) SendGameToUI(games[i], isFeatured: i == 0);
         }
 

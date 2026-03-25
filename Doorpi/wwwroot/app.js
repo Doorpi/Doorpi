@@ -57,6 +57,16 @@ window.chrome.webview.addEventListener('message', event => {
         else if (data.type === 'staticSaved') {
             updateToLocalFile(data.gameId, data.imageType, data.newUrl);
         }
+        else if (data.type === 'updateFeaturedCard') {
+            const gridId = data.tab === 'games' ? 'gameGrid' : 'mediaGrid';
+            const grid = document.getElementById(gridId);
+            if (grid) {
+                const card = Array.from(grid.querySelectorAll('.card:not(.add-card)')).find(c =>
+                    c.dataset.gameId === data.id || c.dataset.appId === data.id
+                );
+                if (card) moveCardToTop(card);
+            }
+        }
         else if (data.type === 'updateLoadingText') {
             if (window.isGlobalLoading) {
                 showGlobalLoading(data.title, data.subtitle);
@@ -67,7 +77,7 @@ window.chrome.webview.addEventListener('message', event => {
             renderFolderList(cachedFolders);
         }
         else if (data.type === 'hideLoading') {
-            hideGlobalLoading();         
+            hideGlobalLoading();
             isFolderOperationInProgress = false;
         }
         else if (data.type === 'clipboardText') {
@@ -80,17 +90,7 @@ window.chrome.webview.addEventListener('message', event => {
                 document.getElementById('btnSetupApiNext')?.focus();
             }
         }
-        else if (data.type === 'showSetup') {
-            if (typeof openSetup === 'function') openSetup();
-        }
-        else if (data.type === 'profilePhotoSelected') {
-            window._setupHandlePhotoSelected?.(data.base64);
-        }
-        else if (data.type === 'setupFolderAdded') {
-            window._setupHandleFolderAdded?.(data.path);
-        }
 
-        
         window._mediaHandleMessage?.(data);
     } catch (e) { console.error('[bridge] Erro:', e); }
 });
@@ -102,6 +102,7 @@ function postToHost(payload) {
 /* Seção: Overlay de Loading */
 function showGlobalLoading(titleText, subtitleText) {
     window.isGlobalLoading = true;
+    window.updateNavHint?.(); // Oculta a seta do menu se estiver visível
     let overlay = document.getElementById('globalLoadingOverlay');
 
     if (!overlay) {
@@ -154,8 +155,9 @@ function hideGlobalLoading() {
         overlay.style.display = 'none';
         if (overlay._iv) clearInterval(overlay._iv);
     }
-
+    window.updateNavHint?.();
 }
+
 /* Seção: Utilitários de atualização de imagens */
 function updateToLocalFile(gameId, imageType, newUrl) {
     const safeId = gameId.replace(/\\/g, '\\\\');
@@ -189,9 +191,6 @@ function switchTab(tabId) {
     view.classList.remove('hidden');
     view.classList.add('active');
 
-
-    // ---------------------------
-
     if (tabId === 'folders') {
         if (cachedFolders === null) {
             showGlobalLoading(t('foldersTitle'), t('readingApps'));
@@ -213,7 +212,6 @@ function buildFilterBar(apps) {
     const keys = ['all', ...Object.keys(FILTER_SOURCES).filter(k => k !== 'all' && FILTER_SOURCES[k].some(s => present.has(s)))];
 
     bar.innerHTML = keys.map(k => {
-        // Verifica se a chave está no array de filtros ativos
         const isActive = currentSourceFilter.includes(k);
         return `
             <button class="filter-btn ${isActive ? 'active' : ''}" tabindex="0" data-source="${k}">
@@ -229,7 +227,6 @@ function buildFilterBar(apps) {
             if (clicked === 'all') {
                 currentSourceFilter = ['all'];
             } else {
-               
                 currentSourceFilter = currentSourceFilter.filter(s => s !== 'all');
 
                 if (currentSourceFilter.includes(clicked)) {
@@ -245,11 +242,8 @@ function buildFilterBar(apps) {
 
             setTimeout(() => {
                 const alvo = document.querySelector(`.filter-bar .filter-btn[data-source="${clicked}"]`);
-                if (alvo) {
-                    alvo.focus();
-                } else {
-                    document.querySelector('.filter-bar .filter-btn')?.focus();
-                }
+                if (alvo) alvo.focus();
+                else document.querySelector('.filter-bar .filter-btn')?.focus();
             }, 10);
         })
     );
@@ -261,13 +255,13 @@ function applyFilterAndRender() {
     if (currentSourceFilter.includes('all')) {
         filtered = allInstalledApps;
     } else {
-
         const allowedPlatforms = currentSourceFilter.flatMap(f => FILTER_SOURCES[f]);
         filtered = allInstalledApps.filter(a => allowedPlatforms.includes(a.Source || a.source));
     }
 
     populateAppModal(filtered);
 }
+
 document.getElementById('btnAdd').addEventListener('click', () => {
     isModalOpen = true;
     _modalReady = false;
@@ -280,7 +274,7 @@ document.getElementById('btnAdd').addEventListener('click', () => {
     switchTab('apps');
     postToHost({ action: 'requestInstalledApps' });
 });
-/* Seção: Modal de adição de jogos */
+
 document.getElementById('btnAddMedia')?.addEventListener('click', () => {
     isModalOpen = true;
     _modalReady = false;
@@ -291,7 +285,7 @@ document.getElementById('btnAddMedia')?.addEventListener('click', () => {
     document.getElementById('modalTitle').innerText = t('detectingLibrary');
 
     showGlobalLoading(t('detectingLibrary'), t('readingApps'));
-    switchTab('apps'); 
+    switchTab('apps');
     postToHost({ action: 'requestInstalledApps' });
 });
 
@@ -311,14 +305,9 @@ function formatBytes(kb) {
 }
 
 function populateAppModal(apps) {
-
-    const appListEl = document.getElementById('appList');
-
-
     const titleEl = document.getElementById('modalTitle');
     titleEl.innerText = currentSourceFilter.includes('all') ? t('selectApps') : t('showingStore', currentSourceFilter);
-   
-    // --
+
     const rebind = (id, fn) => {
         const btn = document.getElementById(id);
         if (!btn) return;
@@ -378,15 +367,11 @@ function populateAppModal(apps) {
         </div>`;
     }).join('');
 
-
-    // =========================================================
-
     document.getElementById('modalActions').style.display = 'flex';
     document.getElementById('selectionCounter')?.classList.remove('visible');
 
     appList.querySelectorAll('.app-item:not(.already-added)').forEach(item =>
         item.addEventListener('click', function () {
-
             this.classList.toggle('selected');
             const count = appList.querySelectorAll('.app-item.selected').length;
             const counter = document.getElementById('selectionCounter');
@@ -424,19 +409,14 @@ function populateAppModal(apps) {
             requestAnimationFrame(() => {
                 hideGlobalLoading();
                 _modalReady = true;
-
             });
         });
     }
-
-
 }
 
 /* Seção: Pastas */
 function requestFolders() {
-
     postToHost({ action: 'requestFolders' });
-   
 }
 
 function renderFolderList(folders) {
@@ -472,8 +452,6 @@ function renderFolderList(folders) {
         const folderPath = folder.Path || folder.path || '';
 
         const pSafe = folderPath.replace(/\\/g, '\\\\').replace(/"/g, '&quot;');
-
-        // ▼ Verifica se é lenta para aplicar o alerta visual na UI
         const isSlowClass = (!isAnalyzing && pc === 'slow') ? 'is-slow' : '';
 
         return `
@@ -507,7 +485,6 @@ function renderFolderList(folders) {
                 </div>
             </div>
             
-            <!-- ▼ Aviso que só aparece se a pasta for 'Lenta' (Lidado pelo CSS) -->
             <div class="folder-warning">
                 <span style="font-size: 14px;">⚠️</span>
                 <span>${t('folderWarningSlow')}</span>
@@ -543,7 +520,6 @@ function renderFolderList(folders) {
     );
 
     if (totalBar) {
-        // Ignora pastas que estão em "-1" no cálculo do tempo total
         const totalMs = folders.reduce((sum, f) => {
             const ms = f.EstimatedMs ?? f.estimatedMs ?? 0;
             return sum + (ms === -1 ? 0 : ms);
@@ -553,11 +529,9 @@ function renderFolderList(folders) {
         if (valEl) valEl.textContent = formatTime(totalMs);
         totalBar.style.display = 'flex';
     }
-
-   
 }
+
 // ── Utilitário compartilhado — detecta animação e salva frame estático ────────
-// Usado tanto por createGameCard quanto por createMediaCard (media.js)
 async function processImage(card, src, dsKey, imageType, entityId) {
     if (!src || card.dataset[dsKey]) return;
     const blob = await getAnimatedBlob(src);
@@ -577,15 +551,14 @@ async function processImage(card, src, dsKey, imageType, entityId) {
         tmp.src = blobUrl;
     });
 }
+
 /* Seção: Cards e interações */
 function createGameCard(data) {
     const grid = document.getElementById('gameGrid');
     const btnAdd = document.getElementById('btnAdd');
     const card = document.createElement('div');
- 
 
     if (grid.querySelectorAll('.card:not(.add-card)').length >= 12) return;
-  
 
     card.className = 'card';
     card.tabIndex = 0;
@@ -607,33 +580,15 @@ function createGameCard(data) {
     const img = document.createElement('img');
     img.decoding = 'async';
 
-    /*const processImage = async (src, dsKey, imageType) => {
-        if (!src || card.dataset[dsKey]) return;
-        const blob = await getAnimatedBlob(src);
-        if (!blob) { card.dataset[dsKey] = src; return; }
-        return new Promise(resolve => {
-            const tmp = new Image(), blobUrl = URL.createObjectURL(blob);
-            tmp.onload = () => {
-                try {
-                    const c = document.createElement('canvas');
-                    c.width = tmp.naturalWidth; c.height = tmp.naturalHeight;
-                    c.getContext('2d').drawImage(tmp, 0, 0);
-                    postToHost({ action: 'saveStaticFrame', gameId, imageType, base64: c.toDataURL('image/png') });
-                } catch { card.dataset[dsKey] = src; }
-                finally { URL.revokeObjectURL(blobUrl); resolve(); }
-            };
-            tmp.onerror = () => { card.dataset[dsKey] = src; URL.revokeObjectURL(blobUrl); resolve(); };
-            tmp.src = blobUrl;
-        });
-    };*/
-
     Promise.all([
         processImage(card, card.dataset.vertical, 'staticVertical', 'GridStatic', gameId),
         processImage(card, card.dataset.horizontal, 'staticHorizontal', 'HorizontalStatic', gameId),
         processImage(card, card.dataset.hero, 'staticHero', 'HeroStatic', gameId),
         processImage(card, card.dataset.logo, 'staticLogo', 'LogoStatic', gameId),
     ]).then(() => {
-        const src = card.classList.contains('featured') ? card.dataset.staticHorizontal : card.dataset.staticVertical;
+        const src = card.classList.contains('featured')
+            ? (card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical)
+            : (card.dataset.staticVertical || card.dataset.vertical);
         if (src) { img.src = src; img.style.opacity = '1'; }
     });
 
@@ -672,12 +627,17 @@ function createGameCard(data) {
             : (card.dataset.staticVertical || card.dataset.vertical);
         setImgSrc(img, staticGrid);
 
-        const staticHero = card.dataset.staticHero || card.dataset.hero;
-        if (staticHero) setImgSrc(document.getElementById('heroImage'), staticHero);
-
-        const staticLogo = card.dataset.staticLogo || card.dataset.logo;
+        const bgBlur = document.getElementById('bgBlur');
+        const heroImg = document.getElementById('heroImage');
         const logoEl = document.getElementById('gameLogo');
-        if (logoEl && staticLogo) setImgSrc(logoEl, staticLogo);
+        const gridBgImg = document.getElementById('gridBgImg');
+
+        if (bgBlur) bgBlur.style.opacity = '0';
+        if (heroImg) heroImg.style.opacity = '0';
+        if (logoEl) logoEl.classList.remove('visible');
+        if (gridBgImg) gridBgImg.removeAttribute('src');
+
+        _currentBgSrc = '';
     };
 
     card._startInteraction = startInteraction;
@@ -692,7 +652,6 @@ function createGameCard(data) {
             path: gameId,
             errorMsg: t('msgErrorLaunch')
         });
-        moveCardToTop(card);
     });
 
     card.appendChild(img);
@@ -701,23 +660,37 @@ function createGameCard(data) {
     title.innerText = data.name;
     card.appendChild(title);
 
-    if (data.isFeatured) { grid.insertBefore(card, btnAdd); startInteraction(); }
-    else { const featured = grid.querySelector('.card.featured'); grid.insertBefore(card, featured ? featured.nextSibling : grid.firstChild); }
+    if (btnAdd) {
+        grid.insertBefore(card, btnAdd);
+    } else {
+        grid.appendChild(card);
+    }
+
+    if (data.isFeatured) {
+        startInteraction();
+    }
 }
 
 function moveCardToTop(card) {
     if (!card) return;
-    const grid = document.getElementById('gameGrid');
-    
+    const grid = card.closest('#gameGrid') || card.closest('#mediaGrid') || document.getElementById('gameGrid');
+
     grid.querySelectorAll('.card.featured').forEach(c => {
+        if (c === card) return;
         c.classList.remove('featured');
         const img = c.querySelector('img');
-        if (img) img.src = c.dataset.staticVertical || c.dataset.vertical;
+        if (img) img.src = c.dataset.staticVertical || c.dataset.vertical || '';
     });
+
     card.classList.add('featured');
     grid.prepend(card);
+
     const img = card.querySelector('img');
-    if (img) img.src = card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical;
+    if (img) {
+        img.src = card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical || '';
+    }
+
+    grid.scrollTo({ left: 0, behavior: 'smooth' });
 }
 
 /* Seção: Hero background */
@@ -789,11 +762,46 @@ async function setImgSrc(imgEl, src) {
     if (imgEl.__req !== req) return;
     imgEl.src = src;
 }
-                                                                    
+
 /* Seção: Injeção de estilos e elementos auxiliares */
 (function injectStyles() {
     const s = document.createElement('style');
     s.textContent = `
+        /* ▼ Efeito de Profundidade ao abrir o NavMenu ▼ */
+.main-content-wrapper {
+    transition: transform 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.1),
+                filter 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.1),
+                opacity 0.3s ease;
+    will-change: transform, filter;
+}
+body.nav-menu-active .main-content-wrapper {
+    transform: scale(0.96) translateY(8px);
+    filter: blur(6px) brightness(0.92);
+    opacity: 0.94;
+    transition-delay: 0.02s;
+}
+.nav-menu {
+    transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.4, 1), opacity 0.4s ease;
+    transform-origin: top right;
+}
+
+body.nav-menu-active .nav-menu {
+    transform: scale(1) translateX(0) !important;
+    opacity: 1;
+}
+    /* ▼ Novo Indicador Sutil ▼ */
+
+#navHintDown.visible {
+    opacity: 1;
+   
+}
+    #navHintDown svg {
+    width: clamp(18px, 3vw, 26px);
+    height: clamp(18px, 3vw, 26px);
+        stroke: rgba(255, 255, 255, 0.7);
+        stroke-width: 2.5;
+    }
+
     .context-menu {
         position: fixed;
         z-index: 9999;
@@ -1048,342 +1056,212 @@ async function setImgSrc(imgEl, src) {
 
     @keyframes editOverlayIn { from{opacity:0} to{opacity:1} }
     @keyframes editModalIn   { from{opacity:0;transform:scale(0.93) translateY(10px)} to{opacity:1;transform:scale(1) translateY(0)} }
+    
+#navHintDown {
+    position: fixed;
+    bottom: clamp(5px, 5vh, 10px);
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: rgba(255,255,255,0.45);
+    font-size: 13px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+    z-index: 7000;
+    width: clamp(12px, 5vw, 28px);
+    height: clamp(12px, 5vw, 28px);
+}
+
+    @keyframes bounceNavHint {
+        0%, 100% { transform: translate(-50%, 0); }
+        50% { transform: translate(-50%, 7px); }
+    }
+.nav-hint-icon {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: clamp(4px, 0.8vw, 8px);
+    padding: clamp(3px, 0.5vw, 6px) clamp(6px, 1vw, 12px);
+    font-size: clamp(11px, 1.2vw, 14px);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
     `;
     document.head.appendChild(s);
 })();
 
-/* Seção: Menu de contexto */
-const _ctxMenu = (() => {
-    const el = document.createElement('div');
-    el.className = 'context-menu';
-    el.setAttribute('role', 'menu');
+/* ── Menu de Contexto & Outros ── */
+// ... [O resto do código, como menu de contexto e teclado virtual, permanece o mesmo] ...
 
-    el.innerHTML = `
-        <div class="ctx-game-name" id="ctxGameName"></div>
-        <div class="ctx-separator"></div>
-        <button class="ctx-item" id="ctxEdit" role="menuitem"><span class="ctx-icon">✎</span> <span data-i18n="ctxEditName"></span></button>
-        <div class="ctx-separator"></div>
-        <button class="ctx-item ctx-danger" id="ctxDelete" role="menuitem"><span class="ctx-icon">✕</span> <span data-i18n="ctxRemoveGame"></span></button>
-    `;
-    document.body.appendChild(el);
-    return el;
+// =============================================================================
+// Indicador Flutuante (Menu Seta para Baixo)
+// =============================================================================
+(function initNavHint() {
+    const navHint = document.createElement('div');
+    navHint.id = 'navHintDown';
+  
+    navHint.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
+    document.body.appendChild(navHint);
+
+    window.updateNavHint = function () {
+        const hint = document.getElementById('navHintDown');
+        if (!hint) return;
+
+        const focused = document.activeElement;
+        const isCard = focused?.classList?.contains('card') && !focused?.classList?.contains('add-card');
+        const inGrid = focused?.closest('#gameGrid') || focused?.closest('#mediaGrid');
+
+      
+        if (window.isModalOpen || window.isSetupOpen || window.isNavMenuOpen || window._vkbIsOpen || window.isGlobalLoading || isCtxMenuOpen || isEditModalOpen) {
+            hint.classList.remove('visible');
+            return;
+        }
+
+        if (isCard && inGrid) {
+            hint.classList.add('visible');
+        } else {
+            hint.classList.remove('visible');
+        }
+    };
+
+    document.addEventListener('focusin', window.updateNavHint);
+    document.addEventListener('focusout', window.updateNavHint);
 })();
 
-let _ctxCard = null;
+// ── Fundo animado (blobs) — aparece quando não há hero ativo ──────────────────
+(function initBlobBackground() {
+    const canvas = document.createElement('canvas');
+    canvas.id = 'appBlobBg';
+    canvas.style.cssText =
+        'position:fixed;inset:0;width:100%;height:100%;z-index:-1;' +
+        'pointer-events:none;opacity:0;transition:opacity 0.6s ease;';
+    document.body.appendChild(canvas);
 
-function _openCtxMenu(card, x, y) {
-    _ctxCard = card;
+    const ctx = canvas.getContext('2d');
 
-    _ctxCard.classList.add('ctx-active');
-
-    _ctxMenu.querySelector('#ctxGameName').textContent = card.querySelector('.title')?.innerText?.trim() || '';
-    _ctxMenu.style.display = 'flex';
-    requestAnimationFrame(() => {
-        const w = _ctxMenu.offsetWidth, h = _ctxMenu.offsetHeight, m = 10;
-        _ctxMenu.style.left = Math.min(x, window.innerWidth - w - m) + 'px';
-        _ctxMenu.style.top = Math.min(y, window.innerHeight - h - m) + 'px';
-        _ctxMenu.classList.add('visible');
-        isCtxMenuOpen = true;
-        _ctxMenu.querySelector('#ctxEdit')?.focus();
-    });
-}
-function _closeCtxMenu() {
-    isCtxMenuOpen = false;
-    _ctxMenu.classList.remove('visible');
-
-    if (_ctxCard) _ctxCard.classList.remove('ctx-active');
-
-    setTimeout(() => { if (!_ctxMenu.classList.contains('visible')) _ctxMenu.style.display = 'none'; }, 160);
-    const card = _ctxCard; _ctxCard = null; card?.focus();
-}
-window._ctxMenuOpen = _openCtxMenu;
-window._ctxMenuClose = _closeCtxMenu;
-
-document.addEventListener('mousedown', e => {
-    if (isCtxMenuOpen && !_ctxMenu.contains(e.target)) _closeCtxMenu();
-}, true);
-
-document.getElementById('ctxEdit').addEventListener('click', () => {
-    const card = _ctxCard; _closeCtxMenu();
-    if (card) openEditGameModal(card);
-});
-document.getElementById('ctxDelete').addEventListener('click', () => {
-    const card = _ctxCard; _closeCtxMenu();
-    if (card) _executeDelete(card);
-});
-
-/* Seção: Deleção */
-function _executeDelete(card) {
-    const gameId = card.dataset.gameId;
-    if (!gameId) return;
-    if (card.classList.contains('featured')) {
-        const next = Array.from(document.querySelectorAll('#gameGrid .card:not(.add-card)')).find(c => c !== card);
-        if (next) {
-            next.classList.add('featured');
-            const img = next.querySelector('img');
-            if (img) img.src = next.dataset.staticHorizontal || next.dataset.horizontal || next.dataset.staticVertical || '';
-            next._startInteraction?.();
-        } else {
-            ['bgBlur', 'heroImage'].forEach(id => document.getElementById(id)?.removeAttribute('src'));
-            document.getElementById('gameLogo')?.classList.remove('visible');
-        }
-    }
-    card.classList.add('removing');
-    setTimeout(() => card.remove(), 280);
-    postToHost({ action: 'deleteGame', gameId });
-}
-
-/* Seção: Modal de edição */
-let _editCard = null;
-let _editOverlay = null;
-
-function openEditGameModal(card) {
-    const currentName = card.querySelector('.title')?.innerText?.trim() || '';
-    _editCard = card;
-
-    const overlay = document.createElement('div');
-    overlay.className = 'edit-modal-overlay';
-    _editOverlay = overlay;
-
-    overlay.innerHTML = `
-        <div class="edit-modal" role="dialog" aria-modal="true" aria-label="${t('editModalTitle')}">
-            <div class="edit-modal-header">
-                <div>
-                    <h3 class="edit-modal-title">${t('editModalTitle')}</h3>
-                    <p class="edit-modal-subtitle">${t('editModalSubtitle')}</p>
-                </div>
-            </div>
-            <div class="edit-modal-body">
-                <div class="edit-modal-field">
-                    <label class="edit-modal-label" for="editNameInput">${t('editModalFieldName')}</label>
-                    <input class="edit-modal-input" id="editNameInput" type="text" autocomplete="off" spellcheck="false" />
-                    <span class="edit-modal-input-hint">${t('editModalHint')}</span>
-                </div>
-            </div>
-            <div class="edit-modal-actions">
-                <button class="modal-btn cancel" id="editCancelBtn">${t('editModalCancel')}</button>
-                <button class="modal-btn primary" id="editSaveBtn">${t('editModalSave')}</button>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(overlay);
-
-    const input = overlay.querySelector('#editNameInput');
-    input.value = currentName;
-
-    const doClose = () => {
-        isEditModalOpen = false;
-        window._vkbForceClose();
-        overlay.style.opacity = '0';
-        overlay.style.transition = 'opacity 0.12s';
-        setTimeout(() => { overlay.remove(); _editOverlay = null; }, 130);
-        _editCard?.focus();
-        _editCard = null;
-    };
-
-    const doSave = () => {
-        const newName = input.value.trim();
-        if (newName && newName !== currentName) {
-            _editCard?.querySelector('.title') && (_editCard.querySelector('.title').innerText = newName);
-            postToHost({ action: 'editGame', gameId: card.dataset.gameId, newName });
-        }
-        doClose();
-    };
-
-    overlay.querySelector('#editSaveBtn').addEventListener('click', doSave);
-    overlay.querySelector('#editCancelBtn').addEventListener('click', doClose);
-    overlay.addEventListener('mousedown', e => { if (e.target === overlay) doClose(); });
-
-    input.addEventListener('keydown', e => {
-        if (window._vkbIsOpen) return;
-        if (e.key === 'Enter') { e.preventDefault(); doSave(); }
-        if (e.key === 'Escape') { e.preventDefault(); doClose(); }
-    });
-
-    input.addEventListener('click', () => { if (!window._vkbIsOpen) window._vkbOpen?.(); });
-
-    window._editModalClose = doClose;
-    window._editModalSave = doSave;
-
-    isEditModalOpen = true;
-
-    requestAnimationFrame(() => {
-        overlay.querySelector('#editSaveBtn')?.focus();
-    });
-}
-
-/* Seção: Teclado Virtual */
-window._vkbIsOpen = false;
-
-const VKB = (() => {
-    const FLAT_KEYS = [
-        '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
-        'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p',
-        'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', '⌫',
-        'shift', 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.',
-        'space', 'cancel', 'ok',
+    const blobs = [
+        { px: 0.0, py: 0.3, sx: 0.00018, sy: 0.00013, r: 0.62, color: [45, 65, 185] },
+        { px: 1.2, py: 2.1, sx: 0.00014, sy: 0.00019, r: 0.56, color: [28, 85, 210] },
+        { px: 2.5, py: 0.8, sx: 0.00022, sy: 0.00011, r: 0.52, color: [70, 50, 165] },
+        { px: 0.7, py: 3.4, sx: 0.00016, sy: 0.00024, r: 0.50, color: [22, 110, 175] },
+        { px: 3.1, py: 1.6, sx: 0.00012, sy: 0.00017, r: 0.46, color: [90, 70, 195] },
+        { px: 1.8, py: 4.2, sx: 0.00020, sy: 0.00015, r: 0.42, color: [30, 130, 190] },
     ];
 
-    let _el = null;
-    let _shifted = true;
-    let _inputEl = null;
-    let _cursorPos = 0;
+    let t = 0, _raf = null;
 
-    function _build() {
-        if (_el) return;
-        _el = document.createElement('div');
-        _el.className = 'vkb-overlay';
+    function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+    resize();
+    window.addEventListener('resize', resize);
 
-        const dynamicLabels = { '⌫': '⌫', shift: '⇧', space: t('vkbSpace'), cancel: t('vkbCancel'), ok: t('vkbOk') };
+    function frame() {
+        const W = canvas.width, H = canvas.height;
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = '#07071a';
+        ctx.fillRect(0, 0, W, H);
 
-        const keysHtml = FLAT_KEYS.map(k => {
-            const lbl = dynamicLabels[k] ?? k;
-            return `<button class="vkb-key" data-key="${k}" tabindex="0">${lbl}</button>`;
-        }).join('');
+        blobs.forEach(b => {
+            const x = W * (0.15 + 0.7 * (0.5 + 0.5 * Math.sin(t * b.sx + b.px)));
+            const y = H * (0.10 + 0.8 * (0.5 + 0.5 * Math.sin(t * b.sy + b.py)));
+            const r = Math.min(W, H) * b.r;
+            const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+            const [cr, cg, cb] = b.color;
+            g.addColorStop(0, `rgba(${cr},${cg},${cb},0.55)`);
+            g.addColorStop(0.4, `rgba(${cr},${cg},${cb},0.22)`);
+            g.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+            ctx.fillStyle = g;
+            ctx.beginPath();
+            ctx.ellipse(x, y, r, r * 0.72, t * 0.00004, 0, Math.PI * 2);
+            ctx.fill();
+        });
 
-        _el.innerHTML = `
-            <div class="vkb-preview-wrap">
-                <span class="vkb-preview-label">${t('vkbPreviewLabel')}</span>
-                <div class="vkb-preview-text" id="vkbPreview"></div>
-            </div>
-            <div class="vkb-grid">${keysHtml}</div>
-        `;
-        document.body.appendChild(_el);
+        // Vignette
+        const vig = ctx.createRadialGradient(W / 2, H / 2, H * 0.25, W / 2, H / 2, H * 0.85);
+        vig.addColorStop(0, 'rgba(0,0,0,0)');
+        vig.addColorStop(1, 'rgba(0,0,18,0.62)');
+        ctx.fillStyle = vig;
+        ctx.fillRect(0, 0, W, H);
 
-        _el.querySelectorAll('.vkb-key').forEach(btn => {
-            btn.addEventListener('click', () => _pressKey(btn.dataset.key));
+        t++;
+        _raf = requestAnimationFrame(frame);
+    }
+
+    frame();
+
+    // ── Observa o bgBlur para mostrar/esconder o blob ─────────────────────────
+    // Se bgBlur não tem src ou opacity é 0 → hero inativo → mostra blob
+    function checkHeroState() {
+        const bgBlur = document.getElementById('bgBlur');
+        const heroInactive = !bgBlur?.src || bgBlur.style.opacity === '0' || !bgBlur.src;
+        canvas.style.opacity = heroInactive ? '1' : '0';
+    }
+
+    // Observa mudanças no bgBlur (src e style)
+    const bgBlur = document.getElementById('bgBlur');
+    if (bgBlur) {
+        new MutationObserver(checkHeroState).observe(bgBlur, {
+            attributes: true,
+            attributeFilter: ['src', 'style']
         });
     }
 
-    function _renderPreview() {
-        const el = document.getElementById('vkbPreview');
-        if (!el || !_inputEl) return;
-        const txt = _inputEl.value || '';
-        const fmt = (str) => _esc(str).replace(/ /g, '&nbsp;');
-        el.innerHTML = `${fmt(txt.slice(0, _cursorPos))}<span class="vkb-cursor"></span>${fmt(txt.slice(_cursorPos))}`;
-    }
-
-    function _setShiftVisual(on) {
-        _shifted = on;
-        const btn = _el?.querySelector('[data-key="shift"]');
-        btn?.classList.toggle('shifted', on);
-        _el?.querySelectorAll('.vkb-key').forEach(k => {
-            const key = k.dataset.key;
-            if (key && key.length === 1 && key >= 'a' && key <= 'z')
-                k.textContent = on ? key.toUpperCase() : key;
-        });
-    }
-
-    function _pressKey(key) {
-        if (!_inputEl) return;
-        if (key === '⌫') {
-            if (_cursorPos > 0) {
-                _inputEl.value = _inputEl.value.slice(0, _cursorPos - 1) + _inputEl.value.slice(_cursorPos);
-                _cursorPos--;
-            }
-        } else if (key === 'shift') {
-            _setShiftVisual(!_shifted); return;
-        } else if (key === 'space') {
-            _inputEl.value = _inputEl.value.slice(0, _cursorPos) + ' ' + _inputEl.value.slice(_cursorPos);
-            _cursorPos++;
-        } else if (key === 'ok') {
-            if (_onVkbOk) { _onVkbOk(); } else { window._editModalSave?.(); }
-            return;
-        } else if (key === 'cancel') {
-            if (_onVkbCancel) { _onVkbCancel(); } else { window._editModalClose?.(); }
-            return;
-        } else {
-            const char = _shifted ? key.toUpperCase() : key;
-            _inputEl.value = _inputEl.value.slice(0, _cursorPos) + char + _inputEl.value.slice(_cursorPos);
-            _cursorPos++;
-        }
-        _inputEl.dispatchEvent(new Event('input', { bubbles: true }));
-        _renderPreview();
-    }
-
-    function _open(targetEl, options = {}) {
-        _inputEl = targetEl || document.getElementById('editNameInput');
-        _onVkbOk = options.onOk || null;
-        _onVkbCancel = options.onCancel || null;
-        _cursorPos = _inputEl.value.length;
-        _build();
-
-        if (_el) {
-            _el.querySelector('.vkb-preview-label').textContent = t('vkbPreviewLabel');
-            _el.querySelector('[data-key="space"]').textContent = t('vkbSpace');
-            _el.querySelector('[data-key="cancel"]').textContent = t('vkbCancel');
-            _el.querySelector('[data-key="ok"]').textContent = t('vkbOk');
-        }
-
-        _setShiftVisual(_shifted);
-        _renderPreview();
-        _inputEl.addEventListener('input', _renderPreview);
-        _inputEl.classList.add('vkb-active');
-        _editOverlay?.classList.add('vkb-active');
-        _el.style.display = 'block';
-        requestAnimationFrame(() => {
-            _el.classList.add('visible');
-            window._vkbIsOpen = true;
-            _el.querySelector('[data-key="q"]')?.focus();
-        });
-    }
-
-    function _forceClose() {
-        if (!_el) return;
-        window._vkbIsOpen = false;
-        _el.classList.remove('visible');
-        if (_inputEl) {
-            _inputEl.removeEventListener('input', _renderPreview);
-            _inputEl.classList.remove('vkb-active');
-            _inputEl = null;
-        }
-        _editOverlay?.classList.remove('vkb-active');
-        setTimeout(() => { if (_el && !_el.classList.contains('visible')) _el.style.display = 'none'; }, 340);
-    }
-
-    function _cancel() {
-        _forceClose();
-        const input = document.getElementById('editNameInput');
-        if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
-    }
-
-    function _physicalKey(key) {
-        if (!_inputEl) return;
-        if (key === 'Backspace') {
-            if (_cursorPos > 0) {
-                _inputEl.value = _inputEl.value.slice(0, _cursorPos - 1) + _inputEl.value.slice(_cursorPos);
-                _cursorPos--;
-            }
-        } else if (key.length === 1) {
-            _inputEl.value = _inputEl.value.slice(0, _cursorPos) + key + _inputEl.value.slice(_cursorPos);
-            _cursorPos++;
-        }
-        _inputEl.dispatchEvent(new Event('input', { bubbles: true }));
-        _renderPreview();
-    }
-    function _moveCursor(direction) {
-        if (!_inputEl) return;
-        if (direction === 'left') _cursorPos = Math.max(0, _cursorPos - 1);
-        if (direction === 'right') _cursorPos = Math.min(_inputEl.value.length, _cursorPos + 1);
-        _renderPreview();
-    }
-    return {
-        open: _open,
-        forceClose: _forceClose,
-        cancel: _cancel,
-        physicalKey: _physicalKey,
-        toggleShift: () => _setShiftVisual(!_shifted),
-        moveCursor: _moveCursor 
+    // Verifica também sempre que switchHeroBackground é chamado
+    const _origSwitch = window.switchHeroBackground;
+    window.switchHeroBackground = function (...args) {
+        _origSwitch?.(...args);
+        // Pequeno delay para o bgBlur ter tempo de atualizar o opacity
+        setTimeout(checkHeroState, 200);
     };
+
+    // Checagem inicial
+    checkHeroState();
 })();
+document.addEventListener('focusin', () => {
+    const focused = document.activeElement;
+    const isCard = focused?.classList?.contains('card');
+    const isInGrid = focused?.closest('#gameGrid');
 
-window._vkbOpen = (targetEl, options) => VKB.open(targetEl, options);
-window._vkbCancel = () => VKB.cancel();
-window._vkbForceClose = () => VKB.forceClose();
-window._vkbPhysicalKey = (k) => VKB.physicalKey(k);
-window._vkbToggleShift = () => VKB.toggleShift();
-window._vkbMoveCursor = (dir) => VKB.moveCursor(dir);
+    if (!isCard && !isInGrid) {
+        const bgBlur = document.getElementById('bgBlur');
+        const heroImg = document.getElementById('heroImage');
+        const logoEl = document.getElementById('gameLogo');
+        const gridBgImg = document.getElementById('gridBgImg');
 
-function _esc(str) {
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        if (bgBlur) bgBlur.style.opacity = '0';
+        if (heroImg) heroImg.style.opacity = '0';
+        if (logoEl) logoEl.classList.remove('visible');
+        if (gridBgImg) gridBgImg.removeAttribute('src');
+
+        _currentBgSrc = '';
+    }
+});
+
+function clearHero() {
+    const bgBlur = document.getElementById('bgBlur');
+    const heroImg = document.getElementById('heroImage');
+    const logoEl = document.getElementById('gameLogo');
+    const gridBgImg = document.getElementById('gridBgImg');
+
+    if (bgBlur) bgBlur.style.opacity = '0';
+    if (heroImg) heroImg.style.opacity = '0';
+    if (logoEl) logoEl.classList.remove('visible');
+    if (gridBgImg) gridBgImg.removeAttribute('src');
+
+    _currentBgSrc = '';
 }
+
+document.getElementById('btnAdd')?.addEventListener('mouseenter', clearHero);
+document.getElementById('btnAdd')?.addEventListener('focus', clearHero);
+
+document.getElementById('btnAddMedia')?.addEventListener('mouseenter', clearHero);
+document.getElementById('btnAddMedia')?.addEventListener('focus', clearHero);

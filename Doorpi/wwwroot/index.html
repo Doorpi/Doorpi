@@ -39,140 +39,141 @@
     <!-- Grid -->
     <div class="grid-bg">
         <img id="gridBgImg" />
-
-        <div class="home-tabs" id="homeTabs">
-            <button class="home-tab active" data-tab="games" tabindex="0" data-i18n="tabGames"></button>
-            <button class="home-tab" data-tab="media" tabindex="0" data-i18n="tabMedia"></button>
-            <span class="home-tabs-hint">
-                <b>L1</b> <b>R1</b> <span data-i18n="tabsHint"></span>
-            </span>
-        </div>
-
-        <div class="game-grid" id="gameGrid">
-            <div class="card add-card" tabindex="0" id="btnAdd">
-                <div class="plus">+</div>
-                <div class="title" data-i18n="btnAddLabel"></div>
+        <div class="main-content-wrapper">
+            <div class="home-tabs" id="homeTabs">
+                <button class="home-tab active" data-tab="games" tabindex="0" data-i18n="tabGames"></button>
+                <button class="home-tab" data-tab="media" tabindex="0" data-i18n="tabMedia"></button>
+                <span class="home-tabs-hint">
+                    <b>L1</b> <b>R1</b> <span data-i18n="tabsHint"></span>
+                </span>
             </div>
-        </div>
 
-        <div class="game-grid" id="mediaGrid">
-            <div class="card add-card" tabindex="0" id="btnAddMedia">
-                <div class="plus">+</div>
-                <div class="title" data-i18n="btnAddAppLabel">Adicionar App</div>
+            <div class="game-grid" id="gameGrid">
+                <div class="card add-card" tabindex="0" id="btnAdd">
+                    <div class="plus">+</div>
+                    <div class="title" data-i18n="btnAddLabel"></div>
+                </div>
+            </div>
+
+            <div class="game-grid" id="mediaGrid">
+                <div class="card add-card" tabindex="0" id="btnAddMedia">
+                    <div class="plus">+</div>
+                    <div class="title" data-i18n="btnAddAppLabel">Adicionar App</div>
+                </div>
             </div>
         </div>
     </div>
+        <!-- Modal -->
+        <div id="addGameContainer">
+            <div class="modal-layout">
 
-    <!-- Modal -->
-    <div id="addGameContainer">
-        <div class="modal-layout">
-
-            <div class="modal-sidebar">
-                <p class="sidebar-eyebrow" data-i18n="sidebarEyebrow">Menu</p>
-                <h1 class="sidebar-title" data-i18n="sidebarTitle">Configurações</h1>
-                <div class="sidebar-menu">
-                    <button class="menu-tab active" tabindex="0" onclick="switchTab('apps')">
-                        <span class="tab-icon">⊞</span>
-                        <span data-i18n="tabApps">Aplicativos</span>
-                    </button>
-                    <button class="menu-tab" tabindex="0" onclick="switchTab('folders')">
-                        <span class="tab-icon">◫</span>
-                        <span data-i18n="tabFolders">Gerenciar Pastas</span>
-                    </button>
-                </div>
-            </div>
-
-            <div class="modal-content-area">
-
-                <!-- ── View: Aplicativos ──────────────────────────────────── -->
-                <div id="view-apps" class="view-section active">
-                    <div class="view-header">
-                        <h2 id="modalTitle" data-i18n="selectApps">Selecione os aplicativos para adicionar</h2>
-                        <div class="filter-bar" id="filterBar"></div>
-                    </div>
-                    <div class="applist-wrapper">
-                        <div id="appList"></div>
-                    </div>
-                    <div class="action-bar" id="modalActions">
-                        <div class="selection-counter" id="selectionCounter">
-                            <span class="counter-dot"></span>
-                            <span id="selectionCounterText"></span>
-                        </div>
-                        <div class="action-buttons">
-                            <button class="modal-btn primary"
-                                    id="btnConfirmAdd"
-                                    data-gamepad-hint="start"
-                                    tabindex="0">
-                                <span data-i18n="btnConfirmLabel">Adicionar Selecionados</span>
-                            </button>
-                            <button class="modal-btn secondary"
-                                    id="btnSearch"
-                                    data-gamepad-hint="triangle"
-                                    tabindex="0">
-                                <span data-i18n="btnSearchLabel">Procurar Manualmente</span>
-                            </button>
-                            <button class="modal-btn cancel"
-                                    id="btnCancelAdd"
-                                    data-gamepad-hint="cancel"
-                                    tabindex="0">
-                                <span data-i18n="btnCancelLabel">Voltar</span>
-                            </button>
-                        </div>
+                <div class="modal-sidebar">
+                    <p class="sidebar-eyebrow" data-i18n="sidebarEyebrow">Menu</p>
+                    <h1 class="sidebar-title" data-i18n="sidebarTitle">Configurações</h1>
+                    <div class="sidebar-menu">
+                        <button class="menu-tab active" tabindex="0" onclick="switchTab('apps')">
+                            <span class="tab-icon">⊞</span>
+                            <span data-i18n="tabApps">Aplicativos</span>
+                        </button>
+                        <button class="menu-tab" tabindex="0" onclick="switchTab('folders')">
+                            <span class="tab-icon">◫</span>
+                            <span data-i18n="tabFolders">Gerenciar Pastas</span>
+                        </button>
                     </div>
                 </div>
 
-                <!-- ── View: Pastas ───────────────────────────────────────── -->
-                <div id="view-folders" class="view-section hidden">
-                    <div class="view-header">
-                        <h2 data-i18n="foldersTitle">Pastas Monitoradas</h2>
-                        <p class="subtitle" data-i18n="foldersSubtitle">O sistema buscará jogos automaticamente nestes diretórios.</p>
+                <div class="modal-content-area">
+
+                    <!-- ── View: Aplicativos ──────────────────────────────────── -->
+                    <div id="view-apps" class="view-section active">
+                        <div class="view-header">
+                            <h2 id="modalTitle" data-i18n="selectApps">Selecione os aplicativos para adicionar</h2>
+                            <div class="filter-bar" id="filterBar"></div>
+                        </div>
+                        <div class="applist-wrapper">
+                            <div id="appList"></div>
+                        </div>
+                        <div class="action-bar" id="modalActions">
+                            <div class="selection-counter" id="selectionCounter">
+                                <span class="counter-dot"></span>
+                                <span id="selectionCounterText"></span>
+                            </div>
+                            <div class="action-buttons">
+                                <button class="modal-btn primary"
+                                        id="btnConfirmAdd"
+                                        data-gamepad-hint="start"
+                                        tabindex="0">
+                                    <span data-i18n="btnConfirmLabel">Adicionar Selecionados</span>
+                                </button>
+                                <button class="modal-btn secondary"
+                                        id="btnSearch"
+                                        data-gamepad-hint="triangle"
+                                        tabindex="0">
+                                    <span data-i18n="btnSearchLabel">Procurar Manualmente</span>
+                                </button>
+                                <button class="modal-btn cancel"
+                                        id="btnCancelAdd"
+                                        data-gamepad-hint="cancel"
+                                        tabindex="0">
+                                    <span data-i18n="btnCancelLabel">Voltar</span>
+                                </button>
+                            </div>
+                        </div>
                     </div>
-                    <div class="applist-wrapper">
-                        <div id="folderList"></div>
-                    </div>
-                    <div class="action-bar">
-                        <!--
+
+                    <!-- ── View: Pastas ───────────────────────────────────────── -->
+                    <div id="view-folders" class="view-section hidden">
+                        <div class="view-header">
+                            <h2 data-i18n="foldersTitle">Pastas Monitoradas</h2>
+                            <p class="subtitle" data-i18n="foldersSubtitle">O sistema buscará jogos automaticamente nestes diretórios.</p>
+                        </div>
+                        <div class="applist-wrapper">
+                            <div id="folderList"></div>
+                        </div>
+                        <div class="action-bar">
+                            <!--
                             Barra de total: oculta por padrão (display:none no CSS).
                             app.js mostra e preenche ao receber foldersList do C#.
                         -->
-                        <div class="folder-total-bar" id="folderTotalTime">
-                            <span class="folder-total-label" data-i18n="folderTotalLabel">Tempo total estimado de leitura</span>
-                            <span class="folder-total-value">—</span>
-                        </div>
-                        <div class="action-buttons">
-                            <button class="modal-btn primary"
-                                    id="btnScanFolder"
-                                    data-gamepad-hint="triangle"
-                                    tabindex="0">
-                                <span data-i18n="btnAddFolderLabel">Adicionar Nova Pasta</span>
-                            </button>
-                            <button class="modal-btn cancel"
-                                    data-gamepad-hint="cancel"
-                                    tabindex="0"
-                                    onclick="closeModal()">
-                                <span data-i18n="btnBackLabel">Voltar</span>
-                            </button>
+                            <div class="folder-total-bar" id="folderTotalTime">
+                                <span class="folder-total-label" data-i18n="folderTotalLabel">Tempo total estimado de leitura</span>
+                                <span class="folder-total-value">—</span>
+                            </div>
+                            <div class="action-buttons">
+                                <button class="modal-btn primary"
+                                        id="btnScanFolder"
+                                        data-gamepad-hint="triangle"
+                                        tabindex="0">
+                                    <span data-i18n="btnAddFolderLabel">Adicionar Nova Pasta</span>
+                                </button>
+                                <button class="modal-btn cancel"
+                                        data-gamepad-hint="cancel"
+                                        tabindex="0"
+                                        onclick="closeModal()">
+                                    <span data-i18n="btnBackLabel">Voltar</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
-                </div>
 
+                </div>
             </div>
         </div>
-    </div>
 
-    <!--
+        <!--
         Ordem obrigatória:
           1. strings.js    — t() disponível para todos
           2. navigation.js — declara isModalOpen, pendingInteractionCard e toda lógica de input
           3. app.js        — define switchTab + toda lógica de app (NÃO redefinir switchTab aqui)
     -->
-    <div id="setupContainer"></div>
+        <div id="setupContainer"></div>
 
-    <script src="strings.js"></script>
-    <script src="navigation.js"></script>
-    <script src="app.js"></script>
-    <script src="media.js"></script>
-    <script src="setup.js"></script>
+        <script src="strings.js"></script>
+        <script src="navigation.js"></script>
+        <script src="app.js"></script>
+        <script src="media.js"></script>
+        <script src="nav-menu.js"></script>
+        <script src="setup.js"></script>
 
 </body>
 </html>

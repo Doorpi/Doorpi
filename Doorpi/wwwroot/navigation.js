@@ -6,7 +6,6 @@ let isModalOpen = false;
 let isCtxMenuOpen = false;
 let isEditModalOpen = false;
 
-
 let pendingInteractionCard = null;
 let isGamepadConnected = false;
 
@@ -122,7 +121,7 @@ function getModalGroups() {
 }
 function getNavigableItems() {
     if (window._vkbIsOpen) return Array.from(document.querySelectorAll('.vkb-key[tabindex="0"]'));
-    if (isSetupOpen) return typeof getSetupItems === 'function' ? getSetupItems() : []; 
+    if (isSetupOpen) return typeof getSetupItems === 'function' ? getSetupItems() : [];
     if (isCtxMenuOpen) return getCtxMenuItems();
     if (isEditModalOpen) {
         return Array.from(document.querySelectorAll('.edit-modal-input, .edit-modal-actions button'))
@@ -140,10 +139,8 @@ function getNavigableItems() {
     const g = getModalGroups();
     const isVisible = (el) => el.offsetWidth > 0 && el.offsetHeight > 0;
 
-    
     const isNavigable = (el) => !(el.classList.contains('menu-tab') && el.classList.contains('active'));
 
-    
     g.sidebar.forEach(el => el.setAttribute('tabindex', '0'));
 
     if (g.activeTab === 'view-apps')
@@ -209,7 +206,6 @@ function getGroupTransition(direction, groupName, groups, current) {
     const firstVisible = (arr) => arr.find(el => el.offsetWidth > 0 && el.offsetHeight > 0);
 
     const bestSidebar = () => {
-       
         const navigable = sidebar.filter(el => !el.classList.contains('active'));
         if (_lastFocusedSidebar && navigable.includes(_lastFocusedSidebar)) return _lastFocusedSidebar;
         return navigable[0] || null;
@@ -275,6 +271,7 @@ function gamepadStart() {
     document.getElementById('btnAdd')?.click();
 }
 function gamepadTriangle() { if (isModalOpen && !window.isGlobalLoading) document.getElementById('btnSearch')?.click(); }
+
 function moveFocus(direction) {
     if (window.isGlobalLoading) return;
 
@@ -307,6 +304,7 @@ function moveFocus(direction) {
         if (target && target !== current) target.focus();
         return;
     }
+
     if (isSetupOpen) {
         const items = getSetupItems();
         if (!items.length) return;
@@ -345,7 +343,7 @@ function moveFocus(direction) {
         }
         if (target && target !== current) {
             target.focus();
-            scrollSetup(target, direction); 
+            scrollSetup(target, direction);
         }
         return;
     }
@@ -364,24 +362,36 @@ function moveFocus(direction) {
         return;
     }
 
+    // ── Tela Inicial / Home Grid ─────────────────────────────────────────────
     if (!isModalOpen) {
-        // UP a partir de qualquer card sempre vai para a aba ativa
-        if (direction === 'UP' && current.classList.contains('card')) {
-            const activeTab = document.querySelector('.home-tab.active');
-            if (activeTab) { activeTab.focus(); return; }
+        if (current.closest('#mediaGrid, #gameGrid')) {
+            if (direction === 'UP') {
+                const activeTab = document.querySelector('.home-tab.active');
+                if (activeTab) { activeTab.focus(); return; }
+            }
+            if (direction === 'DOWN') {
+                if (typeof window.openNavMenu === 'function' && !window.isNavMenuOpen) {
+                    window.openNavMenu(0);
+                    return;
+                }
+            }
         }
 
         let target = findSpatialCandidate(items, current, direction);
         if (!target) {
-            if (direction === 'RIGHT') target = items[0];
-            else if (direction === 'LEFT') target = items[items.length - 1];
-            else target = findWrapCandidate(items, current, direction);
+            // Isolando o wrap horizontal (TABS com TABS, CARDS com CARDS)
+            const tabs = items.filter(el => el.classList.contains('home-tab'));
+            const cards = items.filter(el => !el.classList.contains('home-tab'));
+            const group = current.classList.contains('home-tab') ? tabs : cards;
+
+            if (direction === 'RIGHT') target = group[0];
+            else if (direction === 'LEFT') target = group[group.length - 1];
         }
-        if (!target) target = current; // Fallback
+        if (!target) target = current;
 
         if (target && target !== current) {
             current._stopInteraction?.();
-            cancelHeroTransition?.();
+            if (typeof cancelHeroTransition === 'function') cancelHeroTransition();
             pendingInteractionCard = null;
             target.focus();
             smoothHorizontalScroll(target, () => {
@@ -391,6 +401,7 @@ function moveFocus(direction) {
         return;
     }
 
+    // ── Modais ──────────────────────────────────────────────────────────────
     const groups = getModalGroups();
     let groupName, groupItems;
     if (current.classList.contains('menu-tab')) { groupName = 'sidebar'; groupItems = groups.sidebar; }
@@ -441,16 +452,9 @@ function moveFocus(direction) {
     }
 
     if (!target) {
-        if (!isModalOpen) {
-            const tabs = Array.from(document.querySelectorAll('.home-tab'));
-            const activeGridId = window.getCurrentHomeTab?.() === 'media' ? 'mediaGrid' : 'gameGrid';
-            const cards = Array.from(document.getElementById(activeGridId)?.querySelectorAll("[tabindex='0']") ?? []);
-            return [...tabs, ...cards];
-        }
         const skipWrap = groupName === 'app' && (direction === 'UP' || direction === 'DOWN');
         if (!skipWrap) target = findWrapCandidate(groupItems.filter(i => items.includes(i)), current, direction);
     }
-
 
     if (!target) target = current;
 
@@ -516,6 +520,7 @@ function smoothHorizontalScroll(element, onDone) {
 
 document.addEventListener('keydown', e => {
     if (window.isGlobalLoading) { e.preventDefault(); return; }
+    if (window.isNavMenuOpen) return; // DEIXA o nav-menu processar as teclas dele
     if (window._vkbIsOpen) {
         const dirMap = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' };
         if (dirMap[e.key]) { e.preventDefault(); moveFocus(dirMap[e.key]); return; }
@@ -537,7 +542,7 @@ document.addEventListener('keydown', e => {
     }
     if (e.key === 'Escape') {
         e.preventDefault();
-        if (isSetupOpen) return; 
+        if (isSetupOpen) return;
         if (isCtxMenuOpen) { closeCtxMenu(); return; }
         if (isEditModalOpen) { window._editModalClose?.(); return; }
         if (isModalOpen) { gamepadCancel(); return; }
@@ -568,13 +573,6 @@ window.addEventListener('gamepaddisconnected', e => {
         if (window.isGlobalLoading) return;
         if (!document.hasFocus()) return;
 
-        const items = getNavigableItems();
-        if (!items.length) return;
-        if (!items.includes(document.activeElement)) {
-            focusItemByIndex(0);
-            return;
-        }
-
         const { GAMEPAD } = NAV, buttons = gamepad.buttons;
         const ax = gamepad.axes[0], ay = gamepad.axes[1], thr = GAMEPAD.AXIS_THRESHOLD, now = performance.now();
         let dir = null;
@@ -583,6 +581,27 @@ window.addEventListener('gamepaddisconnected', e => {
         else if (ax < -thr || buttons[GAMEPAD.BTN_LEFT]?.pressed) dir = 'LEFT';
         else if (ay > thr || buttons[GAMEPAD.BTN_DOWN]?.pressed) dir = 'DOWN';
         else if (ay < -thr || buttons[GAMEPAD.BTN_UP]?.pressed) dir = 'UP';
+
+        // Tratamento do Controle para o Nav Menu se estiver aberto
+        if (window.isNavMenuOpen) {
+            const dirMap = { RIGHT: 'ArrowRight', LEFT: 'ArrowLeft', DOWN: 'ArrowDown', UP: 'ArrowUp' };
+            if (dir) {
+                if (dir !== _currentDirection) { window._navMenuHandleKey?.(dirMap[dir]); _lastMoveTime = now; _moveState = 1; _currentDirection = dir; }
+                else if (_moveState === 1 && now - _lastMoveTime > GAMEPAD.INITIAL_DELAY) { window._navMenuHandleKey?.(dirMap[dir]); _lastMoveTime = now; _moveState = 2; }
+                else if (_moveState === 2 && now - _lastMoveTime > GAMEPAD.REPEAT_DELAY) { window._navMenuHandleKey?.(dirMap[dir]); _lastMoveTime = now; }
+            } else { _moveState = 0; _currentDirection = null; }
+
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) window._navMenuHandleKey?.('Enter');
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) window._navMenuHandleKey?.('Escape');
+            return;
+        }
+
+        const items = getNavigableItems();
+        if (!items.length) return;
+        if (!items.includes(document.activeElement)) {
+            focusItemByIndex(0);
+            return;
+        }
 
         if (dir) {
             if (dir !== _currentDirection) { moveFocus(dir); _lastMoveTime = now; _moveState = 1; _currentDirection = dir; }
@@ -685,7 +704,6 @@ window.addEventListener('gamepaddisconnected', e => {
     } catch (e) {
         console.error('Gamepad protegida interceptou um erro:', e);
     } finally {
-      
         requestAnimationFrame(gamepadLoop);
     }
 })();
@@ -720,7 +738,6 @@ document.addEventListener('click', (e) => {
 
             let target = null;
             if (groups.activeTab === 'view-apps') {
-             
                 target = firstVisible(groups.apps);
             } else {
                 target = firstVisible(groups.folderBtns) || groups.actions[0];
