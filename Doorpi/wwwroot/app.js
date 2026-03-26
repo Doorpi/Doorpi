@@ -790,16 +790,46 @@ body.nav-menu-active .nav-menu {
     opacity: 1;
 }
     /* ▼ Novo Indicador Sutil ▼ */
+    #navHintDown {
+        position: fixed;
+        bottom:0px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 7500;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s ease;
 
+        /* Aparência de Button Hint */
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(255, 255, 255, 0.06);
+        padding: 4px 64px;
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+       #navHintDown span {
+        font-family: 'Inter', sans-serif;
+        font-size: clamp(9px, 1vmin, 11px);
+        font-weight: 700;
+        letter-spacing: 0.15em;
+        color: rgba(255, 255, 255, 0.5);
+        text-transform: uppercase;
+    }
+    #navHintDown.visible {
+        opacity: 1;
+    }
 #navHintDown.visible {
     opacity: 1;
    
 }
     #navHintDown svg {
-    width: clamp(18px, 3vw, 26px);
-    height: clamp(18px, 3vw, 26px);
-        stroke: rgba(255, 255, 255, 0.7);
-        stroke-width: 2.5;
+        width: 14px;
+        height: 14px;
+        stroke: rgba(255, 255, 255, 0.5);
+        stroke-width: 3;
+        fill: none;
     }
 
     .context-menu {
@@ -1057,31 +1087,26 @@ body.nav-menu-active .nav-menu {
     @keyframes editOverlayIn { from{opacity:0} to{opacity:1} }
     @keyframes editModalIn   { from{opacity:0;transform:scale(0.93) translateY(10px)} to{opacity:1;transform:scale(1) translateY(0)} }
     
-#navHintDown {
-    position: fixed;
-    bottom: clamp(5px, 5vh, 10px);
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    color: rgba(255,255,255,0.45);
-    font-size: 13px;
-    font-weight: 500;
+/* ── Novo Indicador de Menu (Seta) Robustez Total ── */
+
+        @media (min-height: 1400px) {
+        #navHintDown { bottom: 3px; }
+        #navHintDown svg { width: 28px; height: 28px; }
+    }
+
+/* Texto opcional abaixo da seta se quiser (ou deixe vazio) */
+.nav-hint-text {
+    font-size: clamp(10px, 1.2vmin, 14px);
+    color: rgba(255, 255, 255, 0.5);
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.3s ease;
-    z-index: 7000;
-    width: clamp(12px, 5vw, 28px);
-    height: clamp(12px, 5vw, 28px);
+    font-weight: 600;
 }
 
-    @keyframes bounceNavHint {
-        0%, 100% { transform: translate(-50%, 0); }
-        50% { transform: translate(-50%, 7px); }
-    }
+@keyframes navHintBounce {
+    0%, 100% { transform: translate(-50%, 0); }
+    50% { transform: translate(-50%, 8px); }
+}
 .nav-hint-icon {
     background: rgba(255,255,255,0.08);
     border: 1px solid rgba(255,255,255,0.15);
@@ -1103,11 +1128,17 @@ body.nav-menu-active .nav-menu {
 // =============================================================================
 // Indicador Flutuante (Menu Seta para Baixo)
 // =============================================================================
+// =============================================================================
+// Indicador Flutuante (Menu Seta para Baixo)
+// =============================================================================
 (function initNavHint() {
     const navHint = document.createElement('div');
     navHint.id = 'navHintDown';
-  
-    navHint.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
+    // Colocamos o texto MENU ao lado da seta
+    navHint.innerHTML = `
+        <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+        <span>Menu</span>
+    `;
     document.body.appendChild(navHint);
 
     window.updateNavHint = function () {
@@ -1118,12 +1149,18 @@ body.nav-menu-active .nav-menu {
         const isCard = focused?.classList?.contains('card') && !focused?.classList?.contains('add-card');
         const inGrid = focused?.closest('#gameGrid') || focused?.closest('#mediaGrid');
 
-      
-        if (window.isModalOpen || window.isSetupOpen || window.isNavMenuOpen || window._vkbIsOpen || window.isGlobalLoading || isCtxMenuOpen || isEditModalOpen) {
+        // Esconde se algum modal/overlay estiver aberto
+        const isOverlayOpen = window.isModalOpen || window.isSetupOpen || window.isNavMenuOpen ||
+            window._vkbIsOpen || window.isGlobalLoading ||
+            (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) ||
+            (typeof isEditModalOpen !== 'undefined' && isEditModalOpen);
+
+        if (isOverlayOpen) {
             hint.classList.remove('visible');
             return;
         }
 
+        // Aparece apenas quando o usuário está navegando no grid
         if (isCard && inGrid) {
             hint.classList.add('visible');
         } else {
@@ -1134,7 +1171,6 @@ body.nav-menu-active .nav-menu {
     document.addEventListener('focusin', window.updateNavHint);
     document.addEventListener('focusout', window.updateNavHint);
 })();
-
 // ── Fundo animado (blobs) — aparece quando não há hero ativo ──────────────────
 (function initBlobBackground() {
     const canvas = document.createElement('canvas');
@@ -1199,11 +1235,28 @@ body.nav-menu-active .nav-menu {
     frame();
 
     // ── Observa o bgBlur para mostrar/esconder o blob ─────────────────────────
-    // Se bgBlur não tem src ou opacity é 0 → hero inativo → mostra blob
+
+    let _blobShowTimer = null;
+
     function checkHeroState() {
         const bgBlur = document.getElementById('bgBlur');
         const heroInactive = !bgBlur?.src || bgBlur.style.opacity === '0' || !bgBlur.src;
-        canvas.style.opacity = heroInactive ? '1' : '0';
+
+        if (heroInactive) {
+            // Aguarda 400ms antes de mostrar — evita flicker na troca de banners
+            if (!_blobShowTimer) {
+                _blobShowTimer = setTimeout(() => {
+                    // Confirma que o hero ainda está inativo após o delay
+                    const stillInactive = !bgBlur?.src || bgBlur.style.opacity === '0';
+                    if (stillInactive) canvas.style.opacity = '1';
+                    _blobShowTimer = null;
+                }, 400);
+            }
+        } else {
+            // Esconde imediatamente quando hero ativa
+            if (_blobShowTimer) { clearTimeout(_blobShowTimer); _blobShowTimer = null; }
+            canvas.style.opacity = '0';
+        }
     }
 
     // Observa mudanças no bgBlur (src e style)

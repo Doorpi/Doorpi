@@ -10,9 +10,9 @@
     --card-gap: clamp(10px, min(0.78vw, 1.39vh), 14px);
     --grid-pad-top: clamp(16px, min(2.3vw, 4.1vh), 36px);
     --grid-pad-side: clamp(24px, min(3.1vw, 5.5vh), 56px);
-    --grid-pad-bottom: clamp(20px, min(2.03vw, 3.6vh), 72px);
+    --grid-pad-bottom: clamp(20px, min(3.03vw, 4.6vh), 120px);
     --logo-left: clamp(28px, min(2.81vw, 5vh), 88px);
-    --logo-bottom: clamp(220px, min(23vw, 40.9vh), 720px);
+    --logo-bottom: clamp(220px, min(25vw, 42.9vh), 760px);
     --logo-width: min(28%, 44vh);
     --topbar-pad-v: clamp(16px, min(1.72vw, 3.06vh), 54px);
     --topbar-pad-h: clamp(28px, min(2.81vw, 5vh), 88px);

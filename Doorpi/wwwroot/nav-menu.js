@@ -1,8 +1,4 @@
 // =============================================================================
-// nav-menu.js — Menu de navegação Xbox-style
-// Acionado: ArrowDown no carrossel principal
-// Fechado:  ArrowUp na primeira categoria
-// =============================================================================
 'use strict';
 
 window.isNavMenuOpen = false;
@@ -71,31 +67,31 @@ window.isNavMenuOpen = false;
 
     // ── Estado ────────────────────────────────────────────────────────────────
     let _catIdx = 0;
-    let _sidebarFocus = true;
+    let _topbarFocus = true; // Estilo PS5: navegação agora é no topo
     let _contentIdx = 0;
     let _contentItems = [];
     let _overlay = null;
     let _bgRaf = null;
     let _lastFocus = null;
 
-    // ── Estilos ───────────────────────────────────────────────────────────────
+    // ── Estilos ────────────────────────────────────────
     (function injectStyles() {
         if (document.getElementById('nav-menu-styles')) return;
         const s = document.createElement('style');
         s.id = 'nav-menu-styles';
         s.textContent = `
-        /* ── Overlay Transição Xbox/Apple TV ── */
+        /* ── Overlay Transição ── */
         #navMenuOverlay {
             position: fixed;
             inset: 0;
             z-index: 8000;
             display: none;
             opacity: 0;
-            transition: opacity 0.35s cubic-bezier(0.25, 1, 0.5, 1);
+            transition: opacity 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+            font-family: 'Inter', 'Segoe UI', sans-serif;
+            background: rgba(0, 0, 0, 0.4);
         }
-        #navMenuOverlay.visible { 
-            opacity: 1; 
-        }
+        #navMenuOverlay.visible { opacity: 1; }
 
         #navMenuBg {
             position: absolute;
@@ -103,132 +99,126 @@ window.isNavMenuOpen = false;
             z-index: 0; pointer-events: none;
         }
 
-        /* O Layout desliza de baixo para cima suavemente */
+        /* O Layout Fade In com Zoom sutil */
         .nav-layout {
             position: relative;
             z-index: 1;
             display: flex;
-            width: 100%; height: 100%;
-            transform: translateY(60px);
-            transition: transform 0.4s cubic-bezier(0.2, 0.9, 0.3, 1);
-        }
-        #navMenuOverlay.visible .nav-layout {
-            transform: translateY(0);
-        }
-
-        /* ── Sidebar ── */
-        .nav-sidebar {
-            width: clamp(220px, 18vw, 280px);
-            flex-shrink: 0;
-            display: flex;
             flex-direction: column;
-            padding: clamp(28px, 4vh, 48px) 0 clamp(20px, 3vh, 40px);
-            background: linear-gradient(to right,
-                rgba(4,4,18,0.98) 0%,
-                rgba(4,4,18,0.85) 65%,
-                transparent 100%);
+            width: 100%; height: 100%;
+            transform: scale(1.03);
+            transition: transform 0.4s cubic-bezier(0.2, 0.9, 0.3, 1);
+            background: radial-gradient(circle at 50% 0%, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0.6) 80%);
+            
+        }
+        #navMenuOverlay.visible .nav-layout { transform: scale(1); }
+
+
+        .nav-topbar {
+            display: flex;
+            align-items: center;
+            padding: clamp(20px, 3vh, 40px) clamp(30px, 4vw, 60px) 0;
+            gap: clamp(20px, 3vw, 40px);
+            flex-shrink: 0;
+             flex-direction: column;
         }
 
         .nav-back-item {
             display: flex;
             align-items: center;
-            gap: 10px;
-            padding: clamp(10px, 1.2vh, 14px) clamp(20px, 2vw, 36px);
-            color: rgba(255,255,255,0.22);
-            font-size: clamp(0.75rem, 0.85vw, 1rem);
+            gap: 8px;
+            color: rgba(255,255,255,0.4);
+            font-size: clamp(0.75rem, 0.85vw, 0.95rem);
             font-weight: 500;
-            letter-spacing: 0.06em;
-            margin-bottom: clamp(6px, 0.8vh, 12px);
             cursor: pointer;
-            border-left: 3px solid transparent;
-            transition: color 0.2s;
-            font-family: inherit;
-            background: none;
-            border: none;
-            text-align: left;
-            width: 100%;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            padding: 8px 16px;
+            border-radius: 20px;
+            transition: all 0.2s ease;
             outline: none;
+     
         }
-        .nav-back-item:hover { color: rgba(255,255,255,0.45); }
+        .nav-back-item:hover { color: #fff; background: rgba(255,255,255,0.1); }
 
-        .nav-sidebar-divider {
-            height: 1px;
-            background: rgba(255,255,255,0.07);
-            margin: 0 clamp(20px,2vw,36px) clamp(10px,1.2vh,16px);
+        .nav-cat-list {
+            display: flex;
+            gap: clamp(16px, 2.5vw, 40px);
         }
 
         .nav-cat-item {
             display: flex;
             align-items: center;
-            gap: clamp(12px, 1.4vw, 20px);
-            padding: clamp(14px, 1.8vh, 20px) clamp(20px, 2vw, 36px);
+            gap: 10px;
+            padding: 10px;
             cursor: pointer;
             outline: none;
             border: none;
             background: none;
-            text-align: left;
-            width: 100%;
             font-family: inherit;
-            border-left: 3px solid transparent;
-            color: rgba(255,255,255,0.40);
-            transition: color 0.15s, background 0.15s, border-color 0.15s;
+            color: rgba(255,255,255,0.35);
+            position: relative;
+            transition: color 0.2s ease;
         }
 
-        .nav-cat-item.active     { color: rgba(255,255,255,0.72); }
-        .nav-cat-item.nav-focused {
-            color: #fff;
-            border-left-color: #fff;
-            background: rgba(255,255,255,0.08);
+        .nav-cat-item::after {
+            content: '';
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            height: 2px;
+            background: #fff;
+            transform: scaleX(0);
+            transform-origin: center;
+            transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1);
+            box-shadow: 0 0 10px rgba(255,255,255,0.5);
         }
 
-        .nav-cat-icon {
-            font-size: clamp(1rem, 1.3vw, 1.55rem);
-            opacity: 0.65;
-            flex-shrink: 0;
-            width: 1.4em;
-            text-align: center;
+        .nav-cat-item.active { color: #fff; }
+        .nav-cat-item.active::after { transform: scaleX(1); }
+        
+        .nav-cat-item.nav-focused { color: #fff;
+    background: #f0f8ff1c;
+    transform: scale(1.04); }
+        .nav-cat-item.nav-focused::after {
+            transform: scaleX(1);
+            height: 3px;
         }
-        .nav-cat-item.active .nav-cat-icon,
-        .nav-cat-item.nav-focused .nav-cat-icon { opacity: 1; }
 
+        
         .nav-cat-label {
-            font-size: clamp(0.88rem, 1.05vw, 1.25rem);
-            font-weight: 600;
-            letter-spacing: 0.03em;
+            font-size: clamp(0.9rem, 1.1vw, 1.2rem);
+            font-weight: 500;
+            letter-spacing: 0.02em;
         }
 
-        .nav-cat-count {
-            margin-left: auto;
-            font-size: clamp(0.65rem, 0.72vw, 0.88rem);
-            color: rgba(255,255,255,0.22);
-            padding-right: 6px;
-        }
-
-        /* ── Content area ── */
+        /* ── Área de Conteúdo ── */
         .nav-content {
             flex: 1;
             display: flex;
             flex-direction: column;
-            padding: clamp(28px, 4vh, 48px) clamp(24px, 3vw, 48px);
+            padding: clamp(20px, 3vh, 40px) clamp(30px, 4vw, 60px);
             overflow: hidden;
             min-width: 0;
         }
 
         .nav-content-header {
-            margin-bottom: clamp(16px, 2.2vh, 24px);
+            margin-bottom: clamp(20px, 3vh, 32px);
             flex-shrink: 0;
+            text-align: left;
+            animation: fadeInTop 0.4s cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
         }
         .nav-content-title {
-            font-size: clamp(1.4rem, 2.2vw, 2.8rem);
-            font-weight: 700;
+            font-size: clamp(1.8rem, 2.5vw, 3.2rem);
+            font-weight: 300;
             color: #fff;
-            margin: 0 0 4px;
-            letter-spacing: -0.02em;
+            margin: 0 0 6px;
+            letter-spacing: -0.01em;
         }
         .nav-content-subtitle {
-            font-size: clamp(0.75rem, 0.84vw, 1.1rem);
-            color: rgba(255,255,255,0.35);
+            font-size: clamp(0.85rem, 0.9vw, 1.1rem);
+            color: rgba(255,255,255,0.4);
             margin: 0;
+            font-weight: 400;
         }
 
         .nav-content-body {
@@ -236,71 +226,97 @@ window.isNavMenuOpen = false;
             overflow-y: auto;
             overflow-x: hidden;
             scrollbar-width: none;
-            animation: navBodyIn 0.22s ease;
-            padding:1%;
+            padding: 25px; /* Evita cortar sombras */
+            margin: -10px; 
         }
         .nav-content-body::-webkit-scrollbar { display: none; }
 
-        @keyframes navBodyIn {
-            from { opacity: 0; transform: translateY(12px); }
+        @keyframes fadeInTop {
+            from { opacity: 0; transform: translateY(-10px); }
             to   { opacity: 1; transform: none; }
         }
 
-        /* ── Grid Vertical Único ── */
+        /* ── Grid Premium ── */
         .nav-big-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(clamp(150px, 14vw, 220px), 1fr));
-            gap: clamp(14px, 1.5vw, 24px);
-            padding-bottom: 30px;
+            grid-template-columns: repeat(auto-fill, minmax(clamp(95px, 8vw, 170px), 1fr));
+            gap: clamp(16px, 0.8vw, 24px);
+            padding-bottom: 40px;
         }
 
         .nav-vertical-card {
-            aspect-ratio: 2/3; /* SEMPRE VERTICAL */
-            border-radius: clamp(8px, 0.8vw, 14px);
+            aspect-ratio: 2/3;
+            border-radius: 8px; /* Mais nítido estilo PS5 */
             overflow: hidden;
-            background: rgba(255,255,255,0.06);
-            border: 2px solid rgba(255,255,255,0.07);
+            background: rgba(255,255,255,0.03);
+            border: 2px solid transparent;
             cursor: pointer;
             outline: none;
             position: relative;
             display: flex;
             flex-direction: column;
-            transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease;
+            transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.2s ease, border-color 0.2s ease;
         }
+        
         .nav-vertical-card img {
-            width: 100%; flex: 1;
+            position: absolute;
+            inset: 0;
+            width: 100%; height: 100%;
             object-fit: cover;
-            display: block; min-height: 0;
+            display: block;
         }
+
         .nav-vertical-card-no-img {
             flex: 1;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: rgba(255,255,255,0.15);
-            font-size: clamp(2.5rem, 3.5vw, 4.5rem);
+            color: rgba(255,255,255,0.1);
+            font-size: clamp(3rem, 4vw, 5rem);
+            z-index: 1;
         }
+
+        /* Gradiente de fundo pro texto só aparecer elegante */
+        .nav-card-gradient {
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            height: 60%;
+            background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.5) 40%, transparent 100%);
+            z-index: 2;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+
         .nav-vertical-card-title {
-            font-size: clamp(0.7rem, 0.8vw, 1.1rem);
-            color: rgba(255,255,255,0.75);
-            padding: clamp(6px, 0.8vh, 10px) clamp(8px, 1vw, 14px);
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            font-size: clamp(0.75rem, 0.85vw, 1rem);
+            color: #fff;
+            padding: 12px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
-            flex-shrink: 0;
-            background: rgba(0,0,0,0.65);
-            text-align: center;
+            z-index: 3;
             font-weight: 500;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
         }
-        .nav-vertical-card.nav-focused {
-            transform: scale(1.05);
-            box-shadow: 0 12px 32px rgba(0,0,0,0.8), 0 0 0 3px rgba(255,255,255,0.9);
-            border-color: rgba(255,255,255,0.8);
-            z-index: 2;
-        }
-        .nav-vertical-card.nav-focused .nav-vertical-card-title { color: #fff; }
 
-        /* ── Placeholder ── */
+        .nav-vertical-card.nav-focused {
+            transform: scale(1.08);
+            box-shadow: 0 15px 40px rgba(0,0,0,0.8);
+            border-color: #fff;
+            z-index: 10;
+        }
+        .nav-vertical-card.nav-focused .nav-card-gradient { opacity: 1; }
+        .nav-vertical-card.nav-focused .nav-vertical-card-title { 
+            opacity: 1; 
+            transform: translateY(0); 
+        }
+
+        /* ── Placeholder Vazio ── */
         .nav-placeholder {
             display: flex;
             flex-direction: column;
@@ -308,95 +324,98 @@ window.isNavMenuOpen = false;
             justify-content: center;
             height: 100%;
             min-height: 300px;
-            gap: 14px;
-            color: rgba(255,255,255,0.18);
+            gap: 20px;
+            color: rgba(255,255,255,0.2);
+            animation: fadeInTop 0.4s ease;
         }
-        .nav-placeholder-icon  { font-size: clamp(3rem, 5vw, 6rem); }
-        .nav-placeholder-text  { font-size: clamp(1rem, 1.2vw, 1.5rem); font-weight: 300; }
+        .nav-placeholder-icon { font-size: clamp(3rem, 5vw, 6rem); opacity: 0.5; }
+        .nav-placeholder-text { font-size: clamp(1rem, 1.2vw, 1.4rem); font-weight: 400; letter-spacing: 0.02em; }
 
-        /* ── Perfil ── */
-        .nav-profile-wrap {
+        /* ── Perfil Dashboard Premium ── */
+        .nav-profile-dashboard {
+            display: flex;
+            align-items: flex-start;
+            gap: clamp(30px, 4vw, 60px);
+            animation: fadeInTop 0.3s ease;
+            max-width: 1000px;
+        }
+        
+        .nav-profile-avatar-sec {
             display: flex;
             flex-direction: column;
-            gap: clamp(18px, 2.5vh, 30px);
-            max-width: 600px;
-        }
-        .nav-profile-hero {
-            display: flex;
             align-items: center;
-            gap: clamp(18px, 2.2vw, 32px);
+            gap: 16px;
         }
+
         .nav-profile-photo {
-            width: clamp(80px, 9vw, 120px);
-            height: clamp(80px, 9vw, 120px);
+            width: clamp(120px, 14vw, 180px);
+            height: clamp(120px, 14vw, 180px);
             border-radius: 50%;
-            background: rgba(255,255,255,0.07);
-            border: 2px solid rgba(255,255,255,0.16);
+            background: rgba(255,255,255,0.05);
+            border: 3px solid rgba(255,255,255,0.1);
             overflow: hidden;
-            flex-shrink: 0;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 2.5rem;
-            color: rgba(255,255,255,0.28);
+            font-size: 3.5rem;
+            color: rgba(255,255,255,0.3);
             cursor: pointer;
             outline: none;
-            transition: border-color 0.18s, box-shadow 0.18s, transform 0.18s;
+            transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
         }
         .nav-profile-photo img { width: 100%; height: 100%; object-fit: cover; }
         .nav-profile-photo:focus, .nav-profile-photo.nav-focused-el {
-            border-color: rgba(255,255,255,0.8);
-            box-shadow: 0 0 0 4px rgba(255,255,255,0.14);
+            border-color: #fff;
+            box-shadow: 0 0 20px rgba(255,255,255,0.2), 0 10px 40px rgba(0,0,0,0.8);
             transform: scale(1.05);
-        }
-        .nav-profile-name-text {
-            font-size: clamp(1.5rem, 2.5vw, 3rem);
-            font-weight: 700;
-            color: #fff;
-            margin: 0 0 4px;
-        }
-        .nav-profile-hello {
-            font-size: clamp(0.85rem, 0.95vw, 1.1rem);
-            color: rgba(255,255,255,0.32);
         }
 
         .nav-profile-fields {
+            flex: 1;
             display: flex;
             flex-direction: column;
-            gap: clamp(12px, 1.5vh, 20px);
+            gap: clamp(16px, 2vh, 24px);
+            background: rgba(255,255,255,0.02);
+            border: 1px solid rgba(255,255,255,0.05);
+            padding: clamp(24px, 3vw, 40px);
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
         }
-        .nav-profile-field { display: flex; flex-direction: column; gap: 6px; }
+
+        .nav-profile-field { display: flex; flex-direction: column; gap: 8px; }
         .nav-profile-field-label {
-            font-size: clamp(0.7rem, 0.8vw, 0.95rem);
-            text-transform: uppercase;
-            letter-spacing: 0.12em;
-            color: rgba(255,255,255,0.28);
-            font-weight: 600;
+            font-size: clamp(0.75rem, 0.85vw, 0.95rem);
+            color: rgba(255,255,255,0.4);
+            font-weight: 500;
         }
         .nav-profile-field-input {
-            background: rgba(255,255,255,0.06);
-            border: 1px solid rgba(255,255,255,0.10);
-            border-radius: clamp(8px, 0.8vw, 12px);
-            padding: clamp(12px, 1.5vh, 20px) clamp(16px, 1.6vw, 22px);
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: clamp(14px, 1.8vh, 18px) clamp(16px, 1.6vw, 20px);
             color: #fff;
-            font-size: clamp(0.9rem, 1vw, 1.3rem);
+            font-size: clamp(1rem, 1.1vw, 1.2rem);
             font-family: inherit;
             outline: none;
             width: 100%;
             box-sizing: border-box;
             cursor: pointer;
-            caret-color: rgba(100,160,255,0.9);
-            transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+            transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
         }
         .nav-profile-field-input:focus,
         .nav-profile-field-input.nav-focused-el {
-            border-color: rgba(100,160,255,0.55);
-            background: rgba(255,255,255,0.08);
-            box-shadow: 0 0 0 3px rgba(100,160,255,0.11);
+            border-color: #fff;
+            background: rgba(255,255,255,0.05);
+            box-shadow: 0 0 15px rgba(255,255,255,0.1);
+            transform: scale(1.02);
         }
         .nav-profile-field-input.vkb-active {
-            border-color: rgba(100,160,255,0.7);
-            box-shadow: 0 0 0 4px rgba(100,160,255,0.14);
+            border-color: rgba(100,160,255,0.8);
+            box-shadow: 0 0 0 2px rgba(100,160,255,0.3);
+        }
+        .nav-cat-icon{
+            display:none;
         }
         `;
         document.head.appendChild(s);
@@ -412,13 +431,12 @@ window.isNavMenuOpen = false;
         _overlay.innerHTML = `
             <canvas id="navMenuBg"></canvas>
             <div class="nav-layout">
-                <div class="nav-sidebar" id="navSidebar">
-                    <button class="nav-back-item" id="navBackItem">
-                        <span style="font-size:0.85em;opacity:0.6">↑</span>
-                        <span>${_t('navBack', 'Início')}</span>
+                <div class="nav-topbar" id="navTopbar">
+                    <button class="nav-back-item" id="navBackItem" tabindex="-1">
+                        <span style="font-size:1.2em;opacity:0.8;margin-top:-2px;">⇡</span>
+                        <span>${_t('navBack', 'Voltar')}</span>
                     </button>
-                    <div class="nav-sidebar-divider"></div>
-                    <div id="navCatList"></div>
+                    <div class="nav-cat-list" id="navCatList"></div>
                 </div>
                 <div class="nav-content" id="navContent">
                     <div class="nav-content-header">
@@ -438,76 +456,24 @@ window.isNavMenuOpen = false;
     function _buildCatList() {
         const list = document.getElementById('navCatList');
         if (!list) return;
+
+       
         list.innerHTML = CATS.map((cat, i) => `
             <button class="nav-cat-item" data-idx="${i}" tabindex="-1">
-                <span class="nav-cat-icon">${cat.icon}</span>
                 <span class="nav-cat-label">${cat.label}</span>
-                <span class="nav-cat-count" id="navCount_${cat.id}"></span>
             </button>`).join('');
 
         list.querySelectorAll('.nav-cat-item').forEach(btn => {
             btn.addEventListener('click', () => {
                 _catIdx = parseInt(btn.dataset.idx);
                 _selectCat(_catIdx);
-                _setSidebarFocus(true);
+                _setTopbarFocus(true);
             });
         });
     }
 
-    // ── Blob background ───────────────────────────────────────────────────────
-    function _startBlobBg() {
-        const canvas = document.getElementById('navMenuBg');
-        if (!canvas) return;
-        const ctx = canvas.getContext('2d');
+    
 
-        const blobs = [
-            { px: 0.0, py: 0.3, sx: 0.00018, sy: 0.00013, r: 0.62, color: [45, 65, 185] },
-            { px: 1.2, py: 2.1, sx: 0.00014, sy: 0.00019, r: 0.56, color: [28, 85, 210] },
-            { px: 2.5, py: 0.8, sx: 0.00022, sy: 0.00011, r: 0.52, color: [70, 50, 165] },
-            { px: 0.7, py: 3.4, sx: 0.00016, sy: 0.00024, r: 0.50, color: [22, 110, 175] },
-        ];
-
-        let t = 0;
-        function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
-        resize();
-        window.addEventListener('resize', resize);
-
-        function frame() {
-            const W = canvas.width, H = canvas.height;
-            ctx.clearRect(0, 0, W, H);
-            ctx.fillStyle = '#07071a';
-            ctx.fillRect(0, 0, W, H);
-
-            blobs.forEach(b => {
-                const x = W * (0.15 + 0.7 * (0.5 + 0.5 * Math.sin(t * b.sx + b.px)));
-                const y = H * (0.10 + 0.8 * (0.5 + 0.5 * Math.sin(t * b.sy + b.py)));
-                const r = Math.min(W, H) * b.r;
-                const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-                const [cr, cg, cb] = b.color;
-                g.addColorStop(0, `rgba(${cr},${cg},${cb},0.55)`);
-                g.addColorStop(0.4, `rgba(${cr},${cg},${cb},0.22)`);
-                g.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
-                ctx.fillStyle = g;
-                ctx.beginPath();
-                ctx.ellipse(x, y, r, r * 0.72, t * 0.00004, 0, Math.PI * 2);
-                ctx.fill();
-            });
-
-            const vig = ctx.createRadialGradient(W / 2, H / 2, H * 0.25, W / 2, H / 2, H * 0.85);
-            vig.addColorStop(0, 'rgba(0,0,0,0)');
-            vig.addColorStop(1, 'rgba(0,0,18,0.62)');
-            ctx.fillStyle = vig;
-            ctx.fillRect(0, 0, W, H);
-
-            t++;
-            _bgRaf = requestAnimationFrame(frame);
-        }
-        frame();
-    }
-
-    function _stopBlobBg() {
-        if (_bgRaf) { cancelAnimationFrame(_bgRaf); _bgRaf = null; }
-    }
 
     // ── Seleção de categoria ──────────────────────────────────────────────────
     function _selectCat(idx) {
@@ -516,12 +482,21 @@ window.isNavMenuOpen = false;
         document.querySelectorAll('.nav-cat-item').forEach((el, i) => {
             el.classList.toggle('active', i === idx);
         });
-        _updateSidebarFocusVisual();
+        _updateTopbarFocusVisual();
 
         const cat = CATS[idx];
         const titleEl = document.getElementById('navContentTitle');
         const subEl = document.getElementById('navContentSub');
-        if (titleEl) titleEl.textContent = cat.label;
+
+        // Aplica a animação re-triggerando a classe ou reflow
+        const header = document.querySelector('.nav-content-header');
+        if (header) {
+            header.style.animation = 'none';
+            header.offsetHeight; // trigger reflow
+            header.style.animation = '';
+        }
+
+        
         if (subEl) subEl.textContent = _subtitle(cat.id);
 
         _contentIdx = 0;
@@ -530,19 +505,16 @@ window.isNavMenuOpen = false;
 
     function _subtitle(id) {
         const map = {
-            games: _t('navGamesSub', 'Toda a sua biblioteca de jogos'),
-            media: _t('navMediaSub', 'Aplicativos e serviços de streaming'),
-            settings: _t('navSettingsSub', 'Configurações do sistema e do Doorpi OS'),
-            profile: _t('navProfileSub', 'Sua conta e preferências'),
+            games: _t('navGamesSub', 'Toda a sua biblioteca de jogos e títulos instalados'),
+            media: _t('navMediaSub', 'Aplicativos e serviços de entretenimento'),
+            settings: _t('navSettingsSub', 'Ajustes do sistema e preferências do console'),
+            profile: _t('navProfileSub', 'Gerenciamento da sua conta e dados pessoais'),
         };
         return map[id] || '';
     }
 
-    // ── Renderização Genérica de Grid (Trata as classes C#) ───────────────────
+    // ── Renderização Genérica de Grid ─────────────────────────────────────────
     function _renderGrid(body, items, catId, emptyText, emptyIcon) {
-        const countEl = document.getElementById(`navCount_${catId}`);
-        if (countEl) countEl.textContent = items.length || '';
-
         if (!items.length) {
             body.innerHTML = `<div class="nav-placeholder">
                 <div class="nav-placeholder-icon">${emptyIcon}</div>
@@ -556,8 +528,6 @@ window.isNavMenuOpen = false;
 
         items.forEach((item, i) => {
             const name = item.Name || '';
-
-            // ▼ CORREÇÃO: Apenas imagens Grid verticais (nunca Hero/banners)
             const animSrc = item.GridImage || '';
             const staticSrc = item.GridStaticImage || animSrc;
 
@@ -569,7 +539,11 @@ window.isNavMenuOpen = false;
             card.innerHTML = staticSrc
                 ? `<img src="${staticSrc}" alt="${name}" loading="lazy" />`
                 : `<div class="nav-vertical-card-no-img">${emptyIcon}</div>`;
-            card.innerHTML += `<div class="nav-vertical-card-title">${name}</div>`;
+
+            card.innerHTML += `
+                <div class="nav-card-gradient"></div>
+                <div class="nav-vertical-card-title">${name}</div>
+            `;
 
             const img = card.querySelector('img');
             let _animTimer = null;
@@ -582,7 +556,6 @@ window.isNavMenuOpen = false;
                         const tmp = new Image();
                         tmp.src = animSrc;
                         try { await tmp.decode(); } catch (e) { }
-
                         if (card.classList.contains('nav-focused')) {
                             img.src = animSrc;
                         }
@@ -600,7 +573,7 @@ window.isNavMenuOpen = false;
             card.addEventListener('click', () => _launchAction(catId, i));
 
             card.addEventListener('mouseenter', () => {
-                _sidebarFocus = false;
+                _topbarFocus = false;
                 _contentIdx = i;
                 _updateContentFocus();
             });
@@ -611,7 +584,7 @@ window.isNavMenuOpen = false;
         _contentItems = items;
     }
 
-    // ── Launch adaptado para as chamadas do C# ────────────────────────────────
+    // ── Launch ────────────────────────────────────────────────────────────────
     function _launchAction(catId, idx) {
         const items = catId === 'games' ? _menuData.games : _menuData.media;
         const item = items[idx];
@@ -635,22 +608,19 @@ window.isNavMenuOpen = false;
         const body = document.getElementById('navContentBody');
         if (!body) return;
 
-        body.style.animation = 'none';
-        body.offsetHeight;
-        body.style.animation = '';
         _contentItems = [];
 
         switch (id) {
             case 'games':
-                _renderGrid(body, _menuData.games, id, _t('navNoGames', 'Nenhum jogo na biblioteca'), '⊞');
+                _renderGrid(body, _menuData.games, id, _t('navNoGames', 'Nenhum jogo encontrado'), '⊞');
                 break;
             case 'media':
-                _renderGrid(body, _menuData.media, id, _t('navNoMedia', 'Nenhum app configurado'), '▶');
+                _renderGrid(body, _menuData.media, id, _t('navNoMedia', 'Nenhum aplicativo configurado'), '▶');
                 break;
             case 'settings':
                 body.innerHTML = `<div class="nav-placeholder">
                     <div class="nav-placeholder-icon">⚙</div>
-                    <div class="nav-placeholder-text">${_t('navSettingsSoon', 'Em breve')}</div>
+                    <div class="nav-placeholder-text">${_t('navSettingsSoon', 'Configurações do console em breve')}</div>
                 </div>`;
                 break;
             case 'profile':
@@ -669,23 +639,21 @@ window.isNavMenuOpen = false;
             : '—';
 
         body.innerHTML = `
-            <div class="nav-profile-wrap">
-                <div class="nav-profile-hero">
+            <div class="nav-profile-dashboard">
+                <div class="nav-profile-avatar-sec">
                     <button class="nav-profile-photo" id="navProfilePhoto" tabindex="-1">
                         ${photo ? `<img src="data:image/png;base64,${photo}" />` : '◉'}
                     </button>
-                    <div>
-                        <div class="nav-profile-name-text">${name}</div>
-                        <div class="nav-profile-hello">${_t('navProfileHello', 'Bem-vindo de volta')}</div>
-                    </div>
+                    <span style="color:rgba(255,255,255,0.4); font-size: 0.85rem;">Alterar Avatar</span>
                 </div>
+                
                 <div class="nav-profile-fields">
                     <div class="nav-profile-field">
-                        <span class="nav-profile-field-label">${_t('navProfileNameLabel', 'Nome')}</span>
+                        <span class="nav-profile-field-label">${_t('navProfileNameLabel', 'Nome de Usuário')}</span>
                         <input class="nav-profile-field-input" id="navProfName" readonly value="${name}" />
                     </div>
-                    <div class="nav-profile-field">
-                        <span class="nav-profile-field-label">${_t('navProfileApiLabel', 'API Key SteamGridDB')}</span>
+                    <div class="nav-profile-field" style="margin-top: 10px;">
+                        <span class="nav-profile-field-label">${_t('navProfileApiLabel', 'Chave API SteamGridDB')}</span>
                         <input class="nav-profile-field-input" id="navProfApi" readonly value="${masked}" />
                     </div>
                 </div>
@@ -741,21 +709,21 @@ window.isNavMenuOpen = false;
     }
 
     // ── Foco ──────────────────────────────────────────────────────────────────
-    function _setSidebarFocus(val) {
-        _sidebarFocus = val;
-        _updateSidebarFocusVisual();
+    function _setTopbarFocus(val) {
+        _topbarFocus = val;
+        _updateTopbarFocusVisual();
         _updateContentFocus();
     }
 
-    function _updateSidebarFocusVisual() {
+    function _updateTopbarFocusVisual() {
         document.querySelectorAll('.nav-cat-item').forEach((el, i) => {
-            el.classList.toggle('nav-focused', _sidebarFocus && i === _catIdx);
+            el.classList.toggle('nav-focused', _topbarFocus && i === _catIdx);
         });
     }
 
     function _updateContentFocus() {
         document.querySelectorAll('.nav-vertical-card').forEach((el, i) => {
-            const isFocused = !_sidebarFocus && i === _contentIdx;
+            const isFocused = !_topbarFocus && i === _contentIdx;
             const wasFocused = el.classList.contains('nav-focused');
 
             el.classList.toggle('nav-focused', isFocused);
@@ -770,14 +738,15 @@ window.isNavMenuOpen = false;
         if (CATS[_catIdx]?.id === 'profile') {
             _contentItems.forEach((el, i) => {
                 if (!el) return;
-                el.classList.toggle('nav-focused-el', !_sidebarFocus && i === _contentIdx);
+                el.classList.toggle('nav-focused-el', !_topbarFocus && i === _contentIdx);
             });
         }
 
-        if (_sidebarFocus) return;
+        if (_topbarFocus) return;
 
         const focused = document.querySelector('.nav-vertical-card.nav-focused, .nav-focused-el');
-        focused?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        // Rola suavemente usando block: center para dar sensação mais fluída de console
+        focused?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     }
 
     function _gridCols() {
@@ -791,13 +760,13 @@ window.isNavMenuOpen = false;
         if (window.isNavMenuOpen) return;
         window.isNavMenuOpen = true;
 
-       
         document.body.classList.add('nav-menu-active');
+
         window.updateNavHint?.();
 
         _lastFocus = document.activeElement;
         _catIdx = Math.max(0, Math.min(startIdx, CATS.length - 1));
-        _sidebarFocus = true;
+        _topbarFocus = true;
         _contentIdx = 0;
 
         _buildOverlay();
@@ -806,11 +775,10 @@ window.isNavMenuOpen = false;
         await _loadJSONs();
 
         requestAnimationFrame(() => {
-            _overlay.classList.add('visible'); 
+            _overlay.classList.add('visible');
             _startBlobBg();
             _selectCat(_catIdx);
-            _updateSidebarFocusVisual();
-            document.querySelectorAll('.nav-cat-item')[_catIdx]?.focus();
+            _updateTopbarFocusVisual();
         });
     }
 
@@ -818,17 +786,16 @@ window.isNavMenuOpen = false;
         if (!window.isNavMenuOpen) return;
         window.isNavMenuOpen = false;
 
-        
         document.body.classList.remove('nav-menu-active');
         document.querySelectorAll('.nav-vertical-card.nav-focused').forEach(el => el._stopInteraction?.());
 
-        _overlay?.classList.remove('visible'); 
+        _overlay?.classList.remove('visible');
         _stopBlobBg();
 
         setTimeout(() => {
             if (!window.isNavMenuOpen && _overlay)
                 _overlay.style.display = 'none';
-        }, 400); 
+        }, 400);
 
         if (_lastFocus && document.contains(_lastFocus)) {
             _lastFocus.focus();
@@ -836,14 +803,13 @@ window.isNavMenuOpen = false;
             document.querySelector('#gameGrid .card:not(.add-card)')?.focus();
         }
 
-
         setTimeout(() => window.updateNavHint?.(), 50);
     }
 
     // ── Teclado / gamepad ────────────────────────────────────────────────────
     window._navMenuHandleKey = function (key) {
-        if (_sidebarFocus) {
-            _navSidebar(key);
+        if (_topbarFocus) {
+            _navTopbar(key);
         } else {
             _navContent(key);
         }
@@ -858,23 +824,23 @@ window.isNavMenuOpen = false;
         window._navMenuHandleKey(e.key);
     }, true);
 
-    function _navSidebar(key) {
+    function _navTopbar(key) {
         switch (key) {
-            case 'ArrowUp':
-                if (_catIdx === 0) { close(); }
-                else { _catIdx--; _selectCat(_catIdx); _updateSidebarFocusVisual(); }
-                break;
-            case 'ArrowDown':
-                if (_catIdx < CATS.length - 1) { _catIdx++; _selectCat(_catIdx); _updateSidebarFocusVisual(); }
+            case 'ArrowLeft':
+                if (_catIdx > 0) { _catIdx--; _selectCat(_catIdx); }
                 break;
             case 'ArrowRight':
+                if (_catIdx < CATS.length - 1) { _catIdx++; _selectCat(_catIdx); }
+                break;
+            case 'ArrowDown':
             case 'Enter':
                 if (_contentItems.length > 0) {
-                    _setSidebarFocus(false);
+                    _setTopbarFocus(false);
                     _contentIdx = 0;
                     _updateContentFocus();
                 }
                 break;
+            case 'ArrowUp':
             case 'Escape':
             case 'Backspace':
                 close();
@@ -884,15 +850,12 @@ window.isNavMenuOpen = false;
 
     function _navContent(key) {
         const cols = _gridCols();
-        const cards = document.querySelectorAll('.nav-vertical-card');
-        const total = cards.length || _contentItems.length;
+        const total = _contentItems.length;
 
         switch (key) {
             case 'ArrowLeft':
-                if (_contentIdx % cols === 0) {
-                    _setSidebarFocus(true);
-                } else {
-                    _contentIdx = Math.max(0, _contentIdx - 1);
+                if (_contentIdx > 0) {
+                    _contentIdx--;
                     _updateContentFocus();
                 }
                 break;
@@ -904,7 +867,7 @@ window.isNavMenuOpen = false;
                 break;
             case 'ArrowUp':
                 if (_contentIdx < cols) {
-                    _setSidebarFocus(true);
+                    _setTopbarFocus(true); // Volta para a barra do topo
                 } else {
                     _contentIdx = Math.max(0, _contentIdx - cols);
                     _updateContentFocus();
@@ -924,7 +887,7 @@ window.isNavMenuOpen = false;
             }
             case 'Escape':
             case 'Backspace':
-                _setSidebarFocus(true);
+                _setTopbarFocus(true);
                 break;
         }
     }

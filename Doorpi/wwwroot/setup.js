@@ -1,870 +1,860 @@
 // =============================================================================
-// setup.js — Formulário de primeira configuração (TV-friendly, accordion)
+// nav-menu.js — Menu de navegação (Estilo PS5 / Premium / Horizontal)
+// Acionado: ArrowDown no carrossel principal
+// Fechado:  ArrowUp no menu do topo
 // =============================================================================
+'use strict';
 
-const _setupData = { name: '', photoBase64: '', apiKey: '', folders: [] };
+window.isNavMenuOpen = false;
 
-// ── Estilos ───────────────────────────────────────────────────────────────────
-(function injectSetupStyles() {
-    const s = document.createElement('style');
-    s.textContent = `
-    #setupContainer {
-        position: fixed;
-        inset: 0;
-        z-index: 9000;
-        display: none;
-        align-items: flex-start;
-        justify-content: center;
-        background: #0a0a20;
-        backdrop-filter: blur(40px);
-        overflow-y: auto;
-        padding: clamp(36px, 5vh, 72px) clamp(24px, 5vw, 80px);
-        box-sizing: border-box;
-        scroll-behavior: auto;
-        align-items: center;
-    }
+(function () {
 
-    #setupContainer.visible { animation: setupFadeIn 0.35s ease forwards; }
+    // ── Dados Locais ──────────────────────────────────────────────────────────
+    let _menuData = { user: {}, games: [], media: [] };
 
-    #setupBg {
-        position: fixed;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-        z-index: 0;
-        pointer-events: none;
-    }
-    .setup-form {
-        position: relative;
-        z-index: 1;
-    }
-    @keyframes setupFadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+    async function _loadJSONs() {
+        try {
+            const ts = new Date().getTime();
+            const [uRes, gRes, mRes] = await Promise.allSettled([
+                fetch(`https://data.local/user.json?t=${ts}`),
+                fetch(`https://data.local/games.json?t=${ts}`),
+                fetch(`https://data.local/media.json?t=${ts}`)
+            ]);
 
-    .setup-form {
-        width: min(760px, 96vw);
-        display: flex;
-        flex-direction: column;
-        gap: clamp(8px, 1vw, 14px);
-        margin: 0 auto;
-    }
+            if (uRes.status === 'fulfilled' && uRes.value.ok) _menuData.user = await uRes.value.json();
+            if (gRes.status === 'fulfilled' && gRes.value.ok) _menuData.games = await gRes.value.json();
+            if (mRes.status === 'fulfilled' && mRes.value.ok) _menuData.media = await mRes.value.json();
+        } catch (e) {
+            console.warn("Fetch bloqueado pelo WebView (CORS). Usando fallback local...", e);
+        }
 
-    .setup-header {
-        text-align: center;
-        margin-bottom: clamp(16px, 2vw, 28px);
-    }
-    .setup-header-eyebrow {
-        display: block;
-        font-size: clamp(0.7rem, 0.9vw, 1.05rem);
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.3em;
-        color: rgba(255,255,255,0.35);
-        margin: 0 0 clamp(10px, 1.2vw, 16px);
-    }
-    .setup-header-title {
-        font-size: clamp(2.4rem, 4.2vw, 5.4rem);
-        font-weight: 200;
-        letter-spacing: -0.03em;
-        color: #ffffff;
-        margin: 0 0 clamp(10px, 1.2vw, 16px);
-        line-height: 1.05;
-        text-shadow: 0 2px 40px rgba(80,100,255,0.25);
-    }
-    .setup-header-subtitle {
-        font-size: clamp(0.95rem, 1.1vw, 1.4rem);
-        color: rgba(255,255,255,0.55);
-        margin: 0 auto;
-        max-width: 520px;
-        line-height: 1.6;
-        font-weight: 300;
+        if (!_menuData.user || Object.keys(_menuData.user).length === 0) {
+            _menuData.user = window._doorpiProfile || {};
+        }
+
+        if (!_menuData.games || _menuData.games.length === 0) {
+            const gameCards = Array.from(document.querySelectorAll('#gameGrid .card:not(.add-card)'));
+            _menuData.games = gameCards.map(c => ({
+                Name: c.querySelector('.title')?.innerText || '',
+                Path: c.dataset.gameId || '',
+                GridImage: c.dataset.vertical || '',
+                GridStaticImage: c.dataset.staticVertical || ''
+            }));
+        }
+
+        if (!_menuData.media || _menuData.media.length === 0) {
+            const mediaCards = Array.from(document.querySelectorAll('#mediaGrid .card:not(.add-card)'));
+            _menuData.media = mediaCards.map(c => ({
+                Name: c.querySelector('.title')?.innerText || '',
+                Url: c.dataset.gameId || c.dataset.appId || '',
+                Type: 'browser',
+                GridImage: c.dataset.vertical || '',
+                GridStaticImage: c.dataset.staticVertical || ''
+            }));
+        }
     }
 
-    .setup-section {
-        background: rgba(255,255,255,0.07);
-        border: 1px solid rgba(255,255,255,0.13);
-        border-radius: clamp(14px, 1.6vw, 20px);
-        overflow: hidden;
-        transition: border-color 0.3s, background 0.3s;
-    }
-    .setup-section.expanded {
-        background: rgba(255,255,255,0.10);
-        border-color: rgba(255,255,255,0.22);
+    function _t(key, fallback) {
+        try { return (typeof t === 'function' ? t(key) : null) || fallback; }
+        catch { return fallback; }
     }
 
-    .setup-section-header {
-        display: flex;
-        align-items: center;
-        gap: clamp(10px, 1.1vw, 16px);
-        padding: clamp(18px, 2vw, 28px) clamp(20px, 2.2vw, 32px);
-        cursor: pointer;
-        outline: none;
-        width: 100%;
-        background: none;
-        border: none;
-        text-align: left;
-        font-family: 'Outfit', sans-serif;
-        transition: background 0.2s;
-        border-radius: clamp(14px, 1.6vw, 20px);
-        filter: drop-shadow(2px 3px 0px black);
-    }
-    .setup-section-header:focus {
-        background: rgba(255,255,255,0.06);
-        box-shadow: inset 0 0 0 2px rgba(255,255,255,0.30);
-    }
-    .setup-section.expanded .setup-section-header {
-        border-radius: clamp(14px, 1.6vw, 20px) clamp(14px, 1.6vw, 20px) 0 0;
-    }
-
-    .setup-section-step {
-        font-size: clamp(0.72rem, 0.82vw, 0.98rem);
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        color: rgba(255,255,255,0.28);
-        flex-shrink: 0;
-        width: 2em;
-        text-align: center;
-        transition: color 0.3s;
-    }
-    .setup-section.expanded .setup-section-step { color: rgba(255,255,255,0.55); }
-
-    .setup-section-label {
-        font-size: clamp(0.85rem, 1vw, 1.2rem);
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.12em;
-        color: rgba(255,255,255,0.60);
-        flex: 1;
-    }
-    .setup-section.expanded .setup-section-label { color: rgba(255,255,255,0.92); }
-
-    .setup-section-status {
-        width: clamp(20px, 2vw, 28px);
-        height: clamp(20px, 2vw, 28px);
-        border-radius: 50%;
-        border: 2px solid rgba(255,255,255,0.22);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-shrink: 0;
-        font-size: clamp(0.6rem, 0.75vw, 0.9rem);
-        color: transparent;
-        transition: all 0.3s;
-    }
-    .setup-section-status.done {
-        background: rgba(100,220,120,0.2);
-        border-color: rgba(100,220,120,0.7);
-        color: rgba(100,220,120,1);
-    }
-    .setup-section-status.required-empty { border-color: rgba(255,255,255,0.22); }
-
-    .setup-optional-badge {
-        font-size: clamp(0.6rem, 0.68vw, 0.82rem);
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-        color: rgba(255,255,255,0.28);
-        background: rgba(255,255,255,0.07);
-        border: 1px solid rgba(255,255,255,0.14);
-        border-radius: 5px;
-        padding: 3px 8px;
-        flex-shrink: 0;
-    }
-
-    .setup-section-chevron {
-        width: clamp(18px, 1.8vw, 24px);
-        height: clamp(18px, 1.8vw, 24px);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-shrink: 0;
-        opacity: 0.30;
-        transition: transform 0.35s cubic-bezier(0.22,1,0.36,1), opacity 0.2s;
-    }
-    .setup-section-chevron svg {
-        width: 100%; height: 100%;
-        stroke: #fff; fill: none;
-        stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
-    }
-    .setup-section.expanded .setup-section-chevron { transform: rotate(90deg); opacity: 0.65; }
-
-    .setup-section-body {
-        display: grid;
-        grid-template-rows: 0fr;
-        transition: grid-template-rows 0.4s cubic-bezier(0.22,1,0.36,1);
-    }
-    .setup-section.expanded .setup-section-body { grid-template-rows: 1fr; }
-    .setup-section-body-inner { overflow: hidden; }
-    .setup-section-content {
-        padding: 0 clamp(20px, 2.2vw, 32px) clamp(20px, 2.2vw, 30px);
-        display: flex;
-        flex-direction: column;
-        gap: clamp(14px, 1.5vw, 20px);
-    }
-
-    .setup-section-divider {
-        height: 1px;
-        background: rgba(255,255,255,0.10);
-        margin-bottom: clamp(2px, 0.3vw, 6px);
-    }
-
-    .setup-section-desc {
-        font-size: clamp(0.85rem, 0.95vw, 1.15rem);
-        color: rgba(255,255,255,0.50);
-        margin: 0;
-        line-height: 3.6;
-        font-weight: 300;
-    }
-    .setup-section-desc strong { color: rgba(255,255,255,0.78); font-weight: 500; }
-
-    .setup-identity-row {
-        display: flex;
-        align-items: center;
-        gap: clamp(16px, 1.8vw, 26px);
-    }
-    .setup-photo-btn {
-        width: clamp(68px, 7.5vw, 100px);
-        height: clamp(68px, 7.5vw, 100px);
-        border-radius: 50%;
-        background: rgba(255,255,255,0.07);
-        border: 2px dashed rgba(255,255,255,0.25);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-        color: rgba(255,255,255,0.30);
-        cursor: pointer;
-        outline: none;
-        flex-shrink: 0;
-        transition: border-color 0.2s, background 0.2s, transform 0.2s, box-shadow 0.2s;
-        position: relative;
-    }
-    .setup-photo-btn svg {
-        width: 38%; height: 38%;
-        stroke: currentColor; fill: none;
-        stroke-width: 1.5; stroke-linecap: round;
-        overflow: visible;
-    }
-    .setup-photo-btn img { width:100%; height:100%; object-fit:cover; position:absolute; inset:0; }
-    .setup-photo-btn:focus, .setup-photo-btn:hover {
-        border-color: rgba(255,255,255,0.9);
-        background: rgba(255,255,255,0.1);
-        transform: scale(1.05);
-        box-shadow: 0 0 0 4px rgba(255,255,255,0.15);
-    }
-    .setup-photo-btn.has-photo { border-style:solid; border-color:rgba(255,255,255,0.35); }
-
-    .setup-name-wrap {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        gap: clamp(6px, 0.7vw, 10px);
-    }
-    .setup-field-label {
-        font-size: clamp(0.68rem, 0.76vw, 0.9rem);
-        color: rgba(255,255,255,0.45);
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.12em;
-    }
-
-    .setup-input {
-        width: 100%;
-        background: rgba(255,255,255,0.09);
-        border: 1px solid rgba(255,255,255,0.18);
-        border-radius: clamp(10px, 1vw, 13px);
-        padding: clamp(14px, 1.5vw, 20px) clamp(16px, 1.7vw, 22px);
-        color: #fff;
-        font-size: clamp(1rem, 1.15vw, 1.5rem);
-        font-family: 'Outfit', sans-serif;
-        font-weight: 400;
-        outline: none;
-        box-sizing: border-box;
-        cursor: pointer;
-        caret-color: transparent;
-        transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
-    }
-    .setup-input:focus {
-        border-color: rgba(255,255,255,0.9);
-        background: rgba(255,255,255,0.12);
-        box-shadow: 0 0 0 4px rgba(255,255,255,0.12);
-    }
-    .setup-input.vkb-active {
-        border-color: rgba(100,160,255,0.7);
-        box-shadow: 0 0 0 4px rgba(100,160,255,0.15);
-        caret-color: rgba(100,160,255,0.9);
-    }
-    .setup-input.error {
-        border-color: rgba(255,80,80,0.8);
-        box-shadow: 0 0 0 4px rgba(255,80,80,0.12);
-    }
-    .setup-input::placeholder { color: rgba(255,255,255,0.22); }
-
-    @keyframes setupShake {
-        0%,100% { transform: translateX(0); }
-        20% { transform: translateX(-8px); }
-        40% { transform: translateX(8px); }
-        60% { transform: translateX(-5px); }
-        80% { transform: translateX(5px); }
-    }
-    .shake { animation: setupShake 0.33s ease; }
-
-    .setup-api-row {
-        display: flex;
-        gap: clamp(8px, 0.9vw, 12px);
-        align-items: stretch;
-    }
-    .setup-api-row .setup-input { flex: 1; }
-
-    .setup-icon-btn {
-        background: rgba(255,255,255,0.09);
-        border: 1px solid rgba(255,255,255,0.18);
-        border-radius: clamp(10px, 1vw, 13px);
-        color: rgba(255,255,255,0.72);
-        font-size: clamp(0.82rem, 0.92vw, 1.12rem);
-        font-family: 'Outfit', sans-serif;
-        font-weight: 600;
-        padding: 0 clamp(16px, 1.7vw, 24px);
-        cursor: pointer;
-        outline: none;
-        white-space: nowrap;
-        transition: all 0.15s;
-        display: flex;
-        align-items: center;
-        gap: 7px;
-    }
-    .setup-icon-btn:focus, .setup-icon-btn:hover {
-        background: rgba(255,255,255,0.18);
-        border-color: rgba(255,255,255,0.9);
-        color: #fff;
-        box-shadow: 0 0 0 4px rgba(255,255,255,0.12);
-    }
-    .setup-api-link-btn {
-        background: rgba(100,160,255,0.09);
-        border: 1px solid rgba(100,160,255,0.25);
-        border-radius: clamp(10px, 1vw, 13px);
-        color: rgba(140,190,255,0.9);
-        font-size: clamp(0.8rem, 0.88vw, 1.08rem);
-        font-family: 'Outfit', sans-serif;
-        font-weight: 600;
-        padding: 0 clamp(16px, 1.7vw, 24px);
-        cursor: pointer;
-        outline: none;
-        white-space: nowrap;
-        transition: all 0.15s;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-    }
-    .setup-api-link-btn:focus, .setup-api-link-btn:hover {
-        background: rgba(100,160,255,0.20);
-        border-color: rgba(100,160,255,0.9);
-        color: rgba(200,225,255,1);
-        box-shadow: 0 0 0 4px rgba(100,160,255,0.15);
-    }
-    .setup-api-hint {
-        font-size: clamp(0.8rem, 0.88vw, 1.05rem);
-        color: rgba(255,255,255,0.38);
-        margin: 0;
-        transition: color 0.2s;
-    }
-    .setup-api-hint.success { color: rgba(100,220,120,0.9); }
-    .setup-api-hint.error   { color: rgba(255,100,100,0.9); }
-
-    .setup-folder-list {
-        display: flex;
-        flex-direction: column;
-        gap: clamp(7px, 0.8vw, 11px);
-    }
-    .setup-folder-item {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        background: rgba(255,255,255,0.06);
-        border: 1px solid rgba(255,255,255,0.10);
-        border-radius: clamp(8px, 0.9vw, 12px);
-        padding: clamp(11px, 1.2vw, 16px) clamp(14px, 1.5vw, 20px);
-        animation: setupFadeIn 0.2s ease;
-    }
-    .setup-folder-path {
-        flex: 1;
-        font-size: clamp(0.82rem, 0.9vw, 1.08rem);
-        color: rgba(255,255,255,0.72);
-        font-family: 'Cascadia Code', 'SF Mono', monospace;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-    .setup-folder-remove {
-        background: none;
-        border: none;
-        color: rgba(255,80,80,0.40);
-        cursor: pointer;
-        font-size: clamp(0.8rem, 0.88vw, 1.05rem);
-        padding: 4px 10px;
-        border-radius: 6px;
-        outline: none;
-        transition: color 0.15s, box-shadow 0.15s;
-        flex-shrink: 0;
-        font-family: inherit;
-    }
-    .setup-folder-remove:focus, .setup-folder-remove:hover {
-        color: rgba(255,80,80,1);
-        box-shadow: 0 0 0 3px rgba(255,80,80,0.25);
-    }
-
-    .setup-footer {
-        display: flex;
-        justify-content: center;
-        padding: clamp(8px, 1vw, 14px) 0 clamp(16px, 1.8vw, 28px);
-    }
-    .setup-finish-btn {
-        background: rgba(255,255,255,0.92);
-        border: 2px solid transparent;
-        border-radius: clamp(12px, 1.2vw, 16px);
-        color: #06060e;
-        font-family: 'Outfit', sans-serif;
-        font-size: clamp(1rem, 1.15vw, 1.5rem);
-        font-weight: 700;
-        padding: clamp(15px, 1.6vw, 22px) clamp(52px, 5.2vw, 80px);
-        cursor: pointer;
-        outline: none;
-        letter-spacing: 0.02em;
-        transition: all 0.2s cubic-bezier(0.22,1,0.36,1);
-        box-shadow: 0 6px 24px rgba(0,0,0,0.35);
-    }
-    .setup-finish-btn:focus, .setup-finish-btn:hover {
-        background: #fff;
-        transform: translateY(-2px) scale(1.03);
-        box-shadow: 0 0 0 5px rgba(255,255,255,0.2), 0 16px 36px rgba(0,0,0,0.5);
-    }
-
-    @media (max-height: 900px), (max-width: 1600px) {
-        .setup-form { width: min(620px, 92vw); gap: 7px; }
-        .setup-header { margin-bottom: 14px; }
-        .setup-header-title { font-size: clamp(1.7rem, 3vw, 2.8rem); margin-bottom: 8px; }
-        .setup-section-header { padding: 14px 20px; gap: 10px; }
-        .setup-section-label { font-size: clamp(0.72rem, 0.85vw, 0.95rem); }
-        .setup-section-content { padding: 0 20px 18px; gap: 12px; }
-        .setup-input { font-size: clamp(0.85rem, 1vw, 1.1rem); padding: 11px 14px; }
-        .setup-finish-btn { font-size: clamp(0.88rem, 1vw, 1.1rem); padding: 13px 48px; }
-    }
-
-    @media (max-height: 768px) {
-        .setup-header-title { font-size: clamp(1.45rem, 2.6vw, 2.2rem); }
-        .setup-section-header { padding: 19px 20px; }
-        .setup-section-content { padding: 0 18px 14px; gap: 10px; }
-        .setup-input { padding: 9px 13px; }
-        .setup-form { gap: 5px; }
-    }
-    `;
-    document.head.appendChild(s);
-})();
-
-// ── HTML ──────────────────────────────────────────────────────────────────────
-(function buildSetupHTML() {
-    const container = document.getElementById('setupContainer');
-    if (!container) return;
-
-    const chevron = `<span class="setup-section-chevron"><svg viewBox="0 0 24 24"><polyline points="9 6 15 12 9 18"/></svg></span>`;
-    const personSvg = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`;
-
-    container.innerHTML = `
-    <canvas id="setupBg"></canvas>
-    <div class="setup-form">
-
-        <div class="setup-header">
-            <span class="setup-header-eyebrow" data-i18n="setupEyebrow"></span>
-            <h1 class="setup-header-title" data-i18n="setupStep1Title"></h1>
-            <p class="setup-header-subtitle" data-i18n="setupHeaderSubtitle"></p>
-        </div>
-
-        <!-- Seção 1: Identidade (obrigatório — nome é único e cria o perfil) -->
-        <div class="setup-section" id="setupSectionIdentity">
-            <button class="setup-section-header setup-focusable" data-section="identity">
-                <span class="setup-section-step">01</span>
-                <span class="setup-section-label" data-i18n="setupSectionIdentity"></span>
-                <span class="setup-section-status required-empty" id="statusIdentity"></span>
-                ${chevron}
-            </button>
-            <div class="setup-section-body">
-                <div class="setup-section-body-inner">
-                    <div class="setup-section-content">
-                        <div class="setup-section-divider"></div>
-                        <p class="setup-section-desc" data-i18n="setupIdentityDesc"></p>
-                        <div class="setup-identity-row">
-                            <button class="setup-photo-btn setup-focusable" id="setupPhotoBtn" tabindex="-1">${personSvg}</button>
-                            <div class="setup-name-wrap">
-                                <span class="setup-field-label" data-i18n="setupNameLabel"></span>
-                                <input class="setup-input setup-focusable" id="setupNameInput" type="text" readonly tabindex="-1" />
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Seção 2: API Key (obrigatório) -->
-        <div class="setup-section" id="setupSectionApiKey">
-            <button class="setup-section-header setup-focusable" data-section="apikey">
-                <span class="setup-section-step">02</span>
-                <span class="setup-section-label" data-i18n="setupSectionApiKey"></span>
-                <span class="setup-section-status required-empty" id="statusApiKey"></span>
-                ${chevron}
-            </button>
-            <div class="setup-section-body">
-                <div class="setup-section-body-inner">
-                    <div class="setup-section-content">
-                        <div class="setup-section-divider"></div>
-                        <p class="setup-section-desc" data-i18n="setupApiDesc"></p>
-                        <div class="setup-api-row">
-                            <input class="setup-input setup-focusable" id="setupApiInput" type="text" readonly tabindex="-1" />
-                            <button class="setup-icon-btn setup-focusable" id="btnSetupPaste" tabindex="-1"><span data-i18n="setupStep3PasteMode"></span></button>
-                            <button class="setup-api-link-btn setup-focusable" id="btnSetupApiLink" tabindex="-1"><span data-i18n="setupStep3LinkText"></span></button>
-                        </div>
-                        <p class="setup-api-hint" id="setupApiHint" data-i18n="setupStep3PasteHint"></p>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Seção 3: Pastas (opcional) -->
-        <div class="setup-section" id="setupSectionFolders">
-            <button class="setup-section-header setup-focusable" data-section="folders">
-                <span class="setup-section-step">03</span>
-                <span class="setup-section-label" data-i18n="setupSectionFolders"></span>
-                <span class="setup-section-status" id="statusFolders"></span>
-                <span class="setup-optional-badge" data-i18n="setupOptional"></span>
-                ${chevron}
-            </button>
-            <div class="setup-section-body">
-                <div class="setup-section-body-inner">
-                    <div class="setup-section-content">
-                        <div class="setup-section-divider"></div>
-                        <p class="setup-section-desc" data-i18n="setupFoldersDesc"></p>
-                        <div class="setup-folder-list" id="setupFolderList"></div>
-                        <button class="setup-icon-btn setup-focusable" id="btnSetupAddFolder" tabindex="-1" style="align-self:flex-start">
-                            + <span data-i18n="setupStep4AddFolder"></span>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="setup-footer">
-            <button class="setup-finish-btn setup-focusable" id="btnSetupFinish" data-i18n="setupStep4Finish"></button>
-        </div>
-
-    </div>`;
-
-    applyI18n();
-    document.getElementById('setupNameInput').placeholder = t('setupStep1Placeholder');
-    document.getElementById('setupApiInput').placeholder = t('setupStep3Placeholder');
-
-    _bindSetupEvents();
-})();
-
-// ── Accordion ─────────────────────────────────────────────────────────────────
-let _currentSection = null;
-
-function _expandSection(sectionEl) {
-    if (_currentSection && _currentSection !== sectionEl) _collapseSection(_currentSection);
-    sectionEl.classList.add('expanded');
-    _currentSection = sectionEl;
-    sectionEl.querySelectorAll('.setup-focusable:not(.setup-section-header)').forEach(el => { el.tabIndex = 0; });
-}
-
-function _collapseSection(sectionEl) {
-    sectionEl.classList.remove('expanded');
-    if (_currentSection === sectionEl) _currentSection = null;
-    sectionEl.querySelectorAll('.setup-focusable:not(.setup-section-header)').forEach(el => { el.tabIndex = -1; });
-}
-
-function _toggleSection(sectionEl) {
-    if (sectionEl.classList.contains('expanded')) {
-        _collapseSection(sectionEl);
-    } else {
-        _expandSection(sectionEl);
-        setTimeout(() => {
-            const first = sectionEl.querySelector('.setup-focusable:not(.setup-section-header)');
-            first?.focus();
-        }, 50);
-    }
-}
-
-function _updateStatus() {
-    const nameDone = !!document.getElementById('setupNameInput')?.value.trim();
-    const photoDone = !!_setupData.photoBase64;
-    const statusId = document.getElementById('statusIdentity');
-    if (statusId) {
-        statusId.textContent = nameDone ? '✓' : '';
-        // Nome é obrigatório — usa required-empty quando vazio
-        statusId.className = 'setup-section-status ' + (nameDone ? 'done' : 'required-empty');
-    }
-
-    const apiDone = !!document.getElementById('setupApiInput')?.value.trim();
-    const statusApi = document.getElementById('statusApiKey');
-    if (statusApi) {
-        statusApi.textContent = apiDone ? '✓' : '';
-        statusApi.className = 'setup-section-status ' + (apiDone ? 'done' : 'required-empty');
-    }
-
-    const folderCount = _setupData.folders.length;
-    const statusFolders = document.getElementById('statusFolders');
-    if (statusFolders) {
-        statusFolders.textContent = folderCount > 0 ? '✓' : '';
-        statusFolders.className = 'setup-section-status ' + (folderCount > 0 ? 'done' : '');
-    }
-}
-
-// ── Scroll suave ──────────────────────────────────────────────────────────────
-function _smoothScrollSetup(container, targetScrollTop, duration = 440) {
-    const start = container.scrollTop;
-    const delta = targetScrollTop - start;
-    if (Math.abs(delta) < 2) return;
-    const t0 = performance.now();
-    const ease = (t) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-    (function step(now) {
-        const p = Math.min((now - t0) / duration, 1);
-        container.scrollTop = start + delta * ease(p);
-        if (p < 1) requestAnimationFrame(step);
-    })(performance.now());
-}
-
-window._setupSmoothScroll = (targetScrollTop) => {
-    const container = document.getElementById('setupContainer');
-    if (container) _smoothScrollSetup(container, targetScrollTop);
-};
-
-// ── Background canvas ─────────────────────────────────────────────────────────
-let _bgRaf = null;
-
-function _startSetupBg() {
-    const canvas = document.getElementById('setupBg');
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-
-    const blobs = [
-        { px: 0.0, py: 0.3, sx: 0.00018, sy: 0.00013, r: 0.62, color: [45, 65, 185] },
-        { px: 1.2, py: 2.1, sx: 0.00014, sy: 0.00019, r: 0.56, color: [28, 85, 210] },
-        { px: 2.5, py: 0.8, sx: 0.00022, sy: 0.00011, r: 0.52, color: [70, 50, 165] },
-        { px: 0.7, py: 3.4, sx: 0.00016, sy: 0.00024, r: 0.50, color: [22, 110, 175] },
-        { px: 3.1, py: 1.6, sx: 0.00012, sy: 0.00017, r: 0.46, color: [90, 70, 195] },
-        { px: 1.8, py: 4.2, sx: 0.00020, sy: 0.00015, r: 0.42, color: [30, 130, 190] },
+    const CATS = [
+        { id: 'games', icon: '⊞', get label() { return _t('navGames', 'Jogos'); } },
+        { id: 'media', icon: '▶', get label() { return _t('navMedia', 'Multimídia'); } },
+        { id: 'settings', icon: '⚙', get label() { return _t('navSettings', 'Configurações'); } },
+        { id: 'profile', icon: '◉', get label() { return _t('navProfile', 'Perfil'); } },
     ];
 
-    let t = 0;
-    function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
-    resize();
-    window.addEventListener('resize', resize);
+    let _catIdx = 0;
+    let _topbarFocus = true;
+    let _contentIdx = 0;
+    let _contentItems = [];
+    let _overlay = null;
+    let _bgRaf = null;
+    let _lastFocus = null;
 
-    function frame() {
-        const W = canvas.width, H = canvas.height;
-        ctx.clearRect(0, 0, W, H);
-        ctx.fillStyle = '#07071a';
-        ctx.fillRect(0, 0, W, H);
+    // ── Estilos Responsivos (Ultrawide/4K/720p ready) ─────────────────────────
+    (function injectStyles() {
+        if (document.getElementById('nav-menu-styles')) return;
+        const s = document.createElement('style');
+        s.id = 'nav-menu-styles';
+        s.textContent = `
+        /* ── Overlay Transição ── */
+        #navMenuOverlay {
+            position: fixed; inset: 0; z-index: 8000;
+            display: none; opacity: 0;
+            transition: opacity 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+            font-family: 'Inter', 'Segoe UI', sans-serif;
+            background: #0a0a20; /* Fundo idêntico ao setup */
+        }
+        #navMenuOverlay.visible { opacity: 1; }
 
-        blobs.forEach(b => {
-            const x = W * (0.15 + 0.7 * (0.5 + 0.5 * Math.sin(t * b.sx + b.px)));
-            const y = H * (0.10 + 0.8 * (0.5 + 0.5 * Math.sin(t * b.sy + b.py)));
-            const r = Math.min(W, H) * b.r;
-            const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-            const [cr, cg, cb] = b.color;
-            g.addColorStop(0, `rgba(${cr},${cg},${cb},0.55)`);
-            g.addColorStop(0.4, `rgba(${cr},${cg},${cb},0.22)`);
-            g.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
-            ctx.fillStyle = g;
-            ctx.beginPath();
-            ctx.ellipse(x, y, r, r * 0.72, t * 0.00004, 0, Math.PI * 2);
-            ctx.fill();
+        #navMenuBg {
+            position: absolute; inset: 0; width: 100%; height: 100%;
+            z-index: 0; pointer-events: none;
+        }
+
+        .nav-layout {
+            position: relative; z-index: 1; display: flex; flex-direction: column;
+            width: 100%; height: 100%;
+            transform: scale(1.03);
+            transition: transform 0.4s cubic-bezier(0.2, 0.9, 0.3, 1);
+            /* Removido gradiente escuro e desfoque para o Blob brilhar igual ao setup.js */
+            background: transparent;
+        }
+        #navMenuOverlay.visible .nav-layout { transform: scale(1); }
+
+        /* ── Topbar Horizontal (Menu PS5) ── */
+        .nav-topbar {
+            display: flex; align-items: center;
+            padding: clamp(12px, 3vh, 40px) clamp(24px, 4vw, 80px) 0;
+            gap: clamp(16px, 3vw, 40px);
+            flex-shrink: 0;
+        }
+
+        .nav-back-item {
+            display: flex; align-items: center; gap: clamp(6px, 0.8vw, 12px);
+            color: rgba(255,255,255,0.4);
+            font-size: clamp(0.7rem, 1.1vmin, 1.1rem);
+            font-weight: 500; cursor: pointer;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            padding: clamp(6px, 1vmin, 12px) clamp(12px, 2vmin, 24px);
+            border-radius: clamp(12px, 2vmin, 30px);
+            transition: all 0.2s ease; outline: none;
+            margin-right: auto;
+        }
+        .nav-back-item:hover { color: #fff; background: rgba(255,255,255,0.1); }
+
+        .nav-cat-list {
+            display: flex; gap: clamp(16px, 3vmin, 40px);
+            margin: 0 auto;
+            position: absolute; left: 50%; transform: translateX(-50%);
+        }
+
+        .nav-cat-item {
+            display: flex; align-items: center; gap: clamp(8px, 1vmin, 14px);
+            padding: clamp(8px, 1vmin, 16px) 0;
+            cursor: pointer; outline: none; border: none; background: none;
+            font-family: inherit; color: rgba(255,255,255,0.35);
+            position: relative; transition: color 0.2s ease;
+        }
+
+        .nav-cat-item::after {
+            content: ''; position: absolute; bottom: 0; left: 0; right: 0;
+            height: clamp(2px, 0.3vmin, 4px);
+            background: #fff; transform: scaleX(0); transform-origin: center;
+            transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1);
+            box-shadow: 0 0 clamp(6px, 1vmin, 12px) rgba(255,255,255,0.5);
+        }
+
+        .nav-cat-item.active { color: #fff; }
+        .nav-cat-item.active::after { transform: scaleX(1); }
+        .nav-cat-item.nav-focused { color: #fff; }
+        .nav-cat-item.nav-focused::after { transform: scaleX(1); height: clamp(3px, 0.4vmin, 5px); }
+
+        .nav-cat-icon { font-size: clamp(0.9rem, 1.5vmin, 1.6rem); }
+        .nav-cat-label { font-size: clamp(0.85rem, 1.3vmin, 1.4rem); font-weight: 500; letter-spacing: 0.02em; }
+
+        /* ── Área de Conteúdo ── */
+        .nav-content {
+            flex: 1; display: flex; flex-direction: column;
+            padding: clamp(16px, 3vmin, 40px) clamp(24px, 4vw, 80px);
+            overflow: hidden; min-width: 0;
+        }
+
+        .nav-content-header {
+            margin-bottom: clamp(12px, 2vmin, 24px);
+            flex-shrink: 0; text-align: left;
+            animation: fadeInTop 0.4s cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
+        }
+        .nav-content-title {
+            font-size: clamp(1.6rem, 3vmin, 4rem);
+            font-weight: 300; color: #fff;
+            margin: 0 0 clamp(4px, 0.8vmin, 8px);
+            letter-spacing: -0.01em;
+            text-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+        .nav-content-subtitle {
+            font-size: clamp(0.8rem, 1.2vmin, 1.2rem);
+            color: rgba(255,255,255,0.4); margin: 0; font-weight: 400;
+        }
+
+        .nav-content-body {
+            flex: 1; overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
+            /* Padding EXTREMO para impedir o corte da sombra e do scale(1.08) */
+            padding: 25px;
+            /* Margin negativa anula o padding visualmente, mantendo os alinhamentos originais */
+            margin: -10px;
+        }
+        .nav-content-body::-webkit-scrollbar { display: none; }
+
+        @keyframes fadeInTop { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }
+
+        /* ── Grid Premium Escalável ── */
+        .nav-big-grid {
+            display: grid;
+            /* Modificado para que em 720p os cards fiquem consideravelmente menores (começam em ~90px) */
+            grid-template-columns: repeat(auto-fill, minmax(clamp(90px, 10vw, 200px), 1fr));
+            gap: clamp(4px, 0.8vw, 24px);
+            /* Espaço extra ao final para a rolagem não cortar a sombra da última linha */
+            padding-bottom: 80px; 
+        }
+
+        .nav-vertical-card {
+            aspect-ratio: 2/3;
+            border-radius: clamp(6px, 1vmin, 12px);
+            overflow: hidden; background: rgba(255,255,255,0.03);
+            border: clamp(2px, 0.3vmin, 4px) solid transparent;
+            cursor: pointer; outline: none; position: relative;
+            display: flex; flex-direction: column;
+            transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.2s ease, border-color 0.2s ease;
+        }
+        
+        .nav-vertical-card img {
+            position: absolute; inset: 0; width: 100%; height: 100%;
+            object-fit: cover; display: block;
+        }
+
+        .nav-vertical-card-no-img {
+            flex: 1; display: flex; align-items: center; justify-content: center;
+            color: rgba(255,255,255,0.1); font-size: clamp(2.5rem, 5vmin, 7rem); z-index: 1;
+        }
+
+        .nav-card-gradient {
+            position: absolute; bottom: 0; left: 0; right: 0; height: 60%;
+            background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.5) 40%, transparent 100%);
+            z-index: 2; opacity: 0; transition: opacity 0.2s ease;
+        }
+
+        .nav-vertical-card-title {
+            position: absolute; bottom: 0; left: 0; right: 0;
+            font-size: clamp(0.7rem, 1vmin, 1.1rem); color: #fff;
+            padding: clamp(8px, 1.5vmin, 16px);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            z-index: 3; font-weight: 500; opacity: 0; transform: translateY(10px);
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+        }
+
+        .nav-vertical-card.nav-focused {
+            transform: scale(1.08);
+            box-shadow: 0 clamp(8px, 1.5vmin, 25px) clamp(20px, 4vmin, 50px) rgba(0,0,0,0.8);
+            border-color: #fff; z-index: 10;
+        }
+        .nav-vertical-card.nav-focused .nav-card-gradient { opacity: 1; }
+        .nav-vertical-card.nav-focused .nav-vertical-card-title { opacity: 1; transform: translateY(0); }
+
+        /* ── Placeholder Vazio ── */
+        .nav-placeholder {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            height: 100%; min-height: clamp(150px, 25vmin, 400px); gap: clamp(12px, 2vmin, 30px);
+            color: rgba(255,255,255,0.2); animation: fadeInTop 0.4s ease;
+        }
+        .nav-placeholder-icon { font-size: clamp(2.5rem, 5vmin, 8rem); opacity: 0.5; }
+        .nav-placeholder-text { font-size: clamp(0.9rem, 1.3vmin, 1.8rem); font-weight: 400; letter-spacing: 0.02em; }
+
+        /* ── Perfil Dashboard ── */
+        .nav-profile-dashboard {
+            display: flex; align-items: flex-start;
+            gap: clamp(20px, 3vmin, 80px); animation: fadeInTop 0.3s ease;
+            width: min(100%, 1400px);
+        }
+        
+        .nav-profile-avatar-sec { display: flex; flex-direction: column; align-items: center; gap: clamp(10px, 1.5vmin, 20px); }
+
+        .nav-profile-photo {
+            width: clamp(80px, 12vmin, 220px); height: clamp(80px, 12vmin, 220px);
+            border-radius: 50%; background: rgba(255,255,255,0.05);
+            border: clamp(2px, 0.4vmin, 4px) solid rgba(255,255,255,0.1); overflow: hidden;
+            display: flex; align-items: center; justify-content: center;
+            font-size: clamp(2.5rem, 4vmin, 6rem); color: rgba(255,255,255,0.3);
+            cursor: pointer; outline: none; transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+            box-shadow: 0 clamp(6px, 1vmin, 20px) clamp(15px, 2.5vmin, 40px) rgba(0,0,0,0.5);
+        }
+        .nav-profile-photo img { width: 100%; height: 100%; object-fit: cover; }
+        .nav-profile-photo:focus, .nav-profile-photo.nav-focused-el {
+            border-color: #fff;
+            box-shadow: 0 0 clamp(8px, 1.5vmin, 25px) rgba(255,255,255,0.2), 0 clamp(8px, 1.5vmin, 20px) clamp(25px, 4vmin, 60px) rgba(0,0,0,0.8);
+            transform: scale(1.05);
+        }
+
+        .nav-profile-fields {
+            flex: 1; display: flex; flex-direction: column; gap: clamp(12px, 2vmin, 32px);
+            background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05);
+            padding: clamp(16px, 2.5vmin, 50px); border-radius: clamp(10px, 1.5vmin, 24px);
+            box-shadow: 0 clamp(6px, 1vmin, 20px) clamp(15px, 2.5vmin, 40px) rgba(0,0,0,0.3);
+        }
+
+        .nav-profile-field { display: flex; flex-direction: column; gap: clamp(4px, 0.8vmin, 12px); }
+        .nav-profile-field-label { font-size: clamp(0.7rem, 0.9vmin, 1rem); color: rgba(255,255,255,0.4); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
+        .nav-profile-field-input {
+            background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1);
+            border-radius: clamp(6px, 1vmin, 12px);
+            padding: clamp(10px, 1.5vmin, 24px) clamp(12px, 1.8vmin, 28px);
+            color: #fff; font-size: clamp(0.9rem, 1.2vmin, 1.4rem); font-family: inherit;
+            outline: none; width: 100%; box-sizing: border-box; cursor: pointer;
+            transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+        }
+        .nav-profile-field-input:focus, .nav-profile-field-input.nav-focused-el {
+            border-color: #fff; background: rgba(255,255,255,0.05);
+            box-shadow: 0 0 clamp(8px, 1.2vmin, 20px) rgba(255,255,255,0.1); transform: scale(1.02);
+        }
+        .nav-profile-field-input.vkb-active {
+            border-color: rgba(100,160,255,0.8); box-shadow: 0 0 0 clamp(2px, 0.4vmin, 4px) rgba(100,160,255,0.3);
+        }
+        `;
+        document.head.appendChild(s);
+    })();
+
+    // ── Build overlay DOM ─────────────────────────────────────────────────────
+    function _buildOverlay() {
+        if (_overlay) return;
+
+        _overlay = document.createElement('div');
+        _overlay.id = 'navMenuOverlay';
+
+        _overlay.innerHTML = `
+            <canvas id="navMenuBg"></canvas>
+            <div class="nav-layout">
+                <div class="nav-topbar" id="navTopbar">
+                    <button class="nav-back-item" id="navBackItem" tabindex="-1">
+                        <span style="font-size:1.2em;opacity:0.8;margin-top:-2px;">⇡</span>
+                        <span>${_t('navBack', 'Voltar ao Início')}</span>
+                    </button>
+                    <div class="nav-cat-list" id="navCatList"></div>
+                </div>
+                <div class="nav-content" id="navContent">
+                    <div class="nav-content-header">
+                        <h2 class="nav-content-title" id="navContentTitle"></h2>
+                        <p class="nav-content-subtitle" id="navContentSub"></p>
+                    </div>
+                    <div class="nav-content-body" id="navContentBody"></div>
+                </div>
+            </div>`;
+
+        document.body.appendChild(_overlay);
+
+        document.getElementById('navBackItem').addEventListener('click', close);
+        _buildCatList();
+    }
+
+    function _buildCatList() {
+        const list = document.getElementById('navCatList');
+        if (!list) return;
+        list.innerHTML = CATS.map((cat, i) => `
+            <button class="nav-cat-item" data-idx="${i}" tabindex="-1">
+                <span class="nav-cat-icon">${cat.icon}</span>
+                <span class="nav-cat-label">${cat.label}</span>
+            </button>`).join('');
+
+        list.querySelectorAll('.nav-cat-item').forEach(btn => {
+            btn.addEventListener('click', () => {
+                _catIdx = parseInt(btn.dataset.idx);
+                _selectCat(_catIdx);
+                _setTopbarFocus(true);
+            });
+        });
+    }
+
+    // ── Fundo Animado (Extraído exatamente de setup.js) ───────────────────────
+    function _startBlobBg() {
+        const canvas = document.getElementById('navMenuBg');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+
+        const blobs = [
+            { px: 0.0, py: 0.3, sx: 0.00018, sy: 0.00013, r: 0.62, color: [45, 65, 185] },
+            { px: 1.2, py: 2.1, sx: 0.00014, sy: 0.00019, r: 0.56, color: [28, 85, 210] },
+            { px: 2.5, py: 0.8, sx: 0.00022, sy: 0.00011, r: 0.52, color: [70, 50, 165] },
+            { px: 0.7, py: 3.4, sx: 0.00016, sy: 0.00024, r: 0.50, color: [22, 110, 175] },
+            { px: 3.1, py: 1.6, sx: 0.00012, sy: 0.00017, r: 0.46, color: [90, 70, 195] },
+            { px: 1.8, py: 4.2, sx: 0.00020, sy: 0.00015, r: 0.42, color: [30, 130, 190] },
+        ];
+
+        let t = 0;
+        function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+        resize();
+        window.addEventListener('resize', resize);
+
+        function frame() {
+            const W = canvas.width, H = canvas.height;
+            ctx.clearRect(0, 0, W, H);
+            ctx.fillStyle = '#07071a';
+            ctx.fillRect(0, 0, W, H);
+
+            blobs.forEach(b => {
+                const x = W * (0.15 + 0.7 * (0.5 + 0.5 * Math.sin(t * b.sx + b.px)));
+                const y = H * (0.10 + 0.8 * (0.5 + 0.5 * Math.sin(t * b.sy + b.py)));
+                const r = Math.min(W, H) * b.r;
+                const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+                const [cr, cg, cb] = b.color;
+                g.addColorStop(0, `rgba(${cr},${cg},${cb},0.55)`);
+                g.addColorStop(0.4, `rgba(${cr},${cg},${cb},0.22)`);
+                g.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+                ctx.fillStyle = g;
+                ctx.beginPath();
+                ctx.ellipse(x, y, r, r * 0.72, t * 0.00004, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            const vig = ctx.createRadialGradient(W / 2, H / 2, H * 0.25, W / 2, H / 2, H * 0.85);
+            vig.addColorStop(0, 'rgba(0,0,0,0)');
+            vig.addColorStop(1, 'rgba(0,0,18,0.62)');
+            ctx.fillStyle = vig;
+            ctx.fillRect(0, 0, W, H);
+
+            t++;
+            _bgRaf = requestAnimationFrame(frame);
+        }
+        frame();
+    }
+
+    function _stopBlobBg() {
+        if (_bgRaf) { cancelAnimationFrame(_bgRaf); _bgRaf = null; }
+    }
+
+    // ── Seleção de categoria ──────────────────────────────────────────────────
+    function _selectCat(idx) {
+        _catIdx = idx;
+
+        document.querySelectorAll('.nav-cat-item').forEach((el, i) => {
+            el.classList.toggle('active', i === idx);
+        });
+        _updateTopbarFocusVisual();
+
+        const cat = CATS[idx];
+        const titleEl = document.getElementById('navContentTitle');
+        const subEl = document.getElementById('navContentSub');
+
+        const header = document.querySelector('.nav-content-header');
+        if (header) {
+            header.style.animation = 'none';
+            header.offsetHeight;
+            header.style.animation = '';
+        }
+
+        if (titleEl) titleEl.textContent = cat.label;
+        if (subEl) subEl.textContent = _subtitle(cat.id);
+
+        _contentIdx = 0;
+        _renderContent(cat.id);
+    }
+
+    function _subtitle(id) {
+        const map = {
+            games: _t('navGamesSub', 'Toda a sua biblioteca de jogos e títulos instalados'),
+            media: _t('navMediaSub', 'Aplicativos e serviços de entretenimento'),
+            settings: _t('navSettingsSub', 'Ajustes do sistema e preferências do console'),
+            profile: _t('navProfileSub', 'Gerenciamento da sua conta e dados pessoais'),
+        };
+        return map[id] || '';
+    }
+
+    // ── Renderização Genérica de Grid ─────────────────────────────────────────
+    function _renderGrid(body, items, catId, emptyText, emptyIcon) {
+        if (!items.length) {
+            body.innerHTML = `<div class="nav-placeholder">
+                <div class="nav-placeholder-icon">${emptyIcon}</div>
+                <div class="nav-placeholder-text">${emptyText}</div>
+            </div>`;
+            return;
+        }
+
+        body.innerHTML = '<div class="nav-big-grid" id="navDynamicGrid"></div>';
+        const grid = document.getElementById('navDynamicGrid');
+
+        items.forEach((item, i) => {
+            const name = item.Name || '';
+            const animSrc = item.GridImage || '';
+            const staticSrc = item.GridStaticImage || animSrc;
+
+            const card = document.createElement('div');
+            card.className = 'nav-vertical-card';
+            card.tabIndex = -1;
+            card.dataset.idx = i;
+
+            card.innerHTML = staticSrc
+                ? `<img src="${staticSrc}" alt="${name}" loading="lazy" />`
+                : `<div class="nav-vertical-card-no-img">${emptyIcon}</div>`;
+
+            card.innerHTML += `
+                <div class="nav-card-gradient"></div>
+                <div class="nav-vertical-card-title">${name}</div>
+            `;
+
+            const img = card.querySelector('img');
+            let _animTimer = null;
+
+            card._startInteraction = () => {
+                if (_animTimer) clearTimeout(_animTimer);
+                _animTimer = setTimeout(async () => {
+                    if (!card.classList.contains('nav-focused')) return;
+                    if (img && animSrc && animSrc !== staticSrc) {
+                        const tmp = new Image();
+                        tmp.src = animSrc;
+                        try { await tmp.decode(); } catch (e) { }
+                        if (card.classList.contains('nav-focused')) {
+                            img.src = animSrc;
+                        }
+                    }
+                }, 200);
+            };
+
+            card._stopInteraction = () => {
+                if (_animTimer) clearTimeout(_animTimer);
+                if (img && staticSrc && img.src !== staticSrc && !img.src.endsWith(staticSrc)) {
+                    img.src = staticSrc;
+                }
+            };
+
+            card.addEventListener('click', () => _launchAction(catId, i));
+
+            card.addEventListener('mouseenter', () => {
+                _topbarFocus = false;
+                _contentIdx = i;
+                _updateContentFocus();
+            });
+
+            grid.appendChild(card);
         });
 
-        const vig = ctx.createRadialGradient(W / 2, H / 2, H * 0.25, W / 2, H / 2, H * 0.85);
-        vig.addColorStop(0, 'rgba(0,0,0,0)');
-        vig.addColorStop(1, 'rgba(0,0,18,0.62)');
-        ctx.fillStyle = vig;
-        ctx.fillRect(0, 0, W, H);
-
-        t++;
-        _bgRaf = requestAnimationFrame(frame);
-    }
-    frame();
-}
-
-function _stopSetupBg() {
-    if (_bgRaf) { cancelAnimationFrame(_bgRaf); _bgRaf = null; }
-}
-
-// ── Abrir / Fechar ────────────────────────────────────────────────────────────
-function openSetup() {
-    isSetupOpen = true;
-    const c = document.getElementById('setupContainer');
-    c.style.display = 'flex';
-    requestAnimationFrame(() => {
-        c.classList.add('visible');
-        document.querySelector('.setup-section-header')?.focus();
-        _startSetupBg();
-    });
-}
-
-function closeSetup() {
-    isSetupOpen = false;
-    const c = document.getElementById('setupContainer');
-    c.style.display = 'none';
-    c.classList.remove('visible');
-    _stopSetupBg();
-}
-
-function setupBack() { closeSetup(); }
-
-function getSetupItems() {
-    const c = document.getElementById('setupContainer');
-    if (!c || c.style.display === 'none') return [];
-    return Array.from(c.querySelectorAll('.setup-focusable'))
-        .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0 && el.tabIndex !== -1);
-}
-
-// ── Validação & envio ─────────────────────────────────────────────────────────
-function _shakeField(el) {
-    if (!el) return;
-    el.classList.remove('shake', 'error');
-    el.classList.add('error');
-    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('shake')));
-    el.addEventListener('animationend', () => el.classList.remove('shake'), { once: true });
-}
-
-function _validateAndFinish() {
-    // Nome é obrigatório — identifica o usuário e cria o perfil de browser
-    const nameInput = document.getElementById('setupNameInput');
-    const name = nameInput?.value.trim();
-    if (!name) {
-        _expandSection(document.getElementById('setupSectionIdentity'));
-        setTimeout(() => { _shakeField(nameInput); nameInput?.focus(); }, 80);
-        return;
+        _contentItems = items;
     }
 
-    const apiInput = document.getElementById('setupApiInput');
-    const apiKey = apiInput?.value.trim();
-    if (!apiKey) {
-        _expandSection(document.getElementById('setupSectionApiKey'));
+    // ── Launch ────────────────────────────────────────────────────────────────
+    function _launchAction(catId, idx) {
+        const items = catId === 'games' ? _menuData.games : _menuData.media;
+        const item = items[idx];
+        if (!item) return;
+
+        if (typeof postToHost === 'function') {
+            if (catId === 'games') {
+                const targetPath = item.LaunchUrl || item.Path || '';
+                postToHost({ action: 'launch', path: targetPath, errorMsg: _t('msgErrorLaunch', 'Erro ao abrir') });
+            } else if (catId === 'media') {
+                const targetUrl = item.Url || '';
+                const appType = item.Type || 'browser';
+                postToHost({ action: 'launchMediaApp', url: targetUrl, appType: appType });
+            }
+        }
+        close();
+    }
+
+    // ── Renderização de conteúdo ──────────────────────────────────────────────
+    function _renderContent(id) {
+        const body = document.getElementById('navContentBody');
+        if (!body) return;
+
+        _contentItems = [];
+
+        switch (id) {
+            case 'games':
+                _renderGrid(body, _menuData.games, id, _t('navNoGames', 'Nenhum jogo encontrado'), '⊞');
+                break;
+            case 'media':
+                _renderGrid(body, _menuData.media, id, _t('navNoMedia', 'Nenhum aplicativo configurado'), '▶');
+                break;
+            case 'settings':
+                body.innerHTML = `<div class="nav-placeholder">
+                    <div class="nav-placeholder-icon">⚙</div>
+                    <div class="nav-placeholder-text">${_t('navSettingsSoon', 'Configurações do console em breve')}</div>
+                </div>`;
+                break;
+            case 'profile':
+                _renderProfile(body);
+                break;
+        }
+    }
+
+    function _renderProfile(body) {
+        const prof = _menuData.user || {};
+        const name = prof.Name || '—';
+        const apiKey = prof.SteamGridApiKey || '';
+        const photo = prof.PhotoBase64 || '';
+        const masked = apiKey
+            ? apiKey.slice(0, 6) + '••••••••' + apiKey.slice(-4)
+            : '—';
+
+        body.innerHTML = `
+            <div class="nav-profile-dashboard">
+                <div class="nav-profile-avatar-sec">
+                    <button class="nav-profile-photo" id="navProfilePhoto" tabindex="-1">
+                        ${photo ? `<img src="data:image/png;base64,${photo}" />` : '◉'}
+                    </button>
+                    <span style="color:rgba(255,255,255,0.4); font-size: clamp(0.7rem, 1vmin, 1rem);">Alterar Avatar</span>
+                </div>
+                
+                <div class="nav-profile-fields">
+                    <div class="nav-profile-field">
+                        <span class="nav-profile-field-label">${_t('navProfileNameLabel', 'Nome de Usuário')}</span>
+                        <input class="nav-profile-field-input" id="navProfName" readonly value="${name}" />
+                    </div>
+                    <div class="nav-profile-field" style="margin-top: clamp(4px, 1vmin, 10px);">
+                        <span class="nav-profile-field-label">${_t('navProfileApiLabel', 'Chave API SteamGridDB')}</span>
+                        <input class="nav-profile-field-input" id="navProfApi" readonly value="${masked}" />
+                    </div>
+                </div>
+            </div>`;
+
+        const photoBtn = document.getElementById('navProfilePhoto');
+        const nameInput = document.getElementById('navProfName');
+        const apiInput = document.getElementById('navProfApi');
+
+        _contentItems = [photoBtn, nameInput, apiInput];
+
+        photoBtn.addEventListener('click', () => {
+            if (typeof postToHost === 'function') postToHost({ action: 'pickProfilePhoto' });
+        });
+
+        nameInput.addEventListener('click', () => {
+            nameInput.removeAttribute('readonly');
+            window._vkbOpen?.(nameInput, {
+                onOk: () => {
+                    const v = nameInput.value.trim();
+                    if (v && typeof postToHost === 'function') {
+                        postToHost({ action: 'saveUserProfile', name: v, apiKey: apiKey, photoBase64: photo });
+                        _menuData.user.Name = v;
+                    }
+                    nameInput.setAttribute('readonly', '');
+                    window._vkbForceClose?.();
+                },
+                onCancel: () => { nameInput.setAttribute('readonly', ''); window._vkbForceClose?.(); }
+            });
+        });
+
+        apiInput.addEventListener('click', () => {
+            apiInput.value = apiKey;
+            apiInput.removeAttribute('readonly');
+            window._vkbOpen?.(apiInput, {
+                onOk: () => {
+                    const v = apiInput.value.trim();
+                    if (v && typeof postToHost === 'function') {
+                        postToHost({ action: 'saveUserProfile', name: name, apiKey: v, photoBase64: photo });
+                        _menuData.user.SteamGridApiKey = v;
+                    }
+                    apiInput.value = v ? v.slice(0, 6) + '••••••••' + v.slice(-4) : '—';
+                    apiInput.setAttribute('readonly', '');
+                    window._vkbForceClose?.();
+                },
+                onCancel: () => {
+                    apiInput.value = masked;
+                    apiInput.setAttribute('readonly', '');
+                    window._vkbForceClose?.();
+                }
+            });
+        });
+    }
+
+    // ── Foco ──────────────────────────────────────────────────────────────────
+    function _setTopbarFocus(val) {
+        _topbarFocus = val;
+        _updateTopbarFocusVisual();
+        _updateContentFocus();
+    }
+
+    function _updateTopbarFocusVisual() {
+        document.querySelectorAll('.nav-cat-item').forEach((el, i) => {
+            el.classList.toggle('nav-focused', _topbarFocus && i === _catIdx);
+        });
+    }
+
+    function _updateContentFocus() {
+        document.querySelectorAll('.nav-vertical-card').forEach((el, i) => {
+            const isFocused = !_topbarFocus && i === _contentIdx;
+            const wasFocused = el.classList.contains('nav-focused');
+
+            el.classList.toggle('nav-focused', isFocused);
+
+            if (isFocused && !wasFocused) {
+                el._startInteraction?.();
+            } else if (!isFocused && wasFocused) {
+                el._stopInteraction?.();
+            }
+        });
+
+        if (CATS[_catIdx]?.id === 'profile') {
+            _contentItems.forEach((el, i) => {
+                if (!el) return;
+                el.classList.toggle('nav-focused-el', !_topbarFocus && i === _contentIdx);
+            });
+        }
+
+        if (_topbarFocus) return;
+
+        const focused = document.querySelector('.nav-vertical-card.nav-focused, .nav-focused-el');
+        // Rolagem fluida com bloco no centro, mantendo margens seguras pro grid
+        focused?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+
+    function _gridCols() {
+        const grid = document.querySelector('.nav-big-grid');
+        if (!grid) return 1;
+        return Math.max(1, getComputedStyle(grid).gridTemplateColumns.split(' ').length);
+    }
+
+    // ── Abrir / Fechar ────────────────────────────────────────────────────────
+    async function open(startIdx = 0) {
+        if (window.isNavMenuOpen) return;
+        window.isNavMenuOpen = true;
+
+        document.body.classList.add('nav-menu-active');
+        window.updateNavHint?.();
+
+        _lastFocus = document.activeElement;
+        _catIdx = Math.max(0, Math.min(startIdx, CATS.length - 1));
+        _topbarFocus = true;
+        _contentIdx = 0;
+
+        _buildOverlay();
+        _overlay.style.display = 'flex';
+
+        await _loadJSONs();
+
+        requestAnimationFrame(() => {
+            _overlay.classList.add('visible');
+            _startBlobBg();
+            _selectCat(_catIdx);
+            _updateTopbarFocusVisual();
+        });
+    }
+
+    function close() {
+        if (!window.isNavMenuOpen) return;
+        window.isNavMenuOpen = false;
+
+        document.body.classList.remove('nav-menu-active');
+        document.querySelectorAll('.nav-vertical-card.nav-focused').forEach(el => el._stopInteraction?.());
+
+        _overlay?.classList.remove('visible');
+        _stopBlobBg();
+
         setTimeout(() => {
-            _shakeField(apiInput);
-            const hint = document.getElementById('setupApiHint');
-            if (hint) { hint.textContent = t('setupStep3PasteHint'); hint.className = 'setup-api-hint error'; }
-            apiInput?.focus();
-        }, 80);
-        return;
-    }
+            if (!window.isNavMenuOpen && _overlay)
+                _overlay.style.display = 'none';
+        }, 400);
 
-    _setupData.name = name;
-    _setupData.apiKey = apiKey;
-
-    postToHost({
-        action: 'saveUserProfile',
-        name: _setupData.name,
-        photoBase64: _setupData.photoBase64,
-        apiKey: _setupData.apiKey,
-        folders: _setupData.folders,
-    });
-    closeSetup();
-    showSystemLoading(t('preparingSystem'), t('preparingSystemSub'));
-}
-
-// ── Eventos ───────────────────────────────────────────────────────────────────
-function _bindSetupEvents() {
-    document.querySelectorAll('.setup-section-header').forEach(header => {
-        header.addEventListener('click', () => {
-            const section = header.closest('.setup-section');
-            _toggleSection(section);
-        });
-    });
-
-    document.getElementById('setupPhotoBtn').addEventListener('click', () => {
-        postToHost({ action: 'pickProfilePhoto' });
-    });
-
-    document.getElementById('setupNameInput').addEventListener('click', () => {
-        if (!window._vkbIsOpen) {
-            window._vkbOpen?.(document.getElementById('setupNameInput'), {
-                onOk: () => {
-                    _setupData.name = document.getElementById('setupNameInput').value.trim();
-                    _updateStatus();
-                    window._vkbForceClose?.();
-                },
-                onCancel: () => window._vkbForceClose?.(),
-            });
+        if (_lastFocus && document.contains(_lastFocus)) {
+            _lastFocus.focus();
+        } else {
+            document.querySelector('#gameGrid .card:not(.add-card)')?.focus();
         }
-    });
 
-    document.getElementById('btnSetupPaste').addEventListener('click', () => {
-        postToHost({ action: 'readClipboard' });
-    });
+        setTimeout(() => window.updateNavHint?.(), 50);
+    }
 
-    document.getElementById('setupApiInput').addEventListener('keydown', (e) => {
-        if (e.ctrlKey && e.key === 'v') { e.preventDefault(); postToHost({ action: 'readClipboard' }); }
-    });
-
-    document.getElementById('setupApiInput').addEventListener('click', () => {
-        if (!window._vkbIsOpen) {
-            window._vkbOpen?.(document.getElementById('setupApiInput'), {
-                onOk: () => {
-                    _setupData.apiKey = document.getElementById('setupApiInput').value.trim();
-                    _updateStatus();
-                    window._vkbForceClose?.();
-                },
-                onCancel: () => window._vkbForceClose?.(),
-            });
+    // ── Teclado / gamepad ────────────────────────────────────────────────────
+    window._navMenuHandleKey = function (key) {
+        if (_topbarFocus) {
+            _navTopbar(key);
+        } else {
+            _navContent(key);
         }
-    });
+    };
 
-    document.getElementById('btnSetupApiLink').addEventListener('click', () => {
-        postToHost({ action: 'openUrl', url: 'https://www.steamgriddb.com/profile/preferences/api' });
-    });
+    document.addEventListener('keydown', e => {
+        if (!window.isNavMenuOpen) return;
+        if (window._vkbIsOpen) return;
 
-    document.getElementById('btnSetupAddFolder').addEventListener('click', () => {
-        postToHost({
-            action: 'pickFolderForSetup',
-            dialogTitle: t('dlgFolderTitle'),
-            forbiddenMsg: t('msgFolderForbidden'),
-            forbiddenTitle: t('msgFolderForbiddenTitle'),
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        window._navMenuHandleKey(e.key);
+    }, true);
+
+    function _navTopbar(key) {
+        switch (key) {
+            case 'ArrowLeft':
+                if (_catIdx > 0) { _catIdx--; _selectCat(_catIdx); }
+                break;
+            case 'ArrowRight':
+                if (_catIdx < CATS.length - 1) { _catIdx++; _selectCat(_catIdx); }
+                break;
+            case 'ArrowDown':
+            case 'Enter':
+                if (_contentItems.length > 0) {
+                    _setTopbarFocus(false);
+                    _contentIdx = 0;
+                    _updateContentFocus();
+                }
+                break;
+            case 'ArrowUp':
+            case 'Escape':
+            case 'Backspace':
+                close();
+                break;
+        }
+    }
+
+    function _navContent(key) {
+        const cols = _gridCols();
+        const total = _contentItems.length;
+
+        switch (key) {
+            case 'ArrowLeft':
+                if (_contentIdx > 0 && CATS[_catIdx]?.id !== 'profile') {
+                    _contentIdx--;
+                    _updateContentFocus();
+                } else if (CATS[_catIdx]?.id === 'profile') {
+                    _setTopbarFocus(true);
+                }
+                break;
+            case 'ArrowRight':
+                if (_contentIdx < total - 1 && CATS[_catIdx]?.id !== 'profile') {
+                    _contentIdx++;
+                    _updateContentFocus();
+                }
+                break;
+            case 'ArrowUp':
+                if (_contentIdx < cols) {
+                    _setTopbarFocus(true);
+                } else {
+                    _contentIdx = Math.max(0, _contentIdx - cols);
+                    _updateContentFocus();
+                }
+                break;
+            case 'ArrowDown':
+                if (_contentIdx + cols < total) {
+                    _contentIdx += cols;
+                    _updateContentFocus();
+                } else if (CATS[_catIdx]?.id === 'profile' && _contentIdx < total - 1) {
+                    _contentIdx++;
+                    _updateContentFocus();
+                }
+                break;
+            case 'Enter': {
+                const catId = CATS[_catIdx]?.id;
+                if (catId === 'games' || catId === 'media') { _launchAction(catId, _contentIdx); }
+                else if (catId === 'profile') { _contentItems[_contentIdx]?.click(); }
+                break;
+            }
+            case 'Escape':
+            case 'Backspace':
+                _setTopbarFocus(true);
+                break;
+        }
+    }
+
+    // ── Bridge Update ─────────────────────────────────────────────────────────
+    if (window.chrome?.webview) {
+        window.chrome.webview.addEventListener('message', e => {
+            try {
+                const data = JSON.parse(e.data);
+                if (data.type === 'profilePhotoSelected' && data.base64) {
+                    _menuData.user.PhotoBase64 = data.base64;
+                    const apiKey = _menuData.user.SteamGridApiKey || '';
+                    const name = _menuData.user.Name || '';
+                    postToHost({ action: 'saveUserProfile', name: name, apiKey: apiKey, photoBase64: data.base64 });
+                    if (window.isNavMenuOpen && CATS[_catIdx]?.id === 'profile') {
+                        _renderContent('profile');
+                    }
+                }
+            } catch { }
         });
-    });
-
-    document.getElementById('btnSetupFinish').addEventListener('click', _validateAndFinish);
-}
-
-// ── Render de pastas ──────────────────────────────────────────────────────────
-function _renderSetupFolders() {
-    const list = document.getElementById('setupFolderList');
-    if (!list) return;
-    list.innerHTML = _setupData.folders.map((f, i) => `
-        <div class="setup-folder-item">
-            <span class="setup-folder-path" title="${f}">${f}</span>
-            <button class="setup-folder-remove" data-idx="${i}">✕</button>
-        </div>`).join('');
-    list.querySelectorAll('.setup-folder-remove').forEach(btn =>
-        btn.addEventListener('click', () => {
-            _setupData.folders.splice(parseInt(btn.dataset.idx), 1);
-            _renderSetupFolders();
-            _updateStatus();
-        })
-    );
-}
-
-// ── Handlers do bridge ────────────────────────────────────────────────────────
-window._setupHandlePhotoSelected = (base64) => {
-    _setupData.photoBase64 = base64;
-    const btn = document.getElementById('setupPhotoBtn');
-    if (btn) {
-        btn.innerHTML = `<img src="data:image/png;base64,${base64}" />`;
-        btn.classList.add('has-photo');
     }
-    _updateStatus();
-};
 
-window._setupHandleFolderAdded = (path) => {
-    if (!_setupData.folders.includes(path)) {
-        _setupData.folders.push(path);
-        _renderSetupFolders();
-        _updateStatus();
-    }
-};
+    // ── Expose ────────────────────────────────────────────────────────────────
+    window.openNavMenu = open;
+    window.closeNavMenu = close;
+
+})();
