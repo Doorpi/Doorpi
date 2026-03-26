@@ -1126,19 +1126,403 @@ body.nav-menu-active .nav-menu {
 })();
 
 /* ── Menu de Contexto & Outros ── */
-// ... [O resto do código, como menu de contexto e teclado virtual, permanece o mesmo] ...
+// ══════════════════════════════════════════════════════════════════════════
+// Context Menu
+// ══════════════════════════════════════════════════════════════════════════
+
+const _ctxMenu = (() => {
+    const el = document.createElement('div');
+    el.className = 'context-menu';
+    el.setAttribute('role', 'menu');
+    el.innerHTML = `
+        <div class="ctx-game-name" id="ctxGameName"></div>
+        <div class="ctx-separator"></div>
+        <button class="ctx-item" id="ctxEdit" role="menuitem">
+            <span class="ctx-icon">✎</span> <span data-i18n="ctxEditName"></span>
+        </button>
+        <div class="ctx-separator"></div>
+        <button class="ctx-item ctx-danger" id="ctxDelete" role="menuitem">
+            <span class="ctx-icon">✕</span> <span data-i18n="ctxRemoveGame"></span>
+        </button>
+    `;
+    document.body.appendChild(el);
+    return el;
+})();
+
+let _ctxCard = null;
+
+function _openCtxMenu(card, x, y) {
+    _ctxCard = card;
+    _ctxCard.classList.add('ctx-active');
+
+    // Força a tradução imediata dos botões do menu, caso o idioma tenha mudado
+    applyI18n();
+
+    _ctxMenu.querySelector('#ctxGameName').textContent = card.querySelector('.title')?.innerText?.trim() || '';
+    _ctxMenu.style.display = 'flex';
+    requestAnimationFrame(() => {
+        const w = _ctxMenu.offsetWidth, h = _ctxMenu.offsetHeight, m = 10;
+        _ctxMenu.style.left = Math.min(x, window.innerWidth - w - m) + 'px';
+        _ctxMenu.style.top = Math.min(y, window.innerHeight - h - m) + 'px';
+        _ctxMenu.classList.add('visible');
+        isCtxMenuOpen = true;
+        _ctxMenu.querySelector('#ctxEdit')?.focus();
+    });
+}
+
+function _closeCtxMenu() {
+    isCtxMenuOpen = false;
+    _ctxMenu.classList.remove('visible');
+
+    if (_ctxCard) _ctxCard.classList.remove('ctx-active');
+
+    setTimeout(() => { if (!_ctxMenu.classList.contains('visible')) _ctxMenu.style.display = 'none'; }, 160);
+    const card = _ctxCard; _ctxCard = null; card?.focus();
+}
+
+window._ctxMenuOpen = _openCtxMenu;
+window._ctxMenuClose = _closeCtxMenu;
+
+document.addEventListener('mousedown', e => {
+    if (isCtxMenuOpen && !_ctxMenu.contains(e.target)) _closeCtxMenu();
+}, true);
+
+document.getElementById('ctxEdit').addEventListener('click', () => {
+    const card = _ctxCard; _closeCtxMenu();
+    if (card) openEditGameModal(card);
+});
+
+document.getElementById('ctxDelete').addEventListener('click', () => {
+    const card = _ctxCard; _closeCtxMenu();
+    if (card) _executeDelete(card);
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// Deleção
+// ══════════════════════════════════════════════════════════════════════════
+
+function _executeDelete(card) {
+    const gameId = card.dataset.gameId;
+    if (!gameId) return;
+
+    if (card.classList.contains('featured')) {
+        const next = Array.from(document.querySelectorAll('#gameGrid .card:not(.add-card)')).find(c => c !== card);
+        if (next) {
+            next.classList.add('featured');
+            const img = next.querySelector('img');
+            if (img) img.src = next.dataset.staticHorizontal || next.dataset.horizontal || next.dataset.staticVertical || '';
+            next._startInteraction?.();
+        } else {
+            ['bgBlur', 'heroImage'].forEach(id => document.getElementById(id)?.removeAttribute('src'));
+            document.getElementById('gameLogo')?.classList.remove('visible');
+        }
+    }
+
+    card.classList.add('removing');
+    setTimeout(() => card.remove(), 280);
+    postToHost({ action: 'deleteGame', gameId });
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Edit Modal
+// ══════════════════════════════════════════════════════════════════════════
+
+let _editCard = null;
+let _editOverlay = null;
+
+function openEditGameModal(card) {
+    const currentName = card.querySelector('.title')?.innerText?.trim() || '';
+    _editCard = card;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'edit-modal-overlay';
+    _editOverlay = overlay;
+    overlay.innerHTML = `
+        <div class="edit-modal" role="dialog" aria-modal="true" aria-label="${t('editModalTitle')}">
+            <div class="edit-modal-header">
+                <div>
+                    <h3 class="edit-modal-title">${t('editModalTitle')}</h3>
+                    <p class="edit-modal-subtitle">${t('editModalSubtitle')}</p>
+                </div>
+            </div>
+            <div class="edit-modal-body">
+                <div class="edit-modal-field">
+                    <label class="edit-modal-label" for="editNameInput">${t('editModalFieldName')}</label>
+                    <input class="edit-modal-input" id="editNameInput" type="text" autocomplete="off" spellcheck="false" />
+                    <span class="edit-modal-input-hint">${t('editModalHint')}</span>
+                </div>
+            </div>
+            <div class="edit-modal-actions">
+                <button class="modal-btn cancel" id="editCancelBtn">${t('editModalCancel')}</button>
+                <button class="modal-btn primary" id="editSaveBtn">${t('editModalSave')}</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const input = overlay.querySelector('#editNameInput');
+    input.value = currentName;
+
+    const doClose = () => {
+        isEditModalOpen = false;
+        window._vkbForceClose();
+        overlay.style.opacity = '0';
+        overlay.style.transition = 'opacity 0.12s';
+        setTimeout(() => { overlay.remove(); _editOverlay = null; }, 130);
+        _editCard?.focus();
+        _editCard = null;
+    };
+
+    const doSave = () => {
+        const newName = input.value.trim();
+        if (newName && newName !== currentName) {
+            _editCard?.querySelector('.title') && (_editCard.querySelector('.title').innerText = newName);
+            postToHost({ action: 'editGame', gameId: card.dataset.gameId, newName });
+        }
+        doClose();
+    };
+
+    overlay.querySelector('#editSaveBtn').addEventListener('click', doSave);
+    overlay.querySelector('#editCancelBtn').addEventListener('click', doClose);
+    overlay.addEventListener('mousedown', e => { if (e.target === overlay) doClose(); });
+
+    // Teclado físico (sem VKB aberto)
+    input.addEventListener('keydown', e => {
+        if (window._vkbIsOpen) return;
+        if (e.key === 'Enter') { e.preventDefault(); doSave(); }
+        if (e.key === 'Escape') { e.preventDefault(); doClose(); }
+    });
+
+    // Clique/foco no input → abre VKB
+    input.addEventListener('click', () => { if (!window._vkbIsOpen) window._vkbOpen?.(); });
+
+    window._editModalClose = doClose;
+    window._editModalSave = doSave;
+
+    isEditModalOpen = true;
+
+    // Foca o primeiro botão de ação ao abrir (sem abrir VKB)
+    requestAnimationFrame(() => {
+        overlay.querySelector('#editSaveBtn')?.focus();
+    });
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Teclado Virtual — PS5 style, 4K-friendly
+// ══════════════════════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════════════
+// Teclado Virtual (VKB) - CORRIGIDO
+// ══════════════════════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════════════
+// Teclado Virtual (VKB) - VERSÃO DEFINITIVA (L1/R1 FIX)
+// ══════════════════════════════════════════════════════════════════════════
+
+window._vkbIsOpen = false;
+
+const VKB = (() => {
+    const FLAT_KEYS = [
+        '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
+        'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p',
+        'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', '⌫',
+        'shift', 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.',
+        'space', 'cancel', 'ok',
+    ];
+
+    let _el = null;
+    let _shifted = true;
+    let _inputEl = null;
+    let _cursorPos = 0;
+
+    function _build() {
+        if (_el) return;
+        _el = document.createElement('div');
+        _el.className = 'vkb-overlay';
+
+        const dynamicLabels = { '⌫': '⌫', shift: '⇧', space: t('vkbSpace'), cancel: t('vkbCancel'), ok: t('vkbOk') };
+
+        const keysHtml = FLAT_KEYS.map(k => {
+            const lbl = dynamicLabels[k] ?? k;
+            return `<button class="vkb-key" data-key="${k}" tabindex="0">${lbl}</button>`;
+        }).join('');
+
+        _el.innerHTML = `
+            <div class="vkb-preview-wrap">
+                <span class="vkb-preview-label">${t('vkbPreviewLabel')}</span>
+                <div class="vkb-preview-text" id="vkbPreview"></div>
+            </div>
+            <div class="vkb-grid">${keysHtml}</div>
+        `;
+        document.body.appendChild(_el);
+
+        _el.querySelectorAll('.vkb-key').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                _pressKey(btn.dataset.key);
+            });
+        });
+    }
+
+    // Força o input real a ter a mesma posição do nosso cursor virtual
+    function _syncCursorToInput() {
+        if (!_inputEl) return;
+        _inputEl.setSelectionRange(_cursorPos, _cursorPos);
+    }
+
+    function _insertText(text) {
+        if (!_inputEl) return;
+        let val = _inputEl.value;
+        // Insere na posição exata da nossa variável interna
+        _inputEl.value = val.substring(0, _cursorPos) + text + val.substring(_cursorPos);
+        _cursorPos += text.length;
+        _syncCursorToInput();
+    }
+
+    function _deleteText() {
+        if (!_inputEl || _cursorPos <= 0) return;
+        let val = _inputEl.value;
+        // Remove o caractere à esquerda da nossa variável interna
+        _inputEl.value = val.substring(0, _cursorPos - 1) + val.substring(_cursorPos);
+        _cursorPos--;
+        _syncCursorToInput();
+    }
+
+    function _pressKey(key) {
+        if (!_inputEl) return;
+
+        if (key === '⌫') { _deleteText(); }
+        else if (key === 'shift') { _setShiftVisual(!_shifted); return; }
+        else if (key === 'space') { _insertText(' '); }
+        else if (key === 'ok') { window._editModalSave?.(); return; }
+        else if (key === 'cancel') { window._editModalClose?.(); return; }
+        else { _insertText(_shifted ? key.toUpperCase() : key); }
+
+        _inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+        _renderPreview();
+    }
+
+    function _renderPreview() {
+        const el = document.getElementById('vkbPreview');
+        if (!el || !_inputEl) return;
+
+        const val = _inputEl.value || '';
+        const formatHtml = (text) => _esc(text).replace(/ /g, '&nbsp;');
+
+        const left = val.substring(0, _cursorPos);
+        const right = val.substring(_cursorPos);
+
+        // Monta o preview visual com o cursor posicionado entre as strings
+        el.innerHTML = `${formatHtml(left)}<span class="vkb-cursor"></span>${formatHtml(right)}`;
+    }
+
+    // Esta função é chamada pelo L1 (-1) e R1 (1)
+    function _moveCursor(dir) {
+        if (!_inputEl) return;
+
+        let newPos = _cursorPos + dir;
+
+        // Garante que o cursor virtual não saia dos limites do texto atual
+        if (newPos >= 0 && newPos <= _inputEl.value.length) {
+            _cursorPos = newPos;
+        }
+
+        _syncCursorToInput();
+        _renderPreview();
+    }
+
+    function _setShiftVisual(on) {
+        _shifted = on;
+        const btn = _el?.querySelector('[data-key="shift"]');
+        btn?.classList.toggle('shifted', on);
+        _el?.querySelectorAll('.vkb-key').forEach(k => {
+            const key = k.dataset.key;
+            if (key && key.length === 1 && key >= 'a' && key <= 'z')
+                k.textContent = on ? key.toUpperCase() : key;
+        });
+    }
+
+    function _open() {
+        _inputEl = document.getElementById('editNameInput');
+        if (!_inputEl) return;
+        _build();
+
+        if (_el) {
+            _el.querySelector('.vkb-preview-label').textContent = t('vkbPreviewLabel');
+            _el.querySelector('[data-key="space"]').textContent = t('vkbSpace');
+            _el.querySelector('[data-key="cancel"]').textContent = t('vkbCancel');
+            _el.querySelector('[data-key="ok"]').textContent = t('vkbOk');
+        }
+
+        _setShiftVisual(_shifted);
+
+        // SEMPRE começa no final do texto ao abrir
+        _cursorPos = _inputEl.value.length;
+
+        _inputEl.classList.add('vkb-active');
+        if (typeof _editOverlay !== 'undefined' && _editOverlay) _editOverlay.classList.add('vkb-active');
+
+        _el.style.display = 'block';
+        _renderPreview(); // Desenha o preview inicial
+        _syncCursorToInput();
+
+        requestAnimationFrame(() => {
+            _el.classList.add('visible');
+            window._vkbIsOpen = true;
+            _el.querySelector('[data-key="q"]')?.focus();
+        });
+    }
+
+    function _forceClose() {
+        if (!_el) return;
+        window._vkbIsOpen = false;
+        _el.classList.remove('visible');
+        if (_inputEl) {
+            _inputEl.classList.remove('vkb-active');
+            _inputEl = null;
+        }
+        if (typeof _editOverlay !== 'undefined' && _editOverlay) _editOverlay.classList.remove('vkb-active');
+        setTimeout(() => { if (_el && !_el.classList.contains('visible')) _el.style.display = 'none'; }, 340);
+    }
+
+    function _physicalKey(key) {
+        if (!_inputEl) return;
+        if (key === 'Backspace') { _deleteText(); }
+        else if (key.length === 1) { _insertText(key); }
+        _inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+        _renderPreview();
+    }
+
+    return {
+        open: _open,
+        forceClose: _forceClose,
+        cancel: _forceClose,
+        physicalKey: _physicalKey,
+        toggleShift: () => _setShiftVisual(!_shifted),
+        moveCursor: _moveCursor
+    };
+})();
+
+window._vkbOpen = () => VKB.open();
+window._vkbCancel = () => VKB.cancel();
+window._vkbForceClose = () => VKB.forceClose();
+window._vkbPhysicalKey = (k) => VKB.physicalKey(k);
+window._vkbToggleShift = () => VKB.toggleShift();
+window._vkbMoveCursor = (dir) => VKB.moveCursor(dir);
+
+function _esc(str) {
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
 
 // =============================================================================
 // Indicador Flutuante (Menu Seta para Baixo)
 // =============================================================================
-// =============================================================================
-// Indicador Flutuante (Menu Seta para Baixo)
-// =============================================================================
+
 (function initNavHint() {
     const navHint = document.createElement('div');
     navHint.id = 'navHintDown';
 
-    // Estrutura idêntica ao nav-back-item do menu
+
     navHint.innerHTML = `
         <span class="arrow-icon">⇣</span>
         <span>Menu</span> 
@@ -1247,23 +1631,23 @@ body.nav-menu-active .nav-menu {
         const heroInactive = !bgBlur?.src || bgBlur.style.opacity === '0' || !bgBlur.src;
 
         if (heroInactive) {
-            // Aguarda 400ms antes de mostrar — evita flicker na troca de banners
+           
             if (!_blobShowTimer) {
                 _blobShowTimer = setTimeout(() => {
-                    // Confirma que o hero ainda está inativo após o delay
+                    
                     const stillInactive = !bgBlur?.src || bgBlur.style.opacity === '0';
                     if (stillInactive) canvas.style.opacity = '1';
                     _blobShowTimer = null;
                 }, 400);
             }
         } else {
-            // Esconde imediatamente quando hero ativa
+            
             if (_blobShowTimer) { clearTimeout(_blobShowTimer); _blobShowTimer = null; }
             canvas.style.opacity = '0';
         }
     }
 
-    // Observa mudanças no bgBlur (src e style)
+   
     const bgBlur = document.getElementById('bgBlur');
     if (bgBlur) {
         new MutationObserver(checkHeroState).observe(bgBlur, {
@@ -1272,15 +1656,15 @@ body.nav-menu-active .nav-menu {
         });
     }
 
-    // Verifica também sempre que switchHeroBackground é chamado
+   
     const _origSwitch = window.switchHeroBackground;
     window.switchHeroBackground = function (...args) {
         _origSwitch?.(...args);
-        // Pequeno delay para o bgBlur ter tempo de atualizar o opacity
+        
         setTimeout(checkHeroState, 200);
     };
 
-    // Checagem inicial
+    
     checkHeroState();
 })();
 document.addEventListener('focusin', () => {

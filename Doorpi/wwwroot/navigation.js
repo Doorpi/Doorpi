@@ -618,6 +618,7 @@ window.addEventListener('gamepaddisconnected', e => {
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) window._vkbCancel?.();
             if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) window._editModalSave?.();
+            
 
             [['l1', GAMEPAD.BTN_L1, 'left'], ['r1', GAMEPAD.BTN_R1, 'right']].forEach(([id, idx, dir]) => {
                 const pressed = buttons[idx]?.pressed;
@@ -641,6 +642,8 @@ window.addEventListener('gamepaddisconnected', e => {
 
             if (buttonJustPressed(buttons[GAMEPAD.BTN_L3], GAMEPAD.BTN_L3)) window._vkbToggleShift?.();
             if (buttonJustPressed(buttons[GAMEPAD.BTN_TRIANGLE], GAMEPAD.BTN_TRIANGLE)) window._vkbPhysicalKey?.(' ');
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_L1], GAMEPAD.BTN_L1)) window._vkbMoveCursor?.(-1);
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_R1], GAMEPAD.BTN_R1)) window._vkbMoveCursor?.(1);
             {
                 const pressed = buttons[GAMEPAD.BTN_SQUARE]?.pressed;
                 if (pressed) {
