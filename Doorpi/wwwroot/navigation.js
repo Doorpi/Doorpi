@@ -567,6 +567,7 @@ window.addEventListener('gamepaddisconnected', e => {
     for (const pad of pads) if (pad) { _gamepadIndex = pad.index; _controllerType = detectControllerType(pad); isGamepadConnected = true; updateGamepadUI(true, _controllerType); break; }
 });
 (function gamepadLoop() {
+
     try {
         const gamepad = _gamepadIndex !== null ? navigator.getGamepads()[_gamepadIndex] : null;
         if (!gamepad) return;
@@ -593,6 +594,10 @@ window.addEventListener('gamepaddisconnected', e => {
 
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) window._navMenuHandleKey?.('Enter');
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) window._navMenuHandleKey?.('Escape');
+
+
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_L1], GAMEPAD.BTN_L1)) window._navMenuCycleTab?.(-1);
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_R1], GAMEPAD.BTN_R1)) window._navMenuCycleTab?.(1);
             return;
         }
 

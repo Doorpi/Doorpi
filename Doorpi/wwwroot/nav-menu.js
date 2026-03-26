@@ -477,32 +477,35 @@ window.isNavMenuOpen = false;
 
     // ── Seleção de categoria ──────────────────────────────────────────────────
     function _selectCat(idx) {
-        _catIdx = idx;
+        _catIdx = Number(idx);
 
+        // Atualiza a linha visual na categoria do topo
         document.querySelectorAll('.nav-cat-item').forEach((el, i) => {
-            el.classList.toggle('active', i === idx);
+            el.classList.toggle('active', i === _catIdx);
         });
         _updateTopbarFocusVisual();
 
-        const cat = CATS[idx];
+        const cat = CATS[_catIdx];
+        if (!cat) return;
+
         const titleEl = document.getElementById('navContentTitle');
         const subEl = document.getElementById('navContentSub');
 
-        // Aplica a animação re-triggerando a classe ou reflow
+        // Reinicia a animação de forma segura (previne o WebView de piscar em branco)
         const header = document.querySelector('.nav-content-header');
         if (header) {
             header.style.animation = 'none';
-            header.offsetHeight; // trigger reflow
-            header.style.animation = '';
+            setTimeout(() => {
+                if (header) header.style.animation = '';
+            }, 10);
         }
 
-        
+        if (titleEl) titleEl.textContent = cat.label;
         if (subEl) subEl.textContent = _subtitle(cat.id);
 
         _contentIdx = 0;
         _renderContent(cat.id);
     }
-
     function _subtitle(id) {
         const map = {
             games: _t('navGamesSub', 'Toda a sua biblioteca de jogos e títulos instalados'),
@@ -807,13 +810,37 @@ window.isNavMenuOpen = false;
     }
 
     // ── Teclado / gamepad ────────────────────────────────────────────────────
+
+    window._navMenuCycleTab = function (delta) {
+ 
+        const tabs = Array.from(document.querySelectorAll('.nav-cat-item'));
+        if (!tabs || tabs.length === 0) return;
+
+        let currentIdx = tabs.findIndex(tab => tab.classList.contains('active'));
+        if (currentIdx === -1) currentIdx = 0; 
+
+        let nextIdx = currentIdx + parseInt(delta);
+
+     
+        if (nextIdx < 0 || nextIdx >= tabs.length) return;
+
+
+        tabs[nextIdx].click();
+    };
+
     window._navMenuHandleKey = function (key) {
+        
+        if (key === 'L1') { window._navMenuCycleTab(-1); return; }
+        if (key === 'R1') { window._navMenuCycleTab(1); return; }
+
+    
         if (_topbarFocus) {
             _navTopbar(key);
         } else {
             _navContent(key);
         }
     };
+
 
     document.addEventListener('keydown', e => {
         if (!window.isNavMenuOpen) return;
@@ -909,7 +936,6 @@ window.isNavMenuOpen = false;
             } catch { }
         });
     }
-
     // ── Expose ────────────────────────────────────────────────────────────────
     window.openNavMenu = open;
     window.closeNavMenu = close;

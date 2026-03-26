@@ -792,22 +792,27 @@ body.nav-menu-active .nav-menu {
     /* ▼ Novo Indicador Sutil ▼ */
     #navHintDown {
         position: fixed;
-        bottom:0px;
+        bottom: 1px;
         left: 50%;
         transform: translateX(-50%);
         z-index: 7500;
         opacity: 0;
         pointer-events: none;
-        transition: opacity 0.3s ease;
+        transition: opacity 0.4s ease;
 
-        /* Aparência de Button Hint */
+        /* Estilo idêntico ao botão de voltar */
         display: flex;
         align-items: center;
-        gap: 6px;
-        background: rgba(255, 255, 255, 0.06);
-        padding: 4px 64px;
-        border-radius: 6px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        gap: 8px;
+        color: rgba(255,255,255,0.4);
+        font-size: clamp(0.7rem, 0.8vw, 0.9rem);
+        font-weight: 500;
+        letter-spacing: 0.06em;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.1);
+        padding: 2px 90px;
+        border-radius: 20px;
+        backdrop-filter: blur(5px);
     }
        #navHintDown span {
         font-family: 'Inter', sans-serif;
@@ -824,12 +829,10 @@ body.nav-menu-active .nav-menu {
     opacity: 1;
    
 }
-    #navHintDown svg {
-        width: 14px;
-        height: 14px;
-        stroke: rgba(255, 255, 255, 0.5);
-        stroke-width: 3;
-        fill: none;
+    #navHintDown .arrow-icon {
+        font-size: 1.2em;
+        opacity: 0.8;
+        margin-top: 1px;
     }
 
     .context-menu {
@@ -1089,8 +1092,8 @@ body.nav-menu-active .nav-menu {
     
 /* ── Novo Indicador de Menu (Seta) Robustez Total ── */
 
-        @media (min-height: 1400px) {
-        #navHintDown { bottom: 3px; }
+        @media (min-height: 1080px) {
+        #navHintDown { bottom: 3px; padding:6px 90px; }
         #navHintDown svg { width: 28px; height: 28px; }
     }
 
@@ -1134,10 +1137,11 @@ body.nav-menu-active .nav-menu {
 (function initNavHint() {
     const navHint = document.createElement('div');
     navHint.id = 'navHintDown';
-    // Colocamos o texto MENU ao lado da seta
+
+    // Estrutura idêntica ao nav-back-item do menu
     navHint.innerHTML = `
-        <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
-        <span>Menu</span>
+        <span class="arrow-icon">⇣</span>
+        <span>Menu</span> 
     `;
     document.body.appendChild(navHint);
 
@@ -1149,7 +1153,7 @@ body.nav-menu-active .nav-menu {
         const isCard = focused?.classList?.contains('card') && !focused?.classList?.contains('add-card');
         const inGrid = focused?.closest('#gameGrid') || focused?.closest('#mediaGrid');
 
-        // Esconde se algum modal/overlay estiver aberto
+        // Esconde em modais/menus abertos
         const isOverlayOpen = window.isModalOpen || window.isSetupOpen || window.isNavMenuOpen ||
             window._vkbIsOpen || window.isGlobalLoading ||
             (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) ||
@@ -1160,7 +1164,7 @@ body.nav-menu-active .nav-menu {
             return;
         }
 
-        // Aparece apenas quando o usuário está navegando no grid
+        // Mostra apenas se estiver no Grid
         if (isCard && inGrid) {
             hint.classList.add('visible');
         } else {
