@@ -670,7 +670,7 @@ function createGameCard(data) {
                 const logoEl = document.getElementById('gameLogo');
                 if (logoEl) { await setImgSrc(logoEl, animLogo); logoEl.classList.add('visible'); }
             }
-        }, 900);
+        }, 700);
     };
 
     const stopInteraction = () => {
@@ -895,7 +895,7 @@ function switchHeroBackground(bgSrc, logoSrc, heroSrc) {
                     setImgSrc(logoImg, logoSrc).then(() => {
                         requestAnimationFrame(() => logoImg.classList.add('visible'));
                     });
-                }, 450);
+                }, 200);
             }
         }
     });
@@ -956,19 +956,57 @@ async function setImgSrc(imgEl, src) {
     const s = document.createElement('style');
     s.textContent = `
         /* ▼ Efeito de Profundidade ao abrir o NavMenu ▼ */
-.main-content-wrapper,
-#gameLogo {
-    transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
-    will-change: transform;
-}
-body.nav-menu-active .main-content-wrapper,
-body.nav-menu-active #gameLogo {
-    transform: translateY(-100vh);
-}
-.nav-menu {
-    transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.4, 1), opacity 0.4s ease;
-    transform-origin: top right;
-}
+        
+        /* 1. Elementos que sobem sincronizados */
+        .main-content-wrapper,
+        #heroImage,
+        #gridBgImg,
+        #bgBlur,
+        #gameLogo,
+        [class*="crossfade-clone-"] {
+         
+            transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1), 
+                        opacity 0.4s ease !important;
+            will-change: transform, opacity;
+        }
+
+        /* 2. O MOVIMENTO DE SUBIDA (Exatamente igual para todos para evitar o atraso visual) */
+        body.nav-menu-active .main-content-wrapper,
+        body.nav-menu-active #heroImage,
+        body.nav-menu-active #gridBgImg,
+        body.nav-menu-active #bgBlur,
+        body.nav-menu-active #gameLogo,
+        body.nav-menu-active [class*="crossfade-clone-"] {
+            /* Subimos 100vh para garantir que NADA fique para trás na tela */
+            transform: translateY(-100vh) !important;
+            opacity: 0 !important;
+        }
+
+        /* 3. Reset de estado quando o menu fecha */
+        #heroImage,
+        #gridBgImg,
+        #bgBlur,
+        #gameLogo,
+        [class*="crossfade-clone-"] {
+            /* Na volta, a opacidade é mais lenta para não dar flash */
+            transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1), 
+                        opacity 0.8s ease;
+        }
+
+        /* 4. Otimização do Blob (Fundo Animado) */
+        #appBlobBg {
+            z-index: -2; /* Fica atrás de tudo */
+        }
+        body.nav-menu-active #appBlobBg {
+            opacity: 1 !important;
+            transition: opacity 0.6s ease 0.2s !important; /* Começa a aparecer um pouquinho depois */
+        }
+
+        /* Mantém o menu vindo da direita normalmente */
+        .nav-menu {
+            transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.4, 1), opacity 0.4s ease;
+            transform-origin: top right;
+        }
 .card.new-game {
         position: relative;
     }
@@ -1890,7 +1928,7 @@ function _esc(str) {
     window.switchHeroBackground = function (...args) {
         _origSwitch?.(...args);
         
-        setTimeout(checkHeroState, 200);
+        setTimeout(checkHeroState, 0);
     };
 
     
@@ -1903,7 +1941,11 @@ document.addEventListener('focusin', () => {
     const isCard = focused?.classList?.contains('card');
     const isInGrid = focused?.closest('#gameGrid');
 
-    if (!isCard && !isInGrid) {
+    // Verifica se o NavMenu está ativo (ou prestes a ficar)
+    const isNavMenuActive = document.body.classList.contains('nav-menu-active') || window.isNavMenuOpen;
+
+    // Só limpa o fundo se não for um card, não estiver no grid E o menu estiver fechado
+    if (!isCard && !isInGrid && !isNavMenuActive) {
         window._heroCleanupTimer = setTimeout(() => {
             const bgBlur = document.getElementById('bgBlur');
             const heroImg = document.getElementById('heroImage');
@@ -1922,6 +1964,10 @@ document.addEventListener('focusin', () => {
 });
 
 function clearHero() {
+    // Se o menu estiver aberto, deixa a imagem intacta para ela subir no scroll
+    const isNavMenuActive = document.body.classList.contains('nav-menu-active') || window.isNavMenuOpen;
+    if (isNavMenuActive) return;
+
     window._heroCleanupTimer = setTimeout(() => {
         const bgBlur = document.getElementById('bgBlur');
         const heroImg = document.getElementById('heroImage');
@@ -1937,7 +1983,6 @@ function clearHero() {
         if (typeof _heroReqId !== 'undefined') _heroReqId++;
     }, 80);
 }
-
 document.getElementById('btnAdd')?.addEventListener('mouseenter', clearHero);
 document.getElementById('btnAdd')?.addEventListener('focus', clearHero);
 
