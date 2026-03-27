@@ -1806,8 +1806,9 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
         Dispatcher.Invoke(() => SendGameToUI(game, isFirstGame));
         if (isFirstGame) isFirstGame = false;
     }
+            Dispatcher.Invoke(() => LoadGamesIntoUI());
 
-    if (dbChanged) SaveGames(existingGames);
+            if (dbChanged) SaveGames(existingGames);
 }
 
         // ========================= STEAMGRID =========================
@@ -2013,8 +2014,8 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
                 {
                     game.LastPlayed = DateTime.Now;
                     SaveGames(games);
+                    LoadGamesIntoUI();
 
-              
                     Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
                     {
                         type = "updateFeaturedCard",
@@ -2152,7 +2153,10 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
             var allGames = LoadGames();
             if (allGames.Count == 0) return;
 
-           
+          
+            webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"clearGamesGrid\"}");
+
+            
             var featured = allGames.OrderByDescending(g => g.LastPlayed).FirstOrDefault();
 
             if (featured != null)
@@ -2160,14 +2164,15 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
                 
                 SendGameToUI(featured, isFeatured: true);
 
-              
-                var others = allGames.Where(g => g.Path != featured.Path || g.LaunchUrl != featured.LaunchUrl);
+            
+                var others = allGames.Where(g => g.Path != featured.Path || g.LaunchUrl != featured.LaunchUrl).ToList();
 
-                
+
                 var sortedOthers = others
                     .OrderByDescending(g => (DateTime.Now - g.DateAdded).TotalHours < 48) 
-                    .ThenByDescending(g => g.DateAdded)                                  
-                    .ThenByDescending(g => g.LastPlayed)                                
+                    .ThenByDescending(g => g.LastPlayed)                               
+                    .ThenByDescending(g => g.DateAdded)                                
+                    .Take(11) 
                     .ToList();
 
                 foreach (var game in sortedOthers)

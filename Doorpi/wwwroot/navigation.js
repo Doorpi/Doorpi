@@ -263,6 +263,14 @@ function getGroupTransition(direction, groupName, groups, current) {
 }
 
 let _lastFocusedApp = null, _lastFocusedFilter = null, _lastFocusedSidebar = null;
+let _lastSetupFocused = null;
+document.addEventListener('focusin', () => {
+    if (!isSetupOpen) return;
+    const items = typeof getSetupItems === 'function' ? getSetupItems() : [];
+    if (items.includes(document.activeElement)) {
+        _lastSetupFocused = document.activeElement;
+    }
+});
 
 function gamepadCancel() { if (isModalOpen && !window.isGlobalLoading) closeModal?.(); }
 function gamepadStart() {
@@ -468,14 +476,14 @@ function moveFocus(direction) {
 
 
 window.focusFeaturedCard = function () {
-   
+    
     if (isModalOpen || isEditModalOpen || window._vkbIsOpen || isSetupOpen) return;
 
- 
     const activeGridId = window.getCurrentHomeTab?.() === 'media' ? 'mediaGrid' : 'gameGrid';
     const grid = document.getElementById(activeGridId);
     if (!grid) return;
 
+  
     const featured = grid.querySelector('.card.featured');
 
     if (featured) {
@@ -484,7 +492,8 @@ window.focusFeaturedCard = function () {
         featured._startInteraction?.(); 
     } else {
      
-        focusItemByIndex(0);
+        const first = grid.querySelector('.card');
+        first?.focus();
     }
 };
 function focusItemByIndex(index) {
@@ -625,8 +634,12 @@ window.addEventListener('gamepaddisconnected', e => {
         const items = getNavigableItems();
         if (!items.length) return;
         if (!items.includes(document.activeElement)) {
-         
-            window.focusFeaturedCard();
+            if (isSetupOpen) {
+                const target = _lastSetupFocused ?? items[0];
+                target?.focus();
+            } else {
+                window.focusFeaturedCard();
+            }
             return;
         }
 

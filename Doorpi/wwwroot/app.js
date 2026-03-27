@@ -6,7 +6,8 @@ let allInstalledApps = [];
 let cachedFolders = null;
 let currentSourceFilter = ['all'];
 let isFolderOperationInProgress = false;
-const newGameIdsThisSession = new Set();
+window.newGameIdsThisSession = new Set();
+window.recentlyOpenedIds = [];
 window.isGlobalLoading = false;
 
 const PLATFORMS = {
@@ -26,7 +27,50 @@ const FILTER_SOURCES = {
 };
 
 const SCAN_LIBS = ['Steam', 'Epic', 'GOG', 'Windows', 'Folder'];
+function reorderGameGrid() {
+    const grid = document.getElementById('gameGrid');
+    if (!grid) return;
+    const btnAdd = document.getElementById('btnAdd');
+    const cards = Array.from(grid.querySelectorAll('.card:not(.add-card)'));
 
+    const featured = cards.find(c => c.classList.contains('featured'));
+    const rest = cards.filter(c => !c.classList.contains('featured'));
+
+    rest.sort((a, b) => {
+        const aId = a.dataset.gameId;
+        const bId = b.dataset.gameId;
+        const aNew = window.newGameIdsThisSession.has(aId) ? 1 : 0;
+        const bNew = window.newGameIdsThisSession.has(bId) ? 1 : 0;
+        const aOIdx = window.recentlyOpenedIds.indexOf(aId);
+        const bOIdx = window.recentlyOpenedIds.indexOf(bId);
+
+        // 1º — Recém adicionados primeiro
+        if (bNew !== aNew) return bNew - aNew;
+
+        // 2º — Entre os não-novos: recém abertos primeiro
+        if (!aNew && !bNew) {
+            if (aOIdx !== -1 && bOIdx === -1) return -1;
+            if (aOIdx === -1 && bOIdx !== -1) return 1;
+            if (aOIdx !== -1 && bOIdx !== -1) return aOIdx - bOIdx;
+        }
+
+        return 0; // novos mantêm ordem de inserção (sort estável)
+    });
+
+    if (featured) grid.prepend(featured);
+    rest.forEach(card => {
+        if (btnAdd) grid.insertBefore(card, btnAdd);
+        else grid.appendChild(card);
+    });
+}
+
+window.trackGameOpened = function (gameId) {
+    window.recentlyOpenedIds = [
+        gameId,
+        ...window.recentlyOpenedIds.filter(id => id !== gameId)
+    ];
+    reorderGameGrid();
+};
 setInterval(() => {
     document.getElementById('clock').innerText = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }, 1000);
@@ -56,6 +100,15 @@ window.chrome.webview.addEventListener('message', event => {
         }
         else if (data.type === 'staticSaved') {
             updateToLocalFile(data.gameId, data.imageType, data.newUrl);
+        }
+        else if (data.type === 'clearGamesGrid') {
+            const grid = document.getElementById('gameGrid');
+            if (grid) {
+                
+                const btnAdd = document.getElementById('btnAdd');
+                grid.innerHTML = '';
+                if (btnAdd) grid.appendChild(btnAdd);
+            }
         }
         else if (data.type === 'updateFeaturedCard') {
             const gridId = data.tab === 'games' ? 'gameGrid' : 'mediaGrid';
@@ -649,11 +702,8 @@ function createGameCard(data) {
     card.addEventListener('focus', () => { pendingInteractionCard = card; signalNavigation(); });
     card.addEventListener('blur', () => { if (pendingInteractionCard === card) pendingInteractionCard = null; stopInteraction(); });
     card.addEventListener('click', () => {
-        postToHost({
-            action: 'launch',
-            path: gameId,
-            errorMsg: t('msgErrorLaunch')
-        });
+        window.trackGameOpened?.(gameId);
+        postToHost({ action: 'launch', path: gameId, errorMsg: t('msgErrorLaunch') });
     });
 
     card.appendChild(img);
@@ -662,20 +712,18 @@ function createGameCard(data) {
     title.innerText = data.name;
     card.appendChild(title);
 
-    if (data.isFeatured) {
-       
-        grid.prepend(card);
-    } else {
-       
-        const featuredCard = grid.querySelector('.card.featured');
 
-        if (featuredCard) {
-            
-            featuredCard.after(card);
-        } else {
-            
-            grid.prepend(card);
-        }
+    if (btnAdd) grid.insertBefore(card, btnAdd);
+    else grid.appendChild(card);
+    reorderGameGrid();
+
+    
+    if (data.isFeatured) {
+        setTimeout(() => {
+            startInteraction();
+           
+            window.focusFeaturedCard?.();
+        }, 100);
     }
 }
 
@@ -777,21 +825,37 @@ async function setImgSrc(imgEl, src) {
     s.textContent = `
         /* ▼ Efeito de Profundidade ao abrir o NavMenu ▼ */
 .main-content-wrapper {
-    transition: transform 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.1),
-                filter 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.1),
-                opacity 0.3s ease;
-    will-change: transform, filter;
+    transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: transform;
 }
 body.nav-menu-active .main-content-wrapper {
-    transform: scale(0.96) translateY(8px);
-    filter: blur(6px) brightness(0.92);
-    opacity: 0.94;
-    transition-delay: 0.02s;
+    transform: translateY(-100vh);
 }
 .nav-menu {
     transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.4, 1), opacity 0.4s ease;
     transform-origin: top right;
 }
+.card.new-game {
+        position: relative;
+    }
+    .card.new-game::before {
+content: 'NOVO';
+    position: absolute;
+    top: clamp(8px, 0.63vw, 12px);
+    left: clamp(8px, 0.63vw, 12px);
+    z-index: 10;
+    background: #fff;
+    color: #06060e;
+    font-size: clamp(0.48rem, 0.50vw, 0.60rem);
+    font-weight: 800;
+    letter-spacing: 0.2em;
+    width: 20%;
+    padding: 3px 7px 4px;
+    border-radius: 3px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+    animation: badge-enter 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    background-image: none;
+    }
 
 body.nav-menu-active .nav-menu {
     transform: scale(1) translateX(0) !important;
@@ -1331,6 +1395,8 @@ const VKB = (() => {
     ];
 
     let _el = null;
+    let _callbacks = {};
+    let _returnFocusEl = null;
     let _shifted = true;
     let _inputEl = null;
     let _cursorPos = 0;
@@ -1394,8 +1460,18 @@ const VKB = (() => {
         if (key === '⌫') { _deleteText(); }
         else if (key === 'shift') { _setShiftVisual(!_shifted); return; }
         else if (key === 'space') { _insertText(' '); }
-        else if (key === 'ok') { window._editModalSave?.(); return; }
-        else if (key === 'cancel') { window._editModalClose?.(); return; }
+        else if (key === 'ok') {
+            const fn = _callbacks.onOk ?? window._editModalSave;
+            _forceClose();   
+            fn?.();         
+            return;
+        }
+        else if (key === 'cancel') {
+            const fn = _callbacks.onCancel ?? window._editModalClose;
+            _forceClose();
+            fn?.();
+            return;
+        }
         else { _insertText(_shifted ? key.toUpperCase() : key); }
 
         _inputEl.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1442,9 +1518,15 @@ const VKB = (() => {
         });
     }
 
-    function _open() {
-        _inputEl = document.getElementById('editNameInput');
-        if (!_inputEl) return;
+    function _open(targetInput, callbacks = {}) {
+        _callbacks = callbacks;
+        _returnFocusEl = targetInput ?? document.activeElement;
+        _inputEl = targetInput || document.getElementById('editNameInput');
+
+        if (!_inputEl) {
+            console.error("VKB: Nenhum input alvo encontrado!");
+            return;
+        }
         _build();
 
         if (_el) {
@@ -1475,14 +1557,28 @@ const VKB = (() => {
 
     function _forceClose() {
         if (!_el) return;
+        _callbacks = {};
         window._vkbIsOpen = false;
         _el.classList.remove('visible');
+
         if (_inputEl) {
             _inputEl.classList.remove('vkb-active');
             _inputEl = null;
         }
-        if (typeof _editOverlay !== 'undefined' && _editOverlay) _editOverlay.classList.remove('vkb-active');
-        setTimeout(() => { if (_el && !_el.classList.contains('visible')) _el.style.display = 'none'; }, 340);
+        if (typeof _editOverlay !== 'undefined' && _editOverlay)
+            _editOverlay.classList.remove('vkb-active');
+
+        
+        const returnTo = _returnFocusEl;
+        _returnFocusEl = null;
+        setTimeout(() => {
+            returnTo?.focus();
+            window.updateNavHint?.();
+        }, 350);  
+
+        setTimeout(() => {
+            if (_el && !_el.classList.contains('visible')) _el.style.display = 'none';
+        }, 340);
     }
 
     function _physicalKey(key) {
@@ -1503,7 +1599,7 @@ const VKB = (() => {
     };
 })();
 
-window._vkbOpen = () => VKB.open();
+window._vkbOpen = (el) => VKB.open(el);
 window._vkbCancel = () => VKB.cancel();
 window._vkbForceClose = () => VKB.forceClose();
 window._vkbPhysicalKey = (k) => VKB.physicalKey(k);
@@ -1666,6 +1762,8 @@ function _esc(str) {
 
     
     checkHeroState();
+    window._startBlobBg = () => { if (!_raf) frame(); };
+    window._stopBlobBg = () => { if (_raf) { cancelAnimationFrame(_raf); _raf = null; } };
 })();
 document.addEventListener('focusin', () => {
     const focused = document.activeElement;

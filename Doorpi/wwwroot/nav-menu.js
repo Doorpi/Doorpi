@@ -9,6 +9,33 @@ window.isNavMenuOpen = false;
     let _menuData = { user: {}, games: [], media: [] };
 
     async function _loadJSONs() {
+        // ── Sincroniza ordem e badge NOVO com o DOM atual ─────────────────────
+        const domCards = Array.from(document.querySelectorAll('#gameGrid .card:not(.add-card)'));
+        if (domCards.length > 0 && _menuData.games.length > 0) {
+            const domMeta = new Map();
+            domCards.forEach((c, i) => {
+                domMeta.set(c.dataset.gameId, {
+                    idx: i,
+                    isNew: c.classList.contains('new-game')
+                });
+            });
+
+            // Marca flag _isNew no item caso o card DOM tenha a classe
+            _menuData.games.forEach(item => {
+                const key = item.LaunchUrl || item.Path || '';
+                const meta = domMeta.get(key);
+                if (meta?.isNew) item._isNew = true;
+            });
+
+            // Ordena pela posição real do DOM (já reflete Featured > Novos > Recentes)
+            _menuData.games.sort((a, b) => {
+                const aKey = a.LaunchUrl || a.Path || '';
+                const bKey = b.LaunchUrl || b.Path || '';
+                const aIdx = domMeta.get(aKey)?.idx ?? 999999;
+                const bIdx = domMeta.get(bKey)?.idx ?? 999999;
+                return aIdx - bIdx;
+            });
+        }
         try {
             const ts = new Date().getTime();
             const [uRes, gRes, mRes] = await Promise.allSettled([
@@ -49,8 +76,92 @@ window.isNavMenuOpen = false;
                 GridStaticImage: c.dataset.staticVertical || ''
             }));
         }
+
+        // ── Sincroniza ordem e badge NOVO com o DOM real ──────────────────────
+        const _domCards = Array.from(document.querySelectorAll('#gameGrid .card:not(.add-card)'));
+        if (_domCards.length > 0 && _menuData.games.length > 0) {
+            const _domOrder = new Map();
+            _domCards.forEach((c, i) => {
+                _domOrder.set(c.dataset.gameId, {
+                    idx: i,
+                    isNew: c.classList.contains('new-game')
+                });
+            });
+
+            _menuData.games.forEach(item => {
+                const key = item.LaunchUrl || item.Path || '';
+                const meta = _domOrder.get(key);
+                if (meta?.isNew) item._isNew = true;
+            });
+
+            _menuData.games.sort((a, b) => {
+                const aKey = a.LaunchUrl || a.Path || '';
+                const bKey = b.LaunchUrl || b.Path || '';
+                const aIdx = _domOrder.get(aKey)?.idx ?? 999999;
+                const bIdx = _domOrder.get(bKey)?.idx ?? 999999;
+                return aIdx - bIdx;
+            });
+        }
+    }
+    function _startBlobBg() {
+        const canvas = document.getElementById('navMenuBg');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+
+        const blobs = [
+            { px: 0.0, py: 0.3, sx: 0.00018, sy: 0.00013, r: 0.62, color: [45, 65, 185] },
+            { px: 1.2, py: 2.1, sx: 0.00014, sy: 0.00019, r: 0.56, color: [28, 85, 210] },
+            { px: 2.5, py: 0.8, sx: 0.00022, sy: 0.00011, r: 0.52, color: [70, 50, 165] },
+            { px: 0.7, py: 3.4, sx: 0.00016, sy: 0.00024, r: 0.50, color: [22, 110, 175] },
+            { px: 3.1, py: 1.6, sx: 0.00012, sy: 0.00017, r: 0.46, color: [90, 70, 195] },
+            { px: 1.8, py: 4.2, sx: 0.00020, sy: 0.00015, r: 0.42, color: [30, 130, 190] },
+        ];
+
+        let t = 0;
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resize();
+        window.addEventListener('resize', resize);
+
+        function frame() {
+            const W = canvas.width, H = canvas.height;
+            ctx.clearRect(0, 0, W, H);
+            ctx.fillStyle = '#07071a';
+            ctx.fillRect(0, 0, W, H);
+
+            blobs.forEach(b => {
+                const x = W * (0.15 + 0.7 * (0.5 + 0.5 * Math.sin(t * b.sx + b.px)));
+                const y = H * (0.10 + 0.8 * (0.5 + 0.5 * Math.sin(t * b.sy + b.py)));
+                const r = Math.min(W, H) * b.r;
+                const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+                const [cr, cg, cb] = b.color;
+                g.addColorStop(0, `rgba(${cr},${cg},${cb},0.55)`);
+                g.addColorStop(0.4, `rgba(${cr},${cg},${cb},0.22)`);
+                g.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+                ctx.fillStyle = g;
+                ctx.beginPath();
+                ctx.ellipse(x, y, r, r * 0.72, t * 0.00004, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            const vig = ctx.createRadialGradient(W / 2, H / 2, H * 0.25, W / 2, H / 2, H * 0.85);
+            vig.addColorStop(0, 'rgba(0,0,0,0)');
+            vig.addColorStop(1, 'rgba(0,0,18,0.62)');
+            ctx.fillStyle = vig;
+            ctx.fillRect(0, 0, W, H);
+
+            t++;
+            _bgRaf = requestAnimationFrame(frame);
+        }
+        frame();
     }
 
+    function _stopBlobBg() {
+        if (_bgRaf) { cancelAnimationFrame(_bgRaf); _bgRaf = null; }
+    }
     // ── i18n helper ───────────────────────────────────────────────────────────
     function _t(key, fallback) {
         try { return (typeof t === 'function' ? t(key) : null) || fallback; }
@@ -81,17 +192,20 @@ window.isNavMenuOpen = false;
         s.id = 'nav-menu-styles';
         s.textContent = `
         /* ── Overlay Transição ── */
-        #navMenuOverlay {
-            position: fixed;
-            inset: 0;
-            z-index: 8000;
-            display: none;
-            opacity: 0;
-            transition: opacity 0.4s cubic-bezier(0.25, 1, 0.5, 1);
-            font-family: 'Inter', 'Segoe UI', sans-serif;
-            background: rgba(0, 0, 0, 0.4);
-        }
-        #navMenuOverlay.visible { opacity: 1; }
+#navMenuOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 8000;
+    display: none;
+    opacity: 1;
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+    background: rgba(0, 0, 0, 0.4);
+    transform: translateY(100%);
+    transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+#navMenuOverlay.visible {
+    transform: translateY(0);
+}
 
         #navMenuBg {
             position: absolute;
@@ -100,17 +214,15 @@ window.isNavMenuOpen = false;
         }
 
         /* O Layout Fade In com Zoom sutil */
-        .nav-layout {
-            position: relative;
-            z-index: 1;
-            display: flex;
-            flex-direction: column;
-            width: 100%; height: 100%;
-            transform: scale(1.03);
-            transition: transform 0.4s cubic-bezier(0.2, 0.9, 0.3, 1);
-            background: radial-gradient(circle at 50% 0%, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0.6) 80%);
-            
-        }
+.nav-layout {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    width: 100%; height: 100%;
+    background: radial-gradient(circle at 50% 0%, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0.6) 80%);
+
+}
         #navMenuOverlay.visible .nav-layout { transform: scale(1); }
 
 
@@ -265,7 +377,21 @@ window.isNavMenuOpen = false;
             object-fit: cover;
             display: block;
         }
-
+        .nav-vertical-card.new-game::before {
+            content: 'NOVO';
+            position: absolute;
+            top: 7px; left: 7px; z-index: 20;
+            background: #fff;
+            color: #06060e;
+            font-size: clamp(7px, 0.6vmin, 10px);
+            font-weight: 800;
+            letter-spacing: 0.18em;
+            padding: 3px 7px 4px;
+            border-radius: 3px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.6);
+            pointer-events: none;
+            text-transform: uppercase;
+        }
         .nav-vertical-card-no-img {
             flex: 1;
             display: flex;
@@ -539,6 +665,17 @@ window.isNavMenuOpen = false;
             card.tabIndex = -1;
             card.dataset.idx = i;
 
+            const _itemKey = item.LaunchUrl || item.Path || item.Url || '';
+            if (window.newGameIdsThisSession?.has(_itemKey)) {
+                card.classList.add('new-game');
+            }
+
+            card.innerHTML = staticSrc
+           
+            const itemKey = item.LaunchUrl || item.Path || '';
+            if (item._isNew || window.newGameIdsThisSession?.has(_itemKey)) {
+                card.classList.add('new-game');
+            }
             card.innerHTML = staticSrc
                 ? `<img src="${staticSrc}" alt="${name}" loading="lazy" />`
                 : `<div class="nav-vertical-card-no-img">${emptyIcon}</div>`;
@@ -596,6 +733,7 @@ window.isNavMenuOpen = false;
         if (typeof postToHost === 'function') {
             if (catId === 'games') {
                 const targetPath = item.LaunchUrl || item.Path || '';
+                window.trackGameOpened?.(targetPath); 
                 postToHost({ action: 'launch', path: targetPath, errorMsg: _t('msgErrorLaunch', 'Erro ao abrir') });
             } else if (catId === 'media') {
                 const targetUrl = item.Url || '';
@@ -768,6 +906,7 @@ window.isNavMenuOpen = false;
         window.updateNavHint?.();
 
         _lastFocus = document.activeElement;
+        _lastFocus?.blur();
         _catIdx = Math.max(0, Math.min(startIdx, CATS.length - 1));
         _topbarFocus = true;
         _contentIdx = 0;
@@ -779,7 +918,8 @@ window.isNavMenuOpen = false;
 
         requestAnimationFrame(() => {
             _overlay.classList.add('visible');
-            _startBlobBg();
+
+            _startBlobBg();  
             _selectCat(_catIdx);
             _updateTopbarFocusVisual();
         });
@@ -798,7 +938,7 @@ window.isNavMenuOpen = false;
         setTimeout(() => {
             if (!window.isNavMenuOpen && _overlay)
                 _overlay.style.display = 'none';
-        }, 400);
+        }, 850);  
 
         if (_lastFocus && document.contains(_lastFocus)) {
             _lastFocus.focus();
