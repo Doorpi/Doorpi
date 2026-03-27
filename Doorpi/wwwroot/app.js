@@ -940,69 +940,98 @@ async function setImgSrc(imgEl, src) {
 
     if (imgEl.src === src || imgEl.src.endsWith(src)) return;
 
+
     const tmp = new Image();
+
+    tmp.loading = "eager";
+    tmp.decoding = "async";
     tmp.src = src;
-    try { await tmp.decode(); } catch (_) { }
 
-    if (imgEl.__req !== req) return;
+    try {
+       
+        await tmp.decode();
 
-   
-    imgEl.style.transition = 'none';
-    imgEl.src = src;
+        
+        if (imgEl.__req === req) {
+            imgEl.src = src;
+          
+            imgEl.style.transition = 'none';
+        }
+    } catch (e) {
+       
+        if (imgEl.__req === req) imgEl.src = src;
+    }
 }
-
+// Função para otimizar a abertura do menu
+function toggleNavMenu(isOpen) {
+    if (isOpen) {
+      
+        if (typeof _stopBlobBg === 'function') _stopBlobBg();
+        document.body.classList.add('nav-menu-active');
+    } else {
+        document.body.classList.remove('nav-menu-active');
+      
+        setTimeout(() => {
+            if (typeof _startBlobBg === 'function') _startBlobBg();
+        }, 800);
+    }
+}
 /* Seção: Injeção de estilos e elementos auxiliares */
 (function injectStyles() {
     const s = document.createElement('style');
     s.textContent = `
-        /* ▼ Efeito de Profundidade ao abrir o NavMenu ▼ */
-        
-        /* 1. Elementos que sobem sincronizados */
+        /* Camadas de Renderização Otimizadas */
         .main-content-wrapper,
         #heroImage,
         #gridBgImg,
         #bgBlur,
         #gameLogo,
         [class*="crossfade-clone-"] {
-         
-            transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1), 
-                        opacity 0.4s ease !important;
-            will-change: transform, opacity;
+            will-change: transform;
+            backface-visibility: hidden;
+            transform: translateZ(0); /* Força aceleração 2D simples */
         }
 
-        /* 2. O MOVIMENTO DE SUBIDA (Exatamente igual para todos para evitar o atraso visual) */
+        /* 1. Transição com curva Sharp (Melhor para 60Hz) */
+        .main-content-wrapper,
+        #heroImage,
+        #gridBgImg,
+        #bgBlur,
+        #gameLogo,
+        [class*="crossfade-clone-"] {
+            /* Curva 'Quintic Out': Começa muito rápido, termina muito lento */
+            transition: transform 0.6s cubic-bezier(0.23, 1, 0.32, 1), 
+                        opacity 0.25s ease-out !important;
+        }
+
+        /* 2. Movimento Consistente */
         body.nav-menu-active .main-content-wrapper,
         body.nav-menu-active #heroImage,
         body.nav-menu-active #gridBgImg,
         body.nav-menu-active #bgBlur,
         body.nav-menu-active #gameLogo,
         body.nav-menu-active [class*="crossfade-clone-"] {
-            /* Subimos 100vh para garantir que NADA fique para trás na tela */
             transform: translateY(-100vh) !important;
             opacity: 0 !important;
         }
 
-        /* 3. Reset de estado quando o menu fecha */
-        #heroImage,
-        #gridBgImg,
-        #bgBlur,
-        #gameLogo,
-        [class*="crossfade-clone-"] {
-            /* Na volta, a opacidade é mais lenta para não dar flash */
-            transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1), 
-                        opacity 0.8s ease;
+        /* 3. Desligar o Blur IMEDIATAMENTE (O maior peso no 60Hz) */
+        body.nav-menu-active #bgBlur,
+        body.nav-menu-active [class*="crossfade-clone-bgBlur"] {
+            filter: none !important;
         }
 
-        /* 4. Otimização do Blob (Fundo Animado) */
+        /* 4. Blob Background (Aparece sem competir com o scroll) */
         #appBlobBg {
-            z-index: -2; /* Fica atrás de tudo */
+            z-index: -5;
+            pointer-events: none;
         }
+        
         body.nav-menu-active #appBlobBg {
             opacity: 1 !important;
-            transition: opacity 0.6s ease 0.2s !important; /* Começa a aparecer um pouquinho depois */
+            transition: opacity 0.4s ease-in 0.2s !important; 
         }
 
-        /* Mantém o menu vindo da direita normalmente */
         .nav-menu {
             transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.4, 1), opacity 0.4s ease;
             transform-origin: top right;

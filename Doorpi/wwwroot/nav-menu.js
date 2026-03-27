@@ -193,6 +193,8 @@ window.isNavMenuOpen = false;
         s.textContent = `
         /* ── Overlay Transição ── */
 #navMenuOverlay {
+    content-visibility: visible;
+    contain: layout style;
     position: fixed;
     inset: 0;
     z-index: 8000;
@@ -376,6 +378,9 @@ window.isNavMenuOpen = false;
             width: 100%; height: 100%;
             object-fit: cover;
             display: block;
+            image-rendering: -webkit-optimize-contrast;
+            overflow: hidden;
+            overflow-clip-margin: content-box;
         }
         .nav-vertical-card.new-game::before {
             content: 'NOVO';
@@ -678,7 +683,12 @@ window.isNavMenuOpen = false;
                 card.classList.add('new-game');
             }
             card.innerHTML = staticSrc
-                ? `<img src="${staticSrc}" alt="${name}" loading="lazy" />`
+                ? `<img src="${staticSrc}" 
+            alt="${name}" 
+            loading="eager" 
+            fetchpriority="high" 
+            decoding="sync" 
+            style="opacity: 1 !important; visibility: visible !important;" />`
                 : `<div class="nav-vertical-card-no-img">${emptyIcon}</div>`;
 
             card.innerHTML += `
@@ -904,25 +914,20 @@ window.isNavMenuOpen = false;
 
         document.body.classList.add('nav-menu-active');
 
-        window.updateNavHint?.();
-
-        _lastFocus = document.activeElement;
-        _lastFocus?.blur();
-        _catIdx = Math.max(0, Math.min(startIdx, CATS.length - 1));
-        _topbarFocus = true;
-        _contentIdx = 0;
-
         _buildOverlay();
         _overlay.style.display = 'flex';
+        _overlay.style.willChange = 'transform'; 
 
         await _loadJSONs();
 
         requestAnimationFrame(() => {
             _overlay.classList.add('visible');
-
-            //_startBlobBg();  
             _selectCat(_catIdx);
-            _updateTopbarFocusVisual();
+
+           
+            setTimeout(() => {
+                if (_overlay) _overlay.style.willChange = 'auto';
+            }, 850);
         });
     }
 

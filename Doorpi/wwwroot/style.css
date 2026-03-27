@@ -10,8 +10,18 @@
     pointer-events: none !important;
     user-select: none;
 }
+#heroImage, #gridBgImg, #bgBlur {
+   
+    contain: strict;
+   
+    image-rendering: low-quality;
+}
 
-/* Isso garante que o grid e os cards recebam o mouse */
+
+body:not(.nav-menu-active) #heroImage {
+    image-rendering: auto;
+}
+
 .game-grid, .card {
     pointer-events: auto !important;
     cursor: pointer !important;
