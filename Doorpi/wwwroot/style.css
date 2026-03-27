@@ -32,7 +32,7 @@ body:not(.nav-menu-active) #heroImage {
     --card-h: clamp(180px, min(16.2vw, 28.8vh), 490px);
     --card-featured-w: clamp(360px, min(34vw, 60.5vh), 920px);
     --card-radius: clamp(6px, min(0.63vw, 1.12vh), 20px);
-    --card-gap: clamp(10px, min(0.78vw, 1.39vh), 14px);
+    --card-gap: clamp(15px, min(1.78vw, 1.39vh), 30px);
     --grid-pad-top: clamp(16px, min(2.3vw, 4.1vh), 36px);
     --grid-pad-side: clamp(24px, min(3.1vw, 5.5vh), 56px);
     --grid-pad-bottom: clamp(20px, min(3.03vw, 4.6vh), 120px);
@@ -162,19 +162,19 @@ body {
     left: 0;
     right: 0;
     width: 100%;
-    height: 75vh; /* Aumentei um pouco para garantir que cubra o fundo */
+    height: 75vh;
     object-fit: cover;
     object-position: center 25%;
     transition: opacity 0.8s ease-in-out;
     opacity: 0;
-    z-index: 98; /* Um nível abaixo da nossa nova overlay */
-    /* Máscara muito mais suave (stops mais longos) */
+    z-index: 98;
+    filter: saturate(1.2);
     -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 60%, transparent 100% ), linear-gradient(to right, transparent 0%, black 15%, black 85%, transparent 100% );
     mask-image: linear-gradient(to bottom, transparent 0%, black 0%, black 60%, transparent 100% ), linear-gradient(to right, transparent 0%, black 0%, black 100%, transparent 100% );
     -webkit-mask-composite: intersect;
     mask-composite: intersect;
 }
-/* Camada de fusão absoluta - Fica sempre no topo */
+
 .hero-vignette {
     position: fixed;
     top: 0;
@@ -290,7 +290,7 @@ body {
     flex-direction: column;
     justify-content: flex-end;
     align-items: flex-end;
-    filter: saturate(1.2) brightness(0.4);
+    filter: saturate(1.4) brightness(0.7);
     border: 3px solid rgba(255,255,255,0.00);
     transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.4s cubic-bezier(0.22, 1, 0.36, 1), filter 0.4s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.4s ease;
     will-change: transform, opacity;
@@ -543,13 +543,13 @@ body {
 .card.featured {
     width: var(--card-featured-w);
     opacity: 0.88;
-    filter: saturate(1.5) brightness(0.4);
+
 }
 
     .card.featured:focus,
     .card.featured:hover {
         opacity: 1;
-        filter: saturate(1) brightness(1.05);
+        filter: saturate(1.2) brightness(1.05);
     }
 
 
