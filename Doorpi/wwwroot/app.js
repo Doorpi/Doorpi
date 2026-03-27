@@ -670,7 +670,7 @@ function createGameCard(data) {
                 const logoEl = document.getElementById('gameLogo');
                 if (logoEl) { await setImgSrc(logoEl, animLogo); logoEl.classList.add('visible'); }
             }
-        }, 700);
+        }, 900);
     };
 
     const stopInteraction = () => {
@@ -930,16 +930,14 @@ async function getAnimatedBlob(url) {
 async function setImgSrc(imgEl, src) {
     if (!imgEl) return;
 
-   
-    if (imgEl.id === 'heroImage') {
-        if (typeof crossfadeBanner === 'function') {
-            return crossfadeBanner(imgEl, src);
-        }
-    }
-
     const req = Symbol();
     imgEl.__req = req;
-    if (!src) { imgEl.removeAttribute('src'); return; }
+
+    if (!src) {
+        imgEl.removeAttribute('src');
+        return;
+    }
+
     if (imgEl.src === src || imgEl.src.endsWith(src)) return;
 
     const tmp = new Image();
@@ -947,6 +945,9 @@ async function setImgSrc(imgEl, src) {
     try { await tmp.decode(); } catch (_) { }
 
     if (imgEl.__req !== req) return;
+
+   
+    imgEl.style.transition = 'none';
     imgEl.src = src;
 }
 
