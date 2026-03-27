@@ -478,10 +478,13 @@ namespace Doorpi
             Dispatcher.BeginInvoke(() =>
             {
                 var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-                ShowWindow(hwnd, 3); // SW_RESTORE
+                ShowWindow(hwnd, 3);
                 SetForegroundWindow(hwnd);
                 Activate();
                 webView?.Focus();
+
+          
+                webView?.CoreWebView2.ExecuteScriptAsync("window.focusFeaturedCard();");
             });
         }
 
@@ -1812,38 +1815,42 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
         private string PrepareSearchName(string name)
         {
             if (string.IsNullOrWhiteSpace(name)) return name;
-            if (!name.Contains(' '))
-            {
-                var split = Regex.Replace(name, @"(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", " ");
-                split = Regex.Replace(split, @"(?<=[a-zA-Z])(?=\d)|(?<=\d)(?=[a-zA-Z])", " ");
-                name = split.Trim();
-            }
-            return name;
+            if (name.Trim().Contains(" ")) return name.Trim();
+
+            string result = Regex.Replace(name, @"([a-z])([A-Z])", "$1 $2");
+
+            result = Regex.Replace(result, @"([A-Z])([A-Z][a-z])", "$1 $2");
+
+
+            result = Regex.Replace(result, @"([a-zA-Z])(\d)", "$1 $2");
+
+
+            result = Regex.Replace(result, @"(\d)([a-zA-Z])", "$1 $2");
+
+        
+            return Regex.Replace(result, @"\s+", " ").Trim();
         }
-    
+
         private async Task<(string?, string?, string?, string?)> FetchSteamGridAssetsAsync(string gameName, string? steamAppId = null)
         {
             EnsureSteamGridAuth();
-            // 1. Steam CDN direto — sem API, sem rate limit, perfeito pra jogos Steam
+
+
+            string treatedName = PrepareSearchName(gameName);
+            Debug.WriteLine($"[SGDB] Nome original: {gameName} | Tratado: {treatedName}");
+
+    
             if (!string.IsNullOrEmpty(steamAppId))
             {
                 var steam = await TryFetchFromSteamCDN(steamAppId);
-                if (steam.Item1 != null)
-                {
-                    Debug.WriteLine($"[Steam CDN] Achou assets direto pra AppId {steamAppId}");
-                    return steam;
-                }
-            }
+                if (steam.Item1 != null) return steam;
 
-            // 2. SteamGridDB via SGDB id do jogo Steam (busca por appId na API deles)
-            if (!string.IsNullOrEmpty(steamAppId))
-            {
                 var byId = await TryFetchBySteamAppId(steamAppId);
                 if (byId.Item1 != null) return byId;
             }
 
-            // 3. SteamGridDB por nome (Epic, GOG, Folder, etc)
-            return await TryFetchByName(gameName);
+            
+            return await TryFetchByName(treatedName);
         }
 
         private async Task<(string?, string?, string?, string?)> TryFetchFromSteamCDN(string appId)
@@ -2142,12 +2149,32 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
 
         private void LoadGamesIntoUI()
         {
-            
-            var games = LoadGames()
-                .OrderByDescending(g => g.LastPlayed > g.DateAdded ? g.LastPlayed : g.DateAdded)
-                .ToList();
+            var allGames = LoadGames();
+            if (allGames.Count == 0) return;
 
-            for (int i = 0; i < games.Count; i++) SendGameToUI(games[i], isFeatured: i == 0);
+           
+            var featured = allGames.OrderByDescending(g => g.LastPlayed).FirstOrDefault();
+
+            if (featured != null)
+            {
+                
+                SendGameToUI(featured, isFeatured: true);
+
+              
+                var others = allGames.Where(g => g.Path != featured.Path || g.LaunchUrl != featured.LaunchUrl);
+
+                
+                var sortedOthers = others
+                    .OrderByDescending(g => (DateTime.Now - g.DateAdded).TotalHours < 48) 
+                    .ThenByDescending(g => g.DateAdded)                                  
+                    .ThenByDescending(g => g.LastPlayed)                                
+                    .ToList();
+
+                foreach (var game in sortedOthers)
+                {
+                    SendGameToUI(game, isFeatured: false);
+                }
+            }
         }
 
         private void SendGameToUI(GameModel game, bool isFeatured = false)

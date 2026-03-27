@@ -466,6 +466,27 @@ function moveFocus(direction) {
 }
 
 
+
+window.focusFeaturedCard = function () {
+   
+    if (isModalOpen || isEditModalOpen || window._vkbIsOpen || isSetupOpen) return;
+
+ 
+    const activeGridId = window.getCurrentHomeTab?.() === 'media' ? 'mediaGrid' : 'gameGrid';
+    const grid = document.getElementById(activeGridId);
+    if (!grid) return;
+
+    const featured = grid.querySelector('.card.featured');
+
+    if (featured) {
+        featured.focus();
+        grid.scrollLeft = 0; 
+        featured._startInteraction?.(); 
+    } else {
+     
+        focusItemByIndex(0);
+    }
+};
 function focusItemByIndex(index) {
     const items = getNavigableItems();
     if (!items.length) return;
@@ -604,7 +625,8 @@ window.addEventListener('gamepaddisconnected', e => {
         const items = getNavigableItems();
         if (!items.length) return;
         if (!items.includes(document.activeElement)) {
-            focusItemByIndex(0);
+         
+            window.focusFeaturedCard();
             return;
         }
 
@@ -718,8 +740,16 @@ window.addEventListener('gamepaddisconnected', e => {
 
 window.addEventListener('load', () => {
     const pads = navigator.getGamepads();
-    for (const pad of pads) if (pad) { _gamepadIndex = pad.index; _controllerType = detectControllerType(pad); isGamepadConnected = true; updateGamepadUI(true, _controllerType); break; }
-    setTimeout(() => focusItemByIndex(0), 300);
+    for (const pad of pads) if (pad) {
+        _gamepadIndex = pad.index;
+        _controllerType = detectControllerType(pad);
+        isGamepadConnected = true;
+        updateGamepadUI(true, _controllerType);
+        break;
+    }
+
+    
+    setTimeout(() => window.focusFeaturedCard(), 600);
 });
 
 const CURSOR_IDLE_MS = 3000;

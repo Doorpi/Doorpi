@@ -1,6 +1,21 @@
 ﻿
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;500;600;700&display=swap');
+/* Isso garante que as imagens e fundos sejam "transparentes" ao clique */
+#bgBlur,
+#heroImage,
+#appBlobBg,
+#gridBgImg,
+.capaJogo,
+#gameLogo {
+    pointer-events: none !important;
+    user-select: none;
+}
 
+/* Isso garante que o grid e os cards recebam o mouse */
+.game-grid, .card {
+    pointer-events: auto !important;
+    cursor: pointer !important;
+}
 
 :root {
     --card-w: clamp(120px, min(10.8vw, 19.2vh), 320px);
@@ -287,7 +302,7 @@ body {
     position: absolute;
     inset: 0;
    
-    z-index: 1;
+    z-index: -1;
 }
 
 

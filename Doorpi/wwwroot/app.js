@@ -295,7 +295,9 @@ function closeModal() {
     document.getElementById('selectionCounter')?.classList.remove('visible');
     isModalOpen = false;
     hideGlobalLoading();
-    focusItemByIndex(0);
+
+   
+    window.focusFeaturedCard?.();
 }
 
 function formatBytes(kb) {
@@ -660,14 +662,20 @@ function createGameCard(data) {
     title.innerText = data.name;
     card.appendChild(title);
 
-    if (btnAdd) {
-        grid.insertBefore(card, btnAdd);
-    } else {
-        grid.appendChild(card);
-    }
-
     if (data.isFeatured) {
-        startInteraction();
+       
+        grid.prepend(card);
+    } else {
+       
+        const featuredCard = grid.querySelector('.card.featured');
+
+        if (featuredCard) {
+            
+            featuredCard.after(card);
+        } else {
+            
+            grid.prepend(card);
+        }
     }
 }
 
@@ -1262,15 +1270,14 @@ function openEditGameModal(card) {
 
     const input = overlay.querySelector('#editNameInput');
     input.value = currentName;
-
     const doClose = () => {
         isEditModalOpen = false;
         window._vkbForceClose();
         overlay.style.opacity = '0';
         overlay.style.transition = 'opacity 0.12s';
         setTimeout(() => { overlay.remove(); _editOverlay = null; }, 130);
-        _editCard?.focus();
-        _editCard = null;
+
+        window.focusFeaturedCard?.();
     };
 
     const doSave = () => {
