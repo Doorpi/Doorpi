@@ -670,7 +670,7 @@ function createGameCard(data) {
                 const logoEl = document.getElementById('gameLogo');
                 if (logoEl) { await setImgSrc(logoEl, animLogo); logoEl.classList.add('visible'); }
             }
-        }, 100);
+        }, 200);
     };
 
     const stopInteraction = () => {
