@@ -824,11 +824,13 @@ async function setImgSrc(imgEl, src) {
     const s = document.createElement('style');
     s.textContent = `
         /* ▼ Efeito de Profundidade ao abrir o NavMenu ▼ */
-.main-content-wrapper {
+.main-content-wrapper,
+#gameLogo {
     transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
     will-change: transform;
 }
-body.nav-menu-active .main-content-wrapper {
+body.nav-menu-active .main-content-wrapper,
+body.nav-menu-active #gameLogo {
     transform: translateY(-100vh);
 }
 .nav-menu {
