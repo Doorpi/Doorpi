@@ -776,75 +776,54 @@ function preloadImage(src) {
 
 // O crossfade definitivo para mesclagem de banners
 async function crossfadeBanner(el, newSrc) {
-    if (!el) return;
+    if (!el || !newSrc || el.src === newSrc) return;
 
-    const cloneClass = `crossfade-clone-${el.id || 'gen'}`;
-    document.querySelectorAll(`.${cloneClass}`).forEach(c => c.remove());
-
-    if (!newSrc) {
-        el.style.opacity = '0';
-        return;
+    // 1. Pré-carregamento e Decodificação em Background
+    const tempImg = new Image();
+    tempImg.src = newSrc;
+    try {
+        await tempImg.decode(); // SÓ CONTINUA quando a imagem estiver pronta na GPU
+    } catch (e) {
+        console.warn("Erro ao decodificar imagem, seguindo sem pré-load");
     }
-
-    if (el.src === newSrc || el.src.endsWith(newSrc)) {
-        el.style.opacity = '1';
-        return;
-    }
-
-    await preloadImage(newSrc);
 
     const comp = window.getComputedStyle(el);
+    const cloneClass = `crossfade-clone-${el.id}`;
 
-    if (comp.opacity === '0' || !el.src || el.src === window.location.href) {
-        el.src = newSrc;
-        el.style.transition = 'opacity 0.9s ease-in-out';
-        el.style.opacity = '1';
-        return;
-    }
+    // Remove clones antigos que não terminaram a transição
+    document.querySelectorAll(`.${cloneClass}`).forEach(c => c.remove());
 
-    const clone = document.createElement('img');
-    clone.className = cloneClass;
-    clone.src = el.src;
-
-    // Herda exatidão de pixel do CSS
+    // 2. Criar o Clone (Imagem Velha)
+    const clone = el.cloneNode(true);
+    clone.classList.add(cloneClass);
     clone.style.position = 'absolute';
-    clone.style.top = comp.top !== 'auto' ? comp.top : '0';
-    clone.style.left = comp.left !== 'auto' ? comp.left : '0';
-    clone.style.width = comp.width;
-    clone.style.height = comp.height;
-    clone.style.margin = '0';
-    clone.style.padding = '0';
-    clone.style.transform = comp.transform !== 'none' ? comp.transform : '';
-    clone.style.objectFit = comp.objectFit;
-    clone.style.objectPosition = comp.objectPosition;
+    clone.style.zIndex = parseInt(comp.zIndex) + 1; // Fica UM NÍVEL acima
+    clone.style.pointerEvents = 'none';
+    clone.style.opacity = comp.opacity;
+    clone.style.transition = 'opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1)'; // Curva mais suave
+
+    // Garante que o clone herde as máscaras para não ter bordas quadradas
     clone.style.webkitMaskImage = comp.webkitMaskImage;
     clone.style.maskImage = comp.maskImage;
-    clone.style.filter = comp.filter !== 'none' ? comp.filter : '';
-    clone.style.pointerEvents = 'none';
+    clone.style.webkitMaskComposite = comp.webkitMaskComposite;
+    clone.style.maskComposite = comp.maskComposite;
 
-    // Compartilha o mesmo Z-Index, mas a Ordem do DOM garante o clone acima
-    clone.style.zIndex = comp.zIndex !== 'auto' ? comp.zIndex : '';
-    clone.style.opacity = comp.opacity;
-    clone.style.transition = 'opacity 0.9s ease-in-out';
-
-    // O clone (velho) fica na frente
     el.parentNode.insertBefore(clone, el.nextSibling);
 
-    // O original (novo) fica por trás, apagado
+    // 3. Preparar a Imagem Real (Nova) por baixo
     el.style.transition = 'none';
-    el.style.opacity = '0';
+    el.style.opacity = '1'; // A nova já nasce opaca POR BAIXO do clone
     el.src = newSrc;
 
+    // Força o reflow
     void el.offsetWidth;
 
-    el.style.transition = 'opacity 0.9s ease-in-out';
-    el.style.opacity = '1';
-
+    // 4. Iniciar o Fade Out do Clone (A velha some revelando a nova)
     requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-            clone.style.opacity = '0';
-            setTimeout(() => { if (clone.parentNode) clone.remove(); }, 1000);
-        });
+        clone.style.opacity = '0';
+        setTimeout(() => {
+            if (clone.parentNode) clone.remove();
+        }, 900);
     });
 }
 
@@ -1023,7 +1002,7 @@ function toggleNavMenu(isOpen) {
 
         /* 4. Blob Background (Aparece sem competir com o scroll) */
         #appBlobBg {
-            z-index: -5;
+            z-index: -1;
             pointer-events: none;
         }
         

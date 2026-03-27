@@ -133,6 +133,9 @@ body {
     z-index: 0;
     overflow: hidden;
     pointer-events: none;
+   
+ 
+
 }
 
 
@@ -143,23 +146,53 @@ body {
     filter: blur(100px) brightness(0.35) saturate(3.5);
     transform: scale(1.2);
 }
-
+#gridBgImg::after {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    width: 100%;
+    height: 120px;
+    background: linear-gradient( to top, rgba(0, 0, 0, 0.6) 0%, transparent 100% );
+    pointer-events: none;
+}
 #heroImage {
     position: absolute;
     top: 0;
     left: 0;
     right: 0;
     width: 100%;
-    height: 72vh;
+    height: 75vh; /* Aumentei um pouco para garantir que cubra o fundo */
     object-fit: cover;
     object-position: center 25%;
     transition: opacity 0.8s ease-in-out;
     opacity: 0;
-    z-index: 99;
-    -webkit-mask-image: linear-gradient(to bottom, black 55%, transparent 100%);
-    mask-image: linear-gradient(to bottom, black 87%, transparent 100%);
+    z-index: 98; /* Um nível abaixo da nossa nova overlay */
+    /* Máscara muito mais suave (stops mais longos) */
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 60%, transparent 100% ), linear-gradient(to right, transparent 0%, black 15%, black 85%, transparent 100% );
+    mask-image: linear-gradient(to bottom, transparent 0%, black 0%, black 60%, transparent 100% ), linear-gradient(to right, transparent 0%, black 0%, black 100%, transparent 100% );
+    -webkit-mask-composite: intersect;
+    mask-composite: intersect;
 }
-
+/* Camada de fusão absoluta - Fica sempre no topo */
+.hero-vignette {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 75vh;
+    z-index: 100; /* Acima do banner e dos clones */
+    pointer-events: none;
+    background:
+    /* Sombra Inferior (funde com o grid) */
+    linear-gradient(to bottom, transparent 40%, rgba(7, 7, 26, 1) 95%),
+    /* Sombra Superior (funde com a top-bar) */
+    linear-gradient(to top, transparent 80%, rgba(7, 7, 26, 0.8) 100%),
+    /* Sombra Lateral Direita */
+    linear-gradient(to left, transparent 85%, rgba(7, 7, 26, 0.6) 100%),
+    /* Sombra Lateral Esquerda */
+    linear-gradient(to right, transparent 85%, rgba(7, 7, 26, 0.6) 100%);
+}
 
 .capaJogo::after {
     content: '';
@@ -208,7 +241,7 @@ body {
     width: calc(100% + 31vw);
     height: calc(100% + 18%);
     object-fit: cover;
-    filter: blur(160px) brightness(0.68) saturate(1);
+    filter: blur(250px) brightness(1.2) saturate(1);
     z-index: -1;
     transition: opacity 0.8s ease-in-out;
 }
@@ -257,7 +290,7 @@ body {
     flex-direction: column;
     justify-content: flex-end;
     align-items: flex-end;
-    filter: saturate(0.85) brightness(0.55);
+    filter: saturate(1.2) brightness(0.4);
     border: 3px solid rgba(255,255,255,0.00);
     transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.4s cubic-bezier(0.22, 1, 0.36, 1), filter 0.4s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.4s ease;
     will-change: transform, opacity;
@@ -510,7 +543,7 @@ body {
 .card.featured {
     width: var(--card-featured-w);
     opacity: 0.88;
-    filter: saturate(1) brightness(0.4);
+    filter: saturate(1.5) brightness(0.4);
 }
 
     .card.featured:focus,
