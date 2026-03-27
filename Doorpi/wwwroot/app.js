@@ -617,7 +617,7 @@ function createGameCard(data) {
 
     card.className = 'card';
     card.tabIndex = 0;
-
+    card.dataset.badgeNew = t('badgeNew');
     const gameId = data.launchUrl || data.path;
     card.dataset.gameId = gameId;
     card.dataset.hero = data.hero || '';
@@ -682,17 +682,20 @@ function createGameCard(data) {
             : (card.dataset.staticVertical || card.dataset.vertical);
         setImgSrc(img, staticGrid);
 
-        const bgBlur = document.getElementById('bgBlur');
-        const heroImg = document.getElementById('heroImage');
-        const logoEl = document.getElementById('gameLogo');
-        const gridBgImg = document.getElementById('gridBgImg');
+        window._heroCleanupTimer = setTimeout(() => {
+            const bgBlur = document.getElementById('bgBlur');
+            const heroImg = document.getElementById('heroImage');
+            const logoEl = document.getElementById('gameLogo');
+            const gridBgImg = document.getElementById('gridBgImg');
 
-        if (bgBlur) bgBlur.style.opacity = '0';
-        if (heroImg) heroImg.style.opacity = '0';
-        if (logoEl) logoEl.classList.remove('visible');
-        if (gridBgImg) gridBgImg.removeAttribute('src');
+            if (bgBlur) bgBlur.style.opacity = '0';
+            if (heroImg) heroImg.style.opacity = '0';
+            if (logoEl) { logoEl.classList.remove('visible'); logoEl.style.opacity = ''; }
+            if (gridBgImg) gridBgImg.removeAttribute('src');
 
-        _currentBgSrc = '';
+            _currentBgSrc = '';
+            if (typeof _heroReqId !== 'undefined') _heroReqId++;
+        }, 80);
     };
 
     card._startInteraction = startInteraction;
@@ -749,35 +752,153 @@ function moveCardToTop(card) {
     grid.scrollTo({ left: 0, behavior: 'smooth' });
 }
 
+
 /* Seção: Hero background */
 let _heroTimer = null;
 let _currentBgSrc = '';
-function cancelHeroTransition() { if (_heroTimer) { clearTimeout(_heroTimer); _heroTimer = null; } }
+let _heroReqId = 0;
+
+function cancelHeroTransition() {
+    if (_heroTimer) { clearTimeout(_heroTimer); _heroTimer = null; }
+    // Segurança: Limpa clones pendentes se a transição for interrompida
+    document.querySelectorAll('.crossfade-clone-heroImage, .crossfade-clone-gridBgImg').forEach(c => c.remove());
+}
+
+function preloadImage(src) {
+    return new Promise(resolve => {
+        if (!src) return resolve();
+        const img = new Image();
+        img.onload = resolve;
+        img.onerror = resolve;
+        img.src = src;
+    });
+}
+
+// O crossfade definitivo para mesclagem de banners
+async function crossfadeBanner(el, newSrc) {
+    if (!el) return;
+
+    const cloneClass = `crossfade-clone-${el.id || 'gen'}`;
+    document.querySelectorAll(`.${cloneClass}`).forEach(c => c.remove());
+
+    if (!newSrc) {
+        el.style.opacity = '0';
+        return;
+    }
+
+    if (el.src === newSrc || el.src.endsWith(newSrc)) {
+        el.style.opacity = '1';
+        return;
+    }
+
+    await preloadImage(newSrc);
+
+    const comp = window.getComputedStyle(el);
+
+    if (comp.opacity === '0' || !el.src || el.src === window.location.href) {
+        el.src = newSrc;
+        el.style.transition = 'opacity 0.9s ease-in-out';
+        el.style.opacity = '1';
+        return;
+    }
+
+    const clone = document.createElement('img');
+    clone.className = cloneClass;
+    clone.src = el.src;
+
+    // Herda exatidão de pixel do CSS
+    clone.style.position = 'absolute';
+    clone.style.top = comp.top !== 'auto' ? comp.top : '0';
+    clone.style.left = comp.left !== 'auto' ? comp.left : '0';
+    clone.style.width = comp.width;
+    clone.style.height = comp.height;
+    clone.style.margin = '0';
+    clone.style.padding = '0';
+    clone.style.transform = comp.transform !== 'none' ? comp.transform : '';
+    clone.style.objectFit = comp.objectFit;
+    clone.style.objectPosition = comp.objectPosition;
+    clone.style.webkitMaskImage = comp.webkitMaskImage;
+    clone.style.maskImage = comp.maskImage;
+    clone.style.filter = comp.filter !== 'none' ? comp.filter : '';
+    clone.style.pointerEvents = 'none';
+
+    // Compartilha o mesmo Z-Index, mas a Ordem do DOM garante o clone acima
+    clone.style.zIndex = comp.zIndex !== 'auto' ? comp.zIndex : '';
+    clone.style.opacity = comp.opacity;
+    clone.style.transition = 'opacity 0.9s ease-in-out';
+
+    // O clone (velho) fica na frente
+    el.parentNode.insertBefore(clone, el.nextSibling);
+
+    // O original (novo) fica por trás, apagado
+    el.style.transition = 'none';
+    el.style.opacity = '0';
+    el.src = newSrc;
+
+    void el.offsetWidth;
+
+    el.style.transition = 'opacity 0.9s ease-in-out';
+    el.style.opacity = '1';
+
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            clone.style.opacity = '0';
+            setTimeout(() => { if (clone.parentNode) clone.remove(); }, 1000);
+        });
+    });
+}
 
 function switchHeroBackground(bgSrc, logoSrc, heroSrc) {
-    const bgBlur = document.getElementById('bgBlur');
+    if (window._heroCleanupTimer) {
+        clearTimeout(window._heroCleanupTimer);
+        window._heroCleanupTimer = null;
+    }
     const heroImg = document.getElementById('heroImage');
+
     const logoImg = document.getElementById('gameLogo');
-    if (!bgBlur || !bgSrc) return;
+    const gridBg = document.getElementById('gridBgImg');
+
+    if (!bgSrc) return;
 
     if (_currentBgSrc.split('?')[0] === bgSrc.split('?')[0]) return;
     _currentBgSrc = bgSrc;
 
-    bgBlur.style.opacity = '0';
-    if (heroImg) heroImg.style.opacity = '0';
-    if (logoImg) logoImg.classList.remove('visible');
     cancelHeroTransition();
+    const reqId = ++_heroReqId;
 
-    _heroTimer = setTimeout(async () => {
-        await setImgSrc(bgBlur, bgSrc);
-        bgBlur.style.opacity = '1';
+    if (logoImg) logoImg.classList.remove('visible');
 
-        const gridBg = document.getElementById('gridBgImg');
-        if (gridBg) setImgSrc(gridBg, heroSrc);
+    const loadPromise = Promise.all([
+        preloadImage(heroSrc || bgSrc),
+        preloadImage(bgSrc), // Precarrega a versão do Grid
+        logoSrc ? preloadImage(logoSrc) : Promise.resolve()
+    ]);
+    const minTimePromise = new Promise(resolve => setTimeout(resolve, 0));
 
-        if (heroImg) { await setImgSrc(heroImg, heroSrc || bgSrc); heroImg.style.opacity = '1'; }
-        if (logoImg && logoSrc) { await setImgSrc(logoImg, logoSrc); logoImg.classList.add('visible'); }
-    }, 150);
+    Promise.all([loadPromise, minTimePromise]).then(() => {
+        if (reqId !== _heroReqId) return;
+
+       
+        if (heroImg) crossfadeBanner(heroImg, heroSrc || bgSrc);
+
+      
+        if (gridBg) {
+            gridBg.style.transition = 'none'; 
+            gridBg.style.opacity = '1';
+            gridBg.src = heroSrc || bgSrc;
+        }
+
+        if (logoImg) {
+            if (logoSrc) {
+                setTimeout(() => {
+                    if (reqId !== _heroReqId) return;
+                    setImgSrc(logoImg, logoSrc).then(() => {
+                        requestAnimationFrame(() => logoImg.classList.add('visible'));
+                    });
+                }, 450);
+            }
+        }
+    });
 }
 
 /* Seção: Badges e verificação de animações */
@@ -808,13 +929,23 @@ async function getAnimatedBlob(url) {
 
 async function setImgSrc(imgEl, src) {
     if (!imgEl) return;
+
+   
+    if (imgEl.id === 'heroImage') {
+        if (typeof crossfadeBanner === 'function') {
+            return crossfadeBanner(imgEl, src);
+        }
+    }
+
     const req = Symbol();
     imgEl.__req = req;
     if (!src) { imgEl.removeAttribute('src'); return; }
     if (imgEl.src === src || imgEl.src.endsWith(src)) return;
+
     const tmp = new Image();
     tmp.src = src;
     try { await tmp.decode(); } catch (_) { }
+
     if (imgEl.__req !== req) return;
     imgEl.src = src;
 }
@@ -841,7 +972,7 @@ body.nav-menu-active #gameLogo {
         position: relative;
     }
     .card.new-game::before {
-content: 'NOVO';
+content: attr(data-badge-new);
     position: absolute;
     top: clamp(8px, 0.63vw, 12px);
     left: clamp(8px, 0.63vw, 12px);
@@ -851,7 +982,7 @@ content: 'NOVO';
     font-size: clamp(0.48rem, 0.50vw, 0.60rem);
     font-weight: 800;
     letter-spacing: 0.2em;
-    width: 20%;
+    width: 5.4em;
     padding: 3px 7px 4px;
     border-radius: 3px;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
@@ -1287,8 +1418,7 @@ function _executeDelete(card) {
             if (img) img.src = next.dataset.staticHorizontal || next.dataset.horizontal || next.dataset.staticVertical || '';
             next._startInteraction?.();
         } else {
-            ['bgBlur', 'heroImage'].forEach(id => document.getElementById(id)?.removeAttribute('src'));
-            document.getElementById('gameLogo')?.classList.remove('visible');
+            if (typeof clearHero === 'function') clearHero();
         }
     }
 
@@ -1773,32 +1903,38 @@ document.addEventListener('focusin', () => {
     const isInGrid = focused?.closest('#gameGrid');
 
     if (!isCard && !isInGrid) {
+        window._heroCleanupTimer = setTimeout(() => {
+            const bgBlur = document.getElementById('bgBlur');
+            const heroImg = document.getElementById('heroImage');
+            const logoEl = document.getElementById('gameLogo');
+            const gridBgImg = document.getElementById('gridBgImg');
+
+            if (bgBlur) bgBlur.style.opacity = '0';
+            if (heroImg) heroImg.style.opacity = '0';
+            if (logoEl) { logoEl.classList.remove('visible'); logoEl.style.opacity = ''; }
+            if (gridBgImg) gridBgImg.removeAttribute('src');
+
+            _currentBgSrc = '';
+            if (typeof _heroReqId !== 'undefined') _heroReqId++;
+        }, 80);
+    }
+});
+
+function clearHero() {
+    window._heroCleanupTimer = setTimeout(() => {
         const bgBlur = document.getElementById('bgBlur');
         const heroImg = document.getElementById('heroImage');
         const logoEl = document.getElementById('gameLogo');
         const gridBgImg = document.getElementById('gridBgImg');
 
-        if (bgBlur) bgBlur.style.opacity = '0';
+        if (bgBlur) bgBlur.style.opacity = '1';
         if (heroImg) heroImg.style.opacity = '0';
-        if (logoEl) logoEl.classList.remove('visible');
+        if (logoEl) { logoEl.classList.remove('visible'); logoEl.style.opacity = ''; }
         if (gridBgImg) gridBgImg.removeAttribute('src');
 
         _currentBgSrc = '';
-    }
-});
-
-function clearHero() {
-    const bgBlur = document.getElementById('bgBlur');
-    const heroImg = document.getElementById('heroImage');
-    const logoEl = document.getElementById('gameLogo');
-    const gridBgImg = document.getElementById('gridBgImg');
-
-    if (bgBlur) bgBlur.style.opacity = '0';
-    if (heroImg) heroImg.style.opacity = '0';
-    if (logoEl) logoEl.classList.remove('visible');
-    if (gridBgImg) gridBgImg.removeAttribute('src');
-
-    _currentBgSrc = '';
+        if (typeof _heroReqId !== 'undefined') _heroReqId++;
+    }, 80);
 }
 
 document.getElementById('btnAdd')?.addEventListener('mouseenter', clearHero);

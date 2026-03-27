@@ -199,7 +199,7 @@ window.isNavMenuOpen = false;
     display: none;
     opacity: 1;
     font-family: 'Inter', 'Segoe UI', sans-serif;
-    background: rgba(0, 0, 0, 0.4);
+    
     transform: translateY(100%);
     transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -220,7 +220,7 @@ window.isNavMenuOpen = false;
     display: flex;
     flex-direction: column;
     width: 100%; height: 100%;
-    background: radial-gradient(circle at 50% 0%, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0.6) 80%);
+  
 
 }
         #navMenuOverlay.visible .nav-layout { transform: scale(1); }
@@ -428,6 +428,7 @@ window.isNavMenuOpen = false;
             transform: translateY(10px);
             transition: opacity 0.2s ease, transform 0.2s ease;
             text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+            text-align: end;
         }
 
         .nav-vertical-card.nav-focused {
@@ -919,7 +920,7 @@ window.isNavMenuOpen = false;
         requestAnimationFrame(() => {
             _overlay.classList.add('visible');
 
-            _startBlobBg();  
+            //_startBlobBg();  
             _selectCat(_catIdx);
             _updateTopbarFocusVisual();
         });
@@ -933,7 +934,7 @@ window.isNavMenuOpen = false;
         document.querySelectorAll('.nav-vertical-card.nav-focused').forEach(el => el._stopInteraction?.());
 
         _overlay?.classList.remove('visible');
-        _stopBlobBg();
+        //_stopBlobBg();
 
         setTimeout(() => {
             if (!window.isNavMenuOpen && _overlay)

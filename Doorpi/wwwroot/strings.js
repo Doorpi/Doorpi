@@ -174,9 +174,17 @@ const STRINGS = {
         navProfileHello: 'Bem-vindo de volta',
         navProfileNameLabel: 'Nome',
         navProfileApiLabel: 'API Key SteamGridDB',
+
+
+        badgeNew: 'NOVO',      
+        navHintMenu: 'Menu',
     },
 
     'en-US': {
+
+        badgeNew: 'NEW',
+        navHintMenu: 'Menu',
+
         // Lançamento de app de mídia
         msgErrorLaunchMedia: 'Error launching app: ',
 
