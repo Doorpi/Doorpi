@@ -1778,7 +1778,17 @@ const VKB = (() => {
     };
 })();
 
-window._vkbOpen = (el) => VKB.open(el);
+const _TEXT_INPUT_TYPES = new Set(['text', 'search', 'email', 'password', 'url', 'tel', '']);
+
+window._vkbOpen = (el) => {
+    // Bloco 1: só abre se há contexto de edição ativo no launcher
+    if (!isEditModalOpen && !isSetupOpen) return;
+
+    // Bloco 2: mesmo com contexto ativo, rejeita inputs não-texto
+    if (el && el.tagName === 'INPUT' && !_TEXT_INPUT_TYPES.has((el.type || '').toLowerCase())) return;
+
+    VKB.open(el);
+};
 window._vkbCancel = () => VKB.cancel();
 window._vkbForceClose = () => VKB.forceClose();
 window._vkbPhysicalKey = (k) => VKB.physicalKey(k);

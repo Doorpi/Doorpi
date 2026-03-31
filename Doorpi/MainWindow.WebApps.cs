@@ -122,13 +122,17 @@ namespace Doorpi
         }
     }, true);
 
-    function isInput(el) {
-        if (!el) return false;
-        return (el.tagName === 'INPUT' && el.type !== 'hidden') ||
-               el.tagName === 'TEXTAREA' ||
-               el.isContentEditable ||
-               (el.tagName === 'DIV' && el.getAttribute('role') === 'textbox');
+function isInput(el) {
+    if (!el) return false;
+    if (el.tagName === 'INPUT') {
+        const t = (el.type || '').toLowerCase();
+        return t === 'text' || t === 'search' || t === 'email' ||
+               t === 'password' || t === 'url' || t === 'tel' || t === '';
     }
+    return el.tagName === 'TEXTAREA' ||
+           el.isContentEditable ||
+           (el.tagName === 'DIV' && el.getAttribute('role') === 'textbox');
+}
 
     function init() {
         if (!document.body) { setTimeout(init, 16); return; }
@@ -787,6 +791,8 @@ namespace Doorpi
 
             webView.Visibility = Visibility.Visible;
             ForceFocus();
+            webView.CoreWebView2?.PostWebMessageAsString("{\"type\":\"mediaAppClosed\"}");
+
         }
 
         // ── Handlers ──────────────────────────────────────────────────────────

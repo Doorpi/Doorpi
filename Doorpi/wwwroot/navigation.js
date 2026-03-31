@@ -509,8 +509,14 @@ function smoothHorizontalScroll(element, onDone) {
     if (isModalOpen) { onDone?.(); return; }
     const grid = element.closest('#mediaGrid, #gameGrid')
         ?? document.getElementById('gameGrid');
-    const gr = grid.getBoundingClientRect(), er = element.getBoundingClientRect();
 
+ 
+    if (grid._scrollRafId) {
+        cancelAnimationFrame(grid._scrollRafId);
+        grid._scrollRafId = null;
+    }
+
+    const gr = grid.getBoundingClientRect(), er = element.getBoundingClientRect();
     const MARGIN = Math.max(30, grid.clientWidth * 0.04);
     const visL = er.left >= gr.left + MARGIN - 2;
     const visR = er.right <= gr.right - MARGIN + 2;
@@ -527,16 +533,17 @@ function smoothHorizontalScroll(element, onDone) {
     const duration = Math.min(220, Math.max(80, Math.abs(delta) * 0.18));
     const start = grid.scrollLeft;
     const t0 = performance.now();
-
-
     const ease = (t) => 1 - (1 - t) * (1 - t);
 
-    let _rafId;
     (function step(now) {
         const p = Math.min((now - t0) / duration, 1);
         grid.scrollLeft = start + delta * ease(p);
-        if (p < 1) _rafId = requestAnimationFrame(step);
-        else onDone?.();
+        if (p < 1) {
+            grid._scrollRafId = requestAnimationFrame(step);
+        } else {
+            grid._scrollRafId = null;
+            onDone?.();
+        }
     })(performance.now());
 }
 
@@ -602,6 +609,7 @@ window.addEventListener('gamepaddisconnected', e => {
         const gamepad = _gamepadIndex !== null ? navigator.getGamepads()[_gamepadIndex] : null;
         if (!gamepad) return;
         if (window.isGlobalLoading) return;
+        if (window.isMediaAppActive) return;
         if (!document.hasFocus()) return;
 
         const { GAMEPAD } = NAV, buttons = gamepad.buttons;

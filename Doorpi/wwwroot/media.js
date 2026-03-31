@@ -447,9 +447,9 @@ function createMediaCard(data) {
     });
     card.addEventListener('click', () => {
         _moveMediaCardToTop(card);
+        window.isMediaAppActive = true; 
         postToHost({ action: 'launchMediaApp', url: appUrl, appType: appType });
     });
-
     card.appendChild(img);
     const title = document.createElement('div');
     title.className = 'title';
@@ -486,6 +486,15 @@ window._mediaHandleMessage = (data) => {
             break;
         case 'nativeAppProgress':
             updateSysAppProgress(data.appId, data.state);
+            break;
+      
+        case 'mediaAppClosed':
+            window.isMediaAppActive = false;
+          
+            setTimeout(() => {
+                window.focus?.();
+                window.focusFeaturedCard?.();
+            }, 150);
             break;
     }
 };
