@@ -777,16 +777,38 @@ function _bindSetupEvents() {
             _toggleSection(section);
         });
     });
+    
+    ['setupNameInput', 'setupApiInput'].forEach(id => {
+        const input = document.getElementById(id);
 
+        input.addEventListener('focus', () => {
+            if (!window._vkbIsOpen) {
+                input.removeAttribute('readonly');
+                input.style.caretColor = '';  
+            }
+        });
+
+        input.addEventListener('blur', () => {
+            if (!window._vkbIsOpen) {
+                input.setAttribute('readonly', true);
+                input.style.caretColor = 'transparent';
+            }
+        });
+    });
     document.getElementById('setupPhotoBtn').addEventListener('click', () => {
         postToHost({ action: 'pickProfilePhoto' });
     });
 
-    // Exemplo no setup.js
-    document.getElementById('setupNameInput').addEventListener('click', () => {
-        const input = document.getElementById('setupNameInput'); // Pega o input
+    
+    document.getElementById('setupNameInput').addEventListener('click', (e) => {
+        e.currentTarget.focus();
+    });
+
+ 
+    document.getElementById('setupNameInput').addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter') return;
+        const input = e.currentTarget;
         if (!window._vkbIsOpen) {
-            // Passa o input como argumento para o VKB
             window._vkbOpen(input, {
                 onOk: () => {
                     _setupData.name = input.value.trim();
@@ -806,11 +828,18 @@ function _bindSetupEvents() {
         if (e.ctrlKey && e.key === 'v') { e.preventDefault(); postToHost({ action: 'readClipboard' }); }
     });
 
-    document.getElementById('setupApiInput').addEventListener('click', () => {
+
+    document.getElementById('setupApiInput').addEventListener('click', (e) => {
+        e.currentTarget.focus();
+    });
+
+  
+    document.getElementById('setupApiInput').addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter') return;
         if (!window._vkbIsOpen) {
-            window._vkbOpen?.(document.getElementById('setupApiInput'), {
+            window._vkbOpen?.(e.currentTarget, {
                 onOk: () => {
-                    _setupData.apiKey = document.getElementById('setupApiInput').value.trim();
+                    _setupData.apiKey = e.currentTarget.value.trim();
                     _updateStatus();
                     window._vkbForceClose?.();
                 },
