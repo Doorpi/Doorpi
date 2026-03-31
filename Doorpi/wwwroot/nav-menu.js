@@ -231,29 +231,12 @@ window.isNavMenuOpen = false;
         .nav-topbar {
             display: flex;
             align-items: center;
-            padding: clamp(20px, 3vh, 40px) clamp(30px, 4vw, 60px) 0;
+            padding-top: 5rem;
             gap: clamp(20px, 3vw, 40px);
             flex-shrink: 0;
              flex-direction: column;
         }
 
-        .nav-back-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            color: rgba(255,255,255,0.4);
-            font-size: clamp(0.75rem, 0.85vw, 0.95rem);
-            font-weight: 500;
-            cursor: pointer;
-            background: rgba(255,255,255,0.05);
-            border: 1px solid rgba(255,255,255,0.1);
-            padding: 8px 16px;
-            border-radius: 20px;
-            transition: all 0.2s ease;
-            outline: none;
-     
-        }
-        .nav-back-item:hover { color: #fff; background: rgba(255,255,255,0.1); }
 
         .nav-cat-list {
             display: flex;
@@ -564,10 +547,6 @@ window.isNavMenuOpen = false;
             <canvas id="navMenuBg"></canvas>
             <div class="nav-layout">
                 <div class="nav-topbar" id="navTopbar">
-                    <button class="nav-back-item" id="navBackItem" tabindex="-1">
-                        <span style="font-size:1.2em;opacity:0.8;margin-top:-2px;">⇡</span>
-                        <span>${_t('navBack', 'Voltar')}</span>
-                    </button>
                     <div class="nav-cat-list" id="navCatList"></div>
                 </div>
                 <div class="nav-content" id="navContent">
@@ -581,7 +560,6 @@ window.isNavMenuOpen = false;
 
         document.body.appendChild(_overlay);
 
-        document.getElementById('navBackItem').addEventListener('click', close);
         _buildCatList();
     }
 
@@ -917,7 +895,7 @@ window.isNavMenuOpen = false;
         _buildOverlay();
         _overlay.style.display = 'flex';
         _overlay.style.willChange = 'transform'; 
-
+        window.updateNavHint?.(); 
         await _loadJSONs();
 
         requestAnimationFrame(() => {

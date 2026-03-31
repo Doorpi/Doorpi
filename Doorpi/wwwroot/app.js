@@ -943,16 +943,18 @@ async function setImgSrc(imgEl, src) {
 }
 // Função para otimizar a abertura do menu
 function toggleNavMenu(isOpen) {
+    const hint = document.getElementById('navHintDown');
     if (isOpen) {
-      
         if (typeof _stopBlobBg === 'function') _stopBlobBg();
         document.body.classList.add('nav-menu-active');
+        hint?.classList.add('visible', 'nav-open');
     } else {
         document.body.classList.remove('nav-menu-active');
-      
+        hint?.classList.remove('nav-open');
         setTimeout(() => {
             if (typeof _startBlobBg === 'function') _startBlobBg();
         }, 800);
+        window.updateNavHint?.();
     }
 }
 /* Seção: Injeção de estilos e elementos auxiliares */
@@ -1042,51 +1044,19 @@ body.nav-menu-active .nav-menu {
     opacity: 1;
 }
     /* ▼ Novo Indicador Sutil ▼ */
-    #navHintDown {
-        position: fixed;
-        bottom: 1px;
-        left: 50%;
-        transform: translateX(-50%);
-        z-index: 7500;
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 0.4s ease;
-
-        /* Estilo idêntico ao botão de voltar */
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        color: rgba(255,255,255,0.4);
-        font-size: clamp(0.7rem, 0.8vw, 0.9rem);
-        font-weight: 500;
-        letter-spacing: 0.06em;
-        background: rgba(255,255,255,0.05);
-        border: 1px solid rgba(255,255,255,0.1);
-        padding: 2px 90px;
-        border-radius: 20px;
-        backdrop-filter: blur(5px);
-    }
-       #navHintDown span {
-        font-family: 'Inter', sans-serif;
-        font-size: clamp(9px, 1vmin, 11px);
-        font-weight: 700;
-        letter-spacing: 0.15em;
-        color: rgba(255, 255, 255, 0.5);
-        text-transform: uppercase;
-    }
-    #navHintDown.visible {
-        opacity: 1;
-    }
-#navHintDown.visible {
-    opacity: 1;
-   
+#navHintDown {
+    position: fixed;
+    bottom: 0.2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9000;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
 }
-    #navHintDown .arrow-icon {
-        font-size: 1.2em;
-        opacity: 0.8;
-        margin-top: 1px;
-    }
-
+#navHintDown.visible { opacity: 1; }
+#navHintDown.nav-open { bottom: auto; top: 2rem; }
+#navHintDown.nav-open svg { transform: rotate(180deg); }
     .context-menu {
         position: fixed;
         z-index: 9999;
@@ -1806,11 +1776,10 @@ function _esc(str) {
 (function initNavHint() {
     const navHint = document.createElement('div');
     navHint.id = 'navHintDown';
-
-
     navHint.innerHTML = `
-        <span class="arrow-icon">⇣</span>
-        <span>Menu</span> 
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <polyline points="6 9 12 15 18 9" stroke="rgba(255,255,255,0.45)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
     `;
     document.body.appendChild(navHint);
 
@@ -1818,27 +1787,24 @@ function _esc(str) {
         const hint = document.getElementById('navHintDown');
         if (!hint) return;
 
+        if (window.isNavMenuOpen) {
+            hint.classList.add('visible', 'nav-open');
+            return;
+        }
+
+        hint.classList.remove('nav-open');
+
         const focused = document.activeElement;
         const isCard = focused?.classList?.contains('card') && !focused?.classList?.contains('add-card');
         const inGrid = focused?.closest('#gameGrid') || focused?.closest('#mediaGrid');
 
-        // Esconde em modais/menus abertos
-        const isOverlayOpen = window.isModalOpen || window.isSetupOpen || window.isNavMenuOpen ||
+        const isOverlayOpen = window.isModalOpen || window.isSetupOpen ||
             window._vkbIsOpen || window.isGlobalLoading ||
             (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) ||
             (typeof isEditModalOpen !== 'undefined' && isEditModalOpen);
 
-        if (isOverlayOpen) {
-            hint.classList.remove('visible');
-            return;
-        }
-
-        // Mostra apenas se estiver no Grid
-        if (isCard && inGrid) {
-            hint.classList.add('visible');
-        } else {
-            hint.classList.remove('visible');
-        }
+        if (isOverlayOpen) { hint.classList.remove('visible'); return; }
+        hint.classList.toggle('visible', !!(isCard && inGrid));
     };
 
     document.addEventListener('focusin', window.updateNavHint);
