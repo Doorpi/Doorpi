@@ -218,7 +218,11 @@ function getGroupTransition(direction, groupName, groups, current) {
     };
 
     if (activeTab === 'view-apps') {
-        const bestApp = () => firstVisible(apps);
+        const bestApp = () => {
+            const navigableApps = apps.filter(el => el.offsetWidth > 0 && el.offsetHeight > 0);
+            if (_lastFocusedApp && navigableApps.includes(_lastFocusedApp)) return _lastFocusedApp;
+            return navigableApps[0] || null;
+        };
 
         if (groupName === 'filter') {
             if (direction === 'UP') return current;
@@ -787,7 +791,7 @@ showCursor();
 // Auto-Foco Inteligente Centralizado (Navegação & Modal)
 // =============================================================================
 
-// 1. Ao clicar/confirmar em uma aba lateral
+
 document.addEventListener('click', (e) => {
     const tab = e.target.closest('.menu-tab');
     if (tab) {
@@ -797,7 +801,10 @@ document.addEventListener('click', (e) => {
 
             let target = null;
             if (groups.activeTab === 'view-apps') {
-                target = firstVisible(groups.apps);
+                const navigableApps = groups.apps.filter(el => el.offsetWidth > 0 && el.offsetHeight > 0);
+                target = (_lastFocusedApp && navigableApps.includes(_lastFocusedApp))
+                    ? _lastFocusedApp
+                    : navigableApps[0] || null;
             } else {
                 target = firstVisible(groups.folderBtns) || groups.actions[0];
             }
@@ -825,6 +832,18 @@ document.getElementById('btnAdd')?.addEventListener('click', () => {
     }, 50);
 });
 
+document.getElementById('btnAddMedia')?.addEventListener('click', () => {
+    const checkReady = setInterval(() => {
+        if (typeof _modalReady !== 'undefined' && _modalReady) {
+            clearInterval(checkReady);
+            const firstApp = document.querySelector('#appList .app-item[tabindex="0"]');
+            if (firstApp) {
+                firstApp.focus();
+                signalNavigation();
+            }
+        }
+    }, 50);
+});
 function findWrapCandidate(items, current, direction) {
     const cr = current.getBoundingClientRect();
     const cx = cr.left + cr.width / 2, cy = cr.top + cr.height / 2;
