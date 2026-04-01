@@ -30,6 +30,8 @@ namespace Doorpi
         private WebView2? _ytWebView;
         private bool _ytClosing = false;
         private bool _isCurrentSiteYouTube = false;
+        private Window? _popupWindow;
+        private WebView2? _popupWebView;
 
         private static HashSet<string>? _ytBlockedDomains;
         private static readonly object _ytBlockLock = new();
@@ -61,7 +63,81 @@ namespace Doorpi
             }
             catch (Exception ex) { Debug.WriteLine($"[LaunchMediaApp] Erro: {ex.Message}"); }
         }
+        private void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
+        {
+            e.Handled = true;
+            var deferral = e.GetDeferral();
 
+            Dispatcher.Invoke(async () =>
+            {
+                if (_popupWindow != null) { try { _popupWindow.Close(); } catch { } }
+
+                _popupWindow = new Window
+                {
+                    Title = "Login",
+                    Width = 600,
+                    Height = 800,
+                    WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                    Topmost = true
+                };
+
+                _popupWebView = new WebView2();
+                _popupWindow.Content = _popupWebView;
+
+                _popupWindow.Show();
+                _popupWindow.Activate();
+
+                var env = _ytWebView!.CoreWebView2.Environment;
+                await _popupWebView.EnsureCoreWebView2Async(env);
+
+             
+                await _popupWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync("window.name = 'doorpi_popup';");
+
+                _popupWebView.CoreWebView2.Settings.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+                _popupWebView.CoreWebView2.DocumentTitleChanged += (s, args) => {
+                    if (_popupWindow != null) _popupWindow.Title = _popupWebView.CoreWebView2.DocumentTitle;
+                };
+
+                _popupWebView.CoreWebView2.WebMessageReceived += YtOnWebMessageReceived;
+                _popupWebView.CoreWebView2.WindowCloseRequested += (s, args) => _popupWindow?.Close();
+
+                _popupWebView.CoreWebView2.NavigationCompleted += async (s, args) =>
+                {
+                    
+                    _popupWebView.Focus();
+                    _popupWebView.CoreWebView2.ExecuteScriptAsync("window.focus();");
+
+                    try
+                    {
+                        string currentUrl = _popupWebView.CoreWebView2.Source;
+                        var mainUri = new Uri(_ytWebView.CoreWebView2.Source);
+                        var popupUri = new Uri(currentUrl);
+
+                        if (popupUri.Host.Contains(mainUri.Host.Replace("www.", "")) && !currentUrl.Contains("google.com"))
+                        {
+                            await Task.Delay(2000);
+                            if (_popupWindow != null)
+                            {
+                                _popupWindow.Close();
+                                _ytWebView.CoreWebView2.Reload();
+                            }
+                        }
+                    }
+                    catch { }
+                };
+
+                await YtInjectGenericSiteAsync(_popupWebView.CoreWebView2);
+
+              
+                e.NewWindow = _popupWebView.CoreWebView2;
+                deferral.Complete();
+
+                
+                await Task.Delay(200);
+                _popupWebView.Focus();
+            });
+        }
         // ── Extensões Chrome ──────────────────────────────────────────────────
         private static async Task LoadExtensionsAsync(CoreWebView2 cw)
         {
@@ -112,8 +188,6 @@ namespace Doorpi
     if (window.__doorpiGenericInjected) return;
     window.__doorpiGenericInjected = true;
 
-    // ── ESC: fecha VKB primeiro, depois fecha o app ───────────────────────
-    // stopImmediatePropagation impede que SPAs (Twitch, Kick) consumam o evento.
     window.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
             try { e.preventDefault(); e.stopImmediatePropagation(); } catch(_) {}
@@ -122,17 +196,17 @@ namespace Doorpi
         }
     }, true);
 
-function isInput(el) {
-    if (!el) return false;
-    if (el.tagName === 'INPUT') {
-        const t = (el.type || '').toLowerCase();
-        return t === 'text' || t === 'search' || t === 'email' ||
-               t === 'password' || t === 'url' || t === 'tel' || t === '';
+    function isInput(el) {
+        if (!el) return false;
+        if (el.tagName === 'INPUT') {
+            const t = (el.type || '').toLowerCase();
+            return t === 'text' || t === 'search' || t === 'email' ||
+                   t === 'password' || t === 'url' || t === 'tel' || t === '';
+        }
+        return el.tagName === 'TEXTAREA' ||
+               el.isContentEditable ||
+               (el.tagName === 'DIV' && el.getAttribute('role') === 'textbox');
     }
-    return el.tagName === 'TEXTAREA' ||
-           el.isContentEditable ||
-           (el.tagName === 'DIV' && el.getAttribute('role') === 'textbox');
-}
 
     function init() {
         if (!document.body) { setTimeout(init, 16); return; }
@@ -142,7 +216,6 @@ function isInput(el) {
         patchHistory();
     }
 
-    // ── Rastreamento de navegação ─────────────────────────────────────────
     let _navDepth = 0;
     function patchHistory() {
         const origPush = history.pushState.bind(history);
@@ -150,20 +223,15 @@ function isInput(el) {
         window.addEventListener('popstate', () => { _navDepth = Math.max(0, _navDepth - 1); });
     }
 
-    // ── Cursor real via C# ────────────────────────────────────────────────
-    // O JS rastreia posição lógica; C# recebe e chama SetCursorPos + mouse_event.
-    // Não há cursor SVG no DOM — o OS cursor é único, sem conflito.
-    let cursorX    = window.innerWidth  / 2;
-    let cursorY    = window.innerHeight / 2;
+    let cursorX = window.innerWidth / 2;
+    let cursorY = window.innerHeight / 2;
     let _speedMult = 1;
     const SPEED_BASE = 1;
-    const SPEED_MAX  = 3;
-
-    // Último valor enviado — evita postMessages redundantes
+    const SPEED_MAX = 3;
     let _sentX = -1, _sentY = -1;
 
     function moveCursor(dx, dy) {
-        cursorX = Math.max(0, Math.min(window.innerWidth  - 1, cursorX + dx));
+        cursorX = Math.max(0, Math.min(window.innerWidth - 1, cursorX + dx));
         cursorY = Math.max(0, Math.min(window.innerHeight - 1, cursorY + dy));
         const ix = Math.round(cursorX), iy = Math.round(cursorY);
         if (ix !== _sentX || iy !== _sentY) {
@@ -172,23 +240,18 @@ function isInput(el) {
         }
     }
 
-    function doClick() {
-        try { window.chrome.webview.postMessage('gp_click'); } catch(_) {}
-    }
+    function doClick() { try { window.chrome.webview.postMessage('gp_click'); } catch(_) {} }
 
-    // ── Botão voltar ──────────────────────────────────────────────────────
     function goBack() {
-        if (_navDepth > 0) { window.history.back(); }
-        else { try { window.chrome.webview.postMessage('close_app'); } catch(_) {} }
+        if (_navDepth > 0) window.history.back();
+        else try { window.chrome.webview.postMessage('close_app'); } catch(_) {}
     }
 
-    // ── VKB estilos ───────────────────────────────────────────────────────
-    function injectVkbStyles() {
-        if (document.getElementById('doorpi-vkb-style')) return;
-        const s = document.createElement('style');
-        s.id = 'doorpi-vkb-style';
-        // ATENÇÃO: cada string é uma linha CSS distinta; NÃO duplicar seletores de abertura.
-        s.textContent = [
+function injectVkbStyles() {
+        if (window.__doorpiVkbStylesInjected) return;
+        window.__doorpiVkbStylesInjected = true;
+
+        const cssText = [
             '.doorpi-vkb-overlay{position:fixed;bottom:0;left:0;right:0;z-index:2147483647;',
             'padding:0 clamp(24px,4vw,80px) clamp(24px,3vh,48px);',
             'background:linear-gradient(to top,rgba(5,5,10,0.99) 65%,rgba(5,5,10,0.95) 85%,transparent 100%);',
@@ -230,24 +293,34 @@ function isInput(el) {
             '.doorpi-vkb-key[data-key=shift]{font-size:clamp(15px,1.6vw,22px);}',
             '.doorpi-vkb-key[data-key=shift].shifted{background:rgba(255,255,255,0.2);border-color:rgba(255,255,255,0.3);color:#fff;}',
             '.doorpi-vkb-key[data-key=shift].shifted.focused{background:rgba(255,255,255,0.97);color:#080810;}',
-            'body.doorpi-hide-native-cursor * { cursor: none !important; }',
-            '#doorpi-cursor { pointer-events: none; }',
             '.doorpi-vkb-hint{display:flex;align-items:center;gap:4px;flex-shrink:0;',
             'font-size:clamp(11px,1vw,14px);color:rgba(255,255,255,0.35);letter-spacing:0.04em;white-space:nowrap;}',
             '.doorpi-vkb-badge{display:inline-flex;align-items:center;justify-content:center;',
             'padding:2px 6px;border-radius:5px;background:rgba(255,255,255,0.1);',
             'border:1px solid rgba(255,255,255,0.18);font-size:clamp(9px,0.85vw,12px);',
-            'font-weight:700;color:rgba(255,255,255,0.5);letter-spacing:0.05em;}',
+            'font-weight:700;color:rgba(255,255,255,0.5);letter-spacing:0.05em;}'
         ].join('');
-        document.head.appendChild(s);
+
+        try {
+
+            const sheet = new CSSStyleSheet();
+            sheet.replaceSync(cssText);
+            document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+        } catch (e) {
+            // Fallback apenas de segurança (se for um site muito antigo)
+            const s = document.createElement('style');
+            s.id = 'doorpi-vkb-style';
+            s.textContent = cssText;
+            document.head.appendChild(s);
+        }
     }
 
-    // ── VKB lógica ────────────────────────────────────────────────────────
     const FLAT_KEYS = [
         '1','2','3','4','5','6','7','8','9','0',
         'q','w','e','r','t','y','u','i','o','p',
         'a','s','d','f','g','h','j','k','l','\u232b',
         'shift','z','x','c','v','b','n','m',',','.',
+        '@','_','-','/','?','!','+','*','.com','.br',
         'space','cancel','ok',
     ];
     const KEY_ROWS = [
@@ -255,17 +328,18 @@ function isInput(el) {
         ['q','w','e','r','t','y','u','i','o','p'],
         ['a','s','d','f','g','h','j','k','l','\u232b'],
         ['shift','z','x','c','v','b','n','m',',','.'],
+        ['@','_','-','/','?','!','+','*','.com','.br'],
         ['space','cancel','ok'],
     ];
     const LABELS = { '\u232b':'\u232b', shift:'\u21e7', space:'Espaço', cancel:'Cancelar', ok:'OK' };
 
-    let _vkbEl        = null;
-    let _vkbShifted   = true;
-    let _vkbInputEl   = null;
+    let _vkbEl = null;
+    let _vkbShifted = true;
+    let _vkbInputEl = null;
     let _vkbCursorPos = 0;
-    let _vkbFocusKey  = 'q';
-    let _vkbIsOpen    = false;
-    let _vkbClosing   = false;   // flag para bloquear re-abertura imediata após fechar
+    let _vkbFocusKey = 'q';
+    let _vkbIsOpen = false;
+    let _vkbClosing = false;
 
     function _vkbBuild() {
         if (_vkbEl) return;
@@ -273,52 +347,81 @@ function isInput(el) {
         _vkbEl.className = 'doorpi-vkb-overlay';
         _vkbEl.style.display = 'none';
 
-        const keysHtml = FLAT_KEYS.map(k =>
-            '<button class=""doorpi-vkb-key"" data-key=""' + k + '"" tabindex=""-1"">' +
-            (LABELS[k] || k) + '</button>'
-        ).join('');
+        const wrap = document.createElement('div');
+        wrap.className = 'doorpi-vkb-preview-wrap';
 
-        _vkbEl.innerHTML =
-            '<div class=""doorpi-vkb-preview-wrap"">' +
-              '<span class=""doorpi-vkb-preview-label"">Digitando</span>' +
-              '<div class=""doorpi-vkb-preview-text"" id=""doorpi-vkb-preview""></div>' +
-              '<span class=""doorpi-vkb-hint""><span class=""doorpi-vkb-badge"">L1</span>◄ ►<span class=""doorpi-vkb-badge"">R1</span></span>' +
-            '</div>' +
-            '<div class=""doorpi-vkb-grid"">' + keysHtml + '</div>';
+        const label = document.createElement('span');
+        label.className = 'doorpi-vkb-preview-label';
+        label.textContent = 'Digitando';
 
-        document.body.appendChild(_vkbEl);
+        const preview = document.createElement('div');
+        preview.className = 'doorpi-vkb-preview-text';
+        preview.id = 'doorpi-vkb-preview';
 
-        // pointerdown + preventDefault: pressiona a tecla SEM roubar o foco do input
-        _vkbEl.querySelectorAll('.doorpi-vkb-key').forEach(btn => {
-            btn.addEventListener('pointerdown', e => {
-                e.preventDefault();
-                _vkbPressKey(btn.dataset.key);
-            });
+        const hint = document.createElement('span');
+        hint.className = 'doorpi-vkb-hint';
+        
+        const b1 = document.createElement('span'); b1.className = 'doorpi-vkb-badge'; b1.textContent = 'L1';
+        const b2 = document.createElement('span'); b2.className = 'doorpi-vkb-badge'; b2.textContent = 'R1';
+        hint.appendChild(b1);
+        hint.appendChild(document.createTextNode(' ◄ ► '));
+        hint.appendChild(b2);
+
+        wrap.appendChild(label);
+        wrap.appendChild(preview);
+        wrap.appendChild(hint);
+
+        const grid = document.createElement('div');
+        grid.className = 'doorpi-vkb-grid';
+
+        FLAT_KEYS.forEach(k => {
+            const btn = document.createElement('button');
+            btn.className = 'doorpi-vkb-key';
+            btn.dataset.key = k;
+            btn.tabIndex = -1;
+            btn.textContent = LABELS[k] || k;
+            
+            // Reduz a fonte levemente para o botão '.com' caber melhor
+            if(k.length > 1 && k !== 'shift' && k !== 'space' && k !== 'cancel' && k !== 'ok') {
+                btn.style.fontSize = 'clamp(11px, 1vw, 15px)';
+            }
+
+            btn.addEventListener('pointerdown', e => { e.preventDefault(); _vkbPressKey(k); });
+            grid.appendChild(btn);
         });
+
+        _vkbEl.appendChild(wrap);
+        _vkbEl.appendChild(grid);
+        document.body.appendChild(_vkbEl);
     }
 
-    function _vkbEsc(str) {
-        return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/""/g,'&quot;');
-    }
-
-    // Hack para bypass do setter sintético do React/frameworks
     function _setNativeValue(element, value) {
         const proto = element.tagName === 'INPUT' ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
         const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
         if (nativeSetter) { nativeSetter.call(element, value); }
-        else              { element.value = value; }
+        else { element.value = value; }
     }
 
     function _vkbRenderPreview() {
         const el = document.getElementById('doorpi-vkb-preview');
         if (!el || !_vkbInputEl) return;
+        
+        // Verifica se é um campo de senha
+        const isPassword = _vkbInputEl.type === 'password';
         const isEditable = _vkbInputEl.isContentEditable || _vkbInputEl.tagName === 'DIV';
-        const txt = isEditable ? (_vkbInputEl.textContent || '') : (_vkbInputEl.value || '');
-        const fmt = s => _vkbEsc(s).replace(/ /g, '&nbsp;');
+        let txt = isEditable ? (_vkbInputEl.textContent || '') : (_vkbInputEl.value || '');
+        
+        if (isPassword) {
+            txt = '•'.repeat(txt.length);
+        }
+
         const pos = Math.min(_vkbCursorPos, txt.length);
-        el.innerHTML = fmt(txt.slice(0, pos)) +
-                       '<span class=""doorpi-vkb-cursor""></span>' +
-                       fmt(txt.slice(pos));
+        el.textContent = ''; 
+        const cursor = document.createElement('span');
+        cursor.className = 'doorpi-vkb-cursor';
+        el.appendChild(document.createTextNode(txt.slice(0, pos).replace(/ /g, '\u00A0')));
+        el.appendChild(cursor);
+        el.appendChild(document.createTextNode(txt.slice(pos).replace(/ /g, '\u00A0')));
     }
 
     function _vkbSetShift(on) {
@@ -327,8 +430,7 @@ function isInput(el) {
         if (btn) btn.classList.toggle('shifted', on);
         if (_vkbEl) _vkbEl.querySelectorAll('.doorpi-vkb-key').forEach(k => {
             const key = k.dataset.key;
-            if (key && key.length === 1 && key >= 'a' && key <= 'z')
-                k.textContent = on ? key.toUpperCase() : key;
+            if (key && key.length === 1 && key >= 'a' && key <= 'z') k.textContent = on ? key.toUpperCase() : key;
         });
     }
 
@@ -345,9 +447,9 @@ function isInput(el) {
                 if (KEY_ROWS[r][c] === _vkbFocusKey) { rIdx = r; cIdx = c; found = true; }
             }
         }
-        if (dir === 'up')    rIdx = Math.max(0, rIdx - 1);
-        if (dir === 'down')  rIdx = Math.min(KEY_ROWS.length - 1, rIdx + 1);
-        if (dir === 'left')  cIdx = Math.max(0, cIdx - 1);
+        if (dir === 'up') rIdx = Math.max(0, rIdx - 1);
+        if (dir === 'down') rIdx = Math.min(KEY_ROWS.length - 1, rIdx + 1);
+        if (dir === 'left') cIdx = Math.max(0, cIdx - 1);
         if (dir === 'right') cIdx = Math.min(KEY_ROWS[rIdx].length - 1, cIdx + 1);
         cIdx = Math.min(cIdx, KEY_ROWS[rIdx].length - 1);
         _vkbSetFocus(KEY_ROWS[rIdx][cIdx]);
@@ -358,15 +460,13 @@ function isInput(el) {
         const isEditable = _vkbInputEl.isContentEditable || _vkbInputEl.tagName === 'DIV';
         if (isEditable) {
             _vkbInputEl.focus();
-            const key  = dir === 'left' ? 'ArrowLeft' : 'ArrowRight';
+            const key = dir === 'left' ? 'ArrowLeft' : 'ArrowRight';
             const code = dir === 'left' ? 37 : 39;
             _vkbInputEl.dispatchEvent(new KeyboardEvent('keydown', { bubbles:true, cancelable:true, key, keyCode:code, which:code, composed:true }));
-            setTimeout(() => {
-                if (_vkbInputEl) _vkbInputEl.dispatchEvent(new KeyboardEvent('keyup', { bubbles:true, key, keyCode:code, composed:true }));
-            }, 20);
+            setTimeout(() => { if (_vkbInputEl) _vkbInputEl.dispatchEvent(new KeyboardEvent('keyup', { bubbles:true, key, keyCode:code, composed:true })); }, 20);
         } else {
             const txt = _vkbInputEl.value || '';
-            if (dir === 'left')  _vkbCursorPos = Math.max(0, _vkbCursorPos - 1);
+            if (dir === 'left') _vkbCursorPos = Math.max(0, _vkbCursorPos - 1);
             if (dir === 'right') _vkbCursorPos = Math.min(txt.length, _vkbCursorPos + 1);
             try { _vkbInputEl.setSelectionRange(_vkbCursorPos, _vkbCursorPos); } catch(e) {}
         }
@@ -381,17 +481,15 @@ function isInput(el) {
             const dt = new DataTransfer();
             dt.setData('text/plain', char);
             const pasteEvt = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true, composed: true });
-            if (!_vkbInputEl.dispatchEvent(pasteEvt)) {
-                document.execCommand('insertText', false, char);
-            }
+            if (!_vkbInputEl.dispatchEvent(pasteEvt)) document.execCommand('insertText', false, char);
             _vkbInputEl.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
-            _vkbCursorPos = (_vkbInputEl.textContent || '').length;
+            _vkbCursorPos += char.length;
         } else {
-            const val     = _vkbInputEl.value || '';
+            const val = _vkbInputEl.value || '';
             const newText = val.slice(0, _vkbCursorPos) + char + val.slice(_vkbCursorPos);
             _setNativeValue(_vkbInputEl, newText);
-            _vkbCursorPos++;
-            _vkbInputEl.dispatchEvent(new Event('input',  { bubbles: true, composed: true }));
+            _vkbCursorPos += char.length;
+            _vkbInputEl.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
             _vkbInputEl.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
         }
     }
@@ -406,11 +504,11 @@ function isInput(el) {
             _vkbCursorPos = Math.max(0, (_vkbInputEl.textContent || '').length);
         } else {
             if (_vkbCursorPos > 0) {
-                const val     = _vkbInputEl.value || '';
+                const val = _vkbInputEl.value || '';
                 const newText = val.slice(0, _vkbCursorPos - 1) + val.slice(_vkbCursorPos);
                 _setNativeValue(_vkbInputEl, newText);
                 _vkbCursorPos--;
-                _vkbInputEl.dispatchEvent(new Event('input',  { bubbles: true, composed: true }));
+                _vkbInputEl.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
                 _vkbInputEl.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
             }
         }
@@ -418,47 +516,40 @@ function isInput(el) {
 
     function _vkbPressKey(key) {
         if (!_vkbInputEl) return;
-        if      (key === '\u232b') { _vkbDelete(); }
-        else if (key === 'shift')  { _vkbSetShift(!_vkbShifted); }
-        else if (key === 'space')  { _vkbInsert(' '); }
-        else if (key === 'ok')     { _vkbClose(); }
-        else if (key === 'cancel') { _vkbClose(); }
+        if (key === '\u232b') _vkbDelete();
+        else if (key === 'shift') _vkbSetShift(!_vkbShifted);
+        else if (key === 'space') _vkbInsert(' ');
+        else if (key === 'ok' || key === 'cancel') _vkbClose();
         else {
-            _vkbInsert(_vkbShifted ? key.toUpperCase() : key);
-            if (_vkbShifted) _vkbSetShift(false);
+            // Se for uma letra isolada e o shift estiver ativo, deixa maiúscula e desativa o shift
+            if (key.length === 1 && key >= 'a' && key <= 'z') {
+                _vkbInsert(_vkbShifted ? key.toUpperCase() : key);
+                if (_vkbShifted) _vkbSetShift(false);
+            } else {
+                // Se for símbolo ou bloco (.com), insere direto do jeito que é
+                _vkbInsert(key);
+            }
         }
         _vkbRenderPreview();
     }
 
     function _vkbOpen(targetEl) {
         if (_vkbClosing) return;
-
-        // Já aberto para o mesmo input → no-op
         if (_vkbIsOpen && _vkbInputEl === targetEl) return;
 
-        // Já aberto para UM OUTRO input → troca o input sem animar de novo
         if (_vkbIsOpen && _vkbInputEl && _vkbInputEl !== targetEl) {
             _vkbInputEl.removeEventListener('input', _vkbRenderPreview);
             _vkbInputEl = targetEl;
             const isEditable = targetEl.isContentEditable || targetEl.tagName === 'DIV';
-            _vkbCursorPos = isEditable
-                ? (targetEl.textContent || '').length
-                : (targetEl.selectionStart !== undefined
-                    ? targetEl.selectionStart
-                    : (targetEl.value || '').length);
+            _vkbCursorPos = isEditable ? (targetEl.textContent || '').length : (targetEl.selectionStart !== undefined ? targetEl.selectionStart : (targetEl.value || '').length);
             _vkbInputEl.addEventListener('input', _vkbRenderPreview);
             _vkbRenderPreview();
             return;
         }
 
-        // Abrir pela primeira vez
         _vkbInputEl = targetEl;
         const isEditable = targetEl.isContentEditable || targetEl.tagName === 'DIV';
-        _vkbCursorPos = isEditable
-            ? (targetEl.textContent || '').length
-            : (targetEl.selectionStart !== undefined
-                ? targetEl.selectionStart
-                : (targetEl.value || '').length);
+        _vkbCursorPos = isEditable ? (targetEl.textContent || '').length : (targetEl.selectionStart !== undefined ? targetEl.selectionStart : (targetEl.value || '').length);
 
         _vkbBuild();
         _vkbEl.style.display = 'block';
@@ -475,112 +566,65 @@ function isInput(el) {
 
     function _vkbClose() {
         if (!_vkbEl || !_vkbIsOpen) return;
-
-        // _vkbClosing DEVE ser setado ANTES do blur para que o focusin handler
-        // que blur() vai disparar no próximo elemento não reabra o VKB.
         _vkbClosing = true;
-        _vkbIsOpen  = false;
+        _vkbIsOpen = false;
         _vkbEl.classList.remove('visible');
 
         if (_vkbInputEl) {
             _vkbInputEl.removeEventListener('input', _vkbRenderPreview);
             const elToBlur = _vkbInputEl;
             _vkbInputEl = null;
-            // Blur em rAF para garantir que _vkbClosing já está true quando
-            // o evento focusout/focusin derivado disparar.
-            requestAnimationFrame(() => {
-                try { elToBlur.blur(); } catch(e) {}
-            });
+            requestAnimationFrame(() => { try { elToBlur.blur(); } catch(e) {} });
         }
 
         setTimeout(() => {
-            if (_vkbEl && !_vkbEl.classList.contains('visible'))
-                _vkbEl.style.display = 'none';
+            if (_vkbEl && !_vkbEl.classList.contains('visible')) _vkbEl.style.display = 'none';
             _vkbClosing = false;
-        }, 400);   // >= duração da transição CSS (0.32s)
+        }, 400);
     }
 
-    // ── Gerenciamento de foco nos inputs ──────────────────────────────────
     function bindInputFocus() {
-        // Tab / foco programático → abre VKB com pequeno delay para evitar
-        // aberturas espúrias causadas pelo próprio _vkbClose
         document.addEventListener('focusin', e => {
             if (_vkbClosing) return;
             const el = e.target;
             if (isInput(el) && !_vkbIsOpen) {
-                setTimeout(() => {
-                    if (!_vkbClosing && document.activeElement === el)
-                        _vkbOpen(el);
-                }, 50);
+                setTimeout(() => { if (!_vkbClosing && document.activeElement === el) _vkbOpen(el); }, 50);
             }
         }, true);
 
-        // Clique dentro do overlay → NÃO roubar foco do input (pointerdown já
-        // é tratado com preventDefault nos botões; aqui só bloqueamos propagação)
         document.addEventListener('mousedown', e => {
-            if (e.target.closest && e.target.closest('.doorpi-vkb-overlay')) {
-                e.preventDefault();
-                return;
-            }
-            if (isInput(e.target) && !_vkbIsOpen && !_vkbClosing)
-                _vkbOpen(e.target);
+            if (e.target.closest && e.target.closest('.doorpi-vkb-overlay')) { e.preventDefault(); return; }
+            if (isInput(e.target) && !_vkbIsOpen && !_vkbClosing) _vkbOpen(e.target);
         }, true);
 
-        // Clique fora do input e do VKB → fecha
         document.addEventListener('click', e => {
             const tgt = e.target;
-            if (_vkbIsOpen &&
-                !isInput(tgt) &&
-                !(tgt.closest && tgt.closest('.doorpi-vkb-overlay'))) {
-                _vkbClose();
-            }
+            if (_vkbIsOpen && !isInput(tgt) && !(tgt.closest && tgt.closest('.doorpi-vkb-overlay'))) { _vkbClose(); }
         }, true);
     }
 
-    // ── Gamepad ───────────────────────────────────────────────────────────
     let buttonStates = {}, buttonHoldTimes = {}, buttonRepeatCount = {};
 
-    // Dispara ArrowLeft/ArrowRight para navegar nativamente (funciona em inputs, sliders, menus)
     function fireArrow(left) {
-        const key  = left ? 'ArrowLeft'  : 'ArrowRight';
-        const code = left ? 'ArrowLeft'  : 'ArrowRight';
-        const kc   = left ? 37 : 39;
-        const el   = document.activeElement || document.body;
-        el.dispatchEvent(new KeyboardEvent('keydown', {
-            bubbles: true, cancelable: true,
-            key, code, keyCode: kc, which: kc, composed: true
-        }));
-        setTimeout(() => {
-            el.dispatchEvent(new KeyboardEvent('keyup', {
-                bubbles: true,
-                key, code, keyCode: kc, which: kc, composed: true
-            }));
-        }, 20);
+        const key = left ? 'ArrowLeft' : 'ArrowRight';
+        const kc = left ? 37 : 39;
+        const el = document.activeElement || document.body;
+        el.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key, code:key, keyCode: kc, which: kc, composed: true }));
+        setTimeout(() => { el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key, code:key, keyCode: kc, which: kc, composed: true })); }, 20);
     }
 
     function processButton(idx, pressed, action, canRepeat) {
         if (pressed) {
             if (!buttonStates[idx]) {
-                action();
-                buttonStates[idx] = true;
-                buttonHoldTimes[idx] = Date.now();
-                buttonRepeatCount[idx] = 0;
+                action(); buttonStates[idx] = true; buttonHoldTimes[idx] = Date.now(); buttonRepeatCount[idx] = 0;
             } else if (canRepeat !== false) {
-                const held     = Date.now() - buttonHoldTimes[idx];
+                const held = Date.now() - buttonHoldTimes[idx];
                 const expected = Math.floor((held - 350) / 70);
-                if (held > 350 && expected > buttonRepeatCount[idx]) {
-                    action();
-                    buttonRepeatCount[idx] = expected;
-                }
+                if (held > 350 && expected > buttonRepeatCount[idx]) { action(); buttonRepeatCount[idx] = expected; }
             }
-        } else {
-            buttonStates[idx] = false;
-        }
+        } else { buttonStates[idx] = false; }
     }
 
-    // Encontra o ancestral scrollável mais próximo sob o cursor.
-    // Sobe pelo DOM a partir do elemento sob (cursorX, cursorY) e retorna o
-    // primeiro nó que pode de fato scrollar na direção pedida (down=true/false).
     function _findScrollable(cx, cy, down) {
         let el = document.elementFromPoint(cx, cy);
         while (el && el !== document.documentElement) {
@@ -602,9 +646,10 @@ function isInput(el) {
         function poll() {
             try {
                 const gp = (navigator.getGamepads ? navigator.getGamepads() : [])[0];
-                if (gp && document.hasFocus()) {
+                const isFocusedOrPopup = document.hasFocus() || window.name === 'doorpi_popup';
+
+                if (gp && isFocusedOrPopup) {
                     if (_vkbIsOpen) {
-                        // ── Modo VKB: navega com D-Pad/stick, confirma com A ──
                         processButton(12,  !!gp.buttons[12]?.pressed, () => _vkbMoveFocus('up'));
                         processButton(13,  !!gp.buttons[13]?.pressed, () => _vkbMoveFocus('down'));
                         processButton(14,  !!gp.buttons[14]?.pressed, () => _vkbMoveFocus('left'));
@@ -615,53 +660,36 @@ function isInput(el) {
                         processButton(103, gp.axes[0] >  0.5,         () => _vkbMoveFocus('right'));
 
                         processButton(0,  !!gp.buttons[0]?.pressed,  () => _vkbPressKey(_vkbFocusKey), false);
-                        processButton(1,  !!gp.buttons[1]?.pressed,  _vkbClose, false);  // B fecha VKB
+                        processButton(1,  !!gp.buttons[1]?.pressed,  _vkbClose, false);
                         processButton(2,  !!gp.buttons[2]?.pressed,  () => _vkbDelete(), true);
                         processButton(3,  !!gp.buttons[3]?.pressed,  () => _vkbInsert(' '), true);
                         processButton(4,  !!gp.buttons[4]?.pressed,  () => _vkbMoveCursor('left'), true);
                         processButton(5,  !!gp.buttons[5]?.pressed,  () => _vkbMoveCursor('right'), true);
-                        processButton(9,  !!gp.buttons[9]?.pressed,  _vkbClose, false);  // Start fecha VKB
+                        processButton(9,  !!gp.buttons[9]?.pressed,  _vkbClose, false);
                         processButton(10, !!gp.buttons[10]?.pressed, () => _vkbSetShift(!_vkbShifted), false);
                     } else {
-                        // ── Modo Navegação: stick esquerdo move cursor OS ──────
                         const dx = gp.axes[0], dy = gp.axes[1];
                         if (Math.abs(dx) > 0.08 || Math.abs(dy) > 0.08) {
                             _speedMult = Math.min(_speedMult + 0.12, SPEED_MAX / SPEED_BASE);
                             moveCursor(dx * SPEED_BASE * _speedMult, dy * SPEED_BASE * _speedMult);
                         } else { _speedMult = 1; }
 
-                        // Analógico Direito: scroll vertical contínuo com delta-time
-                        // Scrola o container scrollável sob o cursor (funciona em Twitch, Netflix, etc.)
-                        const rsY = Math.abs(gp.axes[3] ?? 0) > Math.abs(gp.axes[2] ?? 0)
-                                    ? (gp.axes[3] ?? 0)
-                                    : 0;
+                        const rsY = Math.abs(gp.axes[3] ?? 0) > Math.abs(gp.axes[2] ?? 0) ? (gp.axes[3] ?? 0) : 0;
                         const now = performance.now();
                         const dt  = Math.max(1, now - _lastScrollTs);
                         if (Math.abs(rsY) > 0.08) {
-                            const sign   = rsY > 0 ? 1 : -1;
-                            const mag    = (rsY * rsY) * sign;
-                            const amount = mag * 80 * (dt / 16.67);
+                            const sign = rsY > 0 ? 1 : -1;
+                            const amount = (rsY * rsY) * sign * 80 * (dt / 16.67);
                             const target = _findScrollable(cursorX, cursorY, sign > 0);
-                            if (target === document.documentElement || target === document.body) {
-                                window.scrollBy({ top: amount, behavior: 'auto' });
-                            } else if (target) {
-                                target.scrollTop += amount;
-                            } else {
-                                window.scrollBy({ top: amount, behavior: 'auto' });
-                            }
+                            if (target === document.documentElement || target === document.body) { window.scrollBy({ top: amount, behavior: 'auto' }); } 
+                            else if (target) { target.scrollTop += amount; }
                         }
                         _lastScrollTs = now;
 
-                        // A = clique real via C# mouse_event
                         processButton(0, !!gp.buttons[0]?.pressed, doClick, false);
-                        // B = voltar / fechar
                         processButton(1, !!gp.buttons[1]?.pressed, goBack, false);
-
-                        // L1 = ArrowLeft, R1 = ArrowRight (navega nativamente em inputs, menus, sliders)
                         processButton(4, !!gp.buttons[4]?.pressed, () => fireArrow(true),  false);
                         processButton(5, !!gp.buttons[5]?.pressed, () => fireArrow(false), false);
-
-                        // D-Pad: scroll por saltos
                         processButton(12, !!gp.buttons[12]?.pressed, () => window.scrollBy(0,  -120));
                         processButton(13, !!gp.buttons[13]?.pressed, () => window.scrollBy(0,   120));
                         processButton(14, !!gp.buttons[14]?.pressed, () => window.scrollBy(-120, 0));
@@ -724,6 +752,7 @@ function isInput(el) {
                 profileName = nativeApp != default ? $"{safeName}-{nativeApp.Id}" : $"{safeName}-default";
             }
 
+
             string userDataPath = Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "Data", "browser-profiles", profileName);
 
@@ -745,6 +774,7 @@ function isInput(el) {
             _ytWebView.CoreWebView2.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
             _ytWebView.CoreWebView2.WebResourceRequested += YtOnWebResourceRequested;
             _ytWebView.CoreWebView2.WebMessageReceived += YtOnWebMessageReceived;
+            _ytWebView.CoreWebView2.NewWindowRequested += OnNewWindowRequested;
 
             await YtInjectAdBlockerAsync(_ytWebView.CoreWebView2);
 
@@ -773,6 +803,8 @@ function isInput(el) {
             if (_ytClosing || _ytWebView == null) return;
             _ytClosing = true;
 
+            try { _popupWindow?.Close(); } catch { } // Fecha popup pendente
+
             try
             {
                 _ytWebView.CoreWebView2?.ExecuteScriptAsync(
@@ -783,6 +815,7 @@ function isInput(el) {
             _ytWebView.KeyDown -= YtOnKeyDown;
             _ytWebView.CoreWebView2.WebResourceRequested -= YtOnWebResourceRequested;
             _ytWebView.CoreWebView2.WebMessageReceived -= YtOnWebMessageReceived;
+            _ytWebView.CoreWebView2.NewWindowRequested -= OnNewWindowRequested; // Removemos o evento adicionado
 
             RootGrid.Children.Remove(_ytWebView);
             try { _ytWebView.Dispose(); } catch { }
@@ -792,7 +825,6 @@ function isInput(el) {
             webView.Visibility = Visibility.Visible;
             ForceFocus();
             webView.CoreWebView2?.PostWebMessageAsString("{\"type\":\"mediaAppClosed\"}");
-
         }
 
         // ── Handlers ──────────────────────────────────────────────────────────
@@ -821,35 +853,48 @@ function isInput(el) {
             var msg = e.TryGetWebMessageAsString();
             if (msg == null) return;
 
+            // Identifica de qual tela veio o controle (Principal ou Popup)
+            bool isPopup = (_popupWebView != null && sender == _popupWebView.CoreWebView2);
+            WebView2 activeView = isPopup ? _popupWebView! : _ytWebView!;
+
             if (msg == "player_loaded")
             {
                 Dispatcher.Invoke(() => { if (_ytWebView != null) _ytWebView.ZoomFactor = 1.0; });
             }
             else if (msg == "close_app")
             {
-                Dispatcher.Invoke(CloseYouTubeInline);
+                Dispatcher.Invoke(() =>
+                {
+                    if (isPopup)
+                        _popupWindow?.Close(); // Se apertou B no popup, cancela o login e fecha o popup
+                    else
+                        CloseYouTubeInline();  // Se apertou B no site, fecha o app inteiro
+                });
             }
             else if (msg == "doorpi_profile_hacked_done") { /* ack */ }
             else if (msg.StartsWith("gp_move:"))
             {
-                // Mover o cursor real do Windows — WebView2 recebe MouseMove genuíno.
-                // Formato: "gp_move:viewportX:viewportY"
-                // WebMessageReceived já dispara na UI thread no WPF, sem Dispatcher.Invoke.
                 var span = msg.AsSpan(8);
                 int sep = span.IndexOf(':');
                 if (sep > 0 &&
                     int.TryParse(span[..sep], out int vx) &&
                     int.TryParse(span[(sep + 1)..], out int vy) &&
-                    _ytWebView != null)
+                    activeView != null)
                 {
-                    // PointToScreen: DIP WPF → pixels físicos de tela (já corrige DPI)
-                    var pt = _ytWebView.PointToScreen(new System.Windows.Point(vx, vy));
-                    SetCursorPos((int)pt.X, (int)pt.Y);
+                    Dispatcher.Invoke(() =>
+                    {
+                        try
+                        {
+                            // Calcula as coordenadas físicas exatas com base na janela atual
+                            var pt = activeView.PointToScreen(new System.Windows.Point(vx, vy));
+                            SetCursorPos((int)pt.X, (int)pt.Y);
+                        }
+                        catch { }
+                    });
                 }
             }
             else if (msg == "gp_click")
             {
-                // Clique real no cursor atual — sites React/Kick/Twitch recebem MouseDown/Up genuíno
                 mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
                 mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
             }
