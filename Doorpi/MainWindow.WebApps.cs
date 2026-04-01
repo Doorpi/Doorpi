@@ -640,16 +640,22 @@ function injectVkbStyles() {
         return document.documentElement;
     }
 
-    function startGamepad() {
-        let _lastScrollTs = performance.now();
+function startGamepad() {
+        let _lastTs = performance.now();
 
-        function poll() {
+        function poll(now) {
             try {
+                // Delta Time: tempo decorrido desde o último frame (em ms)
+                // Dividimos por 16.666 para normalizar a sensibilidade baseada em 60 FPS
+                const dt = (now - _lastTs) / 16.666;
+                _lastTs = now;
+
                 const gp = (navigator.getGamepads ? navigator.getGamepads() : [])[0];
                 const isFocusedOrPopup = document.hasFocus() || window.name === 'doorpi_popup';
 
                 if (gp && isFocusedOrPopup) {
                     if (_vkbIsOpen) {
+                        // ── Modo VKB: Navegação Digital ──
                         processButton(12,  !!gp.buttons[12]?.pressed, () => _vkbMoveFocus('up'));
                         processButton(13,  !!gp.buttons[13]?.pressed, () => _vkbMoveFocus('down'));
                         processButton(14,  !!gp.buttons[14]?.pressed, () => _vkbMoveFocus('left'));
@@ -668,28 +674,44 @@ function injectVkbStyles() {
                         processButton(9,  !!gp.buttons[9]?.pressed,  _vkbClose, false);
                         processButton(10, !!gp.buttons[10]?.pressed, () => _vkbSetShift(!_vkbShifted), false);
                     } else {
+                        // ── Modo Navegação: Cursor com Delta Time ──
                         const dx = gp.axes[0], dy = gp.axes[1];
-                        if (Math.abs(dx) > 0.08 || Math.abs(dy) > 0.08) {
-                            _speedMult = Math.min(_speedMult + 0.12, SPEED_MAX / SPEED_BASE);
-                            moveCursor(dx * SPEED_BASE * _speedMult, dy * SPEED_BASE * _speedMult);
-                        } else { _speedMult = 1; }
+                        // Deadzone leve de 0.1 para evitar drift
+                        if (Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1) {
+                            // Aceleração agora escala com o tempo real (dt)
+                            _speedMult = Math.min(_speedMult + 0.12 * dt, SPEED_MAX / SPEED_BASE);
 
-                        const rsY = Math.abs(gp.axes[3] ?? 0) > Math.abs(gp.axes[2] ?? 0) ? (gp.axes[3] ?? 0) : 0;
-                        const now = performance.now();
-                        const dt  = Math.max(1, now - _lastScrollTs);
-                        if (Math.abs(rsY) > 0.08) {
-                            const sign = rsY > 0 ? 1 : -1;
-                            const amount = (rsY * rsY) * sign * 80 * (dt / 16.67);
-                            const target = _findScrollable(cursorX, cursorY, sign > 0);
-                            if (target === document.documentElement || target === document.body) { window.scrollBy({ top: amount, behavior: 'auto' }); } 
-                            else if (target) { target.scrollTop += amount; }
+                            const SENSE = 8;
+                            // Multiplicamos o movimento por dt para manter a velocidade constante independente do FPS
+                            const moveX = dx * SENSE * _speedMult * dt;
+                            const moveY = dy * SENSE * _speedMult * dt;
+                            moveCursor(moveX, moveY);
+                        } else { 
+                            _speedMult = 1; 
                         }
-                        _lastScrollTs = now;
 
+                        // ── Scroll com Delta Time ──
+                        const rsY = Math.abs(gp.axes[3] ?? 0) > Math.abs(gp.axes[2] ?? 0) ? (gp.axes[3] ?? 0) : 0;
+                        if (Math.abs(rsY) > 0.1) {
+                            const sign = rsY > 0 ? 1 : -1;
+                            // Scroll suave normalizado por dt
+                            const amount = (rsY * rsY) * sign * 40 * dt;
+                            const target = _findScrollable(cursorX, cursorY, sign > 0);
+                            
+                            if (target === document.documentElement || target === document.body) { 
+                                window.scrollBy({ top: amount, behavior: 'auto' }); 
+                            } else if (target) { 
+                                target.scrollTop += amount; 
+                            }
+                        }
+
+                        // Botões de clique e navegação rápida
                         processButton(0, !!gp.buttons[0]?.pressed, doClick, false);
                         processButton(1, !!gp.buttons[1]?.pressed, goBack, false);
                         processButton(4, !!gp.buttons[4]?.pressed, () => fireArrow(true),  false);
                         processButton(5, !!gp.buttons[5]?.pressed, () => fireArrow(false), false);
+
+                        // D-Pad: Scroll por saltos fixos
                         processButton(12, !!gp.buttons[12]?.pressed, () => window.scrollBy(0,  -120));
                         processButton(13, !!gp.buttons[13]?.pressed, () => window.scrollBy(0,   120));
                         processButton(14, !!gp.buttons[14]?.pressed, () => window.scrollBy(-120, 0));
@@ -699,7 +721,7 @@ function injectVkbStyles() {
             } catch(e) {}
             requestAnimationFrame(poll);
         }
-        poll();
+        requestAnimationFrame(poll);
     }
 
     init();
