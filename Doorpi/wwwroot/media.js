@@ -161,7 +161,7 @@ let _currentHomeTab = 'games';
         gap: 8px;
         font-family: 'Outfit', sans-serif;
         font-size: clamp(0.6rem, 1vw, 1.4rem);
-        color: rgba(255,255,255,0.16);
+
         letter-spacing: 0.05em;
         user-select: none;
     }
