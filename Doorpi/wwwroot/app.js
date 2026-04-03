@@ -31,7 +31,8 @@ function reorderGameGrid() {
     const grid = document.getElementById('gameGrid');
     if (!grid) return;
     const btnAdd = document.getElementById('btnAdd');
-    const cards = Array.from(grid.querySelectorAll('.card:not(.add-card)'));
+  
+    const cards = Array.from(grid.querySelectorAll('.card:not(.add-card):not(.loading-card)'));
 
     const featured = cards.find(c => c.classList.contains('featured'));
     const rest = cards.filter(c => !c.classList.contains('featured'));
@@ -62,6 +63,11 @@ function reorderGameGrid() {
         if (btnAdd) grid.insertBefore(card, btnAdd);
         else grid.appendChild(card);
     });
+    const loadingCards = Array.from(grid.querySelectorAll('.card.loading-card'));
+    loadingCards.forEach(c => {
+        if (btnAdd) grid.insertBefore(c, btnAdd);
+        else grid.appendChild(c);
+    });
 }
 
 window.trackGameOpened = function (gameId) {
@@ -85,6 +91,18 @@ window.chrome.webview.addEventListener('message', event => {
         else if (data.type === 'installedAppsList') {
             allInstalledApps = data.apps;
             applyFilterAndRender();
+        }
+        else if (data.type === 'installedAppsUpdated') {
+            const modal = document.getElementById('addGameContainer');
+            if (!modal || modal.style.display === 'none') return;
+            allInstalledApps = data.apps;
+            applyFilterAndRender();
+        }
+        else if (data.type === 'showLoadingCards') {
+            showLoadingCards(data.count, data.tab || 'games');
+        }
+        else if (data.type === 'clearLoadingCards') {
+            clearLoadingCards('games');
         }
         else if (data.type === 'showSetup') {
             if (typeof openSetup === 'function') openSetup();
@@ -312,6 +330,7 @@ function applyFilterAndRender() {
         filtered = allInstalledApps.filter(a => allowedPlatforms.includes(a.Source || a.source));
     }
 
+
     populateAppModal(filtered);
 }
 
@@ -326,6 +345,7 @@ document.getElementById('btnAdd').addEventListener('click', () => {
     showGlobalLoading(t('detectingLibrary'), t('readingApps'));
     switchTab('apps');
     postToHost({ action: 'requestInstalledApps' });
+    postToHost({ action: 'startAppPolling' });
 });
 
 document.getElementById('btnAddMedia')?.addEventListener('click', () => {
@@ -340,6 +360,7 @@ document.getElementById('btnAddMedia')?.addEventListener('click', () => {
     showGlobalLoading(t('detectingLibrary'), t('readingApps'));
     switchTab('apps');
     postToHost({ action: 'requestInstalledApps' });
+    postToHost({ action: 'startAppPolling' });
 });
 
 function closeModal() {
@@ -349,7 +370,7 @@ function closeModal() {
     isModalOpen = false;
     hideGlobalLoading();
 
-   
+    postToHost({ action: 'stopAppPolling' });
     window.focusFeaturedCard?.();
 }
 
@@ -452,6 +473,7 @@ function populateAppModal(apps) {
         if (selected.length > 0) {
             selected.forEach(g => newGameIdsThisSession.add(g.LaunchUrl || g.Path));
             postToHost({ action: 'addSelectedGames', games: selected });
+            showLoadingCards(selected.length, 'games');
             showGlobalLoading(t('downloadingCovers'), t('readingApps'));
             setTimeout(closeModal, 3000);
         } else {
@@ -521,29 +543,7 @@ function renderFolderList(folders) {
                     <button class="icon-btn delete-btn" tabindex="0" data-path="${pSafe}">${t('btnDeleteLabel')}</button>
                 </div>
             </div>
-            <div class="folder-stats">
-                <div class="folder-stat">
-                    <span class="folder-stat-value">${subCount}</span>
-                    <span class="folder-stat-label">${t('statSubfolders')}</span>
-                </div>
-                <div class="folder-stat">
-                    <span class="folder-stat-value">${exeCount}</span>
-                    <span class="folder-stat-label">${t('statExeFiles')}</span>
-                </div>
-                <div class="folder-stat">
-                    <span class="folder-stat-value">${tl}</span>
-                    <span class="folder-stat-label">${t('statScanTime')}</span>
-                </div>
-                <div class="folder-perf">
-                    <span class="folder-perf-dot ${pc}"></span>
-                    <span class="folder-perf-label ${pc}">${pl}</span>
-                </div>
-            </div>
             
-            <div class="folder-warning">
-                <span style="font-size: 14px;">⚠️</span>
-                <span>${t('folderWarningSlow')}</span>
-            </div>
         </div>`;
     }).join('');
 
@@ -614,7 +614,14 @@ function createGameCard(data) {
     const card = document.createElement('div');
 
     if (grid.querySelectorAll('.card:not(.add-card)').length >= 12) return;
-
+    const pendingLoading = grid.querySelector('.card.loading-card');
+    if (pendingLoading) {
+        // Promove featured para o real card se o loading era featured
+        if (pendingLoading.classList.contains('featured')) {
+            card.classList.add('featured');
+        }
+        pendingLoading.remove();
+    }
     card.className = 'card';
     card.tabIndex = 0;
     card.dataset.badgeNew = t('badgeNew');
@@ -776,13 +783,19 @@ function preloadImage(src) {
 
 // O crossfade definitivo para mesclagem de banners
 async function crossfadeBanner(el, newSrc) {
-    if (!el || !newSrc || el.src === newSrc) return;
+    if (!el || !newSrc) return;
+
+    // BUG FIX: Se a imagem já é a desejada, restaura a visibilidade (opacity 1)
+    if (el.src === newSrc || el.src.endsWith(newSrc)) {
+        el.style.opacity = '1';
+        return;
+    }
 
     // 1. Pré-carregamento e Decodificação em Background
     const tempImg = new Image();
     tempImg.src = newSrc;
     try {
-        await tempImg.decode(); // SÓ CONTINUA quando a imagem estiver pronta na GPU
+        await tempImg.decode();
     } catch (e) {
         console.warn("Erro ao decodificar imagem, seguindo sem pré-load");
     }
@@ -797,12 +810,11 @@ async function crossfadeBanner(el, newSrc) {
     const clone = el.cloneNode(true);
     clone.classList.add(cloneClass);
     clone.style.position = 'absolute';
-    clone.style.zIndex = parseInt(comp.zIndex) + 1; // Fica UM NÍVEL acima
+    clone.style.zIndex = parseInt(comp.zIndex) + 1;
     clone.style.pointerEvents = 'none';
     clone.style.opacity = comp.opacity;
-    clone.style.transition = 'opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1)'; // Curva mais suave
+    clone.style.transition = 'opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1)';
 
-    // Garante que o clone herde as máscaras para não ter bordas quadradas
     clone.style.webkitMaskImage = comp.webkitMaskImage;
     clone.style.maskImage = comp.maskImage;
     clone.style.webkitMaskComposite = comp.webkitMaskComposite;
@@ -812,13 +824,13 @@ async function crossfadeBanner(el, newSrc) {
 
     // 3. Preparar a Imagem Real (Nova) por baixo
     el.style.transition = 'none';
-    el.style.opacity = '1'; // A nova já nasce opaca POR BAIXO do clone
+    el.style.opacity = '1';
     el.src = newSrc;
 
     // Força o reflow
     void el.offsetWidth;
 
-    // 4. Iniciar o Fade Out do Clone (A velha some revelando a nova)
+    // 4. Iniciar o Fade Out do Clone
     requestAnimationFrame(() => {
         clone.style.opacity = '0';
         setTimeout(() => {
@@ -833,13 +845,21 @@ function switchHeroBackground(bgSrc, logoSrc, heroSrc) {
         window._heroCleanupTimer = null;
     }
     const heroImg = document.getElementById('heroImage');
-
     const logoImg = document.getElementById('gameLogo');
     const gridBg = document.getElementById('gridBgImg');
+    const bgBlur = document.getElementById('bgBlur');
 
     if (!bgSrc) return;
 
-    if (_currentBgSrc.split('?')[0] === bgSrc.split('?')[0]) return;
+    // BUG FIX: Se for a mesma imagem, aborta mas GARANTE as opacidades no talo!
+    if (_currentBgSrc.split('?')[0] === bgSrc.split('?')[0]) {
+        if (heroImg) heroImg.style.opacity = '1';
+        if (gridBg) gridBg.style.opacity = '1';
+        if (bgBlur) bgBlur.style.opacity = '1';
+        if (logoImg && logoImg.src) logoImg.classList.add('visible');
+        return;
+    }
+
     _currentBgSrc = bgSrc;
 
     cancelHeroTransition();
@@ -857,14 +877,18 @@ function switchHeroBackground(bgSrc, logoSrc, heroSrc) {
     Promise.all([loadPromise, minTimePromise]).then(() => {
         if (reqId !== _heroReqId) return;
 
-       
         if (heroImg) crossfadeBanner(heroImg, heroSrc || bgSrc);
 
-      
         if (gridBg) {
-            gridBg.style.transition = 'none'; 
+            gridBg.style.transition = 'none';
             gridBg.style.opacity = '1';
             gridBg.src = heroSrc || bgSrc;
+        }
+
+        if (bgBlur) {
+            bgBlur.style.transition = 'none';
+            bgBlur.style.opacity = '1';
+            if (bgBlur.tagName === 'IMG') bgBlur.src = heroSrc || bgSrc;
         }
 
         if (logoImg) {
@@ -917,28 +941,30 @@ async function setImgSrc(imgEl, src) {
         return;
     }
 
-    if (imgEl.src === src || imgEl.src.endsWith(src)) return;
-
+ 
+    if (imgEl.src === src || imgEl.src.endsWith(src)) {
+        imgEl.style.opacity = '1';
+        return;
+    }
 
     const tmp = new Image();
-
     tmp.loading = "eager";
     tmp.decoding = "async";
     tmp.src = src;
 
     try {
-       
         await tmp.decode();
 
-        
         if (imgEl.__req === req) {
             imgEl.src = src;
-          
             imgEl.style.transition = 'none';
+            imgEl.style.opacity = '1';
         }
     } catch (e) {
-       
-        if (imgEl.__req === req) imgEl.src = src;
+        if (imgEl.__req === req) {
+            imgEl.src = src;
+            imgEl.style.opacity = '1';
+        }
     }
 }
 // Função para otimizar a abertura do menu
@@ -1946,7 +1972,37 @@ document.addEventListener('focusin', () => {
         }, 80);
     }
 });
+function showLoadingCards(count, tab = 'games') {
+    const gridId = tab === 'games' ? 'gameGrid' : 'mediaGrid';
+    const grid = document.getElementById(gridId);
+    if (!grid) return;
 
+    const btnRef = tab === 'games'
+        ? document.getElementById('btnAdd')
+        : document.getElementById('btnAddMedia');
+
+    // Quantos slots ainda cabem no carrossel
+    const existing = grid.querySelectorAll('.card:not(.add-card):not(.loading-card)').length;
+    const toShow = Math.min(count, Math.max(0, 12 - existing));
+
+    for (let i = 0; i < toShow; i++) {
+        const card = document.createElement('div');
+        card.className = 'card loading-card';
+        // Primeiro slot vira featured-size visualmente
+        if (i === 0 && !grid.querySelector('.card.featured:not(.loading-card)')) {
+            card.classList.add('featured');
+        }
+        if (btnRef) grid.insertBefore(card, btnRef);
+        else grid.appendChild(card);
+    }
+}
+
+function clearLoadingCards(tab = 'games') {
+    const gridId = tab === 'games' ? 'gameGrid' : 'mediaGrid';
+    const grid = document.getElementById(gridId);
+    if (!grid) return;
+    grid.querySelectorAll('.card.loading-card').forEach(c => c.remove());
+}
 function clearHero() {
     // Se o menu estiver aberto, deixa a imagem intacta para ela subir no scroll
     const isNavMenuActive = document.body.classList.contains('nav-menu-active') || window.isNavMenuOpen;
@@ -1959,7 +2015,7 @@ function clearHero() {
         const gridBgImg = document.getElementById('gridBgImg');
 
         if (bgBlur) bgBlur.style.opacity = '1';
-        if (heroImg) heroImg.style.opacity = '0';
+        if (heroImg) heroImg.style.opacity = '1';
         if (logoEl) { logoEl.classList.remove('visible'); logoEl.style.opacity = ''; }
         if (gridBgImg) gridBgImg.removeAttribute('src');
 

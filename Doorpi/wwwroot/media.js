@@ -13,7 +13,6 @@ const NATIVE_APPS = [
     { id: 'appletv', name: 'Apple TV', sgdbQuery: 'Apple TV (Website)', url: 'https://tv.apple.com', type: 'browser', multiUser: true },
     { id: 'max', name: 'Max', sgdbQuery: 'HBO Max (Website)', url: 'https://www.max.com', type: 'browser', multiUser: true },
     { id: 'crunchyroll', name: 'Crunchyroll', sgdbQuery: 'Crunchyroll (Website)', url: 'https://www.crunchyroll.com', type: 'browser', multiUser: true },
-
 ];
 
 const MEDIA_GRID_LIMIT = 12;
@@ -27,32 +26,36 @@ let _currentHomeTab = 'games';
     s.textContent = `
 
     /* ── System Loading ── */
-    /* ── Card em carregamento ── */
-.card.media-card.is-loading img {
-    opacity: 0;
-}
-.card.media-card.is-loading::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    background: linear-gradient(
-        90deg,
-        rgba(255,255,255,0.04) 0%,
-        rgba(255,255,255,0.10) 40%,
-        rgba(255,255,255,0.04) 100%
-    );
-    background-size: 200% 100%;
-    animation: mediaCardShimmer 1.4s ease infinite;
-    z-index: 1;
-}
-.card.media-card.is-loading .title {
-    opacity: 0.3;
-}
-@keyframes mediaCardShimmer {
-    0%   { background-position: 200% 0; }
-    100% { background-position: -200% 0; }
-}
+    /* ── Card em carregamento (Skeletons) ── */
+    .card.is-loading {
+        pointer-events: none;
+    }
+    .card.is-loading img {
+        opacity: 0;
+    }
+    .card.is-loading::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: linear-gradient(
+            90deg,
+            rgba(255,255,255,0.04) 0%,
+            rgba(255,255,255,0.10) 40%,
+            rgba(255,255,255,0.04) 100%
+        );
+        background-size: 200% 100%;
+        animation: cardShimmer 1.4s ease infinite;
+        z-index: 1;
+    }
+    .card.is-loading .title {
+        opacity: 0;
+    }
+    @keyframes cardShimmer {
+        0%   { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+    }
+
     #systemLoadingOverlay {
         position: fixed;
         inset: 0;
@@ -111,9 +114,8 @@ let _currentHomeTab = 'games';
         padding: 0 clamp(24px, 3.2vw, 64px);
         position: relative;
         z-index: 2;
-            
-    -webkit-user-select: none;
-    user-select: none;
+        -webkit-user-select: none;
+        user-select: none;
     }
     .home-tab {
         background: none;
@@ -190,7 +192,8 @@ let _currentHomeTab = 'games';
 })();
 
 // ── System Loading ────────────────────────────────────────────────────────────
-function showSystemLoading(title, subtitle) {
+function showSystemLoading(title, subtitle, folders = []) {
+
     window.isSystemLoading = true;
 
     let overlay = document.getElementById('systemLoadingOverlay');
@@ -202,12 +205,34 @@ function showSystemLoading(title, subtitle) {
 
     overlay.classList.remove('hiding');
 
+    // Rows dos apps nativos
     const stepRows = NATIVE_APPS.map(app =>
         `<div class="sys-app-row" id="sysRow_${app.id}">
             <div class="sys-app-dot"></div>
             <span>${app.name}</span>
         </div>`
     ).join('');
+
+    // Rows das pastas (só renderiza se houver pastas)
+    const folderRows = folders.length > 0
+        ? `<div class="sys-section-sep" style="height:10px;"></div>
+           <div class="sys-section-label" style="font-size: 0.75rem; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 2px;">Pastas</div>
+           ${folders.map(f => {
+            const name = f.replace(/\\/g, '/').split('/').filter(Boolean).pop() || f;
+            return `<div class="sys-app-row" id="sysFolderRow_${CSS.escape(f)}" data-folder-path="${f.replace(/"/g, '&quot;')}">
+                   <div class="sys-app-dot"></div>
+                   <span>${name}</span>
+                   <span class="sys-folder-count">...</span>
+               </div>`;
+        }).join('')}`
+        : '';
+
+    // Status de Loading dos Jogos Iniciais
+    const syncRow = `<div class="sys-section-sep" style="height:10px;"></div>
+                     <div class="sys-app-row active" id="sysRow_artSync">
+                        <div class="sys-app-dot"></div>
+                        <span>Baixando capas dos jogos...</span>
+                     </div>`;
 
     overlay.innerHTML = `
         <div class="vb-wrap">
@@ -226,6 +251,8 @@ function showSystemLoading(title, subtitle) {
             </div>
             <div class="sys-apps-progress" id="sysAppsProgress">
                 ${stepRows}
+                ${folderRows}
+                ${syncRow}
             </div>
         </div>`;
 
@@ -236,6 +263,14 @@ function hideSystemLoading() {
     window.isSystemLoading = false;
     const overlay = document.getElementById('systemLoadingOverlay');
     if (!overlay || overlay.style.display === 'none') return;
+
+    // Atualiza a linha de progresso das artes para verde caso estivesse rodando
+    const syncRow = document.getElementById('sysRow_artSync');
+    if (syncRow) {
+        syncRow.classList.remove('active');
+        syncRow.classList.add('done');
+    }
+
     overlay.classList.add('hiding');
     setTimeout(() => {
         overlay.style.display = 'none';
@@ -305,12 +340,9 @@ function _moveMediaCardToTop(card) {
 
     card.classList.add('featured');
 
-
     const btnAddMedia = document.getElementById('btnAddMedia');
     grid.insertBefore(card, grid.firstChild);
-
     grid.appendChild(btnAddMedia);
-
 
     const img = card.querySelector('img');
     if (img) {
@@ -319,15 +351,14 @@ function _moveMediaCardToTop(card) {
         if (src) img.src = src;
     }
 
-
     if (_currentHomeTab === 'media') card._startInteraction?.();
 }
+
 function createMediaCard(data) {
     const grid = document.getElementById('mediaGrid');
     if (!grid) return;
     if (grid.querySelectorAll('.card:not(.add-card)').length >= MEDIA_GRID_LIMIT) return;
 
-    // ── Lê campos com fallback PascalCase / camelCase ──────────────────────
     const appId = data.Id || data.id || '';
     const appUrl = data.Url || data.url || '';
     const appType = data.Type || data.type || 'browser';
@@ -349,15 +380,11 @@ function createMediaCard(data) {
     card.dataset.staticHero = data.HeroStaticImage || data.heroStaticImage || '';
     card.dataset.staticLogo = data.LogoStaticImage || data.logoStaticImage || '';
 
-    // Primeiro card vira featured desta aba
     if (!grid.querySelector('.card.featured')) card.classList.add('featured');
 
     const img = document.createElement('img');
     img.decoding = 'async';
 
-
-
-    // Se não tem imagem ainda, entra em estado de carregamento
     const hasSrc = card.dataset.vertical || card.dataset.staticVertical;
     if (!hasSrc) card.classList.add('is-loading');
 
@@ -373,13 +400,11 @@ function createMediaCard(data) {
         if (src) {
             img.src = src;
             img.style.opacity = '1';
-            card.classList.remove('is-loading'); 
+            card.classList.remove('is-loading');
         }
     });
 
-    // ── startInteraction: idêntico ao createGameCard ───────────────────────
     const startInteraction = async () => {
-        // Só atualiza o hero se esta for a aba ativa
         if (_currentHomeTab === 'media') {
             const bgSrc = card.dataset.staticVertical || card.dataset.vertical;
             const logoSrc = card.dataset.staticLogo || card.dataset.logo;
@@ -411,7 +436,6 @@ function createMediaCard(data) {
         }, 200);
     };
 
-    // ── stopInteraction: idêntico ao createGameCard ────────────────────────
     const stopInteraction = () => {
         if (card._animTimer) clearTimeout(card._animTimer);
         if (document.activeElement === card || card.matches(':hover')) return;
@@ -434,7 +458,6 @@ function createMediaCard(data) {
     card._startInteraction = startInteraction;
     card._stopInteraction = stopInteraction;
 
-    // ── Eventos: mouse + gamepad (mesmo padrão do createGameCard) ──────────
     card.addEventListener('mouseenter', startInteraction);
     card.addEventListener('mouseleave', stopInteraction);
     card.addEventListener('focus', () => {
@@ -447,7 +470,7 @@ function createMediaCard(data) {
     });
     card.addEventListener('click', () => {
         _moveMediaCardToTop(card);
-        window.isMediaAppActive = true; 
+        window.isMediaAppActive = true;
         postToHost({ action: 'launchMediaApp', url: appUrl, appType: appType });
     });
     card.appendChild(img);
@@ -455,7 +478,6 @@ function createMediaCard(data) {
     title.className = 'title';
     title.innerText = appName;
     card.appendChild(title);
-
 
     const btnAddMedia = document.getElementById('btnAddMedia');
     grid.insertBefore(card, btnAddMedia);
@@ -469,7 +491,6 @@ function createMediaCard(data) {
 function renderMediaCarousel(apps) {
     const grid = document.getElementById('mediaGrid');
     if (!grid) return;
-    // Remove apenas cards existentes, preserva btnAddMedia
     grid.querySelectorAll('.card:not(.add-card)').forEach(c => c.remove());
     apps.slice(0, MEDIA_GRID_LIMIT).forEach(app => createMediaCard(app));
 }
@@ -479,18 +500,66 @@ window._mediaHandleMessage = (data) => {
     switch (data.type) {
         case 'nativeAppsLoaded':
             renderMediaCarousel(data.apps);
-            hideSystemLoading();
             break;
+
         case 'hideSystemLoading':
             hideSystemLoading();
             break;
+
         case 'nativeAppProgress':
             updateSysAppProgress(data.appId, data.state);
             break;
-      
+
+        // Cria os esqueletos ao adicionar jogos
+        case 'showLoadingCards': {
+            const grid = document.getElementById(data.tab === 'media' ? 'mediaGrid' : 'gameGrid');
+            if (!grid) break;
+
+            for (let i = 0; i < data.count; i++) {
+                const skel = document.createElement('div');
+                skel.className = 'card is-loading loading-skeleton'; // Utiliza exatamente a classe nativa 'card'
+                skel.tabIndex = -1; // Não pode receber foco
+
+                // Insere sempre APÓS o card featured (ou no começo se não houver)
+                const feat = grid.querySelector('.card.featured');
+                if (feat && feat.nextSibling) {
+                    grid.insertBefore(skel, feat.nextSibling);
+                } else if (feat) {
+                    grid.appendChild(skel);
+                } else {
+                    grid.insertBefore(skel, grid.firstChild);
+                }
+            }
+            break;
+        }
+
+        // Limpa os esqueletos assim que os downloads do C# finalizam
+        case 'clearLoadingCards': {
+            document.querySelectorAll('.loading-skeleton').forEach(el => el.remove());
+            break;
+        }
+
+        case 'scanProgress': {
+            const rows = document.querySelectorAll('#systemLoadingOverlay .sys-app-row[data-folder-path]');
+            let row = null;
+            rows.forEach(r => { if (r.dataset.folderPath === data.folder) row = r; });
+            if (!row) break;
+
+            row.classList.remove('active', 'done');
+            const countEl = row.querySelector('.sys-folder-count');
+
+            if (data.foundCount === -1) {
+                row.classList.add('active');
+                if (countEl) countEl.textContent = '...';
+            } else {
+                row.classList.add('done');
+                if (countEl) countEl.textContent = data.foundCount > 0 ? `${data.foundCount}` : '✓';
+            }
+            break;
+        }
+
         case 'mediaAppClosed':
             window.isMediaAppActive = false;
-          
             setTimeout(() => {
                 window.focus?.();
                 window.focusFeaturedCard?.();
@@ -498,7 +567,6 @@ window._mediaHandleMessage = (data) => {
             break;
     }
 };
-
 
 document.querySelectorAll('.home-tab').forEach(btn => {
     btn.addEventListener('click', () => switchHomeTab(btn.dataset.tab));

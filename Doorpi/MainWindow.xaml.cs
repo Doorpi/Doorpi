@@ -45,20 +45,30 @@ namespace Doorpi
         public string IconBase64 { get; set; } = "";
         public bool IsAdded { get; set; }
         public string Source { get; set; } = "";
-
     }
+
     public class UserProfile
     {
         public string Name { get; set; } = "";
         public string PhotoBase64 { get; set; } = "";
         public string SteamGridApiKey { get; set; } = "";
     }
+
     public class AppCacheModel
     {
         public HashSet<string> WindowsFingerprint { get; set; } = new();
-        public HashSet<string> FolderFingerprint { get; set; } = new();
+        public Dictionary<string, long> FolderTimestamps { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+     
+        public HashSet<string> SteamFingerprint { get; set; } = new();
+        public HashSet<string> EpicFingerprint { get; set; } = new();
+        public HashSet<string> GogFingerprint { get; set; } = new();
+
         public List<InstalledApp> WindowsApps { get; set; } = new();
         public List<InstalledApp> FolderApps { get; set; } = new();
+        public List<InstalledApp> SteamApps { get; set; } = new();
+        public List<InstalledApp> EpicApps { get; set; } = new();
+        public List<InstalledApp> GogApps { get; set; } = new();
     }
 
     public class FolderStats
@@ -66,18 +76,15 @@ namespace Doorpi
         public string Path { get; set; } = "";
         public int SubfolderCount { get; set; }
         public int ExeCount { get; set; }
-        public long EstimatedMs { get; set; }
     }
 
     // ========================= MAIN WINDOW =========================
 
     public partial class MainWindow : Window
     {
-
         private static readonly HttpClient httpClient = new HttpClient();
-        private static readonly HttpClient downloadClient = new HttpClient(); 
+        private static readonly HttpClient downloadClient = new HttpClient();
 
-        // Pastas de dados
         private readonly string dataFolder;
         private readonly string gridFolder;
         private readonly string heroFolder;
@@ -91,15 +98,16 @@ namespace Doorpi
         {
             return root.TryGetProperty(propName, out var prop) ? (prop.GetString() ?? fallback) : fallback;
         }
-        // Arquivos de estado
+
         private readonly string gamesFile;
         private readonly string foldersFile;
         private readonly string appCacheFile;
 
-        // Watchers para invalidação proativa de cache
         private readonly List<FileSystemWatcher> _folderWatchers = new();
-        private volatile bool _folderCacheInvalid = false;
         private volatile bool _windowsCacheInvalid = false;
+        private volatile bool _pollingActive = false;
+        private readonly SemaphoreSlim _cacheLock = new SemaphoreSlim(1, 1);
+        private DateTime _lastCacheBuilt = DateTime.MinValue;
 
         // ========================= CONSTRUTOR =========================
 
@@ -119,6 +127,7 @@ namespace Doorpi
             appCacheFile = Path.Combine(dataFolder, "appcache.json");
             userFile = Path.Combine(dataFolder, "user.json");
             mediaFile = Path.Combine(dataFolder, "media.json");
+
             Directory.CreateDirectory(Path.Combine(dataFolder, "extensions"));
             Directory.CreateDirectory(dataFolder);
             Directory.CreateDirectory(gridFolder);
@@ -129,7 +138,6 @@ namespace Doorpi
 
             if (!File.Exists(gamesFile)) File.WriteAllText(gamesFile, "[]");
             if (!File.Exists(foldersFile)) File.WriteAllText(foldersFile, "[]");
-
 
             InitializeAsync();
         }
@@ -157,10 +165,15 @@ namespace Doorpi
                     var apps = LoadMediaApps();
                     if (apps.Any()) SendMediaAppsToUI(apps);
                 });
+
                 if (NeedsSetup())
                 {
                     Dispatcher.InvokeAsync(() =>
                         webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"showSetup\"}"));
+                }
+                else
+                {
+                    _ = Task.Run(() => UpdateAppCacheAsync());
                 }
 
                 Dispatcher.InvokeAsync(() =>
@@ -172,11 +185,74 @@ namespace Doorpi
             webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
             webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
 
-            // Inicia watchers em background — sabemos de mudanças antes do usuário abrir o modal
             StartWatchers();
             _ = Task.Run(WatchWindowsRegistry);
         }
+        private HashSet<string> GetSteamFingerprint()
+        {
+            var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\Valve\Steam")
+                             ?? Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Valve\Steam");
 
+                if (key?.GetValue("InstallPath") is not string steamPath) return keys;
+
+                string configPath = Path.Combine(steamPath, "steamapps", "libraryfolders.vdf");
+                if (!File.Exists(configPath)) return keys;
+
+                var matches = Regex.Matches(File.ReadAllText(configPath), @"""path""\s+""([^""]+)""");
+                foreach (Match match in matches)
+                {
+                    string appsPath = Path.Combine(
+                        match.Groups[1].Value.Replace(@"\\", @"\"), "steamapps");
+
+                    if (!Directory.Exists(appsPath)) continue;
+
+                    foreach (var acf in Directory.GetFiles(appsPath, "appmanifest_*.acf"))
+                    {
+                        var fi = new FileInfo(acf);
+                        keys.Add($"{fi.Name}|{fi.LastWriteTimeUtc.Ticks}");
+                    }
+                }
+            }
+            catch (Exception ex) { Debug.WriteLine("SteamFingerprint: " + ex.Message); }
+            return keys;
+        }
+
+        private HashSet<string> GetEpicFingerprint()
+        {
+            var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                string manifestPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    "Epic", "EpicGamesLauncher", "Data", "Manifests");
+
+                if (!Directory.Exists(manifestPath)) return keys;
+
+                foreach (var file in Directory.GetFiles(manifestPath, "*.item"))
+                {
+                    var fi = new FileInfo(file);
+                    keys.Add($"{fi.Name}|{fi.LastWriteTimeUtc.Ticks}");
+                }
+            }
+            catch (Exception ex) { Debug.WriteLine("EpicFingerprint: " + ex.Message); }
+            return keys;
+        }
+
+        private HashSet<string> GetGogFingerprint()
+        {
+            var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\GOG.com\Games");
+                if (key == null) return keys;
+                foreach (var sub in key.GetSubKeyNames()) keys.Add(sub);
+            }
+            catch (Exception ex) { Debug.WriteLine("GogFingerprint: " + ex.Message); }
+            return keys;
+        }
         // ========================= WATCHERS =========================
         private UserProfile LoadUserProfile()
         {
@@ -193,12 +269,16 @@ namespace Doorpi
 
         private string GetSteamGridApiKey() => LoadUserProfile().SteamGridApiKey;
 
-        private void EnsureSteamGridAuth()
+        private async Task<string> SgdbGetStringAsync(string url)
         {
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
             var key = GetSteamGridApiKey();
             if (!string.IsNullOrEmpty(key))
-                httpClient.DefaultRequestHeaders.Authorization =
-                    new AuthenticationHeaderValue("Bearer", key);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
+
+            var response = await httpClient.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadAsStringAsync();
         }
 
         private bool NeedsSetup()
@@ -208,61 +288,25 @@ namespace Doorpi
                    string.IsNullOrWhiteSpace(profile.SteamGridApiKey);
         }
 
-        private async Task BuildAppCacheAndLoadUIAsync()
-        {
-            // ── 1. Scan de todas as fontes ──────────────────────────────────────────
-            EnsureSteamGridAuth();
-
-            var steamTask = Task.Run(() => { var r = GetSteamGames(); r.ForEach(a => a.Source = "Steam"); return r; });
-            var epicTask = Task.Run(() => { var r = GetEpicGames(); r.ForEach(a => a.Source = "Epic"); return r; });
-            var gogTask = Task.Run(() => { var r = GetGOGGames(); r.ForEach(a => a.Source = "GOG"); return r; });
-            var winTask = Task.Run(() => { return (ScanWindowsApps(), true); });
-            var folderTask = Task.Run(() => {
-                var r = GetWatchedFolderGames();
-                r.ForEach(a => a.Source = "Folder");
-                return (r, true);
-            });
-
-            await Task.WhenAll(steamTask, epicTask, gogTask, winTask, folderTask);
-
-            var (windows, _) = winTask.Result;
-            var (folders, __) = folderTask.Result;
-
-            // ── 2. Persiste cache ───────────────────────────────────────────────────
-            var cache = new AppCacheModel
-            {
-                WindowsApps = windows,
-                FolderApps = folders,
-                WindowsFingerprint = GetWindowsRegistryFingerprint(),
-                FolderFingerprint = GetFolderFingerprint(),
-            };
-            await Task.Run(() => SaveAppCache(cache));
-
-            Debug.WriteLine("[Setup] Cache construído. Aguardando hideLoading do JS.");
-        }
         private void StartWatchers()
         {
             foreach (var folder in GetWatchedFolderPaths())
             {
                 AddFolderWatcher(folder);
             }
-
-    
-            ResumePendingAnalyses();
         }
 
         private void AddFolderWatcher(string path)
         {
             if (!Directory.Exists(path)) return;
-            var w = new FileSystemWatcher(path, "*.exe")
+            var w = new FileSystemWatcher(path)
             {
                 IncludeSubdirectories = true,
                 NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.DirectoryName,
                 EnableRaisingEvents = true
             };
-            w.Created += (_, _) => _folderCacheInvalid = true;
-            w.Deleted += (_, _) => _folderCacheInvalid = true;
-            w.Renamed += (_, _) => _folderCacheInvalid = true;
+            // Cache invalidation é checada pelo timestamp no Diff, o watcher agora só existe
+            // se futuramente você quiser plugar eventos em realtime na UI.
             _folderWatchers.Add(w);
         }
 
@@ -271,7 +315,7 @@ namespace Doorpi
             var lastPrint = GetWindowsRegistryFingerprint();
             while (true)
             {
-                await Task.Delay(30_000); // checa a cada 30s em background
+                await Task.Delay(30_000);
                 var current = GetWindowsRegistryFingerprint();
                 if (!current.SetEquals(lastPrint))
                 {
@@ -308,47 +352,31 @@ namespace Doorpi
             catch { return ""; }
         }
 
-        // Lista hardcoded — espelha NATIVE_APPS do media.js
         private static readonly List<(string Id, string Name, string SgdbQuery, string Url, string Type, bool MultiUser)> _nativeApps = new()
-{
-    ("youtube",     "YouTube",      "YouTube (Website)",         "https://www.youtube.com/tv",   "webview", true ),
-    ("netflix",     "Netflix",      "Netflix (Website)",         "https://www.netflix.com",      "browser", true ),
-    ("twitch",      "Twitch",       "Twitch (Website)",          "https://www.twitch.tv",        "browser", false),
-    ("kick",        "Kick",         "Kick (Website)",            "https://www.kick.com",         "browser", false),
-    ("disneyplus",  "Disney +",      "Disney + (Website)",     "https://www.disneyplus.com",   "browser", true ),
-    ("primevideo",  "Prime Vídeo",  "Prime Video (Website)",     "https://www.primevideo.com",   "browser", true ),
-    ("appletv",     "Apple TV",    "Apple TV (Website)",   "https://tv.apple.com",         "browser", true ),
-    ("max",         "Max",          "HBO Max (Website)",         "https://www.max.com",          "browser", true ),
-    ("crunchyroll", "Crunchyroll",  "Crunchyroll (Website)",     "https://www.crunchyroll.com",  "browser", true ),
-  
-};
+        {
+            ("youtube",     "YouTube",      "YouTube (Website)",         "https://www.youtube.com/tv",   "webview", true ),
+            ("netflix",     "Netflix",      "Netflix (Website)",         "https://www.netflix.com",      "browser", true ),
+            ("twitch",      "Twitch",       "Twitch (Website)",          "https://www.twitch.tv",        "browser", false),
+            ("kick",        "Kick",         "Kick (Website)",            "https://www.kick.com",         "browser", false),
+            ("disneyplus",  "Disney +",      "Disney + (Website)",     "https://www.disneyplus.com",   "browser", true ),
+            ("primevideo",  "Prime Vídeo",  "Prime Video (Website)",     "https://www.primevideo.com",   "browser", true ),
+            ("appletv",     "Apple TV",    "Apple TV (Website)",   "https://tv.apple.com",         "browser", true ),
+            ("max",         "Max",          "HBO Max (Website)",         "https://www.max.com",          "browser", true ),
+            ("crunchyroll", "Crunchyroll",  "Crunchyroll (Website)",     "https://www.crunchyroll.com",  "browser", true ),
+        };
 
-
-        // ─────────────────────────────────────────────────────────────────────────────
-        // [3] MÉTODOS DE MÍDIA — adicione em uma nova seção "MEDIA APPS"
-        // ─────────────────────────────────────────────────────────────────────────────
 
         // ========================= MEDIA APPS =========================
 
-        /// <summary>
-        /// Inicializa os apps nativos após o setup.
-        /// Se media.json já tem todos os apps, apenas carrega e envia.
-        /// Se falta algum, baixa as capas e salva.
-        /// Reporta progresso para o JS via 'nativeAppProgress'.
-        /// </summary>
-        /// 
-
-
         private async Task<(string?, string?, string?, string?)> FetchMediaAppAssetsAsync(string name, string sgdbQuery)
         {
-            // Tenta as queries em ordem até encontrar resultado com grid
             var queries = new[]
             {
-        sgdbQuery,                                    // ex: "Kick (Website)"
-        name,                                         // ex: "Kick"
-        name + " streaming",                          // ex: "Kick streaming"
-        name + " platform",                           // ex: "Kick platform"
-    };
+                sgdbQuery,
+                name,
+                name + " streaming",
+                name + " platform",
+            };
 
             foreach (var query in queries)
             {
@@ -358,28 +386,26 @@ namespace Doorpi
                     Debug.WriteLine($"[Media] Achou '{name}' com query: '{query}'");
                     return result;
                 }
-                // Pequena pausa para não sobrecarregar a API
                 await Task.Delay(150);
             }
 
             Debug.WriteLine($"[Media] Não encontrou assets para '{name}' em nenhuma query");
             return (null, null, null, null);
         }
+
         private async Task InitializeNativeAppsAsync()
         {
-            EnsureSteamGridAuth();
+        
 
             var existing = LoadMediaApps();
             var existingById = existing.ToDictionary(a => a.Id, StringComparer.OrdinalIgnoreCase);
 
-            // Processa todos os apps em paralelo
             var tasks = _nativeApps.Select(async app =>
             {
                 var (id, name, query, url, type, multiUser) = app;
 
                 PostProgress(id, "active");
 
-                // Já tem grid e hero — reutiliza sem buscar nada
                 var existingEntry = existingById.TryGetValue(id, out var prev) ? prev : new MediaAppModel();
                 if (!string.IsNullOrEmpty(existingEntry.GridImage) && !string.IsNullOrEmpty(existingEntry.HeroImage))
                 {
@@ -387,10 +413,8 @@ namespace Doorpi
                     return existingEntry;
                 }
 
-                // Busca URLs no SteamGrid
                 var (gridUrl, horizontalUrl, heroUrl, logoUrl) = await FetchMediaAppAssetsAsync(name, query);
 
-                // Baixa as 4 imagens em paralelo — sem delays (401 já resolvido com downloadClient)
                 var gridDlTask = !string.IsNullOrEmpty(gridUrl) ? DownloadImageAsync(gridUrl, gridFolder, id) : Task.FromResult<string?>(null);
                 var hDlTask = !string.IsNullOrEmpty(horizontalUrl) ? DownloadImageAsync(horizontalUrl, gridHorizontalFolder, id + "_h") : Task.FromResult<string?>(null);
                 var heroDlTask = !string.IsNullOrEmpty(heroUrl) ? DownloadImageAsync(heroUrl, heroFolder, id) : Task.FromResult<string?>(null);
@@ -431,6 +455,7 @@ namespace Doorpi
             await Task.Run(() => SaveMediaApps(apps));
             SendMediaAppsToUI(apps);
         }
+
         private void PostProgress(string appId, string state)
         {
             Dispatcher.Invoke(() =>
@@ -457,7 +482,6 @@ namespace Doorpi
 
         private void SendMediaAppsToUI(List<MediaAppModel> apps)
         {
-            
             var sortedApps = apps
                 .OrderByDescending(a => a.LastPlayed > a.DateAdded ? a.LastPlayed : a.DateAdded)
                 .ToList();
@@ -466,11 +490,8 @@ namespace Doorpi
             Dispatcher.Invoke(() =>
                 webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(payload)));
         }
-
-
         [System.Runtime.InteropServices.DllImport("user32.dll")]
-        private static extern bool SetForegroundWindow(IntPtr hWnd);
-        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd); [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
         public void ForceFocus()
@@ -483,12 +504,10 @@ namespace Doorpi
                 Activate();
                 webView?.Focus();
 
-          
                 webView?.CoreWebView2.ExecuteScriptAsync("window.focusFeaturedCard();");
             });
         }
 
-        // Observa um processo e devolve foco ao Doorpi quando ele fechar
         private void WatchAndRefocus(Process process)
         {
             if (process == null) return;
@@ -740,80 +759,23 @@ namespace Doorpi
 
         // ========================= PASTAS VIGIADAS =========================
 
-        private List<InstalledApp> GetWatchedFolderGames()
-        {
-            var list = new List<InstalledApp>();
-            long minSize = 2 * 1024 * 1024; // 2MB mínimo
-
-            var options = new EnumerationOptions
-            {
-                IgnoreInaccessible = true,
-                RecurseSubdirectories = true
-            };
-
-            foreach (var folder in GetWatchedFolderPaths())
-            {
-                if (!Directory.Exists(folder)) continue;
-                try
-                {
-             
-                    foreach (var exePath in Directory.EnumerateFiles(folder, "*.exe", options))
-                    {
-                        var fileInfo = new FileInfo(exePath);
-                        string fileName = fileInfo.Name.ToLower();
-
-                  
-                        if (fileName.Contains("unins") || fileName.Contains("crash")) continue;
-
-                        string exeNameOnly = Path.GetFileNameWithoutExtension(fileInfo.Name);
-                        string parentFolderName = fileInfo.Directory?.Name ?? "";
-                        bool isSimilar = IsNameSimilar(exeNameOnly, parentFolderName);
-
-                    
-                        if (fileInfo.Length >= minSize || isSimilar)
-                        {
-                            string name = GetGameNameFromFile(fileInfo.FullName) ?? exeNameOnly;
-                            list.Add(new InstalledApp
-                            {
-                                Name = name,
-                                Path = fileInfo.FullName,
-                                Source = "Folder",
-                                IconBase64 = GetCachedIcon(fileInfo.FullName)
-                            });
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"Erro ao escanear pasta {folder}: {ex.Message}");
-                }
-            }
-            return list;
-        }
-
-        // ========================= PASTAS VIGIADAS (NOVA LÓGICA) =========================
-
         private List<FolderStats> LoadFoldersData()
         {
             if (!File.Exists(foldersFile)) return new List<FolderStats>();
             try
             {
                 string json = File.ReadAllText(foldersFile);
-
-              
                 try
                 {
                     var data = JsonSerializer.Deserialize<List<FolderStats>>(json);
                     if (data != null && data.Count > 0 && !string.IsNullOrEmpty(data[0].Path))
                         return data;
                 }
-                catch {  }
+                catch { }
 
-                // Fallback: Se o JSON for uma lista de strings (formato antigo), faz a migração
                 var oldPaths = JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>();
                 var migratedData = oldPaths.Select(path => GetFolderStats(path)).ToList();
 
-                // Salva já no formato novo para as próximas vezes
                 SaveFoldersData(migratedData);
                 return migratedData;
             }
@@ -825,7 +787,6 @@ namespace Doorpi
             File.WriteAllText(foldersFile, JsonSerializer.Serialize(folders, new JsonSerializerOptions { WriteIndented = true }));
         }
 
-        // Helper para manter compatibilidade com os scanners que só precisam dos caminhos
         private List<string> GetWatchedFolderPaths()
         {
             return LoadFoldersData().Select(f => f.Path).ToList();
@@ -833,98 +794,30 @@ namespace Doorpi
 
         private bool IsFolderForbidden(string path)
         {
-
             return false;
-
-            /*
-            try
-            {
-                string fullPath = Path.GetFullPath(path);
-                string folderPath = fullPath.TrimEnd(Path.DirectorySeparatorChar).ToLowerInvariant();
-                string rootPath = Path.GetPathRoot(fullPath)!.TrimEnd(Path.DirectorySeparatorChar).ToLowerInvariant();
-
-                if (string.Equals(folderPath, rootPath, StringComparison.OrdinalIgnoreCase)) return true;
-
-                var parentSystemFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                {
-                    Environment.GetFolderPath(Environment.SpecialFolder.Windows),
-                    Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                    Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                    Path.GetDirectoryName(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)) ?? ""
-                };
-
-                foreach (var forbidden in parentSystemFolders)
-                {
-                    if (string.IsNullOrWhiteSpace(forbidden)) continue;
-                    string norm = Path.GetFullPath(forbidden).TrimEnd(Path.DirectorySeparatorChar).ToLowerInvariant();
-                    if (folderPath == norm) return true;
-                }
-
-                string dirName = new DirectoryInfo(fullPath).Name.ToLowerInvariant();
-                if (dirName == "$recycle.bin" || dirName == "system volume information") return true;
-            }
-            catch (Exception ex) { Debug.WriteLine($"Erro na validação de pasta: {ex.Message}"); return true; }
-
-            return false;
-            */
         }
 
-        /// <summary>
-        /// Enumera a pasta e mede o tempo real de leitura do sistema de arquivos.
-        /// SubfolderCount e ExeCount informam o "peso" estrutural.
-        /// EstimatedMs é o tempo medido — é exatamente o que o scan vai custar.
-        /// </summary>
         private FolderStats GetFolderStats(string path)
         {
             var stats = new FolderStats { Path = path };
             if (!Directory.Exists(path)) return stats;
 
-            var sw = System.Diagnostics.Stopwatch.StartNew();
             try
             {
-         
-                var options = new EnumerationOptions
-                {
-                    IgnoreInaccessible = true,
-                    RecurseSubdirectories = true
-                };
-
-            
+                var options = new EnumerationOptions { IgnoreInaccessible = true, RecurseSubdirectories = true };
                 stats.SubfolderCount = Directory.EnumerateDirectories(path, "*", options).Count();
-
-         
-                int exeCount = 0;
-                int samples = 0;
-
-                foreach (var file in Directory.EnumerateFiles(path, "*.exe", options))
-                {
-                    exeCount++;
-                    if (samples < 5)
-                    {
-                        // Extrai o ícone para gerar a amostragem de peso
-                        ExtractIcon(file);
-                        samples++;
-                    }
-                }
-                stats.ExeCount = exeCount;
+                stats.ExeCount = Directory.EnumerateFiles(path, "*.exe", options).Count();
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[FolderStats] Erro ao varrer {path}: {ex.Message}");
             }
-            sw.Stop();
-
-            stats.EstimatedMs = sw.ElapsedMilliseconds;
             return stats;
         }
 
-
         private void SendFoldersToUI()
         {
-           
             var stats = LoadFoldersData();
-
             var payload = new { type = "foldersList", folders = stats };
             Dispatcher.Invoke(() =>
                 webView.CoreWebView2.PostWebMessageAsString(
@@ -942,6 +835,89 @@ namespace Doorpi
                 .ToList();
             foreach (var w in dead) { w.EnableRaisingEvents = false; w.Dispose(); }
             foreach (var w in dead) _folderWatchers.Remove(w);
+        }
+
+        // ========================= LÓGICA OTIMIZADA DE DIFF DE PASTAS =========================
+
+        private (List<InstalledApp> Apps, Dictionary<string, long> Timestamps, bool Changed) ScanWatchedFoldersOptimized(AppCacheModel cache, Action<string, int>? onProgress = null)
+
+        {
+            bool changed = false;
+            var currentApps = cache.FolderApps ?? new List<InstalledApp>();
+            var currentTimestamps = cache.FolderTimestamps ?? new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+
+            var newTimestamps = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            var newFolderApps = new List<InstalledApp>();
+
+            long minSize = 2 * 1024 * 1024;
+            var options = new EnumerationOptions { IgnoreInaccessible = true, RecurseSubdirectories = true };
+
+            foreach (var rootFolder in GetWatchedFolderPaths())
+            {
+                if (!Directory.Exists(rootFolder)) continue;
+                onProgress?.Invoke(rootFolder, -1); 
+                int foundInRoot = 0;
+                try
+                {
+                    var dirsToScan = new List<string> { rootFolder };
+                    dirsToScan.AddRange(Directory.EnumerateDirectories(rootFolder, "*", options));
+                    foreach (var dir in dirsToScan)
+                    {
+                        var dirInfo = new DirectoryInfo(dir);
+                        long lastWrite = dirInfo.LastWriteTimeUtc.Ticks;
+                        newTimestamps[dir] = lastWrite;
+
+                        if (currentTimestamps.TryGetValue(dir, out long oldWrite) && oldWrite == lastWrite)
+                        {
+                            var appsInDir = currentApps.Where(a =>
+                                string.Equals(Path.GetDirectoryName(a.Path), dir, StringComparison.OrdinalIgnoreCase)
+                            ).ToList();
+                            newFolderApps.AddRange(appsInDir);
+                            foundInRoot += appsInDir.Count; 
+                        }
+                        else
+                        {
+                            changed = true;
+                            foreach (var exePath in Directory.EnumerateFiles(dir, "*.exe", SearchOption.TopDirectoryOnly))
+                            {
+                                var fileInfo = new FileInfo(exePath);
+                                string fileName = fileInfo.Name.ToLower();
+
+                                if (fileName.Contains("unins") || fileName.Contains("crash")) continue;
+
+                                string exeNameOnly = Path.GetFileNameWithoutExtension(fileInfo.Name);
+                                string parentFolderName = fileInfo.Directory?.Name ?? "";
+                                bool isSimilar = IsNameSimilar(exeNameOnly, parentFolderName);
+
+                                if (fileInfo.Length >= minSize || isSimilar)
+                                {
+                                    string name = GetGameNameFromFile(fileInfo.FullName) ?? exeNameOnly;
+                                    newFolderApps.Add(new InstalledApp
+                                    {
+                                        Name = name,
+                                        Path = fileInfo.FullName,
+                                        Source = "Folder",
+                                        IconBase64 = GetCachedIcon(fileInfo.FullName)
+                                    });
+                                    foundInRoot++;
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[ScanOptimized] Erro ao escanear pasta {rootFolder}: {ex.Message}");
+                }
+                onProgress?.Invoke(rootFolder, foundInRoot);
+            }
+
+            if (!changed && (currentTimestamps.Count != newTimestamps.Count || !currentTimestamps.Keys.All(k => newTimestamps.ContainsKey(k))))
+            {
+                changed = true;
+            }
+
+            return (newFolderApps, newTimestamps, changed);
         }
 
         // ========================= WINDOWS APPS (scan) =========================
@@ -1032,74 +1008,112 @@ namespace Doorpi
             return keys;
         }
 
-        private HashSet<string> GetFolderFingerprint()
+        // ========================= ENVIO DE APPS PRO UI =========================
+        private void PostScanProgress(string folderPath, int foundCount)
         {
-            var entries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var folder in GetWatchedFolderPaths())
+            string folderName = Path.GetFileName(folderPath.TrimEnd(Path.DirectorySeparatorChar, '/'));
+            if (string.IsNullOrEmpty(folderName)) folderName = folderPath;
+
+            Dispatcher.Invoke(() =>
+                webView.CoreWebView2.PostWebMessageAsString(
+                    JsonSerializer.Serialize(new
+                    {
+                        type = "scanProgress",
+                        folder = folderPath,
+                        folderName,
+                        foundCount
+                    })));
+        }
+        private async Task UpdateAppCacheAsync()
+        {
+            await _cacheLock.WaitAsync();
+            try
             {
-                if (!Directory.Exists(folder)) continue;
-                try
+               
+
+                var cache = LoadAppCache() ?? new AppCacheModel();
+
+                var steamPrint = GetSteamFingerprint();
+                var epicPrint = GetEpicFingerprint();
+                var gogPrint = GetGogFingerprint();
+                var winPrint = GetWindowsRegistryFingerprint();
+
+                bool steamStale = !steamPrint.SetEquals(cache.SteamFingerprint) || !cache.SteamApps.Any();
+                bool epicStale = !epicPrint.SetEquals(cache.EpicFingerprint) || !cache.EpicApps.Any();
+                bool gogStale = !gogPrint.SetEquals(cache.GogFingerprint) || !cache.GogApps.Any();
+                bool windowsStale = _windowsCacheInvalid
+                                 || !winPrint.SetEquals(cache.WindowsFingerprint)
+                                 || !cache.WindowsApps.Any();
+
+                var steamTask = Task.Run(() =>
+                    steamStale
+                        ? (GetSteamGames().Select(a => { a.Source = "Steam"; return a; }).ToList(), true)
+                        : (cache.SteamApps, false));
+
+                var epicTask = Task.Run(() =>
+                    epicStale
+                        ? (GetEpicGames().Select(a => { a.Source = "Epic"; return a; }).ToList(), true)
+                        : (cache.EpicApps, false));
+
+                var gogTask = Task.Run(() =>
+                    gogStale
+                        ? (GetGOGGames().Select(a => { a.Source = "GOG"; return a; }).ToList(), true)
+                        : (cache.GogApps, false));
+
+                var winTask = Task.Run(() =>
+                    windowsStale
+                        ? (ScanWindowsApps(), true)
+                        : (cache.WindowsApps, false));
+
+                var folderTask = Task.Run(() =>
                 {
-                    foreach (var exe in new DirectoryInfo(folder).GetFiles("*.exe", SearchOption.AllDirectories))
-                        entries.Add($"{exe.FullName}|{exe.Length}|{exe.LastWriteTimeUtc.Ticks}");
+                    var result = ScanWatchedFoldersOptimized(cache, PostScanProgress);
+                    result.Apps.ForEach(a => a.Source = "Folder");
+                    return result;
+                });
+
+                await Task.WhenAll(steamTask, epicTask, gogTask, winTask, folderTask);
+
+                var (steamApps, steamChanged) = steamTask.Result;
+                var (epicApps, epicChanged) = epicTask.Result;
+                var (gogApps, gogChanged) = gogTask.Result;
+                var (windowsApps, windowsChanged) = winTask.Result;
+                (List<InstalledApp> folderApps, Dictionary<string, long> folderTimestamps, bool folderChanged) = folderTask.Result;
+
+                bool anythingChanged = steamChanged || epicChanged || gogChanged || windowsChanged || folderChanged;
+
+                if (anythingChanged)
+                {
+                    if (steamChanged) { cache.SteamApps = steamApps; cache.SteamFingerprint = steamPrint; }
+                    if (epicChanged) { cache.EpicApps = epicApps; cache.EpicFingerprint = epicPrint; }
+                    if (gogChanged) { cache.GogApps = gogApps; cache.GogFingerprint = gogPrint; }
+                    if (windowsChanged)
+                    {
+                        cache.WindowsApps = windowsApps; cache.WindowsFingerprint = winPrint;
+                        _windowsCacheInvalid = false;
+                    }
+                    if (folderChanged) { cache.FolderApps = folderApps; cache.FolderTimestamps = folderTimestamps; }
+
+                    SaveAppCache(cache);
                 }
-                catch { }
+
+                _lastCacheBuilt = DateTime.Now;
             }
-            return entries;
+            finally
+            {
+                _cacheLock.Release();
+            }
         }
 
-        // ========================= ENVIO DE APPS PRO UI =========================
-
-
-        private async Task SendInstalledAppsToUIAsync()
+        private void SendInstalledAppsToUI()
         {
-            var existingGames = BuildExistingGamesSet();
             var cache = LoadAppCache() ?? new AppCacheModel();
+            var existingGames = BuildExistingGamesSet();
+            var finalList = BuildFinalList(cache.SteamApps, cache.EpicApps, cache.GogApps, cache.WindowsApps, cache.FolderApps, existingGames);
 
-          
-            var steamTask = Task.Run(() => { var r = GetSteamGames(); r.ForEach(a => a.Source = "Steam"); return r; });
-            var epicTask = Task.Run(() => { var r = GetEpicGames(); r.ForEach(a => a.Source = "Epic"); return r; });
-            var gogTask = Task.Run(() => { var r = GetGOGGames(); r.ForEach(a => a.Source = "GOG"); return r; });
-
-            var winTask = Task.Run(() =>
-            {
-                bool hit = !_windowsCacheInvalid && cache.WindowsApps.Any() &&
-                           GetWindowsRegistryFingerprint().SetEquals(cache.WindowsFingerprint);
-                if (hit) return (cache.WindowsApps, false);
-                _windowsCacheInvalid = false;
-                return (ScanWindowsApps(), true);
-            });
-
-            var folderTask = Task.Run(() =>
-            {
-
-                if (GetWatchedFolderPaths().Any(p => !Directory.Exists(p)))
-                    _folderCacheInvalid = true;
-
-                bool hit = !_folderCacheInvalid && cache.FolderApps.Any() &&
-                           GetFolderFingerprint().SetEquals(cache.FolderFingerprint);
-                if (hit) return (cache.FolderApps, false);
-                _folderCacheInvalid = false;
-                var r = GetWatchedFolderGames();
-                r.ForEach(a => a.Source = "Folder");
-                return (r, true);
-            });
-
-            await Task.WhenAll(steamTask, epicTask, gogTask, winTask, folderTask);
-
-            var (windows, winChanged) = winTask.Result;
-            var (folders, folderChanged) = folderTask.Result;
-
-            if (winChanged || folderChanged)
-            {
-                if (winChanged) { cache.WindowsApps = windows; cache.WindowsFingerprint = GetWindowsRegistryFingerprint(); }
-                if (folderChanged) { cache.FolderApps = folders; cache.FolderFingerprint = GetFolderFingerprint(); }
-                _ = Task.Run(() => SaveAppCache(cache));
-            }
-
-       
-            SendAppsToUI(BuildFinalList(steamTask.Result, epicTask.Result, gogTask.Result,
-                windows, folders, existingGames));
+            var payload = new { type = "installedAppsList", apps = finalList };
+            Dispatcher.Invoke(() =>
+                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(payload)));
         }
 
         private HashSet<string> BuildExistingGamesSet()
@@ -1144,28 +1158,21 @@ namespace Doorpi
                 .ToList();
         }
 
-        private void SendAppsToUI(List<InstalledApp> apps)
-        {
-            var payload = new { type = "installedAppsList", apps };
-            Dispatcher.Invoke(() =>
-                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(payload)));
-        }
-
         // ========================= WEBVIEW MESSAGES =========================
 
         private void DeleteGameImages(GameModel game)
         {
             var imageUrls = new[]
             {
-        game.GridImage,
-        game.GridStaticImage,
-        game.GridHorizontalImage,
-        game.GridHorizontalStaticImage,
-        game.HeroImage,
-        game.HeroStaticImage,
-        game.LogoImage,
-        game.LogoStaticImage,
-    };
+                game.GridImage,
+                game.GridStaticImage,
+                game.GridHorizontalImage,
+                game.GridHorizontalStaticImage,
+                game.HeroImage,
+                game.HeroStaticImage,
+                game.LogoImage,
+                game.LogoStaticImage,
+            };
 
             foreach (var url in imageUrls)
             {
@@ -1173,9 +1180,8 @@ namespace Doorpi
 
                 try
                 {
-
                     var uri = new Uri(url);
-                    string relativePath = uri.AbsolutePath.TrimStart('/'); 
+                    string relativePath = uri.AbsolutePath.TrimStart('/');
                     string fullPath = Path.Combine(dataFolder, relativePath.Replace('/', Path.DirectorySeparatorChar));
 
                     if (File.Exists(fullPath))
@@ -1190,22 +1196,81 @@ namespace Doorpi
                 }
             }
         }
-        private void PerformBackgroundAnalysis(string path)
+        private async Task PollInstalledAppsAsync()
         {
-            
-            var stats = GetFolderStats(path);
+            // Snapshot dos fingerprints no momento em que o modal abriu
+            var lastSteam = GetSteamFingerprint();
+            var lastEpic = GetEpicFingerprint();
+            var lastGog = GetGogFingerprint();
+            var lastWin = GetWindowsRegistryFingerprint();
 
-           
-            var folders = LoadFoldersData();
-            int idx = folders.FindIndex(f => string.Equals(f.Path, path, StringComparison.OrdinalIgnoreCase));
-            if (idx >= 0)
+            while (_pollingActive)
             {
-                folders[idx] = stats;
-                SaveFoldersData(folders);
-            }
+                await Task.Delay(5_000); // checa a cada 5 segundos
+                if (!_pollingActive) break;
 
-            
-            SendFoldersToUI();
+                var curSteam = GetSteamFingerprint();
+                var curEpic = GetEpicFingerprint();
+                var curGog = GetGogFingerprint();
+                var curWin = GetWindowsRegistryFingerprint();
+
+                bool changed = !curSteam.SetEquals(lastSteam)
+                            || !curEpic.SetEquals(lastEpic)
+                            || !curGog.SetEquals(lastGog)
+                            || !curWin.SetEquals(lastWin);
+
+                if (changed)
+                {
+                    lastSteam = curSteam;
+                    lastEpic = curEpic;
+                    lastGog = curGog;
+                    lastWin = curWin;
+
+                    await UpdateAppCacheAsync();
+
+                    var cache = LoadAppCache() ?? new AppCacheModel();
+                    var existingGames = BuildExistingGamesSet();
+                    var apps = BuildFinalList(
+                        cache.SteamApps, cache.EpicApps, cache.GogApps,
+                        cache.WindowsApps, cache.FolderApps, existingGames);
+
+                    Dispatcher.Invoke(() =>
+                        webView.CoreWebView2.PostWebMessageAsString(
+                            JsonSerializer.Serialize(new { type = "installedAppsUpdated", apps })));
+                }
+            }
+        }
+
+        // ========================= AUTO-ADD PLATAFORMAS =========================
+
+        private async Task AutoAddPlatformGamesAsync()
+        {
+           
+            if (LoadGames().Any()) return;
+
+            var cache = LoadAppCache() ?? new AppCacheModel();
+
+            var platformGames = cache.SteamApps
+                .Concat(cache.EpicApps)
+                .Concat(cache.GogApps)
+                .Where(a => !string.IsNullOrEmpty(a.Name)
+                            && !a.Name.Contains("Steamworks", StringComparison.OrdinalIgnoreCase)
+                            && !a.Name.Contains("Unreal Engine", StringComparison.OrdinalIgnoreCase))
+                .Take(12)         
+                .ToList();
+
+            if (!platformGames.Any()) return;
+
+   
+            Dispatcher.Invoke(() =>
+                webView.CoreWebView2.PostWebMessageAsString(
+                    JsonSerializer.Serialize(new { type = "showLoadingCards", count = platformGames.Count, tab = "games" })));
+
+            await AddMultipleGamesAsync(platformGames);
+
+          
+            Dispatcher.Invoke(() =>
+                webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"clearLoadingCards\"}"));
         }
         private async void WebView_WebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
         {
@@ -1222,20 +1287,46 @@ namespace Doorpi
                 if (action == "requestInstalledApps")
                 {
                     _ = Task.Run(async () => {
-                        try { await SendInstalledAppsToUIAsync(); }
-                        finally { Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}")); }
+                        try
+                        {
+
+                            if ((DateTime.Now - _lastCacheBuilt).TotalSeconds > 60)
+                                await UpdateAppCacheAsync();
+
+                            SendInstalledAppsToUI();
+                        }
+                        finally
+                        {
+                            Dispatcher.Invoke(() =>
+                                webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}"));
+                        }
                     });
                 }
                 else if (action == "addSelectedGames" && root.TryGetProperty("games", out var gamesElement))
                 {
                     var selectedApps = JsonSerializer.Deserialize<List<InstalledApp>>(gamesElement.GetRawText());
                     if (selectedApps != null && selectedApps.Any())
+                    {
+                       
+                        webView.CoreWebView2.PostWebMessageAsString(
+                            JsonSerializer.Serialize(new { type = "showLoadingCards", count = selectedApps.Count, tab = "games" }));
+
                         _ = Task.Run(async () => await AddMultipleGamesAsync(selectedApps));
+                    }
                 }
                 else if (action == "launch" && root.TryGetProperty("path", out var pathElement))
                 {
                     string errorMsg = GetStr(root, "errorMsg", "Erro ao iniciar jogo: ");
-                    LaunchGame(pathElement.GetString(), errorMsg); 
+                    LaunchGame(pathElement.GetString(), errorMsg);
+                }
+                else if (action == "startAppPolling")
+                {
+                    _pollingActive = true;
+                    _ = Task.Run(PollInstalledAppsAsync);
+                }
+                else if (action == "stopAppPolling")
+                {
+                    _pollingActive = false;
                 }
                 else if (action == "browseManual")
                 {
@@ -1329,27 +1420,24 @@ namespace Doorpi
                                 var folders = LoadFoldersData();
                                 if (!folders.Any(f => string.Equals(f.Path, selectedPath, StringComparison.OrdinalIgnoreCase)))
                                 {
-                                    var placeholder = new FolderStats { Path = selectedPath, EstimatedMs = -1 };
+                                    var placeholder = new FolderStats { Path = selectedPath };
                                     folders.Add(placeholder);
                                     SaveFoldersData(folders);
                                     AddFolderWatcher(selectedPath);
                                 }
 
-                                _folderCacheInvalid = true;
                                 _ = Task.Run(async () => {
                                     try
                                     {
+                                        await UpdateAppCacheAsync();
                                         SendFoldersToUI();
-                                        await SendInstalledAppsToUIAsync();
+                                        SendInstalledAppsToUI(); 
                                     }
                                     finally
                                     {
                                         Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}"));
                                     }
                                 });
-
-                              
-                                _ = Task.Run(() => PerformBackgroundAnalysis(selectedPath));
                             }
                             else
                             {
@@ -1403,7 +1491,7 @@ namespace Doorpi
 
                                 var folders = LoadFoldersData();
                                 int idx = folders.FindIndex(f => string.Equals(f.Path, oldPath, StringComparison.OrdinalIgnoreCase));
-                                var placeholder = new FolderStats { Path = newPath, EstimatedMs = -1 };
+                                var placeholder = new FolderStats { Path = newPath };
 
                                 if (idx >= 0) folders[idx] = placeholder;
                                 else folders.Add(placeholder);
@@ -1414,22 +1502,18 @@ namespace Doorpi
                                 foreach (var w in dead) { w.EnableRaisingEvents = false; w.Dispose(); }
                                 foreach (var w in dead) _folderWatchers.Remove(w);
                                 AddFolderWatcher(newPath);
-
-                                _folderCacheInvalid = true;
-
                                 _ = Task.Run(async () => {
                                     try
                                     {
+                                        await UpdateAppCacheAsync();
                                         SendFoldersToUI();
-                                        await SendInstalledAppsToUIAsync();
+                                        SendInstalledAppsToUI(); 
                                     }
                                     finally
                                     {
                                         Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}"));
                                     }
                                 });
-
-                                _ = Task.Run(() => PerformBackgroundAnalysis(newPath));
                             }
                             else
                             {
@@ -1449,13 +1533,13 @@ namespace Doorpi
                     if (!string.IsNullOrEmpty(delPath))
                     {
                         DeleteWatchedFolder(delPath);
-                        _folderCacheInvalid = true;
 
                         _ = Task.Run(async () => {
                             try
                             {
-                                await SendInstalledAppsToUIAsync();
+                                await UpdateAppCacheAsync();
                                 SendFoldersToUI();
+                                SendInstalledAppsToUI(); 
                             }
                             finally
                             {
@@ -1509,7 +1593,6 @@ namespace Doorpi
                         }
                         else
                         {
-                            // Tenta em media apps
                             var mediaApps = LoadMediaApps();
                             var mediaApp = mediaApps.FirstOrDefault(a => a.Id == gameId);
 
@@ -1539,9 +1622,6 @@ namespace Doorpi
                         }
                     }
                 }
-
-
-                // ── Deletar jogo ────────────────────────────────────────────────────────────
                 else if (action == "deleteGame" && root.TryGetProperty("gameId", out var delGameIdEl))
                 {
                     string gameId = delGameIdEl.GetString() ?? "";
@@ -1554,7 +1634,6 @@ namespace Doorpi
 
                         if (game != null)
                         {
-                        
                             DeleteGameImages(game);
                             games.Remove(game);
                             SaveGames(games);
@@ -1562,8 +1641,6 @@ namespace Doorpi
                         }
                     }
                 }
-
-                // ── Editar nome do jogo ─────────────────────────────────────────────────────
                 else if (action == "editGame" &&
                          root.TryGetProperty("gameId", out var editIdEl) &&
                          root.TryGetProperty("newName", out var editNameEl))
@@ -1596,40 +1673,38 @@ namespace Doorpi
                     };
                     SaveUserProfile(profile);
 
-                    // Salva as pastas recebidas no setup
                     if (root.TryGetProperty("folders", out var foldersEl))
                     {
                         var paths = JsonSerializer.Deserialize<List<string>>(foldersEl.GetRawText()) ?? new();
                         var existing = LoadFoldersData();
-                        var newPaths = new List<string>(); 
 
                         foreach (var path in paths)
                         {
                             if (!existing.Any(f => string.Equals(f.Path, path, StringComparison.OrdinalIgnoreCase)))
                             {
-                                existing.Add(new FolderStats { Path = path, EstimatedMs = -1 });
+                                existing.Add(new FolderStats { Path = path });
                                 AddFolderWatcher(path);
-                                newPaths.Add(path); 
                             }
                         }
                         SaveFoldersData(existing);
-
-                       
-                        foreach (var p in newPaths)
-                        {
-                            string captured = p;
-                            _ = Task.Run(() => PerformBackgroundAnalysis(captured));
-                        }
                     }
 
-                    // Constrói cache silenciosamente, depois avisa o JS
                     _ = Task.Run(async () => {
                         try
                         {
-                            await Task.WhenAll(
-                                BuildAppCacheAndLoadUIAsync(),
-                                InitializeNativeAppsAsync()
-                            );
+                            var cacheTask = Task.Run(async () => {
+                                try { await UpdateAppCacheAsync(); }
+                                catch (Exception ex) { Debug.WriteLine("[Setup] Cache erro: " + ex.Message); }
+                            });
+                            var artTask = Task.Run(async () => {
+                                try { await InitializeNativeAppsAsync(); }
+                                catch (Exception ex) { Debug.WriteLine("[Setup] Arte erro: " + ex.Message); }
+                            });
+
+                            await Task.WhenAll(cacheTask, artTask);
+
+                            try { await AutoAddPlatformGamesAsync(); }
+                            catch (Exception ex) { Debug.WriteLine("[AutoAdd] " + ex.Message); }
                         }
                         finally
                         {
@@ -1669,7 +1744,6 @@ namespace Doorpi
 
                     if (!string.IsNullOrEmpty(mediaUrl))
                     {
-                       
                         var medias = LoadMediaApps();
                         var media = medias.FirstOrDefault(m => m.Url == mediaUrl || m.Id == mediaUrl);
                         if (media != null)
@@ -1677,7 +1751,6 @@ namespace Doorpi
                             media.LastPlayed = DateTime.Now;
                             SaveMediaApps(medias);
 
-                      
                             webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
                             {
                                 type = "updateFeaturedCard",
@@ -1728,13 +1801,13 @@ namespace Doorpi
                 {
                     var candidates = new[]
                     {
-        new { name = "Google Chrome", exe = "chrome.exe",   path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),    "Google", "Chrome", "Application", "chrome.exe") },
-        new { name = "Google Chrome", exe = "chrome.exe",   path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Google", "Chrome", "Application", "chrome.exe") },
-        new { name = "Microsoft Edge", exe = "msedge.exe",  path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Microsoft", "Edge", "Application", "msedge.exe") },
-        new { name = "Brave",          exe = "brave.exe",   path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BraveSoftware", "Brave-Browser", "Application", "brave.exe") },
-        new { name = "Firefox",        exe = "firefox.exe", path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),    "Mozilla Firefox", "firefox.exe") },
-        new { name = "Firefox",        exe = "firefox.exe", path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Mozilla Firefox", "firefox.exe") },
-    };
+                        new { name = "Google Chrome", exe = "chrome.exe",   path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),    "Google", "Chrome", "Application", "chrome.exe") },
+                        new { name = "Google Chrome", exe = "chrome.exe",   path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Google", "Chrome", "Application", "chrome.exe") },
+                        new { name = "Microsoft Edge", exe = "msedge.exe",  path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Microsoft", "Edge", "Application", "msedge.exe") },
+                        new { name = "Brave",          exe = "brave.exe",   path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BraveSoftware", "Brave-Browser", "Application", "brave.exe") },
+                        new { name = "Firefox",        exe = "firefox.exe", path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),    "Mozilla Firefox", "firefox.exe") },
+                        new { name = "Firefox",        exe = "firefox.exe", path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Mozilla Firefox", "firefox.exe") },
+                    };
 
                     var found = candidates
                         .Where(b => File.Exists(b.path))
@@ -1750,66 +1823,58 @@ namespace Doorpi
         }
 
         // ========================= ADICIONAR JOGOS =========================
-        private void ResumePendingAnalyses()
+
+        private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
         {
-            var folders = LoadFoldersData();
-            foreach (var folder in folders.Where(f => f.EstimatedMs == -1))
+            var existingGames = LoadGames();
+            bool isFirstGame = existingGames.Count == 0;
+            bool dbChanged = false;
+
+            foreach (var app in selectedApps)
             {
-                string pendingPath = folder.Path;
-            
-                _ = Task.Run(() => PerformBackgroundAnalysis(pendingPath));
+                if (existingGames.Any(g => g.Path.Equals(app.Path, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                string? steamAppId = null;
+                if (!string.IsNullOrEmpty(app.LaunchUrl) && app.LaunchUrl.StartsWith("steam://run/"))
+                    steamAppId = app.LaunchUrl.Replace("steam://run/", "").Trim();
+
+                var (gridUrl, gridHorizontalUrl, heroUrl, logoUrl) = await FetchSteamGridAssetsAsync(app.Name, steamAppId);
+
+                string safeName = app.Path.GetHashCode().ToString();
+                string? localGrid = null, localGridHorizontal = null, localHero = null, localLogo = null;
+
+                if (!string.IsNullOrEmpty(gridHorizontalUrl)) localGridHorizontal = await DownloadImageAsync(gridHorizontalUrl, gridHorizontalFolder, safeName + "_h");
+                if (!string.IsNullOrEmpty(gridUrl)) localGrid = await DownloadImageAsync(gridUrl, gridFolder, safeName);
+                if (!string.IsNullOrEmpty(heroUrl)) localHero = await DownloadImageAsync(heroUrl, heroFolder, safeName);
+                if (!string.IsNullOrEmpty(logoUrl)) localLogo = await DownloadImageAsync(logoUrl, logoFolder, safeName + "_logo");
+
+                var game = new GameModel
+                {
+                    Name = app.Name,
+                    Path = app.Path,
+                    LaunchUrl = app.LaunchUrl,
+                    GridImage = localGrid != null ? $"https://data.local/images/grid/{Path.GetFileName(localGrid)}" : "",
+                    GridHorizontalImage = localGridHorizontal != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(localGridHorizontal)}" : "",
+                    HeroImage = localHero != null ? $"https://data.local/images/hero/{Path.GetFileName(localHero)}" : "",
+                    LogoImage = localLogo != null ? $"https://data.local/images/logo/{Path.GetFileName(localLogo)}" : "",
+                    LastPlayed = DateTime.MinValue,
+                    DateAdded = DateTime.Now
+                };
+
+                existingGames.Add(game);
+                dbChanged = true;
+                SaveGames(existingGames);
+
+                Dispatcher.Invoke(() => SendGameToUI(game, isFirstGame));
+                if (isFirstGame) isFirstGame = false;
             }
-        }
-private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
-{
-    var existingGames = LoadGames();
-    bool isFirstGame = existingGames.Count == 0;
-    bool dbChanged = false;
-
-    foreach (var app in selectedApps)
-    {
-        if (existingGames.Any(g => g.Path.Equals(app.Path, StringComparison.OrdinalIgnoreCase)))
-            continue;
-
-        // ✅ Extrai steamAppId ANTES de chamar o fetch
-        string? steamAppId = null;
-        if (!string.IsNullOrEmpty(app.LaunchUrl) && app.LaunchUrl.StartsWith("steam://run/"))
-            steamAppId = app.LaunchUrl.Replace("steam://run/", "").Trim();
-
-        var (gridUrl, gridHorizontalUrl, heroUrl, logoUrl) = await FetchSteamGridAssetsAsync(app.Name, steamAppId);
-
-        string safeName = app.Path.GetHashCode().ToString();
-        string? localGrid = null, localGridHorizontal = null, localHero = null, localLogo = null;
-
-        if (!string.IsNullOrEmpty(gridHorizontalUrl)) localGridHorizontal = await DownloadImageAsync(gridHorizontalUrl, gridHorizontalFolder, safeName + "_h");
-        if (!string.IsNullOrEmpty(gridUrl)) localGrid = await DownloadImageAsync(gridUrl, gridFolder, safeName);
-        if (!string.IsNullOrEmpty(heroUrl)) localHero = await DownloadImageAsync(heroUrl, heroFolder, safeName);
-        if (!string.IsNullOrEmpty(logoUrl)) localLogo = await DownloadImageAsync(logoUrl, logoFolder, safeName + "_logo");
-
-        var game = new GameModel
-        {
-            Name = app.Name,
-            Path = app.Path,
-            LaunchUrl = app.LaunchUrl,
-            GridImage = localGrid != null ? $"https://data.local/images/grid/{Path.GetFileName(localGrid)}" : "",
-            GridHorizontalImage = localGridHorizontal != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(localGridHorizontal)}" : "",
-            HeroImage = localHero != null ? $"https://data.local/images/hero/{Path.GetFileName(localHero)}" : "",
-            LogoImage = localLogo != null ? $"https://data.local/images/logo/{Path.GetFileName(localLogo)}" : "",
-            LastPlayed = DateTime.MinValue,
-            DateAdded = DateTime.Now
-        };
-
-        existingGames.Add(game);
-        dbChanged = true;
-        SaveGames(existingGames);
-
-        Dispatcher.Invoke(() => SendGameToUI(game, isFirstGame));
-        if (isFirstGame) isFirstGame = false;
-    }
             Dispatcher.Invoke(() => LoadGamesIntoUI());
 
             if (dbChanged) SaveGames(existingGames);
-}
+            Dispatcher.Invoke(() =>
+            webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"clearLoadingCards\"}"));
+        }
 
         // ========================= STEAMGRID =========================
 
@@ -1819,28 +1884,19 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
             if (name.Trim().Contains(" ")) return name.Trim();
 
             string result = Regex.Replace(name, @"([a-z])([A-Z])", "$1 $2");
-
             result = Regex.Replace(result, @"([A-Z])([A-Z][a-z])", "$1 $2");
-
-
             result = Regex.Replace(result, @"([a-zA-Z])(\d)", "$1 $2");
-
-
             result = Regex.Replace(result, @"(\d)([a-zA-Z])", "$1 $2");
-
-        
             return Regex.Replace(result, @"\s+", " ").Trim();
         }
 
         private async Task<(string?, string?, string?, string?)> FetchSteamGridAssetsAsync(string gameName, string? steamAppId = null)
         {
-            EnsureSteamGridAuth();
-
+         
 
             string treatedName = PrepareSearchName(gameName);
             Debug.WriteLine($"[SGDB] Nome original: {gameName} | Tratado: {treatedName}");
 
-    
             if (!string.IsNullOrEmpty(steamAppId))
             {
                 var steam = await TryFetchFromSteamCDN(steamAppId);
@@ -1849,8 +1905,6 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
                 var byId = await TryFetchBySteamAppId(steamAppId);
                 if (byId.Item1 != null) return byId;
             }
-
-            
             return await TryFetchByName(treatedName);
         }
 
@@ -1863,7 +1917,6 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
                 string hero = $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appId}/library_hero.jpg";
                 string logo = $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appId}/logo.png";
 
-              
                 var response = await httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Head, grid));
                 if (!response.IsSuccessStatusCode) return (null, null, null, null);
 
@@ -1876,7 +1929,9 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
         {
             try
             {
-                var json = await httpClient.GetStringAsync($"https://www.steamgriddb.com/api/v2/games/steam/{steamAppId}");
+                var json = await SgdbGetStringAsync($"https://www.steamgriddb.com/api/v2/games/steam/{steamAppId}");
+
+
                 using var doc = JsonDocument.Parse(json);
                 if (!doc.RootElement.GetProperty("success").GetBoolean()) return (null, null, null, null);
 
@@ -1891,17 +1946,15 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
             try
             {
                 string safe = Uri.EscapeDataString(gameName);
-                var json = await httpClient.GetStringAsync($"https://www.steamgriddb.com/api/v2/search/autocomplete/{safe}");
+                var json = await SgdbGetStringAsync($"https://www.steamgriddb.com/api/v2/search/autocomplete/{safe}");
+
                 using var doc = JsonDocument.Parse(json);
                 if (!doc.RootElement.GetProperty("success").GetBoolean()) return (null, null, null, null);
 
                 var results = doc.RootElement.GetProperty("data");
                 if (results.GetArrayLength() == 0) return (null, null, null, null);
-                Debug.WriteLine($"[SGDB] query='{gameName}' | resultados: {string.Join(", ", results.EnumerateArray().Take(10).Select(g => $"{g.GetProperty("id").GetInt32()}:{g.GetProperty("name").GetString()}"))}");
-
 
                 foreach (var game in results.EnumerateArray().Take(10))
-
                 {
                     int id = game.GetProperty("id").GetInt32();
                     var assets = await FetchAssetsByGameId(id);
@@ -1915,7 +1968,6 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
 
         private async Task<(string?, string?, string?, string?)> FetchAssetsByGameId(int id)
         {
-            // Grid ainda precisa de fallback sequencial
             string? grid = await GetFirstImageUrl($"grids/game/{id}?dimensions=600x900,342x482,660x930&types=static,animated&sort=score")
                         ?? await GetFirstImageUrl($"grids/game/{id}?dimensions=600x900&types=static,animated&sort=score&styles=alternate,blurred,white_logo,material,no_logo")
                         ?? await GetFirstImageUrl($"grids/game/{id}?types=static,animated&sort=score&nsfw=any&humor=any")
@@ -1923,7 +1975,6 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
 
             if (string.IsNullOrEmpty(grid)) return (null, null, null, null);
 
-            // Horizontal, hero e logo em paralelo
             var horizontalTask = GetFirstImageUrl($"grids/game/{id}?dimensions=460x215,920x430&types=static,animated&sort=score");
             var heroTask = GetFirstImageUrl($"heroes/game/{id}?types=static,animated&sort=score");
             var logoTask = GetFirstImageUrl($"logos/game/{id}?types=static,animated&sort=score");
@@ -1942,7 +1993,8 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
             try
             {
                 string url = $"https://www.steamgriddb.com/api/v2/{endpoint}";
-                var json = await httpClient.GetStringAsync(url);
+                var json = await SgdbGetStringAsync(url);
+
 
                 using var doc = JsonDocument.Parse(json);
                 if (!doc.RootElement.GetProperty("success").GetBoolean()) return null;
@@ -1961,7 +2013,6 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
             {
                 try
                 {
-                    // downloadClient não tem Authorization header — CDN rejeita o Bearer token
                     var response = await downloadClient.GetAsync(url);
                     if (!response.IsSuccessStatusCode)
                     {
@@ -2000,7 +2051,6 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
         }
 
         // ========================= LAUNCH =========================
-
 
         private void LaunchGame(string? identifier, string errorMsg)
         {
@@ -2153,26 +2203,20 @@ private async Task AddMultipleGamesAsync(List<InstalledApp> selectedApps)
             var allGames = LoadGames();
             if (allGames.Count == 0) return;
 
-          
             webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"clearGamesGrid\"}");
-
-            
             var featured = allGames.OrderByDescending(g => g.LastPlayed).FirstOrDefault();
 
             if (featured != null)
             {
-                
                 SendGameToUI(featured, isFeatured: true);
 
-            
                 var others = allGames.Where(g => g.Path != featured.Path || g.LaunchUrl != featured.LaunchUrl).ToList();
 
-
                 var sortedOthers = others
-                    .OrderByDescending(g => (DateTime.Now - g.DateAdded).TotalHours < 48) 
-                    .ThenByDescending(g => g.LastPlayed)                               
-                    .ThenByDescending(g => g.DateAdded)                                
-                    .Take(11) 
+                    .OrderByDescending(g => (DateTime.Now - g.DateAdded).TotalHours < 48)
+                    .ThenByDescending(g => g.LastPlayed)
+                    .ThenByDescending(g => g.DateAdded)
+                    .Take(11)
                     .ToList();
 
                 foreach (var game in sortedOthers)

@@ -17,7 +17,37 @@
     image-rendering: low-quality;
 }
 
+/* ── Loading card (skeleton enquanto arte baixa) ── */
+.card.loading-card {
+    pointer-events: none;
+    cursor: default;
+    position: relative;
+    overflow: hidden;
+}
 
+    .card.loading-card::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: linear-gradient( 105deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.09) 45%, rgba(255,255,255,0.03) 100% );
+        background-size: 200% 100%;
+        animation: loadingCardShimmer 1.6s ease infinite;
+    }
+
+    .card.loading-card.featured::after {
+        animation-duration: 1.9s;
+    }
+
+@keyframes loadingCardShimmer {
+    0% {
+        background-position: 200% 0;
+    }
+
+    100% {
+        background-position: -200% 0;
+    }
+}
 body:not(.nav-menu-active) #heroImage {
     image-rendering: auto;
 }
@@ -26,7 +56,38 @@ body:not(.nav-menu-active) #heroImage {
     pointer-events: auto !important;
     cursor: pointer !important;
 }
+/* ── Seção de pastas no system loading ── */
+.sys-section-sep {
+    height: 1px;
+    background: rgba(255,255,255,0.08);
+    margin: clamp(6px, 0.7vw, 10px) 0;
+}
 
+.sys-section-label {
+    font-size: clamp(0.58rem, 0.65vw, 0.75rem);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: rgba(255,255,255,0.18);
+    margin-bottom: clamp(2px, 0.3vw, 4px);
+}
+
+.sys-app-row .sys-folder-count {
+    margin-left: auto;
+    font-size: 0.88em;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.sys-app-row.done .sys-folder-count {
+    opacity: 1;
+    color: rgba(100,220,120,0.7);
+}
+
+.sys-app-row.active .sys-folder-count {
+    opacity: 1;
+    color: rgba(255,255,255,0.35);
+}
 :root {
     --card-w: clamp(120px, min(10.8vw, 19.2vh), 320px);
     --card-h: clamp(180px, min(16.2vw, 28.8vh), 490px);
@@ -1063,36 +1124,6 @@ body {
         box-shadow: 0 4px 14px rgba(220,38,38,0.4);
     }
 
-/* Dashboard de Estatísticas da Pasta */
-.folder-stats {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1.2fr auto;
-    background: rgba(0,0,0,0.3);
-    padding: clamp(12px, 1.2vw, 18px) clamp(16px, 1.5vw, 24px);
-    border-radius: clamp(8px, 0.6vw, 12px);
-    gap: 12px;
-    align-items: center;
-}
-
-.folder-stat {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.folder-stat-value {
-    font-size: clamp(1.1rem, 1.2vw, 1.4rem);
-    font-weight: 600;
-    color: #fff;
-}
-
-.folder-stat-label {
-    font-size: clamp(0.7rem, 0.75vw, 0.9rem);
-    color: rgba(255,255,255,0.45);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-}
-
 /* Indicador de Performance */
 .folder-perf {
     display: flex;
@@ -1154,31 +1185,6 @@ body {
     -webkit-backdrop-filter: blur(14px);
 }
 
-.folder-total-bar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    width: 100%;
-    background: rgba(255,255,255,0.05);
-    padding: clamp(12px, 1vw, 16px) clamp(20px, 1.8vw, 28px);
-    border-radius: 12px;
-    border: 1px solid rgba(255,255,255,0.08);
-}
-
-.folder-total-label {
-    color: rgba(255,255,255,0.6);
-    font-size: clamp(0.85rem, 0.9vw, 1.1rem);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    font-weight: 500;
-}
-
-.folder-total-value {
-    color: #fff;
-    font-weight: 700;
-    font-size: clamp(1.2rem, 1.3vw, 1.5rem);
-    text-shadow: 0 0 10px rgba(255,255,255,0.3);
-}
 
 
 .modal-btn.loading {
@@ -2175,25 +2181,12 @@ body {
     box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
 }
 
-.folder-warning {
-    display: none;
-    background: rgba(220, 50, 50, 0.12);
-    border: 1px solid rgba(220, 50, 50, 0.25);
-    color: #ff8a8a;
-    padding: 10px 14px;
-    border-radius: 8px;
-    margin-top: 14px;
-    font-size: 11px;
-    align-items: center;
-    gap: 10px;
-    line-height: 1.4;
-}
 .game-grid:has(.card.ctx-active) .card:not(.ctx-active)::after {
     height: 100%;
     background: linear-gradient(to bottom, rgba(0, 0, 0, 0) -6%, rgb(0 0 0 / 3%) -26%, rgb(0 0 0 / 80%) -9%);
 }
 
-.folder-item.is-slow .folder-warning {
+.folder-item.is-slow {
     display: flex;
     animation: editOverlayIn 0.3s ease;
 }
