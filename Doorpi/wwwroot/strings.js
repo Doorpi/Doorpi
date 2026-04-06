@@ -178,9 +178,32 @@ const STRINGS = {
 
         badgeNew: 'NOVO',      
         navHintMenu: 'Menu',
+
+
+        webAppNameLabel: 'Nome do aplicativo',
+        webAppUrlLabel: 'Link',
+        subtabWeb: 'Aplicativos Web',
+        subtabExe: 'Aplicativo do sistema',
+        pasteAppLink: 'Colar Link',
+        webAppErrorName: 'Insira o nome do aplicativo',
+        webAppErrorUrl: 'Insira a URL do aplicativo web.',
+
+        apiKeyCopied: 'Chave API copiada!',
+        returningToSetup: 'Retornando ao Setup...', 
+
     },
 
     'en-US': {
+        apiKeyCopied: 'API Key copied!',
+        returningToSetup: 'Returning to Setup...',
+        webAppNameLabel: 'App Name',
+        webAppUrlLabel: 'Link',
+        subtabWeb: 'Web App',
+        subtabExe: 'System Apps',
+        pasteAppLink: 'Paste URL',
+        webAppErrorName: 'Invalid Name',
+        webAppErrorUrl: 'Insert a valid URL.',
+
 
         badgeNew: 'NEW',
         navHintMenu: 'Menu',
@@ -357,6 +380,7 @@ const STRINGS = {
         filterLabels: { all: 'All', Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Windows: 'Windows & Folders' },
         platformLabels: { Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Folder: 'Folder', Windows: 'Windows' },
         scanLibLabels: { Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Windows: 'Windows', Folder: 'Folders' },
+
     },
 };
 

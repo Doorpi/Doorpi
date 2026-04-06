@@ -850,7 +850,12 @@ function _bindSetupEvents() {
     });
 
     document.getElementById('btnSetupApiLink').addEventListener('click', () => {
-        postToHost({ action: 'openUrl', url: 'https://www.steamgriddb.com/profile/preferences/api' });
+       
+        postToHost({
+            action: 'launchMediaApp',
+            url: 'https://www.steamgriddb.com/profile/preferences/api',
+            appType: 'webview'
+        });
     });
 
     document.getElementById('btnSetupAddFolder').addEventListener('click', () => {

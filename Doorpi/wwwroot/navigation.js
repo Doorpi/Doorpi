@@ -88,13 +88,18 @@ function signalNavigation() {
 
 function triggerContextMenu() {
     if (isModalOpen || isCtxMenuOpen || isEditModalOpen || window._vkbIsOpen || window.isGlobalLoading) return;
+
+   
+    if (window.isNavMenuOpen) {
+        window._navMenuTriggerCtxMenu?.();
+        return;
+    }
+
     const focused = document.activeElement;
     if (!focused?.classList.contains('card') || focused.classList.contains('add-card')) return;
     const r = focused.getBoundingClientRect();
-
     window._ctxMenuOpen?.(focused, r.right + 2, r.top);
 }
-
 function closeCtxMenu() {
     if (!isCtxMenuOpen) return;
     window._ctxMenuClose?.();
@@ -108,16 +113,26 @@ function getModalGroups() {
     const activeTabEl = document.querySelector('.view-section.active');
     const activeTab = activeTabEl ? activeTabEl.id : 'view-apps';
     const sidebar = Array.from(document.querySelectorAll('.sidebar-menu .menu-tab'));
-    let filters = [], apps = [], actions = [], folderBtns = [];
+    let filters = [], apps = [], actions = [], folderBtns = [], subtabs = [], inputs = [];
+
     if (activeTab === 'view-apps') {
         filters = Array.from(document.querySelectorAll('.filter-bar .filter-btn'));
         apps = Array.from(document.querySelectorAll('#appList .app-item:not(.already-added)'));
         actions = Array.from(document.querySelectorAll('#view-apps .action-buttons button'));
-    } else {
+    } else if (activeTab === 'view-folders') {
         folderBtns = Array.from(document.querySelectorAll('#folderList .icon-btn'));
         actions = Array.from(document.querySelectorAll('#view-folders .action-buttons button'));
+    } else if (activeTab === 'view-media-apps') {
+        subtabs = Array.from(document.querySelectorAll('#mediaAppSubtabs .subtab'));
+        if (document.getElementById('subview-web')?.classList.contains('active')) {
+            inputs = Array.from(document.querySelectorAll('#subview-web input, #btnWebAppPaste')).filter(Boolean);
+        } else {
+         
+            apps = Array.from(document.querySelectorAll('#appListMedia .app-item:not(.already-added)'));
+        }
+        actions = Array.from(document.querySelectorAll('#mediaAppActions button'));
     }
-    return { sidebar, filters, apps, actions, folderBtns, activeTab };
+    return { sidebar, filters, apps, actions, folderBtns, subtabs, inputs, activeTab };
 }
 function getNavigableItems() {
     if (window._vkbIsOpen) return Array.from(document.querySelectorAll('.vkb-key[tabindex="0"]'));
@@ -138,14 +153,18 @@ function getNavigableItems() {
 
     const g = getModalGroups();
     const isVisible = (el) => el.offsetWidth > 0 && el.offsetHeight > 0;
-
     const isNavigable = (el) => !(el.classList.contains('menu-tab') && el.classList.contains('active'));
 
     g.sidebar.forEach(el => el.setAttribute('tabindex', '0'));
 
     if (g.activeTab === 'view-apps')
         return [...g.sidebar, ...g.filters, ...g.apps, ...g.actions].filter(el => isVisible(el) && isNavigable(el));
-    return [...g.sidebar, ...g.folderBtns, ...g.actions].filter(el => isVisible(el) && isNavigable(el));
+    if (g.activeTab === 'view-folders')
+        return [...g.sidebar, ...g.folderBtns, ...g.actions].filter(el => isVisible(el) && isNavigable(el));
+    if (g.activeTab === 'view-media-apps')
+        return [...g.sidebar, ...g.subtabs, ...g.inputs, ...g.apps, ...g.actions].filter(el => isVisible(el) && isNavigable(el));
+
+    return [];
 }
 
 function findSpatialCandidate(items, current, direction) {
@@ -202,7 +221,7 @@ function findVkbCandidate(items, current, direction) {
     return best;
 }
 function getGroupTransition(direction, groupName, groups, current) {
-    const { sidebar, filters, apps, actions, folderBtns, activeTab } = groups;
+    const { sidebar, filters, apps, actions, folderBtns, subtabs, inputs, activeTab } = groups;
     const firstVisible = (arr) => arr.find(el => el.offsetWidth > 0 && el.offsetHeight > 0);
 
     const bestSidebar = () => {
@@ -241,14 +260,14 @@ function getGroupTransition(direction, groupName, groups, current) {
         }
 
         if (groupName === 'sidebar') {
-            if (direction === 'RIGHT') return bestApp();
+            if (direction === 'RIGHT') return bestApp() || bestFilter() || actions[0];
             if (direction === 'DOWN') return bestApp();
             if (direction === 'UP') return bestFilter();
         }
 
         if (groupName === 'action' && (direction === 'LEFT' || direction === 'UP')) return bestApp();
 
-    } else { // Regras para a aba view-folders
+    } else if (activeTab === 'view-folders') {
         const bestFolderBtn = () => firstVisible(folderBtns);
         if (groupName === 'folderBtn') {
             if (direction === 'LEFT') return bestSidebar();
@@ -262,10 +281,60 @@ function getGroupTransition(direction, groupName, groups, current) {
             if (direction === 'RIGHT') return bestFolderBtn() || actions[0];
             if (direction === 'DOWN') return bestFolderBtn() || actions[0];
         }
+    } else if (activeTab === 'view-media-apps') {
+    
+        const bestApp = () => {
+            const navigableApps = apps.filter(el => el.offsetWidth > 0 && el.offsetHeight > 0);
+            if (_lastFocusedApp && navigableApps.includes(_lastFocusedApp)) return _lastFocusedApp;
+            return navigableApps[0] || null;
+        };
+
+        const bestInput = () => firstVisible(inputs);
+        const bestSubtab = () => {
+            const active = subtabs.find(s => s.classList.contains('active'));
+            return active || subtabs[0];
+        };
+
+        if (groupName === 'subtab') {
+            if (direction === 'DOWN') return bestInput() || bestApp();
+            if (direction === 'LEFT') return bestSidebar();
+        }
+        if (groupName === 'input') {
+            const idx = inputs.indexOf(current);
+            const isPasteBtn = current.id === 'btnWebAppPaste';
+
+            if (direction === 'LEFT') {
+                if (isPasteBtn && idx > 0) return inputs[idx - 1]; 
+                return bestSidebar();
+            }
+            if (direction === 'RIGHT') {
+                if (!isPasteBtn && inputs[idx + 1]?.id === 'btnWebAppPaste') return inputs[idx + 1];
+                return null;
+            }
+            if (direction === 'UP') {
+                if (isPasteBtn) return inputs[0]; 
+                return idx > 0 ? inputs[idx - 1] : bestSubtab();
+            }
+            if (direction === 'DOWN') {
+                if (idx === 0) return inputs[1]; 
+                return actions[0]; 
+            }
+        }
+        if (groupName === 'app') {
+            if (direction === 'DOWN' || direction === 'RIGHT') return actions[0] ?? null;
+            if (direction === 'LEFT') return bestSidebar();
+            if (direction === 'UP') return bestSubtab();
+        }
+        if (groupName === 'action') {
+            if (direction === 'UP') return inputs[inputs.length - 1] || bestApp() || bestSubtab();
+            if (direction === 'LEFT') return bestSidebar();
+        }
+        if (groupName === 'sidebar') {
+            if (direction === 'RIGHT' || direction === 'DOWN') return bestSubtab() || bestInput() || bestApp() || actions[0];
+        }
     }
     return null;
 }
-
 let _lastFocusedApp = null, _lastFocusedFilter = null, _lastFocusedSidebar = null;
 let _lastSetupFocused = null;
 document.addEventListener('focusin', () => {
@@ -412,7 +481,6 @@ function moveFocus(direction) {
         }
         return;
     }
-
     // ── Modais ──────────────────────────────────────────────────────────────
     const groups = getModalGroups();
     let groupName, groupItems;
@@ -420,6 +488,8 @@ function moveFocus(direction) {
     else if (current.classList.contains('filter-btn')) { groupName = 'filter'; groupItems = groups.filters; }
     else if (current.classList.contains('app-item')) { groupName = 'app'; groupItems = groups.apps; }
     else if (current.classList.contains('icon-btn')) { groupName = 'folderBtn'; groupItems = groups.folderBtns; }
+    else if (current.classList.contains('subtab')) { groupName = 'subtab'; groupItems = groups.subtabs; }
+    else if (current.tagName === 'INPUT' || current.id === 'btnWebAppPaste') { groupName = 'input'; groupItems = groups.inputs; }
     else { groupName = 'action'; groupItems = groups.actions; }
 
     if (groupName === 'app') _lastFocusedApp = current;
@@ -445,9 +515,9 @@ function moveFocus(direction) {
 
     if (!target) target = getGroupTransition(direction, groupName, groups, current);
 
-    // Regra de scroll da AppList
+    // Regra de scroll da AppList (Dinâmico para Mídias e Games)
     if (!target && groupName === 'app') {
-        const appList = document.getElementById('appList');
+        const appList = document.getElementById(groups.activeTab === 'view-media-apps' ? 'appListMedia' : 'appList');
         if (appList) {
             if (direction === 'UP' && appList.scrollTop > 0) {
                 appList.scrollTop = Math.max(0, appList.scrollTop - 150);
@@ -561,7 +631,8 @@ function smoothHorizontalScroll(element, onDone) {
 
 document.addEventListener('keydown', e => {
     if (window.isGlobalLoading) { e.preventDefault(); return; }
-    if (window.isNavMenuOpen) return; // DEIXA o nav-menu processar as teclas dele
+    if (window.isNavMenuOpen && !isCtxMenuOpen) return;
+
     if (window._vkbIsOpen) {
         const dirMap = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' };
         if (dirMap[e.key]) { e.preventDefault(); moveFocus(dirMap[e.key]); return; }
@@ -608,13 +679,10 @@ window.addEventListener('gamepaddisconnected', e => {
     for (const pad of pads) if (pad) { _gamepadIndex = pad.index; _controllerType = detectControllerType(pad); isGamepadConnected = true; updateGamepadUI(true, _controllerType); break; }
 });
 (function gamepadLoop() {
-
     try {
         const gamepad = _gamepadIndex !== null ? navigator.getGamepads()[_gamepadIndex] : null;
         if (!gamepad) return;
-        if (window.isGlobalLoading) return;
-        if (window.isMediaAppActive) return;
-        if (!document.hasFocus()) return;
+        if (window.isGlobalLoading || window.isMediaAppActive || !document.hasFocus()) return;
 
         const { GAMEPAD } = NAV, buttons = gamepad.buttons;
         const ax = gamepad.axes[0], ay = gamepad.axes[1], thr = GAMEPAD.AXIS_THRESHOLD, now = performance.now();
@@ -625,35 +693,89 @@ window.addEventListener('gamepaddisconnected', e => {
         else if (ay > thr || buttons[GAMEPAD.BTN_DOWN]?.pressed) dir = 'DOWN';
         else if (ay < -thr || buttons[GAMEPAD.BTN_UP]?.pressed) dir = 'UP';
 
-        // Tratamento do Controle para o Nav Menu se estiver aberto
+        // ─── BLOCO 1: NAV MENU ABERTO ───
         if (window.isNavMenuOpen) {
-            const dirMap = { RIGHT: 'ArrowRight', LEFT: 'ArrowLeft', DOWN: 'ArrowDown', UP: 'ArrowUp' };
+            // Se o VKB estiver aberto, ignora as travas do NavMenu e deixa o código "cair" para o handler do VKB abaixo
+            if (!window._vkbIsOpen) {
+                if (typeof isEditModalOpen !== 'undefined' && isEditModalOpen) {
+                    if (dir) {
+                        if (dir !== _currentDirection) { moveFocus(dir); _lastMoveTime = now; _moveState = 1; _currentDirection = dir; }
+                        else if (_moveState === 1 && now - _lastMoveTime > GAMEPAD.INITIAL_DELAY) { moveFocus(dir); _lastMoveTime = now; _moveState = 2; }
+                        else if (_moveState === 2 && now - _lastMoveTime > GAMEPAD.REPEAT_DELAY) { moveFocus(dir); _lastMoveTime = now; }
+                    } else { _moveState = 0; _currentDirection = null; }
+
+                    if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
+                        const el = document.activeElement;
+                        if (el && el.tagName === 'INPUT') window._vkbOpen?.(el);
+                        else el?.click();
+                    }
+                    if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) window._editModalClose?.();
+                    return;
+                }
+                else if (isCtxMenuOpen) {
+                    if (dir) {
+                        if (dir !== _currentDirection) { moveFocus(dir); _lastMoveTime = now; _moveState = 1; _currentDirection = dir; }
+                        else if (_moveState === 1 && now - _lastMoveTime > GAMEPAD.INITIAL_DELAY) { moveFocus(dir); _lastMoveTime = now; _moveState = 2; }
+                        else if (_moveState === 2 && now - _lastMoveTime > GAMEPAD.REPEAT_DELAY) { moveFocus(dir); _lastMoveTime = now; }
+                    } else { _moveState = 0; _currentDirection = null; }
+                    if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
+                    if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) closeCtxMenu();
+                    return;
+                }
+                else {
+                    const dirMap = { RIGHT: 'ArrowRight', LEFT: 'ArrowLeft', DOWN: 'ArrowDown', UP: 'ArrowUp' };
+                    if (dir) {
+                        if (dir !== _currentDirection) { window._navMenuHandleKey?.(dirMap[dir]); _lastMoveTime = now; _moveState = 1; _currentDirection = dir; }
+                        else if (_moveState === 1 && now - _lastMoveTime > GAMEPAD.INITIAL_DELAY) { window._navMenuHandleKey?.(dirMap[dir]); _lastMoveTime = now; _moveState = 2; }
+                        else if (_moveState === 2 && now - _lastMoveTime > GAMEPAD.REPEAT_DELAY) { window._navMenuHandleKey?.(dirMap[dir]); _lastMoveTime = now; }
+                    } else { _moveState = 0; _currentDirection = null; }
+                    if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) window._navMenuHandleKey?.('Enter');
+                    if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) window._navMenuHandleKey?.('Escape');
+                    if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) window._navMenuTriggerCtxMenu?.();
+                    if (buttonJustPressed(buttons[GAMEPAD.BTN_L1], GAMEPAD.BTN_L1)) window._navMenuCycleTab?.(-1);
+                    if (buttonJustPressed(buttons[GAMEPAD.BTN_R1], GAMEPAD.BTN_R1)) window._navMenuCycleTab?.(1);
+                    return;
+                }
+            }
+        }
+
+        // ─── BLOCO 2: TECLADO VIRTUAL (VKB) ATIVO ───
+        if (window._vkbIsOpen) {
             if (dir) {
-                if (dir !== _currentDirection) { window._navMenuHandleKey?.(dirMap[dir]); _lastMoveTime = now; _moveState = 1; _currentDirection = dir; }
-                else if (_moveState === 1 && now - _lastMoveTime > GAMEPAD.INITIAL_DELAY) { window._navMenuHandleKey?.(dirMap[dir]); _lastMoveTime = now; _moveState = 2; }
-                else if (_moveState === 2 && now - _lastMoveTime > GAMEPAD.REPEAT_DELAY) { window._navMenuHandleKey?.(dirMap[dir]); _lastMoveTime = now; }
+                if (dir !== _currentDirection) { moveFocus(dir); _lastMoveTime = now; _moveState = 1; _currentDirection = dir; }
+                else if (_moveState === 1 && now - _lastMoveTime > GAMEPAD.INITIAL_DELAY) { moveFocus(dir); _lastMoveTime = now; _moveState = 2; }
+                else if (_moveState === 2 && now - _lastMoveTime > GAMEPAD.REPEAT_DELAY) { moveFocus(dir); _lastMoveTime = now; }
             } else { _moveState = 0; _currentDirection = null; }
 
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) window._navMenuHandleKey?.('Enter');
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) window._navMenuHandleKey?.('Escape');
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) window._vkbCancel?.();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) window._editModalSave?.();
 
+            // CORREÇÃO L1/R1: Passando -1 e 1 em vez de strings
+            [['l1', GAMEPAD.BTN_L1, -1], ['r1', GAMEPAD.BTN_R1, 1]].forEach(([id, idx, val]) => {
+                const pressed = buttons[idx]?.pressed;
+                if (pressed) {
+                    if (_cursorHoldState[id] === 0) { window._vkbMoveCursor?.(val); _cursorLastTime[id] = now; _cursorHoldState[id] = 1; }
+                    else if (_cursorHoldState[id] === 1 && now - _cursorLastTime[id] > GAMEPAD.INITIAL_DELAY) { window._vkbMoveCursor?.(val); _cursorLastTime[id] = now; _cursorHoldState[id] = 2; }
+                    else if (_cursorHoldState[id] === 2 && now - _cursorLastTime[id] > GAMEPAD.REPEAT_DELAY) { window._vkbMoveCursor?.(val); _cursorLastTime[id] = now; }
+                } else { _cursorHoldState[id] = 0; }
+            });
 
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_L1], GAMEPAD.BTN_L1)) window._navMenuCycleTab?.(-1);
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_R1], GAMEPAD.BTN_R1)) window._navMenuCycleTab?.(1);
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_L3], GAMEPAD.BTN_L3)) window._vkbToggleShift?.();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_TRIANGLE], GAMEPAD.BTN_TRIANGLE)) window._vkbPhysicalKey?.(' ');
+
+            const sqPressed = buttons[GAMEPAD.BTN_SQUARE]?.pressed;
+            if (sqPressed) {
+                if (_cursorHoldState['sq'] === 0) { window._vkbPhysicalKey?.('Backspace'); _cursorLastTime['sq'] = now; _cursorHoldState['sq'] = 1; }
+                else if (_cursorHoldState['sq'] === 1 && now - _cursorLastTime['sq'] > GAMEPAD.INITIAL_DELAY) { window._vkbPhysicalKey?.('Backspace'); _cursorLastTime['sq'] = now; _cursorHoldState['sq'] = 2; }
+                else if (_cursorHoldState['sq'] === 2 && now - _cursorLastTime['sq'] > GAMEPAD.REPEAT_DELAY) { window._vkbPhysicalKey?.('Backspace'); _cursorLastTime['sq'] = now; }
+            } else { _cursorHoldState['sq'] = 0; }
             return;
         }
 
+        // ─── BLOCO 3: HOME / SETUP / MODAIS (Tudo fechado) ───
         const items = getNavigableItems();
         if (!items.length) return;
-        if (!items.includes(document.activeElement)) {
-            if (isSetupOpen) {
-                const target = _lastSetupFocused ?? items[0];
-                target?.focus();
-            } else {
-                window.focusFeaturedCard();
-            }
-            return;
-        }
 
         if (dir) {
             if (dir !== _currentDirection) { moveFocus(dir); _lastMoveTime = now; _moveState = 1; _currentDirection = dir; }
@@ -661,103 +783,34 @@ window.addEventListener('gamepaddisconnected', e => {
             else if (_moveState === 2 && now - _lastMoveTime > GAMEPAD.REPEAT_DELAY) { moveFocus(dir); _lastMoveTime = now; }
         } else { _moveState = 0; _currentDirection = null; }
 
-        if (window._vkbIsOpen) {
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) window._vkbCancel?.();
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) window._editModalSave?.();
-            
-
-            [['l1', GAMEPAD.BTN_L1, 'left'], ['r1', GAMEPAD.BTN_R1, 'right']].forEach(([id, idx, dir]) => {
-                const pressed = buttons[idx]?.pressed;
-                if (pressed) {
-                    if (_cursorHoldState[id] === 0) {
-                        window._vkbMoveCursor?.(dir);
-                        _cursorLastTime[id] = now;
-                        _cursorHoldState[id] = 1;
-                    } else if (_cursorHoldState[id] === 1 && now - _cursorLastTime[id] > GAMEPAD.INITIAL_DELAY) {
-                        window._vkbMoveCursor?.(dir);
-                        _cursorLastTime[id] = now;
-                        _cursorHoldState[id] = 2;
-                    } else if (_cursorHoldState[id] === 2 && now - _cursorLastTime[id] > GAMEPAD.REPEAT_DELAY) {
-                        window._vkbMoveCursor?.(dir);
-                        _cursorLastTime[id] = now;
-                    }
-                } else {
-                    _cursorHoldState[id] = 0;
-                }
-            });
-
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_L3], GAMEPAD.BTN_L3)) window._vkbToggleShift?.();
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_TRIANGLE], GAMEPAD.BTN_TRIANGLE)) window._vkbPhysicalKey?.(' ');
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_L1], GAMEPAD.BTN_L1)) window._vkbMoveCursor?.(-1);
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_R1], GAMEPAD.BTN_R1)) window._vkbMoveCursor?.(1);
-            {
-                const pressed = buttons[GAMEPAD.BTN_SQUARE]?.pressed;
-                if (pressed) {
-                    if (_cursorHoldState['sq'] === 0) {
-                        window._vkbPhysicalKey?.('Backspace');
-                        _cursorLastTime['sq'] = now;
-                        _cursorHoldState['sq'] = 1;
-                    } else if (_cursorHoldState['sq'] === 1 && now - _cursorLastTime['sq'] > GAMEPAD.INITIAL_DELAY) {
-                        window._vkbPhysicalKey?.('Backspace');
-                        _cursorLastTime['sq'] = now;
-                        _cursorHoldState['sq'] = 2;
-                    } else if (_cursorHoldState['sq'] === 2 && now - _cursorLastTime['sq'] > GAMEPAD.REPEAT_DELAY) {
-                        window._vkbPhysicalKey?.('Backspace');
-                        _cursorLastTime['sq'] = now;
-                    }
-                } else {
-                    _cursorHoldState['sq'] = 0;
-                }
-            }
+        if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
+            const el = document.activeElement;
+            if (el && el.tagName === 'INPUT') window._vkbOpen?.(el);
+            else el?.click();
         }
-        else {
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
-                if (isCtxMenuOpen) closeCtxMenu();
-                else if (isEditModalOpen) window._editModalClose?.();
-                else if (!isSetupOpen) gamepadCancel();
-            }
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) {
-                if (isModalOpen) document.getElementById('btnConfirmAdd')?.click();
-                else gamepadStart();
-            }
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_TRIANGLE], GAMEPAD.BTN_TRIANGLE)) {
-                if (isModalOpen) gamepadAddFolder();
-                gamepadTriangle();
-            }
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) {
-                if (isEditModalOpen) window._editModalClose?.();
-                else triggerContextMenu();
-            }
-            else {
-                if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
-                if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
-                    if (isCtxMenuOpen) closeCtxMenu();
-                    else if (isEditModalOpen) window._editModalClose?.();
-                    else if (!isSetupOpen) gamepadCancel();
-                }
-                if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) {
-                    if (isModalOpen) document.getElementById('btnConfirmAdd')?.click();
-                    else gamepadStart();
-                }
-                if (buttonJustPressed(buttons[GAMEPAD.BTN_TRIANGLE], GAMEPAD.BTN_TRIANGLE)) {
-                    if (isModalOpen) gamepadAddFolder();
-                    gamepadTriangle();
-                }
-                if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) {
-                    if (isEditModalOpen) window._editModalClose?.();
-                    else triggerContextMenu();
-                }
-                // ── Alternância de abas Jogos / Mídia ──────────────────────────
-                if (!isModalOpen && !isSetupOpen && !isCtxMenuOpen && !isEditModalOpen) {
-                    if (buttonJustPressed(buttons[GAMEPAD.BTN_R1], GAMEPAD.BTN_R1)) window.cycleHomeTab?.(1);
-                    if (buttonJustPressed(buttons[GAMEPAD.BTN_L1], GAMEPAD.BTN_L1)) window.cycleHomeTab?.(-1);
-                }
-            }
+        if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
+            if (isCtxMenuOpen) closeCtxMenu();
+            else if (isEditModalOpen) window._editModalClose?.();
+            else if (!isSetupOpen) gamepadCancel();
+        }
+        if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) {
+            if (isModalOpen) (document.getElementById('btnConfirmAdd') || document.getElementById('btnConfirmAddMedia'))?.click();
+            else gamepadStart();
+        }
+        if (buttonJustPressed(buttons[GAMEPAD.BTN_TRIANGLE], GAMEPAD.BTN_TRIANGLE)) {
+            if (isModalOpen) gamepadAddFolder();
+            gamepadTriangle();
+        }
+        if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) {
+            if (isEditModalOpen) window._editModalClose?.();
+            else triggerContextMenu();
+        }
+        if (!isModalOpen && !isSetupOpen && !isCtxMenuOpen && !isEditModalOpen) {
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_R1], GAMEPAD.BTN_R1)) window.cycleHomeTab?.(1);
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_L1], GAMEPAD.BTN_L1)) window.cycleHomeTab?.(-1);
         }
     } catch (e) {
-        console.error('Gamepad protegida interceptou um erro:', e);
+        console.error('Gamepad Error:', e);
     } finally {
         requestAnimationFrame(gamepadLoop);
     }
@@ -791,7 +844,6 @@ showCursor();
 // Auto-Foco Inteligente Centralizado (Navegação & Modal)
 // =============================================================================
 
-
 document.addEventListener('click', (e) => {
     const tab = e.target.closest('.menu-tab');
     if (tab) {
@@ -805,6 +857,9 @@ document.addEventListener('click', (e) => {
                 target = (_lastFocusedApp && navigableApps.includes(_lastFocusedApp))
                     ? _lastFocusedApp
                     : navigableApps[0] || null;
+            } else if (groups.activeTab === 'view-media-apps') {
+                const activeSubtab = groups.subtabs.find(s => s.classList.contains('active')) || groups.subtabs[0];
+                target = activeSubtab || firstVisible(groups.inputs) || firstVisible(groups.apps) || groups.actions[0];
             } else {
                 target = firstVisible(groups.folderBtns) || groups.actions[0];
             }

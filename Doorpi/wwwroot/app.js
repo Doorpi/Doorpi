@@ -152,13 +152,25 @@ window.chrome.webview.addEventListener('message', event => {
             isFolderOperationInProgress = false;
         }
         else if (data.type === 'clipboardText') {
-            const input = document.getElementById('setupApiInput');
-            if (input && data.text?.trim()) {
-                input.value = data.text.trim();
-                _setupData.apiKey = data.text.trim();
-                const hint = document.getElementById('setupApiHint');
-                if (hint) hint.textContent = t('setupStep3PasteSuccess');
-                document.getElementById('btnSetupApiNext')?.focus();
+            if (data.text?.trim()) {
+                if (typeof isSetupOpen !== 'undefined' && isSetupOpen) {
+                    // Cola no Setup
+                    const input = document.getElementById('setupApiInput');
+                    if (input) {
+                        input.value = data.text.trim();
+                        _setupData.apiKey = data.text.trim();
+                        const hint = document.getElementById('setupApiHint');
+                        if (hint) hint.textContent = t('setupStep3PasteSuccess');
+                        document.getElementById('btnSetupApiNext')?.focus();
+                    }
+                } else {
+                    // Cola no modal de Adicionar Mídia
+                    const input = document.getElementById('webAppUrlInput');
+                    if (input) {
+                        input.value = data.text.trim();
+                        input.focus(); // Retorna o foco pro input pra pessoa ver que colou
+                    }
+                }
             }
         }
 
@@ -252,15 +264,21 @@ function updateToLocalFile(gameId, imageType, newUrl) {
     if (isFeatured && key === 'staticHero') switchHeroBackground(newUrl, card.dataset.staticLogo || card.dataset.logo);
 }
 
-function switchTab(tabId) {
-    document.querySelectorAll('.menu-tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.view-section').forEach(v => { v.classList.remove('active'); v.classList.add('hidden'); });
-    const isApps = tabId === 'apps';
-    document.querySelectorAll('.menu-tab')[isApps ? 0 : 1].classList.add('active');
+const _TAB_MAP = { 'apps': 0, 'media-apps': 1, 'folders': 2 };
+const _VIEW_MAP = { 'apps': 'view-apps', 'media-apps': 'view-media-apps', 'folders': 'view-folders' };
 
-    const view = document.getElementById(isApps ? 'view-apps' : 'view-folders');
-    view.classList.remove('hidden');
-    view.classList.add('active');
+function switchTab(tabId) {
+    document.querySelectorAll('.menu-tab').forEach((btn, i) => {
+        const id = Object.keys(_TAB_MAP)[i];
+        btn.classList.toggle('active', id === tabId);
+    });
+    document.querySelectorAll('.view-section').forEach(v => {
+        v.classList.remove('active');
+        v.classList.add('hidden');
+    });
+    const view = document.getElementById(_VIEW_MAP[tabId]);
+    view?.classList.remove('hidden');
+    view?.classList.add('active');
 
     if (tabId === 'folders') {
         if (cachedFolders === null) {
@@ -269,6 +287,8 @@ function switchTab(tabId) {
         } else {
             renderFolderList(cachedFolders);
         }
+    } else if (tabId === 'media-apps') {
+        _initMediaAppsView();
     }
 }
 
@@ -330,8 +350,10 @@ function applyFilterAndRender() {
         filtered = allInstalledApps.filter(a => allowedPlatforms.includes(a.Source || a.source));
     }
 
+   
+    filtered = filtered.filter(a => (a.AddedTo || a.addedTo) !== 'media');
 
-    populateAppModal(filtered);
+    populateAppModal(filtered); 
 }
 
 document.getElementById('btnAdd').addEventListener('click', () => {
@@ -1403,10 +1425,42 @@ function _openCtxMenu(card, x, y) {
     _ctxCard = card;
     _ctxCard.classList.add('ctx-active');
 
-    // Força a tradução imediata dos botões do menu, caso o idioma tenha mudado
-    applyI18n();
+    if (typeof applyI18n === 'function') applyI18n();
 
-    _ctxMenu.querySelector('#ctxGameName').textContent = card.querySelector('.title')?.innerText?.trim() || '';
+    // Puxa a identidade pra checar se é YouTube
+    const gameId = card.dataset.gameId || card.dataset.appId || card.dataset.appUrl;
+    const isYoutube = (gameId && gameId.toLowerCase().includes('youtube'));
+
+    const ctxEditBtn = _ctxMenu.querySelector('#ctxEdit');
+    const ctxDeleteBtn = _ctxMenu.querySelector('#ctxDelete');
+
+    // CORREÇÃO DO TRAVAMENTO: Cria um botão dinâmico de "Voltar" pro usuário do Controle interagir
+    let ctxCloseBtn = _ctxMenu.querySelector('#ctxClose');
+    if (!ctxCloseBtn) {
+        ctxCloseBtn = document.createElement('button');
+        ctxCloseBtn.className = 'ctx-item';
+        ctxCloseBtn.id = 'ctxClose';
+        ctxCloseBtn.innerHTML = `<span class="ctx-icon">↩</span> <span>Voltar</span>`;
+        ctxCloseBtn.addEventListener('click', _closeCtxMenu);
+        _ctxMenu.appendChild(ctxCloseBtn);
+    }
+
+    if (isYoutube) {
+        // Modo YouTube: Esconde Editar/Excluir e exibe apenas o botão Voltar
+        if (ctxEditBtn) ctxEditBtn.style.display = 'none';
+        if (ctxDeleteBtn) ctxDeleteBtn.style.display = 'none';
+        ctxCloseBtn.style.display = 'flex';
+
+        _ctxMenu.querySelector('#ctxGameName').textContent = "APP DO SISTEMA";
+    } else {
+        // Modo Normal: Exibe Editar/Excluir e esconde o Voltar
+        if (ctxEditBtn) ctxEditBtn.style.display = 'flex';
+        if (ctxDeleteBtn) ctxDeleteBtn.style.display = 'flex';
+        ctxCloseBtn.style.display = 'none';
+
+        _ctxMenu.querySelector('#ctxGameName').textContent = card.querySelector('.title, .nav-vertical-card-title')?.innerText?.trim() || '';
+    }
+
     _ctxMenu.style.display = 'flex';
     requestAnimationFrame(() => {
         const w = _ctxMenu.offsetWidth, h = _ctxMenu.offsetHeight, m = 10;
@@ -1414,10 +1468,15 @@ function _openCtxMenu(card, x, y) {
         _ctxMenu.style.top = Math.min(y, window.innerHeight - h - m) + 'px';
         _ctxMenu.classList.add('visible');
         isCtxMenuOpen = true;
-        _ctxMenu.querySelector('#ctxEdit')?.focus();
+
+        // DIRECIONA O FOCO CORRETAMENTE: Fim do Focus Trap!
+        if (isYoutube) {
+            ctxCloseBtn.focus();
+        } else {
+            ctxEditBtn?.focus();
+        }
     });
 }
-
 function _closeCtxMenu() {
     isCtxMenuOpen = false;
     _ctxMenu.classList.remove('visible');
@@ -1448,37 +1507,75 @@ document.getElementById('ctxDelete').addEventListener('click', () => {
 // ══════════════════════════════════════════════════════════════════════════
 // Deleção
 // ══════════════════════════════════════════════════════════════════════════
-
 function _executeDelete(card) {
-    const gameId = card.dataset.gameId;
-    if (!gameId) return;
+    // Coletamos todas as possíveis "identidades" deste card (ID ou URL)
+    const id1 = card.dataset.gameId;
+    const id2 = card.dataset.appId;
+    const id3 = card.dataset.appUrl;
 
-    if (card.classList.contains('featured')) {
-        const next = Array.from(document.querySelectorAll('#gameGrid .card:not(.add-card)')).find(c => c !== card);
-        if (next) {
-            next.classList.add('featured');
-            const img = next.querySelector('img');
-            if (img) img.src = next.dataset.staticHorizontal || next.dataset.horizontal || next.dataset.staticVertical || '';
-            next._startInteraction?.();
-        } else {
-            if (typeof clearHero === 'function') clearHero();
+    // Filtramos os que existem
+    const searchKeys = [id1, id2, id3].filter(Boolean);
+    if (searchKeys.length === 0) return;
+
+    // REGRA DE OURO: YouTube não pode ser deletado.
+    if (searchKeys.some(k => k.toLowerCase().includes('youtube'))) return;
+
+    const isMedia = card.hasAttribute('data-app-id') || card.closest('#mediaGrid') !== null;
+
+    // CORREÇÃO DEFINITIVA DE SYNC: Busca cards comparando todas as identidades (Home vs NavMenu)
+    const allCards = Array.from(document.querySelectorAll('.card, .nav-vertical-card')).filter(c => {
+        const cId1 = c.dataset.gameId;
+        const cId2 = c.dataset.appId;
+        const cId3 = c.dataset.appUrl;
+        return searchKeys.some(k => k === cId1 || k === cId2 || k === cId3);
+    });
+
+    allCards.forEach(c => {
+        if (c.classList.contains('featured')) {
+            const grid = c.closest('#gameGrid') || c.closest('#mediaGrid');
+            const next = Array.from(grid.querySelectorAll('.card:not(.add-card)')).find(sib => sib !== c);
+            if (next) {
+                next.classList.add('featured');
+                const img = next.querySelector('img');
+                if (img) img.src = next.dataset.staticHorizontal || next.dataset.horizontal || next.dataset.staticVertical || '';
+                next._startInteraction?.();
+            } else {
+                if (typeof clearHero === 'function') clearHero();
+            }
         }
+
+        c.classList.add('removing');
+        setTimeout(() => c.remove(), 280);
+    });
+
+    // Limpa a memória do Nav Menu usando as mesmas chaves múltiplas
+    if (typeof _menuData !== 'undefined') {
+        ['games', 'media'].forEach(cat => {
+            if (!_menuData[cat]) return;
+            const idx = _menuData[cat].findIndex(i => {
+                const key = i.LaunchUrl || i.Path || i.Url;
+                return searchKeys.includes(key) || searchKeys.includes(i.Id);
+            });
+            if (idx >= 0) _menuData[cat].splice(idx, 1);
+        });
     }
 
-    card.classList.add('removing');
-    setTimeout(() => card.remove(), 280);
-    postToHost({ action: 'deleteGame', gameId });
+    // Passa a ação para o C#
+    postToHost({
+        action: 'deleteGame',
+        gameId: id1 || id2,
+        isMedia: isMedia
+    });
 }
-
 // ══════════════════════════════════════════════════════════════════════════
 // Edit Modal
 // ══════════════════════════════════════════════════════════════════════════
 
 let _editCard = null;
 let _editOverlay = null;
-
 function openEditGameModal(card) {
-    const currentName = card.querySelector('.title')?.innerText?.trim() || '';
+    const currentName = card.querySelector('.title')?.innerText?.trim() ||
+        card.querySelector('.nav-vertical-card-title')?.innerText?.trim() || '';
     _editCard = card;
 
     const overlay = document.createElement('div');
@@ -1509,21 +1606,40 @@ function openEditGameModal(card) {
 
     const input = overlay.querySelector('#editNameInput');
     input.value = currentName;
+
     const doClose = () => {
         isEditModalOpen = false;
         window._vkbForceClose();
         overlay.style.opacity = '0';
         overlay.style.transition = 'opacity 0.12s';
         setTimeout(() => { overlay.remove(); _editOverlay = null; }, 130);
-
         window.focusFeaturedCard?.();
     };
 
     const doSave = () => {
         const newName = input.value.trim();
         if (newName && newName !== currentName) {
-            _editCard?.querySelector('.title') && (_editCard.querySelector('.title').innerText = newName);
-            postToHost({ action: 'editGame', gameId: card.dataset.gameId, newName });
+            const gameId = card.dataset.gameId || card.dataset.appId;
+
+            // CORREÇÃO DEFINITIVA: Atualiza o texto de TODOS os cards (Mídias e Jogos) via filtro JS
+            const allCards = Array.from(document.querySelectorAll('.card, .nav-vertical-card')).filter(c =>
+                c.dataset.gameId === gameId || c.dataset.appId === gameId
+            );
+
+            allCards.forEach(c => {
+                const titleEl = c.querySelector('.title, .nav-vertical-card-title');
+                if (titleEl) titleEl.innerText = newName;
+            });
+
+            if (typeof _menuData !== 'undefined') {
+                ['games', 'media'].forEach(cat => {
+                    if (!_menuData[cat]) return;
+                    const item = _menuData[cat].find(i => (i.LaunchUrl || i.Path || i.Url) === gameId);
+                    if (item) item.Name = newName;
+                });
+            }
+
+            postToHost({ action: 'editGame', gameId: gameId, newName });
         }
         doClose();
     };
@@ -1532,24 +1648,24 @@ function openEditGameModal(card) {
     overlay.querySelector('#editCancelBtn').addEventListener('click', doClose);
     overlay.addEventListener('mousedown', e => { if (e.target === overlay) doClose(); });
 
-    // Teclado físico (sem VKB aberto)
     input.addEventListener('keydown', e => {
         if (window._vkbIsOpen) return;
-        if (e.key === 'Enter') { e.preventDefault(); doSave(); }
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            window._vkbOpen?.(input);
+        }
         if (e.key === 'Escape') { e.preventDefault(); doClose(); }
     });
 
-    // Clique/foco no input → abre VKB
     input.addEventListener('click', () => { if (!window._vkbIsOpen) window._vkbOpen?.(); });
 
     window._editModalClose = doClose;
     window._editModalSave = doSave;
-
     isEditModalOpen = true;
 
-    // Foca o primeiro botão de ação ao abrir (sem abrir VKB)
     requestAnimationFrame(() => {
-        overlay.querySelector('#editSaveBtn')?.focus();
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
     });
 }
 
@@ -1775,12 +1891,11 @@ const VKB = (() => {
 })();
 
 const _TEXT_INPUT_TYPES = new Set(['text', 'search', 'email', 'password', 'url', 'tel', '']);
-
 window._vkbOpen = (el) => {
-    // Bloco 1: só abre se há contexto de edição ativo no launcher
-    if (!isEditModalOpen && !isSetupOpen) return;
+  
+    if (!isEditModalOpen && !isSetupOpen && !isModalOpen) return;
 
-    // Bloco 2: mesmo com contexto ativo, rejeita inputs não-texto
+
     if (el && el.tagName === 'INPUT' && !_TEXT_INPUT_TYPES.has((el.type || '').toLowerCase())) return;
 
     VKB.open(el);
@@ -2028,3 +2143,264 @@ document.getElementById('btnAdd')?.addEventListener('focus', clearHero);
 
 document.getElementById('btnAddMedia')?.addEventListener('mouseenter', clearHero);
 document.getElementById('btnAddMedia')?.addEventListener('focus', clearHero);
+
+
+        // ══════════════════════════════════════════════════════════════════════════
+// View: Aplicativos (App Web + Executável)
+// ══════════════════════════════════════════════════════════════════════════
+
+let _activeMediaSubtab = 'web';
+
+function _initMediaAppsView() {
+    _switchMediaSubtab(_activeMediaSubtab);
+
+    document.getElementById('mediaAppSubtabs')
+        ?.querySelectorAll('.subtab')
+        .forEach(btn => {
+            const fresh = btn.cloneNode(true);
+            btn.replaceWith(fresh);
+            fresh.addEventListener('click', () => _switchMediaSubtab(fresh.dataset.subtab));
+        });
+}
+
+function _switchMediaSubtab(subtab) {
+    _activeMediaSubtab = subtab;
+
+    document.querySelectorAll('#mediaAppSubtabs .subtab').forEach(b =>
+        b.classList.toggle('active', b.dataset.subtab === subtab));
+
+    document.getElementById('subview-web')?.classList.toggle('hidden', subtab !== 'web');
+    document.getElementById('subview-web')?.classList.toggle('active', subtab === 'web');
+    document.getElementById('subview-exe')?.classList.toggle('hidden', subtab !== 'exe');
+    document.getElementById('subview-exe')?.classList.toggle('active', subtab === 'exe');
+
+    if (subtab === 'web') {
+        _renderWebAppActions();
+      
+        setTimeout(() => document.getElementById('webAppNameInput')?.focus(), 150);
+    } else {
+        _renderExeAppModal();
+      
+        setTimeout(() => {
+            const firstApp = document.querySelector('#appListMedia .app-item');
+            if (firstApp) firstApp.focus();
+            else document.getElementById('btnSearchMedia')?.focus();
+        }, 150);
+    }
+}
+
+// ── Sub-aba: App Web ──────────────────────────────────────────────────────
+
+function _renderWebAppActions() {
+    const bar = document.getElementById('mediaAppActions');
+    bar.innerHTML = `
+        <div class="action-buttons">
+            <button class="modal-btn primary" id="btnAddWebApp" tabindex="0">
+                <span data-i18n="btnAddWebApp">Adicionar App</span>
+            </button>
+            <button class="modal-btn cancel" id="btnCancelWebApp" tabindex="0">
+                <span data-i18n="btnCancelLabel">Voltar</span>
+            </button>
+        </div>`;
+
+    document.getElementById('btnAddWebApp').addEventListener('click', _submitWebApp);
+    document.getElementById('btnCancelWebApp').addEventListener('click', closeModal);
+
+    // Liga o botão de Colar
+    const btnPaste = document.getElementById('btnWebAppPaste');
+    if (btnPaste) {
+        const freshBtn = btnPaste.cloneNode(true);
+        btnPaste.replaceWith(freshBtn);
+        freshBtn.addEventListener('click', () => {
+            postToHost({ action: 'readClipboard' });
+        });
+    }
+
+    // Configura os Inputs para VKB e Controle
+    ['webAppNameInput', 'webAppUrlInput'].forEach(id => {
+        const input = document.getElementById(id);
+        if (!input) return;
+
+        input.removeAttribute('readonly');
+        input.setAttribute('tabindex', '0');
+
+        const fresh = input.cloneNode(true);
+        input.replaceWith(fresh);
+
+        fresh.addEventListener('focus', () => {
+            if (!window._vkbIsOpen) fresh.style.caretColor = '';
+        });
+        fresh.addEventListener('blur', () => {
+            if (!window._vkbIsOpen) fresh.style.caretColor = 'transparent';
+        });
+
+        fresh.addEventListener('click', () => fresh.focus());
+
+        fresh.addEventListener('keydown', e => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                if (!window._vkbIsOpen) {
+                    window._vkbOpen?.(fresh, {
+                        onOk: () => window._vkbForceClose?.(),
+                        onCancel: () => window._vkbForceClose?.(),
+                    });
+                }
+            }
+        });
+    });
+}
+function _submitWebApp() {
+    const nameInput = document.getElementById('webAppNameInput');
+    const urlInput = document.getElementById('webAppUrlInput');
+    const hint = document.getElementById('webAppHint');
+
+    const name = nameInput?.value.trim() || '';
+    let url = urlInput?.value.trim() || '';
+
+    // Limpa estados de erro anteriores
+    nameInput?.classList.remove('error');
+    urlInput?.classList.remove('error');
+    if (hint) { hint.textContent = ''; hint.classList.remove('error'); }
+
+    // VALIDAÇÃO: NOME OBRIGATÓRIO
+    if (!name) {
+        nameInput?.classList.add('error');
+        nameInput?.focus();
+        if (hint) {
+            hint.textContent = (typeof t === 'function' ? t('webAppErrorName') : 'O nome é obrigatório');
+            hint.classList.add('error');
+        }
+        return; // Para a execução aqui
+    }
+
+    // VALIDAÇÃO: LINK OBRIGATÓRIO
+    if (!url || url === 'https://' || url === 'http://') {
+        urlInput?.classList.add('error');
+        urlInput?.focus();
+        if (hint) {
+            hint.textContent = (typeof t === 'function' ? t('webAppErrorUrl') : 'O link é obrigatório');
+            hint.classList.add('error');
+        }
+        return; // Para a execução aqui
+    }
+
+    // Auto-correção de protocolo para facilitar
+    if (!/^https?:\/\//i.test(url)) {
+        url = 'https://' + url;
+    }
+
+    showGlobalLoading(t('downloadingCovers'), t('readingApps'));
+    postToHost({ action: 'addWebApp', name, url });
+}
+
+function _shakeWebField(inputId, hintEl, msg) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    input.classList.add('error');
+    input.addEventListener('input', () => input.classList.remove('error'), { once: true });
+    if (hintEl) { hintEl.textContent = msg; hintEl.classList.add('error'); }
+}
+
+// ── Sub-aba: Executável ───────────────────────────────────────────────────
+
+function _renderExeAppModal() {
+    const bar = document.getElementById('mediaAppActions');
+    bar.innerHTML = `
+        <div class="selection-counter" id="selectionCounterMedia">
+            <span class="counter-dot"></span>
+            <span id="selectionCounterMediaText"></span>
+        </div>
+        <div class="action-buttons">
+            <button class="modal-btn primary" id="btnConfirmAddMedia" tabindex="0">
+                <span data-i18n="btnConfirmLabel">Adicionar Selecionados</span>
+            </button>
+            <button class="modal-btn secondary" id="btnSearchMedia" tabindex="0">
+                <span data-i18n="btnSearchLabel">Procurar Manualmente</span>
+            </button>
+            <button class="modal-btn cancel" id="btnCancelAddMedia" tabindex="0">
+                <span data-i18n="btnCancelLabel">Voltar</span>
+            </button>
+        </div>`;
+
+    document.getElementById('btnCancelAddMedia').addEventListener('click', closeModal);
+    document.getElementById('btnSearchMedia').addEventListener('click', () => {
+        showGlobalLoading(t('detectingLibrary'), t('waitingWindows'));
+        postToHost({
+            action: 'browseManualMedia',
+            dialogTitle: t('dlgBrowseTitle'),
+            dialogFilter: t('dlgBrowseFilter'),
+            loadingTitle: t('loadingAddingGame'),
+            loadingSub: t('loadingFetchingCovers'),
+            errorMsg: t('msgErrorOpenFile')
+        });
+    });
+    document.getElementById('btnConfirmAddMedia').addEventListener('click', () => {
+        const selected = Array.from(
+            document.querySelectorAll('#appListMedia .app-item.selected')
+        ).map(el => ({ Name: el.dataset.name, Path: el.dataset.path, LaunchUrl: el.dataset.launch }));
+
+        if (selected.length > 0) {
+            postToHost({ action: 'addSelectedMediaApps', apps: selected });
+            showGlobalLoading(t('downloadingCovers'), t('readingApps'));
+            setTimeout(closeModal, 3000);
+        } else {
+            closeModal();
+        }
+    });
+
+    // Filtra todos os apps que já foram adicionados em Jogos ou em Mídia e preenche a lista
+    const availableApps = allInstalledApps.filter(a => (a.AddedTo || a.addedTo) !== 'game');
+    _populateExeList(availableApps);
+
+}
+
+function _populateExeList(apps) {
+    const appList = document.getElementById('appListMedia');
+    if (!appList) return;
+
+    appList.innerHTML = apps.map(app => {
+        const icon = app.IconBase64 || app.iconBase64;
+        const name = app.Name || app.name;
+        const path = app.Path || app.path;
+        const launch = app.LaunchUrl || app.launchUrl || '';
+        const source = app.Source || app.source;
+
+       
+        const isAdded = app.IsAdded === true || app.isAdded === true;
+
+        return `
+        <div class="app-item ${isAdded ? 'already-added' : ''}" ${isAdded ? '' : 'tabindex="0"'}
+             data-path="${path.replace(/\\/g, '\\\\')}"
+             data-launch="${launch}"
+             data-name="${name.replace(/"/g, '&quot;')}">
+            ${icon ? `<img class="app-icon" src="data:image/png;base64,${icon}" />` : ''}
+            <div class="app-item-info">
+                <span class="app-name">${name}</span>
+            </div>
+            ${getPlatformBadge(source)}
+        </div>`;
+    }).join('');
+
+  
+    appList.querySelectorAll('.app-item:not(.already-added)').forEach(item =>
+        item.addEventListener('click', function () {
+            this.classList.toggle('selected');
+            const count = appList.querySelectorAll('.app-item.selected').length;
+            const counter = document.getElementById('selectionCounterMedia');
+            const text = document.getElementById('selectionCounterMediaText');
+            if (text) text.innerText = count === 1 ? t('selectedOne') : t('selectedMany', count);
+            counter?.classList.toggle('visible', count > 0);
+        })
+    );
+}
+
+// Abre o VKB apenas com a tecla Enter física, ignorando cliques de mouse
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.tagName === 'INPUT' && !window._vkbIsOpen) {
+        // Se o modal de edição ou setup estiver aberto, o Enter abre o VKB em vez de submeter
+        if (isEditModalOpen || isSetupOpen || isModalOpen) {
+            e.preventDefault();
+            window._vkbOpen?.(e.target);
+        }
+    }
+});

@@ -44,6 +44,7 @@ namespace Doorpi
         public int Size { get; set; }
         public string IconBase64 { get; set; } = "";
         public bool IsAdded { get; set; }
+        public string AddedTo { get; set; } = "";
         public string Source { get; set; } = "";
     }
 
@@ -94,6 +95,8 @@ namespace Doorpi
         private readonly string userFile;
         private readonly string mediaFile;
 
+        private string _currentToastTitle = "";
+        private string _currentToastSub = "";
         private string GetStr(JsonElement root, string propName, string fallback = "")
         {
             return root.TryGetProperty(propName, out var prop) ? (prop.GetString() ?? fallback) : fallback;
@@ -1108,12 +1111,75 @@ namespace Doorpi
         private void SendInstalledAppsToUI()
         {
             var cache = LoadAppCache() ?? new AppCacheModel();
-            var existingGames = BuildExistingGamesSet();
-            var finalList = BuildFinalList(cache.SteamApps, cache.EpicApps, cache.GogApps, cache.WindowsApps, cache.FolderApps, existingGames);
+            var existingMap = BuildExistingAppsMap(); // Agora é um Map
+            var finalList = BuildFinalList(cache.SteamApps, cache.EpicApps, cache.GogApps, cache.WindowsApps, cache.FolderApps, existingMap);
 
             var payload = new { type = "installedAppsList", apps = finalList };
             Dispatcher.Invoke(() =>
                 webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(payload)));
+        }
+
+        private Dictionary<string, string> BuildExistingAppsMap()
+        {
+            var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            // Lê os Jogos
+            foreach (var g in LoadGames())
+            {
+                if (!string.IsNullOrEmpty(g.LaunchUrl)) map[g.LaunchUrl] = "game";
+                else if (!string.IsNullOrEmpty(g.Path)) map[Path.GetFullPath(g.Path)] = "game";
+            }
+
+            // Lê as Mídias
+            foreach (var m in LoadMediaApps())
+            {
+                if (m.Type == "exe" && !string.IsNullOrEmpty(m.Url))
+                {
+                    map[m.Url] = "media";
+                    try { if (Path.IsPathRooted(m.Url)) map[Path.GetFullPath(m.Url)] = "media"; } catch { }
+                }
+            }
+            return map;
+        }
+
+        private List<InstalledApp> BuildFinalList(
+            List<InstalledApp> steam,
+            List<InstalledApp> epic,
+            List<InstalledApp> gog,
+            List<InstalledApp> windows,
+            List<InstalledApp> folders,
+            Dictionary<string, string> existingMap)
+        {
+            var all = new List<InstalledApp>();
+            all.AddRange(steam);
+            all.AddRange(epic);
+            all.AddRange(gog);
+            all.AddRange(windows);
+            all.AddRange(folders);
+
+            foreach (var app in all)
+            {
+                string key = !string.IsNullOrEmpty(app.LaunchUrl) ? app.LaunchUrl : Path.GetFullPath(app.Path);
+
+                // Reutiliza sua chave original IsAdded e alimenta o AddedTo
+                if (existingMap.TryGetValue(key, out string addedToType))
+                {
+                    app.IsAdded = true;
+                    app.AddedTo = addedToType;
+                }
+                else
+                {
+                    app.IsAdded = false;
+                    app.AddedTo = "";
+                }
+            }
+
+            return all
+                .OrderBy(a => GetSourcePriority(a.Source))
+                .GroupBy(a => NormalizeGameName(a.Name))
+                .Select(g => g.First())
+                .OrderBy(a => a.Name)
+                .ToList();
         }
 
         private HashSet<string> BuildExistingGamesSet()
@@ -1196,6 +1262,30 @@ namespace Doorpi
                 }
             }
         }
+
+        private void DeleteMediaImages(MediaAppModel media)
+        {
+            var imageUrls = new[]
+            {
+        media.GridImage, media.GridStaticImage, media.GridHorizontalImage,
+        media.GridHorizontalStaticImage, media.HeroImage, media.HeroStaticImage,
+        media.LogoImage, media.LogoStaticImage,
+    };
+
+            foreach (var url in imageUrls)
+            {
+                if (string.IsNullOrEmpty(url)) continue;
+                try
+                {
+                    var uri = new Uri(url);
+                    string relativePath = uri.AbsolutePath.TrimStart('/');
+                    string fullPath = Path.Combine(dataFolder, relativePath.Replace('/', Path.DirectorySeparatorChar));
+
+                    if (File.Exists(fullPath)) File.Delete(fullPath);
+                }
+                catch { /* Ignora se imagem não existir */ }
+            }
+        }
         private async Task PollInstalledAppsAsync()
         {
             // Snapshot dos fingerprints no momento em que o modal abriu
@@ -1272,6 +1362,105 @@ namespace Doorpi
             Dispatcher.Invoke(() =>
                 webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"clearLoadingCards\"}"));
         }
+        private async Task AddWebMediaAppAsync(string name, string url)
+        {
+            try
+            {
+                var existing = LoadMediaApps();
+                if (existing.Any(a => string.Equals(a.Url, url, StringComparison.OrdinalIgnoreCase)))
+                {
+                    Dispatcher.Invoke(() =>
+                        webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}"));
+                    return;
+                }
+
+                string id = "web_" + Convert.ToHexString(
+                    System.Security.Cryptography.MD5.HashData(
+                        System.Text.Encoding.UTF8.GetBytes(url)))[..10].ToLower();
+
+                var (gridUrl, horizontalUrl, heroUrl, logoUrl) = await FetchSteamGridAssetsAsync(name);
+
+                string safeName = id;
+                string? localGrid = gridUrl != null ? await DownloadImageAsync(gridUrl, gridFolder, safeName) : null;
+                string? localHorizontal = horizontalUrl != null ? await DownloadImageAsync(horizontalUrl, gridHorizontalFolder, safeName + "_h") : null;
+                string? localHero = heroUrl != null ? await DownloadImageAsync(heroUrl, heroFolder, safeName) : null;
+                string? localLogo = logoUrl != null ? await DownloadImageAsync(logoUrl, logoFolder, safeName + "_logo") : null;
+
+                var app = new MediaAppModel
+                {
+                    Id = id,
+                    Name = name,
+                    Url = url,
+                    Type = "browser",
+                    MultiUser = true,
+                    GridImage = localGrid != null ? $"https://data.local/images/grid/{Path.GetFileName(localGrid)}" : "",
+                    GridHorizontalImage = localHorizontal != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(localHorizontal)}" : "",
+                    HeroImage = localHero != null ? $"https://data.local/images/hero/{Path.GetFileName(localHero)}" : "",
+                    LogoImage = localLogo != null ? $"https://data.local/images/logo/{Path.GetFileName(localLogo)}" : "",
+                    DateAdded = DateTime.Now
+                };
+
+                existing.Add(app);
+                SaveMediaApps(existing);
+                SendMediaAppsToUI(existing);
+            }
+            finally
+            {
+                Dispatcher.Invoke(() =>
+                    webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}"));
+            }
+        }
+
+        private async Task AddMultipleMediaAppsAsync(List<InstalledApp> selectedApps)
+        {
+            try
+            {
+                var existing = LoadMediaApps();
+
+                foreach (var app in selectedApps)
+                {
+                    string key = app.Path ?? "";
+                    if (existing.Any(a => string.Equals(a.Url, key, StringComparison.OrdinalIgnoreCase)))
+                        continue;
+
+                    string id = "exe_" + Convert.ToHexString(
+                        System.Security.Cryptography.MD5.HashData(
+                            System.Text.Encoding.UTF8.GetBytes(key)))[..10].ToLower();
+
+                    var (gridUrl, horizontalUrl, heroUrl, logoUrl) = await FetchSteamGridAssetsAsync(app.Name);
+
+                    string safeName = id;
+                    string? localGrid = gridUrl != null ? await DownloadImageAsync(gridUrl, gridFolder, safeName) : null;
+                    string? localHorizontal = horizontalUrl != null ? await DownloadImageAsync(horizontalUrl, gridHorizontalFolder, safeName + "_h") : null;
+                    string? localHero = heroUrl != null ? await DownloadImageAsync(heroUrl, heroFolder, safeName) : null;
+                    string? localLogo = logoUrl != null ? await DownloadImageAsync(logoUrl, logoFolder, safeName + "_logo") : null;
+
+                    existing.Add(new MediaAppModel
+                    {
+                        Id = id,
+                        Name = app.Name,
+                        Url = key,         // path do exe — usado no launch
+                        Type = "exe",
+                        MultiUser = false,
+                        GridImage = localGrid != null ? $"https://data.local/images/grid/{Path.GetFileName(localGrid)}" : "",
+                        GridHorizontalImage = localHorizontal != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(localHorizontal)}" : "",
+                        HeroImage = localHero != null ? $"https://data.local/images/hero/{Path.GetFileName(localHero)}" : "",
+                        LogoImage = localLogo != null ? $"https://data.local/images/logo/{Path.GetFileName(localLogo)}" : "",
+                        DateAdded = DateTime.Now
+                    });
+
+                    SaveMediaApps(existing);
+                }
+
+                SendMediaAppsToUI(existing);
+            }
+            finally
+            {
+                Dispatcher.Invoke(() =>
+                    webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}"));
+            }
+        }
+
         private async void WebView_WebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
         {
             var jsonMessage = e.TryGetWebMessageAsString();
@@ -1327,6 +1516,56 @@ namespace Doorpi
                 else if (action == "stopAppPolling")
                 {
                     _pollingActive = false;
+                }
+                else if (action == "addWebApp")
+                {
+                    string name = GetStr(root, "name");
+                    string url = GetStr(root, "url");
+                    if (!string.IsNullOrEmpty(name) && !string.IsNullOrEmpty(url))
+                        _ = Task.Run(async () => await AddWebMediaAppAsync(name, url));
+                }
+                else if (action == "addSelectedMediaApps" && root.TryGetProperty("apps", out var mediaAppsEl))
+                {
+                    var selectedApps = JsonSerializer.Deserialize<List<InstalledApp>>(mediaAppsEl.GetRawText());
+                    if (selectedApps != null && selectedApps.Any())
+                        _ = Task.Run(async () => await AddMultipleMediaAppsAsync(selectedApps));
+                }
+                else if (action == "browseManualMedia")
+                {
+                    string dialogTitle = GetStr(root, "dialogTitle", "Select Executable");
+                    string dialogFilter = GetStr(root, "dialogFilter", "Executables (*.exe)|*.exe");
+                    string loadTitle = GetStr(root, "loadingTitle", "Adding");
+                    string loadSub = GetStr(root, "loadingSub", "Fetching covers...");
+                    string errMsg = GetStr(root, "errorMsg", "Error: ");
+
+                    await Dispatcher.InvokeAsync(async () =>
+                    {
+                        try
+                        {
+                            var dlg = new Microsoft.Win32.OpenFileDialog { Filter = dialogFilter, Title = dialogTitle };
+                            if (dlg.ShowDialog() == true)
+                            {
+                                string filePath = dlg.FileName;
+                                string cleanName = GetGameNameFromFile(filePath) ?? Path.GetFileNameWithoutExtension(filePath);
+                                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                                { type = "updateLoadingText", title = loadTitle, subtitle = loadSub }));
+                                await AddMultipleMediaAppsAsync(new List<InstalledApp>
+                {
+                    new InstalledApp { Name = cleanName, Path = filePath, IconBase64 = GetCachedIcon(filePath) }
+                });
+                                await webView.CoreWebView2.ExecuteScriptAsync("closeModal();");
+                            }
+                            else
+                            {
+                                webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Windows.MessageBox.Show(errMsg + ex.Message);
+                            webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}");
+                        }
+                    });
                 }
                 else if (action == "browseManual")
                 {
@@ -1637,7 +1876,66 @@ namespace Doorpi
                             DeleteGameImages(game);
                             games.Remove(game);
                             SaveGames(games);
-                            Debug.WriteLine($"[deleteGame] Removido: {gameId}");
+                            Debug.WriteLine($"[deleteGame] Jogo Removido: {gameId}");
+                        }
+                        else
+                        {
+                            // MÍDIAS - Se não for um Jogo, tenta achar em Mídia e apaga!
+                            if (gameId.Equals("youtube", StringComparison.OrdinalIgnoreCase)) return;
+
+                            var medias = LoadMediaApps();
+                            var media = medias.FirstOrDefault(m => string.Equals(m.Id, gameId, StringComparison.OrdinalIgnoreCase) || string.Equals(m.Url, gameId, StringComparison.OrdinalIgnoreCase));
+
+                            if (media != null)
+                            {
+                                // 1. Remove Imagens e Salva no media.json
+                                DeleteMediaImages(media);
+                                medias.Remove(media);
+                                SaveMediaApps(medias);
+                                Debug.WriteLine($"[deleteGame] Mídia Removida: {gameId}");
+
+                                // 2. Lógica para apagar o Cache (browser-profiles)
+                                try
+                                {
+                                    // Identifica se a mídia era um App Nativo para achar o nome da pasta
+                                    var nativeApp = _nativeApps.FirstOrDefault(a => media.Url.Contains(a.Id));
+
+                                    // Evita apagar cache de "apps web customizados", pois eles dividem a mesma pasta "default"
+                                    if (nativeApp != default && nativeApp.Id != "youtube")
+                                    {
+                                        string profileName;
+                                        if (nativeApp.MultiUser)
+                                        {
+                                            profileName = $"shared-{nativeApp.Id}";
+                                        }
+                                        else
+                                        {
+                                            var profile = LoadUserProfile();
+                                            string safeName = string.IsNullOrWhiteSpace(profile.Name)
+                                                ? "default"
+                                                : string.Concat(profile.Name.Where(c => !Path.GetInvalidFileNameChars().Contains(c)));
+
+                                            profileName = $"{safeName}-{nativeApp.Id}";
+                                        }
+
+                                        string cachePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "browser-profiles", profileName);
+
+                                        if (Directory.Exists(cachePath))
+                                        {
+                                            // Força o Garbage Collector a soltar arquivos do WebView antes de deletar
+                                            GC.Collect();
+                                            GC.WaitForPendingFinalizers();
+
+                                            Directory.Delete(cachePath, true);
+                                            Debug.WriteLine($"[deleteGame] Cache físico apagado: {profileName}");
+                                        }
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    Debug.WriteLine($"[deleteGame] Erro ao tentar apagar o cache: {ex.Message}");
+                                }
+                            }
                         }
                     }
                 }
@@ -1661,8 +1959,23 @@ namespace Doorpi
                             SaveGames(games);
                             Debug.WriteLine($"[editGame] '{game.Path}' renomeado para: {newName}");
                         }
+                        else
+                        {
+                            // MÍDIAS - Se não for um Jogo, edita o nome na lista de Mídia
+                            if (gameId.Equals("youtube", StringComparison.OrdinalIgnoreCase)) return;
+
+                            var medias = LoadMediaApps();
+                            var media = medias.FirstOrDefault(m => string.Equals(m.Id, gameId, StringComparison.OrdinalIgnoreCase) || string.Equals(m.Url, gameId, StringComparison.OrdinalIgnoreCase));
+                            if (media != null)
+                            {
+                                media.Name = newName;
+                                SaveMediaApps(medias); // Atualiza e salva o media.json
+                                Debug.WriteLine($"[editGame] Mídia renomeada para: {newName}");
+                            }
+                        }
                     }
                 }
+            
                 else if (action == "saveUserProfile")
                 {
                     var profile = new UserProfile
@@ -1738,6 +2051,9 @@ namespace Doorpi
                 }
                 else if (action == "launchMediaApp" && root.TryGetProperty("url", out var mediaUrlEl))
                 {
+                    _currentToastTitle = GetStr(root, "toastTitle", "Copiado!");
+                    _currentToastSub = GetStr(root, "toastSub", "Retornando...");
+
                     string mediaUrl = mediaUrlEl.GetString() ?? "";
                     string appType = root.TryGetProperty("appType", out var atEl)
                                       ? (atEl.GetString() ?? "browser") : "browser";
@@ -1761,6 +2077,27 @@ namespace Doorpi
 
                         if (appType == "webview" || appType == "browser")
                             _ = Dispatcher.InvokeAsync(async () => await OpenWebViewInlineAsync(mediaUrl, mediaUrl.Contains("youtube.com")));
+                        else if (appType == "exe")
+                        {
+                           
+                            Dispatcher.Invoke(() =>
+                            {
+                                try
+                                {
+                                    if (File.Exists(mediaUrl))
+                                    {
+                                        var proc = Process.Start(new ProcessStartInfo
+                                        {
+                                            FileName = mediaUrl,
+                                            UseShellExecute = true,
+                                            WorkingDirectory = Path.GetDirectoryName(mediaUrl)
+                                        });
+                                        if (proc != null) WatchAndRefocus(proc);
+                                    }
+                                }
+                                catch (Exception ex) { Debug.WriteLine($"[launchMediaApp/exe] {ex.Message}"); }
+                            });
+                        }
                         else
                             Dispatcher.Invoke(() => OpenInBrowser(mediaUrl));
                     }

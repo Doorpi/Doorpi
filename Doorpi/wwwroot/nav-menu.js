@@ -647,7 +647,10 @@ window.isNavMenuOpen = false;
             const card = document.createElement('div');
             card.className = 'nav-vertical-card';
             card.tabIndex = -1;
+
             card.dataset.idx = i;
+            card.dataset.gameId = item.LaunchUrl || item.Path || item.Url || '';
+            card.dataset.catId = catId;
 
             const _itemKey = item.LaunchUrl || item.Path || item.Url || '';
             if (window.newGameIdsThisSession?.has(_itemKey)) {
@@ -970,6 +973,11 @@ window.isNavMenuOpen = false;
         if (!window.isNavMenuOpen) return;
         if (window._vkbIsOpen) return;
 
+        
+        if (typeof isEditModalOpen !== 'undefined' && isEditModalOpen) return;
+
+        if (document.querySelector('.context-menu.visible')) return;
+
         e.preventDefault();
         e.stopImmediatePropagation();
         window._navMenuHandleKey(e.key);
@@ -1040,6 +1048,10 @@ window.isNavMenuOpen = false;
             case 'Backspace':
                 _setTopbarFocus(true);
                 break;
+            case ' ':
+            case 'Square':
+                window._navMenuTriggerCtxMenu();
+                break;
         }
     }
 
@@ -1060,6 +1072,19 @@ window.isNavMenuOpen = false;
             } catch { }
         });
     }
+    // ── Context Menu no Nav ───────────────────────────────────────────────────
+    window._navMenuTriggerCtxMenu = function () {
+        if (!window.isNavMenuOpen) return;
+        const catId = CATS[_catIdx]?.id;
+        if (catId !== 'games' && catId !== 'media') return;
+
+        const cards = Array.from(document.querySelectorAll('.nav-vertical-card'));
+        const focused = cards[_contentIdx];
+        if (!focused) return;
+
+        const r = focused.getBoundingClientRect();
+        window._ctxMenuOpen?.(focused, r.right + 2, r.top);
+    };
     // ── Expose ────────────────────────────────────────────────────────────────
     window.openNavMenu = open;
     window.closeNavMenu = close;

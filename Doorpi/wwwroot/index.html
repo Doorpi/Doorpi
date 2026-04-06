@@ -73,6 +73,10 @@
                     <div class="sidebar-menu">
                         <button class="menu-tab active" tabindex="0" onclick="switchTab('apps')">
                             <span class="tab-icon">⊞</span>
+                            <span data-i18n="tabGames">Jogos</span>
+                        </button>
+                        <button class="menu-tab" tabindex="0" onclick="switchTab('media-apps')">
+                            <span class="tab-icon">◈</span>
                             <span data-i18n="tabApps">Aplicativos</span>
                         </button>
                         <button class="menu-tab" tabindex="0" onclick="switchTab('folders')">
@@ -120,7 +124,48 @@
                             </div>
                         </div>
                     </div>
+                    <!-- ── View: Aplicativos ─────────────────────────────────── -->
+                    <div id="view-media-apps" class="view-section hidden">
+                        <div class="view-header">
+                            <h2 data-i18n="tabApps">Aplicativos</h2>
+                            <div class="media-app-subtabs" id="mediaAppSubtabs">
+                                <button class="subtab active" data-subtab="web" tabindex="0" data-i18n="subtabWeb">App Web</button>
+                                <button class="subtab" data-subtab="exe" tabindex="0" data-i18n="subtabExe">Executável</button>
+                            </div>
+                        </div>
 
+                        <!-- Sub-aba: App Web -->
+                        <div id="subview-web" class="subview active">
+                            <div class="web-app-form">
+                                <div class="web-app-field">
+                                    <label class="web-app-label" data-i18n="webAppNameLabel">Nome do Aplicativo</label>
+                                    <input class="web-app-input" id="webAppNameInput" type="text" readonly
+                                           data-i18n-placeholder="webAppNamePlaceholder" />
+                                </div>
+                                <div class="web-app-field">
+                                    <label class="web-app-label" data-i18n="webAppUrlLabel">Endereço (URL)</label>
+                                    <div class="setup-api-row">
+                                        <input class="setup-input" id="webAppUrlInput" type="text" readonly tabindex="0" />
+                                        <button class="setup-icon-btn" id="btnWebAppPaste" tabindex="0">
+                                            <span data-i18n="pasteAppLink">Colar</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="web-app-hint" id="webAppHint"></div>
+                        </div>
+
+                        <!-- Sub-aba: Executável (mesma lista de apps, alvo diferente) -->
+                        <div id="subview-exe" class="subview hidden">
+                            <div class="applist-wrapper">
+                                <div id="appListMedia"></div>
+                            </div>
+                        </div>
+
+                        <div class="action-bar" id="mediaAppActions">
+                            <!-- preenchido por JS dependendo da sub-aba ativa -->
+                        </div>
+                    </div>
                     <!-- ── View: Pastas ───────────────────────────────────────── -->
                     <div id="view-folders" class="view-section hidden">
                         <div class="view-header">
@@ -132,9 +177,9 @@
                         </div>
                         <div class="action-bar">
                             <!--
-                            Barra de total: oculta por padrão (display:none no CSS).
-                            app.js mostra e preenche ao receber foldersList do C#.
-                        -->
+                Barra de total: oculta por padrão (display:none no CSS).
+                app.js mostra e preenche ao receber foldersList do C#.
+            -->
 
                             <div class="action-buttons">
                                 <button class="modal-btn primary"

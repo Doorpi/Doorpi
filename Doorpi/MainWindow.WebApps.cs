@@ -181,47 +181,112 @@ namespace Doorpi
         // Abordagem: o gamepad move o cursor REAL do Windows via postMessage → C# SetCursorPos.
         // Cliques são reais (mouse_event Win32). Sem cursor virtual no DOM, sem dispatchEvent.
         // Sites React (Twitch, Kick) recebem eventos de mouse genuínos → foco funciona corretamente.
-        private static async Task YtInjectGenericSiteAsync(CoreWebView2 cw)
+        private async Task YtInjectGenericSiteAsync(CoreWebView2 cw)
         {
-            const string script = @"
-(function() {
+            string script = $@"
+(function() {{
     if (window.__doorpiGenericInjected) return;
     window.__doorpiGenericInjected = true;
 
-    window.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') {
-            try { e.preventDefault(); e.stopImmediatePropagation(); } catch(_) {}
-            if (_vkbIsOpen) { _vkbClose(); return; }
-            try { window.chrome.webview.postMessage('close_app'); } catch(_) {}
-        }
-    }, true);
+    // ── 1. RASTREADOR DE NAVEGAÇÃO (Redirecionamento SteamGridDB) ──
+    function checkRedirect() {{
+        if (location.href === 'https://www.steamgriddb.com/' || location.href === 'https://www.steamgriddb.com') {{
+            location.href = 'https://www.steamgriddb.com/profile/preferences/api';
+        }}
+    }}
+    checkRedirect();
+    window.addEventListener('popstate', checkRedirect);
 
-    function isInput(el) {
+    // ── 2. AUTO-COPY NO CLIQUE DUPLO (Para Chave API) ──
+    document.addEventListener('dblclick', function(e) {{
+        const el = e.target.closest('code') || (e.target.tagName === 'CODE' ? e.target : null);
+        if (el) {{
+            const apiText = el.innerText.trim();
+            if (apiText.length > 10) {{
+                window.chrome.webview.postMessage('copy_api_key:' + apiText);
+                showConsoleToast('{_currentToastTitle}', '{_currentToastSub}');
+                setTimeout(() => {{
+                    window.chrome.webview.postMessage('close_app');
+                }}, 2200);
+            }}
+        }}
+    }});
+
+    // ── 3. NOTIFICAÇÃO ESTILO CONSOLE (Toast) ──
+    function showConsoleToast(title, sub) {{
+        const styleId = 'doorpi-toast-style';
+        if (!document.getElementById(styleId)) {{
+            const s = document.createElement('style');
+            s.id = styleId;
+            s.textContent = `
+                .console-toast {{
+                    position: fixed; top: 40px; left: 50%;
+                    transform: translateX(-50%) translateY(-20px);
+                    background: rgba(7, 7, 26, 0.96);
+                    backdrop-filter: blur(25px);
+                    border: 1px solid rgba(255, 255, 255, 0.12);
+                    border-radius: 14px; padding: 14px 28px;
+                    display: flex; align-items: center; gap: 18px;
+                    box-shadow: 0 15px 45px rgba(0,0,0,0.7);
+                    z-index: 2147483647; opacity: 0;
+                    transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+                    font-family: 'Outfit', sans-serif; min-width: 320px;
+                }}
+                .console-toast.visible {{ transform: translateX(-50%) translateY(0); opacity: 1; }}
+                .toast-icon {{
+                    width: 40px; height: 40px; background: #0078d4;
+                    border-radius: 50%; display: flex; align-items: center;
+                    justify-content: center; font-size: 20px; color: white;
+                    box-shadow: 0 0 15px rgba(0, 120, 212, 0.4);
+                }}
+                .toast-content {{ display: flex; flex-direction: column; gap: 2px; }}
+                .toast-title {{ color: white; font-weight: 700; font-size: 16px; letter-spacing: 0.5px; }}
+                .toast-sub {{ color: rgba(255,255,255,0.45); font-size: 13px; }}
+            `;
+            document.head.appendChild(s);
+        }}
+        const toast = document.createElement('div');
+        toast.className = 'console-toast';
+        toast.innerHTML = `<div class='toast-icon'>✓</div><div class='toast-content'><span class='toast-title'>${{title}}</span><span class='toast-sub'>${{sub}}</span></div>`;
+        document.body.appendChild(toast);
+        requestAnimationFrame(() => toast.classList.add('visible'));
+    }}
+
+    // ── 4. FECHAR COM ESC ──
+    window.addEventListener('keydown', function(e) {{
+        if (e.key === 'Escape') {{
+            try {{ e.preventDefault(); e.stopImmediatePropagation(); }} catch(_) {{}}
+            if (_vkbIsOpen) {{ _vkbClose(); return; }}
+            try {{ window.chrome.webview.postMessage('close_app'); }} catch(_) {{}}
+        }}
+    }}, true);
+
+    function isInput(el) {{
         if (!el) return false;
-        if (el.tagName === 'INPUT') {
+        if (el.tagName === 'INPUT') {{
             const t = (el.type || '').toLowerCase();
             return t === 'text' || t === 'search' || t === 'email' ||
                    t === 'password' || t === 'url' || t === 'tel' || t === '';
-        }
+        }}
         return el.tagName === 'TEXTAREA' ||
                el.isContentEditable ||
                (el.tagName === 'DIV' && el.getAttribute('role') === 'textbox');
-    }
+    }}
 
-    function init() {
-        if (!document.body) { setTimeout(init, 16); return; }
+    function init() {{
+        if (!document.body) {{ setTimeout(init, 16); return; }}
         injectVkbStyles();
         startGamepad();
         bindInputFocus();
         patchHistory();
-    }
+    }}
 
     let _navDepth = 0;
-    function patchHistory() {
+    function patchHistory() {{
         const origPush = history.pushState.bind(history);
-        history.pushState = function(...args) { origPush(...args); _navDepth++; };
-        window.addEventListener('popstate', () => { _navDepth = Math.max(0, _navDepth - 1); });
-    }
+        history.pushState = function(...args) {{ origPush(...args); _navDepth++; }};
+        window.addEventListener('popstate', () => {{ _navDepth = Math.max(0, _navDepth - 1); }});
+    }}
 
     let cursorX = window.innerWidth / 2;
     let cursorY = window.innerHeight / 2;
@@ -230,90 +295,88 @@ namespace Doorpi
     const SPEED_MAX = 3;
     let _sentX = -1, _sentY = -1;
 
-    function moveCursor(dx, dy) {
+    function moveCursor(dx, dy) {{
         cursorX = Math.max(0, Math.min(window.innerWidth - 1, cursorX + dx));
         cursorY = Math.max(0, Math.min(window.innerHeight - 1, cursorY + dy));
         const ix = Math.round(cursorX), iy = Math.round(cursorY);
-        if (ix !== _sentX || iy !== _sentY) {
+        if (ix !== _sentX || iy !== _sentY) {{
             _sentX = ix; _sentY = iy;
-            try { window.chrome.webview.postMessage('gp_move:' + ix + ':' + iy); } catch(_) {}
-        }
-    }
+            try {{ window.chrome.webview.postMessage('gp_move:' + ix + ':' + iy); }} catch(_) {{}}
+        }}
+    }}
 
-    function doClick() { try { window.chrome.webview.postMessage('gp_click'); } catch(_) {} }
+    function doClick() {{ try {{ window.chrome.webview.postMessage('gp_click'); }} catch(_) {{}} }}
 
-    function goBack() {
+    function goBack() {{
         if (_navDepth > 0) window.history.back();
-        else try { window.chrome.webview.postMessage('close_app'); } catch(_) {}
-    }
+        else try {{ window.chrome.webview.postMessage('close_app'); }} catch(_) {{}}
+    }}
 
-function injectVkbStyles() {
+    function injectVkbStyles() {{
         if (window.__doorpiVkbStylesInjected) return;
         window.__doorpiVkbStylesInjected = true;
 
         const cssText = [
-            '.doorpi-vkb-overlay{position:fixed;bottom:0;left:0;right:0;z-index:2147483647;',
+            '.doorpi-vkb-overlay{{position:fixed;bottom:0;left:0;right:0;z-index:2147483647;',
             'padding:0 clamp(24px,4vw,80px) clamp(24px,3vh,48px);',
             'background:linear-gradient(to top, rgb(5 5 10 / 80%) 65%, rgb(5 5 10 / 80%) 85%, transparent 100%);',
-            'transform:translateY(100%);transition:transform 0.32s cubic-bezier(0.25,0.46,0.45,0.94);user-select:none;}',
-            '.doorpi-vkb-overlay.visible{transform:translateY(0);}',
-            '.doorpi-vkb-preview-wrap{display:flex;align-items:center;gap:12px;margin-bottom:clamp(12px,2vh,22px);padding:0 2px;}',
-            '.doorpi-vkb-preview-label{font-size:clamp(10px,1.1vw,14px);font-weight:600;text-transform:uppercase;letter-spacing:0.09em;color:rgba(255,255,255,0.3);white-space:nowrap;flex-shrink:0;}',
-            '.doorpi-vkb-preview-text{flex:1;font-size:clamp(16px,1.8vw,26px);font-weight:500;color:#fff;',
+            'transform:translateY(100%);transition:transform 0.32s cubic-bezier(0.25,0.46,0.45,0.94);user-select:none;}}',
+            '.doorpi-vkb-overlay.visible{{transform:translateY(0);}}',
+            '.doorpi-vkb-preview-wrap{{display:flex;align-items:center;gap:12px;margin-bottom:clamp(12px,2vh,22px);padding:0 2px;}}',
+            '.doorpi-vkb-preview-label{{font-size:clamp(10px,1.1vw,14px);font-weight:600;text-transform:uppercase;letter-spacing:0.09em;color:rgba(255,255,255,0.3);white-space:nowrap;flex-shrink:0;}}',
+            '.doorpi-vkb-preview-text{{flex:1;font-size:clamp(16px,1.8vw,26px);font-weight:500;color:#fff;',
             'padding:clamp(7px,1vh,12px) clamp(12px,1.4vw,18px);background:rgba(255,255,255,0.06);',
             'border:1px solid rgba(255,255,255,0.12);border-radius:10px;min-height:clamp(38px,5vh,56px);',
-            'display:flex;align-items:center;white-space:nowrap;overflow:hidden;}',
-            '.doorpi-vkb-cursor{display:inline-block;width:2px;height:1.1em;background:rgba(255,255,255,0.9);',
-            'margin-left:2px;vertical-align:middle;animation:doorpiVkbBlink 1s step-end infinite;}',
-            '@keyframes doorpiVkbBlink{0%,100%{opacity:1}50%{opacity:0}}',
-            '.doorpi-vkb-grid{display:grid;grid-template-columns:repeat(10,clamp(42px,3.8vw,95px));',
-            'gap:clamp(4px,0.5vh,7px) clamp(4px,0.38vw,6px);width:fit-content;margin:0 auto;}',
-            '.doorpi-vkb-key{width:clamp(42px,3.8vw,90px);height:clamp(42px,3.8vw,75px);padding:0;',
+            'display:flex;align-items:center;white-space:nowrap;overflow:hidden;}}',
+            '.doorpi-vkb-cursor{{display:inline-block;width:2px;height:1.1em;background:rgba(255,255,255,0.9);',
+            'margin-left:2px;vertical-align:middle;animation:doorpiVkbBlink 1s step-end infinite;}}',
+            '@keyframes doorpiVkbBlink{{0%,100%{{opacity:1}}50%{{opacity:0}}}}',
+            '.doorpi-vkb-grid{{display:grid;grid-template-columns:repeat(10,clamp(42px,3.8vw,95px));',
+            'gap:clamp(4px,0.5vh,7px) clamp(4px,0.38vw,6px);width:fit-content;margin:0 auto;}}',
+            '.doorpi-vkb-key{{width:clamp(42px,3.8vw,90px);height:clamp(42px,3.8vw,75px);padding:0;',
             'background:rgb(20 20 20);border:1px solid rgba(255,255,255,0.11);',
             'border-bottom:3px solid rgba(0,0,0,0.45);border-radius:clamp(7px,0.6vw,10px);',
             'color:rgba(255,255,255,0.88);font-size:clamp(13px,1.2vw,18px);font-weight:500;font-family:inherit;',
             'display:flex;align-items:center;justify-content:center;cursor:pointer;outline:none;',
             'min-width:0;box-sizing:border-box;',
-            'transition:background 0.07s,transform 0.07s,border-color 0.07s,color 0.07s,box-shadow 0.07s;}',
-            '.doorpi-vkb-key:hover{background:rgba(255,255,255,0.13);color:#fff;}',
-            '.doorpi-vkb-key.focused{background:rgba(255,255,255,0.97);color:#080810;border-color:transparent;',
+            'transition:background 0.07s,transform 0.07s,border-color 0.07s,color 0.07s,box-shadow 0.07s;}}',
+            '.doorpi-vkb-key:hover{{background:rgba(255,255,255,0.13);color:#fff;}}',
+            '.doorpi-vkb-key.focused{{background:rgba(255,255,255,0.97);color:#080810;border-color:transparent;',
             'border-bottom-color:rgba(0,0,0,0.25);transform:scale(1.1) translateY(-3px);',
-            'box-shadow:0 8px 24px rgba(0,0,0,0.55),0 0 0 2px rgba(255,255,255,0.35);z-index:1;position:relative;}',
-            '.doorpi-vkb-key:active{transform:scale(0.96) translateY(0);box-shadow:none;}',
-            '.doorpi-vkb-key[data-key=space]{grid-column:span 6;height:clamp(52px,4.8vw,70px);',
-            'font-size:clamp(12px,1.2vw,16px);letter-spacing:0.08em;color:rgba(255,255,255,0.45);width:100%;}',
-            '.doorpi-vkb-key[data-key=space].focused{color:rgba(0,0,0,0.65);}',
-            '.doorpi-vkb-key[data-key=cancel]{grid-column:span 2;height:clamp(52px,4.8vw,70px);',
-            'color:rgba(255,255,255,0.6);font-size:clamp(12px,1.2vw,16px);font-weight:500;width:100%;}',
-            '.doorpi-vkb-key[data-key=ok]{grid-column:span 2;height:clamp(52px,4.8vw,70px);',
+            'box-shadow:0 8px 24px rgba(0,0,0,0.55),0 0 0 2px rgba(255,255,255,0.35);z-index:1;position:relative;}}',
+            '.doorpi-vkb-key:active{{transform:scale(0.96) translateY(0);box-shadow:none;}}',
+            '.doorpi-vkb-key[data-key=space]{{grid-column:span 6;height:clamp(52px,4.8vw,70px);',
+            'font-size:clamp(12px,1.2vw,16px);letter-spacing:0.08em;color:rgba(255,255,255,0.45);width:100%;}}',
+            '.doorpi-vkb-key[data-key=space].focused{{color:rgba(0,0,0,0.65);}}',
+            '.doorpi-vkb-key[data-key=cancel]{{grid-column:span 2;height:clamp(52px,4.8vw,70px);',
+            'color:rgba(255,255,255,0.6);font-size:clamp(12px,1.2vw,16px);font-weight:500;width:100%;}}',
+            '.doorpi-vkb-key[data-key=ok]{{grid-column:span 2;height:clamp(52px,4.8vw,70px);',
             'background:rgba(50,110,255,0.32);border-color:rgba(50,110,255,0.55);',
-            'color:rgba(170,205,255,0.95);font-weight:650;font-size:clamp(12px,1.2vw,16px);width:100%;}',
-            '.doorpi-vkb-key[data-key=ok].focused{background:rgb(50,110,255);color:#fff;border-color:transparent;',
-            'box-shadow:0 8px 28px rgba(50,110,255,0.55),0 0 0 2px rgba(50,110,255,0.4);}',
-            '.doorpi-vkb-key[data-key=shift]{font-size:clamp(15px,1.6vw,22px);}',
-            '.doorpi-vkb-key[data-key=shift].shifted{background:rgba(255,255,255,0.2);border-color:rgba(255,255,255,0.3);color:#fff;}',
-            '.doorpi-vkb-key[data-key=shift].shifted.focused{background:rgba(255,255,255,0.97);color:#080810;}',
-            '.doorpi-vkb-hint{display:flex;align-items:center;gap:4px;flex-shrink:0;',
-            'font-size:clamp(11px,1vw,14px);color:rgba(255,255,255,0.35);letter-spacing:0.04em;white-space:nowrap;}',
-            '.doorpi-vkb-badge{display:inline-flex;align-items:center;justify-content:center;',
+            'color:rgba(170,205,255,0.95);font-weight:650;font-size:clamp(12px,1.2vw,16px);width:100%;}}',
+            '.doorpi-vkb-key[data-key=ok].focused{{background:rgb(50,110,255);color:#fff;border-color:transparent;',
+            'box-shadow:0 8px 28px rgba(50,110,255,0.55),0 0 0 2px rgba(50,110,255,0.4);}}',
+            '.doorpi-vkb-key[data-key=shift]{{font-size:clamp(15px,1.6vw,22px);}}',
+            '.doorpi-vkb-key[data-key=shift].shifted{{background:rgba(255,255,255,0.2);border-color:rgba(255,255,255,0.3);color:#fff;}}',
+            '.doorpi-vkb-key[data-key=shift].shifted.focused{{background:rgba(255,255,255,0.97);color:#080810;}}',
+            '.doorpi-vkb-hint{{display:flex;align-items:center;gap:4px;flex-shrink:0;',
+            'font-size:clamp(11px,1vw,14px);color:rgba(255,255,255,0.35);letter-spacing:0.04em;white-space:nowrap;}}',
+            '.doorpi-vkb-badge{{display:inline-flex;align-items:center;justify-content:center;',
             'padding:2px 6px;border-radius:5px;background:rgba(255,255,255,0.1);',
             'border:1px solid rgba(255,255,255,0.18);font-size:clamp(9px,0.85vw,12px);',
-            'font-weight:700;color:rgba(255,255,255,0.5);letter-spacing:0.05em;}'
+            'font-weight:700;color:rgba(255,255,255,0.5);letter-spacing:0.05em;}}'
         ].join('');
 
-        try {
-
+        try {{
             const sheet = new CSSStyleSheet();
             sheet.replaceSync(cssText);
             document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
-        } catch (e) {
-            // Fallback apenas de segurança (se for um site muito antigo)
+        }} catch (e) {{
             const s = document.createElement('style');
             s.id = 'doorpi-vkb-style';
             s.textContent = cssText;
             document.head.appendChild(s);
-        }
-    }
+        }}
+    }}
 
     const FLAT_KEYS = [
         '1','2','3','4','5','6','7','8','9','0',
@@ -331,7 +394,7 @@ function injectVkbStyles() {
         ['@','_','-','/','?','!','+','*','.com','.br'],
         ['space','cancel','ok'],
     ];
-    const LABELS = { '\u232b':'\u232b', shift:'\u21e7', space:'Espaço', cancel:'Cancelar', ok:'OK' };
+    const LABELS = {{ '\u232b':'\u232b', shift:'\u21e7', space:'Espaço', cancel:'Cancelar', ok:'OK' }};
 
     let _vkbEl = null;
     let _vkbShifted = true;
@@ -341,7 +404,7 @@ function injectVkbStyles() {
     let _vkbIsOpen = false;
     let _vkbClosing = false;
 
-    function _vkbBuild() {
+    function _vkbBuild() {{
         if (_vkbEl) return;
         _vkbEl = document.createElement('div');
         _vkbEl.className = 'doorpi-vkb-overlay';
@@ -360,7 +423,7 @@ function injectVkbStyles() {
 
         const hint = document.createElement('span');
         hint.className = 'doorpi-vkb-hint';
-        
+
         const b1 = document.createElement('span'); b1.className = 'doorpi-vkb-badge'; b1.textContent = 'L1';
         const b2 = document.createElement('span'); b2.className = 'doorpi-vkb-badge'; b2.textContent = 'R1';
         hint.appendChild(b1);
@@ -374,170 +437,166 @@ function injectVkbStyles() {
         const grid = document.createElement('div');
         grid.className = 'doorpi-vkb-grid';
 
-        FLAT_KEYS.forEach(k => {
+        FLAT_KEYS.forEach(k => {{
             const btn = document.createElement('button');
             btn.className = 'doorpi-vkb-key';
             btn.dataset.key = k;
             btn.tabIndex = -1;
             btn.textContent = LABELS[k] || k;
-            
-            // Reduz a fonte levemente para o botão '.com' caber melhor
-            if(k.length > 1 && k !== 'shift' && k !== 'space' && k !== 'cancel' && k !== 'ok') {
-                btn.style.fontSize = 'clamp(11px, 1vw, 15px)';
-            }
 
-            btn.addEventListener('pointerdown', e => { e.preventDefault(); _vkbPressKey(k); });
+            if(k.length > 1 && k !== 'shift' && k !== 'space' && k !== 'cancel' && k !== 'ok') {{
+                btn.style.fontSize = 'clamp(11px, 1vw, 15px)';
+            }}
+
+            btn.addEventListener('pointerdown', e => {{ e.preventDefault(); _vkbPressKey(k); }});
             grid.appendChild(btn);
-        });
+        }});
 
         _vkbEl.appendChild(wrap);
         _vkbEl.appendChild(grid);
         document.body.appendChild(_vkbEl);
-    }
+    }}
 
-    function _setNativeValue(element, value) {
+    function _setNativeValue(element, value) {{
         const proto = element.tagName === 'INPUT' ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
         const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-        if (nativeSetter) { nativeSetter.call(element, value); }
-        else { element.value = value; }
-    }
+        if (nativeSetter) {{ nativeSetter.call(element, value); }}
+        else {{ element.value = value; }}
+    }}
 
-    function _vkbRenderPreview() {
+    function _vkbRenderPreview() {{
         const el = document.getElementById('doorpi-vkb-preview');
         if (!el || !_vkbInputEl) return;
-        
-        // Verifica se é um campo de senha
+
         const isPassword = _vkbInputEl.type === 'password';
         const isEditable = _vkbInputEl.isContentEditable || _vkbInputEl.tagName === 'DIV';
         let txt = isEditable ? (_vkbInputEl.textContent || '') : (_vkbInputEl.value || '');
-        
-        if (isPassword) {
+
+        if (isPassword) {{
             txt = '•'.repeat(txt.length);
-        }
+        }}
 
         const pos = Math.min(_vkbCursorPos, txt.length);
-        el.textContent = ''; 
+        el.textContent = '';
         const cursor = document.createElement('span');
         cursor.className = 'doorpi-vkb-cursor';
         el.appendChild(document.createTextNode(txt.slice(0, pos).replace(/ /g, '\u00A0')));
         el.appendChild(cursor);
         el.appendChild(document.createTextNode(txt.slice(pos).replace(/ /g, '\u00A0')));
-    }
+    }}
 
-    function _vkbSetShift(on) {
+    function _vkbSetShift(on) {{
         _vkbShifted = on;
         const btn = _vkbEl ? _vkbEl.querySelector('[data-key=shift]') : null;
         if (btn) btn.classList.toggle('shifted', on);
-        if (_vkbEl) _vkbEl.querySelectorAll('.doorpi-vkb-key').forEach(k => {
+        if (_vkbEl) _vkbEl.querySelectorAll('.doorpi-vkb-key').forEach(k => {{
             const key = k.dataset.key;
             if (key && key.length === 1 && key >= 'a' && key <= 'z') k.textContent = on ? key.toUpperCase() : key;
-        });
-    }
+        }});
+    }}
 
-    function _vkbSetFocus(key) {
+    function _vkbSetFocus(key) {{
         _vkbFocusKey = key;
         if (_vkbEl) _vkbEl.querySelectorAll('.doorpi-vkb-key').forEach(k =>
             k.classList.toggle('focused', k.dataset.key === key));
-    }
+    }}
 
-    function _vkbMoveFocus(dir) {
+    function _vkbMoveFocus(dir) {{
         let rIdx = 0, cIdx = 0, found = false;
-        for (let r = 0; r < KEY_ROWS.length && !found; r++) {
-            for (let c = 0; c < KEY_ROWS[r].length && !found; c++) {
-                if (KEY_ROWS[r][c] === _vkbFocusKey) { rIdx = r; cIdx = c; found = true; }
-            }
-        }
+        for (let r = 0; r < KEY_ROWS.length && !found; r++) {{
+            for (let c = 0; c < KEY_ROWS[r].length && !found; c++) {{
+                if (KEY_ROWS[r][c] === _vkbFocusKey) {{ rIdx = r; cIdx = c; found = true; }}
+            }}
+        }}
         if (dir === 'up') rIdx = Math.max(0, rIdx - 1);
         if (dir === 'down') rIdx = Math.min(KEY_ROWS.length - 1, rIdx + 1);
         if (dir === 'left') cIdx = Math.max(0, cIdx - 1);
         if (dir === 'right') cIdx = Math.min(KEY_ROWS[rIdx].length - 1, cIdx + 1);
         cIdx = Math.min(cIdx, KEY_ROWS[rIdx].length - 1);
         _vkbSetFocus(KEY_ROWS[rIdx][cIdx]);
-    }
+    }}
 
-    function _vkbMoveCursor(dir) {
+    function _vkbMoveCursor(dir) {{
         if (!_vkbInputEl) return;
         const isEditable = _vkbInputEl.isContentEditable || _vkbInputEl.tagName === 'DIV';
-        if (isEditable) {
+        if (isEditable) {{
             _vkbInputEl.focus();
             const key = dir === 'left' ? 'ArrowLeft' : 'ArrowRight';
             const code = dir === 'left' ? 37 : 39;
-            _vkbInputEl.dispatchEvent(new KeyboardEvent('keydown', { bubbles:true, cancelable:true, key, keyCode:code, which:code, composed:true }));
-            setTimeout(() => { if (_vkbInputEl) _vkbInputEl.dispatchEvent(new KeyboardEvent('keyup', { bubbles:true, key, keyCode:code, composed:true })); }, 20);
-        } else {
+            _vkbInputEl.dispatchEvent(new KeyboardEvent('keydown', {{ bubbles:true, cancelable:true, key, keyCode:code, which:code, composed:true }}));
+            setTimeout(() => {{ if (_vkbInputEl) _vkbInputEl.dispatchEvent(new KeyboardEvent('keyup', {{ bubbles:true, key, keyCode:code, composed:true }})); }}, 20);
+        }} else {{
             const txt = _vkbInputEl.value || '';
             if (dir === 'left') _vkbCursorPos = Math.max(0, _vkbCursorPos - 1);
             if (dir === 'right') _vkbCursorPos = Math.min(txt.length, _vkbCursorPos + 1);
-            try { _vkbInputEl.setSelectionRange(_vkbCursorPos, _vkbCursorPos); } catch(e) {}
-        }
+            try {{ _vkbInputEl.setSelectionRange(_vkbCursorPos, _vkbCursorPos); }} catch(e) {{}}
+        }}
         _vkbRenderPreview();
-    }
+    }}
 
-    function _vkbInsert(char) {
+    function _vkbInsert(char) {{
         if (!_vkbInputEl) return;
         const isEditable = _vkbInputEl.isContentEditable || _vkbInputEl.tagName === 'DIV';
         _vkbInputEl.focus();
-        if (isEditable) {
+        if (isEditable) {{
             const dt = new DataTransfer();
             dt.setData('text/plain', char);
-            const pasteEvt = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true, composed: true });
+            const pasteEvt = new ClipboardEvent('paste', {{ clipboardData: dt, bubbles: true, cancelable: true, composed: true }});
             if (!_vkbInputEl.dispatchEvent(pasteEvt)) document.execCommand('insertText', false, char);
-            _vkbInputEl.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+            _vkbInputEl.dispatchEvent(new Event('input', {{ bubbles: true, composed: true }}));
             _vkbCursorPos += char.length;
-        } else {
+        }} else {{
             const val = _vkbInputEl.value || '';
             const newText = val.slice(0, _vkbCursorPos) + char + val.slice(_vkbCursorPos);
             _setNativeValue(_vkbInputEl, newText);
             _vkbCursorPos += char.length;
-            _vkbInputEl.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
-            _vkbInputEl.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
-        }
-    }
+            _vkbInputEl.dispatchEvent(new Event('input', {{ bubbles: true, composed: true }}));
+            _vkbInputEl.dispatchEvent(new Event('change', {{ bubbles: true, composed: true }}));
+        }}
+    }}
 
-    function _vkbDelete() {
+    function _vkbDelete() {{
         if (!_vkbInputEl) return;
         const isEditable = _vkbInputEl.isContentEditable || _vkbInputEl.tagName === 'DIV';
         _vkbInputEl.focus();
-        if (isEditable) {
+        if (isEditable) {{
             document.execCommand('delete', false, null);
-            _vkbInputEl.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+            _vkbInputEl.dispatchEvent(new Event('input', {{ bubbles: true, composed: true }}));
             _vkbCursorPos = Math.max(0, (_vkbInputEl.textContent || '').length);
-        } else {
-            if (_vkbCursorPos > 0) {
+        }} else {{
+            if (_vkbCursorPos > 0) {{
                 const val = _vkbInputEl.value || '';
                 const newText = val.slice(0, _vkbCursorPos - 1) + val.slice(_vkbCursorPos);
                 _setNativeValue(_vkbInputEl, newText);
                 _vkbCursorPos--;
-                _vkbInputEl.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
-                _vkbInputEl.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
-            }
-        }
-    }
+                _vkbInputEl.dispatchEvent(new Event('input', {{ bubbles: true, composed: true }}));
+                _vkbInputEl.dispatchEvent(new Event('change', {{ bubbles: true, composed: true }}));
+            }}
+        }}
+    }}
 
-    function _vkbPressKey(key) {
+    function _vkbPressKey(key) {{
         if (!_vkbInputEl) return;
         if (key === '\u232b') _vkbDelete();
         else if (key === 'shift') _vkbSetShift(!_vkbShifted);
         else if (key === 'space') _vkbInsert(' ');
         else if (key === 'ok' || key === 'cancel') _vkbClose();
-        else {
-            // Se for uma letra isolada e o shift estiver ativo, deixa maiúscula e desativa o shift
-            if (key.length === 1 && key >= 'a' && key <= 'z') {
+        else {{
+            if (key.length === 1 && key >= 'a' && key <= 'z') {{
                 _vkbInsert(_vkbShifted ? key.toUpperCase() : key);
                 if (_vkbShifted) _vkbSetShift(false);
-            } else {
-                // Se for símbolo ou bloco (.com), insere direto do jeito que é
+            }} else {{
                 _vkbInsert(key);
-            }
-        }
+            }}
+        }}
         _vkbRenderPreview();
-    }
+    }}
 
-    function _vkbOpen(targetEl) {
+    function _vkbOpen(targetEl) {{
         if (_vkbClosing) return;
         if (_vkbIsOpen && _vkbInputEl === targetEl) return;
 
-        if (_vkbIsOpen && _vkbInputEl && _vkbInputEl !== targetEl) {
+        if (_vkbIsOpen && _vkbInputEl && _vkbInputEl !== targetEl) {{
             _vkbInputEl.removeEventListener('input', _vkbRenderPreview);
             _vkbInputEl = targetEl;
             const isEditable = targetEl.isContentEditable || targetEl.tagName === 'DIV';
@@ -545,7 +604,7 @@ function injectVkbStyles() {
             _vkbInputEl.addEventListener('input', _vkbRenderPreview);
             _vkbRenderPreview();
             return;
-        }
+        }}
 
         _vkbInputEl = targetEl;
         const isEditable = targetEl.isContentEditable || targetEl.tagName === 'DIV';
@@ -557,105 +616,102 @@ function injectVkbStyles() {
         _vkbRenderPreview();
         _vkbInputEl.addEventListener('input', _vkbRenderPreview);
 
-        requestAnimationFrame(() => {
+        requestAnimationFrame(() => {{
             _vkbEl.classList.add('visible');
             _vkbIsOpen = true;
             _vkbSetFocus('q');
-        });
-    }
+        }});
+    }}
 
-    function _vkbClose() {
+    function _vkbClose() {{
         if (!_vkbEl || !_vkbIsOpen) return;
         _vkbClosing = true;
         _vkbIsOpen = false;
         _vkbEl.classList.remove('visible');
 
-        if (_vkbInputEl) {
+        if (_vkbInputEl) {{
             _vkbInputEl.removeEventListener('input', _vkbRenderPreview);
             const elToBlur = _vkbInputEl;
             _vkbInputEl = null;
-            requestAnimationFrame(() => { try { elToBlur.blur(); } catch(e) {} });
-        }
+            requestAnimationFrame(() => {{ try {{ elToBlur.blur(); }} catch(e) {{}} }});
+        }}
 
-        setTimeout(() => {
+        setTimeout(() => {{
             if (_vkbEl && !_vkbEl.classList.contains('visible')) _vkbEl.style.display = 'none';
             _vkbClosing = false;
-        }, 400);
-    }
+        }}, 400);
+    }}
 
-    function bindInputFocus() {
-        document.addEventListener('focusin', e => {
+    function bindInputFocus() {{
+        document.addEventListener('focusin', e => {{
             if (_vkbClosing) return;
             const el = e.target;
-            if (isInput(el) && !_vkbIsOpen) {
-                setTimeout(() => { if (!_vkbClosing && document.activeElement === el) _vkbOpen(el); }, 50);
-            }
-        }, true);
+            if (isInput(el) && !_vkbIsOpen) {{
+                setTimeout(() => {{ if (!_vkbClosing && document.activeElement === el) _vkbOpen(el); }}, 50);
+            }}
+        }}, true);
 
-        document.addEventListener('mousedown', e => {
-            if (e.target.closest && e.target.closest('.doorpi-vkb-overlay')) { e.preventDefault(); return; }
+        document.addEventListener('mousedown', e => {{
+            if (e.target.closest && e.target.closest('.doorpi-vkb-overlay')) {{ e.preventDefault(); return; }}
             if (isInput(e.target) && !_vkbIsOpen && !_vkbClosing) _vkbOpen(e.target);
-        }, true);
+        }}, true);
 
-        document.addEventListener('click', e => {
+        document.addEventListener('click', e => {{
             const tgt = e.target;
-            if (_vkbIsOpen && !isInput(tgt) && !(tgt.closest && tgt.closest('.doorpi-vkb-overlay'))) { _vkbClose(); }
-        }, true);
-    }
+            if (_vkbIsOpen && !isInput(tgt) && !(tgt.closest && tgt.closest('.doorpi-vkb-overlay'))) {{ _vkbClose(); }}
+        }}, true);
+    }}
 
-    let buttonStates = {}, buttonHoldTimes = {}, buttonRepeatCount = {};
+    let buttonStates = {{}}, buttonHoldTimes = {{}}, buttonRepeatCount = {{}};
 
-    function fireArrow(left) {
+    function fireArrow(left) {{
         const key = left ? 'ArrowLeft' : 'ArrowRight';
         const kc = left ? 37 : 39;
         const el = document.activeElement || document.body;
-        el.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key, code:key, keyCode: kc, which: kc, composed: true }));
-        setTimeout(() => { el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key, code:key, keyCode: kc, which: kc, composed: true })); }, 20);
-    }
+        el.dispatchEvent(new KeyboardEvent('keydown', {{ bubbles: true, cancelable: true, key, code:key, keyCode: kc, which: kc, composed: true }}));
+        setTimeout(() => {{ el.dispatchEvent(new KeyboardEvent('keyup', {{ bubbles: true, key, code:key, keyCode: kc, which: kc, composed: true }})); }}, 20);
+    }}
 
-    function processButton(idx, pressed, action, canRepeat) {
-        if (pressed) {
-            if (!buttonStates[idx]) {
+    function processButton(idx, pressed, action, canRepeat) {{
+        if (pressed) {{
+            if (!buttonStates[idx]) {{
                 action(); buttonStates[idx] = true; buttonHoldTimes[idx] = Date.now(); buttonRepeatCount[idx] = 0;
-            } else if (canRepeat !== false) {
+            }} else if (canRepeat !== false) {{
                 const held = Date.now() - buttonHoldTimes[idx];
                 const expected = Math.floor((held - 350) / 70);
-                if (held > 350 && expected > buttonRepeatCount[idx]) { action(); buttonRepeatCount[idx] = expected; }
-            }
-        } else { buttonStates[idx] = false; }
-    }
+                if (held > 350 && expected > buttonRepeatCount[idx]) {{ action(); buttonRepeatCount[idx] = expected; }}
+            }}
+        }} else {{ buttonStates[idx] = false; }}
+    }}
 
-    function _findScrollable(cx, cy, down) {
+    function _findScrollable(cx, cy, down) {{
         let el = document.elementFromPoint(cx, cy);
-        while (el && el !== document.documentElement) {
+        while (el && el !== document.documentElement) {{
             const st = window.getComputedStyle(el);
             const ov = st.overflowY;
             const canScroll = ov === 'auto' || ov === 'scroll' || ov === 'overlay';
-            if (canScroll) {
+            if (canScroll) {{
                 if (down && el.scrollTop < el.scrollHeight - el.clientHeight - 1) return el;
                 if (!down && el.scrollTop > 0) return el;
-            }
+            }}
             el = el.parentElement;
-        }
+        }}
         return document.documentElement;
-    }
+    }}
 
-function startGamepad() {
+    function startGamepad() {{
         let _lastTs = performance.now();
 
-        function poll(now) {
-            try {
-                // Delta Time: tempo decorrido desde o último frame (em ms)
-                // Dividimos por 16.666 para normalizar a sensibilidade baseada em 60 FPS
+        function poll(now) {{
+            try {{
                 const dt = (now - _lastTs) / 16.666;
                 _lastTs = now;
 
                 const gp = (navigator.getGamepads ? navigator.getGamepads() : [])[0];
                 const isFocusedOrPopup = document.hasFocus() || window.name === 'doorpi_popup';
 
-                if (gp && isFocusedOrPopup) {
-                    if (_vkbIsOpen) {
-                        // ── Modo VKB: Navegação Digital ──
+                if (gp && isFocusedOrPopup) {{
+                    if (_vkbIsOpen) {{
                         processButton(12,  !!gp.buttons[12]?.pressed, () => _vkbMoveFocus('up'));
                         processButton(13,  !!gp.buttons[13]?.pressed, () => _vkbMoveFocus('down'));
                         processButton(14,  !!gp.buttons[14]?.pressed, () => _vkbMoveFocus('left'));
@@ -673,64 +729,63 @@ function startGamepad() {
                         processButton(5,  !!gp.buttons[5]?.pressed,  () => _vkbMoveCursor('right'), true);
                         processButton(9,  !!gp.buttons[9]?.pressed,  _vkbClose, false);
                         processButton(10, !!gp.buttons[10]?.pressed, () => _vkbSetShift(!_vkbShifted), false);
-                    } else {
-                        // ── Modo Navegação: Cursor com Delta Time ──
+                    }} else {{
                         const dx = gp.axes[0], dy = gp.axes[1];
-                        // Deadzone leve de 0.1 para evitar drift
-                        if (Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1) {
-                            // Aceleração agora escala com o tempo real (dt)
+                        if (Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1) {{
                             _speedMult = Math.min(_speedMult + 0.12 * dt, SPEED_MAX / SPEED_BASE);
-
                             const SENSE = 8;
-                            // Multiplicamos o movimento por dt para manter a velocidade constante independente do FPS
                             const moveX = dx * SENSE * _speedMult * dt;
                             const moveY = dy * SENSE * _speedMult * dt;
                             moveCursor(moveX, moveY);
-                        } else { 
-                            _speedMult = 1; 
-                        }
+                        }} else {{
+                            _speedMult = 1;
+                        }}
 
-                        // ── Scroll com Delta Time ──
                         const rsY = Math.abs(gp.axes[3] ?? 0) > Math.abs(gp.axes[2] ?? 0) ? (gp.axes[3] ?? 0) : 0;
-                        if (Math.abs(rsY) > 0.1) {
+                        if (Math.abs(rsY) > 0.1) {{
                             const sign = rsY > 0 ? 1 : -1;
-                            // Scroll suave normalizado por dt
                             const amount = (rsY * rsY) * sign * 40 * dt;
                             const target = _findScrollable(cursorX, cursorY, sign > 0);
-                            
-                            if (target === document.documentElement || target === document.body) { 
-                                window.scrollBy({ top: amount, behavior: 'auto' }); 
-                            } else if (target) { 
-                                target.scrollTop += amount; 
-                            }
-                        }
+                            if (target === document.documentElement || target === document.body) {{
+                                window.scrollBy({{ top: amount, behavior: 'auto' }});
+                            }} else if (target) {{
+                                target.scrollTop += amount;
+                            }}
+                        }}
 
-                        // Botões de clique e navegação rápida
                         processButton(0, !!gp.buttons[0]?.pressed, doClick, false);
                         processButton(1, !!gp.buttons[1]?.pressed, goBack, false);
+                        processButton(2, !!gp.buttons[2]?.pressed, () => {{
+                            try {{ window.chrome.webview.postMessage('gp_right_click'); }} catch(_) {{}}
+                        }}, false);
                         processButton(4, !!gp.buttons[4]?.pressed, () => fireArrow(true),  false);
                         processButton(5, !!gp.buttons[5]?.pressed, () => fireArrow(false), false);
 
-                        // D-Pad: Scroll por saltos fixos
                         processButton(12, !!gp.buttons[12]?.pressed, () => window.scrollBy(0,  -120));
                         processButton(13, !!gp.buttons[13]?.pressed, () => window.scrollBy(0,   120));
                         processButton(14, !!gp.buttons[14]?.pressed, () => window.scrollBy(-120, 0));
                         processButton(15, !!gp.buttons[15]?.pressed, () => window.scrollBy( 120, 0));
-                    }
-                }
-            } catch(e) {}
+                    }}
+                }}
+            }} catch(e) {{}}
             requestAnimationFrame(poll);
-        }
+        }}
         requestAnimationFrame(poll);
-    }
+    }}
 
     init();
-})();";
+}})();";
             await cw.AddScriptToExecuteOnDocumentCreatedAsync(script);
         }
-
         private async Task OpenWebViewInlineAsync(string url, bool isYouTube = false)
         {
+            bool isUtilityPopup = url.Contains("steamgriddb.com");
+            if (isUtilityPopup)
+            {
+                // Opcional: Você pode definir um tamanho menor aqui se quiser
+                // Mas como o seu código já usa RootGrid.Children.Add(_ytWebView), 
+                // ele vai ocupar a tela toda com foco total, o que é melhor para TVs.
+            }
             if (_ytWebView != null)
             {
                 Panel.SetZIndex(_ytWebView, 1000);
@@ -790,7 +845,7 @@ function startGamepad() {
                 _ytWebView.CoreWebView2.Settings.UserAgent = "";
 
             _ytWebView.CoreWebView2.Settings.IsStatusBarEnabled = false;
-            _ytWebView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
+            _ytWebView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
             _ytWebView.CoreWebView2.Settings.IsZoomControlEnabled = false;
 
             _ytWebView.CoreWebView2.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
@@ -817,6 +872,14 @@ function startGamepad() {
             _ytWebView.CoreWebView2.Navigate(url);
             _ytWebView.Focus();
             _ytWebView.KeyDown += YtOnKeyDown;
+            _ytWebView.CoreWebView2.SourceChanged += (s, args) => {
+                string newUrl = _ytWebView.CoreWebView2.Source;
+                // Se o usuário logou e caiu na Home, empurra ele pra página da API
+                if (newUrl == "https://www.steamgriddb.com/" || newUrl == "https://www.steamgriddb.com")
+                {
+                    _ytWebView.CoreWebView2.Navigate("https://www.steamgriddb.com/profile/preferences/api");
+                }
+            };
         }
 
         // ── Fechar app ────────────────────────────────────────────────────────
@@ -825,7 +888,7 @@ function startGamepad() {
             if (_ytClosing || _ytWebView == null) return;
             _ytClosing = true;
 
-            try { _popupWindow?.Close(); } catch { } // Fecha popup pendente
+            try { _popupWindow?.Close(); } catch { } 
 
             try
             {
@@ -837,7 +900,7 @@ function startGamepad() {
             _ytWebView.KeyDown -= YtOnKeyDown;
             _ytWebView.CoreWebView2.WebResourceRequested -= YtOnWebResourceRequested;
             _ytWebView.CoreWebView2.WebMessageReceived -= YtOnWebMessageReceived;
-            _ytWebView.CoreWebView2.NewWindowRequested -= OnNewWindowRequested; // Removemos o evento adicionado
+            _ytWebView.CoreWebView2.NewWindowRequested -= OnNewWindowRequested; 
 
             RootGrid.Children.Remove(_ytWebView);
             try { _ytWebView.Dispose(); } catch { }
@@ -864,7 +927,7 @@ function startGamepad() {
                 else
                 {
                     // Sites genéricos: ESC fecha o app diretamente via Dispatcher
-                    // (o JS também tenta via postMessage, mas o WPF é mais confiável)
+                
                     Dispatcher.Invoke(CloseYouTubeInline);
                 }
             }
@@ -888,9 +951,34 @@ function startGamepad() {
                 Dispatcher.Invoke(() =>
                 {
                     if (isPopup)
-                        _popupWindow?.Close(); // Se apertou B no popup, cancela o login e fecha o popup
+                        _popupWindow?.Close(); 
                     else
-                        CloseYouTubeInline();  // Se apertou B no site, fecha o app inteiro
+                        CloseYouTubeInline(); 
+                });
+            }
+            else if (msg == "gp_right_click")
+            {
+                // Simula o clique do botão direito do mouse na posição atual do cursor
+                const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
+                const uint MOUSEEVENTF_RIGHTUP = 0x0010;
+                mouse_event(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, UIntPtr.Zero);
+                mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, UIntPtr.Zero);
+            }
+            else if (msg.StartsWith("copy_api_key:"))
+            {
+                string key = msg.Substring("copy_api_key:".Length);
+                Dispatcher.Invoke(() =>
+                {
+                    try
+                    {
+                        // Define a chave no Clipboard do Windows
+                        System.Windows.Clipboard.SetText(key);
+                        Debug.WriteLine($"[Doorpi] API Key capturada automaticamente: {key}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[Doorpi] Erro ao copiar chave: {ex.Message}");
+                    }
                 });
             }
             else if (msg == "doorpi_profile_hacked_done") { /* ack */ }
