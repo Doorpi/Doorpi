@@ -189,13 +189,18 @@ namespace Doorpi
     window.__doorpiGenericInjected = true;
 
     // ── 1. RASTREADOR DE NAVEGAÇÃO (Redirecionamento SteamGridDB) ──
-    function checkRedirect() {{
-        if (location.href === 'https://www.steamgriddb.com/' || location.href === 'https://www.steamgriddb.com') {{
-            location.href = 'https://www.steamgriddb.com/profile/preferences/api';
-        }}
-    }}
-    checkRedirect();
-    window.addEventListener('popstate', checkRedirect);
+
+let _redirectDebounce = null;
+function checkRedirect() {{
+    const isRoot = location.href === 'https://www.steamgriddb.com/' || 
+                   location.href === 'https://www.steamgriddb.com';
+    if (!isRoot) return;
+    if (sessionStorage.getItem('_sgdbRedirected')) return; // já redirecionou, ignora
+    sessionStorage.setItem('_sgdbRedirected', '1');
+    location.href = 'https://www.steamgriddb.com/profile/preferences/api';
+}}
+checkRedirect();
+window.addEventListener('popstate', checkRedirect);
 
     // ── 2. AUTO-COPY NO CLIQUE DUPLO (Para Chave API) ──
     document.addEventListener('dblclick', function(e) {{

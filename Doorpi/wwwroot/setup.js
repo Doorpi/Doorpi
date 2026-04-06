@@ -517,7 +517,7 @@ const _setupData = { name: '', photoBase64: '', apiKey: '', folders: [] };
                         <div class="setup-section-divider"></div>
                         <p class="setup-section-desc" data-i18n="setupApiDesc"></p>
                         <div class="setup-api-row">
-                            <input class="setup-input setup-focusable" id="setupApiInput" type="text" readonly tabindex="-1" />
+                            <input class="setup-input setup-focusable" id="setupApiInput" type="text" readonly tabindex="-1" maxlength="32" />
                             <button class="setup-icon-btn setup-focusable" id="btnSetupPaste" tabindex="-1"><span data-i18n="setupStep3PasteMode"></span></button>
                             <button class="setup-api-link-btn setup-focusable" id="btnSetupApiLink" tabindex="-1"><span data-i18n="setupStep3LinkText"></span></button>
                         </div>
@@ -813,7 +813,7 @@ function _bindSetupEvents() {
             window._vkbOpen(input, {
                 onOk: () => {
                     _setupData.name = input.value.trim();
-                    _updateStatus();
+                    _updateStatus(); 
                     window._vkbForceClose?.();
                 },
                 onCancel: () => window._vkbForceClose?.(),
@@ -866,8 +866,10 @@ function _bindSetupEvents() {
             forbiddenTitle: t('msgFolderForbiddenTitle'),
         });
     });
-
+    document.getElementById('setupNameInput').addEventListener('input', _updateStatus);
+    document.getElementById('setupApiInput').addEventListener('input', _updateStatus);
     document.getElementById('btnSetupFinish').addEventListener('click', _validateAndFinish);
+
 }
 
 // ── Render de pastas ──────────────────────────────────────────────────────────

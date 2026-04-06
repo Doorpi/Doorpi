@@ -154,13 +154,13 @@ window.chrome.webview.addEventListener('message', event => {
         else if (data.type === 'clipboardText') {
             if (data.text?.trim()) {
                 if (typeof isSetupOpen !== 'undefined' && isSetupOpen) {
-                    // Cola no Setup
                     const input = document.getElementById('setupApiInput');
                     if (input) {
                         input.value = data.text.trim();
                         _setupData.apiKey = data.text.trim();
                         const hint = document.getElementById('setupApiHint');
                         if (hint) hint.textContent = t('setupStep3PasteSuccess');
+                        _updateStatus(); 
                         document.getElementById('btnSetupApiNext')?.focus();
                     }
                 } else {
