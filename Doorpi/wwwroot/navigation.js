@@ -349,7 +349,12 @@ function gamepadCancel() { if (isModalOpen && !window.isGlobalLoading) closeModa
 function gamepadStart() {
     if (window.isGlobalLoading) return;
     if (isModalOpen) { closeModal?.(); return; }
-    document.getElementById('btnAdd')?.click();
+
+    if (window.getCurrentHomeTab?.() === 'media') {
+        document.getElementById('btnAddMedia')?.click();
+    } else {
+        document.getElementById('btnAdd')?.click();
+    }
 }
 function gamepadTriangle() { if (isModalOpen && !window.isGlobalLoading) document.getElementById('btnSearch')?.click(); }
 

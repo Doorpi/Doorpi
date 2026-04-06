@@ -28,7 +28,7 @@ const STRINGS = {
         loadingScanningDoNotClose: 'Procurando aplicativos. NÃO FECHE o aplicativo durante este processo!',
         loadingAnalyzingNewFolder: 'Analisando a nova pasta...',
 
-        selectApps: 'Selecione os aplicativos para adicionar',
+        selectApps: 'Selecione os jogos para adicionar',
         showingStore: (name) => `Mostrando jogos da loja: ${name}`,
         noAppsFound: 'Nenhum aplicativo encontrado',
         noAppsHint: 'Tente escanear uma pasta ou adicionar manualmente',
@@ -317,7 +317,7 @@ const STRINGS = {
         loadingScanningDoNotClose: 'Looking for applications. DO NOT CLOSE the app during this process!',
         loadingAnalyzingNewFolder: 'Analyzing the new folder...',
 
-        selectApps: 'Select applications to add',
+        selectApps: 'Select games to add',
         showingStore: (name) => `Showing games from: ${name}`,
         noAppsFound: 'No applications found',
         noAppsHint: 'Try scanning a folder or adding manually',

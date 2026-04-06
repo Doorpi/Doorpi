@@ -102,7 +102,7 @@ body:not(.nav-menu-active) #heroImage {
     --logo-width: min(28%, 44vh);
     --topbar-pad-v: clamp(16px, min(1.72vw, 3.06vh), 54px);
     --topbar-pad-h: clamp(28px, min(2.81vw, 5vh), 88px);
-    --modal-sidebar-w: clamp(180px, min(15.5vw, 27.6vh), 500px);
+    --modal-sidebar-w: clamp(180px, min(16.5vw, 29.6vh), 500px);
     --modal-pad-v: clamp(28px, min(2.8vw, 4.98vh), 88px);
     --modal-pad-h: clamp(32px, min(3.1vw, 5.5vh), 100px);
     --modal-radius: clamp(12px, min(1.09vw, 1.94vh), 38px);
@@ -738,6 +738,8 @@ body {
     display: flex;
     flex-direction: column;
     gap: 1px;
+    height: 100%;
+    justify-content: space-between;
 }
 
 .menu-tab {
@@ -748,7 +750,7 @@ body {
     text-align: left;
     padding: clamp(14px, 1.09vw, 21px) clamp(24px, 2.19vw, 44px);
     font-family: 'Outfit', sans-serif;
-    font-size: clamp(0.78rem, 1.1vw, 1.25rem);
+    font-size: clamp(0.48rem, 1vw, 1.05rem);
     font-weight: 500;
     cursor: pointer;
     transition: color 0.18s, background 0.18s, border-color 0.18s;
@@ -2309,4 +2311,18 @@ body {
     gap: clamp(12px, 1.09vw, 22px);
     padding: 6px 6px 100px;
     align-content: start;
+}
+.tab-icon svg {
+    width: 2rem;
+    height: 2rem;
+    display: block;
+}
+
+.menu-tab {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.tab-icon svg {
+    stroke-width: 1.8;
 }

@@ -380,7 +380,7 @@ document.getElementById('btnAddMedia')?.addEventListener('click', () => {
     document.getElementById('modalTitle').innerText = t('detectingLibrary');
 
     showGlobalLoading(t('detectingLibrary'), t('readingApps'));
-    switchTab('apps');
+    switchTab('media-apps'); 
     postToHost({ action: 'requestInstalledApps' });
     postToHost({ action: 'startAppPolling' });
 });
