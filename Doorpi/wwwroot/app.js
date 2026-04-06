@@ -2119,7 +2119,6 @@ function clearLoadingCards(tab = 'games') {
     grid.querySelectorAll('.card.loading-card').forEach(c => c.remove());
 }
 function clearHero() {
-    // Se o menu estiver aberto, deixa a imagem intacta para ela subir no scroll
     const isNavMenuActive = document.body.classList.contains('nav-menu-active') || window.isNavMenuOpen;
     if (isNavMenuActive) return;
 
@@ -2129,8 +2128,8 @@ function clearHero() {
         const logoEl = document.getElementById('gameLogo');
         const gridBgImg = document.getElementById('gridBgImg');
 
-        if (bgBlur) bgBlur.style.opacity = '1';
-        if (heroImg) heroImg.style.opacity = '1';
+        if (bgBlur) bgBlur.style.opacity = '0';   
+        if (heroImg) heroImg.style.opacity = '0';  
         if (logoEl) { logoEl.classList.remove('visible'); logoEl.style.opacity = ''; }
         if (gridBgImg) gridBgImg.removeAttribute('src');
 
