@@ -25,6 +25,7 @@ namespace Doorpi
         [DllImport("user32.dll")] private static extern void mouse_event(uint dwFlags, int dx, int dy, uint dwData, UIntPtr dwExtraInfo);
         private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
         private const uint MOUSEEVENTF_LEFTUP = 0x0004;
+        private bool _sgdbRedirected = false;
 
         // ── Campos ────────────────────────────────────────────────────────────
         private WebView2? _ytWebView;
@@ -195,27 +196,32 @@ function checkRedirect() {{
     const isRoot = location.href === 'https://www.steamgriddb.com/' || 
                    location.href === 'https://www.steamgriddb.com';
     if (!isRoot) return;
-    if (sessionStorage.getItem('_sgdbRedirected')) return; // já redirecionou, ignora
-    sessionStorage.setItem('_sgdbRedirected', '1');
     location.href = 'https://www.steamgriddb.com/profile/preferences/api';
 }}
 checkRedirect();
 window.addEventListener('popstate', checkRedirect);
 
     // ── 2. AUTO-COPY NO CLIQUE DUPLO (Para Chave API) ──
-    document.addEventListener('dblclick', function(e) {{
-        const el = e.target.closest('code') || (e.target.tagName === 'CODE' ? e.target : null);
-        if (el) {{
-            const apiText = el.innerText.trim();
-            if (apiText.length > 10) {{
-                window.chrome.webview.postMessage('copy_api_key:' + apiText);
-                showConsoleToast('{_currentToastTitle}', '{_currentToastSub}');
-                setTimeout(() => {{
-                    window.chrome.webview.postMessage('close_app');
-                }}, 2200);
-            }}
+document.addEventListener('click', function(e) {{
+    const el = e.target.closest('code') || (e.target.tagName === 'CODE' ? e.target : null);
+    if (el) {{
+        const apiText = el.innerText.trim();
+        if (apiText.length > 10) {{
+            // Seleciona o texto visualmente
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+
+            window.chrome.webview.postMessage('copy_api_key:' + apiText);
+            showConsoleToast('{_currentToastTitle}', '{_currentToastSub}');
+            setTimeout(() => {{
+                window.chrome.webview.postMessage('close_app');
+            }}, 2200);
         }}
-    }});
+    }}
+}});
 
     // ── 3. NOTIFICAÇÃO ESTILO CONSOLE (Toast) ──
     function showConsoleToast(title, sub) {{
@@ -877,10 +883,11 @@ window.addEventListener('popstate', checkRedirect);
             _ytWebView.CoreWebView2.Navigate(url);
             _ytWebView.Focus();
             _ytWebView.KeyDown += YtOnKeyDown;
-            _ytWebView.CoreWebView2.SourceChanged += (s, args) => {
+            _ytWebView.CoreWebView2.SourceChanged += (s, args) =>
+            {
                 string newUrl = _ytWebView.CoreWebView2.Source;
-                // Se o usuário logou e caiu na Home, empurra ele pra página da API
-                if (newUrl == "https://www.steamgriddb.com/" || newUrl == "https://www.steamgriddb.com")
+                var trimmed = newUrl.TrimEnd('/');
+                if (trimmed == "https://www.steamgriddb.com")
                 {
                     _ytWebView.CoreWebView2.Navigate("https://www.steamgriddb.com/profile/preferences/api");
                 }
