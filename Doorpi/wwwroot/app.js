@@ -423,7 +423,7 @@ function ensureDoorpiOverlayStyles() {
     }
 
     .doorpi-user-name {
-        font-size: clamp(1.1rem, 1.25vw, 1.5rem);
+        font-size: clamp(0.8rem, 1.25vw, 1.1rem);
         font-weight: 600;
         text-align: center;
         letter-spacing: 0.02em;
@@ -459,7 +459,7 @@ function ensureDoorpiOverlayStyles() {
         transform: rotate(90deg) scale(1.1);
     }
     .doorpi-user-card.create-card {
-        border: 2px dashed rgba(255,255,255,0.15);
+        border: 2px solid rgba(255,255,255,0.15);
         background: rgba(255,255,255,0.02);
     }
     .doorpi-user-card.create-card:focus, .doorpi-user-card.create-card:hover {
