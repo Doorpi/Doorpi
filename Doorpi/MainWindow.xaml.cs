@@ -1002,41 +1002,61 @@ namespace Doorpi
 
             try
             {
-                string crxUrl = "https://clients2.google.com/service/update2/crx?response=redirect&prodversion=120.0.0.0&acceptformat=crx2,crx3&x=id%3D"
-                    + id + "%26installsource%3Dondemand%26uc";
-                byte[] crxBytes = await downloadClient.GetByteArrayAsync(crxUrl);
+                // Força a versão 999 para garantir compatibilidade futura e força download do CRX
+                string crxUrl = $"https://clients2.google.com/service/update2/crx?response=redirect&os=win&arch=x64&os_arch=x86_64&nacl_arch=x86-64&prod=chromecrx&prodchannel=&prodversion=999.0.0.0&acceptformat=crx2,crx3&x=id%3D{id}%26installsource%3Dondemand%26uc";
+
+                using var req = new HttpRequestMessage(HttpMethod.Get, crxUrl);
+                req.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36");
+
+                var response = await downloadClient.SendAsync(req);
+                response.EnsureSuccessStatusCode();
+                byte[] crxBytes = await response.Content.ReadAsByteArrayAsync();
+
+                if (crxBytes.Length < 1024)
+                    throw new InvalidOperationException("Arquivo baixado muito pequeno, verifique a URL da extensão.");
+
+                // Busca o cabeçalho do ZIP (PK\x03\x04)
                 int zipOffset = FindZipOffset(crxBytes);
-                if (zipOffset < 0) throw new InvalidOperationException("Não foi possível ler o pacote CRX.");
+                if (zipOffset < 0)
+                    throw new InvalidOperationException("Não foi possível encontrar a estrutura ZIP dentro do arquivo CRX.");
 
                 string zipPath = Path.Combine(tempRoot, id + ".zip");
-                await File.WriteAllBytesAsync(zipPath, crxBytes.Skip(zipOffset).ToArray());
+                byte[] zipData = new byte[crxBytes.Length - zipOffset];
+                Buffer.BlockCopy(crxBytes, zipOffset, zipData, 0, zipData.Length);
+                await File.WriteAllBytesAsync(zipPath, zipData);
+
+                // Extração
                 ZipFile.ExtractToDirectory(zipPath, tempRoot, overwriteFiles: true);
 
-                string manifest = Directory.EnumerateFiles(tempRoot, "manifest.json", SearchOption.AllDirectories).FirstOrDefault() ?? "";
-                if (string.IsNullOrWhiteSpace(manifest)) throw new InvalidOperationException("A extensão baixada não possui manifest.json.");
+                // Busca profunda pelo manifest.json (às vezes fica em subpastas dependendo da extensão)
+                var manifestFiles = Directory.EnumerateFiles(tempRoot, "manifest.json", SearchOption.AllDirectories).ToList();
 
+                if (manifestFiles.Count == 0)
+                {
+                    string filesFound = string.Join(", ", Directory.GetFiles(tempRoot, "*", SearchOption.AllDirectories).Select(Path.GetFileName));
+                    throw new InvalidOperationException($"Extensão extraída, mas nenhum 'manifest.json' foi encontrado. Arquivos na pasta: {filesFound}");
+                }
+
+                string manifest = manifestFiles[0];
+                string extensionFolder = Path.GetDirectoryName(manifest)!;
+
+                // Instala
                 if (Directory.Exists(extRoot)) Directory.Delete(extRoot, true);
                 Directory.CreateDirectory(Path.GetDirectoryName(extRoot)!);
-                Directory.Move(Path.GetDirectoryName(manifest)!, extRoot);
+                Directory.Move(extensionFolder, extRoot);
 
+                // Registrar
                 string name = id;
                 try
                 {
-                    using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(extRoot, "manifest.json")));
+                    using var doc = JsonDocument.Parse(File.ReadAllText(manifest));
                     name = GetStr(doc.RootElement, "name", id).Replace("__MSG_", "").Replace("__", "");
                 }
                 catch { }
 
                 var extensions = LoadBrowserExtensions();
                 extensions.RemoveAll(e => string.Equals(e.Id, id, StringComparison.OrdinalIgnoreCase));
-                extensions.Add(new BrowserExtensionModel
-                {
-                    Id = id,
-                    Name = name,
-                    SourceUrl = sourceUrl,
-                    InstalledPath = extRoot,
-                    DateInstalled = DateTime.Now
-                });
+                extensions.Add(new BrowserExtensionModel { Id = id, Name = name, SourceUrl = sourceUrl, InstalledPath = extRoot, DateInstalled = DateTime.Now });
                 SaveBrowserExtensions(extensions);
             }
             finally
@@ -2648,7 +2668,13 @@ namespace Doorpi
                                 }
 
                                 await UpdateAppCacheAsync();
-                                await AutoAddPlatformGamesAsync();
+
+                                // Bloqueia a auto-importação para novos usuários criados posteriormente.
+                                // A importação só ocorre no setup inicial do programa (wasEmpty).
+                                if (wasEmpty)
+                                {
+                                    await AutoAddPlatformGamesAsync();
+                                }
 
                                 Dispatcher.Invoke(() =>
                                 {

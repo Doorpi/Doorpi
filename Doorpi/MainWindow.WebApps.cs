@@ -258,7 +258,28 @@ document.addEventListener('click', function(e) {{
         }}
         const toast = document.createElement('div');
         toast.className = 'console-toast';
-        toast.innerHTML = `<div class='toast-icon'>✓</div><div class='toast-content'><span class='toast-title'>${{title}}</span><span class='toast-sub'>${{sub}}</span></div>`;
+        
+        const iconDiv = document.createElement('div');
+        iconDiv.className = 'toast-icon';
+        iconDiv.textContent = '✓';
+        
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'toast-content';
+        
+        const titleSpan = document.createElement('span');
+        titleSpan.className = 'toast-title';
+        titleSpan.textContent = title;
+        
+        const subSpan = document.createElement('span');
+        subSpan.className = 'toast-sub';
+        subSpan.textContent = sub;
+        
+        contentDiv.appendChild(titleSpan);
+        contentDiv.appendChild(subSpan);
+        
+        toast.appendChild(iconDiv);
+        toast.appendChild(contentDiv);
+        
         document.body.appendChild(toast);
         requestAnimationFrame(() => toast.classList.add('visible'));
     }}
@@ -290,7 +311,201 @@ document.addEventListener('click', function(e) {{
         startGamepad();
         bindInputFocus();
         patchHistory();
+        injectChromeWebStoreBtn();
     }}
+
+function injectChromeWebStoreBtn() {{
+    function isDetailPage() {{
+        return location.href.includes('chromewebstore.google.com/detail/');
+    }}
+
+function findInstallButton() {{
+    var candidates = document.querySelectorAll('button');
+    for (var i = 0; i < candidates.length; i++) {{
+        var txt = (candidates[i].textContent || '').trim().toLowerCase();
+        if (txt.includes('usar no chrome')      ||
+            txt.includes('adicionar ao chrome') || 
+            txt.includes('add to chrome')       || 
+            txt.includes('use in chrome')       ||
+            txt.includes('install')) {{
+            return candidates[i];
+        }}
+    }}
+
+    // Fallback shadow roots
+    var hosts = document.querySelectorAll('*');
+    for (var j = 0; j < hosts.length; j++) {{
+        if (!hosts[j].shadowRoot) continue;
+        var inner = hosts[j].shadowRoot.querySelectorAll('button');
+        for (var k = 0; k < inner.length; k++) {{
+            var txt2 = (inner[k].textContent || '').trim().toLowerCase();
+            if (txt2.includes('usar no chrome')      ||
+                txt2.includes('adicionar ao chrome') || 
+                txt2.includes('add to chrome')       || 
+                txt2.includes('use in chrome')       ||
+                txt2.includes('install')) {{
+                return inner[k];
+            }}
+        }}
+    }}
+    return null;
+}}
+function buildBtn() {{
+    if (!isDetailPage()) return;
+    if (document.getElementById('doorpi-ext-btn')) return;
+
+    var target = findInstallButton();
+
+    var btn = document.createElement('button');
+    btn.id = 'doorpi-ext-btn';
+
+    // Ícone estrela
+    var iconLeft = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    iconLeft.setAttribute('width', '16'); iconLeft.setAttribute('height', '16');
+    iconLeft.setAttribute('viewBox', '0 0 24 24'); iconLeft.setAttribute('fill', 'none');
+    iconLeft.setAttribute('stroke', 'currentColor'); iconLeft.setAttribute('stroke-width', '2');
+    iconLeft.setAttribute('stroke-linecap', 'round'); iconLeft.setAttribute('stroke-linejoin', 'round');
+    iconLeft.style.cssText = 'flex-shrink:0;opacity:0.7;pointer-events:none';
+    var star = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    star.setAttribute('d', 'M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z');
+    iconLeft.appendChild(star);
+
+    var textWrap = document.createElement('span');
+    textWrap.style.cssText = 'flex:1;text-align:left;line-height:1.35;pointer-events:none';
+    var titleSpan = document.createElement('span');
+    titleSpan.style.cssText = 'display:block;font-weight:700;font-size:13px;letter-spacing:0.01em;color:rgba(255,255,255,0.92)';
+    titleSpan.textContent = 'Adicionar extensão ao Doorpi';
+    var subSpan = document.createElement('span');
+    subSpan.style.cssText = 'display:block;font-size:11px;color:rgba(255,255,255,0.38);font-weight:400;margin-top:2px';
+    subSpan.textContent = 'Instalar via Doorpi Browser';
+    textWrap.appendChild(titleSpan);
+    textWrap.appendChild(subSpan);
+
+    var iconRight = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    iconRight.setAttribute('width', '13'); iconRight.setAttribute('height', '13');
+    iconRight.setAttribute('viewBox', '0 0 24 24'); iconRight.setAttribute('fill', 'none');
+    iconRight.setAttribute('stroke', 'currentColor'); iconRight.setAttribute('stroke-width', '2.5');
+    iconRight.setAttribute('stroke-linecap', 'round'); iconRight.setAttribute('stroke-linejoin', 'round');
+    iconRight.style.cssText = 'flex-shrink:0;opacity:0.35;pointer-events:none';
+    var chev = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    chev.setAttribute('points', '9 18 15 12 9 6');
+    iconRight.appendChild(chev);
+
+    btn.appendChild(iconLeft);
+    btn.appendChild(textWrap);
+    btn.appendChild(iconRight);
+
+    btn.onclick = function() {{
+        window.chrome.webview.postMessage('auto_install_extension:' + location.href);
+        showConsoleToast('Doorpi', 'Extensão enviada ao Doorpi!');
+        setTimeout(function() {{ window.chrome.webview.postMessage('close_app'); }}, 1800);
+    }};
+
+    if (target) {{
+        // Botão nativo encontrado — ancora acima dele
+        var btnWidth = Math.max(target.getBoundingClientRect().width, 200);
+        target.parentElement.style.position = 'relative';
+        btn.style.cssText =
+            'position:absolute;z-index:99;' +
+            'display:flex;align-items:center;gap:11px;' +
+            'width:' + 260 + 'px;' +
+            'padding:11px 18px 11px 14px;margin-bottom:8px;' +
+            'background:rgba(8,8,24,0.88);' +
+            'backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);' +
+            'border:1px solid rgba(255,255,255,0.15);' +
+            'border-bottom:1px solid rgba(255,255,255,0.08);' +
+            'border-radius:12px;' +
+            'color:rgba(255,255,255,0.88);font-family:Outfit,sans-serif;font-size:13px;cursor:pointer;' +
+            'transition:border-color 0.15s,background 0.15s,box-shadow 0.15s,transform 0.15s;' +
+            'outline:none;box-sizing:border-box;';
+
+        btn.onmouseover = function() {{
+            btn.style.borderColor = 'rgba(255,255,255,0.40)';
+            btn.style.background = 'rgba(16,16,38,0.96)';
+            btn.style.boxShadow = '0 8px 32px rgba(0,0,0,0.65),inset 0 1px 0 rgba(255,255,255,0.09)';
+            btn.style.transform = 'translateY(-1px)';
+        }};
+        btn.onmouseout = function() {{
+            btn.style.borderColor = 'rgba(255,255,255,0.15)';
+            btn.style.background = 'rgba(8,8,24,0.88)';
+            btn.style.boxShadow = '0 4px 24px rgba(0,0,0,0.5),inset 0 1px 0 rgba(255,255,255,0.06)';
+            btn.style.transform = 'translateY(0)';
+        }};
+        btn.onmousedown = function() {{
+            btn.style.transform = 'translateY(1px)';
+            btn.style.boxShadow = '0 2px 12px rgba(0,0,0,0.5)';
+        }};
+
+        target.parentElement.insertBefore(btn, target);
+
+    }} else {{
+        // Fallback — botão nativo não encontrado, posição fixa conhecida
+        btn.style.cssText =
+            'position:fixed;top:45px;left:65%;z-index:99;' +
+            'display:flex;align-items:center;gap:11px;' +
+            'min-width:220px;' +
+            'padding:11px 18px 11px 14px;' +
+            'background:rgba(8,8,24,0.88);' +
+            'backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);' +
+            'border:1px solid rgba(255,255,255,0.15);' +
+            'border-bottom:1px solid rgba(255,255,255,0.08);' +
+            'border-radius:12px;' +
+            'color:rgba(255,255,255,0.88);font-family:Outfit,sans-serif;font-size:13px;cursor:pointer;' +
+            'transition:border-color 0.15s,background 0.15s,box-shadow 0.15s,transform 0.15s;' +
+            'outline:none;box-sizing:border-box;';
+
+        btn.onmouseover = function() {{
+            btn.style.borderColor = 'rgba(255,255,255,0.40)';
+            btn.style.background = 'rgba(16,16,38,0.96)';
+            btn.style.boxShadow = '0 8px 32px rgba(0,0,0,0.65),inset 0 1px 0 rgba(255,255,255,0.09)';
+            btn.style.transform = 'translateY(-1px)';
+        }};
+        btn.onmouseout = function() {{
+            btn.style.borderColor = 'rgba(255,255,255,0.15)';
+            btn.style.background = 'rgba(8,8,24,0.88)';
+            btn.style.boxShadow = '0 4px 24px rgba(0,0,0,0.5),inset 0 1px 0 rgba(255,255,255,0.06)';
+            btn.style.transform = 'translateY(0)';
+        }};
+        btn.onmousedown = function() {{
+            btn.style.transform = 'translateY(1px)';
+            btn.style.boxShadow = '0 2px 12px rgba(0,0,0,0.5)';
+        }};
+
+        document.body.appendChild(btn);
+    }}
+}}
+
+    // Observa navegação SPA e mudanças no DOM
+    var observer = new MutationObserver(function() {{
+        if (!document.getElementById('doorpi-ext-btn')) buildBtn();
+    }});
+
+    function start() {{
+        if (!document.body) {{ setTimeout(start, 50); return; }}
+        buildBtn();
+        observer.observe(document.body, {{ childList: true, subtree: true }});
+    }}
+
+    // Reage a navegação SPA (pushState/popState)
+    var _origPush = history.pushState.bind(history);
+    history.pushState = function() {{
+        _origPush.apply(this, arguments);
+        setTimeout(function() {{
+            var old = document.getElementById('doorpi-ext-btn');
+            if (old) old.remove();
+            buildBtn();
+        }}, 300);
+    }};
+    window.addEventListener('popstate', function() {{
+        setTimeout(function() {{
+            var old = document.getElementById('doorpi-ext-btn');
+            if (old) old.remove();
+            buildBtn();
+        }}, 300);
+    }});
+
+    start();
+}}
 
     let _navDepth = 0;
     function patchHistory() {{
@@ -513,6 +728,7 @@ document.addEventListener('click', function(e) {{
     }}
 
     function _vkbMoveFocus(dir) {{
+        if (!_vkbFocusKey) {{ _vkbSetFocus('q'); return; }}
         let rIdx = 0, cIdx = 0, found = false;
         for (let r = 0; r < KEY_ROWS.length && !found; r++) {{
             for (let c = 0; c < KEY_ROWS[r].length && !found; c++) {{
@@ -733,11 +949,16 @@ document.addEventListener('click', function(e) {{
                             _speedMult = Math.min(_speedMult + 0.12 * dt, SPEED_MAX / SPEED_BASE);
                             const SENSE = 8;
                             moveCursor(dx * SENSE * _speedMult * dt, dy * SENSE * _speedMult * dt);
+                            if (_vkbFocusKey) _vkbSetFocus(null);
                         }} else {{
                             _speedMult = 1;
                         }}
 
-                        processButton(0,  !!gp.buttons[0]?.pressed,  () => _vkbPressKey(_vkbFocusKey), false);
+                        processButton(0,  !!gp.buttons[0]?.pressed,  () => {{
+                            if (_vkbFocusKey) _vkbPressKey(_vkbFocusKey);
+                            else doClick();
+                        }}, false);
+
                         processButton(1,  !!gp.buttons[1]?.pressed,  _vkbClose, false);
                         processButton(2,  !!gp.buttons[2]?.pressed,  () => _vkbDelete(), true);
                         processButton(3,  !!gp.buttons[3]?.pressed,  () => _vkbInsert(' '), true);
@@ -1015,6 +1236,20 @@ document.addEventListener('click', function(e) {{
                     {
                         Debug.WriteLine($"[Doorpi] Erro ao copiar chave: {ex.Message}");
                     }
+                });
+            }
+            else if (msg.StartsWith("auto_install_extension:"))
+            {
+                string extUrl = msg.Substring("auto_install_extension:".Length);
+                Dispatcher.Invoke(() =>
+                {
+                    try
+                    {
+                        System.Windows.Clipboard.SetText(extUrl);
+                        webView.CoreWebView2.PostWebMessageAsString(
+                            System.Text.Json.JsonSerializer.Serialize(new { type = "clipboardText", text = extUrl }));
+                    }
+                    catch { }
                 });
             }
             else if (msg == "doorpi_profile_hacked_done") { /* ack */ }

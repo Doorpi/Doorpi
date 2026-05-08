@@ -446,6 +446,11 @@ function moveFocus(direction) {
             }
         }
 
+        if (current.classList.contains('home-tab') && direction === 'UP') {
+            const profileBtn = document.getElementById('btnTopProfile');
+            if (profileBtn) { profileBtn.focus(); return; }
+        }
+
         let target = findSpatialCandidate(items, current, direction);
         if (!target) {
             const tabs = items.filter(el => el.classList.contains('home-tab'));
@@ -647,7 +652,11 @@ document.addEventListener('keydown', e => {
     }
     if (e.key === 'Escape') {
         e.preventDefault();
-        if (isSetupOpen) return;
+        if (isSetupOpen) {
+            const cancelBtn = document.getElementById('btnSetupCancel');
+            if (cancelBtn && cancelBtn.style.display !== 'none') cancelBtn.click();
+            return;
+        }
         if (isCtxMenuOpen) { closeCtxMenu(); return; }
         if (isEditModalOpen) { window._editModalClose?.(); return; }
         if (isModalOpen) { gamepadCancel(); return; }
@@ -773,7 +782,10 @@ window.addEventListener('gamepaddisconnected', e => {
         if (window._vkbIsOpen) {
             const mx = Math.abs(ax) > 0.18 ? Math.round(ax * 18) : 0;
             const my = Math.abs(ay) > 0.18 ? Math.round(ay * 18) : 0;
-            if (mx || my) postToHost?.({ action: 'systemMouseMove', dx: mx, dy: my });
+            if (mx || my) {
+                postToHost?.({ action: 'systemMouseMove', dx: mx, dy: my });
+                window._vkbClearFocus?.();
+            }
 
             dir = null;
             if (buttons[GAMEPAD.BTN_RIGHT]?.pressed) dir = 'RIGHT';
@@ -787,8 +799,13 @@ window.addEventListener('gamepaddisconnected', e => {
                 else if (_moveState === 2 && now - _lastMoveTime > GAMEPAD.REPEAT_DELAY) { moveFocus(dir); _lastMoveTime = now; }
             } else { _moveState = 0; _currentDirection = null; }
 
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
+                if (window._vkbHasFocus?.()) document.activeElement?.click();
+                else postToHost?.({ action: 'systemMouseClick' });
+            }
             if (buttonJustPressed(buttons[GAMEPAD.BTN_R2], GAMEPAD.BTN_R2)) postToHost?.({ action: 'systemMouseClick' });
+
+
             if (buttonJustPressed(buttons[GAMEPAD.BTN_L2], GAMEPAD.BTN_L2)) postToHost?.({ action: 'systemMouseRightClick' });
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) window._vkbCancel?.();
             if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) window._editModalSave?.();
@@ -838,7 +855,11 @@ window.addEventListener('gamepaddisconnected', e => {
         if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
             if (isCtxMenuOpen) closeCtxMenu();
             else if (isEditModalOpen) window._editModalClose?.();
-            else if (!isSetupOpen) gamepadCancel();
+            else if (isSetupOpen) {
+                const cancelBtn = document.getElementById('btnSetupCancel');
+                if (cancelBtn && cancelBtn.style.display !== 'none') cancelBtn.click();
+            }
+            else gamepadCancel();
         }
         if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) {
             if (isModalOpen) (document.getElementById('btnConfirmAdd') || document.getElementById('btnConfirmAddMedia'))?.click();

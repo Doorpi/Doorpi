@@ -207,7 +207,7 @@ window.chrome.webview.addEventListener('message', event => {
             cachedFolders = data.folders;
             renderFolderList(cachedFolders);
         }
-        else if (data.type === 'hideLoading') {
+        else if (data.type === 'hideLoading' || data.type === 'hideSystemLoading') {
             hideGlobalLoading();
             isFolderOperationInProgress = false;
         }
@@ -266,41 +266,212 @@ function ensureDoorpiOverlayStyles() {
     const s = document.createElement('style');
     s.id = 'doorpiOverlayStyles';
     s.textContent = `
-    .doorpi-user-overlay,.doorpi-manager-overlay{position:fixed;inset:0;z-index:9200;background:#07071a;display:flex;align-items:center;justify-content:center;padding:48px;box-sizing:border-box}
-    .doorpi-user-panel,.doorpi-manager-panel{width:min(980px,94vw);max-height:86vh;display:flex;flex-direction:column;gap:22px}
-    .doorpi-panel-head{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}
-    .doorpi-panel-title{font-size:clamp(2rem,3vw,4rem);font-weight:220;color:#fff;margin:0;letter-spacing:0}
-    .doorpi-panel-sub{color:rgba(255,255,255,.52);font-size:1rem;margin:6px 0 0;line-height:1.45}
-    .doorpi-user-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px}
-    .doorpi-user-card,.doorpi-manager-row{background:rgba(255,255,255,.075);border:1px solid rgba(255,255,255,.13);border-radius:8px;color:#fff}
-    .doorpi-user-card{height:190px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;cursor:pointer;outline:none}
-    .doorpi-user-card:focus,.doorpi-user-card:hover,.doorpi-manager-btn:focus,.doorpi-manager-btn:hover,.doorpi-manager-input:focus{border-color:rgba(255,255,255,.85);box-shadow:0 0 0 4px rgba(255,255,255,.12)}
-    .doorpi-avatar{width:78px;height:78px;border-radius:50%;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;overflow:hidden;color:rgba(255,255,255,.45);font-size:30px}
-    .doorpi-avatar img{width:100%;height:100%;object-fit:cover}
-    .doorpi-user-name{font-size:1.08rem;font-weight:700;text-align:center}
-    .doorpi-user-badge{font-size:.72rem;color:rgba(120,220,150,.9);text-transform:uppercase;letter-spacing:.1em}
-    .doorpi-manager-row{padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:14px}
-    .doorpi-manager-form{display:grid;grid-template-columns:1fr auto auto auto;gap:10px}
-    .doorpi-manager-input,.doorpi-choice-trigger{background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.16);border-radius:8px;color:#fff;font:inherit;padding:13px 14px;outline:none;box-sizing:border-box}
-    .doorpi-choice-wrap{position:relative}
-    .doorpi-choice-trigger{width:100%;min-height:50px;display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left;cursor:pointer}
-    .doorpi-choice-trigger::after{content:'v';font-size:.8rem;color:rgba(255,255,255,.58)}
-    .doorpi-choice-wrap.is-disabled{opacity:.48;pointer-events:none}
-    .doorpi-choice-wrap.is-open .doorpi-choice-trigger,.doorpi-choice-trigger:focus,.doorpi-choice-option:focus{border-color:rgba(255,255,255,.85);box-shadow:0 0 0 4px rgba(255,255,255,.12)}
-    .doorpi-choice-menu{display:none;position:absolute;z-index:4;left:0;right:0;top:calc(100% + 6px);background:#101020;border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:6px;box-shadow:0 18px 40px rgba(0,0,0,.42)}
-    .doorpi-choice-wrap.is-open .doorpi-choice-menu{display:flex;flex-direction:column;gap:4px}
-    .doorpi-choice-option{background:transparent;border:1px solid transparent;border-radius:6px;color:#fff;font:inherit;text-align:left;padding:11px 12px;cursor:pointer;outline:none}
-    .doorpi-choice-option:hover,.doorpi-choice-option.is-selected{background:rgba(255,255,255,.11)}
-    .doorpi-share-select{display:none}
-    .doorpi-manager-btn{background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.16);border-radius:8px;color:#fff;font:inherit;font-weight:700;padding:12px 16px;cursor:pointer;outline:none}
-    .doorpi-manager-btn.primary{background:rgba(255,255,255,.92);color:#07071a}
-    .doorpi-manager-list{display:flex;flex-direction:column;gap:10px;overflow:auto;padding-right:4px}
-    .doorpi-status{min-height:20px;color:rgba(255,255,255,.62)}
-    .doorpi-status.error{color:rgba(255,110,110,.95)}
-    .doorpi-status.success{color:rgba(110,230,150,.95)}
-    .doorpi-share-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
-    .doorpi-shared-note{font-size:.82rem;color:rgba(120,190,255,.9);margin-top:8px}
-    @media(max-width:760px){.doorpi-manager-form,.doorpi-share-grid{grid-template-columns:1fr}.doorpi-user-overlay,.doorpi-manager-overlay{padding:24px}}
+    .doorpi-user-overlay, .doorpi-manager-overlay {
+        position: fixed; inset: 0; z-index: 9200;
+        background: rgba(6, 6, 14, 0.75);
+        backdrop-filter: blur(40px) saturate(1.5);
+        -webkit-backdrop-filter: blur(40px) saturate(1.5);
+        display: flex; align-items: center; justify-content: center;
+        padding: clamp(24px, 5vw, 60px); box-sizing: border-box;
+        animation: doorpiOverlayFadeIn 0.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+    @keyframes doorpiOverlayFadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+
+    .doorpi-user-panel {
+        width: 100%; max-width: 1200px;
+        display: flex; flex-direction: column; align-items: center; gap: clamp(30px, 4vw, 50px);
+    }
+    .doorpi-manager-panel {
+        width: min(980px, 94vw); max-height: 86vh;
+        display: flex; flex-direction: column; gap: 22px;
+        background: rgba(16, 16, 28, 0.6);
+        padding: clamp(24px, 3vw, 40px);
+        border-radius: clamp(16px, 2vw, 24px);
+        border: 1px solid rgba(255,255,255,0.1);
+        box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+    }
+
+    .doorpi-panel-head { width: 100%; display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; }
+    .doorpi-user-panel .doorpi-panel-head { flex-direction: column; align-items: center; text-align: center; justify-content: center; }
+    
+    .doorpi-panel-title {
+        font-size: clamp(2.4rem, 4.2vw, 5.4rem);
+        font-weight: 200;
+        letter-spacing: -0.03em;
+        color: #ffffff;
+        margin: 0;
+        line-height: 1.05;
+        text-shadow: 0 2px 40px rgba(80,100,255,0.25);
+    }
+    .doorpi-panel-sub {
+        font-size: clamp(0.95rem, 1.1vw, 1.4rem);
+        color: rgba(255,255,255,0.55);
+        margin: clamp(10px, 1.2vw, 16px) 0 0;
+        line-height: 1.6;
+        font-weight: 300;
+    }
+
+    /* MANAGER STYLES (Mantidos estruturalmente mas modernizados) */
+    .doorpi-manager-panel .doorpi-panel-title { font-size: clamp(2rem, 3vw, 3rem); text-align: left; }
+    .doorpi-manager-panel .doorpi-panel-sub { text-align: left; }
+    .doorpi-manager-row { background: rgba(255,255,255,.075); border: 1px solid rgba(255,255,255,.13); border-radius: 12px; color: #fff; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+    .doorpi-manager-form { display: grid; grid-template-columns: 1fr auto auto auto; gap: 10px; }
+    .doorpi-manager-input, .doorpi-choice-trigger { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.16); border-radius: 12px; color: #fff; font: inherit; padding: 13px 16px; outline: none; box-sizing: border-box; transition: all 0.2s; }
+    .doorpi-manager-input:focus, .doorpi-choice-trigger:focus, .doorpi-manager-btn:focus, .doorpi-manager-btn:hover { border-color: #fff; box-shadow: 0 0 0 4px rgba(255,255,255,.15); background: rgba(255,255,255,0.1); }
+    .doorpi-choice-wrap { position: relative; }
+    .doorpi-choice-trigger { width: 100%; min-height: 50px; display: flex; align-items: center; justify-content: space-between; gap: 12px; text-align: left; cursor: pointer; }
+    .doorpi-choice-trigger::after { content: 'v'; font-size: .8rem; color: rgba(255,255,255,.58); }
+    .doorpi-choice-wrap.is-disabled { opacity: .48; pointer-events: none; }
+    .doorpi-choice-wrap.is-open .doorpi-choice-trigger, .doorpi-choice-option:focus { border-color: #fff; box-shadow: 0 0 0 4px rgba(255,255,255,.15); }
+    .doorpi-choice-menu { display: none; position: absolute; z-index: 4; left: 0; right: 0; top: calc(100% + 6px); background: #1a1a2e; border: 1px solid rgba(255,255,255,.18); border-radius: 12px; padding: 6px; box-shadow: 0 18px 40px rgba(0,0,0,.42); }
+    .doorpi-choice-wrap.is-open .doorpi-choice-menu { display: flex; flex-direction: column; gap: 4px; }
+    .doorpi-choice-option { background: transparent; border: 1px solid transparent; border-radius: 8px; color: #fff; font: inherit; text-align: left; padding: 11px 12px; cursor: pointer; outline: none; transition: background 0.15s; }
+    .doorpi-choice-option:hover, .doorpi-choice-option.is-selected { background: rgba(255,255,255,.11); }
+    .doorpi-share-select { display: none; }
+    .doorpi-manager-btn { background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.16); border-radius: 12px; color: #fff; font: inherit; font-weight: 600; padding: 12px 20px; cursor: pointer; outline: none; transition: all 0.2s; }
+    .doorpi-manager-btn.primary { background: #fff; color: #07071a; border-color: transparent; }
+    .doorpi-manager-list { display: flex; flex-direction: column; gap: 10px; overflow: auto; padding-right: 4px; }
+    .doorpi-status { min-height: 20px; color: rgba(255,255,255,.62); }
+    .doorpi-status.error { color: rgba(255,110,110,.95); }
+    .doorpi-status.success { color: rgba(110,230,150,.95); }
+    .doorpi-share-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+    .doorpi-shared-note { font-size: .85rem; color: rgba(120,190,255,.9); margin-top: 8px; }
+
+    /* USER CARDS STYLES */
+    .doorpi-user-grid {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: clamp(16px, 2vw, 32px);
+        width: 100%;
+    }
+    .doorpi-user-card {
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: clamp(16px, 2vw, 24px);
+        color: #fff;
+        width: clamp(160px, 16vw, 220px);
+        aspect-ratio: 1 / 1.25;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: clamp(16px, 2vw, 24px);
+        cursor: pointer;
+        outline: none;
+        transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.35s, background 0.35s, box-shadow 0.35s;
+        position: relative;
+        overflow: hidden;
+        animation: doorpiCardRise 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+        will-change: transform, opacity, translate;
+    }
+
+    @keyframes doorpiCardRise {
+        from { opacity: 0; translate: 0 24px; }
+        to { opacity: 1; translate: 0 0; }
+    }
+
+    .doorpi-user-card::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(circle at center 30%, rgba(255,255,255,0.08), transparent 60%);
+        opacity: 0;
+        transition: opacity 0.4s;
+    }
+
+    .doorpi-user-card:focus, .doorpi-user-card:hover {
+        background: rgba(255, 255, 255, 0.08);
+        border-color: rgba(255, 255, 255, 0.4);
+        transform: translateY(-12px) scale(1.05);
+        box-shadow: 0 24px 48px rgba(0,0,0,0.6), 0 0 0 4px rgba(255,255,255,0.15);
+    }
+    .doorpi-user-card:focus::before, .doorpi-user-card:hover::before {
+        opacity: 1;
+    }
+
+    .doorpi-avatar {
+        width: clamp(80px, 9vw, 120px);
+        height: clamp(80px, 9vw, 120px);
+        border-radius: 50%;
+        background: rgba(255,255,255,0.08);
+        border: 2px solid rgba(255,255,255,0.15);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        color: rgba(255,255,255,0.45);
+        font-size: clamp(32px, 4vw, 50px);
+        transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.4s, box-shadow 0.4s;
+        position: relative;
+        z-index: 2;
+    }
+
+    .doorpi-user-card:focus .doorpi-avatar, .doorpi-user-card:hover .doorpi-avatar {
+        transform: scale(1.15);
+        border-color: #fff;
+        box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+    }
+
+    .doorpi-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .doorpi-user-name {
+        font-size: clamp(1.1rem, 1.25vw, 1.5rem);
+        font-weight: 600;
+        text-align: center;
+        letter-spacing: 0.02em;
+        z-index: 2;
+        padding: 0 10px;
+    }
+
+    .doorpi-user-badge {
+        position: absolute;
+        top: 14px;
+        right: 14px;
+        font-size: 0.65rem;
+        font-weight: 800;
+        color: rgba(16, 25, 20, 0.95);
+        background: rgba(120, 220, 150, 0.95);
+        padding: 4px 10px;
+        border-radius: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        z-index: 2;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    }
+    
+    .doorpi-create-user-icon {
+        font-size: clamp(40px, 5vw, 60px);
+        font-weight: 200;
+        color: rgba(255,255,255,0.4);
+        transition: color 0.3s, transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .doorpi-user-card.create-card:focus .doorpi-create-user-icon,
+    .doorpi-user-card.create-card:hover .doorpi-create-user-icon {
+        color: #fff;
+        transform: rotate(90deg) scale(1.1);
+    }
+    .doorpi-user-card.create-card {
+        border: 2px dashed rgba(255,255,255,0.15);
+        background: rgba(255,255,255,0.02);
+    }
+    .doorpi-user-card.create-card:focus, .doorpi-user-card.create-card:hover {
+        border-color: rgba(255,255,255,0.4);
+        background: rgba(255,255,255,0.06);
+    }
+
+    @media(max-width: 760px) {
+        .doorpi-manager-form, .doorpi-share-grid { grid-template-columns: 1fr; }
+        .doorpi-user-overlay, .doorpi-manager-overlay { padding: 24px; }
+        .doorpi-user-panel .doorpi-panel-title { font-size: 2.5rem; }
+    }
     `;
     document.head.appendChild(s);
 }
@@ -368,7 +539,7 @@ function getDoorpiChoiceValue(id) {
 }
 
 function avatarMarkup(user) {
-    return `<div class="doorpi-avatar">${user.PhotoBase64 ? `<img src="data:image/png;base64,${user.PhotoBase64}" />` : '•'}</div>`;
+    return `<div class="doorpi-avatar">${user.PhotoBase64 ? `<img src="data:image/png;base64,${user.PhotoBase64}" />` : `<svg viewBox="0 0 24 24" width="40" height="40" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`}</div>`;
 }
 
 function showUserPicker(users, requireSelection = false) {
@@ -382,45 +553,60 @@ function showUserPicker(users, requireSelection = false) {
     }
     overlay.dataset.required = requireSelection ? 'true' : 'false';
 
-    const cards = users.map(user => `
-        <button class="doorpi-user-card" data-user-id="${escapeHtml(user.Id)}" tabindex="0">
+    const cards = users.map((user, idx) => `
+        <button class="doorpi-user-card" data-user-id="${escapeHtml(user.Id)}" tabindex="0" style="animation-delay: ${idx * 0.05}s">
             ${avatarMarkup(user)}
             <span class="doorpi-user-name">${escapeHtml(user.Name)}</span>
             ${user.Id === window._doorpiCurrentUserId ? '<span class="doorpi-user-badge">Atual</span>' : ''}
         </button>`).join('');
 
+    const createUserDelay = users.length * 0.05;
+
     overlay.innerHTML = `
         <div class="doorpi-user-panel">
             <div class="doorpi-panel-head">
-                <div>
-                    <h2 class="doorpi-panel-title">Quem está jogando?</h2>
-                    <p class="doorpi-panel-sub">Bem vindo de volta</p>
-                </div>
-                ${requireSelection ? '' : '<button class="doorpi-manager-btn" id="doorpiCloseUsers">Voltar</button>'}
+                <h2 class="doorpi-panel-title" data-i18n="whoIsPlaying">Quem está jogando?</h2>
+                <p class="doorpi-panel-sub" data-i18n="welcomeBack">Bem-vindo de volta</p>
             </div>
             <div class="doorpi-user-grid">
                 ${cards}
-                <button class="doorpi-user-card" id="doorpiCreateUserCard" tabindex="0">
-                    <div class="doorpi-avatar">+</div>
-                    <span class="doorpi-user-name">Novo usuário</span>
+                <button class="doorpi-user-card create-card" id="doorpiCreateUserCard" tabindex="0" style="animation-delay: ${createUserDelay}s">
+                    <div class="doorpi-create-user-icon">+</div>
+                    <span class="doorpi-user-name" data-i18n="newUser">Novo usuário</span>
                 </button>
             </div>
+            ${requireSelection ? '' : '<button class="doorpi-manager-btn" id="doorpiCloseUsers" style="margin-top: 30px; animation: doorpiCardRise 0.5s backwards; animation-delay: ' + (createUserDelay + 0.1) + 's">Voltar</button>'}
         </div>`;
 
+    if (typeof applyI18n === 'function') applyI18n();
+
     overlay.style.display = 'flex';
+
+    if (document.activeElement && document.activeElement !== document.body) {
+        document.activeElement.blur();
+    }
+
     overlay.querySelectorAll('[data-user-id]').forEach(btn => {
         btn.addEventListener('click', () => {
             postToHost({ action: 'selectUser', userId: btn.dataset.userId });
             overlay.style.display = 'none';
         });
     });
-    overlay.querySelector('#doorpiCreateUserCard')?.addEventListener('click', openCreateUserDialog);
+    overlay.querySelector('#doorpiCreateUserCard')?.addEventListener('click', () => {
+        overlay.style.display = 'none';
+        openCreateUserDialog();
+    });
     overlay.querySelector('#doorpiCloseUsers')?.addEventListener('click', () => overlay.style.display = 'none');
-    setTimeout(() => overlay.querySelector('.doorpi-user-card')?.focus(), 50);
+
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            overlay.querySelector('.doorpi-user-card')?.focus();
+        });
+    });
 }
 
 function openCreateUserDialog() {
-    window.closeDoorpiTopOverlay?.();
+    window.closeDoorpiTopOverlay?.(true);
     if (typeof openSetup === 'function') {
         openSetup(true);
     }
@@ -455,6 +641,11 @@ function openExtensionsManager() {
         </div>`;
 
     overlay.style.display = 'flex';
+
+    if (document.activeElement && document.activeElement !== document.body) {
+        document.activeElement.blur();
+    }
+
     overlay.querySelector('#btnCloseExtMgr')?.addEventListener('click', () => overlay.style.display = 'none');
     overlay.querySelector('#btnExtPaste')?.addEventListener('click', () => postToHost({ action: 'readClipboard' }));
     overlay.querySelector('#btnOpenChromeStore')?.addEventListener('click', () => postToHost({ action: 'openExtensionStore' }));
@@ -467,19 +658,21 @@ function openExtensionsManager() {
     });
     postToHost({ action: 'requestExtensions' });
 
-    setTimeout(() => {
-        const input = overlay.querySelector('#extensionUrlInput');
-        if (input) {
-            input.focus();
-            input.addEventListener('click', () => { if (!window._vkbIsOpen) window._vkbOpen?.(input); });
-            input.addEventListener('keydown', e => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    if (!window._vkbIsOpen) window._vkbOpen?.(input);
-                }
-            });
-        }
-    }, 50);
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            const input = overlay.querySelector('#extensionUrlInput');
+            if (input) {
+                input.focus();
+                input.addEventListener('click', () => { if (!window._vkbIsOpen) window._vkbOpen?.(input); });
+                input.addEventListener('keydown', e => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (!window._vkbIsOpen) window._vkbOpen?.(input);
+                    }
+                });
+            }
+        });
+    });
 }
 
 function renderExtensionsManager(extensions, status, message) {
@@ -511,6 +704,21 @@ window.isDoorpiOverlayOpen = function () {
         .some(el => el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
 };
 
+document.addEventListener('focusin', (e) => {
+    if (window.isDoorpiOverlayOpen && window.isDoorpiOverlayOpen()) {
+        const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay'))
+            .filter(el => el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
+        const topOverlay = overlays.at(-1);
+
+        if (topOverlay && !topOverlay.contains(e.target)) {
+            const focusable = topOverlay.querySelector('button, input, select,[tabindex="0"]');
+            if (focusable) {
+                focusable.focus();
+            }
+        }
+    }
+});
+
 window.getDoorpiOverlayItems = function () {
     const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay'))
         .filter(el => el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
@@ -520,11 +728,11 @@ window.getDoorpiOverlayItems = function () {
         .filter(el => !el.disabled && el.offsetWidth > 0 && el.offsetHeight > 0);
 };
 
-window.closeDoorpiTopOverlay = function () {
+window.closeDoorpiTopOverlay = function (force = false) {
     const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay'))
         .filter(el => el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
     const top = overlays.at(-1);
-    if (top?.dataset.required === 'true') return;
+    if (!force && top?.dataset.required === 'true') return;
     if (top) top.style.display = 'none';
 };
 
@@ -2282,6 +2490,14 @@ window._vkbForceClose = () => VKB.forceClose();
 window._vkbPhysicalKey = (k) => VKB.physicalKey(k);
 window._vkbToggleShift = () => VKB.toggleShift();
 window._vkbMoveCursor = (dir) => VKB.moveCursor(dir);
+window._vkbClearFocus = () => {
+    const el = document.activeElement;
+    if (el && el.classList.contains('vkb-key')) el.blur();
+};
+window._vkbHasFocus = () => {
+    const el = document.activeElement;
+    return el && el.classList.contains('vkb-key');
+};
 
 function _esc(str) {
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');

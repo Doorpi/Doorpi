@@ -48,6 +48,8 @@ let _isAddingUserMode = false;
     .setup-user-pill.active { background: rgba(255,255,255,0.15); border-color: #fff; color: #fff; }
     .setup-user-pill-avatar { width: 26px; height: 26px; border-radius: 50%; background: rgba(255,255,255,0.2); overflow: hidden; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .setup-user-pill-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .setup-user-delete { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: rgba(255,80,80,0.15); color: rgba(255,150,150,0.9); font-size: 11px; margin-left: 4px; transition: all 0.2s; }
+    .setup-user-delete:hover { background: rgba(255,80,80,0.9); color: #fff; }
     .setup-user-add { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,0.05); border: 1px dashed rgba(255,255,255,0.3); cursor: pointer; color: #fff; transition: all 0.2s; outline: none; }
     .setup-user-add:hover, .setup-user-add:focus { background: rgba(255,255,255,0.15); border-color: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,0.2); }
 
@@ -219,13 +221,29 @@ function _renderSetupUsers() {
                 ${u.photoBase64 ? `<img src="data:image/png;base64,${u.photoBase64}" />` : `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`}
             </div>
             <span>${u.name || `Usuário ${i + 1}`}</span>
+            ${_setupUsers.length > 1 ? `<div class="setup-user-delete" data-idx="${i}">✕</div>` : ''}
         </button>
     `).join('');
     html += `<button class="setup-user-add setup-focusable" id="btnSetupAddUser" tabindex="-1" title="Adicionar Usuário">+</button>`;
     bar.innerHTML = html;
 
     bar.querySelectorAll('.setup-user-pill').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', (e) => {
+            if (e.target.closest('.setup-user-delete')) {
+                e.stopPropagation();
+                const idx = parseInt(btn.dataset.idx);
+                _setupUsers.splice(idx, 1);
+                if (!_setupUsers.includes(_currUser)) {
+                    _currUser = _setupUsers[0];
+                }
+                _loadCurrentUserIntoForm();
+                _renderSetupUsers();
+                if (_currentSection) {
+                    _currentSection.querySelectorAll('.setup-focusable').forEach(el => el.tabIndex = 0);
+                }
+                return;
+            }
+
             _currUser = _setupUsers[parseInt(btn.dataset.idx)];
             _loadCurrentUserIntoForm();
             _renderSetupUsers();
@@ -390,12 +408,17 @@ function _startSetupBg() {
 function _stopSetupBg() { if (_bgRaf) { cancelAnimationFrame(_bgRaf); _bgRaf = null; } }
 
 function openSetup(isAddingUser = false) {
+    if (document.activeElement && document.activeElement !== document.body) {
+        document.activeElement.blur();
+    }
     _isAddingUserMode = isAddingUser;
     _setupUsers = [{ id: Date.now(), name: '', photoBase64: '', apiKey: '', folders: [] }];
     _currUser = _setupUsers[0];
     _currentSection = null;
     document.querySelectorAll('.setup-section').forEach(sec => sec.classList.remove('expanded'));
     document.querySelectorAll('.setup-focusable:not(.setup-section-header)').forEach(el => el.tabIndex = -1);
+
+    document.querySelectorAll('.setup-footer .setup-focusable').forEach(el => el.tabIndex = 0);
 
     _loadCurrentUserIntoForm();
     _renderSetupUsers();
@@ -460,8 +483,8 @@ function _validateAndFinish() {
     }
 
     closeSetup();
-    if (typeof showSystemLoading === 'function') {
-        showSystemLoading(typeof t === 'function' ? t('preparingSystem') : 'Preparando...', '', []);
+    if (typeof showGlobalLoading === 'function') {
+        showGlobalLoading(typeof t === 'function' ? t('preparingSystem') : 'Preparando...', '');
     }
 
     postToHost({
@@ -534,9 +557,15 @@ function _bindSetupEvents() {
         });
     });
 
-    document.getElementById('btnSetupCancel')?.addEventListener('click', closeSetup);
+    document.getElementById('btnSetupCancel')?.addEventListener('click', () => {
+        closeSetup();
+        if (_isAddingUserMode) {
+            postToHost({ action: 'requestUsers' });
+        }
+    });
     document.getElementById('btnSetupFinish').addEventListener('click', _validateAndFinish);
 }
+
 
 function _renderSetupFolders() {
     const list = document.getElementById('setupFolderList');

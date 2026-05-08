@@ -129,14 +129,11 @@ const STRINGS = {
         setupSectionIdentity: 'Identidade',
         setupSectionApiKey: 'SteamGrid API Key',
         setupSectionFolders: 'Pastas de jogos locais',
-      
+
         setupHeaderSubtitle: 'Configuração inicial',
         setupIdentityDesc: 'Defina o nome do perfil e a imagem exibidos na tela inicial.',
         setupApiDesc: 'Usado para baixar capas, logos e artes via SteamGrid. \nSem a chave, imagens não serão exibidas.',
         setupFoldersDesc: 'Instalações da Steam, Epic, GOG e a maioria dos aplicativos Windows\nsão detectadas automaticamente.\nAdicione pastas somente para jogos locais, portáteis ou em dispositivos externos.',
-        setupSectionIdentity: 'Perfil',
-        setupSectionApiKey: 'SteamGrid API Key',
-        setupSectionFolders: 'Pastas de jogos',
         setupOptional: 'Opcional',
         setupNameLabel: 'Nome do perfil',
 
@@ -156,8 +153,6 @@ const STRINGS = {
 
         // Lançamento de app de mídia
         msgErrorLaunchMedia: 'Erro ao abrir aplicativo: ',
-        // Lançamento de app de mídia
-        msgErrorLaunchMedia: 'Erro ao abrir aplicativo: ',
 
         navGames: 'Jogos',
         navMedia: 'Multimídia',
@@ -175,10 +170,8 @@ const STRINGS = {
         navProfileNameLabel: 'Nome',
         navProfileApiLabel: 'API Key SteamGridDB',
 
-
-        badgeNew: 'NOVO',      
+        badgeNew: 'NOVO',
         navHintMenu: 'Menu',
-
 
         webAppNameLabel: 'Nome do aplicativo',
         webAppUrlLabel: 'Link',
@@ -189,8 +182,13 @@ const STRINGS = {
         webAppErrorUrl: 'Insira a URL do aplicativo web.',
 
         apiKeyCopied: 'Chave API copiada!',
-        returningToSetup: 'Retornando ao Setup...', 
+        returningToSetup: 'Retornando ao Setup...',
 
+        // Adições recentes de Perfis
+        whoIsPlaying: 'Quem está jogando?',
+        welcomeBack: 'Bem-vindo de volta',
+        newUser: 'Novo usuário',
+        addUsuario: 'Adicionar Usuário',
     },
 
     'en-US': {
@@ -236,10 +234,7 @@ const STRINGS = {
         preparingSystem: 'Setting up Doorpi',
         preparingSystemSub: 'Downloading app artwork...',
 
-        // Lançamento de app de mídia
-        msgErrorLaunchMedia: 'Error launching app: ',
         // Setup
-
         setupSectionBrowser: 'Apps browser',
         setupBrowserDesc: 'Choose the browser used to open streaming apps like Netflix, Twitch and Disney+. Doorpi launches these services in fullscreen mode, with no visible bars or tabs.',
         setupBrowserScanning: 'Detecting installed browsers...',
@@ -249,14 +244,11 @@ const STRINGS = {
         setupIdentityDesc: 'Set the profile name and image shown on the home screen.',
         setupApiDesc: 'Used to download covers, logos, and artwork from SteamGrid. Without the key, images will not be displayed.',
         setupFoldersDesc: 'Steam, Epic, GOG and Windows installations are detected automatically. IMPORTANT: Add folders only for local, portable, or external device games.',
-        setupSectionIdentity: 'Profile',
-        setupSectionApiKey: 'SteamGrid API Key',
-        setupSectionFolders: 'Game folders',
-        setupOptional: 'Optional',
-        setupNameLabel: 'Profile name',
         setupSectionIdentity: 'Identity',
         setupSectionApiKey: 'SteamGrid API Key',
         setupSectionFolders: 'Local game folders',
+        setupOptional: 'Optional',
+        setupNameLabel: 'Profile name',
         setupStep3PasteMode: 'API..',
         setupStep3TypeMode: 'Type',
         setupStep3PasteHint: 'Press Ctrl+V or click "Paste Key"',
@@ -381,6 +373,11 @@ const STRINGS = {
         platformLabels: { Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Folder: 'Folder', Windows: 'Windows' },
         scanLibLabels: { Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Windows: 'Windows', Folder: 'Folders' },
 
+        // Adições recentes de Perfis
+        whoIsPlaying: 'Who is playing?',
+        welcomeBack: 'Welcome back',
+        newUser: 'New user',
+        addUsuario: 'Add User',
     },
 };
 
@@ -391,10 +388,10 @@ const FALLBACK_LANG = 'en-US';
 function detectSystemLanguage() {
     const navLang = navigator.language || FALLBACK_LANG;
 
-  
+
     if (STRINGS[navLang]) return navLang;
 
-   
+
     const baseLang = navLang.split('-')[0];
     const match = Object.keys(STRINGS).find(key => key.startsWith(baseLang));
 
