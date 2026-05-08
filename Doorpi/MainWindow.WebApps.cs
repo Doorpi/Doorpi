@@ -21,8 +21,8 @@ namespace Doorpi
     public partial class MainWindow : Window
     {
         // ── Win32: cursor real via gamepad ────────────────────────────────────
-        [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
         [DllImport("user32.dll")] private static extern void mouse_event(uint dwFlags, int dx, int dy, uint dwData, UIntPtr dwExtraInfo);
+        [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
         private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
         private const uint MOUSEEVENTF_LEFTUP = 0x0004;
         private bool _sgdbRedirected = false;
@@ -727,10 +727,15 @@ document.addEventListener('click', function(e) {{
                         processButton(13,  !!gp.buttons[13]?.pressed, () => _vkbMoveFocus('down'));
                         processButton(14,  !!gp.buttons[14]?.pressed, () => _vkbMoveFocus('left'));
                         processButton(15,  !!gp.buttons[15]?.pressed, () => _vkbMoveFocus('right'));
-                        processButton(100, gp.axes[1] < -0.5,         () => _vkbMoveFocus('up'));
-                        processButton(101, gp.axes[1] >  0.5,         () => _vkbMoveFocus('down'));
-                        processButton(102, gp.axes[0] < -0.5,         () => _vkbMoveFocus('left'));
-                        processButton(103, gp.axes[0] >  0.5,         () => _vkbMoveFocus('right'));
+
+                        const dx = gp.axes[0], dy = gp.axes[1];
+                        if (Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1) {{
+                            _speedMult = Math.min(_speedMult + 0.12 * dt, SPEED_MAX / SPEED_BASE);
+                            const SENSE = 8;
+                            moveCursor(dx * SENSE * _speedMult * dt, dy * SENSE * _speedMult * dt);
+                        }} else {{
+                            _speedMult = 1;
+                        }}
 
                         processButton(0,  !!gp.buttons[0]?.pressed,  () => _vkbPressKey(_vkbFocusKey), false);
                         processButton(1,  !!gp.buttons[1]?.pressed,  _vkbClose, false);
@@ -738,6 +743,7 @@ document.addEventListener('click', function(e) {{
                         processButton(3,  !!gp.buttons[3]?.pressed,  () => _vkbInsert(' '), true);
                         processButton(4,  !!gp.buttons[4]?.pressed,  () => _vkbMoveCursor('left'), true);
                         processButton(5,  !!gp.buttons[5]?.pressed,  () => _vkbMoveCursor('right'), true);
+                        processButton(7,  !!gp.buttons[7]?.pressed,  doClick, false);
                         processButton(9,  !!gp.buttons[9]?.pressed,  _vkbClose, false);
                         processButton(10, !!gp.buttons[10]?.pressed, () => _vkbSetShift(!_vkbShifted), false);
                     }} else {{
@@ -819,26 +825,7 @@ document.addEventListener('click', function(e) {{
             Panel.SetZIndex(_ytWebView, 1000);
             RootGrid.Children.Add(_ytWebView);
 
-            var nativeApp = _nativeApps.FirstOrDefault(a => url.Contains(a.Id));
-            bool multiUser = nativeApp != default && nativeApp.MultiUser;
-
-            string profileName;
-            if (isYouTube)
-            {
-                profileName = "youtube-tv";
-            }
-            else if (multiUser)
-            {
-                profileName = nativeApp != default ? $"shared-{nativeApp.Id}" : "shared-default";
-            }
-            else
-            {
-                var profile = LoadUserProfile();
-                string safeName = string.IsNullOrWhiteSpace(profile.Name)
-                    ? "default"
-                    : string.Concat(profile.Name.Where(c => !Path.GetInvalidFileNameChars().Contains(c)));
-                profileName = nativeApp != default ? $"{safeName}-{nativeApp.Id}" : $"{safeName}-default";
-            }
+            string profileName = GetBrowserProfileNameForUrl(url, isYouTube);
 
 
             string userDataPath = Path.Combine(
@@ -892,6 +879,43 @@ document.addEventListener('click', function(e) {{
                     _ytWebView.CoreWebView2.Navigate("https://www.steamgriddb.com/profile/preferences/api");
                 }
             };
+        }
+
+        private string GetBrowserProfileNameForUrl(string url, bool isYouTube)
+        {
+            string appKey = isYouTube ? "youtube" : "";
+            MediaAppModel? media = null;
+            try
+            {
+                media = LoadMediaApps().FirstOrDefault(m =>
+                    string.Equals(m.Url, url, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(m.Id, url, StringComparison.OrdinalIgnoreCase));
+            }
+            catch { }
+
+            if (media != null)
+            {
+                appKey = string.IsNullOrWhiteSpace(media.Id)
+                    ? Convert.ToHexString(System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(media.Url)))[..10].ToLowerInvariant()
+                    : media.Id;
+
+                if (media.ShareMode == "all" || media.ShareMode == "user" || media.IsSharedFromOtherUser)
+                {
+                    string owner = string.IsNullOrWhiteSpace(media.OwnerUserId) ? currentUserId : media.OwnerUserId;
+                    return SafePathSegment($"shared-{owner}-{appKey}");
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(appKey))
+            {
+                var nativeApp = _nativeApps.FirstOrDefault(a => url.Contains(a.Id, StringComparison.OrdinalIgnoreCase));
+                appKey = nativeApp != default
+                    ? nativeApp.Id
+                    : Convert.ToHexString(System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(url)))[..10].ToLowerInvariant();
+            }
+
+            string user = string.IsNullOrWhiteSpace(currentUserId) ? "default" : currentUserId;
+            return SafePathSegment($"{user}-{appKey}");
         }
 
         // ── Fechar app ────────────────────────────────────────────────────────

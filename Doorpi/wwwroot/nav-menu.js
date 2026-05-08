@@ -651,6 +651,11 @@ window.isNavMenuOpen = false;
             card.dataset.idx = i;
             card.dataset.gameId = item.LaunchUrl || item.Path || item.Url || '';
             card.dataset.catId = catId;
+            if (catId === 'media') {
+                card.dataset.appId = item.Id || item.Url || '';
+                card.dataset.appUrl = item.Url || '';
+                card.dataset.appType = item.Type || 'browser';
+            }
 
             const _itemKey = item.LaunchUrl || item.Path || item.Url || '';
             if (window.newGameIdsThisSession?.has(_itemKey)) {
@@ -751,6 +756,29 @@ window.isNavMenuOpen = false;
                 _renderGrid(body, _menuData.media, id, _t('navNoMedia', 'Nenhum aplicativo configurado'), '▶');
                 break;
             case 'settings':
+                body.innerHTML = `
+                    <div class="nav-profile-dashboard">
+                        <div class="nav-profile-fields">
+                            <button class="modal-btn primary nav-focused-el" id="navManageExtensions" tabindex="-1">Gerenciar Extensões</button>
+                            <button class="modal-btn secondary nav-focused-el" id="navManageUsers" tabindex="-1" style="margin-top:12px">Trocar ou criar usuário</button>
+                            <button class="modal-btn secondary nav-focused-el" id="navDesktopMode" tabindex="-1" style="margin-top:12px">⊞ Área de trabalho</button>
+                        </div>
+                    </div>`;
+                {
+                    const extBtn = document.getElementById('navManageExtensions');
+                    const usersBtn = document.getElementById('navManageUsers');
+                    const desktopBtn = document.getElementById('navDesktopMode');
+                    _contentItems = [extBtn, usersBtn, desktopBtn];
+                    extBtn?.addEventListener('click', () => window.openExtensionsManager?.());
+                    usersBtn?.addEventListener('click', () => {
+                        if (typeof postToHost === 'function') postToHost({ action: 'requestUsers' });
+                    });
+                    desktopBtn?.addEventListener('click', () => {
+                        if (typeof postToHost === 'function') postToHost({ action: 'enterDesktopMode' });
+                    });
+                }
+                break;
+            case 'settings_legacy':
                 body.innerHTML = `<div class="nav-placeholder">
                     <div class="nav-placeholder-icon">⚙</div>
                     <div class="nav-placeholder-text">${_t('navSettingsSoon', 'Configurações do console em breve')}</div>
@@ -868,7 +896,7 @@ window.isNavMenuOpen = false;
             }
         });
 
-        if (CATS[_catIdx]?.id === 'profile') {
+        if (CATS[_catIdx]?.id === 'profile' || CATS[_catIdx]?.id === 'settings') {
             _contentItems.forEach((el, i) => {
                 if (!el) return;
                 el.classList.toggle('nav-focused-el', !_topbarFocus && i === _contentIdx);
@@ -878,6 +906,9 @@ window.isNavMenuOpen = false;
         if (_topbarFocus) return;
 
         const focused = document.querySelector('.nav-vertical-card.nav-focused, .nav-focused-el');
+        if (focused && typeof focused.focus === 'function' && document.activeElement !== focused) {
+            focused.focus({ preventScroll: true });
+        }
         // Rola suavemente usando block: center para dar sensação mais fluída de console
         focused?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     }
@@ -1041,7 +1072,7 @@ window.isNavMenuOpen = false;
             case 'Enter': {
                 const catId = CATS[_catIdx]?.id;
                 if (catId === 'games' || catId === 'media') { _launchAction(catId, _contentIdx); }
-                else if (catId === 'profile') { _contentItems[_contentIdx]?.click(); }
+                else if (catId === 'profile' || catId === 'settings') { _contentItems[_contentIdx]?.click(); }
                 break;
             }
             case 'Escape':
@@ -1061,6 +1092,7 @@ window.isNavMenuOpen = false;
             try {
                 const data = JSON.parse(e.data);
                 if (data.type === 'profilePhotoSelected' && data.base64) {
+                    if (typeof isSetupOpen !== 'undefined' && isSetupOpen) return;
                     _menuData.user.PhotoBase64 = data.base64;
                     const apiKey = _menuData.user.SteamGridApiKey || '';
                     const name = _menuData.user.Name || '';

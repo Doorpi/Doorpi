@@ -9,6 +9,8 @@ let isFolderOperationInProgress = false;
 window.newGameIdsThisSession = new Set();
 window.recentlyOpenedIds = [];
 window.isGlobalLoading = false;
+window._doorpiUsers = [];
+window._doorpiCurrentUserId = '';
 
 const PLATFORMS = {
     Steam: { type: 'url', icon: 'https://cdn.simpleicons.org/steam/1b9bd4' },
@@ -27,11 +29,54 @@ const FILTER_SOURCES = {
 };
 
 const SCAN_LIBS = ['Steam', 'Epic', 'GOG', 'Windows', 'Folder'];
+
+// 🔹 INJEÇÃO DA FOTO DE PERFIL NO CANTO SUPERIOR ESQUERDO
+(function injectTopProfile() {
+    const btn = document.createElement('button');
+    btn.id = 'btnTopProfile';
+    btn.className = 'top-profile-btn';
+    btn.tabIndex = 0;
+    btn.innerHTML = `<div class="doorpi-avatar"></div>`;
+    document.body.appendChild(btn);
+
+    btn.addEventListener('click', () => {
+        postToHost({ action: 'requestUsers' });
+    });
+
+    const s = document.createElement('style');
+    s.textContent = `
+        .top-profile-btn {
+            position: fixed;
+            top: clamp(20px, 3vh, 40px);
+            left: clamp(24px, 4vw, 60px);
+            width: clamp(48px, 4.5vw, 64px);
+            height: clamp(48px, 4.5vw, 64px);
+            border-radius: 50%;
+            background: rgba(255,255,255,0.05);
+            border: 2px solid rgba(255,255,255,0.15);
+            cursor: pointer;
+            outline: none;
+            z-index: 8000;
+            transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+            padding: 0;
+            overflow: hidden;
+        }
+        .top-profile-btn:focus, .top-profile-btn:hover {
+            transform: scale(1.1);
+            border-color: #fff;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5), 0 0 0 4px rgba(255,255,255,0.2);
+        }
+        .top-profile-btn .doorpi-avatar { width: 100%; height: 100%; display:flex; align-items:center; justify-content:center; }
+        .top-profile-btn img { width: 100%; height: 100%; object-fit: cover; }
+    `;
+    document.head.appendChild(s);
+})();
+
 function reorderGameGrid() {
     const grid = document.getElementById('gameGrid');
     if (!grid) return;
     const btnAdd = document.getElementById('btnAdd');
-  
+
     const cards = Array.from(grid.querySelectorAll('.card:not(.add-card):not(.loading-card)'));
 
     const featured = cards.find(c => c.classList.contains('featured'));
@@ -45,17 +90,13 @@ function reorderGameGrid() {
         const aOIdx = window.recentlyOpenedIds.indexOf(aId);
         const bOIdx = window.recentlyOpenedIds.indexOf(bId);
 
-        // 1º — Recém adicionados primeiro
         if (bNew !== aNew) return bNew - aNew;
-
-        // 2º — Entre os não-novos: recém abertos primeiro
         if (!aNew && !bNew) {
             if (aOIdx !== -1 && bOIdx === -1) return -1;
             if (aOIdx === -1 && bOIdx !== -1) return 1;
             if (aOIdx !== -1 && bOIdx !== -1) return aOIdx - bOIdx;
         }
-
-        return 0; // novos mantêm ordem de inserção (sort estável)
+        return 0;
     });
 
     if (featured) grid.prepend(featured);
@@ -90,13 +131,13 @@ window.chrome.webview.addEventListener('message', event => {
         }
         else if (data.type === 'installedAppsList') {
             allInstalledApps = data.apps;
-            applyFilterAndRender();
+            refreshInstalledAppsView();
         }
         else if (data.type === 'installedAppsUpdated') {
             const modal = document.getElementById('addGameContainer');
             if (!modal || modal.style.display === 'none') return;
             allInstalledApps = data.apps;
-            applyFilterAndRender();
+            refreshInstalledAppsView();
         }
         else if (data.type === 'showLoadingCards') {
             showLoadingCards(data.count, data.tab || 'games');
@@ -122,11 +163,30 @@ window.chrome.webview.addEventListener('message', event => {
         else if (data.type === 'clearGamesGrid') {
             const grid = document.getElementById('gameGrid');
             if (grid) {
-                
                 const btnAdd = document.getElementById('btnAdd');
                 grid.innerHTML = '';
                 if (btnAdd) grid.appendChild(btnAdd);
             }
+        }
+        else if (data.type === 'clearMediaGrid') {
+            const grid = document.getElementById('mediaGrid');
+            if (grid) {
+                const btnAdd = document.getElementById('btnAddMedia');
+                grid.innerHTML = '';
+                if (btnAdd) grid.appendChild(btnAdd);
+            }
+        }
+        else if (data.type === 'currentUserUpdated') {
+            const btn = document.getElementById('btnTopProfile');
+            if (btn) {
+                const u = data.user;
+                if (u && u.PhotoBase64) {
+                    btn.innerHTML = `<img src="data:image/png;base64,${u.PhotoBase64}" />`;
+                } else {
+                    btn.innerHTML = `<div class="doorpi-avatar" style="font-size: 20px;">${u && u.Name ? u.Name.charAt(0).toUpperCase() : '•'}</div>`;
+                }
+            }
+            if (typeof clearHero === 'function') clearHero();
         }
         else if (data.type === 'updateFeaturedCard') {
             const gridId = data.tab === 'games' ? 'gameGrid' : 'mediaGrid';
@@ -151,24 +211,37 @@ window.chrome.webview.addEventListener('message', event => {
             hideGlobalLoading();
             isFolderOperationInProgress = false;
         }
+        else if (data.type === 'usersList') {
+            window._doorpiUsers = data.users || [];
+            window._doorpiCurrentUserId = data.currentUserId || '';
+            showUserPicker(data.users || [], !!data.requireSelection);
+        }
+        else if (data.type === 'extensionsList') {
+            renderExtensionsManager(data.extensions || [], data.status || '', data.message || '');
+        }
         else if (data.type === 'clipboardText') {
             if (data.text?.trim()) {
                 if (typeof isSetupOpen !== 'undefined' && isSetupOpen) {
                     const input = document.getElementById('setupApiInput');
                     if (input) {
                         input.value = data.text.trim();
-                        _setupData.apiKey = data.text.trim();
+                        if (typeof _currUser !== 'undefined' && _currUser) _currUser.apiKey = data.text.trim();
                         const hint = document.getElementById('setupApiHint');
-                        if (hint) hint.textContent = t('setupStep3PasteSuccess');
-                        _updateStatus(); 
-                        document.getElementById('btnSetupApiNext')?.focus();
+                        if (hint) hint.textContent = typeof t === 'function' ? t('setupStep3PasteSuccess') : 'Copiado com sucesso!';
+                        if (typeof _updateStatus === 'function') _updateStatus();
+                        document.getElementById('btnSetupFinish')?.focus();
                     }
-                } else {
-                    // Cola no modal de Adicionar Mídia
+                }
+                else if (document.getElementById('doorpiExtensionsManager')?.style.display !== 'none' && document.getElementById('extensionUrlInput')) {
+                    const input = document.getElementById('extensionUrlInput');
+                    input.value = data.text.trim();
+                    input.focus();
+                }
+                else {
                     const input = document.getElementById('webAppUrlInput');
                     if (input) {
                         input.value = data.text.trim();
-                        input.focus(); // Retorna o foco pro input pra pessoa ver que colou
+                        input.focus();
                     }
                 }
             }
@@ -182,10 +255,304 @@ function postToHost(payload) {
     window.chrome?.webview?.postMessage(JSON.stringify(payload));
 }
 
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+    }[ch]));
+}
+
+function ensureDoorpiOverlayStyles() {
+    if (document.getElementById('doorpiOverlayStyles')) return;
+    const s = document.createElement('style');
+    s.id = 'doorpiOverlayStyles';
+    s.textContent = `
+    .doorpi-user-overlay,.doorpi-manager-overlay{position:fixed;inset:0;z-index:9200;background:#07071a;display:flex;align-items:center;justify-content:center;padding:48px;box-sizing:border-box}
+    .doorpi-user-panel,.doorpi-manager-panel{width:min(980px,94vw);max-height:86vh;display:flex;flex-direction:column;gap:22px}
+    .doorpi-panel-head{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}
+    .doorpi-panel-title{font-size:clamp(2rem,3vw,4rem);font-weight:220;color:#fff;margin:0;letter-spacing:0}
+    .doorpi-panel-sub{color:rgba(255,255,255,.52);font-size:1rem;margin:6px 0 0;line-height:1.45}
+    .doorpi-user-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px}
+    .doorpi-user-card,.doorpi-manager-row{background:rgba(255,255,255,.075);border:1px solid rgba(255,255,255,.13);border-radius:8px;color:#fff}
+    .doorpi-user-card{height:190px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;cursor:pointer;outline:none}
+    .doorpi-user-card:focus,.doorpi-user-card:hover,.doorpi-manager-btn:focus,.doorpi-manager-btn:hover,.doorpi-manager-input:focus{border-color:rgba(255,255,255,.85);box-shadow:0 0 0 4px rgba(255,255,255,.12)}
+    .doorpi-avatar{width:78px;height:78px;border-radius:50%;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;overflow:hidden;color:rgba(255,255,255,.45);font-size:30px}
+    .doorpi-avatar img{width:100%;height:100%;object-fit:cover}
+    .doorpi-user-name{font-size:1.08rem;font-weight:700;text-align:center}
+    .doorpi-user-badge{font-size:.72rem;color:rgba(120,220,150,.9);text-transform:uppercase;letter-spacing:.1em}
+    .doorpi-manager-row{padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:14px}
+    .doorpi-manager-form{display:grid;grid-template-columns:1fr auto auto auto;gap:10px}
+    .doorpi-manager-input,.doorpi-choice-trigger{background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.16);border-radius:8px;color:#fff;font:inherit;padding:13px 14px;outline:none;box-sizing:border-box}
+    .doorpi-choice-wrap{position:relative}
+    .doorpi-choice-trigger{width:100%;min-height:50px;display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left;cursor:pointer}
+    .doorpi-choice-trigger::after{content:'v';font-size:.8rem;color:rgba(255,255,255,.58)}
+    .doorpi-choice-wrap.is-disabled{opacity:.48;pointer-events:none}
+    .doorpi-choice-wrap.is-open .doorpi-choice-trigger,.doorpi-choice-trigger:focus,.doorpi-choice-option:focus{border-color:rgba(255,255,255,.85);box-shadow:0 0 0 4px rgba(255,255,255,.12)}
+    .doorpi-choice-menu{display:none;position:absolute;z-index:4;left:0;right:0;top:calc(100% + 6px);background:#101020;border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:6px;box-shadow:0 18px 40px rgba(0,0,0,.42)}
+    .doorpi-choice-wrap.is-open .doorpi-choice-menu{display:flex;flex-direction:column;gap:4px}
+    .doorpi-choice-option{background:transparent;border:1px solid transparent;border-radius:6px;color:#fff;font:inherit;text-align:left;padding:11px 12px;cursor:pointer;outline:none}
+    .doorpi-choice-option:hover,.doorpi-choice-option.is-selected{background:rgba(255,255,255,.11)}
+    .doorpi-share-select{display:none}
+    .doorpi-manager-btn{background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.16);border-radius:8px;color:#fff;font:inherit;font-weight:700;padding:12px 16px;cursor:pointer;outline:none}
+    .doorpi-manager-btn.primary{background:rgba(255,255,255,.92);color:#07071a}
+    .doorpi-manager-list{display:flex;flex-direction:column;gap:10px;overflow:auto;padding-right:4px}
+    .doorpi-status{min-height:20px;color:rgba(255,255,255,.62)}
+    .doorpi-status.error{color:rgba(255,110,110,.95)}
+    .doorpi-status.success{color:rgba(110,230,150,.95)}
+    .doorpi-share-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+    .doorpi-shared-note{font-size:.82rem;color:rgba(120,190,255,.9);margin-top:8px}
+    @media(max-width:760px){.doorpi-manager-form,.doorpi-share-grid{grid-template-columns:1fr}.doorpi-user-overlay,.doorpi-manager-overlay{padding:24px}}
+    `;
+    document.head.appendChild(s);
+}
+
+function renderDoorpiChoice(id, options, value, disabled = false) {
+    const safeOptions = Array.isArray(options) && options.length
+        ? options
+        : [{ value: '', label: 'Nenhuma opcao disponivel' }];
+    const selected = safeOptions.find(opt => String(opt.value) === String(value)) || safeOptions[0];
+    return `
+        <div class="doorpi-choice-wrap${disabled ? ' is-disabled' : ''}" id="${escapeHtml(id)}" data-value="${escapeHtml(selected.value)}" data-disabled="${disabled ? 'true' : 'false'}">
+            <button class="doorpi-choice-trigger" type="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false">
+                <span>${escapeHtml(selected.label)}</span>
+            </button>
+            <div class="doorpi-choice-menu" role="listbox">
+                ${safeOptions.map(opt => `
+                    <button class="doorpi-choice-option${String(opt.value) === String(selected.value) ? ' is-selected' : ''}" type="button" tabindex="0" data-value="${escapeHtml(opt.value)}" role="option">
+                        ${escapeHtml(opt.label)}
+                    </button>
+                `).join('')}
+            </div>
+        </div>
+    `;
+}
+
+function bindDoorpiChoice(root, onChange) {
+    if (!root) return;
+    const trigger = root.querySelector('.doorpi-choice-trigger');
+    const options = Array.from(root.querySelectorAll('.doorpi-choice-option'));
+    const setOpen = (open) => {
+        if (root.dataset.disabled === 'true') return;
+        root.classList.toggle('is-open', open);
+        trigger?.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (open) {
+            const selected = root.querySelector('.doorpi-choice-option.is-selected') || options[0];
+            selected?.focus({ preventScroll: true });
+        }
+    };
+    trigger?.addEventListener('click', () => setOpen(!root.classList.contains('is-open')));
+    options.forEach(option => {
+        option.addEventListener('click', () => {
+            const value = option.dataset.value || '';
+            const label = option.textContent.trim();
+            root.dataset.value = value;
+            trigger.querySelector('span').textContent = label;
+            options.forEach(opt => opt.classList.toggle('is-selected', opt === option));
+            setOpen(false);
+            trigger.focus({ preventScroll: true });
+            onChange?.(value);
+        });
+    });
+}
+
+function setDoorpiChoiceDisabled(id, disabled) {
+    const root = document.getElementById(id);
+    if (!root) return;
+    root.dataset.disabled = disabled ? 'true' : 'false';
+    root.classList.toggle('is-disabled', disabled);
+    root.classList.remove('is-open');
+    root.querySelector('.doorpi-choice-trigger')?.setAttribute('aria-expanded', 'false');
+}
+
+function getDoorpiChoiceValue(id) {
+    return document.getElementById(id)?.dataset.value || '';
+}
+
+function avatarMarkup(user) {
+    return `<div class="doorpi-avatar">${user.PhotoBase64 ? `<img src="data:image/png;base64,${user.PhotoBase64}" />` : '•'}</div>`;
+}
+
+function showUserPicker(users, requireSelection = false) {
+    ensureDoorpiOverlayStyles();
+    let overlay = document.getElementById('doorpiUserPicker');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'doorpiUserPicker';
+        overlay.className = 'doorpi-user-overlay';
+        document.body.appendChild(overlay);
+    }
+    overlay.dataset.required = requireSelection ? 'true' : 'false';
+
+    const cards = users.map(user => `
+        <button class="doorpi-user-card" data-user-id="${escapeHtml(user.Id)}" tabindex="0">
+            ${avatarMarkup(user)}
+            <span class="doorpi-user-name">${escapeHtml(user.Name)}</span>
+            ${user.Id === window._doorpiCurrentUserId ? '<span class="doorpi-user-badge">Atual</span>' : ''}
+        </button>`).join('');
+
+    overlay.innerHTML = `
+        <div class="doorpi-user-panel">
+            <div class="doorpi-panel-head">
+                <div>
+                    <h2 class="doorpi-panel-title">Quem está jogando?</h2>
+                    <p class="doorpi-panel-sub">Bem vindo de volta</p>
+                </div>
+                ${requireSelection ? '' : '<button class="doorpi-manager-btn" id="doorpiCloseUsers">Voltar</button>'}
+            </div>
+            <div class="doorpi-user-grid">
+                ${cards}
+                <button class="doorpi-user-card" id="doorpiCreateUserCard" tabindex="0">
+                    <div class="doorpi-avatar">+</div>
+                    <span class="doorpi-user-name">Novo usuário</span>
+                </button>
+            </div>
+        </div>`;
+
+    overlay.style.display = 'flex';
+    overlay.querySelectorAll('[data-user-id]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            postToHost({ action: 'selectUser', userId: btn.dataset.userId });
+            overlay.style.display = 'none';
+        });
+    });
+    overlay.querySelector('#doorpiCreateUserCard')?.addEventListener('click', openCreateUserDialog);
+    overlay.querySelector('#doorpiCloseUsers')?.addEventListener('click', () => overlay.style.display = 'none');
+    setTimeout(() => overlay.querySelector('.doorpi-user-card')?.focus(), 50);
+}
+
+function openCreateUserDialog() {
+    window.closeDoorpiTopOverlay?.();
+    if (typeof openSetup === 'function') {
+        openSetup(true);
+    }
+}
+
+function openExtensionsManager() {
+    ensureDoorpiOverlayStyles();
+    let overlay = document.getElementById('doorpiExtensionsManager');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'doorpiExtensionsManager';
+        overlay.className = 'doorpi-manager-overlay';
+        document.body.appendChild(overlay);
+    }
+    overlay.innerHTML = `
+        <div class="doorpi-manager-panel">
+            <div class="doorpi-panel-head">
+                <div>
+                    <h2 class="doorpi-panel-title">Extensões</h2>
+                    <p class="doorpi-panel-sub">Cole um link da Chrome Web Store para instalar no navegador interno.</p>
+                </div>
+                <button class="doorpi-manager-btn" id="btnCloseExtMgr">Voltar</button>
+            </div>
+            <div class="doorpi-manager-form">
+                <input class="doorpi-manager-input" id="extensionUrlInput" placeholder="Link da Chrome Web Store" tabindex="0" />
+                <button class="doorpi-manager-btn" id="btnExtPaste" tabindex="0" title="Colar">📋</button>
+                <button class="doorpi-manager-btn" id="btnOpenChromeStore" tabindex="0">Loja</button>
+                <button class="doorpi-manager-btn primary" id="btnInstallExtension" tabindex="0">Instalar</button>
+            </div>
+            <div class="doorpi-status" id="extensionStatus">Carregando...</div>
+            <div class="doorpi-manager-list" id="extensionsList"></div>
+        </div>`;
+
+    overlay.style.display = 'flex';
+    overlay.querySelector('#btnCloseExtMgr')?.addEventListener('click', () => overlay.style.display = 'none');
+    overlay.querySelector('#btnExtPaste')?.addEventListener('click', () => postToHost({ action: 'readClipboard' }));
+    overlay.querySelector('#btnOpenChromeStore')?.addEventListener('click', () => postToHost({ action: 'openExtensionStore' }));
+    overlay.querySelector('#btnInstallExtension')?.addEventListener('click', () => {
+        const url = document.getElementById('extensionUrlInput')?.value.trim();
+        const status = document.getElementById('extensionStatus');
+        if (!url) { if (status) { status.textContent = 'Cole o link da extensão.'; status.className = 'doorpi-status error'; } return; }
+        if (status) { status.textContent = 'Baixando e instalando...'; status.className = 'doorpi-status'; }
+        postToHost({ action: 'installExtension', url });
+    });
+    postToHost({ action: 'requestExtensions' });
+
+    setTimeout(() => {
+        const input = overlay.querySelector('#extensionUrlInput');
+        if (input) {
+            input.focus();
+            input.addEventListener('click', () => { if (!window._vkbIsOpen) window._vkbOpen?.(input); });
+            input.addEventListener('keydown', e => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (!window._vkbIsOpen) window._vkbOpen?.(input);
+                }
+            });
+        }
+    }, 50);
+}
+
+function renderExtensionsManager(extensions, status, message) {
+    const overlay = document.getElementById('doorpiExtensionsManager');
+    if (!overlay || overlay.style.display === 'none') return;
+    const list = overlay.querySelector('#extensionsList');
+    const statusEl = overlay.querySelector('#extensionStatus');
+    if (statusEl) {
+        statusEl.textContent = message || (extensions.length ? `${extensions.length} extensão(ões) instalada(s)` : 'Nenhuma extensão instalada.');
+        statusEl.className = `doorpi-status ${status || ''}`.trim();
+    }
+    if (list) {
+        list.innerHTML = extensions.map(ext => `
+            <div class="doorpi-manager-row">
+                <div>
+                    <strong>${escapeHtml(ext.Name || ext.Id)}</strong>
+                    <div style="color:rgba(255,255,255,.42);font-size:.82rem">${escapeHtml(ext.Id)}</div>
+                </div>
+                <span style="color:rgba(255,255,255,.45);font-size:.82rem">Instalada</span>
+            </div>`).join('');
+    }
+}
+
+window.openExtensionsManager = openExtensionsManager;
+window.openCreateUserDialog = openCreateUserDialog;
+
+window.isDoorpiOverlayOpen = function () {
+    return Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay'))
+        .some(el => el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
+};
+
+window.getDoorpiOverlayItems = function () {
+    const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay'))
+        .filter(el => el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
+    const top = overlays.at(-1);
+    if (!top) return [];
+    return Array.from(top.querySelectorAll('button, input, select, [tabindex="0"]'))
+        .filter(el => !el.disabled && el.offsetWidth > 0 && el.offsetHeight > 0);
+};
+
+window.closeDoorpiTopOverlay = function () {
+    const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay'))
+        .filter(el => el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
+    const top = overlays.at(-1);
+    if (top?.dataset.required === 'true') return;
+    if (top) top.style.display = 'none';
+};
+
+document.addEventListener('click', (e) => {
+    const input = e.target.closest?.('input[type="text"], input:not([type]), textarea');
+    if (!input) return;
+    if (window._vkbIsOpen) return;
+    if (input.closest('.doorpi-manager-overlay, .doorpi-user-overlay, .edit-modal-overlay, #addGameContainer, #setupContainer, .nav-profile-dashboard')) {
+        input.removeAttribute('readonly');
+        window._vkbOpen?.(input);
+    }
+}, true);
+
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || window._vkbIsOpen) return;
+    const input = e.target.closest?.('input[type="text"], input:not([type]), textarea');
+    if (!input) return;
+    if (input.closest('.doorpi-manager-overlay, .doorpi-user-overlay, .edit-modal-overlay, #addGameContainer, #setupContainer, .nav-profile-dashboard')) {
+        e.preventDefault();
+        input.removeAttribute('readonly');
+        window._vkbOpen?.(input);
+    }
+}, true);
+
 /* Seção: Overlay de Loading */
 function showGlobalLoading(titleText, subtitleText) {
     window.isGlobalLoading = true;
-    window.updateNavHint?.(); // Oculta a seta do menu se estiver visível
+    window.updateNavHint?.();
     let overlay = document.getElementById('globalLoadingOverlay');
 
     if (!overlay) {
@@ -350,10 +717,22 @@ function applyFilterAndRender() {
         filtered = allInstalledApps.filter(a => allowedPlatforms.includes(a.Source || a.source));
     }
 
-   
     filtered = filtered.filter(a => (a.AddedTo || a.addedTo) !== 'media');
 
-    populateAppModal(filtered); 
+    populateAppModal(filtered);
+}
+
+function refreshInstalledAppsView() {
+    const activeView = document.querySelector('.view-section.active')?.id;
+    const exeActive = activeView === 'view-media-apps' &&
+        document.getElementById('subview-exe')?.classList.contains('active');
+
+    if (exeActive) {
+        _renderExeAppModal();
+        return;
+    }
+
+    applyFilterAndRender();
 }
 
 document.getElementById('btnAdd').addEventListener('click', () => {
@@ -380,7 +759,7 @@ document.getElementById('btnAddMedia')?.addEventListener('click', () => {
     document.getElementById('modalTitle').innerText = t('detectingLibrary');
 
     showGlobalLoading(t('detectingLibrary'), t('readingApps'));
-    switchTab('media-apps'); 
+    switchTab('media-apps');
     postToHost({ action: 'requestInstalledApps' });
     postToHost({ action: 'startAppPolling' });
 });
@@ -638,7 +1017,6 @@ function createGameCard(data) {
     if (grid.querySelectorAll('.card:not(.add-card)').length >= 12) return;
     const pendingLoading = grid.querySelector('.card.loading-card');
     if (pendingLoading) {
-        // Promove featured para o real card se o loading era featured
         if (pendingLoading.classList.contains('featured')) {
             card.classList.add('featured');
         }
@@ -744,16 +1122,13 @@ function createGameCard(data) {
     title.innerText = data.name;
     card.appendChild(title);
 
-
     if (btnAdd) grid.insertBefore(card, btnAdd);
     else grid.appendChild(card);
     reorderGameGrid();
 
-    
     if (data.isFeatured) {
         setTimeout(() => {
             startInteraction();
-           
             window.focusFeaturedCard?.();
         }, 100);
     }
@@ -781,7 +1156,6 @@ function moveCardToTop(card) {
     grid.scrollTo({ left: 0, behavior: 'smooth' });
 }
 
-
 /* Seção: Hero background */
 let _heroTimer = null;
 let _currentBgSrc = '';
@@ -789,7 +1163,6 @@ let _heroReqId = 0;
 
 function cancelHeroTransition() {
     if (_heroTimer) { clearTimeout(_heroTimer); _heroTimer = null; }
-    // Segurança: Limpa clones pendentes se a transição for interrompida
     document.querySelectorAll('.crossfade-clone-heroImage, .crossfade-clone-gridBgImg').forEach(c => c.remove());
 }
 
@@ -803,32 +1176,22 @@ function preloadImage(src) {
     });
 }
 
-// O crossfade definitivo para mesclagem de banners
 async function crossfadeBanner(el, newSrc) {
     if (!el || !newSrc) return;
-
-    // BUG FIX: Se a imagem já é a desejada, restaura a visibilidade (opacity 1)
     if (el.src === newSrc || el.src.endsWith(newSrc)) {
         el.style.opacity = '1';
         return;
     }
 
-    // 1. Pré-carregamento e Decodificação em Background
     const tempImg = new Image();
     tempImg.src = newSrc;
-    try {
-        await tempImg.decode();
-    } catch (e) {
-        console.warn("Erro ao decodificar imagem, seguindo sem pré-load");
-    }
+    try { await tempImg.decode(); } catch (e) { }
 
     const comp = window.getComputedStyle(el);
     const cloneClass = `crossfade-clone-${el.id}`;
 
-    // Remove clones antigos que não terminaram a transição
     document.querySelectorAll(`.${cloneClass}`).forEach(c => c.remove());
 
-    // 2. Criar o Clone (Imagem Velha)
     const clone = el.cloneNode(true);
     clone.classList.add(cloneClass);
     clone.style.position = 'absolute';
@@ -844,20 +1207,15 @@ async function crossfadeBanner(el, newSrc) {
 
     el.parentNode.insertBefore(clone, el.nextSibling);
 
-    // 3. Preparar a Imagem Real (Nova) por baixo
     el.style.transition = 'none';
     el.style.opacity = '1';
     el.src = newSrc;
 
-    // Força o reflow
     void el.offsetWidth;
 
-    // 4. Iniciar o Fade Out do Clone
     requestAnimationFrame(() => {
         clone.style.opacity = '0';
-        setTimeout(() => {
-            if (clone.parentNode) clone.remove();
-        }, 900);
+        setTimeout(() => { if (clone.parentNode) clone.remove(); }, 900);
     });
 }
 
@@ -873,7 +1231,6 @@ function switchHeroBackground(bgSrc, logoSrc, heroSrc) {
 
     if (!bgSrc) return;
 
-    // BUG FIX: Se for a mesma imagem, aborta mas GARANTE as opacidades no talo!
     if (_currentBgSrc.split('?')[0] === bgSrc.split('?')[0]) {
         if (heroImg) heroImg.style.opacity = '1';
         if (gridBg) gridBg.style.opacity = '1';
@@ -891,7 +1248,7 @@ function switchHeroBackground(bgSrc, logoSrc, heroSrc) {
 
     const loadPromise = Promise.all([
         preloadImage(heroSrc || bgSrc),
-        preloadImage(bgSrc), // Precarrega a versão do Grid
+        preloadImage(bgSrc),
         logoSrc ? preloadImage(logoSrc) : Promise.resolve()
     ]);
     const minTimePromise = new Promise(resolve => setTimeout(resolve, 0));
@@ -963,7 +1320,6 @@ async function setImgSrc(imgEl, src) {
         return;
     }
 
- 
     if (imgEl.src === src || imgEl.src.endsWith(src)) {
         imgEl.style.opacity = '1';
         return;
@@ -989,7 +1345,6 @@ async function setImgSrc(imgEl, src) {
         }
     }
 }
-// Função para otimizar a abertura do menu
 function toggleNavMenu(isOpen) {
     const hint = document.getElementById('navHintDown');
     if (isOpen) {
@@ -1005,6 +1360,7 @@ function toggleNavMenu(isOpen) {
         window.updateNavHint?.();
     }
 }
+
 /* Seção: Injeção de estilos e elementos auxiliares */
 (function injectStyles() {
     const s = document.createElement('style');
@@ -1026,8 +1382,7 @@ function toggleNavMenu(isOpen) {
         #heroImage,
         #gridBgImg,
         #bgBlur,
-        #gameLogo,
-        [class*="crossfade-clone-"] {
+        #gameLogo,[class*="crossfade-clone-"] {
             /* Curva 'Quintic Out': Começa muito rápido, termina muito lento */
             transition: transform 0.6s cubic-bezier(0.23, 1, 0.32, 1), 
                         opacity 0.25s ease-out !important;
@@ -1039,14 +1394,14 @@ function toggleNavMenu(isOpen) {
         body.nav-menu-active #gridBgImg,
         body.nav-menu-active #bgBlur,
         body.nav-menu-active #gameLogo,
-        body.nav-menu-active [class*="crossfade-clone-"] {
+        body.nav-menu-active[class*="crossfade-clone-"] {
             transform: translateY(-100vh) !important;
             opacity: 0 !important;
         }
 
         /* 3. Desligar o Blur IMEDIATAMENTE (O maior peso no 60Hz) */
         body.nav-menu-active #bgBlur,
-        body.nav-menu-active [class*="crossfade-clone-bgBlur"] {
+        body.nav-menu-active[class*="crossfade-clone-bgBlur"] {
             filter: none !important;
         }
 
@@ -1406,6 +1761,9 @@ const _ctxMenu = (() => {
     el.setAttribute('role', 'menu');
     el.innerHTML = `
         <div class="ctx-game-name" id="ctxGameName"></div>
+        <button class="ctx-item" id="ctxExtensions" role="menuitem">
+            <span class="ctx-icon">+</span> <span>Gerenciar extensões</span>
+        </button>
         <div class="ctx-separator"></div>
         <button class="ctx-item" id="ctxEdit" role="menuitem">
             <span class="ctx-icon">✎</span> <span data-i18n="ctxEditName"></span>
@@ -1427,14 +1785,15 @@ function _openCtxMenu(card, x, y) {
 
     if (typeof applyI18n === 'function') applyI18n();
 
-    // Puxa a identidade pra checar se é YouTube
     const gameId = card.dataset.gameId || card.dataset.appId || card.dataset.appUrl;
     const isYoutube = (gameId && gameId.toLowerCase().includes('youtube'));
 
     const ctxEditBtn = _ctxMenu.querySelector('#ctxEdit');
+    const ctxExtensionsBtn = _ctxMenu.querySelector('#ctxExtensions');
     const ctxDeleteBtn = _ctxMenu.querySelector('#ctxDelete');
+    const isBrowserMedia = (card.hasAttribute('data-app-id') || card.closest('#mediaGrid')) &&
+        (card.dataset.appType || 'browser') !== 'exe';
 
-    // CORREÇÃO DO TRAVAMENTO: Cria um botão dinâmico de "Voltar" pro usuário do Controle interagir
     let ctxCloseBtn = _ctxMenu.querySelector('#ctxClose');
     if (!ctxCloseBtn) {
         ctxCloseBtn = document.createElement('button');
@@ -1446,18 +1805,16 @@ function _openCtxMenu(card, x, y) {
     }
 
     if (isYoutube) {
-        // Modo YouTube: Esconde Editar/Excluir e exibe apenas o botão Voltar
         if (ctxEditBtn) ctxEditBtn.style.display = 'none';
+        if (ctxExtensionsBtn) ctxExtensionsBtn.style.display = isBrowserMedia ? 'flex' : 'none';
         if (ctxDeleteBtn) ctxDeleteBtn.style.display = 'none';
         ctxCloseBtn.style.display = 'flex';
-
         _ctxMenu.querySelector('#ctxGameName').textContent = "APP DO SISTEMA";
     } else {
-        // Modo Normal: Exibe Editar/Excluir e esconde o Voltar
         if (ctxEditBtn) ctxEditBtn.style.display = 'flex';
+        if (ctxExtensionsBtn) ctxExtensionsBtn.style.display = isBrowserMedia ? 'flex' : 'none';
         if (ctxDeleteBtn) ctxDeleteBtn.style.display = 'flex';
         ctxCloseBtn.style.display = 'none';
-
         _ctxMenu.querySelector('#ctxGameName').textContent = card.querySelector('.title, .nav-vertical-card-title')?.innerText?.trim() || '';
     }
 
@@ -1469,12 +1826,8 @@ function _openCtxMenu(card, x, y) {
         _ctxMenu.classList.add('visible');
         isCtxMenuOpen = true;
 
-        // DIRECIONA O FOCO CORRETAMENTE: Fim do Focus Trap!
-        if (isYoutube) {
-            ctxCloseBtn.focus();
-        } else {
-            ctxEditBtn?.focus();
-        }
+        if (isYoutube) ctxCloseBtn.focus();
+        else ctxEditBtn?.focus();
     });
 }
 function _closeCtxMenu() {
@@ -1499,6 +1852,11 @@ document.getElementById('ctxEdit').addEventListener('click', () => {
     if (card) openEditGameModal(card);
 });
 
+document.getElementById('ctxExtensions').addEventListener('click', () => {
+    _closeCtxMenu();
+    openExtensionsManager();
+});
+
 document.getElementById('ctxDelete').addEventListener('click', () => {
     const card = _ctxCard; _closeCtxMenu();
     if (card) _executeDelete(card);
@@ -1508,21 +1866,17 @@ document.getElementById('ctxDelete').addEventListener('click', () => {
 // Deleção
 // ══════════════════════════════════════════════════════════════════════════
 function _executeDelete(card) {
-    // Coletamos todas as possíveis "identidades" deste card (ID ou URL)
     const id1 = card.dataset.gameId;
     const id2 = card.dataset.appId;
     const id3 = card.dataset.appUrl;
 
-    // Filtramos os que existem
     const searchKeys = [id1, id2, id3].filter(Boolean);
     if (searchKeys.length === 0) return;
 
-    // REGRA DE OURO: YouTube não pode ser deletado.
     if (searchKeys.some(k => k.toLowerCase().includes('youtube'))) return;
 
     const isMedia = card.hasAttribute('data-app-id') || card.closest('#mediaGrid') !== null;
 
-    // CORREÇÃO DEFINITIVA DE SYNC: Busca cards comparando todas as identidades (Home vs NavMenu)
     const allCards = Array.from(document.querySelectorAll('.card, .nav-vertical-card')).filter(c => {
         const cId1 = c.dataset.gameId;
         const cId2 = c.dataset.appId;
@@ -1548,7 +1902,6 @@ function _executeDelete(card) {
         setTimeout(() => c.remove(), 280);
     });
 
-    // Limpa a memória do Nav Menu usando as mesmas chaves múltiplas
     if (typeof _menuData !== 'undefined') {
         ['games', 'media'].forEach(cat => {
             if (!_menuData[cat]) return;
@@ -1560,7 +1913,6 @@ function _executeDelete(card) {
         });
     }
 
-    // Passa a ação para o C#
     postToHost({
         action: 'deleteGame',
         gameId: id1 || id2,
@@ -1574,9 +1926,57 @@ function _executeDelete(card) {
 let _editCard = null;
 let _editOverlay = null;
 function openEditGameModal(card) {
+    ensureDoorpiOverlayStyles();
     const currentName = card.querySelector('.title')?.innerText?.trim() ||
         card.querySelector('.nav-vertical-card-title')?.innerText?.trim() || '';
     _editCard = card;
+
+    const gameId = card.dataset.gameId || card.dataset.appId || card.dataset.appUrl;
+
+    // 🔹 DETECÇÃO INFALÍVEL DE MÍDIA PARA O MENU CONTEXTO DA BIBLIOTECA 🔹
+    const isMediaTabActive = typeof window.getCurrentHomeTab === 'function' && window.getCurrentHomeTab() === 'media';
+    const isMediaCard = card.hasAttribute('data-app-id') ||
+        card.closest('#mediaGrid') !== null ||
+        isMediaTabActive;
+
+    const appType = card.dataset.appType || 'browser';
+    const canManageBrowser = isMediaCard && appType !== 'exe';
+    const shareMode = card.dataset.shareMode || 'private';
+    const sharedWithUserId = card.dataset.sharedWithUserId || '';
+    const isSharedFromOther = card.dataset.sharedFromOther === 'true';
+    const shareUsers = (window._doorpiUsers || []).filter(u => u.Id !== window._doorpiCurrentUserId);
+    const shareModeOptions = [
+        { value: 'private', label: 'Separado por usuario' },
+        { value: 'all', label: 'Compartilhar com todos' },
+        { value: 'user', label: 'Compartilhar com usuario' }
+    ];
+    const shareUserOptions = [
+        { value: '', label: 'Escolha o usuario' },
+        ...shareUsers.map(u => ({ value: u.Id, label: u.Name || 'Usuario' }))
+    ];
+
+    // 🔹 INJETADO O TABINDEX NO SELECT PRA SER FOCÁVEL
+    const shareOptions = '';
+    const mediaExtras = isMediaCard ? `
+                <div class="edit-modal-field">
+                    <label class="edit-modal-label">Compartilhamento de conta</label>
+                    ${isSharedFromOther
+            ? `<div class="doorpi-shared-note">Compartilhado por ${escapeHtml(card.dataset.sharedFromName || 'outro usuário')}.</div>`
+            : `<div class="doorpi-share-grid">
+                            ${renderDoorpiChoice('editShareModeChoice', shareModeOptions, shareMode)}
+                            ${renderDoorpiChoice('editShareUserChoice', shareUserOptions, sharedWithUserId, shareMode !== 'user')}
+                            <select class="doorpi-share-select" id="editShareMode" tabindex="0">
+                                <option value="private" ${shareMode === 'private' ? 'selected' : ''}>Separado por usuário</option>
+                                <option value="all" ${shareMode === 'all' ? 'selected' : ''}>Compartilhar com todos</option>
+                                <option value="user" ${shareMode === 'user' ? 'selected' : ''}>Compartilhar com usuário</option>
+                            </select>
+                            <select class="doorpi-share-select" id="editShareUser" tabindex="0" ${shareMode === 'user' ? '' : 'disabled'}>
+                                <option value="">Escolha o usuário</option>
+                                ${shareOptions}
+                            </select>
+                        </div>`}
+                </div>
+                ${canManageBrowser ? `<button class="modal-btn secondary" id="editExtensionsBtn" type="button" tabindex="0">Gerenciar Extensões</button>` : ''}` : '';
 
     const overlay = document.createElement('div');
     overlay.className = 'edit-modal-overlay';
@@ -1595,6 +1995,7 @@ function openEditGameModal(card) {
                     <input class="edit-modal-input" id="editNameInput" type="text" autocomplete="off" spellcheck="false" />
                     <span class="edit-modal-input-hint">${t('editModalHint')}</span>
                 </div>
+                ${mediaExtras}
             </div>
             <div class="edit-modal-actions">
                 <button class="modal-btn cancel" id="editCancelBtn">${t('editModalCancel')}</button>
@@ -1606,6 +2007,14 @@ function openEditGameModal(card) {
 
     const input = overlay.querySelector('#editNameInput');
     input.value = currentName;
+    bindDoorpiChoice(overlay.querySelector('#editShareModeChoice'), value => {
+        setDoorpiChoiceDisabled('editShareUserChoice', value !== 'user');
+    });
+    bindDoorpiChoice(overlay.querySelector('#editShareUserChoice'));
+    overlay.querySelector('#editShareMode')?.addEventListener('change', e => {
+        const userSelect = overlay.querySelector('#editShareUser');
+        if (userSelect) userSelect.disabled = e.target.value !== 'user';
+    });
 
     const doClose = () => {
         isEditModalOpen = false;
@@ -1616,21 +2025,22 @@ function openEditGameModal(card) {
         window.focusFeaturedCard?.();
     };
 
+    overlay.querySelector('#editExtensionsBtn')?.addEventListener('click', () => {
+        doClose(); // 🔹 Fecha o modal de Editar antes de abrir Extensões
+        openExtensionsManager();
+    });
+
     const doSave = () => {
         const newName = input.value.trim();
         if (newName && newName !== currentName) {
             const gameId = card.dataset.gameId || card.dataset.appId;
-
-            // CORREÇÃO DEFINITIVA: Atualiza o texto de TODOS os cards (Mídias e Jogos) via filtro JS
             const allCards = Array.from(document.querySelectorAll('.card, .nav-vertical-card')).filter(c =>
                 c.dataset.gameId === gameId || c.dataset.appId === gameId
             );
-
             allCards.forEach(c => {
                 const titleEl = c.querySelector('.title, .nav-vertical-card-title');
                 if (titleEl) titleEl.innerText = newName;
             });
-
             if (typeof _menuData !== 'undefined') {
                 ['games', 'media'].forEach(cat => {
                     if (!_menuData[cat]) return;
@@ -1638,8 +2048,15 @@ function openEditGameModal(card) {
                     if (item) item.Name = newName;
                 });
             }
-
             postToHost({ action: 'editGame', gameId: gameId, newName });
+        }
+        if (isMediaCard && !isSharedFromOther) {
+            const mode = getDoorpiChoiceValue('editShareModeChoice') || 'private';
+            const targetUser = getDoorpiChoiceValue('editShareUserChoice') || '';
+            const appId = card.dataset.appId || card.dataset.gameId;
+            card.dataset.shareMode = mode;
+            card.dataset.sharedWithUserId = mode === 'user' ? targetUser : '';
+            postToHost({ action: 'updateAppSharing', appId, shareMode: mode, sharedWithUserId: targetUser });
         }
         doClose();
     };
@@ -1672,7 +2089,6 @@ function openEditGameModal(card) {
 // ══════════════════════════════════════════════════════════════════════════
 // Teclado Virtual
 // ══════════════════════════════════════════════════════════════════════════
-
 
 window._vkbIsOpen = false;
 
@@ -1721,7 +2137,6 @@ const VKB = (() => {
         });
     }
 
-    // Força o input real a ter a mesma posição do nosso cursor virtual
     function _syncCursorToInput() {
         if (!_inputEl) return;
         _inputEl.setSelectionRange(_cursorPos, _cursorPos);
@@ -1730,7 +2145,6 @@ const VKB = (() => {
     function _insertText(text) {
         if (!_inputEl) return;
         let val = _inputEl.value;
-        // Insere na posição exata da nossa variável interna
         _inputEl.value = val.substring(0, _cursorPos) + text + val.substring(_cursorPos);
         _cursorPos += text.length;
         _syncCursorToInput();
@@ -1739,7 +2153,6 @@ const VKB = (() => {
     function _deleteText() {
         if (!_inputEl || _cursorPos <= 0) return;
         let val = _inputEl.value;
-        // Remove o caractere à esquerda da nossa variável interna
         _inputEl.value = val.substring(0, _cursorPos - 1) + val.substring(_cursorPos);
         _cursorPos--;
         _syncCursorToInput();
@@ -1753,8 +2166,8 @@ const VKB = (() => {
         else if (key === 'space') { _insertText(' '); }
         else if (key === 'ok') {
             const fn = _callbacks.onOk ?? window._editModalSave;
-            _forceClose();   
-            fn?.();         
+            _forceClose();
+            fn?.();
             return;
         }
         else if (key === 'cancel') {
@@ -1772,28 +2185,17 @@ const VKB = (() => {
     function _renderPreview() {
         const el = document.getElementById('vkbPreview');
         if (!el || !_inputEl) return;
-
         const val = _inputEl.value || '';
         const formatHtml = (text) => _esc(text).replace(/ /g, '&nbsp;');
-
         const left = val.substring(0, _cursorPos);
         const right = val.substring(_cursorPos);
-
-        // Monta o preview visual com o cursor posicionado entre as strings
         el.innerHTML = `${formatHtml(left)}<span class="vkb-cursor"></span>${formatHtml(right)}`;
     }
 
-    // Esta função é chamada pelo L1 (-1) e R1 (1)
     function _moveCursor(dir) {
         if (!_inputEl) return;
-
         let newPos = _cursorPos + dir;
-
-        // Garante que o cursor virtual não saia dos limites do texto atual
-        if (newPos >= 0 && newPos <= _inputEl.value.length) {
-            _cursorPos = newPos;
-        }
-
+        if (newPos >= 0 && newPos <= _inputEl.value.length) _cursorPos = newPos;
         _syncCursorToInput();
         _renderPreview();
     }
@@ -1814,10 +2216,7 @@ const VKB = (() => {
         _returnFocusEl = targetInput ?? document.activeElement;
         _inputEl = targetInput || document.getElementById('editNameInput');
 
-        if (!_inputEl) {
-            console.error("VKB: Nenhum input alvo encontrado!");
-            return;
-        }
+        if (!_inputEl) return;
         _build();
 
         if (_el) {
@@ -1828,15 +2227,12 @@ const VKB = (() => {
         }
 
         _setShiftVisual(_shifted);
-
-        // SEMPRE começa no final do texto ao abrir
         _cursorPos = _inputEl.value.length;
-
         _inputEl.classList.add('vkb-active');
         if (typeof _editOverlay !== 'undefined' && _editOverlay) _editOverlay.classList.add('vkb-active');
 
         _el.style.display = 'block';
-        _renderPreview(); // Desenha o preview inicial
+        _renderPreview();
         _syncCursorToInput();
 
         requestAnimationFrame(() => {
@@ -1852,24 +2248,13 @@ const VKB = (() => {
         window._vkbIsOpen = false;
         _el.classList.remove('visible');
 
-        if (_inputEl) {
-            _inputEl.classList.remove('vkb-active');
-            _inputEl = null;
-        }
-        if (typeof _editOverlay !== 'undefined' && _editOverlay)
-            _editOverlay.classList.remove('vkb-active');
+        if (_inputEl) { _inputEl.classList.remove('vkb-active'); _inputEl = null; }
+        if (typeof _editOverlay !== 'undefined' && _editOverlay) _editOverlay.classList.remove('vkb-active');
 
-        
         const returnTo = _returnFocusEl;
         _returnFocusEl = null;
-        setTimeout(() => {
-            returnTo?.focus();
-            window.updateNavHint?.();
-        }, 350);  
-
-        setTimeout(() => {
-            if (_el && !_el.classList.contains('visible')) _el.style.display = 'none';
-        }, 340);
+        setTimeout(() => { returnTo?.focus(); window.updateNavHint?.(); }, 350);
+        setTimeout(() => { if (_el && !_el.classList.contains('visible')) _el.style.display = 'none'; }, 340);
     }
 
     function _physicalKey(key) {
@@ -1881,23 +2266,15 @@ const VKB = (() => {
     }
 
     return {
-        open: _open,
-        forceClose: _forceClose,
-        cancel: _forceClose,
-        physicalKey: _physicalKey,
-        toggleShift: () => _setShiftVisual(!_shifted),
-        moveCursor: _moveCursor
+        open: _open, forceClose: _forceClose, cancel: _forceClose, physicalKey: _physicalKey,
+        toggleShift: () => _setShiftVisual(!_shifted), moveCursor: _moveCursor
     };
 })();
 
 const _TEXT_INPUT_TYPES = new Set(['text', 'search', 'email', 'password', 'url', 'tel', '']);
 window._vkbOpen = (el) => {
-  
-    if (!isEditModalOpen && !isSetupOpen && !isModalOpen) return;
-
-
+    // Agora o VKB abre em todos os inputs se for o tipo texto
     if (el && el.tagName === 'INPUT' && !_TEXT_INPUT_TYPES.has((el.type || '').toLowerCase())) return;
-
     VKB.open(el);
 };
 window._vkbCancel = () => VKB.cancel();
@@ -2001,7 +2378,6 @@ function _esc(str) {
             ctx.fill();
         });
 
-        // Vignette
         const vig = ctx.createRadialGradient(W / 2, H / 2, H * 0.25, W / 2, H / 2, H * 0.85);
         vig.addColorStop(0, 'rgba(0,0,0,0)');
         vig.addColorStop(1, 'rgba(0,0,18,0.62)');
@@ -2014,8 +2390,6 @@ function _esc(str) {
 
     frame();
 
-    // ── Observa o bgBlur para mostrar/esconder o blob ─────────────────────────
-
     let _blobShowTimer = null;
 
     function checkHeroState() {
@@ -2023,23 +2397,19 @@ function _esc(str) {
         const heroInactive = !bgBlur?.src || bgBlur.style.opacity === '0' || !bgBlur.src;
 
         if (heroInactive) {
-           
             if (!_blobShowTimer) {
                 _blobShowTimer = setTimeout(() => {
-                    
                     const stillInactive = !bgBlur?.src || bgBlur.style.opacity === '0';
                     if (stillInactive) canvas.style.opacity = '1';
                     _blobShowTimer = null;
                 }, 400);
             }
         } else {
-            
             if (_blobShowTimer) { clearTimeout(_blobShowTimer); _blobShowTimer = null; }
             canvas.style.opacity = '0';
         }
     }
 
-   
     const bgBlur = document.getElementById('bgBlur');
     if (bgBlur) {
         new MutationObserver(checkHeroState).observe(bgBlur, {
@@ -2048,15 +2418,12 @@ function _esc(str) {
         });
     }
 
-   
     const _origSwitch = window.switchHeroBackground;
     window.switchHeroBackground = function (...args) {
         _origSwitch?.(...args);
-        
         setTimeout(checkHeroState, 0);
     };
 
-    
     checkHeroState();
     window._startBlobBg = () => { if (!_raf) frame(); };
     window._stopBlobBg = () => { if (_raf) { cancelAnimationFrame(_raf); _raf = null; } };
@@ -2066,10 +2433,8 @@ document.addEventListener('focusin', () => {
     const isCard = focused?.classList?.contains('card');
     const isInGrid = focused?.closest('#gameGrid');
 
-    // Verifica se o NavMenu está ativo (ou prestes a ficar)
     const isNavMenuActive = document.body.classList.contains('nav-menu-active') || window.isNavMenuOpen;
 
-    // Só limpa o fundo se não for um card, não estiver no grid E o menu estiver fechado
     if (!isCard && !isInGrid && !isNavMenuActive) {
         window._heroCleanupTimer = setTimeout(() => {
             const bgBlur = document.getElementById('bgBlur');
@@ -2096,14 +2461,12 @@ function showLoadingCards(count, tab = 'games') {
         ? document.getElementById('btnAdd')
         : document.getElementById('btnAddMedia');
 
-    // Quantos slots ainda cabem no carrossel
     const existing = grid.querySelectorAll('.card:not(.add-card):not(.loading-card)').length;
     const toShow = Math.min(count, Math.max(0, 12 - existing));
 
     for (let i = 0; i < toShow; i++) {
         const card = document.createElement('div');
         card.className = 'card loading-card';
-        // Primeiro slot vira featured-size visualmente
         if (i === 0 && !grid.querySelector('.card.featured:not(.loading-card)')) {
             card.classList.add('featured');
         }
@@ -2128,8 +2491,8 @@ function clearHero() {
         const logoEl = document.getElementById('gameLogo');
         const gridBgImg = document.getElementById('gridBgImg');
 
-        if (bgBlur) bgBlur.style.opacity = '0';   
-        if (heroImg) heroImg.style.opacity = '0';  
+        if (bgBlur) bgBlur.style.opacity = '0';
+        if (heroImg) heroImg.style.opacity = '0';
         if (logoEl) { logoEl.classList.remove('visible'); logoEl.style.opacity = ''; }
         if (gridBgImg) gridBgImg.removeAttribute('src');
 
@@ -2144,7 +2507,7 @@ document.getElementById('btnAddMedia')?.addEventListener('mouseenter', clearHero
 document.getElementById('btnAddMedia')?.addEventListener('focus', clearHero);
 
 
-        // ══════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 // View: Aplicativos (App Web + Executável)
 // ══════════════════════════════════════════════════════════════════════════
 
@@ -2175,11 +2538,11 @@ function _switchMediaSubtab(subtab) {
 
     if (subtab === 'web') {
         _renderWebAppActions();
-      
+        _modalReady = true;
         setTimeout(() => document.getElementById('webAppNameInput')?.focus(), 150);
     } else {
         _renderExeAppModal();
-      
+
         setTimeout(() => {
             const firstApp = document.querySelector('#appListMedia .app-item');
             if (firstApp) firstApp.focus();
@@ -2188,16 +2551,14 @@ function _switchMediaSubtab(subtab) {
     }
 }
 
-// ── Sub-aba: App Web ──────────────────────────────────────────────────────
-
 function _renderWebAppActions() {
     const bar = document.getElementById('mediaAppActions');
     bar.innerHTML = `
         <div class="action-buttons">
-            <button class="modal-btn primary" id="btnAddWebApp" tabindex="0">
+            <button class="modal-btn primary" id="btnAddWebApp" tabindex="0" data-gamepad-hint="start">
                 <span data-i18n="btnAddWebApp">Adicionar App</span>
             </button>
-            <button class="modal-btn cancel" id="btnCancelWebApp" tabindex="0">
+            <button class="modal-btn cancel" id="btnCancelWebApp" tabindex="0" data-gamepad-hint="cancel">
                 <span data-i18n="btnCancelLabel">Voltar</span>
             </button>
         </div>`;
@@ -2205,7 +2566,6 @@ function _renderWebAppActions() {
     document.getElementById('btnAddWebApp').addEventListener('click', _submitWebApp);
     document.getElementById('btnCancelWebApp').addEventListener('click', closeModal);
 
-    // Liga o botão de Colar
     const btnPaste = document.getElementById('btnWebAppPaste');
     if (btnPaste) {
         const freshBtn = btnPaste.cloneNode(true);
@@ -2215,7 +2575,6 @@ function _renderWebAppActions() {
         });
     }
 
-    // Configura os Inputs para VKB e Controle
     ['webAppNameInput', 'webAppUrlInput'].forEach(id => {
         const input = document.getElementById(id);
         if (!input) return;
@@ -2226,28 +2585,21 @@ function _renderWebAppActions() {
         const fresh = input.cloneNode(true);
         input.replaceWith(fresh);
 
-        fresh.addEventListener('focus', () => {
-            if (!window._vkbIsOpen) fresh.style.caretColor = '';
-        });
-        fresh.addEventListener('blur', () => {
-            if (!window._vkbIsOpen) fresh.style.caretColor = 'transparent';
-        });
-
-        fresh.addEventListener('click', () => fresh.focus());
+        fresh.addEventListener('focus', () => { if (!window._vkbIsOpen) fresh.style.caretColor = ''; });
+        fresh.addEventListener('blur', () => { if (!window._vkbIsOpen) fresh.style.caretColor = 'transparent'; });
+        fresh.addEventListener('click', () => { if (!window._vkbIsOpen) window._vkbOpen?.(fresh); });
 
         fresh.addEventListener('keydown', e => {
             if (e.key === 'Enter') {
                 e.preventDefault();
-                if (!window._vkbIsOpen) {
-                    window._vkbOpen?.(fresh, {
-                        onOk: () => window._vkbForceClose?.(),
-                        onCancel: () => window._vkbForceClose?.(),
-                    });
-                }
+                if (!window._vkbIsOpen) window._vkbOpen?.(fresh);
             }
         });
     });
+
+    if (typeof updateGamepadUI === 'function') updateGamepadUI(isGamepadConnected, _controllerType);
 }
+
 function _submitWebApp() {
     const nameInput = document.getElementById('webAppNameInput');
     const urlInput = document.getElementById('webAppUrlInput');
@@ -2256,12 +2608,10 @@ function _submitWebApp() {
     const name = nameInput?.value.trim() || '';
     let url = urlInput?.value.trim() || '';
 
-    // Limpa estados de erro anteriores
     nameInput?.classList.remove('error');
     urlInput?.classList.remove('error');
     if (hint) { hint.textContent = ''; hint.classList.remove('error'); }
 
-    // VALIDAÇÃO: NOME OBRIGATÓRIO
     if (!name) {
         nameInput?.classList.add('error');
         nameInput?.focus();
@@ -2269,10 +2619,9 @@ function _submitWebApp() {
             hint.textContent = (typeof t === 'function' ? t('webAppErrorName') : 'O nome é obrigatório');
             hint.classList.add('error');
         }
-        return; // Para a execução aqui
+        return;
     }
 
-    // VALIDAÇÃO: LINK OBRIGATÓRIO
     if (!url || url === 'https://' || url === 'http://') {
         urlInput?.classList.add('error');
         urlInput?.focus();
@@ -2280,10 +2629,9 @@ function _submitWebApp() {
             hint.textContent = (typeof t === 'function' ? t('webAppErrorUrl') : 'O link é obrigatório');
             hint.classList.add('error');
         }
-        return; // Para a execução aqui
+        return;
     }
 
-    // Auto-correção de protocolo para facilitar
     if (!/^https?:\/\//i.test(url)) {
         url = 'https://' + url;
     }
@@ -2300,8 +2648,6 @@ function _shakeWebField(inputId, hintEl, msg) {
     if (hintEl) { hintEl.textContent = msg; hintEl.classList.add('error'); }
 }
 
-// ── Sub-aba: Executável ───────────────────────────────────────────────────
-
 function _renderExeAppModal() {
     const bar = document.getElementById('mediaAppActions');
     bar.innerHTML = `
@@ -2310,13 +2656,13 @@ function _renderExeAppModal() {
             <span id="selectionCounterMediaText"></span>
         </div>
         <div class="action-buttons">
-            <button class="modal-btn primary" id="btnConfirmAddMedia" tabindex="0">
+            <button class="modal-btn primary" id="btnConfirmAddMedia" tabindex="0" data-gamepad-hint="start">
                 <span data-i18n="btnConfirmLabel">Adicionar Selecionados</span>
             </button>
-            <button class="modal-btn secondary" id="btnSearchMedia" tabindex="0">
+            <button class="modal-btn secondary" id="btnSearchMedia" tabindex="0" data-gamepad-hint="triangle">
                 <span data-i18n="btnSearchLabel">Procurar Manualmente</span>
             </button>
-            <button class="modal-btn cancel" id="btnCancelAddMedia" tabindex="0">
+            <button class="modal-btn cancel" id="btnCancelAddMedia" tabindex="0" data-gamepad-hint="cancel">
                 <span data-i18n="btnCancelLabel">Voltar</span>
             </button>
         </div>`;
@@ -2339,6 +2685,8 @@ function _renderExeAppModal() {
         ).map(el => ({ Name: el.dataset.name, Path: el.dataset.path, LaunchUrl: el.dataset.launch }));
 
         if (selected.length > 0) {
+            selected.forEach(app => newGameIdsThisSession.add(app.LaunchUrl || app.Path));
+            showLoadingCards(selected.length, 'media');
             postToHost({ action: 'addSelectedMediaApps', apps: selected });
             showGlobalLoading(t('downloadingCovers'), t('readingApps'));
             setTimeout(closeModal, 3000);
@@ -2347,10 +2695,11 @@ function _renderExeAppModal() {
         }
     });
 
-    // Filtra todos os apps que já foram adicionados em Jogos ou em Mídia e preenche a lista
     const availableApps = allInstalledApps.filter(a => (a.AddedTo || a.addedTo) !== 'game');
     _populateExeList(availableApps);
+    _modalReady = true;
 
+    if (typeof updateGamepadUI === 'function') updateGamepadUI(isGamepadConnected, _controllerType);
 }
 
 function _populateExeList(apps) {
@@ -2363,8 +2712,6 @@ function _populateExeList(apps) {
         const path = app.Path || app.path;
         const launch = app.LaunchUrl || app.launchUrl || '';
         const source = app.Source || app.source;
-
-       
         const isAdded = app.IsAdded === true || app.isAdded === true;
 
         return `
@@ -2380,7 +2727,6 @@ function _populateExeList(apps) {
         </div>`;
     }).join('');
 
-  
     appList.querySelectorAll('.app-item:not(.already-added)').forEach(item =>
         item.addEventListener('click', function () {
             this.classList.toggle('selected');
@@ -2393,7 +2739,6 @@ function _populateExeList(apps) {
     );
 }
 
-// Abre o VKB apenas com a tecla Enter física, ignorando cliques de mouse
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && e.target.tagName === 'INPUT' && !window._vkbIsOpen) {
         // Se o modal de edição ou setup estiver aberto, o Enter abre o VKB em vez de submeter

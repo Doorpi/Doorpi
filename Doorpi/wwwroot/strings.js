@@ -73,7 +73,7 @@ const STRINGS = {
         unitMB: (v) => `${v} MB`,
 
         // Context Menu, Edit Modal e Teclado
-        ctxEditName: 'Editar Nome',
+        ctxEditName: 'Editar',
         ctxRemoveGame: 'Remover da Biblioteca',
 
         editModalTitle: 'Editar Jogo',

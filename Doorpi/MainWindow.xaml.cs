@@ -7,6 +7,8 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.IO.Compression;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -22,6 +24,12 @@ namespace Doorpi
         public string Url { get; set; } = "";
         public string Type { get; set; } = "browser"; // "browser" | "webview"
         public bool MultiUser { get; set; } = true;
+        public string OwnerUserId { get; set; } = "";
+        public string ShareMode { get; set; } = "private"; // "private" | "all" | "user"
+        public string SharedWithUserId { get; set; } = "";
+        public string SharedWithUserName { get; set; } = "";
+        public bool IsSharedFromOtherUser { get; set; }
+        public string SharedFromUserName { get; set; } = "";
         public string GridImage { get; set; } = "";
         public string GridStaticImage { get; set; } = "";
         public string GridHorizontalImage { get; set; } = "";
@@ -50,9 +58,21 @@ namespace Doorpi
 
     public class UserProfile
     {
+        public string Id { get; set; } = "";
         public string Name { get; set; } = "";
         public string PhotoBase64 { get; set; } = "";
         public string SteamGridApiKey { get; set; } = "";
+        public DateTime DateCreated { get; set; } = DateTime.Now;
+        public DateTime LastUsed { get; set; } = DateTime.MinValue;
+    }
+
+    public class BrowserExtensionModel
+    {
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string SourceUrl { get; set; } = "";
+        public string InstalledPath { get; set; } = "";
+        public DateTime DateInstalled { get; set; } = DateTime.Now;
     }
 
     public class AppCacheModel
@@ -60,7 +80,7 @@ namespace Doorpi
         public HashSet<string> WindowsFingerprint { get; set; } = new();
         public Dictionary<string, long> FolderTimestamps { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
-     
+
         public HashSet<string> SteamFingerprint { get; set; } = new();
         public HashSet<string> EpicFingerprint { get; set; } = new();
         public HashSet<string> GogFingerprint { get; set; } = new();
@@ -92,8 +112,12 @@ namespace Doorpi
         private readonly string gridHorizontalFolder;
         private readonly string logoFolder;
         private readonly string iconCacheFolder;
-        private readonly string userFile;
-        private readonly string mediaFile;
+        private readonly string profilesFile;
+        private readonly string currentUserFile;
+        private string currentUserId = "";
+        private string currentUserDataFolder = "";
+        private string userFile;
+        private string mediaFile;
 
         private string _currentToastTitle = "";
         private string _currentToastSub = "";
@@ -102,15 +126,39 @@ namespace Doorpi
             return root.TryGetProperty(propName, out var prop) ? (prop.GetString() ?? fallback) : fallback;
         }
 
-        private readonly string gamesFile;
-        private readonly string foldersFile;
-        private readonly string appCacheFile;
+        private string gamesFile;
+        private string foldersFile;
+        private string appCacheFile;
 
         private readonly List<FileSystemWatcher> _folderWatchers = new();
         private volatile bool _windowsCacheInvalid = false;
         private volatile bool _pollingActive = false;
         private readonly SemaphoreSlim _cacheLock = new SemaphoreSlim(1, 1);
         private DateTime _lastCacheBuilt = DateTime.MinValue;
+
+        [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT lpPoint);
+        [DllImport("user32.dll")] private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+        [DllImport("xinput1_4.dll", EntryPoint = "XInputGetState")]
+        private static extern int XInputGetState(int dwUserIndex, out XINPUT_STATE pState); [StructLayout(LayoutKind.Sequential)]
+        private struct POINT { public int X; public int Y; }
+        [StructLayout(LayoutKind.Sequential)]
+        private struct XINPUT_STATE { public uint dwPacketNumber; public XINPUT_GAMEPAD Gamepad; }
+        [StructLayout(LayoutKind.Sequential)]
+        private struct XINPUT_GAMEPAD
+        {
+            public ushort wButtons;
+            public byte bLeftTrigger;
+            public byte bRightTrigger;
+            public short sThumbLX;
+            public short sThumbLY;
+            public short sThumbRX;
+            public short sThumbRY;
+        }
+
+        private System.Windows.Threading.DispatcherTimer? _desktopControllerTimer;
+        private ushort _desktopPrevButtons = 0;
+        private byte _desktopPrevLT = 0;
+        private byte _desktopPrevRT = 0;
 
         // ========================= CONSTRUTOR =========================
 
@@ -125,13 +173,16 @@ namespace Doorpi
             logoFolder = Path.Combine(dataFolder, "images", "logo");
             iconCacheFolder = Path.Combine(dataFolder, "iconcache");
 
+            profilesFile = Path.Combine(dataFolder, "users.json");
+            currentUserFile = Path.Combine(dataFolder, "current-user.json");
+            userFile = Path.Combine(dataFolder, "user.json");
             gamesFile = Path.Combine(dataFolder, "games.json");
             foldersFile = Path.Combine(dataFolder, "folders.json");
             appCacheFile = Path.Combine(dataFolder, "appcache.json");
-            userFile = Path.Combine(dataFolder, "user.json");
             mediaFile = Path.Combine(dataFolder, "media.json");
 
             Directory.CreateDirectory(Path.Combine(dataFolder, "extensions"));
+            Directory.CreateDirectory(Path.Combine(dataFolder, "users"));
             Directory.CreateDirectory(dataFolder);
             Directory.CreateDirectory(gridFolder);
             Directory.CreateDirectory(heroFolder);
@@ -139,8 +190,7 @@ namespace Doorpi
             Directory.CreateDirectory(logoFolder);
             Directory.CreateDirectory(iconCacheFolder);
 
-            if (!File.Exists(gamesFile)) File.WriteAllText(gamesFile, "[]");
-            if (!File.Exists(foldersFile)) File.WriteAllText(foldersFile, "[]");
+            InitializeUserStorage();
 
             InitializeAsync();
         }
@@ -163,12 +213,6 @@ namespace Doorpi
             webView.CoreWebView2.WebMessageReceived += WebView_WebMessageReceived;
             webView.CoreWebView2.NavigationCompleted += (s, e) =>
             {
-                LoadGamesIntoUI();
-                _ = Task.Run(() => {
-                    var apps = LoadMediaApps();
-                    if (apps.Any()) SendMediaAppsToUI(apps);
-                });
-
                 if (NeedsSetup())
                 {
                     Dispatcher.InvokeAsync(() =>
@@ -176,7 +220,7 @@ namespace Doorpi
                 }
                 else
                 {
-                    _ = Task.Run(() => UpdateAppCacheAsync());
+                    SendUsersToUI(requireSelection: true);
                 }
 
                 Dispatcher.InvokeAsync(() =>
@@ -257,6 +301,296 @@ namespace Doorpi
             return keys;
         }
         // ========================= WATCHERS =========================
+        private void InitializeUserStorage()
+        {
+            Directory.CreateDirectory(dataFolder);
+            Directory.CreateDirectory(Path.Combine(dataFolder, "users"));
+
+            var users = LoadUserProfiles();
+            if (users.Count == 0 && File.Exists(userFile))
+            {
+                try
+                {
+                    var legacy = JsonSerializer.Deserialize<UserProfile>(File.ReadAllText(userFile));
+                    if (legacy != null && !string.IsNullOrWhiteSpace(legacy.Name))
+                    {
+                        legacy.Id = MakeUserId(legacy.Name);
+                        legacy.DateCreated = DateTime.Now;
+                        legacy.LastUsed = DateTime.Now;
+                        users.Add(legacy);
+                        SaveUserProfiles(users);
+                        currentUserId = legacy.Id;
+                        File.WriteAllText(currentUserFile, legacy.Id);
+                        SetActiveUser(legacy, migrateLegacyFiles: true);
+                        return;
+                    }
+                }
+                catch { }
+            }
+
+            currentUserId = File.Exists(currentUserFile) ? File.ReadAllText(currentUserFile).Trim() : "";
+            var current = users.FirstOrDefault(u => string.Equals(u.Id, currentUserId, StringComparison.OrdinalIgnoreCase))
+                          ?? users.OrderByDescending(u => u.LastUsed).FirstOrDefault();
+            if (current != null) SetActiveUser(current, migrateLegacyFiles: false);
+            else SetActiveUser(new UserProfile { Id = "default", Name = "" }, migrateLegacyFiles: false);
+        }
+
+        private List<UserProfile> LoadUserProfiles()
+        {
+            if (!File.Exists(profilesFile)) return new List<UserProfile>();
+            try
+            {
+                var users = JsonSerializer.Deserialize<List<UserProfile>>(File.ReadAllText(profilesFile)) ?? new();
+                foreach (var user in users.Where(u => string.IsNullOrWhiteSpace(u.Id)))
+                    user.Id = MakeUserId(user.Name);
+                return users;
+            }
+            catch { return new List<UserProfile>(); }
+        }
+
+        private void SaveUserProfiles(List<UserProfile> users)
+        {
+            File.WriteAllText(profilesFile, JsonSerializer.Serialize(users, new JsonSerializerOptions { WriteIndented = true }));
+        }
+
+        private static string MakeUserId(string name)
+        {
+            var clean = new string((name ?? "").Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(clean)) clean = "user";
+            string suffix = Convert.ToHexString(Guid.NewGuid().ToByteArray())[..8].ToLowerInvariant();
+            return $"{clean}-{suffix}";
+        }
+
+        private static string SafePathSegment(string value)
+        {
+            var clean = string.Concat((value ?? "").Where(c => !Path.GetInvalidFileNameChars().Contains(c))).Trim();
+            return string.IsNullOrWhiteSpace(clean) ? "default" : clean;
+        }
+
+        private void SetActiveUser(UserProfile profile, bool migrateLegacyFiles)
+        {
+            if (string.IsNullOrWhiteSpace(profile.Id)) profile.Id = MakeUserId(profile.Name);
+            currentUserId = profile.Id;
+            currentUserDataFolder = Path.Combine(dataFolder, "users", currentUserId);
+            Directory.CreateDirectory(currentUserDataFolder);
+
+            userFile = Path.Combine(currentUserDataFolder, "user.json");
+            gamesFile = Path.Combine(currentUserDataFolder, "games.json");
+            foldersFile = Path.Combine(currentUserDataFolder, "folders.json");
+            appCacheFile = Path.Combine(currentUserDataFolder, "appcache.json");
+            mediaFile = Path.Combine(currentUserDataFolder, "media.json");
+
+            if (migrateLegacyFiles)
+            {
+                CopyLegacyFile("games.json", gamesFile);
+                CopyLegacyFile("folders.json", foldersFile);
+                CopyLegacyFile("appcache.json", appCacheFile);
+                CopyLegacyFile("media.json", mediaFile);
+            }
+
+            if (!File.Exists(gamesFile)) File.WriteAllText(gamesFile, "[]");
+            if (!File.Exists(foldersFile)) File.WriteAllText(foldersFile, "[]");
+            if (!File.Exists(mediaFile)) File.WriteAllText(mediaFile, "[]");
+
+            SaveUserProfile(profile);
+            MirrorCurrentUserDataFiles();
+            File.WriteAllText(currentUserFile, currentUserId);
+            File.WriteAllText(Path.Combine(dataFolder, "user.json"),
+                JsonSerializer.Serialize(profile, new JsonSerializerOptions { WriteIndented = true }));
+        }
+
+        private void MirrorCurrentUserDataFiles()
+        {
+            try
+            {
+                if (File.Exists(gamesFile)) File.Copy(gamesFile, Path.Combine(dataFolder, "games.json"), true);
+                if (File.Exists(foldersFile)) File.Copy(foldersFile, Path.Combine(dataFolder, "folders.json"), true);
+                if (File.Exists(mediaFile))
+                {
+                    File.WriteAllText(Path.Combine(dataFolder, "media.json"),
+                        JsonSerializer.Serialize(LoadMediaApps(), new JsonSerializerOptions { WriteIndented = true }));
+                }
+            }
+            catch (Exception ex) { Debug.WriteLine("[Users] Falha ao espelhar dados atuais: " + ex.Message); }
+        }
+
+        private void CopyLegacyFile(string fileName, string target)
+        {
+            try
+            {
+                string source = Path.Combine(dataFolder, fileName);
+                if (File.Exists(source) && !File.Exists(target)) File.Copy(source, target);
+            }
+            catch (Exception ex) { Debug.WriteLine($"[Users] Falha ao migrar {fileName}: {ex.Message}"); }
+        }
+
+        private void SendUsersToUI(bool requireSelection)
+        {
+            var users = LoadUserProfiles().OrderByDescending(u => u.LastUsed).ToList();
+            Dispatcher.Invoke(() =>
+                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                {
+                    type = "usersList",
+                    users,
+                    currentUserId,
+                    requireSelection
+                })));
+        }
+
+        private void ClearHomeUi()
+        {
+            Dispatcher.Invoke(() =>
+            {
+                webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"clearGamesGrid\"}");
+                webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"clearMediaGrid\"}");
+                webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"nativeAppsLoaded\",\"apps\":[]}");
+            });
+        }
+
+        private void LoadCurrentUserIntoUI()
+        {
+            ClearHomeUi();
+
+
+            var user = LoadUserProfile();
+            Dispatcher.Invoke(() =>
+                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                {
+                    type = "currentUserUpdated",
+                    user = user
+                })));
+
+            LoadGamesIntoUI();
+            var apps = LoadMediaApps();
+            if (apps.Any()) SendMediaAppsToUI(apps);
+            _ = Task.Run(() => UpdateAppCacheAsync());
+        }
+
+        private void SwitchToUser(string userId)
+        {
+            var users = LoadUserProfiles();
+            var user = users.FirstOrDefault(u => string.Equals(u.Id, userId, StringComparison.OrdinalIgnoreCase));
+            if (user == null) return;
+
+            user.LastUsed = DateTime.Now;
+            SaveUserProfiles(users);
+            SetActiveUser(user, migrateLegacyFiles: false);
+            RestartWatchers();
+
+            _ = Task.Run(async () => {
+                // PASSANDO AS VARIAVEIS:
+                await InitializeNativeAppsAsync(currentUserId, mediaFile);
+                Dispatcher.Invoke(() => LoadCurrentUserIntoUI());
+            });
+        }
+
+        private void EnterDesktopMode()
+        {
+            WindowState = WindowState.Minimized;
+            ShowTouchKeyboard();
+            StartDesktopControllerMode();
+        }
+
+        private void ShowTouchKeyboard()
+        {
+            try
+            {
+                string tabTip = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFiles),
+                    "microsoft shared", "ink", "TabTip.exe");
+                Process.Start(new ProcessStartInfo(File.Exists(tabTip) ? tabTip : "osk.exe") { UseShellExecute = true });
+            }
+            catch (Exception ex) { Debug.WriteLine("[DesktopMode] teclado: " + ex.Message); }
+        }
+
+        private void StartDesktopControllerMode()
+        {
+            _desktopControllerTimer ??= new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+            _desktopControllerTimer.Tick -= DesktopControllerTick;
+            _desktopControllerTimer.Tick += DesktopControllerTick;
+            _desktopPrevButtons = 0;
+            _desktopPrevLT = 0;
+            _desktopPrevRT = 0;
+            _desktopControllerTimer.Start();
+        }
+
+        private void StopDesktopControllerMode()
+        {
+            _desktopControllerTimer?.Stop();
+            _desktopPrevButtons = 0;
+            _desktopPrevLT = 0;
+            _desktopPrevRT = 0;
+        }
+
+        private void DesktopControllerTick(object? sender, EventArgs e)
+        {
+            if (XInputGetState(0, out var state) != 0) return;
+            var gp = state.Gamepad;
+
+            int dx = AxisToCursorDelta(gp.sThumbLX, 16);
+            int dy = AxisToCursorDelta(gp.sThumbLY, 16, invert: true);
+            if ((dx != 0 || dy != 0) && GetCursorPos(out var pt)) SetCursorPos(pt.X + dx, pt.Y + dy);
+
+            bool Pressed(ushort mask) => (gp.wButtons & mask) != 0 && (_desktopPrevButtons & mask) == 0;
+            const ushort DPAD_UP = 0x0001, DPAD_DOWN = 0x0002, DPAD_LEFT = 0x0004, DPAD_RIGHT = 0x0008;
+            const ushort START = 0x0010, BACK = 0x0020, A = 0x1000, B = 0x2000, X = 0x4000, Y = 0x8000;
+
+            if (Pressed(START) && (gp.wButtons & BACK) != 0)
+            {
+                StopDesktopControllerMode();
+                WindowState = WindowState.Maximized;
+                Activate();
+                ForceFocus();
+                _desktopPrevButtons = gp.wButtons;
+                _desktopPrevLT = gp.bLeftTrigger;
+                _desktopPrevRT = gp.bRightTrigger;
+                return;
+            }
+
+            if (Pressed(A) || (gp.bRightTrigger > 80 && _desktopPrevRT <= 80))
+            {
+                mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+                mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+            }
+            if (Pressed(B) || (gp.bLeftTrigger > 80 && _desktopPrevLT <= 80))
+            {
+                const uint RIGHTDOWN = 0x0008, RIGHTUP = 0x0010;
+                mouse_event(RIGHTDOWN, 0, 0, 0, UIntPtr.Zero);
+                mouse_event(RIGHTUP, 0, 0, 0, UIntPtr.Zero);
+            }
+            if (Pressed(X)) ShowTouchKeyboard();
+            if (Pressed(Y)) SendVirtualKey(0x09);
+            if (Pressed(DPAD_UP)) SendVirtualKey(0x26);
+            if (Pressed(DPAD_DOWN)) SendVirtualKey(0x28);
+            if (Pressed(DPAD_LEFT)) SendVirtualKey(0x25);
+            if (Pressed(DPAD_RIGHT)) SendVirtualKey(0x27);
+            if (Pressed(START)) SendVirtualKey(0x0D);
+
+            _desktopPrevButtons = gp.wButtons;
+            _desktopPrevLT = gp.bLeftTrigger;
+            _desktopPrevRT = gp.bRightTrigger;
+        }
+
+        private static int AxisToCursorDelta(short rawValue, int maxPixels, bool invert = false)
+        {
+            const int deadZone = 8000;
+            int value = rawValue;
+            if (Math.Abs(value) <= deadZone) return 0;
+
+            double normalized = Math.Clamp(value / 32767.0, -1.0, 1.0);
+            if (invert) normalized = -normalized;
+
+            double magnitude = Math.Abs(normalized);
+            double curved = Math.Sign(normalized) * magnitude * magnitude;
+            return (int)Math.Round(curved * maxPixels);
+        }
+
+        private static void SendVirtualKey(byte vk)
+        {
+            const uint KEYEVENTF_KEYUP = 0x0002;
+            keybd_event(vk, 0, 0, UIntPtr.Zero);
+            keybd_event(vk, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+        }
+
         private UserProfile LoadUserProfile()
         {
             if (!File.Exists(userFile)) return new UserProfile();
@@ -266,7 +600,10 @@ namespace Doorpi
 
         private void SaveUserProfile(UserProfile profile)
         {
+            if (string.IsNullOrWhiteSpace(profile.Id)) profile.Id = currentUserId;
             File.WriteAllText(userFile, JsonSerializer.Serialize(profile,
+                new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(Path.Combine(dataFolder, "user.json"), JsonSerializer.Serialize(profile,
                 new JsonSerializerOptions { WriteIndented = true }));
         }
 
@@ -286,9 +623,8 @@ namespace Doorpi
 
         private bool NeedsSetup()
         {
-            var profile = LoadUserProfile();
-            return string.IsNullOrWhiteSpace(profile.Name) ||
-                   string.IsNullOrWhiteSpace(profile.SteamGridApiKey);
+            var users = LoadUserProfiles();
+            return users.Count == 0 || users.All(u => string.IsNullOrWhiteSpace(u.Name) || string.IsNullOrWhiteSpace(u.SteamGridApiKey));
         }
 
         private void StartWatchers()
@@ -297,6 +633,16 @@ namespace Doorpi
             {
                 AddFolderWatcher(folder);
             }
+        }
+
+        private void RestartWatchers()
+        {
+            foreach (var watcher in _folderWatchers)
+            {
+                try { watcher.EnableRaisingEvents = false; watcher.Dispose(); } catch { }
+            }
+            _folderWatchers.Clear();
+            StartWatchers();
         }
 
         private void AddFolderWatcher(string path)
@@ -396,24 +742,53 @@ namespace Doorpi
             return (null, null, null, null);
         }
 
-        private async Task InitializeNativeAppsAsync()
+        // Parâmetros foram adicionados para isolar a tarefa
+        private async Task InitializeNativeAppsAsync(string targetUserId, string targetMediaFile)
         {
-        
-
-            var existing = LoadMediaApps();
+            var existing = LoadMediaAppsForUser(targetUserId);
             var existingById = existing.ToDictionary(a => a.Id, StringComparer.OrdinalIgnoreCase);
+            var apps = new List<MediaAppModel>();
 
-            var tasks = _nativeApps.Select(async app =>
+            foreach (var app in _nativeApps)
             {
                 var (id, name, query, url, type, multiUser) = app;
-
-                PostProgress(id, "active");
+                if (targetUserId == currentUserId) PostProgress(id, "active");
 
                 var existingEntry = existingById.TryGetValue(id, out var prev) ? prev : new MediaAppModel();
+
                 if (!string.IsNullOrEmpty(existingEntry.GridImage) && !string.IsNullOrEmpty(existingEntry.HeroImage))
                 {
-                    PostProgress(id, "done");
-                    return existingEntry;
+                    if (targetUserId == currentUserId) PostProgress(id, "done");
+                    apps.Add(existingEntry);
+                    continue;
+                }
+
+                string localGrid = Directory.GetFiles(gridFolder, id + ".*").FirstOrDefault();
+                string localHorizontal = Directory.GetFiles(gridHorizontalFolder, id + "_h.*").FirstOrDefault();
+                string localHero = Directory.GetFiles(heroFolder, id + ".*").FirstOrDefault();
+                string localLogo = Directory.GetFiles(logoFolder, id + "_logo.*").FirstOrDefault();
+
+                if (localGrid != null && localHero != null)
+                {
+                    apps.Add(new MediaAppModel
+                    {
+                        Id = id,
+                        Name = name,
+                        Url = url,
+                        Type = type,
+                        MultiUser = multiUser,
+                        OwnerUserId = targetUserId, // 🔹 Usa targetUserId
+                        ShareMode = existingEntry.ShareMode,
+                        SharedWithUserId = existingEntry.SharedWithUserId,
+                        SharedWithUserName = existingEntry.SharedWithUserName,
+                        GridImage = $"https://data.local/images/grid/{Path.GetFileName(localGrid)}",
+                        GridHorizontalImage = localHorizontal != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(localHorizontal)}" : "",
+                        HeroImage = $"https://data.local/images/hero/{Path.GetFileName(localHero)}",
+                        LogoImage = localLogo != null ? $"https://data.local/images/logo/{Path.GetFileName(localLogo)}" : "",
+                        DateAdded = existingEntry.DateAdded == DateTime.MinValue ? DateTime.Now : existingEntry.DateAdded
+                    });
+                    if (targetUserId == currentUserId) PostProgress(id, "done");
+                    continue;
                 }
 
                 var (gridUrl, horizontalUrl, heroUrl, logoUrl) = await FetchMediaAppAssetsAsync(name, query);
@@ -425,40 +800,41 @@ namespace Doorpi
 
                 await Task.WhenAll(gridDlTask, hDlTask, heroDlTask, logoDlTask);
 
-                var localGrid = gridDlTask.Result;
-                var localHorizontal = hDlTask.Result;
-                var localHero = heroDlTask.Result;
-                var localLogo = logoDlTask.Result;
-
-                PostProgress(id, "done");
-
-                return new MediaAppModel
+                apps.Add(new MediaAppModel
                 {
                     Id = id,
                     Name = name,
                     Url = url,
                     Type = type,
                     MultiUser = multiUser,
-                    GridImage = localGrid != null ? $"https://data.local/images/grid/{Path.GetFileName(localGrid)}" : existingEntry.GridImage,
-                    GridHorizontalImage = localHorizontal != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(localHorizontal)}" : existingEntry.GridHorizontalImage,
-                    HeroImage = localHero != null ? $"https://data.local/images/hero/{Path.GetFileName(localHero)}" : existingEntry.HeroImage,
-                    LogoImage = localLogo != null ? $"https://data.local/images/logo/{Path.GetFileName(localLogo)}" : existingEntry.LogoImage,
+                    OwnerUserId = targetUserId, // 🔹 Usa targetUserId
+                    ShareMode = existingEntry.ShareMode,
+                    SharedWithUserId = existingEntry.SharedWithUserId,
+                    SharedWithUserName = existingEntry.SharedWithUserName,
+                    GridImage = gridDlTask.Result != null ? $"https://data.local/images/grid/{Path.GetFileName(gridDlTask.Result)}" : existingEntry.GridImage,
+                    GridHorizontalImage = hDlTask.Result != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(hDlTask.Result)}" : existingEntry.GridHorizontalImage,
+                    HeroImage = heroDlTask.Result != null ? $"https://data.local/images/hero/{Path.GetFileName(heroDlTask.Result)}" : existingEntry.HeroImage,
+                    LogoImage = logoDlTask.Result != null ? $"https://data.local/images/logo/{Path.GetFileName(logoDlTask.Result)}" : existingEntry.LogoImage,
                     GridStaticImage = existingEntry.GridStaticImage,
                     GridHorizontalStaticImage = existingEntry.GridHorizontalStaticImage,
                     HeroStaticImage = existingEntry.HeroStaticImage,
                     LogoStaticImage = existingEntry.LogoStaticImage,
-
                     LastPlayed = existingEntry.LastPlayed,
                     DateAdded = existingEntry.DateAdded == DateTime.MinValue ? DateTime.Now : existingEntry.DateAdded
-                };
-            });
+                });
 
-            var apps = (await Task.WhenAll(tasks)).ToList();
+                if (targetUserId == currentUserId) PostProgress(id, "done");
+                await Task.Delay(200);
+            }
 
-            await Task.Run(() => SaveMediaApps(apps));
-            SendMediaAppsToUI(apps);
+            var nativeIds = _nativeApps.Select(a => a.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            apps.AddRange(existing.Where(a => !a.IsSharedFromOtherUser && !nativeIds.Contains(a.Id)));
+
+            // 🔹 Salva forçando as variáveis isoladas do loop corrente
+            await Task.Run(() => SaveMediaAppsForSpecificUser(apps, targetUserId, targetMediaFile));
+
+            if (targetUserId == currentUserId) SendMediaAppsToUI(apps);
         }
-
         private void PostProgress(string appId, string state)
         {
             Dispatcher.Invoke(() =>
@@ -468,19 +844,228 @@ namespace Doorpi
 
         private List<MediaAppModel> LoadMediaApps()
         {
-            if (!File.Exists(mediaFile)) return new List<MediaAppModel>();
+            var own = LoadMediaAppsForUser(currentUserId);
+            var users = LoadUserProfiles();
+            var current = users.FirstOrDefault(u => string.Equals(u.Id, currentUserId, StringComparison.OrdinalIgnoreCase));
+            var visible = new List<MediaAppModel>();
+
+            foreach (var app in own)
+            {
+                if (string.IsNullOrWhiteSpace(app.OwnerUserId)) app.OwnerUserId = currentUserId;
+                if (app.ShareMode == "user")
+                {
+                    app.SharedWithUserName = users.FirstOrDefault(u => string.Equals(u.Id, app.SharedWithUserId, StringComparison.OrdinalIgnoreCase))?.Name ?? app.SharedWithUserName;
+                }
+                visible.Add(app);
+            }
+
+            foreach (var user in users.Where(u => !string.Equals(u.Id, currentUserId, StringComparison.OrdinalIgnoreCase)))
+            {
+                foreach (var app in LoadMediaAppsForUser(user.Id))
+                {
+                    bool sharedToCurrent = app.ShareMode == "all" ||
+                        (app.ShareMode == "user" && string.Equals(app.SharedWithUserId, currentUserId, StringComparison.OrdinalIgnoreCase));
+                    if (!sharedToCurrent) continue;
+
+                    var clone = CloneMediaApp(app);
+                    clone.IsSharedFromOtherUser = true;
+                    clone.SharedFromUserName = user.Name;
+                    clone.OwnerUserId = string.IsNullOrWhiteSpace(clone.OwnerUserId) ? user.Id : clone.OwnerUserId;
+                    var localSame = visible.FirstOrDefault(a =>
+                        string.Equals(a.Id, clone.Id, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(a.Url, clone.Url, StringComparison.OrdinalIgnoreCase));
+                    if (localSame != null)
+                    {
+                        localSame.IsSharedFromOtherUser = true;
+                        localSame.SharedFromUserName = user.Name;
+                        localSame.OwnerUserId = clone.OwnerUserId;
+                        localSame.ShareMode = clone.ShareMode;
+                        localSame.SharedWithUserId = clone.SharedWithUserId;
+                        localSame.SharedWithUserName = clone.SharedWithUserName;
+                        continue;
+                    }
+                    visible.Add(clone);
+                }
+            }
+
+            return visible;
+        }
+
+        private List<MediaAppModel> LoadMediaAppsForUser(string userId)
+        {
+            string file = string.Equals(userId, currentUserId, StringComparison.OrdinalIgnoreCase)
+                ? mediaFile
+                : Path.Combine(dataFolder, "users", userId, "media.json");
+            if (!File.Exists(file)) return new List<MediaAppModel>();
             try
             {
-                return JsonSerializer.Deserialize<List<MediaAppModel>>(File.ReadAllText(mediaFile))
-                       ?? new List<MediaAppModel>();
+                // USANDO O SAFE READ:
+                var apps = JsonSerializer.Deserialize<List<MediaAppModel>>(SafeReadAllText(file)) ?? new List<MediaAppModel>();
+                foreach (var app in apps.Where(a => string.IsNullOrWhiteSpace(a.OwnerUserId)))
+                    app.OwnerUserId = userId;
+                return apps;
             }
             catch { return new List<MediaAppModel>(); }
+        }
+        private static void SafeWriteAllText(string path, string content)
+        {
+            for (int i = 0; i < 5; i++)
+            {
+                try { File.WriteAllText(path, content); return; }
+                catch (IOException) { System.Threading.Thread.Sleep(50); }
+            }
+            File.WriteAllText(path, content);
+        }
+
+        private static string SafeReadAllText(string path)
+        {
+            for (int i = 0; i < 5; i++)
+            {
+                try { return File.ReadAllText(path); }
+                catch (IOException) { System.Threading.Thread.Sleep(50); }
+            }
+            return File.ReadAllText(path);
+        }
+
+        private static void SafeCopy(string source, string dest)
+        {
+            for (int i = 0; i < 5; i++)
+            {
+                try { File.Copy(source, dest, true); return; }
+                catch (IOException) { System.Threading.Thread.Sleep(50); }
+            }
+            File.Copy(source, dest, true);
+        }
+        private void SaveMediaAppsForSpecificUser(List<MediaAppModel> apps, string targetUserId, string targetMediaFile)
+        {
+            apps = apps
+                .Where(a => !a.IsSharedFromOtherUser)
+                .Select(a =>
+                {
+                    a.OwnerUserId = string.IsNullOrWhiteSpace(a.OwnerUserId) ? targetUserId : a.OwnerUserId;
+                    return a;
+                })
+                .ToList();
+
+            // USANDO O SAFE WRITE:
+            SafeWriteAllText(targetMediaFile,
+                JsonSerializer.Serialize(apps, new JsonSerializerOptions { WriteIndented = true }));
+
+            if (targetUserId == currentUserId)
+            {
+                SafeWriteAllText(Path.Combine(dataFolder, "media.json"),
+                    JsonSerializer.Serialize(LoadMediaApps(), new JsonSerializerOptions { WriteIndented = true }));
+            }
         }
 
         private void SaveMediaApps(List<MediaAppModel> apps)
         {
-            File.WriteAllText(mediaFile,
-                JsonSerializer.Serialize(apps, new JsonSerializerOptions { WriteIndented = true }));
+            SaveMediaAppsForSpecificUser(apps, currentUserId, mediaFile);
+        }
+
+        private static MediaAppModel CloneMediaApp(MediaAppModel app)
+        {
+            var json = JsonSerializer.Serialize(app);
+            return JsonSerializer.Deserialize<MediaAppModel>(json) ?? app;
+        }
+
+        private string extensionsFile => Path.Combine(dataFolder, "extensions", "extensions.json");
+
+        private List<BrowserExtensionModel> LoadBrowserExtensions()
+        {
+            if (!File.Exists(extensionsFile)) return new List<BrowserExtensionModel>();
+            try { return JsonSerializer.Deserialize<List<BrowserExtensionModel>>(File.ReadAllText(extensionsFile)) ?? new(); }
+            catch { return new List<BrowserExtensionModel>(); }
+        }
+
+        private void SaveBrowserExtensions(List<BrowserExtensionModel> extensions)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(extensionsFile)!);
+            File.WriteAllText(extensionsFile, JsonSerializer.Serialize(extensions, new JsonSerializerOptions { WriteIndented = true }));
+        }
+
+        private static string ParseChromeExtensionId(string input)
+        {
+            if (string.IsNullOrWhiteSpace(input)) return "";
+            var match = Regex.Match(input, @"[a-p]{32}", RegexOptions.IgnoreCase);
+            return match.Success ? match.Value.ToLowerInvariant() : "";
+        }
+
+        private async Task InstallChromeExtensionAsync(string sourceUrl)
+        {
+            string id = ParseChromeExtensionId(sourceUrl);
+            if (string.IsNullOrWhiteSpace(id)) throw new InvalidOperationException("Link da Chrome Web Store inválido.");
+
+            string extRoot = Path.Combine(dataFolder, "extensions", id);
+            string tempRoot = Path.Combine(Path.GetTempPath(), "doorpi-ext-" + id + "-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempRoot);
+
+            try
+            {
+                string crxUrl = "https://clients2.google.com/service/update2/crx?response=redirect&prodversion=120.0.0.0&acceptformat=crx2,crx3&x=id%3D"
+                    + id + "%26installsource%3Dondemand%26uc";
+                byte[] crxBytes = await downloadClient.GetByteArrayAsync(crxUrl);
+                int zipOffset = FindZipOffset(crxBytes);
+                if (zipOffset < 0) throw new InvalidOperationException("Não foi possível ler o pacote CRX.");
+
+                string zipPath = Path.Combine(tempRoot, id + ".zip");
+                await File.WriteAllBytesAsync(zipPath, crxBytes.Skip(zipOffset).ToArray());
+                ZipFile.ExtractToDirectory(zipPath, tempRoot, overwriteFiles: true);
+
+                string manifest = Directory.EnumerateFiles(tempRoot, "manifest.json", SearchOption.AllDirectories).FirstOrDefault() ?? "";
+                if (string.IsNullOrWhiteSpace(manifest)) throw new InvalidOperationException("A extensão baixada não possui manifest.json.");
+
+                if (Directory.Exists(extRoot)) Directory.Delete(extRoot, true);
+                Directory.CreateDirectory(Path.GetDirectoryName(extRoot)!);
+                Directory.Move(Path.GetDirectoryName(manifest)!, extRoot);
+
+                string name = id;
+                try
+                {
+                    using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(extRoot, "manifest.json")));
+                    name = GetStr(doc.RootElement, "name", id).Replace("__MSG_", "").Replace("__", "");
+                }
+                catch { }
+
+                var extensions = LoadBrowserExtensions();
+                extensions.RemoveAll(e => string.Equals(e.Id, id, StringComparison.OrdinalIgnoreCase));
+                extensions.Add(new BrowserExtensionModel
+                {
+                    Id = id,
+                    Name = name,
+                    SourceUrl = sourceUrl,
+                    InstalledPath = extRoot,
+                    DateInstalled = DateTime.Now
+                });
+                SaveBrowserExtensions(extensions);
+            }
+            finally
+            {
+                try { if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, true); } catch { }
+            }
+        }
+
+        private static int FindZipOffset(byte[] bytes)
+        {
+            for (int i = 0; i < bytes.Length - 3; i++)
+            {
+                if (bytes[i] == 0x50 && bytes[i + 1] == 0x4B && bytes[i + 2] == 0x03 && bytes[i + 3] == 0x04)
+                    return i;
+            }
+            return -1;
+        }
+
+        private void SendExtensionsToUI(string status = "", string message = "")
+        {
+            var extensions = LoadBrowserExtensions();
+            Dispatcher.Invoke(() =>
+                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                {
+                    type = "extensionsList",
+                    extensions,
+                    status,
+                    message
+                })));
         }
 
         private void SendMediaAppsToUI(List<MediaAppModel> apps)
@@ -788,6 +1373,7 @@ namespace Doorpi
         private void SaveFoldersData(List<FolderStats> folders)
         {
             File.WriteAllText(foldersFile, JsonSerializer.Serialize(folders, new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(Path.Combine(dataFolder, "folders.json"), JsonSerializer.Serialize(folders, new JsonSerializerOptions { WriteIndented = true }));
         }
 
         private List<string> GetWatchedFolderPaths()
@@ -858,7 +1444,7 @@ namespace Doorpi
             foreach (var rootFolder in GetWatchedFolderPaths())
             {
                 if (!Directory.Exists(rootFolder)) continue;
-                onProgress?.Invoke(rootFolder, -1); 
+                onProgress?.Invoke(rootFolder, -1);
                 int foundInRoot = 0;
                 try
                 {
@@ -876,7 +1462,7 @@ namespace Doorpi
                                 string.Equals(Path.GetDirectoryName(a.Path), dir, StringComparison.OrdinalIgnoreCase)
                             ).ToList();
                             newFolderApps.AddRange(appsInDir);
-                            foundInRoot += appsInDir.Count; 
+                            foundInRoot += appsInDir.Count;
                         }
                         else
                         {
@@ -1032,7 +1618,7 @@ namespace Doorpi
             await _cacheLock.WaitAsync();
             try
             {
-               
+
 
                 var cache = LoadAppCache() ?? new AppCacheModel();
 
@@ -1319,10 +1905,10 @@ namespace Doorpi
                     await UpdateAppCacheAsync();
 
                     var cache = LoadAppCache() ?? new AppCacheModel();
-                    var existingGames = BuildExistingGamesSet();
+                    var existingMap = BuildExistingAppsMap();
                     var apps = BuildFinalList(
                         cache.SteamApps, cache.EpicApps, cache.GogApps,
-                        cache.WindowsApps, cache.FolderApps, existingGames);
+                        cache.WindowsApps, cache.FolderApps, existingMap);
 
                     Dispatcher.Invoke(() =>
                         webView.CoreWebView2.PostWebMessageAsString(
@@ -1335,7 +1921,7 @@ namespace Doorpi
 
         private async Task AutoAddPlatformGamesAsync()
         {
-           
+
             if (LoadGames().Any()) return;
 
             var cache = LoadAppCache() ?? new AppCacheModel();
@@ -1346,19 +1932,19 @@ namespace Doorpi
                 .Where(a => !string.IsNullOrEmpty(a.Name)
                             && !a.Name.Contains("Steamworks", StringComparison.OrdinalIgnoreCase)
                             && !a.Name.Contains("Unreal Engine", StringComparison.OrdinalIgnoreCase))
-                .Take(12)         
+                .Take(12)
                 .ToList();
 
             if (!platformGames.Any()) return;
 
-   
+
             Dispatcher.Invoke(() =>
                 webView.CoreWebView2.PostWebMessageAsString(
                     JsonSerializer.Serialize(new { type = "showLoadingCards", count = platformGames.Count, tab = "games" })));
 
             await AddMultipleGamesAsync(platformGames);
 
-          
+
             Dispatcher.Invoke(() =>
                 webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"clearLoadingCards\"}"));
         }
@@ -1393,6 +1979,8 @@ namespace Doorpi
                     Url = url,
                     Type = "browser",
                     MultiUser = true,
+                    OwnerUserId = currentUserId,
+                    ShareMode = "private",
                     GridImage = localGrid != null ? $"https://data.local/images/grid/{Path.GetFileName(localGrid)}" : "",
                     GridHorizontalImage = localHorizontal != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(localHorizontal)}" : "",
                     HeroImage = localHero != null ? $"https://data.local/images/hero/{Path.GetFileName(localHero)}" : "",
@@ -1419,7 +2007,8 @@ namespace Doorpi
 
                 foreach (var app in selectedApps)
                 {
-                    string key = app.Path ?? "";
+                    string key = !string.IsNullOrWhiteSpace(app.LaunchUrl) ? app.LaunchUrl : (app.Path ?? "");
+                    if (string.IsNullOrWhiteSpace(key)) continue;
                     if (existing.Any(a => string.Equals(a.Url, key, StringComparison.OrdinalIgnoreCase)))
                         continue;
 
@@ -1427,13 +2016,37 @@ namespace Doorpi
                         System.Security.Cryptography.MD5.HashData(
                             System.Text.Encoding.UTF8.GetBytes(key)))[..10].ToLower();
 
-                    var (gridUrl, horizontalUrl, heroUrl, logoUrl) = await FetchSteamGridAssetsAsync(app.Name);
+                    string? gridUrl = null;
+                    string? horizontalUrl = null;
+                    string? heroUrl = null;
+                    string? logoUrl = null;
+
+                    try
+                    {
+                        (gridUrl, horizontalUrl, heroUrl, logoUrl) = await FetchSteamGridAssetsAsync(app.Name);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[MediaExe] Arte não encontrada para {app.Name}: {ex.Message}");
+                    }
 
                     string safeName = id;
-                    string? localGrid = gridUrl != null ? await DownloadImageAsync(gridUrl, gridFolder, safeName) : null;
-                    string? localHorizontal = horizontalUrl != null ? await DownloadImageAsync(horizontalUrl, gridHorizontalFolder, safeName + "_h") : null;
-                    string? localHero = heroUrl != null ? await DownloadImageAsync(heroUrl, heroFolder, safeName) : null;
-                    string? localLogo = logoUrl != null ? await DownloadImageAsync(logoUrl, logoFolder, safeName + "_logo") : null;
+                    string? localGrid = null;
+                    string? localHorizontal = null;
+                    string? localHero = null;
+                    string? localLogo = null;
+
+                    try
+                    {
+                        localGrid = gridUrl != null ? await DownloadImageAsync(gridUrl, gridFolder, safeName) : null;
+                        localHorizontal = horizontalUrl != null ? await DownloadImageAsync(horizontalUrl, gridHorizontalFolder, safeName + "_h") : null;
+                        localHero = heroUrl != null ? await DownloadImageAsync(heroUrl, heroFolder, safeName) : null;
+                        localLogo = logoUrl != null ? await DownloadImageAsync(logoUrl, logoFolder, safeName + "_logo") : null;
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[MediaExe] Download de arte falhou para {app.Name}: {ex.Message}");
+                    }
 
                     existing.Add(new MediaAppModel
                     {
@@ -1442,6 +2055,8 @@ namespace Doorpi
                         Url = key,         // path do exe — usado no launch
                         Type = "exe",
                         MultiUser = false,
+                        OwnerUserId = currentUserId,
+                        ShareMode = "private",
                         GridImage = localGrid != null ? $"https://data.local/images/grid/{Path.GetFileName(localGrid)}" : "",
                         GridHorizontalImage = localHorizontal != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(localHorizontal)}" : "",
                         HeroImage = localHero != null ? $"https://data.local/images/hero/{Path.GetFileName(localHero)}" : "",
@@ -1496,7 +2111,7 @@ namespace Doorpi
                     var selectedApps = JsonSerializer.Deserialize<List<InstalledApp>>(gamesElement.GetRawText());
                     if (selectedApps != null && selectedApps.Any())
                     {
-                       
+
                         webView.CoreWebView2.PostWebMessageAsString(
                             JsonSerializer.Serialize(new { type = "showLoadingCards", count = selectedApps.Count, tab = "games" }));
 
@@ -1670,7 +2285,7 @@ namespace Doorpi
                                     {
                                         await UpdateAppCacheAsync();
                                         SendFoldersToUI();
-                                        SendInstalledAppsToUI(); 
+                                        SendInstalledAppsToUI();
                                     }
                                     finally
                                     {
@@ -1746,7 +2361,7 @@ namespace Doorpi
                                     {
                                         await UpdateAppCacheAsync();
                                         SendFoldersToUI();
-                                        SendInstalledAppsToUI(); 
+                                        SendInstalledAppsToUI();
                                     }
                                     finally
                                     {
@@ -1778,7 +2393,7 @@ namespace Doorpi
                             {
                                 await UpdateAppCacheAsync();
                                 SendFoldersToUI();
-                                SendInstalledAppsToUI(); 
+                                SendInstalledAppsToUI();
                             }
                             finally
                             {
@@ -1975,22 +2590,129 @@ namespace Doorpi
                         }
                     }
                 }
-            
+                else if (action == "saveSetupUsers" && root.TryGetProperty("users", out var setupUsersEl))
+                {
+                    int activeIndex = root.TryGetProperty("activeIndex", out var activeEl) ? activeEl.GetInt32() : 0;
+                    var incoming = setupUsersEl.EnumerateArray().ToList();
+                    var existingUsers = LoadUserProfiles();
+                    bool wasEmpty = existingUsers.Count == 0 || existingUsers.All(u => string.IsNullOrWhiteSpace(u.Name));
+                    var savedProfiles = new List<(UserProfile Profile, List<string> Folders)>();
+
+                    foreach (var userEl in incoming)
+                    {
+                        var profile = new UserProfile
+                        {
+                            Id = MakeUserId(GetStr(userEl, "name")),
+                            Name = GetStr(userEl, "name"),
+                            PhotoBase64 = GetStr(userEl, "photoBase64"),
+                            SteamGridApiKey = GetStr(userEl, "apiKey"),
+                            DateCreated = DateTime.Now,
+                            LastUsed = DateTime.Now,
+                        };
+
+                        var folders = userEl.TryGetProperty("folders", out var fEl)
+                            ? JsonSerializer.Deserialize<List<string>>(fEl.GetRawText()) ?? new()
+                            : new List<string>();
+
+                        existingUsers.Add(profile);
+                        string userDir = Path.Combine(dataFolder, "users", profile.Id);
+                        Directory.CreateDirectory(userDir);
+                        File.WriteAllText(Path.Combine(userDir, "user.json"),
+                            JsonSerializer.Serialize(profile, new JsonSerializerOptions { WriteIndented = true }));
+                        File.WriteAllText(Path.Combine(userDir, "games.json"), "[]");
+                        File.WriteAllText(Path.Combine(userDir, "media.json"), "[]");
+                        File.WriteAllText(Path.Combine(userDir, "folders.json"),
+                            JsonSerializer.Serialize(folders.Select(p => new FolderStats { Path = p }).ToList(),
+                                new JsonSerializerOptions { WriteIndented = true }));
+
+                        savedProfiles.Add((profile, folders));
+                    }
+
+                    SaveUserProfiles(existingUsers.Where(u => !string.IsNullOrWhiteSpace(u.Name)).ToList());
+
+                    if (savedProfiles.Count > 0)
+                    {
+                        activeIndex = Math.Clamp(activeIndex, 0, savedProfiles.Count - 1);
+                        var active = savedProfiles[activeIndex].Profile;
+                        SetActiveUser(active, migrateLegacyFiles: wasEmpty && File.Exists(Path.Combine(dataFolder, "games.json")));
+                        RestartWatchers();
+
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                foreach (var item in savedProfiles)
+                                {
+                                    string mediaPath = Path.Combine(dataFolder, "users", item.Profile.Id, "media.json");
+                                    await InitializeNativeAppsAsync(item.Profile.Id, mediaPath);
+                                }
+
+                                await UpdateAppCacheAsync();
+                                await AutoAddPlatformGamesAsync();
+
+                                Dispatcher.Invoke(() =>
+                                {
+                                    LoadCurrentUserIntoUI();
+                                    webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideSystemLoading\"}");
+                                });
+                            }
+                            catch (Exception ex)
+                            {
+                                Debug.WriteLine("[SetupBatch] Erro: " + ex.Message);
+                                Dispatcher.Invoke(() =>
+                                    webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideSystemLoading\"}"));
+                            }
+                        });
+                    }
+                }
                 else if (action == "saveUserProfile")
                 {
+                    bool createNew = root.TryGetProperty("createNew", out var createEl) && createEl.GetBoolean();
+                    bool isPrimary = root.TryGetProperty("isPrimary", out var isPrimEl) && isPrimEl.GetBoolean();
+                    bool isLast = root.TryGetProperty("isLast", out var isLastEl) && isLastEl.GetBoolean();
+                    bool skipTasks = root.TryGetProperty("skipTasks", out var skipEl) && skipEl.GetBoolean();
+
+                    string requestedId = GetStr(root, "userId");
                     var profile = new UserProfile
                     {
+                        Id = createNew ? "" : (!string.IsNullOrWhiteSpace(requestedId) ? requestedId : currentUserId),
                         Name = GetStr(root, "name"),
                         PhotoBase64 = GetStr(root, "photoBase64"),
                         SteamGridApiKey = GetStr(root, "apiKey"),
+                        DateCreated = DateTime.Now,
+                        LastUsed = DateTime.Now,
                     };
+
+                    var users = LoadUserProfiles();
+                    var existingUser = !createNew
+                        ? users.FirstOrDefault(u => string.Equals(u.Id, profile.Id, StringComparison.OrdinalIgnoreCase))
+                        : null;
+
+                    if (existingUser != null)
+                    {
+                        existingUser.Name = profile.Name;
+                        existingUser.PhotoBase64 = profile.PhotoBase64;
+                        existingUser.SteamGridApiKey = profile.SteamGridApiKey;
+                        existingUser.LastUsed = DateTime.Now;
+                        profile.DateCreated = existingUser.DateCreated;
+                        profile = existingUser;
+                    }
+                    else
+                    {
+                        profile.Id = MakeUserId(profile.Name);
+                        users.Add(profile);
+                    }
+                    SaveUserProfiles(users);
+
+                    bool isFirstEver = users.Count == 1;
+                    SetActiveUser(profile, migrateLegacyFiles: isFirstEver && !createNew);
+                    RestartWatchers();
                     SaveUserProfile(profile);
 
                     if (root.TryGetProperty("folders", out var foldersEl))
                     {
                         var paths = JsonSerializer.Deserialize<List<string>>(foldersEl.GetRawText()) ?? new();
                         var existing = LoadFoldersData();
-
                         foreach (var path in paths)
                         {
                             if (!existing.Any(f => string.Equals(f.Path, path, StringComparison.OrdinalIgnoreCase)))
@@ -2002,29 +2724,89 @@ namespace Doorpi
                         SaveFoldersData(existing);
                     }
 
-                    _ = Task.Run(async () => {
+                    if (!skipTasks)
+                    {
+                        // CAPTURA AS VARIÁVEIS ANTES DO TASK.RUN PRA CONGELAR O CONTEXTO!
+                        string taskUserId = profile.Id;
+                        string taskMediaFile = Path.Combine(dataFolder, "users", taskUserId, "media.json");
+
+                        _ = Task.Run(async () => {
+                            try
+                            {
+                                await InitializeNativeAppsAsync(taskUserId, taskMediaFile);
+
+                                if (isPrimary)
+                                {
+                                    await UpdateAppCacheAsync();
+                                    await AutoAddPlatformGamesAsync();
+                                }
+
+                                if (isLast)
+                                {
+                                    Dispatcher.Invoke(() => {
+                                        LoadCurrentUserIntoUI();
+                                        webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideSystemLoading\"}");
+                                    });
+                                }
+                            }
+                            catch (Exception ex) { Debug.WriteLine("[Setup] Erro: " + ex.Message); }
+                        });
+                    }
+                }
+                else if (action == "requestUsers")
+                {
+                    SendUsersToUI(requireSelection: false);
+                }
+                else if (action == "selectUser")
+                {
+                    string userId = GetStr(root, "userId");
+                    if (!string.IsNullOrWhiteSpace(userId)) SwitchToUser(userId);
+                }
+                else if (action == "requestExtensions")
+                {
+                    SendExtensionsToUI();
+                }
+                else if (action == "installExtension")
+                {
+                    string url = GetStr(root, "url");
+                    _ = Task.Run(async () =>
+                    {
                         try
                         {
-                            var cacheTask = Task.Run(async () => {
-                                try { await UpdateAppCacheAsync(); }
-                                catch (Exception ex) { Debug.WriteLine("[Setup] Cache erro: " + ex.Message); }
-                            });
-                            var artTask = Task.Run(async () => {
-                                try { await InitializeNativeAppsAsync(); }
-                                catch (Exception ex) { Debug.WriteLine("[Setup] Arte erro: " + ex.Message); }
-                            });
-
-                            await Task.WhenAll(cacheTask, artTask);
-
-                            try { await AutoAddPlatformGamesAsync(); }
-                            catch (Exception ex) { Debug.WriteLine("[AutoAdd] " + ex.Message); }
+                            await InstallChromeExtensionAsync(url);
+                            SendExtensionsToUI("success", "Extensão instalada. Reabra o aplicativo web para carregar.");
                         }
-                        finally
+                        catch (Exception ex)
                         {
-                            Dispatcher.Invoke(() =>
-                                webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideSystemLoading\"}"));
+                            SendExtensionsToUI("error", ex.Message);
                         }
                     });
+                }
+                else if (action == "openExtensionStore")
+                {
+                    _ = Dispatcher.InvokeAsync(async () =>
+                        await OpenWebViewInlineAsync("https://chromewebstore.google.com/category/extensions", false));
+                }
+                else if (action == "updateAppSharing")
+                {
+                    string appId = GetStr(root, "appId");
+                    string shareMode = GetStr(root, "shareMode", "private");
+                    string sharedWithUserId = GetStr(root, "sharedWithUserId");
+                    var users = LoadUserProfiles();
+                    var apps = LoadMediaAppsForUser(currentUserId);
+                    var app = apps.FirstOrDefault(a => string.Equals(a.Id, appId, StringComparison.OrdinalIgnoreCase) ||
+                                                       string.Equals(a.Url, appId, StringComparison.OrdinalIgnoreCase));
+                    if (app != null && !app.IsSharedFromOtherUser)
+                    {
+                        app.OwnerUserId = currentUserId;
+                        app.ShareMode = shareMode is "all" or "user" ? shareMode : "private";
+                        app.SharedWithUserId = app.ShareMode == "user" ? sharedWithUserId : "";
+                        app.SharedWithUserName = app.ShareMode == "user"
+                            ? users.FirstOrDefault(u => string.Equals(u.Id, sharedWithUserId, StringComparison.OrdinalIgnoreCase))?.Name ?? ""
+                            : "";
+                        SaveMediaApps(apps);
+                        SendMediaAppsToUI(LoadMediaApps());
+                    }
                 }
                 else if (action == "pickProfilePhoto")
                 {
@@ -2079,7 +2861,7 @@ namespace Doorpi
                             _ = Dispatcher.InvokeAsync(async () => await OpenWebViewInlineAsync(mediaUrl, mediaUrl.Contains("youtube.com")));
                         else if (appType == "exe")
                         {
-                           
+
                             Dispatcher.Invoke(() =>
                             {
                                 try
@@ -2092,6 +2874,12 @@ namespace Doorpi
                                             UseShellExecute = true,
                                             WorkingDirectory = Path.GetDirectoryName(mediaUrl)
                                         });
+                                        if (proc != null) WatchAndRefocus(proc);
+                                    }
+                                    else if (!string.IsNullOrWhiteSpace(mediaUrl))
+                                    {
+                                        EnsureLauncherRunning(mediaUrl);
+                                        var proc = Process.Start(new ProcessStartInfo(mediaUrl) { UseShellExecute = true });
                                         if (proc != null) WatchAndRefocus(proc);
                                     }
                                 }
@@ -2133,6 +2921,32 @@ namespace Doorpi
                         webView.CoreWebView2.PostWebMessageAsString(
                             JsonSerializer.Serialize(new { type = "clipboardText", text }));
                     });
+                }
+                else if (action == "systemMouseMove")
+                {
+                    int dx = root.TryGetProperty("dx", out var dxEl) ? dxEl.GetInt32() : 0;
+                    int dy = root.TryGetProperty("dy", out var dyEl) ? dyEl.GetInt32() : 0;
+                    Dispatcher.Invoke(() =>
+                    {
+                        if (GetCursorPos(out var pt))
+                            SetCursorPos(pt.X + dx, pt.Y + dy);
+                    });
+                }
+                else if (action == "systemMouseClick")
+                {
+                    mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+                    mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+                }
+                else if (action == "systemMouseRightClick")
+                {
+                    const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
+                    const uint MOUSEEVENTF_RIGHTUP = 0x0010;
+                    mouse_event(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, UIntPtr.Zero);
+                    mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, UIntPtr.Zero);
+                }
+                else if (action == "enterDesktopMode")
+                {
+                    Dispatcher.Invoke(EnterDesktopMode);
                 }
                 else if (action == "detectBrowsers")
                 {
@@ -2177,7 +2991,7 @@ namespace Doorpi
                     steamAppId = app.LaunchUrl.Replace("steam://run/", "").Trim();
 
                 var (gridUrl, gridHorizontalUrl, heroUrl, logoUrl) = await FetchSteamGridAssetsAsync(app.Name, steamAppId);
-
+                await Task.Delay(150);
                 string safeName = app.Path.GetHashCode().ToString();
                 string? localGrid = null, localGridHorizontal = null, localHero = null, localLogo = null;
 
@@ -2229,7 +3043,7 @@ namespace Doorpi
 
         private async Task<(string?, string?, string?, string?)> FetchSteamGridAssetsAsync(string gameName, string? steamAppId = null)
         {
-         
+
 
             string treatedName = PrepareSearchName(gameName);
             Debug.WriteLine($"[SGDB] Nome original: {gameName} | Tratado: {treatedName}");
@@ -2296,6 +3110,7 @@ namespace Doorpi
                     int id = game.GetProperty("id").GetInt32();
                     var assets = await FetchAssetsByGameId(id);
                     if (assets.Item1 != null) return assets;
+                    await Task.Delay(150);
                 }
 
                 return (null, null, null, null);
@@ -2525,6 +3340,8 @@ namespace Doorpi
         private void SaveGames(List<GameModel> games)
         {
             File.WriteAllText(gamesFile, JsonSerializer.Serialize(games,
+                new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(Path.Combine(dataFolder, "games.json"), JsonSerializer.Serialize(games,
                 new JsonSerializerOptions { WriteIndented = true }));
         }
 

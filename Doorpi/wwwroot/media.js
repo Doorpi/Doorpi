@@ -51,6 +51,25 @@ let _currentHomeTab = 'games';
     .card.is-loading .title {
         opacity: 0;
     }
+    .media-card-fallback {
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: 'Outfit', sans-serif;
+        font-size: clamp(2.3rem, 4vw, 5.5rem);
+        font-weight: 800;
+        color: rgba(255,255,255,0.78);
+        background:
+            radial-gradient(circle at 28% 18%, rgba(255,255,255,0.18), transparent 32%),
+            linear-gradient(135deg, rgba(32,42,76,0.98), rgba(11,13,26,0.98) 58%, rgba(42,35,72,0.98));
+        text-transform: uppercase;
+    }
+    .media-card.no-art img {
+        display: none;
+    }
     @keyframes cardShimmer {
         0%   { background-position: 200% 0; }
         100% { background-position: -200% 0; }
@@ -371,6 +390,11 @@ function createMediaCard(data) {
     card.dataset.appId = appId;
     card.dataset.appUrl = appUrl;
     card.dataset.appType = appType;
+    card.dataset.ownerUserId = data.OwnerUserId || data.ownerUserId || '';
+    card.dataset.shareMode = data.ShareMode || data.shareMode || 'private';
+    card.dataset.sharedWithUserId = data.SharedWithUserId || data.sharedWithUserId || '';
+    card.dataset.sharedFromOther = (data.IsSharedFromOtherUser || data.isSharedFromOtherUser) ? 'true' : 'false';
+    card.dataset.sharedFromName = data.SharedFromUserName || data.sharedFromUserName || '';
     card.dataset.hero = data.HeroImage || data.heroImage || '';
     card.dataset.logo = data.LogoImage || data.logoImage || '';
     card.dataset.vertical = data.GridImage || data.gridImage || '';
@@ -384,6 +408,9 @@ function createMediaCard(data) {
 
     const img = document.createElement('img');
     img.decoding = 'async';
+    const fallback = document.createElement('div');
+    fallback.className = 'media-card-fallback';
+    fallback.textContent = (appName || '?').trim().charAt(0) || '?';
 
     const hasSrc = card.dataset.vertical || card.dataset.staticVertical;
     if (!hasSrc) card.classList.add('is-loading');
@@ -401,6 +428,10 @@ function createMediaCard(data) {
             img.src = src;
             img.style.opacity = '1';
             card.classList.remove('is-loading');
+            fallback.remove();
+        } else {
+            card.classList.remove('is-loading');
+            card.classList.add('no-art');
         }
     });
 
@@ -474,10 +505,18 @@ function createMediaCard(data) {
         postToHost({ action: 'launchMediaApp', url: appUrl, appType: appType });
     });
     card.appendChild(img);
+    card.appendChild(fallback);
     const title = document.createElement('div');
     title.className = 'title';
     title.innerText = appName;
     card.appendChild(title);
+    if (card.dataset.shareMode !== 'private' || card.dataset.sharedFromOther === 'true') {
+        const badge = document.createElement('div');
+        badge.className = 'title';
+        badge.style.cssText = 'font-size:0.65em;color:rgba(120,190,255,.95);bottom:8px;';
+        badge.innerText = card.dataset.sharedFromOther === 'true' ? 'Compartilhado' : 'Conta compartilhada';
+        card.appendChild(badge);
+    }
 
     const btnAddMedia = document.getElementById('btnAddMedia');
     grid.insertBefore(card, btnAddMedia);
