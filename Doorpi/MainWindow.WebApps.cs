@@ -34,6 +34,7 @@ namespace Doorpi
         [DllImport("user32.dll")]
         private static extern bool SetCursorPos(int x, int y); [DllImport("xinput1_4.dll", EntryPoint = "#100")]
         private static extern int XInputGetStateEx(int dwUserIndex, out XINPUT_STATE pState);
+        private bool _isMouseHidden = false;
 
         // ── Constantes mouse ──────────────────────────────────────────────────
         private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
@@ -133,7 +134,9 @@ namespace Doorpi
             long xLastRepeat = 0;
 
             while (_mediaMouseActive)
+
             {
+
                 double dt = sw.Elapsed.TotalSeconds;
                 sw.Restart();
                 if (dt > 0.08) dt = 0.016;
@@ -1165,11 +1168,19 @@ const origPush = history.pushState.bind(history);
             if (e.Key == Key.Escape || e.Key == Key.BrowserBack)
             {
                 e.Handled = true;
-                if (_isCurrentSiteYouTube)
-                    _ytWebView?.CoreWebView2?.ExecuteScriptAsync(
-                        "if(window.handleBackButton) window.handleBackButton();");
-                else
-                    Dispatcher.Invoke(CloseYouTubeInline);
+                if (_ytWebView?.CoreWebView2 != null)
+                {
+                    // Tenta voltar a página
+                    if (_ytWebView.CoreWebView2.CanGoBack)
+                    {
+                        _ytWebView.CoreWebView2.GoBack();
+                    }
+                    else
+                    {
+                        // Se não dá para voltar, fecha o app
+                        Dispatcher.Invoke(CloseYouTubeInline);
+                    }
+                }
             }
         }
 
