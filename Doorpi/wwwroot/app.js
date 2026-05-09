@@ -336,132 +336,126 @@ function ensureDoorpiOverlayStyles() {
     .doorpi-share-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
     .doorpi-shared-note { font-size: .85rem; color: rgba(120,190,255,.9); margin-top: 8px; }
 
-    /* USER CARDS STYLES */
-    .doorpi-user-grid {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: clamp(16px, 2vw, 32px);
-        width: 100%;
-    }
-    .doorpi-user-card {
-        background: rgba(255, 255, 255, 0.04);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: clamp(16px, 2vw, 24px);
-        color: #fff;
-        width: clamp(160px, 16vw, 220px);
-        aspect-ratio: 1 / 1.25;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: clamp(16px, 2vw, 24px);
-        cursor: pointer;
-        outline: none;
-        transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.35s, background 0.35s, box-shadow 0.35s;
-        position: relative;
-        overflow: hidden;
-        animation: doorpiCardRise 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards;
-        will-change: transform, opacity, translate;
-    }
+/* USER CARDS STYLES */
+.doorpi-user-grid {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: clamp(32px, 4vw, 64px);
+    width: 100%;
+}
 
-    @keyframes doorpiCardRise {
-        from { opacity: 0; translate: 0 24px; }
-        to { opacity: 1; translate: 0 0; }
-    }
+.doorpi-user-card {
+    background: none;
+    border: none;
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: clamp(14px, 1.6vw, 20px);
+    cursor: pointer;
+    outline: none;
+    padding: 0;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    position: relative;
+    animation: doorpiCardRise 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+    will-change: transform;
+}
 
-    .doorpi-user-card::before {
-        content: '';
-        position: absolute;
-        inset: 0;
-        background: radial-gradient(circle at center 30%, rgba(255,255,255,0.08), transparent 60%);
-        opacity: 0;
-        transition: opacity 0.4s;
-    }
+@keyframes doorpiCardRise {
+    from { opacity: 0; translate: 0 24px; }
+    to { opacity: 1; translate: 0 0; }
+}
 
-    .doorpi-user-card:focus, .doorpi-user-card:hover {
-        background: rgba(255, 255, 255, 0.08);
-        border-color: rgba(255, 255, 255, 0.4);
-        transform: translateY(-12px) scale(1.05);
-        box-shadow: 0 24px 48px rgba(0,0,0,0.6), 0 0 0 4px rgba(255,255,255,0.15);
-    }
-    .doorpi-user-card:focus::before, .doorpi-user-card:hover::before {
-        opacity: 1;
-    }
+.doorpi-user-card:focus,
+.doorpi-user-card:hover {
+    transform: translateY(-8px) scale(1.06);
+}
 
-    .doorpi-avatar {
-        width: clamp(80px, 9vw, 120px);
-        height: clamp(80px, 9vw, 120px);
-        border-radius: 50%;
-        background: rgba(255,255,255,0.08);
-        border: 2px solid rgba(255,255,255,0.15);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-        color: rgba(255,255,255,0.45);
-        font-size: clamp(32px, 4vw, 50px);
-        transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.4s, box-shadow 0.4s;
-        position: relative;
-        z-index: 2;
-    }
+.doorpi-avatar {
+    width: clamp(170px, 12vw, 220px);
+    height: clamp(170px, 12vw, 220px);
+    border-radius: 50%;
+    background: rgba(255,255,255,0.08);
+    border: 3px solid rgba(255,255,255,0.15);
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    color: rgba(255,255,255,0.45);
+    font-size: clamp(38px, 5vw, 58px);
+    transition: border-color 0.25s, box-shadow 0.25s;
+    position: relative;
+    z-index: 2;
+}
 
-    .doorpi-user-card:focus .doorpi-avatar, .doorpi-user-card:hover .doorpi-avatar {
-        transform: scale(1.15);
-        border-color: #fff;
-        box-shadow: 0 12px 32px rgba(0,0,0,0.5);
-    }
+.doorpi-user-card:focus .doorpi-avatar,
+.doorpi-user-card:hover .doorpi-avatar {
+    border-color: #fff;
 
-    .doorpi-avatar img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-    }
+}
 
-    .doorpi-user-name {
-        font-size: clamp(0.8rem, 1.25vw, 1.1rem);
-        font-weight: 600;
-        text-align: center;
-        letter-spacing: 0.02em;
-        z-index: 2;
-        padding: 0 10px;
-    }
+.doorpi-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
 
-    .doorpi-user-badge {
-        position: absolute;
-        top: 14px;
-        right: 14px;
-        font-size: 0.65rem;
-        font-weight: 800;
-        color: rgba(16, 25, 20, 0.95);
-        background: rgba(120, 220, 150, 0.95);
-        padding: 4px 10px;
-        border-radius: 12px;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-        z-index: 2;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-    }
-    
-    .doorpi-create-user-icon {
-        font-size: clamp(40px, 5vw, 60px);
-        font-weight: 200;
-        color: rgba(255,255,255,0.4);
-        transition: color 0.3s, transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-    }
-    .doorpi-user-card.create-card:focus .doorpi-create-user-icon,
-    .doorpi-user-card.create-card:hover .doorpi-create-user-icon {
-        color: #fff;
-        transform: rotate(90deg) scale(1.1);
-    }
-    .doorpi-user-card.create-card {
-        border: 2px solid rgba(255,255,255,0.15);
-        background: rgba(255,255,255,0.02);
-    }
-    .doorpi-user-card.create-card:focus, .doorpi-user-card.create-card:hover {
-        border-color: rgba(255,255,255,0.4);
-        background: rgba(255,255,255,0.06);
-    }
+.doorpi-user-name {
+    font-size: clamp(1rem, 1.2vw, 1.3rem);
+    font-weight: 500;
+    text-align: center;
+    letter-spacing: 0.02em;
+    color: rgba(255,255,255,0.65);
+    transition: color 0.2s;
+    z-index: 2;
+}
+
+.doorpi-user-card:focus .doorpi-user-name,
+.doorpi-user-card:hover .doorpi-user-name {
+    color: #fff;
+}
+
+.doorpi-user-badge {
+    font-size: 0.65rem;
+    font-weight: 800;
+    color: rgba(16, 25, 20, 0.95);
+    background: rgba(120, 220, 150, 0.95);
+    padding: 3px 9px;
+    border-radius: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    margin-top: -6px;
+}
+
+.doorpi-create-user-icon {
+    font-size: clamp(40px, 5vw, 58px);
+    font-weight: 200;
+    color: rgba(255,255,255,0.35);
+    transition: color 0.3s, transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    line-height: 1;
+}
+
+.doorpi-user-card.create-card .doorpi-avatar {
+    border-style: dashed;
+    border-color: rgba(255,255,255,0.2);
+    background: rgba(255,255,255,0.03);
+}
+
+.doorpi-user-card.create-card:focus .doorpi-avatar,
+.doorpi-user-card.create-card:hover .doorpi-avatar {
+    border-color: rgba(255,255,255,0.6);
+}
+
+.doorpi-user-card.create-card:focus .doorpi-create-user-icon,
+.doorpi-user-card.create-card:hover .doorpi-create-user-icon {
+    color: #fff;
+    transform: rotate(90deg) scale(1.1);
+}
+
+
 
     @media(max-width: 760px) {
         .doorpi-manager-form, .doorpi-share-grid { grid-template-columns: 1fr; }
@@ -550,11 +544,11 @@ function showUserPicker(users, requireSelection = false) {
     overlay.dataset.required = requireSelection ? 'true' : 'false';
 
     const cards = users.map((user, idx) => `
-        <button class="doorpi-user-card" data-user-id="${escapeHtml(user.Id)}" tabindex="0" style="animation-delay: ${idx * 0.05}s">
-            ${avatarMarkup(user)}
-            <span class="doorpi-user-name">${escapeHtml(user.Name)}</span>
-            ${user.Id === window._doorpiCurrentUserId ? `<span class="doorpi-user-badge">${t('badgeCurrent')}</span>` : ''}
-        </button>`).join('');
+    <button class="doorpi-user-card" data-user-id="${escapeHtml(user.Id)}" tabindex="0" style="animation-delay: ${idx * 0.06}s">
+        ${avatarMarkup(user)}
+        <span class="doorpi-user-name">${escapeHtml(user.Name)}</span>
+        ${user.Id === window._doorpiCurrentUserId ? `<span class="doorpi-user-badge">${t('badgeCurrent')}</span>` : ''}
+    </button>`).join('');
 
     const createUserDelay = users.length * 0.05;
 
@@ -567,7 +561,9 @@ function showUserPicker(users, requireSelection = false) {
             <div class="doorpi-user-grid">
                 ${cards}
                 <button class="doorpi-user-card create-card" id="doorpiCreateUserCard" tabindex="0" style="animation-delay: ${createUserDelay}s">
-                    <div class="doorpi-create-user-icon">+</div>
+                    <div class="doorpi-avatar">
+                        <div class="doorpi-create-user-icon">+</div>
+                    </div>
                     <span class="doorpi-user-name" data-i18n="newUser">${t('newUser')}</span>
                 </button>
             </div>
