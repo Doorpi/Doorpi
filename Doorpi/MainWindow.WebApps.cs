@@ -483,7 +483,7 @@ namespace Doorpi
                     padding:14px 28px;display:flex;align-items:center;gap:18px;
                     box-shadow:0 15px 45px rgba(0,0,0,0.7);z-index:2147483647;
                     opacity:0;transition:all 0.5s cubic-bezier(0.16,1,0.3,1);
-                    font-family:'Outfit',sans-serif;min-width:320px;}}
+                    font-family:'Outfit',sans-serif;min-width:320px;}}        function checkState(forceUpdate = false) {{
                 .console-toast.visible{{transform:translateX(-50%) translateY(0);opacity:1;}}
                 .toast-icon{{width:40px;height:40px;background:#0078d4;border-radius:50%;
                     display:flex;align-items:center;justify-content:center;font-size:20px;color:white;
@@ -520,21 +520,23 @@ namespace Doorpi
         let btn = document.getElementById('doorpi-ext-btn');
         let positionAnchored = false;
         let lastRenderedState = null;
+        let detailPageEnteredAt = 0;
 
         function isDetailPage() {{ return location.href.includes('chromewebstore.google.com/detail/'); }}
         function getExtId() {{ return (location.href.match(/\/detail\/[^/]+\/([a-z]{{32}})/) || [])[1] || null; }}
 
-        function findInstallButton() {{
-            const kw =['usar no chrome','adicionar ao chrome','add to chrome','use in chrome','install'];
+function findInstallButton() {{
             for (const b of document.querySelectorAll('button')) {{
+                if (b.id === 'doorpi-ext-btn') continue;
                 const t = (b.textContent||'').trim().toLowerCase();
-                if (kw.some(k => t.includes(k)) && b.getBoundingClientRect().width > 10) return b;
+                if (t.includes('chrome') && b.getBoundingClientRect().width > 10) return b;
             }}
             for (const host of document.querySelectorAll('*')) {{
                 if (!host.shadowRoot) continue;
                 for (const b of host.shadowRoot.querySelectorAll('button')) {{
+                    if (b.id === 'doorpi-ext-btn') continue;
                     const t = (b.textContent||'').trim().toLowerCase();
-                    if (kw.some(k => t.includes(k)) && b.getBoundingClientRect().width > 10) return b;
+                    if (t.includes('chrome') && b.getBoundingClientRect().width > 10) return b;
                 }}
             }}
             return null;
@@ -591,13 +593,16 @@ namespace Doorpi
             }}
         }}
 
-        function checkState(forceUpdate = false) {{
+function checkState(forceUpdate = false) {{
             if (!isDetailPage()) {{
                 if (btn && btn.style.display !== 'none') btn.style.display = 'none';
+                detailPageEnteredAt = 0;
                 return;
             }}
 
             if (!positionAnchored) {{
+                if (!detailPageEnteredAt) detailPageEnteredAt = Date.now();
+
                 const target = findInstallButton();
                 if (target) {{
                     const rect = target.getBoundingClientRect();
@@ -613,6 +618,17 @@ namespace Doorpi
                         btn.style.width = Math.max(260, rect.width) + 'px';
                         positionAnchored = true;
                     }}
+                }} else if (Date.now() - detailPageEnteredAt > 400) {{
+                    const base = 'align-items:center;gap:11px;padding:11px 18px 11px 14px;' +
+                                 'backdrop-filter:blur(20px);border-radius:12px;' +
+                                 'color:rgba(255,255,255,0.88);font-family:Outfit,sans-serif;font-size:13px;' +
+                                 'transition:all 0.15s;outline:none;box-sizing:border-box;z-index:999999;';
+                    btn.style.cssText = base;
+                    btn.style.position = 'fixed';
+                    btn.style.top   = '50px';
+                    btn.style.left  = '66%';
+                    btn.style.width = '260px';
+                    positionAnchored = true;
                 }}
             }}
 
@@ -626,12 +642,18 @@ namespace Doorpi
         const obs = new MutationObserver(() => {{ checkState(false); }});
         obs.observe(document.body, {{ childList:true, subtree:true }});
 
-        const origPush = history.pushState.bind(history);
+const origPush = history.pushState.bind(history);
         history.pushState = function() {{
             origPush.apply(this, arguments);
+            positionAnchored = false;
+            detailPageEnteredAt = 0;
+            lastRenderedState = null;
             setTimeout(() => checkState(false), 150);
         }};
         window.addEventListener('popstate', () => {{
+            positionAnchored = false;
+            detailPageEnteredAt = 0;
+            lastRenderedState = null;
             setTimeout(() => checkState(false), 150);
         }});
 

@@ -2913,8 +2913,12 @@ namespace Doorpi
                     _extToastSub = GetStr(root, "toastSub", "Extensão enviada ao Doorpi!");
                     _extInstalledTitle = GetStr(root, "extInstalledTitle", "Já instalada no Doorpi");
                     _extInstalledSub = GetStr(root, "extInstalledSub", "Em uso no seu navegador");
+
+                    string hl = System.Globalization.CultureInfo.CurrentUICulture.Name.Replace('_', '-');
+                    string cwsUrl = $"https://chromewebstore.google.com/category/extensions?hl={hl}";
+
                     _ = Dispatcher.InvokeAsync(async () =>
-                        await OpenWebViewInlineAsync("https://chromewebstore.google.com/category/extensions", false));
+                        await OpenWebViewInlineAsync(cwsUrl, false));
                 }
                 else if (action == "updateAppSharing")
                 {
