@@ -32,7 +32,7 @@ const SCAN_LIBS = ['Steam', 'Epic', 'GOG', 'Windows', 'Folder'];
     btn.id = 'btnTopProfile';
     btn.className = 'top-profile-btn';
     btn.tabIndex = 0;
-    btn.innerHTML = `<div class="doorpi-avatar"></div>`;
+    btn.innerHTML = `<div class="doorpi-avatar"></div><span class="top-profile-name"></span>`;
     document.body.appendChild(btn);
 
     btn.addEventListener('click', () => {
@@ -45,25 +45,45 @@ const SCAN_LIBS = ['Steam', 'Epic', 'GOG', 'Windows', 'Folder'];
             position: fixed;
             top: clamp(20px, 3vh, 40px);
             left: clamp(24px, 4vw, 60px);
-            width: clamp(48px, 4.5vw, 64px);
-            height: clamp(48px, 4.5vw, 64px);
-            border-radius: 50%;
-            background: rgba(255,255,255,0.05);
-            border: 2px solid rgba(255,255,255,0.15);
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            background: none;
+            border: none;
             cursor: pointer;
             outline: none;
             z-index: 8000;
-            transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
             padding: 0;
-            overflow: hidden;
         }
-        .top-profile-btn:focus, .top-profile-btn:hover {
+
+        .top-profile-btn .doorpi-avatar {
+            width: clamp(58px, 4.5vw, 74px);
+            height: clamp(58px, 4.5vw, 74px);
+            border-radius: 50%;
+            background: rgb(255 255 255 / 0%);
+            border: 2px solid rgba(255,255,255,0.15);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            flex-shrink: 0;
+            transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+        }
+        .top-profile-btn:focus .doorpi-avatar, .top-profile-btn:hover .doorpi-avatar {
             transform: scale(1.1);
             border-color: #fff;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5), 0 0 0 4px rgba(255,255,255,0.2);
         }
-        .top-profile-btn .doorpi-avatar { width: 100%; height: 100%; display:flex; align-items:center; justify-content:center; }
         .top-profile-btn img { width: 100%; height: 100%; object-fit: cover; }
+        .top-profile-name {
+            font-size: clamp(17px, 1vw, 19px);
+            font-weight: 500;
+            color: rgba(255,255,255,0.7);
+            white-space: nowrap;
+            filter: drop-shadow(1px 2px 1px black);
+        }
+        .top-profile-btn:focus .top-profile-name, .top-profile-btn:hover .top-profile-name {
+            color: #fff;
+        }
     `;
     document.head.appendChild(s);
 })();
@@ -176,11 +196,14 @@ window.chrome.webview.addEventListener('message', event => {
             const btn = document.getElementById('btnTopProfile');
             if (btn) {
                 const u = data.user;
-                if (u && u.PhotoBase64) {
-                    btn.innerHTML = `<img src="data:image/png;base64,${u.PhotoBase64}" />`;
-                } else {
-                    btn.innerHTML = `<div class="doorpi-avatar" style="font-size: 20px;">${u && u.Name ? u.Name.charAt(0).toUpperCase() : '•'}</div>`;
+                const avatar = btn.querySelector('.doorpi-avatar');
+                const name = btn.querySelector('.top-profile-name');
+                if (avatar) {
+                    avatar.innerHTML = u?.PhotoBase64
+                        ? `<img src="data:image/png;base64,${u.PhotoBase64}" />`
+                        : (u?.Name ? u.Name.charAt(0).toUpperCase() : '•');
                 }
+                if (name) name.textContent = u?.Name ?? '';
             }
             if (typeof clearHero === 'function') clearHero();
         }
