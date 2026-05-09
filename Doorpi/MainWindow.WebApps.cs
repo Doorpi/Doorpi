@@ -375,17 +375,22 @@ namespace Doorpi
 
                 _popupWebView.CoreWebView2.NavigationCompleted += async (s, args) =>
                 {
-                    _popupWebView.Focus();
-                    _popupWebView.CoreWebView2.ExecuteScriptAsync("window.focus();");
+                    var popup = _popupWebView;
+                    var yt = _ytWebView;
+                    if (popup == null) return;
+
+                    popup.Focus();
+                    popup.CoreWebView2.ExecuteScriptAsync("window.focus();");
                     try
                     {
-                        string currentUrl = _popupWebView.CoreWebView2.Source;
-                        var mainUri = new Uri(_ytWebView.CoreWebView2.Source);
+                        string currentUrl = popup.CoreWebView2.Source;
+                        if (yt == null) return;
+                        var mainUri = new Uri(yt.CoreWebView2.Source);
                         var popupUri = new Uri(currentUrl);
                         if (popupUri.Host.Contains(mainUri.Host.Replace("www.", "")) && !currentUrl.Contains("google.com"))
                         {
                             await Task.Delay(2000);
-                            if (_popupWindow != null) { _popupWindow.Close(); _ytWebView.CoreWebView2.Reload(); }
+                            if (_popupWindow != null) { _popupWindow.Close(); yt.CoreWebView2.Reload(); }
                         }
                     }
                     catch { }
@@ -455,7 +460,7 @@ namespace Doorpi
     }});
 
     // ── 2. AUTO-COPY NO CLIQUE (Chave API) ───────────────────────────────────
-    document.addEventListener('click', function(e) {{
+document.addEventListener('click', function(e) {{
         const el = e.target.closest('code') || (e.target.tagName === 'CODE' ? e.target : null);
         if (!el) return;
         const apiText = el.innerText.trim();
@@ -465,12 +470,16 @@ namespace Doorpi
             window.getSelection().removeAllRanges();
             window.getSelection().addRange(range);
             window.chrome.webview.postMessage('copy_api_key:' + apiText);
-            showConsoleToast('{_currentToastTitle}', '{_currentToastSub}');
+            showConsoleToast(
+                '{_currentToastTitle}' || 'Doorpi',
+                '{_currentToastSub}'   || 'Chave copiada!'
+            );
             setTimeout(() => window.chrome.webview.postMessage('close_app'), 2200);
         }}
     }});
 
     // ── 3. TOAST ──────────────────────────────────────────────────────────────
+// ── 3. TOAST ──────────────────────────────────────────────────────────────
     function showConsoleToast(title, sub) {{
         if (!document.getElementById('doorpi-toast-style')) {{
             const s = document.createElement('style');
@@ -483,7 +492,7 @@ namespace Doorpi
                     padding:14px 28px;display:flex;align-items:center;gap:18px;
                     box-shadow:0 15px 45px rgba(0,0,0,0.7);z-index:2147483647;
                     opacity:0;transition:all 0.5s cubic-bezier(0.16,1,0.3,1);
-                    font-family:'Outfit',sans-serif;min-width:320px;}}        function checkState(forceUpdate = false) {{
+                    font-family:'Outfit',sans-serif;min-width:320px;}}
                 .console-toast.visible{{transform:translateX(-50%) translateY(0);opacity:1;}}
                 .toast-icon{{width:40px;height:40px;background:#0078d4;border-radius:50%;
                     display:flex;align-items:center;justify-content:center;font-size:20px;color:white;
