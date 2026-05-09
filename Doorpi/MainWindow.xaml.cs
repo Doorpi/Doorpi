@@ -127,6 +127,8 @@ namespace Doorpi
         private string _extBtnSub = "Instalar via Doorpi Browser";
         private string _extToastTitle = "Doorpi";
         private string _extToastSub = "Extensão enviada ao Doorpi!";
+        private string _extInstalledTitle = "Já instalada no Doorpi";
+        private string _extInstalledSub = "Em uso no seu navegador";
         private string GetStr(JsonElement root, string propName, string fallback = "")
         {
             return root.TryGetProperty(propName, out var prop) ? (prop.GetString() ?? fallback) : fallback;
@@ -974,7 +976,43 @@ namespace Doorpi
             var json = JsonSerializer.Serialize(app);
             return JsonSerializer.Deserialize<MediaAppModel>(json) ?? app;
         }
+        private async Task InjectInstalledExtensionsAsync(CoreWebView2 cw)
+        {
+            try
+            {
+                var installed = LoadBrowserExtensions();
+                var payload = installed.Select(e => new
+                {
+                    id = e.Id,
+                    name = e.Name,
+                    version = GetExtensionVersion(e)   // para o futuro update-checker
+                }).ToArray();
+                string json = System.Text.Json.JsonSerializer.Serialize(payload);
+                await cw.ExecuteScriptAsync($"window.__doorpiSetInstalledExtensions?.({json})");
+            }
+            catch (Exception ex) { Debug.WriteLine($"[Extensions] inject: {ex.Message}"); }
+        }
 
+        private string GetExtensionVersion(BrowserExtensionModel ext)
+        {
+            try
+            {
+                string manifestPath = Path.Combine(ext.InstalledPath, "manifest.json");
+                if (!File.Exists(manifestPath))
+                {
+                    var vFolder = Directory.GetDirectories(ext.InstalledPath)
+                        .FirstOrDefault(d => File.Exists(Path.Combine(d, "manifest.json")));
+                    if (vFolder != null) manifestPath = Path.Combine(vFolder, "manifest.json");
+                }
+                if (File.Exists(manifestPath))
+                {
+                    var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(manifestPath));
+                    return node?["version"]?.ToString() ?? "";
+                }
+            }
+            catch { }
+            return "";
+        }
         private string extensionsFile => Path.Combine(dataFolder, "extensions", "extensions.json");
 
         private List<BrowserExtensionModel> LoadBrowserExtensions()
@@ -2873,7 +2911,8 @@ namespace Doorpi
                     _extBtnSub = GetStr(root, "extBtnSub", "Instalar via Doorpi Browser");
                     _extToastTitle = GetStr(root, "toastTitle", "Doorpi");
                     _extToastSub = GetStr(root, "toastSub", "Extensão enviada ao Doorpi!");
-
+                    _extInstalledTitle = GetStr(root, "extInstalledTitle", "Já instalada no Doorpi");
+                    _extInstalledSub = GetStr(root, "extInstalledSub", "Em uso no seu navegador");
                     _ = Dispatcher.InvokeAsync(async () =>
                         await OpenWebViewInlineAsync("https://chromewebstore.google.com/category/extensions", false));
                 }

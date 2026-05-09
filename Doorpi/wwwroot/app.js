@@ -649,7 +649,9 @@ function openExtensionsManager() {
         extBtnTitle: t('extStoreAddBtn'),
         extBtnSub: t('extStoreAddSub'),
         toastTitle: t('toastDoorpi'),
-        toastSub: t('toastExtSent')
+        toastSub: t('toastExtSent'),
+        extInstalledTitle: t('extAlreadyInstalledBtn'),
+        extInstalledSub: t('extAlreadyInstalledSub')
     }));
     overlay.querySelector('#btnInstallExtension')?.addEventListener('click', () => {
         const url = document.getElementById('extensionUrlInput')?.value.trim();

@@ -225,9 +225,13 @@ const STRINGS = {
         toastCopied: 'Copiado!',
         toastReturning: 'Retornando...',
         toastDoorpi: 'Doorpi',
+        extAlreadyInstalledBtn: 'Já instalada no Doorpi',
+        extAlreadyInstalledSub: 'Em uso no seu navegador',
     },
 
     'en-US': {
+        extAlreadyInstalledBtn: 'Already installed in Doorpi',
+        extAlreadyInstalledSub: 'In use in your browser',
         extStoreAddBtn: 'Add extension to Doorpi',
         extStoreAddSub: 'Install via Doorpi Browser',
         toastExtSent: 'Extension sent to Doorpi!',
@@ -453,6 +457,8 @@ const STRINGS = {
         welcomeBack: 'Welcome back',
         newUser: 'New user',
         addUsuario: 'Add User',
+
+
     },
 };
 

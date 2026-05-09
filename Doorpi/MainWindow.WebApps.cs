@@ -6,6 +6,7 @@
 //   • Mouse 100% Win32 via C# — zero dependência de mensagens JS
 //   • VKB bidirecional: JS envia vkb_opened/vkb_closed, C# chama __doorpiVkb*
 //   • Removidas declarações duplicadas (structs/P-Invokes estão em MainWindow.xaml.cs)
+//   • Lógica do botão da Chrome Web Store totalmente aprimorada (Posição fixa na 1ª abertura)
 // =============================================================================
 
 using Microsoft.Web.WebView2.Core;
@@ -27,12 +28,11 @@ namespace Doorpi
 {
     public partial class MainWindow : Window
     {
-        // ── P/Invokes exclusivos deste arquivo (mouse + XInputGetStateEx) ─────
-        // GetCursorPos, XInputGetState, structs XINPUT_*, POINT → MainWindow.xaml.cs
-        [DllImport("user32.dll")] private static extern void mouse_event(uint dwFlags, int dx, int dy, uint dwData, UIntPtr dwExtraInfo);
-        [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
+        [DllImport("user32.dll")]
+        private static extern void mouse_event(uint dwFlags, int dx, int dy, uint dwData, UIntPtr dwExtraInfo);
 
-        [DllImport("xinput1_4.dll", EntryPoint = "#100")]
+        [DllImport("user32.dll")]
+        private static extern bool SetCursorPos(int x, int y); [DllImport("xinput1_4.dll", EntryPoint = "#100")]
         private static extern int XInputGetStateEx(int dwUserIndex, out XINPUT_STATE pState);
 
         // ── Constantes mouse ──────────────────────────────────────────────────
@@ -166,7 +166,7 @@ namespace Doorpi
                         {
                             _vkbIsOpen = false;
                             _vkbOwnerView = null;
-                            _vkbHasFocus = false;  
+                            _vkbHasFocus = false;
                             CloseYouTubeInline();
                         });
                         prevButtons = btn;
@@ -515,76 +515,128 @@ namespace Doorpi
     }}, true);
 
     // ── 5. BOTÃO CHROME WEB STORE ────────────────────────────────────────────
+// ── 5. BOTÃO CHROME WEB STORE ────────────────────────────────────────────
     function injectChromeWebStoreBtn() {{
+        let btn = document.getElementById('doorpi-ext-btn');
+        let positionAnchored = false;
+        let lastRenderedState = null;
+
         function isDetailPage() {{ return location.href.includes('chromewebstore.google.com/detail/'); }}
+        function getExtId() {{ return (location.href.match(/\/detail\/[^/]+\/([a-z]{{32}})/) || [])[1] || null; }}
+
         function findInstallButton() {{
-            const kw = ['usar no chrome','adicionar ao chrome','add to chrome','use in chrome','install'];
-            for (const btn of document.querySelectorAll('button')) {{
-                const t = (btn.textContent||'').trim().toLowerCase();
-                if (kw.some(k => t.includes(k))) return btn;
+            const kw =['usar no chrome','adicionar ao chrome','add to chrome','use in chrome','install'];
+            for (const b of document.querySelectorAll('button')) {{
+                const t = (b.textContent||'').trim().toLowerCase();
+                if (kw.some(k => t.includes(k)) && b.getBoundingClientRect().width > 10) return b;
             }}
             for (const host of document.querySelectorAll('*')) {{
                 if (!host.shadowRoot) continue;
-                for (const btn of host.shadowRoot.querySelectorAll('button')) {{
-                    const t = (btn.textContent||'').trim().toLowerCase();
-                    if (kw.some(k => t.includes(k))) return btn;
+                for (const b of host.shadowRoot.querySelectorAll('button')) {{
+                    const t = (b.textContent||'').trim().toLowerCase();
+                    if (kw.some(k => t.includes(k)) && b.getBoundingClientRect().width > 10) return b;
                 }}
             }}
             return null;
         }}
-        function buildBtn() {{
-            if (!isDetailPage() || document.getElementById('doorpi-ext-btn')) return;
-            const target = findInstallButton();
-            const btn = document.createElement('button');
+
+        function buildInitialBtn() {{
+            if (btn) return;
+            btn = document.createElement('button');
             btn.id = 'doorpi-ext-btn';
+            btn.style.display = 'none';
+            document.body.appendChild(btn);
+        }}
+
+        function updateBtnContent(forceUpdate = false) {{
+            if (!btn) return;
+            const extId = getExtId();
+            const isInstalled = extId !== null && _installedExtIds.has(extId);
+            
+            const currentState = extId + '_' + isInstalled;
+            if (!forceUpdate && lastRenderedState === currentState) return; 
+            lastRenderedState = currentState;
+
+            btn.style.background = isInstalled ? 'rgba(15,60,35,0.88)' : 'rgba(8,8,24,0.88)';
+            btn.style.border = isInstalled ? '1px solid rgba(60,200,100,0.35)' : '1px solid rgba(255,255,255,0.15)';
+            btn.style.cursor = isInstalled ? 'default' : 'pointer';
+
+            while (btn.firstChild) {{
+                btn.removeChild(btn.firstChild);
+            }}
+
+            const titleSpan = Object.assign(document.createElement('span'), {{
+                style: 'display:block;font-weight:700;font-size:13px;' +
+                       (isInstalled ? 'color:rgba(120,230,160,0.92)' : 'color:rgba(255,255,255,0.92)'),
+                textContent: isInstalled ? '{_extInstalledTitle}' : '{_extBtnTitle}'
+            }});
+            const subSpan = Object.assign(document.createElement('span'), {{
+                style: 'display:block;font-size:11px;color:rgba(255,255,255,0.38);margin-top:2px',
+                textContent: isInstalled ? '{_extInstalledSub}' : '{_extBtnSub}'
+            }});
+
             const textWrap = document.createElement('span');
             textWrap.style.cssText = 'flex:1;text-align:left;line-height:1.35;pointer-events:none';
-            textWrap.append(
-                Object.assign(document.createElement('span'), {{
-                    style:'display:block;font-weight:700;font-size:13px;color:rgba(255,255,255,0.92)',
-                    textContent:'{_extBtnTitle}'
-                }}),
-                Object.assign(document.createElement('span'), {{
-                    style:'display:block;font-size:11px;color:rgba(255,255,255,0.38);margin-top:2px',
-                    textContent:'{_extBtnSub}'
-                }})
-            );
+            textWrap.append(titleSpan, subSpan);
             btn.appendChild(textWrap);
-            btn.onclick = () => {{
-                window.chrome.webview.postMessage('auto_install_extension:' + location.href);
-                showConsoleToast('{_extToastTitle}', '{_extToastSub}');
-                setTimeout(() => window.chrome.webview.postMessage('close_app'), 1800);
-            }};
-            const base = 'display:flex;align-items:center;gap:11px;padding:11px 18px 11px 14px;' +
-                'background:rgba(8,8,24,0.88);backdrop-filter:blur(20px);' +
-                'border:1px solid rgba(255,255,255,0.15);border-radius:12px;' +
-                'color:rgba(255,255,255,0.88);font-family:Outfit,sans-serif;font-size:13px;cursor:pointer;' +
-                'transition:all 0.15s;outline:none;box-sizing:border-box;';
-            if (target) {{
-                target.parentElement.style.position = 'relative';
-                btn.style.cssText = 'position:absolute;z-index:99;width:260px;margin-bottom:8px;' + base;
-                target.parentElement.insertBefore(btn, target);
+
+            if (!isInstalled) {{
+                btn.onclick = () => {{
+                    window.chrome.webview.postMessage('auto_install_extension:' + location.href);
+                    showConsoleToast('{_extToastTitle}', '{_extToastSub}');
+                    setTimeout(() => window.chrome.webview.postMessage('close_app'), 1800);
+                }};
             }} else {{
-                btn.style.cssText = 'position:fixed;top:45px;left:65%;z-index:99;min-width:220px;' + base;
-                document.body.appendChild(btn);
+                btn.onclick = null;
             }}
         }}
-        const obs = new MutationObserver(() => {{ if (!document.getElementById('doorpi-ext-btn')) buildBtn(); }});
-        (function start() {{
-            if (!document.body) {{ setTimeout(start, 50); return; }}
-            buildBtn();
-            obs.observe(document.body, {{ childList:true, subtree:true }});
-        }})();
+
+        function checkState(forceUpdate = false) {{
+            if (!isDetailPage()) {{
+                if (btn && btn.style.display !== 'none') btn.style.display = 'none';
+                return;
+            }}
+
+            if (!positionAnchored) {{
+                const target = findInstallButton();
+                if (target) {{
+                    const rect = target.getBoundingClientRect();
+                    if (rect.width > 10 && rect.height > 10) {{
+                        const base = 'align-items:center;gap:11px;padding:11px 18px 11px 14px;' +
+                                     'backdrop-filter:blur(20px);border-radius:12px;' +
+                                     'color:rgba(255,255,255,0.88);font-family:Outfit,sans-serif;font-size:13px;' +
+                                     'transition:all 0.15s;outline:none;box-sizing:border-box;z-index:999999;';
+                        btn.style.cssText = base;
+                        btn.style.position = 'fixed';
+                        btn.style.top = rect.top + 'px';
+                        btn.style.left = rect.left + 'px';
+                        btn.style.width = Math.max(260, rect.width) + 'px';
+                        positionAnchored = true;
+                    }}
+                }}
+            }}
+
+            if (positionAnchored) {{
+                if (btn.style.display !== 'flex') btn.style.display = 'flex';
+                updateBtnContent(forceUpdate);
+            }}
+        }}
+
+        buildInitialBtn();
+        const obs = new MutationObserver(() => {{ checkState(false); }});
+        obs.observe(document.body, {{ childList:true, subtree:true }});
+
         const origPush = history.pushState.bind(history);
         history.pushState = function() {{
             origPush.apply(this, arguments);
-            setTimeout(() => {{ document.getElementById('doorpi-ext-btn')?.remove(); buildBtn(); }}, 300);
+            setTimeout(() => checkState(false), 150);
         }};
         window.addEventListener('popstate', () => {{
-            setTimeout(() => {{ document.getElementById('doorpi-ext-btn')?.remove(); buildBtn(); }}, 300);
+            setTimeout(() => checkState(false), 150);
         }});
-    }}
 
+        window.__doorpiUpdateExtBtn = (force) => checkState(force);
+    }}
     // ─────────────────────────────────────────────────────────────────────────
     // 6. VKB — VIRTUAL KEYBOARD
     //
@@ -594,12 +646,12 @@ namespace Doorpi
     // • Zero polling de gamepad aqui.
     // ─────────────────────────────────────────────────────────────────────────
     window._vkbIsOpen = false;
-
+    let _installedExtIds = new Set();
     function isInput(el) {{
         if (!el) return false;
         if (el.tagName === 'INPUT') {{
             const t = (el.type||'').toLowerCase();
-            return ['text','search','email','password','url','tel',''].includes(t);
+            return['text','search','email','password','url','tel',''].includes(t);
         }}
         return el.tagName === 'TEXTAREA' || el.isContentEditable ||
                (el.tagName === 'DIV' && el.getAttribute('role') === 'textbox');
@@ -609,7 +661,7 @@ namespace Doorpi
     (function injectVkbStyles() {{
         if (window.__doorpiVkbStylesInjected) return;
         window.__doorpiVkbStylesInjected = true;
-        const css = [
+        const css =[
             '.doorpi-vkb-overlay{{position:fixed;bottom:0;left:0;right:0;z-index:2147483647;',
             'padding:0 clamp(24px,4vw,80px) clamp(24px,3vh,48px);',
             'background:linear-gradient(to top,rgb(5 5 10/80%) 65%,rgb(5 5 10/80%) 85%,transparent 100%);',
@@ -656,12 +708,7 @@ namespace Doorpi
     }})();
 
     // ── Layout das teclas ─────────────────────────────────────────────────────
-    const KEY_ROWS = [
-        ['1','2','3','4','5','6','7','8','9','0'],
-        ['q','w','e','r','t','y','u','i','o','p'],
-        ['a','s','d','f','g','h','j','k','l','\u232b'],
-        ['shift','z','x','c','v','b','n','m',',','.'],
-        ['@','_','-','/','?','!','+','*','.com','.br'],
+    const KEY_ROWS = [['1','2','3','4','5','6','7','8','9','0'],['q','w','e','r','t','y','u','i','o','p'],['a','s','d','f','g','h','j','k','l','\u232b'],['shift','z','x','c','v','b','n','m',',','.'],['@','_','-','/','?','!','+','*','.com','.br'],
         ['space','cancel','ok'],
     ];
     const FLAT_KEYS  = KEY_ROWS.flat();
@@ -697,7 +744,7 @@ namespace Doorpi
             btn.textContent = LABELS[k] || k;
             if (k.length > 1 && !['shift','space','cancel','ok'].includes(k))
                 btn.style.fontSize = 'clamp(11px,1vw,15px)';
-            btn.addEventListener('pointerdown', e => {{ e.preventDefault(); _vkbPressKey(k); }});
+            btn.addEventListener('pointerdown', e => {{ e.preventDefault(); if (_vkbFocusKey === null) return; _vkbPressKey(k); }});
             grid.appendChild(btn);
         }});
 
@@ -753,7 +800,7 @@ namespace Doorpi
 
         // Linha de baixo (space/cancel/ok) tem navegação própria
         if (BOTTOM_KEYS.includes(_vkbFocusKey) && (dir === 'LEFT' || dir === 'RIGHT')) {{
-            const order = ['space','cancel','ok'];
+            const order =['space','cancel','ok'];
             const next  = order.indexOf(_vkbFocusKey) + (dir === 'RIGHT' ? 1 : -1);
             if (next >= 0 && next < order.length) _vkbSetFocus(order[next]);
             return;
@@ -885,6 +932,10 @@ namespace Doorpi
     }}
 
     // ── API pública — chamada pelo C# via ExecuteScriptAsync ──────────────────
+    window.__doorpiSetInstalledExtensions = (exts) => {{
+        _installedExtIds = new Set((exts || []).map(e => e.id));
+        window.__doorpiUpdateExtBtn?.(true);
+    }};
     window.__doorpiVkbMove        = (dir) => _vkbMoveFocusInternal(dir);
     window.__doorpiVkbConfirm     = ()    => {{ if (_vkbFocusKey) _vkbPressKey(_vkbFocusKey); }};
     window.__doorpiVkbClose       = ()    => _vkbClose();
@@ -987,11 +1038,14 @@ namespace Doorpi
             _ytWebView.CoreWebView2.Navigate(url);
             _ytWebView.Focus();
             _ytWebView.KeyDown += YtOnKeyDown;
-            _ytWebView.CoreWebView2.SourceChanged += (s, args) =>
+            _ytWebView.CoreWebView2.SourceChanged += async (s, args) =>
             {
                 string newUrl = _ytWebView.CoreWebView2.Source;
                 if (newUrl.TrimEnd('/') == "https://www.steamgriddb.com")
                     _ytWebView.CoreWebView2.Navigate("https://www.steamgriddb.com/profile/preferences/api");
+
+                if (newUrl.Contains("chromewebstore.google.com/detail/"))
+                    await InjectInstalledExtensionsAsync(_ytWebView.CoreWebView2);
             };
 
             // Inicia o controller — mouse Win32 ativo a partir daqui
@@ -1101,14 +1155,14 @@ namespace Doorpi
             {
                 _vkbIsOpen = true;
                 _vkbOwnerView = senderView;
-                _vkbHasFocus = true;  
+                _vkbHasFocus = true;
                 return;
             }
             if (msg == "vkb_closed")
             {
                 _vkbIsOpen = false;
                 _vkbOwnerView = null;
-                _vkbHasFocus = false;  
+                _vkbHasFocus = false;
                 return;
             }
 
@@ -1298,7 +1352,7 @@ namespace Doorpi
                 }
             }
         } else {
-            const adKeys = ['adPlacements','adSlots','playerAds','adBreakHeartbeatParams'];
+            const adKeys =['adPlacements','adSlots','playerAds','adBreakHeartbeatParams'];
             for (let key of Object.keys(obj)) {
                 if (adKeys.includes(key)) { delete obj[key]; modified = true; }
                 else if (obj[key] && typeof obj[key] === 'object') {
@@ -1592,7 +1646,7 @@ namespace Doorpi
     if (window.__doorpiUltrawide) return;
     window.__doorpiUltrawide = true;
 
-    const SELECTORS = [
+    const SELECTORS =[
         '#container', 'ytlr-tv-surface-content-renderer', 'yt-virtual-list',
         'ytlr-animated-overlay', 'ytlr-rich-grid-renderer',
         'ytlr-two-column-browse-results-renderer', 'ytlr-section-list-renderer',
@@ -1616,7 +1670,7 @@ namespace Doorpi
     }
 
     function forceVirtualListRecalc() {
-        const targets = [
+        const targets =[
             ...document.querySelectorAll('yt-virtual-list'),
             ...document.querySelectorAll('ytlr-rich-grid-renderer'),
             ...document.querySelectorAll('ytlr-section-list-renderer'),
