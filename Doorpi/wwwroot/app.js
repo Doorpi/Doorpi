@@ -1,7 +1,3 @@
-// =============================================================================
-// app.js — Aplicação
-// =============================================================================
-
 let allInstalledApps = [];
 let cachedFolders = null;
 let currentSourceFilter = ['all'];
@@ -314,7 +310,7 @@ function ensureDoorpiOverlayStyles() {
         font-weight: 300;
     }
 
-    /* MANAGER STYLES (Mantidos estruturalmente mas modernizados) */
+    /* MANAGER STYLES */
     .doorpi-manager-panel .doorpi-panel-title { font-size: clamp(2rem, 3vw, 3rem); text-align: left; }
     .doorpi-manager-panel .doorpi-panel-sub { text-align: left; }
     .doorpi-manager-row { background: rgba(255,255,255,.075); border: 1px solid rgba(255,255,255,.13); border-radius: 12px; color: #fff; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
@@ -479,7 +475,7 @@ function ensureDoorpiOverlayStyles() {
 function renderDoorpiChoice(id, options, value, disabled = false) {
     const safeOptions = Array.isArray(options) && options.length
         ? options
-        : [{ value: '', label: 'Nenhuma opcao disponivel' }];
+        : [{ value: '', label: t('noOptionsAvailable') }];
     const selected = safeOptions.find(opt => String(opt.value) === String(value)) || safeOptions[0];
     return `
         <div class="doorpi-choice-wrap${disabled ? ' is-disabled' : ''}" id="${escapeHtml(id)}" data-value="${escapeHtml(selected.value)}" data-disabled="${disabled ? 'true' : 'false'}">
@@ -557,7 +553,7 @@ function showUserPicker(users, requireSelection = false) {
         <button class="doorpi-user-card" data-user-id="${escapeHtml(user.Id)}" tabindex="0" style="animation-delay: ${idx * 0.05}s">
             ${avatarMarkup(user)}
             <span class="doorpi-user-name">${escapeHtml(user.Name)}</span>
-            ${user.Id === window._doorpiCurrentUserId ? '<span class="doorpi-user-badge">Atual</span>' : ''}
+            ${user.Id === window._doorpiCurrentUserId ? `<span class="doorpi-user-badge">${t('badgeCurrent')}</span>` : ''}
         </button>`).join('');
 
     const createUserDelay = users.length * 0.05;
@@ -565,17 +561,17 @@ function showUserPicker(users, requireSelection = false) {
     overlay.innerHTML = `
         <div class="doorpi-user-panel">
             <div class="doorpi-panel-head">
-                <h2 class="doorpi-panel-title" data-i18n="whoIsPlaying">Quem está jogando?</h2>
-                <p class="doorpi-panel-sub" data-i18n="welcomeBack">Bem-vindo de volta</p>
+                <h2 class="doorpi-panel-title" data-i18n="whoIsPlaying">${t('whoIsPlaying')}</h2>
+                <p class="doorpi-panel-sub" data-i18n="welcomeBack">${t('welcomeBack')}</p>
             </div>
             <div class="doorpi-user-grid">
                 ${cards}
                 <button class="doorpi-user-card create-card" id="doorpiCreateUserCard" tabindex="0" style="animation-delay: ${createUserDelay}s">
                     <div class="doorpi-create-user-icon">+</div>
-                    <span class="doorpi-user-name" data-i18n="newUser">Novo usuário</span>
+                    <span class="doorpi-user-name" data-i18n="newUser">${t('newUser')}</span>
                 </button>
             </div>
-            ${requireSelection ? '' : '<button class="doorpi-manager-btn" id="doorpiCloseUsers" style="margin-top: 30px; animation: doorpiCardRise 0.5s backwards; animation-delay: ' + (createUserDelay + 0.1) + 's">Voltar</button>'}
+            ${requireSelection ? '' : '<button class="doorpi-manager-btn" id="doorpiCloseUsers" style="margin-top: 30px; animation: doorpiCardRise 0.5s backwards; animation-delay: ' + (createUserDelay + 0.1) + 's">' + t('btnBackLabel') + '</button>'}
         </div>`;
 
     if (typeof applyI18n === 'function') applyI18n();
@@ -625,18 +621,18 @@ function openExtensionsManager() {
         <div class="doorpi-manager-panel">
             <div class="doorpi-panel-head">
                 <div>
-                    <h2 class="doorpi-panel-title">Extensões</h2>
-                    <p class="doorpi-panel-sub">Cole um link da Chrome Web Store para instalar no navegador interno.</p>
+                    <h2 class="doorpi-panel-title">${t('extManagerTitle')}</h2>
+                    <p class="doorpi-panel-sub">${t('extManagerSubtitle')}</p>
                 </div>
-                <button class="doorpi-manager-btn" id="btnCloseExtMgr">Voltar</button>
+                <button class="doorpi-manager-btn" id="btnCloseExtMgr">${t('btnBackLabel')}</button>
             </div>
             <div class="doorpi-manager-form">
-                <input class="doorpi-manager-input" id="extensionUrlInput" placeholder="Link da Chrome Web Store" tabindex="0" />
-                <button class="doorpi-manager-btn" id="btnExtPaste" tabindex="0" title="Colar">📋</button>
-                <button class="doorpi-manager-btn" id="btnOpenChromeStore" tabindex="0">Loja</button>
-                <button class="doorpi-manager-btn primary" id="btnInstallExtension" tabindex="0">Instalar</button>
+                <input class="doorpi-manager-input" id="extensionUrlInput" placeholder="${t('extManagerInputPlaceholder')}" tabindex="0" />
+                <button class="doorpi-manager-btn" id="btnExtPaste" tabindex="0" title="${t('btnPaste')}">${t('btnPaste')}</button>
+                <button class="doorpi-manager-btn" id="btnOpenChromeStore" tabindex="0">${t('btnStore')}</button>
+                <button class="doorpi-manager-btn primary" id="btnInstallExtension" tabindex="0">${t('btnInstall')}</button>
             </div>
-            <div class="doorpi-status" id="extensionStatus">Carregando...</div>
+            <div class="doorpi-status" id="extensionStatus">${t('loadingExtensions')}</div>
             <div class="doorpi-manager-list" id="extensionsList"></div>
         </div>`;
 
@@ -648,13 +644,19 @@ function openExtensionsManager() {
 
     overlay.querySelector('#btnCloseExtMgr')?.addEventListener('click', () => overlay.style.display = 'none');
     overlay.querySelector('#btnExtPaste')?.addEventListener('click', () => postToHost({ action: 'readClipboard' }));
-    overlay.querySelector('#btnOpenChromeStore')?.addEventListener('click', () => postToHost({ action: 'openExtensionStore' }));
+    overlay.querySelector('#btnOpenChromeStore')?.addEventListener('click', () => postToHost({
+        action: 'openExtensionStore',
+        extBtnTitle: t('extStoreAddBtn'),
+        extBtnSub: t('extStoreAddSub'),
+        toastTitle: t('toastDoorpi'),
+        toastSub: t('toastExtSent')
+    }));
     overlay.querySelector('#btnInstallExtension')?.addEventListener('click', () => {
         const url = document.getElementById('extensionUrlInput')?.value.trim();
         const status = document.getElementById('extensionStatus');
-        if (!url) { if (status) { status.textContent = 'Cole o link da extensão.'; status.className = 'doorpi-status error'; } return; }
-        if (status) { status.textContent = 'Baixando e instalando...'; status.className = 'doorpi-status'; }
-        postToHost({ action: 'installExtension', url });
+        if (!url) { if (status) { status.textContent = t('extPasteLinkError'); status.className = 'doorpi-status error'; } return; }
+        if (status) { status.textContent = t('extInstallingStatus'); status.className = 'doorpi-status'; }
+        postToHost({ action: 'installExtension', url, successMsg: t('extInstallSuccess') });
     });
     postToHost({ action: 'requestExtensions' });
 
@@ -678,20 +680,23 @@ function openExtensionsManager() {
 function renderExtensionsManager(extensions, status, message) {
     const overlay = document.getElementById('doorpiExtensionsManager');
     if (!overlay || overlay.style.display === 'none') return;
+
     const list = overlay.querySelector('#extensionsList');
     const statusEl = overlay.querySelector('#extensionStatus');
+
     if (statusEl) {
-        statusEl.textContent = message || (extensions.length ? `${extensions.length} extensão(ões) instalada(s)` : 'Nenhuma extensão instalada.');
+        statusEl.textContent = message || (extensions.length ? t('extInstalledCount', extensions.length) : t('extNoneInstalled'));
         statusEl.className = `doorpi-status ${status || ''}`.trim();
     }
+
     if (list) {
         list.innerHTML = extensions.map(ext => `
             <div class="doorpi-manager-row">
                 <div>
-                    <strong>${escapeHtml(ext.Name || ext.Id)}</strong>
-                    <div style="color:rgba(255,255,255,.42);font-size:.82rem">${escapeHtml(ext.Id)}</div>
+                    <!-- Exibe APENAS o nome real da extensão -->
+                    <strong>${escapeHtml(ext.Name || t('extUnknown'))}</strong>
                 </div>
-                <span style="color:rgba(255,255,255,.45);font-size:.82rem">Instalada</span>
+                <span style="color:rgba(255,255,255,.45);font-size:.82rem">${t('extInstalled')}</span>
             </div>`).join('');
     }
 }
@@ -1970,15 +1975,15 @@ const _ctxMenu = (() => {
     el.innerHTML = `
         <div class="ctx-game-name" id="ctxGameName"></div>
         <button class="ctx-item" id="ctxExtensions" role="menuitem">
-            <span class="ctx-icon">+</span> <span>Gerenciar extensões</span>
+            <span class="ctx-icon">+</span> <span data-i18n="manageExtensions">${t('manageExtensions')}</span>
         </button>
         <div class="ctx-separator"></div>
         <button class="ctx-item" id="ctxEdit" role="menuitem">
-            <span class="ctx-icon">✎</span> <span data-i18n="ctxEditName"></span>
+            <span class="ctx-icon">✎</span> <span data-i18n="ctxEditName">${t('ctxEditName')}</span>
         </button>
         <div class="ctx-separator"></div>
         <button class="ctx-item ctx-danger" id="ctxDelete" role="menuitem">
-            <span class="ctx-icon">✕</span> <span data-i18n="ctxRemoveGame"></span>
+            <span class="ctx-icon">✕</span> <span data-i18n="ctxRemoveGame">${t('ctxRemoveGame')}</span>
         </button>
     `;
     document.body.appendChild(el);
@@ -2007,7 +2012,7 @@ function _openCtxMenu(card, x, y) {
         ctxCloseBtn = document.createElement('button');
         ctxCloseBtn.className = 'ctx-item';
         ctxCloseBtn.id = 'ctxClose';
-        ctxCloseBtn.innerHTML = `<span class="ctx-icon">↩</span> <span>Voltar</span>`;
+        ctxCloseBtn.innerHTML = `<span class="ctx-icon">↩</span> <span>${t('btnBackLabel')}</span>`;
         ctxCloseBtn.addEventListener('click', _closeCtxMenu);
         _ctxMenu.appendChild(ctxCloseBtn);
     }
@@ -2017,7 +2022,7 @@ function _openCtxMenu(card, x, y) {
         if (ctxExtensionsBtn) ctxExtensionsBtn.style.display = isBrowserMedia ? 'flex' : 'none';
         if (ctxDeleteBtn) ctxDeleteBtn.style.display = 'none';
         ctxCloseBtn.style.display = 'flex';
-        _ctxMenu.querySelector('#ctxGameName').textContent = "APP DO SISTEMA";
+        _ctxMenu.querySelector('#ctxGameName').textContent = t('systemAppLabel');
     } else {
         if (ctxEditBtn) ctxEditBtn.style.display = 'flex';
         if (ctxExtensionsBtn) ctxExtensionsBtn.style.display = isBrowserMedia ? 'flex' : 'none';
@@ -2127,6 +2132,7 @@ function _executeDelete(card) {
         isMedia: isMedia
     });
 }
+
 // ══════════════════════════════════════════════════════════════════════════
 // Edit Modal
 // ══════════════════════════════════════════════════════════════════════════
@@ -2148,43 +2154,43 @@ function openEditGameModal(card) {
         isMediaTabActive;
 
     const appType = card.dataset.appType || 'browser';
-    const canManageBrowser = isMediaCard && appType !== 'exe';
+    const canManageBrowser = isMediaCard && appType !== 'browser' ? false : (isMediaCard && appType !== 'exe');
     const shareMode = card.dataset.shareMode || 'private';
     const sharedWithUserId = card.dataset.sharedWithUserId || '';
     const isSharedFromOther = card.dataset.sharedFromOther === 'true';
     const shareUsers = (window._doorpiUsers || []).filter(u => u.Id !== window._doorpiCurrentUserId);
     const shareModeOptions = [
-        { value: 'private', label: 'Separado por usuario' },
-        { value: 'all', label: 'Compartilhar com todos' },
-        { value: 'user', label: 'Compartilhar com usuario' }
+        { value: 'private', label: t('shareModePrivate') },
+        { value: 'all', label: t('shareModeAll') },
+        { value: 'user', label: t('shareModeUser') }
     ];
     const shareUserOptions = [
-        { value: '', label: 'Escolha o usuario' },
-        ...shareUsers.map(u => ({ value: u.Id, label: u.Name || 'Usuario' }))
+        { value: '', label: t('shareChooseUser') },
+        ...shareUsers.map(u => ({ value: u.Id, label: u.Name || t('defaultUser') }))
     ];
 
-    // 🔹 INJETADO O TABINDEX NO SELECT PRA SER FOCÁVEL
-    const shareOptions = '';
+    const shareOptions = shareUsers.map(u => `<option value="${escapeHtml(u.Id)}" ${sharedWithUserId === u.Id ? 'selected' : ''}>${escapeHtml(u.Name || t('defaultUser'))}</option>`).join('');
+
     const mediaExtras = isMediaCard ? `
                 <div class="edit-modal-field">
-                    <label class="edit-modal-label">Compartilhamento de conta</label>
+                    <label class="edit-modal-label">${t('accountSharingLabel')}</label>
                     ${isSharedFromOther
-            ? `<div class="doorpi-shared-note">Compartilhado por ${escapeHtml(card.dataset.sharedFromName || 'outro usuário')}.</div>`
+            ? `<div class="doorpi-shared-note">${t('sharedByInfo', escapeHtml(card.dataset.sharedFromName || t('defaultOtherUser')))}</div>`
             : `<div class="doorpi-share-grid">
                             ${renderDoorpiChoice('editShareModeChoice', shareModeOptions, shareMode)}
                             ${renderDoorpiChoice('editShareUserChoice', shareUserOptions, sharedWithUserId, shareMode !== 'user')}
                             <select class="doorpi-share-select" id="editShareMode" tabindex="0">
-                                <option value="private" ${shareMode === 'private' ? 'selected' : ''}>Separado por usuário</option>
-                                <option value="all" ${shareMode === 'all' ? 'selected' : ''}>Compartilhar com todos</option>
-                                <option value="user" ${shareMode === 'user' ? 'selected' : ''}>Compartilhar com usuário</option>
+                                <option value="private" ${shareMode === 'private' ? 'selected' : ''}>${t('shareModePrivate')}</option>
+                                <option value="all" ${shareMode === 'all' ? 'selected' : ''}>${t('shareModeAll')}</option>
+                                <option value="user" ${shareMode === 'user' ? 'selected' : ''}>${t('shareModeUser')}</option>
                             </select>
                             <select class="doorpi-share-select" id="editShareUser" tabindex="0" ${shareMode === 'user' ? '' : 'disabled'}>
-                                <option value="">Escolha o usuário</option>
+                                <option value="">${t('shareChooseUser')}</option>
                                 ${shareOptions}
                             </select>
                         </div>`}
                 </div>
-                ${canManageBrowser ? `<button class="modal-btn secondary" id="editExtensionsBtn" type="button" tabindex="0">Gerenciar Extensões</button>` : ''}` : '';
+                ${canManageBrowser ? `<button class="modal-btn secondary" id="editExtensionsBtn" type="button" tabindex="0">${t('manageExtensions')}</button>` : ''}` : '';
 
     const overlay = document.createElement('div');
     overlay.className = 'edit-modal-overlay';
@@ -2481,7 +2487,6 @@ const VKB = (() => {
 
 const _TEXT_INPUT_TYPES = new Set(['text', 'search', 'email', 'password', 'url', 'tel', '']);
 window._vkbOpen = (el) => {
-    // Agora o VKB abre em todos os inputs se for o tipo texto
     if (el && el.tagName === 'INPUT' && !_TEXT_INPUT_TYPES.has((el.type || '').toLowerCase())) return;
     VKB.open(el);
 };
@@ -2544,6 +2549,7 @@ function _esc(str) {
     document.addEventListener('focusin', window.updateNavHint);
     document.addEventListener('focusout', window.updateNavHint);
 })();
+
 // ── Fundo animado (blobs) — aparece quando não há hero ativo ──────────────────
 (function initBlobBackground() {
     const canvas = document.createElement('canvas');
@@ -2772,10 +2778,10 @@ function _renderWebAppActions() {
     bar.innerHTML = `
         <div class="action-buttons">
             <button class="modal-btn primary" id="btnAddWebApp" tabindex="0" data-gamepad-hint="start">
-                <span data-i18n="btnAddWebApp">Adicionar App</span>
+                <span data-i18n="btnAddWebApp">${t('btnAddWebApp')}</span>
             </button>
             <button class="modal-btn cancel" id="btnCancelWebApp" tabindex="0" data-gamepad-hint="cancel">
-                <span data-i18n="btnCancelLabel">Voltar</span>
+                <span data-i18n="btnCancelLabel">${t('btnCancelLabel')}</span>
             </button>
         </div>`;
 
@@ -2832,7 +2838,7 @@ function _submitWebApp() {
         nameInput?.classList.add('error');
         nameInput?.focus();
         if (hint) {
-            hint.textContent = (typeof t === 'function' ? t('webAppErrorName') : 'O nome é obrigatório');
+            hint.textContent = t('webAppErrorName');
             hint.classList.add('error');
         }
         return;
@@ -2842,7 +2848,7 @@ function _submitWebApp() {
         urlInput?.classList.add('error');
         urlInput?.focus();
         if (hint) {
-            hint.textContent = (typeof t === 'function' ? t('webAppErrorUrl') : 'O link é obrigatório');
+            hint.textContent = t('webAppErrorUrl');
             hint.classList.add('error');
         }
         return;
@@ -2873,13 +2879,13 @@ function _renderExeAppModal() {
         </div>
         <div class="action-buttons">
             <button class="modal-btn primary" id="btnConfirmAddMedia" tabindex="0" data-gamepad-hint="start">
-                <span data-i18n="btnConfirmLabel">Adicionar Selecionados</span>
+                <span data-i18n="btnConfirmLabel">${t('btnConfirmLabel')}</span>
             </button>
             <button class="modal-btn secondary" id="btnSearchMedia" tabindex="0" data-gamepad-hint="triangle">
-                <span data-i18n="btnSearchLabel">Procurar Manualmente</span>
+                <span data-i18n="btnSearchLabel">${t('btnSearchLabel')}</span>
             </button>
             <button class="modal-btn cancel" id="btnCancelAddMedia" tabindex="0" data-gamepad-hint="cancel">
-                <span data-i18n="btnCancelLabel">Voltar</span>
+                <span data-i18n="btnCancelLabel">${t('btnCancelLabel')}</span>
             </button>
         </div>`;
 
@@ -2957,7 +2963,6 @@ function _populateExeList(apps) {
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && e.target.tagName === 'INPUT' && !window._vkbIsOpen) {
-        // Se o modal de edição ou setup estiver aberto, o Enter abre o VKB em vez de submeter
         if (isEditModalOpen || isSetupOpen || isModalOpen) {
             e.preventDefault();
             window._vkbOpen?.(e.target);

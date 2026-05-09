@@ -13,6 +13,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Text.Json.Nodes;
 
 namespace Doorpi
 {
@@ -121,6 +122,11 @@ namespace Doorpi
 
         private string _currentToastTitle = "";
         private string _currentToastSub = "";
+
+        private string _extBtnTitle = "Adicionar extensão ao Doorpi";
+        private string _extBtnSub = "Instalar via Doorpi Browser";
+        private string _extToastTitle = "Doorpi";
+        private string _extToastSub = "Extensão enviada ao Doorpi!";
         private string GetStr(JsonElement root, string propName, string fallback = "")
         {
             return root.TryGetProperty(propName, out var prop) ? (prop.GetString() ?? fallback) : fallback;
@@ -990,7 +996,62 @@ namespace Doorpi
             var match = Regex.Match(input, @"[a-p]{32}", RegexOptions.IgnoreCase);
             return match.Success ? match.Value.ToLowerInvariant() : "";
         }
+        private static string GetExtensionName(string extFolder)
+        {
+            try
+            {
+                string manifestPath = Path.Combine(extFolder, "manifest.json");
+                if (!File.Exists(manifestPath))
+                {
+                    var versionFolder = Directory.GetDirectories(extFolder).FirstOrDefault(d => File.Exists(Path.Combine(d, "manifest.json")));
+                    if (versionFolder != null) manifestPath = Path.Combine(versionFolder, "manifest.json");
+                }
 
+                if (File.Exists(manifestPath))
+                {
+                    var manifestNode = JsonNode.Parse(File.ReadAllText(manifestPath));
+                    string name = manifestNode?["name"]?.ToString() ?? "";
+
+                    // Resolve a tag de internacionalização do Chrome (ex: __MSG_appName__)
+                    if (name.StartsWith("__MSG_") && name.EndsWith("__"))
+                    {
+                        string msgKey = name.Substring(6, name.Length - 8);
+                        string localesDir = Path.Combine(Path.GetDirectoryName(manifestPath)!, "_locales");
+
+                        if (Directory.Exists(localesDir))
+                        {
+                            string[] targetLangs = { "en", "en_US", "pt_BR", "pt" };
+                            string? msgFile = null;
+
+                            foreach (var lang in targetLangs)
+                            {
+                                string path = Path.Combine(localesDir, lang, "messages.json");
+                                if (File.Exists(path)) { msgFile = path; break; }
+                            }
+
+                            if (msgFile == null)
+                            {
+                                var firstDir = Directory.GetDirectories(localesDir).FirstOrDefault();
+                                if (firstDir != null) msgFile = Path.Combine(firstDir, "messages.json");
+                            }
+
+                            if (msgFile != null && File.Exists(msgFile))
+                            {
+                                var msgNode = JsonNode.Parse(File.ReadAllText(msgFile));
+                                string localizedName = msgNode?[msgKey]?["message"]?.ToString() ?? "";
+                                if (!string.IsNullOrWhiteSpace(localizedName)) return localizedName;
+                            }
+                        }
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(name)) return name;
+                }
+            }
+            catch { }
+
+            // Se tudo falhar, devolve o nome da pasta em vez de quebrar
+            return Path.GetFileName(extFolder);
+        }
         private async Task InstallChromeExtensionAsync(string sourceUrl)
         {
             string id = ParseChromeExtensionId(sourceUrl);
@@ -1046,13 +1107,8 @@ namespace Doorpi
                 Directory.Move(extensionFolder, extRoot);
 
                 // Registrar
-                string name = id;
-                try
-                {
-                    using var doc = JsonDocument.Parse(File.ReadAllText(manifest));
-                    name = GetStr(doc.RootElement, "name", id).Replace("__MSG_", "").Replace("__", "");
-                }
-                catch { }
+                string name = GetExtensionName(extRoot);
+                if (string.IsNullOrWhiteSpace(name)) name = id;
 
                 var extensions = LoadBrowserExtensions();
                 extensions.RemoveAll(e => string.Equals(e.Id, id, StringComparison.OrdinalIgnoreCase));
@@ -2126,6 +2182,7 @@ namespace Doorpi
                         }
                     });
                 }
+
                 else if (action == "addSelectedGames" && root.TryGetProperty("games", out var gamesElement))
                 {
                     var selectedApps = JsonSerializer.Deserialize<List<InstalledApp>>(gamesElement.GetRawText());
@@ -2795,12 +2852,14 @@ namespace Doorpi
                 else if (action == "installExtension")
                 {
                     string url = GetStr(root, "url");
+                    string successMsg = GetStr(root, "successMsg", "Extensão instalada com sucesso.");
+
                     _ = Task.Run(async () =>
                     {
                         try
                         {
                             await InstallChromeExtensionAsync(url);
-                            SendExtensionsToUI("success", "Extensão instalada. Reabra o aplicativo web para carregar.");
+                            SendExtensionsToUI("success", successMsg);
                         }
                         catch (Exception ex)
                         {
@@ -2810,6 +2869,11 @@ namespace Doorpi
                 }
                 else if (action == "openExtensionStore")
                 {
+                    _extBtnTitle = GetStr(root, "extBtnTitle", "Adicionar extensão ao Doorpi");
+                    _extBtnSub = GetStr(root, "extBtnSub", "Instalar via Doorpi Browser");
+                    _extToastTitle = GetStr(root, "toastTitle", "Doorpi");
+                    _extToastSub = GetStr(root, "toastSub", "Extensão enviada ao Doorpi!");
+
                     _ = Dispatcher.InvokeAsync(async () =>
                         await OpenWebViewInlineAsync("https://chromewebstore.google.com/category/extensions", false));
                 }
@@ -2836,12 +2900,15 @@ namespace Doorpi
                 }
                 else if (action == "pickProfilePhoto")
                 {
+                    string dialogTitle = GetStr(root, "dialogTitle", "Select profile photo");
+                    string dialogFilter = GetStr(root, "dialogFilter", "Images (*.png;*.jpg;*.jpeg;*.webp;*.gif)|*.png;*.jpg;*.jpeg;*.webp;*.gif");
+
                     await Dispatcher.InvokeAsync(() =>
                     {
                         var dlg = new Microsoft.Win32.OpenFileDialog
                         {
-                            Title = "Selecionar foto de perfil",
-                            Filter = "Imagens (*.png;*.jpg;*.jpeg;*.webp;*.gif)|*.png;*.jpg;*.jpeg;*.webp;*.gif"
+                            Title = dialogTitle,
+                            Filter = dialogFilter
                         };
                         if (dlg.ShowDialog() == true)
                         {

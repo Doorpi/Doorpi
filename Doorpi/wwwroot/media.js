@@ -4,12 +4,12 @@
 // =============================================================================
 
 const NATIVE_APPS = [
-    { id: 'youtube', name: 'YouTube', sgdbQuery: 'YouTube (Website)', url: 'https://www.youtube.com/tv', type: 'webview', multiUser: true },
+    { id: 'youtube', name: 'YouTube', sgdbQuery: 'YouTube (Website)', url: '', type: 'webview', multiUser: true },
     { id: 'netflix', name: 'Netflix', sgdbQuery: 'Netflix (Website)', url: 'https://www.netflix.com', type: 'browser', multiUser: true },
     { id: 'twitch', name: 'Twitch', sgdbQuery: 'Twitch (Website)', url: 'https://www.twitch.tv', type: 'browser', multiUser: false },
     { id: 'kick', name: 'Kick', sgdbQuery: 'Kick (Website)', url: 'https://www.kick.com', type: 'browser', multiUser: false },
     { id: 'disneyplus', name: 'Disney+', sgdbQuery: 'Disney Plus (Website)', url: 'https://www.disneyplus.com', type: 'browser', multiUser: true },
-    { id: 'primevideo', name: 'Prime Vídeo', sgdbQuery: 'Prime Video (Website)', url: 'https://www.primevideo.com', type: 'browser', multiUser: true },
+    { id: 'primevideo', get name() { return t('appNamePrimeVideo'); }, sgdbQuery: 'Prime Video (Website)', url: 'https://www.primevideo.com', type: 'browser', multiUser: true },
     { id: 'appletv', name: 'Apple TV', sgdbQuery: 'Apple TV (Website)', url: 'https://tv.apple.com', type: 'browser', multiUser: true },
     { id: 'max', name: 'Max', sgdbQuery: 'HBO Max (Website)', url: 'https://www.max.com', type: 'browser', multiUser: true },
     { id: 'crunchyroll', name: 'Crunchyroll', sgdbQuery: 'Crunchyroll (Website)', url: 'https://www.crunchyroll.com', type: 'browser', multiUser: true },
@@ -235,7 +235,7 @@ function showSystemLoading(title, subtitle, folders = []) {
     // Rows das pastas (só renderiza se houver pastas)
     const folderRows = folders.length > 0
         ? `<div class="sys-section-sep" style="height:10px;"></div>
-           <div class="sys-section-label" style="font-size: 0.75rem; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 2px;">Pastas</div>
+           <div class="sys-section-label" style="font-size: 0.75rem; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 2px;">${t('sysMediaFolders')}</div>
            ${folders.map(f => {
             const name = f.replace(/\\/g, '/').split('/').filter(Boolean).pop() || f;
             return `<div class="sys-app-row" id="sysFolderRow_${CSS.escape(f)}" data-folder-path="${f.replace(/"/g, '&quot;')}">
@@ -250,7 +250,7 @@ function showSystemLoading(title, subtitle, folders = []) {
     const syncRow = `<div class="sys-section-sep" style="height:10px;"></div>
                      <div class="sys-app-row active" id="sysRow_artSync">
                         <div class="sys-app-dot"></div>
-                        <span>Baixando capas dos jogos...</span>
+                        <span>${t('sysMediaDownloadingCovers')}</span>
                      </div>`;
 
     overlay.innerHTML = `
@@ -502,7 +502,13 @@ function createMediaCard(data) {
     card.addEventListener('click', () => {
         _moveMediaCardToTop(card);
         window.isMediaAppActive = true;
-        postToHost({ action: 'launchMediaApp', url: appUrl, appType: appType });
+        postToHost({
+            action: 'launchMediaApp',
+            url: appUrl,
+            appType: appType,
+            toastTitle: t('toastCopied'),
+            toastSub: t('toastReturning')
+        });
     });
     card.appendChild(img);
     card.appendChild(fallback);
@@ -514,7 +520,7 @@ function createMediaCard(data) {
         const badge = document.createElement('div');
         badge.className = 'title';
         badge.style.cssText = 'font-size:0.65em;color:rgba(120,190,255,.95);bottom:8px;';
-        badge.innerText = card.dataset.sharedFromOther === 'true' ? 'Compartilhado' : 'Conta compartilhada';
+        badge.innerText = card.dataset.sharedFromOther === 'true' ? t('sharedFromOther') : t('sharedAccount');
         card.appendChild(badge);
     }
 
