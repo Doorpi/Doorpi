@@ -483,8 +483,16 @@ function _validateAndFinish() {
     }
 
     closeSetup();
-    if (typeof showGlobalLoading === 'function') {
-        showGlobalLoading(typeof t === 'function' ? t('preparingSystem') : 'Preparando...', '');
+
+   
+    const title = typeof t === 'function' ? t('preparingSystem', 'Preparando...') : 'Preparando...';
+    if (typeof showSystemLoading === 'function') {
+        showSystemLoading(title, 'Configurando pastas e baixando mídias...');
+    } else if (typeof showGlobalLoading === 'function') {
+        showGlobalLoading(title, 'Configurando pastas e baixando mídias...');
+    } else {
+       
+        window.postMessage({ type: 'showSystemLoading', title: title, subtitle: 'Configurando pastas e baixando mídias...' }, '*');
     }
 
     postToHost({
