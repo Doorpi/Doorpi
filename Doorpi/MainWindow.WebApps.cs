@@ -32,8 +32,14 @@ namespace Doorpi
         private static extern void mouse_event(uint dwFlags, int dx, int dy, uint dwData, UIntPtr dwExtraInfo);
 
         [DllImport("user32.dll")]
-        private static extern bool SetCursorPos(int x, int y); [DllImport("xinput1_4.dll", EntryPoint = "#100")]
+        private static extern bool SetCursorPos(int x, int y);
+
+        [DllImport("user32.dll")]
+        private static extern int ShowCursor(bool bShow);
+
+        [DllImport("xinput1_4.dll", EntryPoint = "#100")]
         private static extern int XInputGetStateEx(int dwUserIndex, out XINPUT_STATE pState);
+
         private bool _isMouseHidden = false;
 
         // ── Constantes mouse ──────────────────────────────────────────────────
@@ -176,43 +182,46 @@ namespace Doorpi
                         Thread.Sleep(300);
                         continue;
                     }
-
                     // ════════════════════════════════════════════════════════
-                    // MOUSE — sempre ativo, inclusive com VKB aberto
+                    // MOUSE — ativo somente quando NÃO é YouTube TV
+                    // YouTube navega 100% pelo JS (YtInjectGamepadAsync)
                     // ════════════════════════════════════════════════════════
-                    double lx = gp.sThumbLX / 32767.0;
-                    double ly = gp.sThumbLY / 32767.0;
-                    const double DEAD = 0.14;
-                    if (Math.Abs(lx) < DEAD) lx = 0;
-                    if (Math.Abs(ly) < DEAD) ly = 0;
-
-                    if (lx != 0 || ly != 0)
+                    if (!_isCurrentSiteYouTube)
                     {
-                        if (_vkbIsOpen && _vkbHasFocus)
+                        double lx = gp.sThumbLX / 32767.0;
+                        double ly = gp.sThumbLY / 32767.0;
+                        const double DEAD = 0.14;
+                        if (Math.Abs(lx) < DEAD) lx = 0;
+                        if (Math.Abs(ly) < DEAD) ly = 0;
+
+                        if (lx != 0 || ly != 0)
                         {
-                            _vkbHasFocus = false;
-                            SendVkbCommand("window.__doorpiVkbClearFocus?.()");
+                            if (_vkbIsOpen && _vkbHasFocus)
+                            {
+                                _vkbHasFocus = false;
+                                SendVkbCommand("window.__doorpiVkbClearFocus?.()");
+                            }
+
+                            speedMult = Math.Min(speedMult + (0.8 * dt), 2.5);
+                            const double SENSE = 700.0;
+
+                            if (exactX < 0)
+                                Dispatcher.Invoke(() => { if (GetCursorPos(out var pt)) { exactX = pt.X; exactY = pt.Y; } });
+
+                            exactX += lx * SENSE * speedMult * dt;
+                            exactY += ly * -SENSE * speedMult * dt;
+
+                            Dispatcher.Invoke(() => SetCursorPos((int)Math.Round(exactX), (int)Math.Round(exactY)));
                         }
+                        else { speedMult = 1.0; exactX = -1; }
 
-                        speedMult = Math.Min(speedMult + (0.8 * dt), 2.5);
-                        const double SENSE = 700.0;
-
-                        if (exactX < 0)
-                            Dispatcher.Invoke(() => { if (GetCursorPos(out var pt)) { exactX = pt.X; exactY = pt.Y; } });
-
-                        exactX += lx * SENSE * speedMult * dt;
-                        exactY += ly * -SENSE * speedMult * dt;
-
-                        Dispatcher.Invoke(() => SetCursorPos((int)Math.Round(exactX), (int)Math.Round(exactY)));
-                    }
-                    else { speedMult = 1.0; exactX = -1; }
-
-                    // Scroll pelo analógico direito — sempre ativo
-                    double ry = gp.sThumbRY / 32767.0;
-                    if (Math.Abs(ry) > 0.18)
-                    {
-                        int scroll = (int)(ry * 2800 * dt);
-                        if (scroll != 0) mouse_event(MOUSEEVENTF_WHEEL, 0, 0, (uint)scroll, UIntPtr.Zero);
+                        // Scroll pelo analógico direito
+                        double ry = gp.sThumbRY / 32767.0;
+                        if (Math.Abs(ry) > 0.18)
+                        {
+                            int scroll = (int)(ry * 2800 * dt);
+                            if (scroll != 0) mouse_event(MOUSEEVENTF_WHEEL, 0, 0, (uint)scroll, UIntPtr.Zero);
+                        }
                     }
 
                     // ════════════════════════════════════════════════════════
@@ -283,13 +292,16 @@ namespace Doorpi
                     }
                     else
                     {
-                        // Sem VKB: A clica, B envia ESC
-                        if (Pressed(XI_A))
+                        // Sem VKB: só age se NÃO for YouTube (YouTube usa JS polling)
+                        if (!_isCurrentSiteYouTube)
                         {
-                            mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
-                            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+                            if (Pressed(XI_A))
+                            {
+                                mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+                                mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+                            }
+                            if (Pressed(XI_B)) SendVirtualKey(0x1B);
                         }
-                        if (Pressed(XI_B)) SendVirtualKey(0x1B);
                     }
 
                     prevButtons = btn;
@@ -1063,6 +1075,9 @@ const origPush = history.pushState.bind(history);
                 await YtInjectUltrawideFixAsync(_ytWebView.CoreWebView2);
                 await YtInjectPlayerBackgroundAsync(_ytWebView.CoreWebView2);
                 _ytWebView.ZoomFactor = 0.3;
+                ShowCursor(false);
+                _isMouseHidden = true;
+
             }
             else
             {
@@ -1135,6 +1150,12 @@ const origPush = history.pushState.bind(history);
             StopMediaControllerMode();
             _vkbIsOpen = false;
             _vkbOwnerView = null;
+            if (_isMouseHidden)
+            {
+                ShowCursor(true);
+                _isMouseHidden = false;
+            }
+
 
             try { _popupWindow?.Close(); } catch { }
             _popupWindow = null;
