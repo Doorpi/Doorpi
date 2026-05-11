@@ -12,6 +12,7 @@ const PLATFORMS = {
     Steam: { type: 'url', icon: 'https://cdn.simpleicons.org/steam/1b9bd4' },
     Epic: { type: 'url', icon: 'https://cdn.simpleicons.org/epicgames/a0a0a0' },
     GOG: { type: 'url', icon: 'https://cdn.simpleicons.org/gogdotcom/8a4fff' },
+    Riot: { type: 'url', icon: 'https://cdn.simpleicons.org/riotgames/eb0029' },
     Folder: { type: 'url', icon: 'https://cdn.simpleicons.org/files/f0a500' },
     Windows: { type: 'svg', icon: `<svg viewBox="0 0 88 88" fill="#0078d4" xmlns="http://www.w3.org/2000/svg"><path d="M0 12.4 35.7 7.6V42H0zm40.3-5.5L88 0v42H40.3zM0 46h35.7v34.4L0 75.6zm40.3.1H88V88L40.3 81.4z"/></svg>` },
 };
@@ -21,10 +22,11 @@ const FILTER_SOURCES = {
     Steam: ['Steam'],
     Epic: ['Epic'],
     GOG: ['GOG'],
+    Riot: ['Riot'],
     Windows: ['Windows', 'Folder'],
 };
 
-const SCAN_LIBS = ['Steam', 'Epic', 'GOG', 'Windows', 'Folder'];
+const SCAN_LIBS = ['Steam', 'Epic', 'GOG', 'Riot', 'Windows', 'Folder'];
 
 // 🔹 INJEÇÃO DA FOTO DE PERFIL NO CANTO SUPERIOR ESQUERDO
 (function injectTopProfile() {

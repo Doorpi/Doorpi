@@ -121,7 +121,7 @@ const STRINGS = {
         vkbCancel: 'CANCELAR',
         vkbOk: 'OK',
 
-        filterLabels: { all: 'Todos', Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Windows: 'Windows & Pastas' },
+        filterLabels: { all: 'Todos', Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Riot: 'Riot Games', Windows: 'Windows & Pastas' },
         platformLabels: { Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Folder: 'Pasta', Windows: 'Windows' },
         scanLibLabels: { Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Windows: 'Windows', Folder: 'Pastas' },
 
@@ -449,7 +449,7 @@ const STRINGS = {
         vkbCancel: 'CANCEL',
         vkbOk: 'OK',
 
-        filterLabels: { all: 'All', Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Windows: 'Windows & Folders' },
+        filterLabels: { all: 'All', Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Riot: 'Riot Games', Windows: 'Windows & Folders' },
         platformLabels: { Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Folder: 'Folder', Windows: 'Windows' },
         scanLibLabels: { Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Windows: 'Windows', Folder: 'Folders' },
 
