@@ -14,6 +14,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Text.Json.Nodes;
+using System.Xml.Linq;
 
 namespace Doorpi
 {
@@ -130,6 +131,8 @@ namespace Doorpi
         private string _extToastSub = "Extensão enviada ao Doorpi!";
         private string _extInstalledTitle = "Já instalada no Doorpi";
         private string _extInstalledSub = "Em uso no seu navegador";
+
+        private static Dictionary<string, string> _latestUpdatesCache = new();
         private string GetStr(JsonElement root, string propName, string fallback = "")
         {
             return root.TryGetProperty(propName, out var prop) ? (prop.GetString() ?? fallback) : fallback;
@@ -296,7 +299,6 @@ namespace Doorpi
                     Topmost = true; Activate(); Topmost = false; webView.Focus();
                 });
             };
-
             webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
             webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
 
@@ -1150,6 +1152,74 @@ namespace Doorpi
             // Se tudo falhar, devolve o nome da pasta em vez de quebrar
             return Path.GetFileName(extFolder);
         }
+        private async Task CheckAndSendExtensionUpdatesAsync()
+        {
+            Debug.WriteLine("[Extensions] Iniciando checagem de updates...");
+            var extensions = LoadBrowserExtensions();
+            var updates = new Dictionary<string, string>();
+
+            foreach (var ext in extensions)
+            {
+                try
+                {
+                    string currentVersion = GetExtensionVersion(ext);
+                    string url = $"https://clients2.google.com/service/update2/crx?response=updatecheck&os=win&arch=x64&os_arch=x86_64&nacl_arch=x86-64&prod=chromecrx&prodchannel=&prodversion=999.0.0.0&acceptformat=crx2,crx3&x=id%3D{ext.Id}%26v%3D{currentVersion}%26installsource%3Dondemand%26uc";
+
+                    var req = new HttpRequestMessage(HttpMethod.Get, url);
+                    req.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+
+                    var response = await httpClient.SendAsync(req);
+                    string xmlContent = await response.Content.ReadAsStringAsync();
+
+                    var doc = XDocument.Parse(xmlContent);
+                    var updateCheck = doc.Descendants().FirstOrDefault(x => x.Name.LocalName == "updatecheck");
+
+                    if (updateCheck != null)
+                    {
+                        string availableVersion = updateCheck.Attribute("version")?.Value;
+                        if (!string.IsNullOrEmpty(availableVersion) && IsNewerVersion(availableVersion, currentVersion))
+                        {
+                            updates[ext.Id] = availableVersion;
+                        }
+                    }
+                }
+                catch (Exception ex) { Debug.WriteLine($"[Extensions] Erro ao checar {ext.Id}: {ex.Message}"); }
+            }
+
+            // --- AQUI É O PONTO CRUCIAL ---
+            // Atualizamos a memória da classe com os resultados encontrados
+            _latestUpdatesCache = updates;
+
+            // Agora enviamos para a UI
+            SendExtensionsToUI();
+
+            Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+            {
+                type = "extensionUpdatesList",
+                updates = _latestUpdatesCache
+            })));
+        }
+        private bool IsNewerVersion(string available, string current)
+        {
+            try
+            {
+                var availParts = available.Split('.').Select(int.Parse).ToList();
+                var currParts = current.Split('.').Select(int.Parse).ToList();
+
+                // Compara parte por parte (ex: 2026 > 1)
+                for (int i = 0; i < Math.Min(availParts.Count, currParts.Count); i++)
+                {
+                    if (availParts[i] > currParts[i]) return true;
+                    if (availParts[i] < currParts[i]) return false;
+                }
+                return availParts.Count > currParts.Count;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Extensions] Erro na comparação de versão: {ex.Message}");
+                return false;
+            }
+        }
         private void DeleteExtension(string id)
         {
             if (string.IsNullOrWhiteSpace(id)) return;
@@ -1269,14 +1339,23 @@ namespace Doorpi
         private void SendExtensionsToUI(string status = "", string message = "")
         {
             var extensions = LoadBrowserExtensions();
-            Dispatcher.Invoke(() =>
-                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
-                {
-                    type = "extensionsList",
-                    extensions,
-                    status,
-                    message
-                })));
+            var payload = extensions.Select(e => new {
+                e.Id,
+                e.Name,
+                e.SourceUrl,
+                e.InstalledPath,
+                e.DateInstalled,
+                Version = GetExtensionVersion(e)
+            }).ToList();
+
+            Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+            {
+                type = "extensionsList",
+                extensions = payload,
+                updates = _latestUpdatesCache, // <--- ENVIA O CACHE JUNTO
+                status,
+                message
+            })));
         }
 
         private void SendMediaAppsToUI(List<MediaAppModel> apps)
@@ -2559,6 +2638,31 @@ namespace Doorpi
                         }
                     });
                 }
+                else if (action == "updateExtension")
+                {
+                    string id = GetStr(root, "id");
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var ext = LoadBrowserExtensions().FirstOrDefault(e => string.Equals(e.Id, id, StringComparison.OrdinalIgnoreCase));
+                            if (ext != null)
+                            {
+                                // Baixa e sobrescreve
+                                await InstallChromeExtensionAsync(ext.SourceUrl);
+
+                                // Refaz a checagem (a bolinha vermelha vai sumir)
+                                await CheckAndSendExtensionUpdatesAsync();
+
+                                SendExtensionsToUI("success", "Extensão atualizada! Terá efeito ao abrir um app.");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            SendExtensionsToUI("error", "Erro ao atualizar: " + ex.Message);
+                        }
+                    });
+                }
 
                 else if (action == "addSelectedGames" && root.TryGetProperty("games", out var gamesElement))
                 {
@@ -3225,6 +3329,10 @@ namespace Doorpi
                 else if (action == "requestExtensions")
                 {
                     SendExtensionsToUI();
+                }
+                else if (action == "requestExtensionUpdates")
+                {
+                    _ = Task.Run(CheckAndSendExtensionUpdatesAsync);
                 }
                 else if (action == "installExtension")
                 {

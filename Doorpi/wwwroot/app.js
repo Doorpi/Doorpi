@@ -7,6 +7,7 @@ window.recentlyOpenedIds = [];
 window.isGlobalLoading = false;
 window._doorpiUsers = [];
 window._doorpiCurrentUserId = '';
+window._pendingExtensionUpdates = {};
 
 const PLATFORMS = {
     Steam: {
@@ -162,8 +163,18 @@ setInterval(() => {
 window.chrome.webview.addEventListener('message', event => {
     try {
         const data = JSON.parse(event.data);
+        console.log("Mensagem recebida no JS:", data);
+        if (data.updates) {
+            window._pendingExtensionUpdates = data.updates;
+        }
         if (data.type === 'newGame') {
             createGameCard(data);
+        }
+        else if (data.type === 'extensionsList' || data.type === 'extensionUpdatesList') {
+            // Renderiza o gerenciador se ele estiver aberto
+            if (document.getElementById('doorpiExtensionsManager')?.style.display !== 'none') {
+                renderExtensionsManager(data.extensions || [], data.status || '', data.message || '', window._pendingExtensionUpdates);
+            }
         }
         else if (data.type === 'installedAppsList') {
             allInstalledApps = data.apps;
@@ -174,6 +185,13 @@ window.chrome.webview.addEventListener('message', event => {
             if (!modal || modal.style.display === 'none') return;
             allInstalledApps = data.apps;
             refreshInstalledAppsView();
+        }
+        else if (data.type === 'extensionUpdatesList') {
+            window._pendingExtensionUpdates = data.updates || {};
+            // Atualiza a lista caso o modal do Manager esteja aberto no momento
+            if (document.getElementById('doorpiExtensionsManager')?.style.display !== 'none') {
+                postToHost({ action: 'requestExtensions' });
+            }
         }
         else if (data.type === 'showLoadingCards') {
             showLoadingCards(data.count, data.tab || 'games');
@@ -256,7 +274,8 @@ window.chrome.webview.addEventListener('message', event => {
             showUserPicker(data.users || [], !!data.requireSelection);
         }
         else if (data.type === 'extensionsList') {
-            renderExtensionsManager(data.extensions || [], data.status || '', data.message || '');
+
+            renderExtensionsManager(data.extensions || [], data.status || '', data.message || '', data.updates || {});
         }
         else if (data.type === 'clipboardText') {
             if (data.text?.trim()) {
@@ -718,7 +737,7 @@ function openExtensionsManager() {
     });
 }
 
-function renderExtensionsManager(extensions, status, message) {
+function renderExtensionsManager(extensions, status, message, updates) {
     const overlay = document.getElementById('doorpiExtensionsManager');
     if (!overlay || overlay.style.display === 'none') return;
 
@@ -731,15 +750,34 @@ function renderExtensionsManager(extensions, status, message) {
     }
 
     if (list) {
-        list.innerHTML = extensions.map(ext => `
+        list.innerHTML = extensions.map(ext => {
+            const updateVersion = updates[ext.Id]; // Usa o objeto que veio no parâmetro
+            const hasUpdate = !!updateVersion;
+
+            return `
             <div class="doorpi-manager-row">
                 <div style="display:flex; flex-direction:column; gap:2px;">
-                    <strong>${escapeHtml(ext.Name || t('extUnknown'))}</strong>
-                    <span style="color:rgba(255,255,255,.45);font-size:.82rem">${t('extInstalled')}</span>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <strong>${escapeHtml(ext.Name || t('extUnknown'))}</strong>
+                        ${hasUpdate ? '<span style="width:8px;height:8px;background:#ff4444;border-radius:50%;box-shadow: 0 0 6px #ff4444;" title="Atualização disponível"></span>' : ''}
+                    </div>
+                    <span style="color:rgba(255,255,255,.45);font-size:.82rem">
+                        ${t('extInstalled')} (v${escapeHtml(ext.Version || '?.?.?')})
+                        ${hasUpdate ? ` ➔ <strong style="color:#ff6e6e">v${updateVersion}</strong>` : ''}
+                    </span>
                 </div>
                 <div style="display:flex; gap: 8px; align-items: center;">
-                    <!-- Espaço futuro para o botão de Configurações/Atualizações -->
-                    
+${hasUpdate ? `
+                    <button class="doorpi-manager-btn primary" 
+                            style="padding: 6px 10px; display: flex; align-items: center; justify-content: center;" 
+                            title="Atualizar extensão"
+                            onclick="window._doorpiUpdateExtension('${escapeHtml(ext.Id)}')">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                        </svg>
+                    </button>` : ''}
                     <button class="doorpi-manager-btn" 
                             style="padding: 6px 12px; background: rgba(220,50,50,0.15); border-color: rgba(220,50,50,0.3); color: #ff6e6e;" 
                             title="Remover extensão"
@@ -747,20 +785,20 @@ function renderExtensionsManager(extensions, status, message) {
                         ✕
                     </button>
                 </div>
-            </div>`).join('');
+            </div>`;
+        }).join('');
     }
 }
 
-// Adicione esta função global logo abaixo para lidar com o clique
-window._doorpiDeleteExtension = function (extId) {
+// Handler de disparo do Update
+window._doorpiUpdateExtension = function (extId) {
     const statusEl = document.getElementById('extensionStatus');
     if (statusEl) {
-        statusEl.textContent = "Removendo extensão...";
+        statusEl.textContent = "Baixando atualização...";
         statusEl.className = 'doorpi-status';
     }
-    postToHost({ action: 'deleteExtension', id: extId });
+    postToHost({ action: 'updateExtension', id: extId });
 };
-
 window.openExtensionsManager = openExtensionsManager;
 window.openCreateUserDialog = openCreateUserDialog;
 
@@ -2056,17 +2094,34 @@ function _openCtxMenu(card, x, y) {
     _ctxCard = card;
     _ctxCard.classList.add('ctx-active');
 
+
     if (typeof applyI18n === 'function') applyI18n();
+    const updateCount = Object.keys(window._pendingExtensionUpdates || {}).length;
 
     const gameId = card.dataset.gameId || card.dataset.appId || card.dataset.appUrl;
     const isYoutube = (gameId && gameId.toLowerCase().includes('youtube'));
 
     const ctxEditBtn = _ctxMenu.querySelector('#ctxEdit');
-    const ctxExtensionsBtn = _ctxMenu.querySelector('#ctxExtensions');
     const ctxDeleteBtn = _ctxMenu.querySelector('#ctxDelete');
     const isBrowserMedia = (card.hasAttribute('data-app-id') || card.closest('#mediaGrid')) &&
         (card.dataset.appType || 'browser') !== 'exe';
 
+    const dotHtml = updateCount > 0
+        ? `<span class="update-dot" style="display:inline-flex; align-items:center; justify-content:center; min-width:18px; height:18px; padding:0 6px 0px 5px; background:#ff4444; color:#fff; font-size:11px; font-weight:800; line-height:0; letter-spacing:0; border-radius:10px; margin-left:8px; box-shadow: 0 0 10px rgba(255,68,68,0.4); flex-shrink:0; box-sizing:border-box;">${updateCount}</span>`
+        : '';
+
+    const ctxExtensionsBtn = _ctxMenu.querySelector('#ctxExtensions');
+
+    if (ctxExtensionsBtn) {
+        // Recria o conteúdo completo para garantir que o span será inserido
+        const btnText = t('manageExtensions');
+        ctxExtensionsBtn.innerHTML = `
+            <span class="ctx-icon">+</span> 
+            <span>${escapeHtml(btnText)}</span>
+            ${dotHtml}
+        `;
+        console.log("DEBUG: innerHTML do botão:", ctxExtensionsBtn.innerHTML);
+    }
     let ctxCloseBtn = _ctxMenu.querySelector('#ctxClose');
     if (!ctxCloseBtn) {
         ctxCloseBtn = document.createElement('button');
@@ -3029,3 +3084,8 @@ document.addEventListener('keydown', (e) => {
         }
     }
 });
+// Solicita o status de atualizações de extensões após o carregamento inicial da UI
+
+setTimeout(() => {
+    postToHost({ action: 'requestExtensionUpdates' });
+}, 1500);
