@@ -42,14 +42,29 @@ let _isAddingUserMode = false;
     .setup-section-status.done { background: rgba(100,220,120,0.2); border-color: rgba(100,220,120,0.7); color: rgba(100,220,120,1); }
     .setup-section-status.required-empty { border-color: rgba(255,255,255,0.22); }
 
-    .setup-user-bar { display: flex; gap: 10px; margin-bottom: 16px; overflow-x: auto; padding-bottom: 6px; }
+    .setup-user-bar { padding-top: 20px;display: flex; gap: 10px; margin-bottom: 16px; overflow-x: auto; padding-bottom: 6px; }
     .setup-user-pill { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 4px 14px 4px 4px; cursor: pointer; color: rgba(255,255,255,0.7); font-size: clamp(0.8rem, 0.9vw, 1rem); transition: all 0.2s; white-space: nowrap; outline: none; }
     .setup-user-pill:focus { border-color: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,0.2); }
     .setup-user-pill.active { background: rgba(255,255,255,0.15); border-color: #fff; color: #fff; }
     .setup-user-pill-avatar { width: 26px; height: 26px; border-radius: 50%; background: rgba(255,255,255,0.2); overflow: hidden; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .setup-user-pill-avatar img { width: 100%; height: 100%; object-fit: cover; }
-    .setup-user-delete { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: rgba(255,80,80,0.15); color: rgba(255,150,150,0.9); font-size: 11px; margin-left: 4px; transition: all 0.2s; }
-    .setup-user-delete:hover { background: rgba(255,80,80,0.9); color: #fff; }
+
+    .setup-user-group { display: flex; align-items: center; gap: 6px; }
+
+    .setup-btn-delete {
+        display: flex; align-items: center; justify-content: center;
+        width: clamp(28px, 3vw, 34px); height: clamp(28px, 3vw, 34px);
+        border-radius: 50%; background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.12); color: rgba(255, 255, 255, 0.45);
+        cursor: pointer; outline: none; transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+        flex-shrink: 0;
+    }
+    .setup-btn-delete:focus, .setup-btn-delete:hover {
+        background: rgba(235, 60, 60, 0.95); border-color: rgba(255, 120, 120, 1); color: #fff;
+        transform: scale(1.15); box-shadow: 0 0 0 4px rgba(235, 60, 60, 0.25), 0 6px 16px rgba(0,0,0,0.4);
+    }
+
+
     .setup-user-add { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,0.05); border: 1px dashed rgba(255,255,255,0.3); cursor: pointer; color: #fff; transition: all 0.2s; outline: none; }
     .setup-user-add:hover, .setup-user-add:focus { background: rgba(255,255,255,0.15); border-color: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,0.2); }
 
@@ -215,35 +230,30 @@ function _renderSetupUsers() {
         return;
     }
     bar.style.display = 'flex';
+
+    // Ícone X em SVG bem clean para o botão de deletar
+    const deleteSvg = `<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
+
     let html = _setupUsers.map((u, i) => `
-        <button class="setup-user-pill ${u === _currUser ? 'active' : ''} setup-focusable" data-idx="${i}" tabindex="-1">
-            <div class="setup-user-pill-avatar">
-                ${u.photoBase64 ? `<img src="data:image/png;base64,${u.photoBase64}" />` : `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`}
-            </div>
-            <span>${u.name || `Usuário ${i + 1}`}</span>
-            ${_setupUsers.length > 1 ? `<div class="setup-user-delete" data-idx="${i}">✕</div>` : ''}
-        </button>
+        <div class="setup-user-group">
+            <button class="setup-user-pill ${u === _currUser ? 'active' : ''} setup-focusable" data-idx="${i}" tabindex="-1">
+                <div class="setup-user-pill-avatar">
+                    ${u.photoBase64 ? `<img src="data:image/png;base64,${u.photoBase64}" />` : `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`}
+                </div>
+                <span>${u.name || `Usuário ${i + 1}`}</span>
+            </button>
+            ${_setupUsers.length > 1 ? `
+            <button class="setup-btn-delete setup-focusable" data-idx="${i}" tabindex="-1" title="Remover Usuário">
+                ${deleteSvg}
+            </button>` : ''}
+        </div>
     `).join('');
     html += `<button class="setup-user-add setup-focusable" id="btnSetupAddUser" tabindex="-1" title="Adicionar Usuário">+</button>`;
     bar.innerHTML = html;
 
+    // Ação ao selecionar a pílula do usuário
     bar.querySelectorAll('.setup-user-pill').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            if (e.target.closest('.setup-user-delete')) {
-                e.stopPropagation();
-                const idx = parseInt(btn.dataset.idx);
-                _setupUsers.splice(idx, 1);
-                if (!_setupUsers.includes(_currUser)) {
-                    _currUser = _setupUsers[0];
-                }
-                _loadCurrentUserIntoForm();
-                _renderSetupUsers();
-                if (_currentSection) {
-                    _currentSection.querySelectorAll('.setup-focusable').forEach(el => el.tabIndex = 0);
-                }
-                return;
-            }
-
+        btn.addEventListener('click', () => {
             _currUser = _setupUsers[parseInt(btn.dataset.idx)];
             _loadCurrentUserIntoForm();
             _renderSetupUsers();
@@ -252,6 +262,32 @@ function _renderSetupUsers() {
             }
         });
     });
+
+    // Nova Ação exclusiva para DELETAR o usuário (Agora foca via controle!)
+    bar.querySelectorAll('.setup-btn-delete').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const idx = parseInt(btn.dataset.idx);
+            _setupUsers.splice(idx, 1);
+            if (!_setupUsers.includes(_currUser)) {
+                _currUser = _setupUsers[0];
+            }
+            _loadCurrentUserIntoForm();
+            _renderSetupUsers();
+            if (_currentSection) {
+                _currentSection.querySelectorAll('.setup-focusable').forEach(el => el.tabIndex = 0);
+            }
+
+            // Retorna o foco pro botão mais próximo para não quebrar a navegação do controle
+            const newPills = bar.querySelectorAll('.setup-user-pill');
+            if (newPills.length > 0) {
+                const focusIdx = Math.min(idx, newPills.length - 1);
+                newPills[focusIdx]?.focus();
+            }
+        });
+    });
+
+    // Adicionar Novo Usuário
     bar.querySelector('#btnSetupAddUser').addEventListener('click', () => {
         const newUser = { id: Date.now(), name: '', photoBase64: '', apiKey: '', folders: [] };
         _setupUsers.push(newUser);
@@ -263,6 +299,7 @@ function _renderSetupUsers() {
         }
         document.getElementById('setupNameInput')?.focus();
     });
+
     const identitySec = document.getElementById('setupSectionIdentity');
     if (identitySec && identitySec.classList.contains('expanded')) {
         bar.querySelectorAll('.setup-focusable').forEach(el => el.tabIndex = 0);
@@ -578,20 +615,43 @@ function _bindSetupEvents() {
 function _renderSetupFolders() {
     const list = document.getElementById('setupFolderList');
     if (!list || !_currUser) return;
+
+    const deleteSvg = `<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
+
     list.innerHTML = _currUser.folders.map((f, i) => `
         <div class="setup-folder-item">
             <span class="setup-folder-path" title="${f}">${f}</span>
-            <button class="setup-folder-remove" data-idx="${i}">✕</button>
+            <button class="setup-btn-delete setup-focusable" data-idx="${i}" tabindex="-1" title="Remover Pasta">
+                ${deleteSvg}
+            </button>
         </div>`).join('');
-    list.querySelectorAll('.setup-folder-remove').forEach(btn =>
+
+    list.querySelectorAll('.setup-btn-delete').forEach(btn =>
         btn.addEventListener('click', () => {
-            _currUser.folders.splice(parseInt(btn.dataset.idx), 1);
+            const idx = parseInt(btn.dataset.idx);
+            _currUser.folders.splice(idx, 1);
             _renderSetupFolders();
             _updateStatus();
+
+            // Lógica essencial para GAMEPAD: redireciona o foco para o botão anterior 
+            // ou para o botão "Adicionar Pasta", evitando "foco morto".
+            setTimeout(() => {
+                const newBtns = document.getElementById('setupFolderList').querySelectorAll('.setup-btn-delete');
+                if (newBtns.length > 0) {
+                    const focusIdx = Math.min(idx, newBtns.length - 1);
+                    newBtns[focusIdx]?.focus();
+                } else {
+                    document.getElementById('btnSetupAddFolder')?.focus();
+                }
+            }, 50);
         })
     );
-}
 
+    const folderSec = document.getElementById('setupSectionFolders');
+    if (folderSec && folderSec.classList.contains('expanded')) {
+        list.querySelectorAll('.setup-focusable').forEach(el => el.tabIndex = 0);
+    }
+}
 window._setupHandlePhotoSelected = (base64) => {
     if (_currUser) _currUser.photoBase64 = base64;
     _loadCurrentUserIntoForm();

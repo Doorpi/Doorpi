@@ -185,7 +185,11 @@ namespace Doorpi
                     // MOUSE — ativo somente quando NÃO é YouTube TV
                     // YouTube navega 100% pelo JS (YtInjectGamepadAsync)
                     // ════════════════════════════════════════════════════════
-                    if (!_isCurrentSiteYouTube)
+                    // ════════════════════════════════════════════════════════
+                    // MOUSE — ativo somente quando NÃO é YouTube TV
+                    // YouTube navega 100% pelo JS (YtInjectGamepadAsync)
+                    // ════════════════════════════════════════════════════════
+                    if (!_isCurrentSiteYouTube && !_vkbIsOpen) // <-- ADICIONADO !_vkbIsOpen
                     {
                         double lx = gp.sThumbLX / 32767.0;
                         double ly = gp.sThumbLY / 32767.0;
@@ -195,12 +199,6 @@ namespace Doorpi
 
                         if (lx != 0 || ly != 0)
                         {
-                            if (_vkbIsOpen && _vkbHasFocus)
-                            {
-                                _vkbHasFocus = false;
-                                SendVkbCommand("window.__doorpiVkbClearFocus?.()");
-                            }
-
                             speedMult = Math.Min(speedMult + (0.8 * dt), 2.5);
                             const double SENSE = 700.0;
 
@@ -224,21 +222,27 @@ namespace Doorpi
                     }
 
                     // ════════════════════════════════════════════════════════
-                    // BOTÕES — comportamento muda se VKB está aberto
+                    // BOTÕES E VKB
                     // ════════════════════════════════════════════════════════
                     if (_vkbIsOpen)
                     {
-                        // D-pad → navega no VKB e restaura foco nas teclas
+                        // D-pad e Analógico Esquerdo → navega no VKB
                         ushort dirBtn = 0;
                         string dirName = "";
-                        if (Held(XI_DPAD_UP)) { dirBtn = XI_DPAD_UP; dirName = "UP"; }
-                        else if (Held(XI_DPAD_DOWN)) { dirBtn = XI_DPAD_DOWN; dirName = "DOWN"; }
-                        else if (Held(XI_DPAD_LEFT)) { dirBtn = XI_DPAD_LEFT; dirName = "LEFT"; }
-                        else if (Held(XI_DPAD_RIGHT)) { dirBtn = XI_DPAD_RIGHT; dirName = "RIGHT"; }
+
+                        double alx = gp.sThumbLX / 32767.0;
+                        double aly = gp.sThumbLY / 32767.0;
+                        const double ANA_DEAD = 0.5;
+
+                        // Mapeia Analógico para os mesmos inputs virtuais do D-pad para aproveitar o debounce
+                        if (Held(XI_DPAD_UP) || aly > ANA_DEAD) { dirBtn = XI_DPAD_UP; dirName = "UP"; }
+                        else if (Held(XI_DPAD_DOWN) || aly < -ANA_DEAD) { dirBtn = XI_DPAD_DOWN; dirName = "DOWN"; }
+                        else if (Held(XI_DPAD_LEFT) || alx < -ANA_DEAD) { dirBtn = XI_DPAD_LEFT; dirName = "LEFT"; }
+                        else if (Held(XI_DPAD_RIGHT) || alx > ANA_DEAD) { dirBtn = XI_DPAD_RIGHT; dirName = "RIGHT"; }
 
                         if (dirBtn != 0)
                         {
-                            _vkbHasFocus = true; // D-pad sempre restaura foco
+                            _vkbHasFocus = true;
 
                             if (dirBtn != vkbLastDir)
                             {
@@ -957,18 +961,18 @@ const origPush = history.pushState.bind(history);
         }});
     }}
 
-    function _vkbClose() {{
+function _vkbClose() {{
         if (!_vkbEl || !window._vkbIsOpen) return;
         _vkbClosing = true;
         window._vkbIsOpen = false;
         _vkbEl.classList.remove('visible');
-        // Sincroniza com o loop C# → volta para modo mouse
         try {{ window.chrome.webview.postMessage('vkb_closed'); }} catch(_) {{}}
 
         if (_vkbInputEl) {{
             _vkbInputEl.removeEventListener('input', _vkbRenderPreview);
-            const blur = _vkbInputEl; _vkbInputEl = null;
-            requestAnimationFrame(() => {{ try {{ blur.blur(); }} catch(e) {{}} }});
+            // REMOVIDO: const blur = _vkbInputEl; e o requestAnimationFrame(blur.blur())
+            // Mantemos a variável nula para limpar o VKB, mas deixamos o foco nativo no elemento intacto!
+            _vkbInputEl = null; 
         }}
         setTimeout(() => {{
             if (_vkbEl && !_vkbEl.classList.contains('visible')) _vkbEl.style.display = 'none';
@@ -1049,8 +1053,13 @@ const origPush = history.pushState.bind(history);
                 AppDomain.CurrentDomain.BaseDirectory, "Data", "browser-profiles", profileName);
 
             var options = new CoreWebView2EnvironmentOptions { AreBrowserExtensionsEnabled = true };
+
+            options.AdditionalBrowserArguments = "--disable-web-security --disable-features=IsolateOrigins,site-per-process";
+
             var env = await CoreWebView2Environment.CreateAsync(null, userDataPath, options);
             await _ytWebView.EnsureCoreWebView2Async(env);
+
+            _ytWebView.CoreWebView2.Profile.PreferredTrackingPreventionLevel = CoreWebView2TrackingPreventionLevel.None;
 
             await LoadExtensionsAsync(_ytWebView.CoreWebView2);
 
@@ -1064,10 +1073,11 @@ const origPush = history.pushState.bind(history);
             _ytWebView.CoreWebView2.WebMessageReceived += YtOnWebMessageReceived;
             _ytWebView.CoreWebView2.NewWindowRequested += OnNewWindowRequested;
 
-            await YtInjectAdBlockerAsync(_ytWebView.CoreWebView2);
-
             if (isYouTube)
             {
+
+                await YtInjectAdBlockerAsync(_ytWebView.CoreWebView2);
+
                 await YtInjectGamepadAsync(_ytWebView.CoreWebView2);
                 await YtInjectZoomHackAsync(_ytWebView.CoreWebView2);
                 await YtInjectForceUserSelectionAsync(_ytWebView.CoreWebView2);
@@ -1278,6 +1288,9 @@ const origPush = history.pushState.bind(history);
         {
             try
             {
+
+                if (!_isCurrentSiteYouTube) return;
+
                 var uriStr = e.Request.Uri;
                 if (string.IsNullOrEmpty(uriStr)) return;
 
@@ -1317,8 +1330,14 @@ const origPush = history.pushState.bind(history);
         private void YtBlockRequest(CoreWebView2WebResourceRequestedEventArgs e)
         {
             if (_ytWebView?.CoreWebView2?.Environment == null) return;
+
+            // Adicionado cabeçalhos para evitar que o bloqueio nativo dispare falsos erros de CORS no console
+            string headers = "Access-Control-Allow-Origin: *\n" +
+                             "Access-Control-Allow-Methods: GET, POST, OPTIONS\n" +
+                             "Access-Control-Allow-Headers: *";
+
             e.Response = _ytWebView.CoreWebView2.Environment
-                .CreateWebResourceResponse(null, 204, "No Content", "");
+                .CreateWebResourceResponse(null, 204, "No Content", headers);
         }
 
         private static async Task YtEnsureBlocklistAsync()

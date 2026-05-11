@@ -409,7 +409,24 @@ function moveFocus(direction) {
             return;
         }
 
-        let target = findSpatialCandidate(items, current, direction);
+        let target = null;
+
+   
+        if (current.id === 'btnSetupAddFolder' && direction === 'UP') {
+            const deleteBtns = Array.from(document.querySelectorAll('#setupFolderList .setup-btn-delete[tabindex="0"]'));
+            if (deleteBtns.length > 0) target = deleteBtns[deleteBtns.length - 1];
+        } else if (current.classList.contains('setup-btn-delete') && current.closest('#setupFolderList') && direction === 'DOWN') {
+            const idx = Array.from(document.querySelectorAll('#setupFolderList .setup-btn-delete')).indexOf(current);
+            const total = document.querySelectorAll('#setupFolderList .setup-btn-delete').length;
+            if (idx === total - 1) target = document.getElementById('btnSetupAddFolder');
+        }
+
+
+        if (!target) {
+            target = findSpatialCandidate(items, current, direction);
+        }
+
+
         if (!target) {
             const idx = items.indexOf(current);
             if (direction === 'DOWN' && idx < items.length - 1) target = items[idx + 1];
@@ -691,18 +708,11 @@ window.addEventListener('gamepaddisconnected', e => {
         const ax = gamepad.axes[0], ay = gamepad.axes[1], thr = GAMEPAD.AXIS_THRESHOLD, now = performance.now();
         let dir = null;
 
-        // 🔹 BLOQUEIO ABSOLUTO DO ANALÓGICO QUANDO O VKB ESTIVER ABERTO
-        if (window._vkbIsOpen) {
-            if (buttons[GAMEPAD.BTN_RIGHT]?.pressed) dir = 'RIGHT';
-            else if (buttons[GAMEPAD.BTN_LEFT]?.pressed) dir = 'LEFT';
-            else if (buttons[GAMEPAD.BTN_DOWN]?.pressed) dir = 'DOWN';
-            else if (buttons[GAMEPAD.BTN_UP]?.pressed) dir = 'UP';
-        } else {
-            if (ax > thr || buttons[GAMEPAD.BTN_RIGHT]?.pressed) dir = 'RIGHT';
-            else if (ax < -thr || buttons[GAMEPAD.BTN_LEFT]?.pressed) dir = 'LEFT';
-            else if (ay > thr || buttons[GAMEPAD.BTN_DOWN]?.pressed) dir = 'DOWN';
-            else if (ay < -thr || buttons[GAMEPAD.BTN_UP]?.pressed) dir = 'UP';
-        }
+        // 🔹 UNIFICAÇÃO: Analógico e D-Pad definem a direção em qualquer cenário (incluindo VKB)
+        if (ax > thr || buttons[GAMEPAD.BTN_RIGHT]?.pressed) dir = 'RIGHT';
+        else if (ax < -thr || buttons[GAMEPAD.BTN_LEFT]?.pressed) dir = 'LEFT';
+        else if (ay > thr || buttons[GAMEPAD.BTN_DOWN]?.pressed) dir = 'DOWN';
+        else if (ay < -thr || buttons[GAMEPAD.BTN_UP]?.pressed) dir = 'UP';
 
         if (window.isDoorpiOverlayOpen?.() && !window._vkbIsOpen) {
             if (dir) {
@@ -779,19 +789,10 @@ window.addEventListener('gamepaddisconnected', e => {
             }
         }
 
+        // ═════════════════════════════════════════════════════════════════════
+        // VKB OPEN - Mouse desativado. 100% focado na navegação entre as teclas.
+        // ═════════════════════════════════════════════════════════════════════
         if (window._vkbIsOpen) {
-            const mx = Math.abs(ax) > 0.18 ? Math.round(ax * 18) : 0;
-            const my = Math.abs(ay) > 0.18 ? Math.round(ay * 18) : 0;
-            if (mx || my) {
-                postToHost?.({ action: 'systemMouseMove', dx: mx, dy: my });
-                window._vkbClearFocus?.();
-            }
-
-            dir = null;
-            if (buttons[GAMEPAD.BTN_RIGHT]?.pressed) dir = 'RIGHT';
-            else if (buttons[GAMEPAD.BTN_LEFT]?.pressed) dir = 'LEFT';
-            else if (buttons[GAMEPAD.BTN_DOWN]?.pressed) dir = 'DOWN';
-            else if (buttons[GAMEPAD.BTN_UP]?.pressed) dir = 'UP';
 
             if (dir) {
                 if (dir !== _currentDirection) { moveFocus(dir); _lastMoveTime = now; _moveState = 1; _currentDirection = dir; }
@@ -799,14 +800,11 @@ window.addEventListener('gamepaddisconnected', e => {
                 else if (_moveState === 2 && now - _lastMoveTime > GAMEPAD.REPEAT_DELAY) { moveFocus(dir); _lastMoveTime = now; }
             } else { _moveState = 0; _currentDirection = null; }
 
+            // Confirma focado na tecla atual
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
-                if (window._vkbHasFocus?.()) document.activeElement?.click();
-                else postToHost?.({ action: 'systemMouseClick' });
+                document.activeElement?.click();
             }
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_R2], GAMEPAD.BTN_R2)) postToHost?.({ action: 'systemMouseClick' });
 
-
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_L2], GAMEPAD.BTN_L2)) postToHost?.({ action: 'systemMouseRightClick' });
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) window._vkbCancel?.();
             if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) window._editModalSave?.();
 
@@ -883,7 +881,6 @@ window.addEventListener('gamepaddisconnected', e => {
         requestAnimationFrame(gamepadLoop);
     }
 })();
-
 window.addEventListener('load', () => {
     const pads = navigator.getGamepads();
     for (const pad of pads) if (pad) {
