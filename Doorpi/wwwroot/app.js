@@ -293,12 +293,26 @@ window.chrome.webview.addEventListener('message', event => {
                 else if (document.getElementById('doorpiExtensionsManager')?.style.display !== 'none' && document.getElementById('extensionUrlInput')) {
                     const input = document.getElementById('extensionUrlInput');
                     input.value = data.text.trim();
-                    input.focus();
-                }
-                else {
-                    const input = document.getElementById('webAppUrlInput');
-                    if (input) {
-                        input.value = data.text.trim();
+
+                    const btnInstall = document.getElementById('btnInstallExtension');
+                    if (btnInstall) {
+                        // Tenta focar imediatamente
+                        btnInstall.focus();
+
+                        // Força o foco exatamente após o fechamento da janela da loja (que leva 1800ms)
+                        setTimeout(() => {
+                            if (document.getElementById('doorpiExtensionsManager')?.style.display !== 'none') {
+                                btnInstall.focus();
+                            }
+                        }, 1900);
+
+                        // Margem de segurança extra para casos onde o PC demore a renderizar o retorno
+                        setTimeout(() => {
+                            if (document.getElementById('doorpiExtensionsManager')?.style.display !== 'none') {
+                                btnInstall.focus();
+                            }
+                        }, 2300);
+                    } else {
                         input.focus();
                     }
                 }
@@ -378,7 +392,7 @@ function ensureDoorpiOverlayStyles() {
     .doorpi-manager-row { background: rgba(255,255,255,.075); border: 1px solid rgba(255,255,255,.13); border-radius: 12px; color: #fff; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
     .doorpi-manager-form { display: grid; grid-template-columns: 1fr auto auto auto; gap: 10px; }
     .doorpi-manager-input, .doorpi-choice-trigger { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.16); border-radius: 12px; color: #fff; font: inherit; padding: 13px 16px; outline: none; box-sizing: border-box; transition: all 0.2s; }
-    .doorpi-manager-input:focus, .doorpi-choice-trigger:focus, .doorpi-manager-btn:focus, .doorpi-manager-btn:hover { border-color: #fff; box-shadow: 0 0 0 4px rgba(255,255,255,.15); background: rgba(255,255,255,0.1); }
+    .doorpi-manager-input:focus, .doorpi-choice-trigger:focus, .doorpi-manager-btn:focus, .doorpi-manager-btn:hover { border-color: #fff; box-shadow: 0 0 0 4px rgba(255,255,255,1); background: rgba(255,255,255,0.1); }
     .doorpi-choice-wrap { position: relative; }
     .doorpi-choice-trigger { width: 100%; min-height: 50px; display: flex; align-items: center; justify-content: space-between; gap: 12px; text-align: left; cursor: pointer; }
     .doorpi-choice-trigger::after { content: 'v'; font-size: .8rem; color: rgba(255,255,255,.58); }
@@ -389,9 +403,13 @@ function ensureDoorpiOverlayStyles() {
     .doorpi-choice-option { background: transparent; border: 1px solid transparent; border-radius: 8px; color: #fff; font: inherit; text-align: left; padding: 11px 12px; cursor: pointer; outline: none; transition: background 0.15s; }
     .doorpi-choice-option:hover, .doorpi-choice-option.is-selected { background: rgba(255,255,255,.11); }
     .doorpi-share-select { display: none; }
+
     .doorpi-manager-btn { background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.16); border-radius: 12px; color: #fff; font: inherit; font-weight: 600; padding: 12px 20px; cursor: pointer; outline: none; transition: all 0.2s; }
-    .doorpi-manager-btn.primary { background: #fff; color: #07071a; border-color: transparent; }
+    .doorpi-manager-btn.primary { background: #fff; color: #07071a; border-color: transparent; transition: background 0.1s, color 0.1s; }
+    .doorpi-manager-btn.primary:hover { background: #e8e8e8; color: #07071a; border-color: transparent; box-shadow: none; }
+    .doorpi-manager-btn.primary:focus { background: #fff; outline: 3px solid #fff; outline-offset: 3px; box-shadow: none; transition: none !important; }
     .doorpi-manager-list { display: flex; flex-direction: column; gap: 10px; overflow: auto; padding-right: 4px; }
+
     .doorpi-status { min-height: 20px; color: rgba(255,255,255,.62); }
     .doorpi-status.error { color: rgba(255,110,110,.95); }
     .doorpi-status.success { color: rgba(110,230,150,.95); }
