@@ -1602,7 +1602,6 @@ namespace Doorpi
         // ========================= LÓGICA OTIMIZADA DE DIFF DE PASTAS =========================
 
         private (List<InstalledApp> Apps, Dictionary<string, long> Timestamps, bool Changed) ScanWatchedFoldersOptimized(AppCacheModel cache, Action<string, int>? onProgress = null)
-
         {
             bool changed = false;
             var currentApps = cache.FolderApps ?? new List<InstalledApp>();
@@ -1611,89 +1610,202 @@ namespace Doorpi
             var newTimestamps = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
             var newFolderApps = new List<InstalledApp>();
 
-            long minSize = 2 * 1024 * 1024;
             var options = new EnumerationOptions { IgnoreInaccessible = true, RecurseSubdirectories = true };
+            string[] junkTerms = { "unins", "crash", "setup", "redist", "update", "cefsubproc", "prereq", "vc_redist", "dxwebsetup", "support" };
 
             foreach (var rootFolder in GetWatchedFolderPaths())
             {
                 if (!Directory.Exists(rootFolder)) continue;
                 onProgress?.Invoke(rootFolder, -1);
                 int foundInRoot = 0;
+
                 try
                 {
-                    var dirsToScan = new List<string> { rootFolder };
-                    dirsToScan.AddRange(Directory.EnumerateDirectories(rootFolder, "*", options));
-                    foreach (var dir in dirsToScan)
-                    {
-                        var dirInfo = new DirectoryInfo(dir);
-                        long lastWrite = dirInfo.LastWriteTimeUtc.Ticks;
-                        newTimestamps[dir] = lastWrite;
+                    // Pega apenas as pastas da "Raiz" (Ex: D:\Games\Stellar Blade). Elas representam 1 jogo cada.
+                    var gameDirs = Directory.GetDirectories(rootFolder, "*", SearchOption.TopDirectoryOnly).ToList();
 
-                        if (currentTimestamps.TryGetValue(dir, out long oldWrite) && oldWrite == lastWrite)
+                    foreach (var gameDir in gameDirs)
+                    {
+                        var dirInfo = new DirectoryInfo(gameDir);
+                        long lastWrite = dirInfo.LastWriteTimeUtc.Ticks;
+                        newTimestamps[gameDir] = lastWrite;
+
+                        if (currentTimestamps.TryGetValue(gameDir, out long oldWrite) && oldWrite == lastWrite)
                         {
-                            var appsInDir = currentApps.Where(a =>
-                                string.Equals(Path.GetDirectoryName(a.Path), dir, StringComparison.OrdinalIgnoreCase)
-                            ).ToList();
+                            var appsInDir = currentApps.Where(a => a.Path.StartsWith(gameDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList();
                             newFolderApps.AddRange(appsInDir);
                             foundInRoot += appsInDir.Count;
                         }
                         else
                         {
                             changed = true;
-                            foreach (var exePath in Directory.EnumerateFiles(dir, "*.exe", SearchOption.TopDirectoryOnly))
+                            string expectedName = dirInfo.Name;
+
+                            // Pega TODOS os executáveis dentro da pasta e de todas as subpastas dela de uma vez
+                            var exes = new DirectoryInfo(gameDir).GetFiles("*.exe", options)
+                                .Where(f => !junkTerms.Any(j => f.Name.Contains(j, StringComparison.OrdinalIgnoreCase)))
+                                .ToList();
+
+                            if (exes.Count > 0)
                             {
-                                var fileInfo = new FileInfo(exePath);
-                                string fileName = fileInfo.Name.ToLower();
+                                FileInfo? bestExe = null;
+                                string cleanExpected = NormalizeGameName(expectedName);
 
-                                if (fileName.Contains("unins") || fileName.Contains("crash")) continue;
+                                // 1. Prioridade MAX: O Nome do Arquivo bate com a pasta?
+                                bestExe = exes.FirstOrDefault(f =>
+                                    NormalizeGameName(Path.GetFileNameWithoutExtension(f.Name)) == cleanExpected ||
+                                    IsNameSimilar(Path.GetFileNameWithoutExtension(f.Name), expectedName));
 
-                                string exeNameOnly = Path.GetFileNameWithoutExtension(fileInfo.Name);
-                                string parentFolderName = fileInfo.Directory?.Name ?? "";
-                                bool isSimilar = IsNameSimilar(exeNameOnly, parentFolderName);
-
-                                if (fileInfo.Length >= minSize || isSimilar)
+                                // 2. Prioridade ALTA: Os Metadados batem com a pasta?
+                                if (bestExe == null)
                                 {
-                                    string name = GetGameNameFromFile(fileInfo.FullName) ?? exeNameOnly;
-                                    newFolderApps.Add(new InstalledApp
+                                    foreach (var exe in exes)
                                     {
-                                        Name = name,
-                                        Path = fileInfo.FullName,
-                                        Source = "Folder",
-                                        IconBase64 = GetCachedIcon(fileInfo.FullName)
-                                    });
-                                    foundInRoot++;
+                                        try
+                                        {
+                                            var fi = FileVersionInfo.GetVersionInfo(exe.FullName);
+                                            if (NormalizeGameName(fi.ProductName ?? "") == cleanExpected ||
+                                                NormalizeGameName(fi.FileDescription ?? "") == cleanExpected ||
+                                                IsNameSimilar(fi.ProductName ?? "", expectedName) ||
+                                                IsNameSimilar(fi.FileDescription ?? "", expectedName))
+                                            {
+                                                bestExe = exe;
+                                                break;
+                                            }
+                                        }
+                                        catch { }
+                                    }
                                 }
+
+                                // 3. Fallback: Pega o maior executável (Sempre será o jogo verdadeiro e nunca o CEF)
+                                if (bestExe == null)
+                                {
+                                    bestExe = exes.OrderByDescending(f => f.Length).First();
+                                }
+
+                                // Define o nome bonitinho a partir dos metadados (se tiver)
+                                string finalName = expectedName;
+                                try
+                                {
+                                    var fi = FileVersionInfo.GetVersionInfo(bestExe.FullName);
+                                    if (!string.IsNullOrWhiteSpace(fi.ProductName)) finalName = fi.ProductName;
+                                    else if (!string.IsNullOrWhiteSpace(fi.FileDescription)) finalName = fi.FileDescription;
+                                }
+                                catch { }
+
+                                newFolderApps.Add(new InstalledApp
+                                {
+                                    Name = finalName,
+                                    Path = bestExe.FullName,
+                                    Source = "Folder",
+                                    IconBase64 = GetCachedIcon(bestExe.FullName)
+                                });
+                                foundInRoot++;
                             }
                         }
                     }
+
+                    // Arquivos soltos diretamente na raiz da pasta vigiada (Jogos que não estão dentro de subpastas)
+                    var rootExes = new DirectoryInfo(rootFolder).GetFiles("*.exe", SearchOption.TopDirectoryOnly)
+                        .Where(f => !junkTerms.Any(j => f.Name.Contains(j, StringComparison.OrdinalIgnoreCase)))
+                        .ToList();
+
+                    foreach (var rootExe in rootExes)
+                    {
+                        long lastWrite = rootExe.LastWriteTimeUtc.Ticks;
+                        string key = rootExe.FullName;
+                        newTimestamps[key] = lastWrite;
+
+                        if (currentTimestamps.TryGetValue(key, out long oldWrite) && oldWrite == lastWrite)
+                        {
+                            var app = currentApps.FirstOrDefault(a => string.Equals(a.Path, key, StringComparison.OrdinalIgnoreCase));
+                            if (app != null) { newFolderApps.Add(app); foundInRoot++; }
+                        }
+                        else
+                        {
+                            changed = true;
+                            string finalName = Path.GetFileNameWithoutExtension(rootExe.Name);
+                            try
+                            {
+                                var fi = FileVersionInfo.GetVersionInfo(rootExe.FullName);
+                                if (!string.IsNullOrWhiteSpace(fi.ProductName)) finalName = fi.ProductName;
+                                else if (!string.IsNullOrWhiteSpace(fi.FileDescription)) finalName = fi.FileDescription;
+                            }
+                            catch { }
+
+                            newFolderApps.Add(new InstalledApp { Name = finalName, Path = rootExe.FullName, Source = "Folder", IconBase64 = GetCachedIcon(rootExe.FullName) });
+                            foundInRoot++;
+                        }
+                    }
                 }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"[ScanOptimized] Erro ao escanear pasta {rootFolder}: {ex.Message}");
-                }
+                catch (Exception ex) { Debug.WriteLine($"[ScanOptimized] Erro: {ex.Message}"); }
                 onProgress?.Invoke(rootFolder, foundInRoot);
             }
 
-            if (!changed && (currentTimestamps.Count != newTimestamps.Count || !currentTimestamps.Keys.All(k => newTimestamps.ContainsKey(k))))
-            {
-                changed = true;
-            }
-
+            if (!changed && (currentTimestamps.Count != newTimestamps.Count || !currentTimestamps.Keys.All(k => newTimestamps.ContainsKey(k)))) changed = true;
             return (newFolderApps, newTimestamps, changed);
         }
 
         // ========================= WINDOWS APPS (scan) =========================
+        private string? FindMainExecutable(string folderPath, string expectedName, EnumerationOptions options)
+        {
+            if (string.IsNullOrEmpty(folderPath) || !Directory.Exists(folderPath)) return null;
+
+            // Filtro turbinado contra lixos de engines
+            string[] junkTerms = { "unins", "crash", "setup", "redist", "update", "cefsubproc", "prereq", "vc_redist", "dxwebsetup", "support" };
+
+            var exes = new DirectoryInfo(folderPath)
+                .GetFiles("*.exe", options)
+                .Where(f => !junkTerms.Any(j => f.Name.Contains(j, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+
+            if (exes.Count == 0) return null;
+
+            string cleanExpected = NormalizeGameName(expectedName);
+
+            // 1. Prioridade MAX: O Nome do Arquivo bate?
+            var byName = exes.FirstOrDefault(f =>
+                NormalizeGameName(Path.GetFileNameWithoutExtension(f.Name)) == cleanExpected ||
+                IsNameSimilar(Path.GetFileNameWithoutExtension(f.Name), expectedName));
+            if (byName != null) return byName.FullName;
+
+            // 2. Prioridade ALTA: Os Metadados batem? (Independente do tamanho!)
+            foreach (var exe in exes)
+            {
+                try
+                {
+                    var fi = FileVersionInfo.GetVersionInfo(exe.FullName);
+                    if (NormalizeGameName(fi.ProductName ?? "") == cleanExpected ||
+                        NormalizeGameName(fi.FileDescription ?? "") == cleanExpected ||
+                        IsNameSimilar(fi.ProductName ?? "", expectedName) ||
+                        IsNameSimilar(fi.FileDescription ?? "", expectedName))
+                    {
+                        return exe.FullName;
+                    }
+                }
+                catch { }
+            }
+
+            // 3. Fallback: Retorna o MAIOR executável da pasta (seu sistema de antes)
+            return exes.OrderByDescending(f => f.Length).First().FullName;
+        }
 
         private List<InstalledApp> ScanWindowsApps()
         {
             var list = new List<InstalledApp>();
             var paths = new[]
             {
-                @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
-                @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
-            };
+        @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+    };
+
+            var options = new EnumerationOptions { IgnoreInaccessible = true, RecurseSubdirectories = true, MaxRecursionDepth = 3 };
+
+            var ignoredLaunchers = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    { "Steam", "Epic Games Launcher", "GOG Galaxy", "Battle.net", "Origin", "EA app", "Ubisoft Connect", "Rockstar Games Launcher" };
 
             foreach (var hive in new[] { RegistryHive.LocalMachine, RegistryHive.CurrentUser })
+            {
                 foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
                 {
                     using var baseKey = RegistryKey.OpenBaseKey(hive, view);
@@ -1701,6 +1813,7 @@ namespace Doorpi
                     {
                         using var key = baseKey.OpenSubKey(rel);
                         if (key == null) continue;
+
                         foreach (var name in key.GetSubKeyNames())
                         {
                             try
@@ -1710,14 +1823,16 @@ namespace Doorpi
 
                                 var displayName = sub.GetValue("DisplayName") as string;
                                 if (string.IsNullOrWhiteSpace(displayName) || IsSystemComponent(displayName, sub)) continue;
+                                if (ignoredLaunchers.Contains(displayName.Trim())) continue;
 
                                 string folder = GetAppFolder(sub);
-                                if (string.IsNullOrEmpty(folder)) continue;
+                                if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder)) continue;
+                                if (folder.Contains(@"\steamapps\", StringComparison.OrdinalIgnoreCase)) continue;
 
-                                var exes = new DirectoryInfo(folder).GetFiles("*.exe", SearchOption.TopDirectoryOnly);
-                                if (exes.Length == 0) continue;
+                                // CHAMA A FUNÇÃO INTELIGENTE
+                                string exePath = FindMainExecutable(folder, displayName, options);
+                                if (exePath == null) continue;
 
-                                string exePath = Path.GetFullPath(exes.OrderByDescending(f => f.Length).First().FullName);
                                 list.Add(new InstalledApp
                                 {
                                     Name = displayName,
@@ -1730,6 +1845,7 @@ namespace Doorpi
                         }
                     }
                 }
+            }
             return list;
         }
 
