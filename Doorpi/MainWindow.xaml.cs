@@ -1150,6 +1150,43 @@ namespace Doorpi
             // Se tudo falhar, devolve o nome da pasta em vez de quebrar
             return Path.GetFileName(extFolder);
         }
+        private void DeleteExtension(string id)
+        {
+            if (string.IsNullOrWhiteSpace(id)) return;
+
+            var extensions = LoadBrowserExtensions();
+            var ext = extensions.FirstOrDefault(e => string.Equals(e.Id, id, StringComparison.OrdinalIgnoreCase));
+
+            if (ext != null)
+            {
+                // Remove do banco de dados (JSON)
+                extensions.Remove(ext);
+                SaveBrowserExtensions(extensions);
+
+                // Tenta deletar os arquivos físicos
+                if (!string.IsNullOrEmpty(ext.InstalledPath) && Directory.Exists(ext.InstalledPath))
+                {
+                    try
+                    {
+                        // Força o Garbage Collector a soltar possíveis handles antes de deletar
+                        GC.Collect();
+                        GC.WaitForPendingFinalizers();
+
+                        Directory.Delete(ext.InstalledPath, true);
+                    }
+                    catch (IOException ex)
+                    {
+                        // É normal dar erro de IO se o WebView2 estiver rodando com a extensão ativa.
+                        // Como já removemos do JSON, ela não será carregada da próxima vez.
+                        Debug.WriteLine($"[Extensions] Arquivo travado, será ignorado no próximo boot. Erro: {ex.Message}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[Extensions] Erro ao deletar pasta física: {ex.Message}");
+                    }
+                }
+            }
+        }
         private async Task InstallChromeExtensionAsync(string sourceUrl)
         {
             string id = ParseChromeExtensionId(sourceUrl);
@@ -3204,6 +3241,22 @@ namespace Doorpi
                         catch (Exception ex)
                         {
                             SendExtensionsToUI("error", ex.Message);
+                        }
+                    });
+                }
+                else if (action == "deleteExtension")
+                {
+                    string id = GetStr(root, "id");
+                    _ = Task.Run(() =>
+                    {
+                        try
+                        {
+                            DeleteExtension(id);
+                            SendExtensionsToUI("success", "Extensão removida. As mudanças terão efeito na próxima vez que abrir um app.");
+                        }
+                        catch (Exception ex)
+                        {
+                            SendExtensionsToUI("error", "Erro ao remover: " + ex.Message);
                         }
                     });
                 }

@@ -733,14 +733,33 @@ function renderExtensionsManager(extensions, status, message) {
     if (list) {
         list.innerHTML = extensions.map(ext => `
             <div class="doorpi-manager-row">
-                <div>
-                    <!-- Exibe APENAS o nome real da extensão -->
+                <div style="display:flex; flex-direction:column; gap:2px;">
                     <strong>${escapeHtml(ext.Name || t('extUnknown'))}</strong>
+                    <span style="color:rgba(255,255,255,.45);font-size:.82rem">${t('extInstalled')}</span>
                 </div>
-                <span style="color:rgba(255,255,255,.45);font-size:.82rem">${t('extInstalled')}</span>
+                <div style="display:flex; gap: 8px; align-items: center;">
+                    <!-- Espaço futuro para o botão de Configurações/Atualizações -->
+                    
+                    <button class="doorpi-manager-btn" 
+                            style="padding: 6px 12px; background: rgba(220,50,50,0.15); border-color: rgba(220,50,50,0.3); color: #ff6e6e;" 
+                            title="Remover extensão"
+                            onclick="window._doorpiDeleteExtension('${escapeHtml(ext.Id)}')">
+                        ✕
+                    </button>
+                </div>
             </div>`).join('');
     }
 }
+
+// Adicione esta função global logo abaixo para lidar com o clique
+window._doorpiDeleteExtension = function (extId) {
+    const statusEl = document.getElementById('extensionStatus');
+    if (statusEl) {
+        statusEl.textContent = "Removendo extensão...";
+        statusEl.className = 'doorpi-status';
+    }
+    postToHost({ action: 'deleteExtension', id: extId });
+};
 
 window.openExtensionsManager = openExtensionsManager;
 window.openCreateUserDialog = openCreateUserDialog;
