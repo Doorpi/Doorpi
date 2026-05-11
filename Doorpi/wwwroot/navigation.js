@@ -903,8 +903,8 @@ function showCursor() {
     if (_cursorIdleTimeout) clearTimeout(_cursorIdleTimeout);
     _cursorIdleTimeout = setTimeout(() => { document.body.style.cursor = 'none'; }, CURSOR_IDLE_MS);
 }
+document.body.style.cursor = 'none';
 document.addEventListener('mousemove', showCursor);
-showCursor();
 
 // =============================================================================
 // Auto-Foco Inteligente Centralizado (Navegação & Modal)

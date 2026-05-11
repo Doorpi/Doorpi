@@ -144,6 +144,12 @@ namespace Doorpi
         private readonly SemaphoreSlim _cacheLock = new SemaphoreSlim(1, 1);
         private DateTime _lastCacheBuilt = DateTime.MinValue;
 
+        private bool _mainScreenMouseVisible = false;
+        private POINT _lastKnownCursorPos;
+        private System.Threading.Timer? _mouseIdleTimer;
+        private System.Threading.Timer? _mousePollTimer;
+        private const int MOUSE_IDLE_MS = 3000;
+
         [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT lpPoint);
         [DllImport("user32.dll")] private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
         [DllImport("xinput1_4.dll", EntryPoint = "XInputGetState")]
@@ -201,8 +207,61 @@ namespace Doorpi
             InitializeUserStorage();
 
             InitializeAsync();
+
+            EnsureCursorHidden();
+            StartMainScreenMouseWatch();
+        }
+        private void EnsureCursorHidden()
+        {
+            while (ShowCursor(false) >= 0) { }
         }
 
+        private void EnsureCursorVisible()
+        {
+            while (ShowCursor(true) < 0) { }
+        }
+
+        private void StartMainScreenMouseWatch()
+        {
+            GetCursorPos(out _lastKnownCursorPos);
+
+            _mouseIdleTimer = new System.Threading.Timer(_ =>
+            {
+                if (_ytWebView != null) return;
+                Dispatcher.Invoke(() =>
+                {
+                    if (!_mainScreenMouseVisible) return;
+                    EnsureCursorHidden();
+                    _mainScreenMouseVisible = false;
+                });
+            }, null, Timeout.Infinite, Timeout.Infinite);
+
+            _mousePollTimer = new System.Threading.Timer(_ =>
+            {
+                if (_ytWebView != null) return;
+                if (!GetCursorPos(out var pt)) return;
+                if (pt.X == _lastKnownCursorPos.X && pt.Y == _lastKnownCursorPos.Y) return;
+
+                _lastKnownCursorPos = pt;
+                Dispatcher.Invoke(() =>
+                {
+                    if (!_mainScreenMouseVisible)
+                    {
+                        EnsureCursorVisible();
+                        _mainScreenMouseVisible = true;
+                    }
+                });
+                _mouseIdleTimer?.Change(MOUSE_IDLE_MS, Timeout.Infinite);
+            }, null, 0, 100);
+        }
+
+        private void StopMainScreenMouseWatch()
+        {
+            _mousePollTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+            _mouseIdleTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+            _mousePollTimer?.Dispose(); _mousePollTimer = null;
+            _mouseIdleTimer?.Dispose(); _mouseIdleTimer = null;
+        }
         // ========================= INICIALIZAÇÃO =========================
 
         async void InitializeAsync()

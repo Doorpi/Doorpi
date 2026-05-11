@@ -40,7 +40,6 @@ namespace Doorpi
         [DllImport("xinput1_4.dll", EntryPoint = "#100")]
         private static extern int XInputGetStateEx(int dwUserIndex, out XINPUT_STATE pState);
 
-        private bool _isMouseHidden = false;
 
         // ── Constantes mouse ──────────────────────────────────────────────────
         private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
@@ -1075,9 +1074,6 @@ const origPush = history.pushState.bind(history);
                 await YtInjectUltrawideFixAsync(_ytWebView.CoreWebView2);
                 await YtInjectPlayerBackgroundAsync(_ytWebView.CoreWebView2);
                 _ytWebView.ZoomFactor = 0.3;
-                ShowCursor(false);
-                _isMouseHidden = true;
-
             }
             else
             {
@@ -1096,6 +1092,15 @@ const origPush = history.pushState.bind(history);
                 if (newUrl.Contains("chromewebstore.google.com/detail/"))
                     await InjectInstalledExtensionsAsync(_ytWebView.CoreWebView2);
             };
+
+            StopMainScreenMouseWatch();
+            if (_mainScreenMouseVisible)
+            {
+                EnsureCursorHidden();
+                _mainScreenMouseVisible = false;
+            }
+            if (!isYouTube)
+                EnsureCursorVisible(); // browser apps precisam do cursor visível
 
             // Inicia o controller — mouse Win32 ativo a partir daqui
             StartMediaControllerMode();
@@ -1146,15 +1151,11 @@ const origPush = history.pushState.bind(history);
             if (_ytClosing || _ytWebView == null) return;
             _ytClosing = true;
 
-            // Para o controller e limpa estado VKB antes de qualquer coisa
             StopMediaControllerMode();
             _vkbIsOpen = false;
             _vkbOwnerView = null;
-            if (_isMouseHidden)
-            {
-                ShowCursor(true);
-                _isMouseHidden = false;
-            }
+            EnsureCursorHidden();        // garante estado limpo ao voltar
+            _mainScreenMouseVisible = false;
 
 
             try { _popupWindow?.Close(); } catch { }
@@ -1181,6 +1182,7 @@ const origPush = history.pushState.bind(history);
             webView.Visibility = Visibility.Visible;
             ForceFocus();
             webView.CoreWebView2?.PostWebMessageAsString("{\"type\":\"mediaAppClosed\"}");
+            StartMainScreenMouseWatch();
         }
 
         // ── Handlers ─────────────────────────────────────────────────────────
