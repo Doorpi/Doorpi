@@ -85,12 +85,13 @@ namespace Doorpi
         public HashSet<string> SteamFingerprint { get; set; } = new();
         public HashSet<string> EpicFingerprint { get; set; } = new();
         public HashSet<string> GogFingerprint { get; set; } = new();
-
+        public HashSet<string> RiotFingerprint { get; set; } = new();
         public List<InstalledApp> WindowsApps { get; set; } = new();
         public List<InstalledApp> FolderApps { get; set; } = new();
         public List<InstalledApp> SteamApps { get; set; } = new();
         public List<InstalledApp> EpicApps { get; set; } = new();
         public List<InstalledApp> GogApps { get; set; } = new();
+        public List<InstalledApp> RiotApps { get; set; } = new();
     }
 
     public class FolderStats
@@ -1390,7 +1391,113 @@ namespace Doorpi
             catch (Exception ex) { Debug.WriteLine("Erro Steam: " + ex.Message); }
             return list;
         }
+        // ========================= RIOT GAMES =========================
 
+        private HashSet<string> GetRiotFingerprint()
+        {
+            var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                var paths = new[] { @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall" };
+                foreach (var hive in new[] { RegistryHive.LocalMachine, RegistryHive.CurrentUser })
+                    foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+                    {
+                        using var baseKey = RegistryKey.OpenBaseKey(hive, view);
+                        foreach (var rel in paths)
+                        {
+                            using var key = baseKey.OpenSubKey(rel);
+                            if (key == null) continue;
+                            foreach (var name in key.GetSubKeyNames())
+                            {
+                                using var sub = key.OpenSubKey(name);
+                                if (sub == null) continue;
+
+                                string uninstallString = sub.GetValue("UninstallString") as string ?? "";
+
+                                // É da Riot se tiver o executável e o parâmetro de produto
+                                if (uninstallString.Contains("RiotClientServices.exe", StringComparison.OrdinalIgnoreCase) &&
+                                    uninstallString.Contains("-product=", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    keys.Add(name);
+                                }
+                            }
+                        }
+                    }
+            }
+            catch (Exception ex) { Debug.WriteLine("RiotFingerprint: " + ex.Message); }
+            return keys;
+        }
+
+        private List<InstalledApp> GetRiotGames()
+        {
+            var list = new List<InstalledApp>();
+            try
+            {
+                var paths = new[] { @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall" };
+                foreach (var hive in new[] { RegistryHive.LocalMachine, RegistryHive.CurrentUser })
+                    foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+                    {
+                        using var baseKey = RegistryKey.OpenBaseKey(hive, view);
+                        foreach (var rel in paths)
+                        {
+                            using var key = baseKey.OpenSubKey(rel);
+                            if (key == null) continue;
+                            foreach (var name in key.GetSubKeyNames())
+                            {
+                                using var sub = key.OpenSubKey(name);
+                                if (sub == null) continue;
+
+                                string publisher = sub.GetValue("Publisher") as string ?? "";
+                                bool isRiot = publisher.Contains("Riot Games", StringComparison.OrdinalIgnoreCase) ||
+                                              name.StartsWith("Riot Game ", StringComparison.OrdinalIgnoreCase);
+
+                                if (!isRiot) continue;
+
+                                string displayName = sub.GetValue("DisplayName") as string ?? "";
+                                string uninstallString = sub.GetValue("UninstallString") as string ?? "";
+                                string displayIcon = sub.GetValue("DisplayIcon") as string ?? "";
+
+                                // Ignora o próprio Riot Client (é só um launcher)
+                                if (displayName.Equals("Riot Client", StringComparison.OrdinalIgnoreCase)) continue;
+                                if (string.IsNullOrWhiteSpace(uninstallString)) continue;
+
+                                // Verifica se é um jogo suportado pelo Riot Client
+                                if (!uninstallString.Contains("RiotClientServices.exe", StringComparison.OrdinalIgnoreCase) ||
+                                    !uninstallString.Contains("-product=", StringComparison.OrdinalIgnoreCase))
+                                    continue;
+
+                                // ==========================================================
+                                string launchCmd = uninstallString.Replace("--uninstall-", "--launch-").Replace("\"", "").Trim();
+                                string launchUrl = $"riot:{launchCmd}";
+                                // ==========================================================
+
+                                // Extrai o nome do produto para manter compatibilidade no path
+                                string product = name;
+                                var match = Regex.Match(launchCmd, @"--launch-product=([^\s]+)");
+                                if (match.Success) product = match.Groups[1].Value;
+
+                                string iconBase64 = "";
+                                string cleanIconPath = displayIcon.Split(',')[0].Replace("\"", "").Trim();
+                                if (File.Exists(cleanIconPath))
+                                    iconBase64 = GetCachedIcon(cleanIconPath);
+
+                                list.Add(new InstalledApp
+                                {
+                                    Name = displayName,
+                                    LaunchUrl = launchUrl,
+                                    Path = product,
+                                    Source = "Riot",
+                                    IconBase64 = iconBase64
+                                });
+                            }
+                        }
+                    }
+            }
+            catch (Exception ex) { Debug.WriteLine("Erro Riot: " + ex.Message); }
+
+            // Garante que não duplique (caso exista no LocalMachine e no CurrentUser simultaneamente)
+            return list.GroupBy(a => a.LaunchUrl).Select(g => g.First()).ToList();
+        }
         // ========================= EPIC =========================
 
         private List<InstalledApp> GetEpicGames()
@@ -1802,7 +1909,7 @@ namespace Doorpi
             var options = new EnumerationOptions { IgnoreInaccessible = true, RecurseSubdirectories = true, MaxRecursionDepth = 3 };
 
             var ignoredLaunchers = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    { "Steam", "Epic Games Launcher", "GOG Galaxy", "Battle.net", "Origin", "EA app", "Ubisoft Connect", "Rockstar Games Launcher" };
+    { "Steam", "Epic Games Launcher", "GOG Galaxy", "Battle.net", "Origin", "EA app", "Ubisoft Connect", "Rockstar Games Launcher", "Riot Client" };
 
             foreach (var hive in new[] { RegistryHive.LocalMachine, RegistryHive.CurrentUser })
             {
@@ -1824,6 +1931,10 @@ namespace Doorpi
                                 var displayName = sub.GetValue("DisplayName") as string;
                                 if (string.IsNullOrWhiteSpace(displayName) || IsSystemComponent(displayName, sub)) continue;
                                 if (ignoredLaunchers.Contains(displayName.Trim())) continue;
+
+                                var publisher = sub.GetValue("Publisher") as string;
+                                if (publisher != null && publisher.Contains("Riot Games", StringComparison.OrdinalIgnoreCase)) continue;
+                                if (name.StartsWith("Riot Game ", StringComparison.OrdinalIgnoreCase)) continue;
 
                                 string folder = GetAppFolder(sub);
                                 if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder)) continue;
@@ -1914,14 +2025,20 @@ namespace Doorpi
                 var steamPrint = GetSteamFingerprint();
                 var epicPrint = GetEpicFingerprint();
                 var gogPrint = GetGogFingerprint();
+                var riotPrint = GetRiotFingerprint();
                 var winPrint = GetWindowsRegistryFingerprint();
 
                 bool steamStale = !steamPrint.SetEquals(cache.SteamFingerprint) || !cache.SteamApps.Any();
                 bool epicStale = !epicPrint.SetEquals(cache.EpicFingerprint) || !cache.EpicApps.Any();
                 bool gogStale = !gogPrint.SetEquals(cache.GogFingerprint) || !cache.GogApps.Any();
+                bool riotStale = !riotPrint.SetEquals(cache.RiotFingerprint) || !cache.RiotApps.Any();
                 bool windowsStale = _windowsCacheInvalid
                                  || !winPrint.SetEquals(cache.WindowsFingerprint)
                                  || !cache.WindowsApps.Any();
+                var riotTask = Task.Run(() =>
+    riotStale
+        ? (GetRiotGames(), true)
+        : (cache.RiotApps, false));
 
                 var steamTask = Task.Run(() =>
                     steamStale
@@ -1950,21 +2067,24 @@ namespace Doorpi
                     return result;
                 });
 
-                await Task.WhenAll(steamTask, epicTask, gogTask, winTask, folderTask);
+                await Task.WhenAll(steamTask, epicTask, gogTask, riotTask, winTask, folderTask);
 
                 var (steamApps, steamChanged) = steamTask.Result;
                 var (epicApps, epicChanged) = epicTask.Result;
                 var (gogApps, gogChanged) = gogTask.Result;
+                var (riotApps, riotChanged) = riotTask.Result;
                 var (windowsApps, windowsChanged) = winTask.Result;
                 (List<InstalledApp> folderApps, Dictionary<string, long> folderTimestamps, bool folderChanged) = folderTask.Result;
 
-                bool anythingChanged = steamChanged || epicChanged || gogChanged || windowsChanged || folderChanged;
+                bool anythingChanged = steamChanged || epicChanged || gogChanged || riotChanged || windowsChanged || folderChanged;
+
 
                 if (anythingChanged)
                 {
                     if (steamChanged) { cache.SteamApps = steamApps; cache.SteamFingerprint = steamPrint; }
                     if (epicChanged) { cache.EpicApps = epicApps; cache.EpicFingerprint = epicPrint; }
                     if (gogChanged) { cache.GogApps = gogApps; cache.GogFingerprint = gogPrint; }
+                    if (riotChanged) { cache.RiotApps = riotApps; cache.RiotFingerprint = riotPrint; }
                     if (windowsChanged)
                     {
                         cache.WindowsApps = windowsApps; cache.WindowsFingerprint = winPrint;
@@ -1987,7 +2107,7 @@ namespace Doorpi
         {
             var cache = LoadAppCache() ?? new AppCacheModel();
             var existingMap = BuildExistingAppsMap(); // Agora é um Map
-            var finalList = BuildFinalList(cache.SteamApps, cache.EpicApps, cache.GogApps, cache.WindowsApps, cache.FolderApps, existingMap);
+            var finalList = BuildFinalList(cache.SteamApps, cache.EpicApps, cache.GogApps, cache.RiotApps, cache.WindowsApps, cache.FolderApps, existingMap);
 
             var payload = new { type = "installedAppsList", apps = finalList };
             Dispatcher.Invoke(() =>
@@ -2021,6 +2141,7 @@ namespace Doorpi
             List<InstalledApp> steam,
             List<InstalledApp> epic,
             List<InstalledApp> gog,
+            List<InstalledApp> riot,
             List<InstalledApp> windows,
             List<InstalledApp> folders,
             Dictionary<string, string> existingMap)
@@ -2029,6 +2150,7 @@ namespace Doorpi
             all.AddRange(steam);
             all.AddRange(epic);
             all.AddRange(gog);
+            all.AddRange(riot);
             all.AddRange(windows);
             all.AddRange(folders);
 
@@ -2072,6 +2194,7 @@ namespace Doorpi
             List<InstalledApp> steam,
             List<InstalledApp> epic,
             List<InstalledApp> gog,
+            List<InstalledApp> riot,
             List<InstalledApp> windows,
             List<InstalledApp> folders,
             HashSet<string> existingGames)
@@ -2080,6 +2203,7 @@ namespace Doorpi
             all.AddRange(steam);
             all.AddRange(epic);
             all.AddRange(gog);
+            all.AddRange(riot);
             all.AddRange(windows);
             all.AddRange(folders);
 
@@ -2167,6 +2291,7 @@ namespace Doorpi
             var lastSteam = GetSteamFingerprint();
             var lastEpic = GetEpicFingerprint();
             var lastGog = GetGogFingerprint();
+            var lastRiot = GetRiotFingerprint();
             var lastWin = GetWindowsRegistryFingerprint();
 
             while (_pollingActive)
@@ -2177,11 +2302,13 @@ namespace Doorpi
                 var curSteam = GetSteamFingerprint();
                 var curEpic = GetEpicFingerprint();
                 var curGog = GetGogFingerprint();
+                var curRiot = GetRiotFingerprint();
                 var curWin = GetWindowsRegistryFingerprint();
 
                 bool changed = !curSteam.SetEquals(lastSteam)
                             || !curEpic.SetEquals(lastEpic)
                             || !curGog.SetEquals(lastGog)
+                            || !curRiot.SetEquals(lastRiot)
                             || !curWin.SetEquals(lastWin);
 
                 if (changed)
@@ -2189,14 +2316,14 @@ namespace Doorpi
                     lastSteam = curSteam;
                     lastEpic = curEpic;
                     lastGog = curGog;
+                    lastRiot = curRiot;
                     lastWin = curWin;
 
                     await UpdateAppCacheAsync();
-
                     var cache = LoadAppCache() ?? new AppCacheModel();
                     var existingMap = BuildExistingAppsMap();
                     var apps = BuildFinalList(
-                        cache.SteamApps, cache.EpicApps, cache.GogApps,
+                        cache.SteamApps, cache.EpicApps, cache.GogApps, cache.RiotApps,
                         cache.WindowsApps, cache.FolderApps, existingMap);
 
                     Dispatcher.Invoke(() =>
@@ -3561,6 +3688,45 @@ namespace Doorpi
                             launched = Process.Start(new ProcessStartInfo(game.LaunchUrl) { UseShellExecute = true });
                         }
                     }
+                    else if (!string.IsNullOrWhiteSpace(game.LaunchUrl) &&
+                                                 game.LaunchUrl.StartsWith("riot:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string cmd = game.LaunchUrl.Substring(5).Trim();
+                        string exePath = "";
+                        string args = "";
+
+                        // Separa o Path do Executável dos Argumentos (Com Aspas)
+                        if (cmd.StartsWith("\""))
+                        {
+                            int endQuote = cmd.IndexOf("\"", 1);
+                            if (endQuote > 0)
+                            {
+                                exePath = cmd.Substring(1, endQuote - 1);
+                                args = cmd.Substring(endQuote + 1).Trim();
+                            }
+                        }
+                        // Separa o Path (Sem Aspas)
+                        else
+                        {
+                            int exeIndex = cmd.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
+                            if (exeIndex > 0)
+                            {
+                                exePath = cmd.Substring(0, exeIndex + 4).Trim();
+                                args = cmd.Substring(exeIndex + 4).Trim();
+                            }
+                        }
+
+                        if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath))
+                        {
+                            launched = Process.Start(new ProcessStartInfo
+                            {
+                                FileName = exePath,
+                                Arguments = args,
+                                UseShellExecute = true,
+                                WorkingDirectory = Path.GetDirectoryName(exePath)
+                            });
+                        }
+                    }
                     else if (!string.IsNullOrWhiteSpace(game.LaunchUrl))
                     {
                         EnsureLauncherRunning(game.LaunchUrl);
@@ -3800,6 +3966,7 @@ namespace Doorpi
             "Steam" => 1,
             "Epic" => 1,
             "GOG" => 1,
+            "Riot" => 1,
             "Folder" => 2,
             "Windows" => 3,
             _ => 4
