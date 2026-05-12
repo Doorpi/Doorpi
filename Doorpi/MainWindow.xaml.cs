@@ -153,6 +153,9 @@ namespace Doorpi
         private System.Threading.Timer? _mouseIdleTimer;
         private System.Threading.Timer? _mousePollTimer;
         private const int MOUSE_IDLE_MS = 3000;
+
+
+
         // ========================= DETECÇÃO DO CURSOR (I-BEAM) =========================
         [StructLayout(LayoutKind.Sequential)]
         private struct CURSORINFO
@@ -655,25 +658,30 @@ namespace Doorpi
         }
         private void EnterDesktopMode()
         {
-            // 1. Minimiza o Doorpi
             WindowState = WindowState.Minimized;
-
-            // 2. Tira o foco do "limbo". Passar o foco para a Barra de Tarefas (Shell_TrayWnd) 
-            // garante que o Windows acorde para os inputs do mouse virtual, sem minimizar
-            // os aplicativos (como um navegador) que o usuário deixou aberto no fundo.
             IntPtr trayHwnd = FindWindow("Shell_TrayWnd", null);
-            if (trayHwnd != IntPtr.Zero)
-            {
-                SetForegroundWindow(trayHwnd);
-            }
-
-            // 3. Configura o registro (sem abrir ainda)
+            if (trayHwnd != IntPtr.Zero) SetForegroundWindow(trayHwnd);
             ConfigureTouchKeyboardForController();
 
-            // 4. Inicia o loop do controle
+            // Pré-aquece o TabTip em background para o primeiro Toggle não falhar
+            _ = Task.Run(() => {
+                try
+                {
+                    string tabTip = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFiles),
+                        "microsoft shared", "ink", "TabTip.exe");
+                    if (File.Exists(tabTip) && Process.GetProcessesByName("TabTip").Length == 0)
+                    {
+                        Process.Start(new ProcessStartInfo(tabTip) { UseShellExecute = true });
+                        Thread.Sleep(600);
+                        try { ((ITipInvocationAware)new UIHostNoLaunch()).Toggle(false); } catch { }
+                    }
+                }
+                catch { }
+            });
+
             StartSystemControllerMode();
         }
-
         private void ConfigureTouchKeyboardForController()
         {
             try
@@ -729,10 +737,11 @@ namespace Doorpi
         {
             var sw = Stopwatch.StartNew();
             ushort prevButtons = 0;
-            double exactX = -1, exactY = -1;
             double speedMult = 1.0;
-            double remainderX = 0;
-            double remainderY = 0;
+            double remainderX = 0, remainderY = 0;
+
+            bool aWasOnTextField = false;   // estava em I-beam quando A foi pressionado?
+            bool aDragOccurred = false;     // o mouse se moveu enquanto A estava pressionado?
 
             while (_systemControllerActive)
             {
@@ -745,37 +754,29 @@ namespace Doorpi
                     var gp = state.Gamepad;
                     ushort btn = gp.wButtons;
 
-                    // --- LÓGICA DO MOUSE FLUIDO (Hardware Injection) ---
                     double lx = gp.sThumbLX / 32767.0;
                     double ly = gp.sThumbLY / 32767.0;
                     const double DEAD = 0.15;
                     if (Math.Abs(lx) < DEAD) lx = 0;
                     if (Math.Abs(ly) < DEAD) ly = 0;
 
+                    // Declara fora do bloco para poder usar no drag detection
+                    int deltaX = 0, deltaY = 0;
+
                     if (lx != 0 || ly != 0)
                     {
                         speedMult = Math.Min(speedMult + (1.5 * dt), 3.5);
-                        const double BASE_SENSITIVITY = 1200.0; // Velocidade ajustada para movimento relativo
-
+                        const double BASE_SENSITIVITY = 1200.0;
                         double curveX = Math.Sign(lx) * Math.Pow(Math.Abs(lx), 1.5);
                         double curveY = Math.Sign(ly) * Math.Pow(Math.Abs(ly), 1.5);
-
-                        // Calcula a distância exata que o mouse deve percorrer
                         double moveX = curveX * BASE_SENSITIVITY * speedMult * dt + remainderX;
                         double moveY = -curveY * BASE_SENSITIVITY * speedMult * dt + remainderY;
-
-                        int deltaX = (int)moveX;
-                        int deltaY = (int)moveY;
-
-                        // Guarda as casas decimais para o próximo loop (Garante movimentos lentos perfeitos)
+                        deltaX = (int)moveX;
+                        deltaY = (int)moveY;
                         remainderX = moveX - deltaX;
                         remainderY = moveY - deltaY;
-
                         if (deltaX != 0 || deltaY != 0)
-                        {
-                            // Envia movimento de hardware! Isso força o Windows a ignorar o controle nativo.
                             SendMouse(deltaX, deltaY, MOUSEEVENTF_MOVE);
-                        }
                     }
                     else
                     {
@@ -784,7 +785,6 @@ namespace Doorpi
                         remainderY = 0;
                     }
 
-                    // --- LÓGICA DO SCROLL (Analógico Direito) ---
                     double ry = gp.sThumbRY / 32767.0;
                     if (Math.Abs(ry) > DEAD)
                     {
@@ -792,64 +792,67 @@ namespace Doorpi
                         if (scroll != 0) SendMouse(0, 0, MOUSEEVENTF_WHEEL, (uint)scroll);
                     }
 
-                    // --- FUNÇÕES DE BOTÃO E TECLADO TOUCH ---
                     bool Pressed(ushort m) => (btn & m) != 0 && (prevButtons & m) == 0;
                     bool Released(ushort m) => (btn & m) == 0 && (prevButtons & m) != 0;
 
-                    // Sair do Desktop Mode (Start + Back)
                     if ((btn & 0x0010) != 0 && (btn & 0x0020) != 0)
                     {
                         _systemControllerActive = false;
-
-                        // Garante que o mouse virtual solte qualquer botão que estivesse pressionado
                         SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
                         SendMouse(0, 0, MOUSEEVENTF_RIGHTUP);
-
-                        Dispatcher.Invoke(() =>
-                        {
+                        Dispatcher.Invoke(() => {
                             CloseTouchKeyboard();
                             WindowState = WindowState.Maximized;
                             Activate();
                             ForceFocus();
                         });
-                        break; // Ao dar break, a Thread morre e para de poluir o sistema!
+                        break;
                     }
 
-                    // Botão A -> Clique Esquerdo (Selecionar/Entrar)
+                    // Botão A — registra intenção no Press, abre teclado no Release se não houve drag
                     if (Pressed(0x1000))
                     {
-                        // Verifica ANTES de clicar se estamos em cima de um texto
-                        bool isTextField = IsCursorOnTextField();
-
-                        // Envia o clique do mouse
+                        aWasOnTextField = IsCursorOnTextField();
+                        aDragOccurred = false;
                         SendMouse(0, 0, MOUSEEVENTF_LEFTDOWN);
-
-                        // Se for texto, invoca o teclado automaticamente!
-                        if (isTextField)
-                        {
-                            Dispatcher.Invoke(ShowTouchKeyboard);
-                        }
                     }
-                    if (Released(0x1000)) SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
 
-                    // Botão B -> Voltar (Mouse Button 4)
+                    // Detecta drag enquanto A está segurado
+                    if ((btn & 0x1000) != 0 && (prevButtons & 0x1000) != 0)
+                    {
+                        if (deltaX != 0 || deltaY != 0)
+                            aDragOccurred = true;
+                    }
+
+                    if (Released(0x1000))
+                    {
+                        SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
+
+                        if (aWasOnTextField && !aDragOccurred)
+                        {
+                            // Delay garante que o clique focou o input antes do teclado aparecer
+                            _ = Task.Run(async () => {
+                                await Task.Delay(100);
+                                Dispatcher.Invoke(ShowTouchKeyboard);
+                            });
+                        }
+
+                        aWasOnTextField = false;
+                        aDragOccurred = false;
+                    }
+
                     if (Pressed(0x2000)) SendMouse(0, 0, MOUSEEVENTF_XDOWN, XBUTTON1);
                     if (Released(0x2000)) SendMouse(0, 0, MOUSEEVENTF_XUP, XBUTTON1);
-
-                    // Botão X -> Menu de Contexto (Clique Direito)
                     if (Pressed(0x4000)) SendMouse(0, 0, MOUSEEVENTF_RIGHTDOWN);
                     if (Released(0x4000)) SendMouse(0, 0, MOUSEEVENTF_RIGHTUP);
-
-                    // Botão Y -> Abre o Teclado Touch do Windows
                     if (Pressed(0x8000)) Dispatcher.Invoke(ShowTouchKeyboard);
 
-                    // Teclas de navegação perfeitas para o Teclado Virtual:
-                    SyncKey(Pressed(0x0001), Released(0x0001), 0x26); // DPAD UP -> Seta Cima
-                    SyncKey(Pressed(0x0002), Released(0x0002), 0x28); // DPAD DOWN -> Seta Baixo
-                    SyncKey(Pressed(0x0004), Released(0x0004), 0x25); // DPAD LEFT -> Seta Esquerda
-                    SyncKey(Pressed(0x0008), Released(0x0008), 0x27); // DPAD RIGHT -> Seta Direita
-                    SyncKey(Pressed(0x0010), Released(0x0010), 0x0D); // START -> Enter (Confirmar Seleção)
-                    SyncKey(Pressed(0x0100), Released(0x0100), 0x08); // LB -> Backspace (Opcional, útil pra apagar texto)
+                    SyncKey(Pressed(0x0001), Released(0x0001), 0x26);
+                    SyncKey(Pressed(0x0002), Released(0x0002), 0x28);
+                    SyncKey(Pressed(0x0004), Released(0x0004), 0x25);
+                    SyncKey(Pressed(0x0008), Released(0x0008), 0x27);
+                    SyncKey(Pressed(0x0010), Released(0x0010), 0x0D);
+                    SyncKey(Pressed(0x0100), Released(0x0100), 0x08);
 
                     prevButtons = btn;
                 }
