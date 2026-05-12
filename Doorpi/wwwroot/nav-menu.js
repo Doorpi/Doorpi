@@ -594,17 +594,22 @@ window.isNavMenuOpen = false;
     }
 
     // ── Renderização Genérica de Grid (Jogos/Multimidia) ──────────────────────
+    // ── Renderização Genérica de Grid (Jogos/Multimidia) ──────────────────────
     function _renderGrid(body, items, catId, emptyText, emptyIcon) {
         if (!items.length) {
             body.innerHTML = `<div class="nav-placeholder">
                 <div class="nav-placeholder-icon">${emptyIcon}</div>
                 <div class="nav-placeholder-text">${emptyText}</div>
             </div>`;
+            _contentItems = []; // <-- Garantir que zere a lista
             return;
         }
 
         body.innerHTML = '<div class="nav-big-grid" id="navDynamicGrid"></div>';
         const grid = document.getElementById('navDynamicGrid');
+
+        // Zera o array para receber os elementos DOM
+        _contentItems = [];
 
         items.forEach((item, i) => {
             const name = item.Name || '';
@@ -671,9 +676,12 @@ window.isNavMenuOpen = false;
             });
 
             grid.appendChild(card);
+
+            // <-- CORREÇÃO: Adicionamos o elemento visual (card) à lista focável
+            _contentItems.push(card);
         });
 
-        _contentItems = items;
+
     }
 
     // ── Launch ────────────────────────────────────────────────────────────────

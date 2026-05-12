@@ -153,7 +153,37 @@ namespace Doorpi
         private System.Threading.Timer? _mouseIdleTimer;
         private System.Threading.Timer? _mousePollTimer;
         private const int MOUSE_IDLE_MS = 3000;
+        // ========================= DETECÇÃO DO CURSOR (I-BEAM) =========================
+        [StructLayout(LayoutKind.Sequential)]
+        private struct CURSORINFO
+        {
+            public int cbSize;
+            public int flags;
+            public IntPtr hCursor;
+            public POINT ptScreenPos;
+        }
 
+        [DllImport("user32.dll")]
+        private static extern bool GetCursorInfo(out CURSORINFO pci);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr LoadCursor(IntPtr hInstance, int lpCursorName);
+
+        private const int IDC_IBEAM = 32513; // Código oficial da "barrinha de texto" no Windows
+        private const int CURSOR_SHOWING = 0x00000001;
+
+        // ========================= TECLADO TOUCH (COM INTEROP) =========================
+        [ComImport, Guid("4ce576fa-83dc-4F88-951c-9d0782b4e376")]
+        private class UIHostNoLaunch { }
+
+        [ComImport, Guid("37c994e7-432b-4834-a2f7-dce1f13b834b")]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface ITipInvocationAware
+        {
+            void Toggle(bool bEnable);
+        }
+        [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
         [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT lpPoint);
         [DllImport("user32.dll")] private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
         [DllImport("xinput1_4.dll", EntryPoint = "XInputGetState")]
@@ -243,6 +273,25 @@ namespace Doorpi
 
             EnsureCursorHidden();
             StartMainScreenMouseWatch();
+        }
+        private bool IsCursorOnTextField()
+        {
+            try
+            {
+                var pci = new CURSORINFO();
+                pci.cbSize = Marshal.SizeOf(typeof(CURSORINFO));
+
+                if (GetCursorInfo(out pci) && pci.flags == CURSOR_SHOWING)
+                {
+                    // Carrega a "barrinha de texto" do sistema
+                    IntPtr textCursorHandle = LoadCursor(IntPtr.Zero, IDC_IBEAM);
+
+                    // Se o cursor atual for a barrinha, estamos em um campo de texto!
+                    return pci.hCursor == textCursorHandle;
+                }
+            }
+            catch { }
+            return false;
         }
         private void EnsureCursorHidden()
         {
@@ -585,18 +634,44 @@ namespace Doorpi
 
         private Thread? _systemControllerThread;
         private volatile bool _systemControllerActive = false;
+        private void CloseTouchKeyboard()
+        {
+            Task.Run(() =>
+            {
+                try
+                {
+                    // Mata o teclado para ele não ficar ocupando memória atoa
+                    // ou bugar a próxima vez que você precisar dele
+                    var processes = Process.GetProcessesByName("TabTip")
+                                    .Concat(Process.GetProcessesByName("TextInputHost"));
 
+                    foreach (var p in processes)
+                    {
+                        try { p.Kill(); } catch { }
+                    }
+                }
+                catch { }
+            });
+        }
         private void EnterDesktopMode()
         {
+            // 1. Minimiza o Doorpi
             WindowState = WindowState.Minimized;
 
-            // 1. Configura o teclado silenciosamente no background ANTES de precisar dele
+            // 2. Tira o foco do "limbo". Passar o foco para a Barra de Tarefas (Shell_TrayWnd) 
+            // garante que o Windows acorde para os inputs do mouse virtual, sem minimizar
+            // os aplicativos (como um navegador) que o usuário deixou aberto no fundo.
+            IntPtr trayHwnd = FindWindow("Shell_TrayWnd", null);
+            if (trayHwnd != IntPtr.Zero)
+            {
+                SetForegroundWindow(trayHwnd);
+            }
+
+            // 3. Configura o registro (sem abrir ainda)
             ConfigureTouchKeyboardForController();
 
-            // 2. Opcional: Se quiser que ele já abra imediatamente ao entrar no desktop mode:
-            // ShowTouchKeyboard(); 
-
-            StartSystemControllerMode(); // <--- Chama o motor novo
+            // 4. Inicia o loop do controle
+            StartSystemControllerMode();
         }
 
         private void ConfigureTouchKeyboardForController()
@@ -722,16 +797,39 @@ namespace Doorpi
                     bool Released(ushort m) => (btn & m) == 0 && (prevButtons & m) != 0;
 
                     // Sair do Desktop Mode (Start + Back)
-                    // Sair do Desktop Mode (Start + Back)
                     if ((btn & 0x0010) != 0 && (btn & 0x0020) != 0)
                     {
                         _systemControllerActive = false;
-                        Dispatcher.Invoke(() => { WindowState = WindowState.Maximized; Activate(); ForceFocus(); });
-                        break;
+
+                        // Garante que o mouse virtual solte qualquer botão que estivesse pressionado
+                        SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
+                        SendMouse(0, 0, MOUSEEVENTF_RIGHTUP);
+
+                        Dispatcher.Invoke(() =>
+                        {
+                            CloseTouchKeyboard();
+                            WindowState = WindowState.Maximized;
+                            Activate();
+                            ForceFocus();
+                        });
+                        break; // Ao dar break, a Thread morre e para de poluir o sistema!
                     }
 
                     // Botão A -> Clique Esquerdo (Selecionar/Entrar)
-                    if (Pressed(0x1000)) SendMouse(0, 0, MOUSEEVENTF_LEFTDOWN);
+                    if (Pressed(0x1000))
+                    {
+                        // Verifica ANTES de clicar se estamos em cima de um texto
+                        bool isTextField = IsCursorOnTextField();
+
+                        // Envia o clique do mouse
+                        SendMouse(0, 0, MOUSEEVENTF_LEFTDOWN);
+
+                        // Se for texto, invoca o teclado automaticamente!
+                        if (isTextField)
+                        {
+                            Dispatcher.Invoke(ShowTouchKeyboard);
+                        }
+                    }
                     if (Released(0x1000)) SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
 
                     // Botão B -> Voltar (Mouse Button 4)
@@ -786,27 +884,34 @@ namespace Doorpi
         {
             try
             {
-                // Apenas "chama" o executável. Como já configuramos o registro antes, 
-                // ele vai ler as chaves e nascer no modo Flutuante/Pequeno (valor 2).
-                string tabTip = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFiles),
-                    "microsoft shared", "ink", "TabTip.exe");
+                // Tenta forçar a abertura via COM Interop (Ignora o bloqueio dos navegadores)
+                var uiHostNoLaunch = new UIHostNoLaunch();
+                var tipInvocationAware = (ITipInvocationAware)uiHostNoLaunch;
 
-                if (File.Exists(tabTip))
-                {
-                    Process.Start(new ProcessStartInfo(tabTip) { UseShellExecute = true });
-                }
-                else
-                {
-                    // Fallback para sistemas muito antigos (acessibilidade)
-                    Process.Start(new ProcessStartInfo("osk.exe") { UseShellExecute = true });
-                }
+                // true = Força a exibição na tela
+                tipInvocationAware.Toggle(true);
             }
-            catch (Exception ex)
+            catch (Exception exCOM)
             {
-                Debug.WriteLine("[DesktopMode] Erro ao abrir teclado: " + ex.Message);
+                Debug.WriteLine($"[DesktopMode] Falha no COM, usando fallback: {exCOM.Message}");
+
+                // Fallback (Método Tradicional educado)
+                try
+                {
+                    string tabTip = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFiles),
+                        "microsoft shared", "ink", "TabTip.exe");
+
+                    if (File.Exists(tabTip))
+                        Process.Start(new ProcessStartInfo(tabTip) { UseShellExecute = true });
+                    else
+                        Process.Start(new ProcessStartInfo("osk.exe") { UseShellExecute = true });
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[DesktopMode] Erro ao abrir teclado: " + ex.Message);
+                }
             }
         }
-
         private static int AxisToCursorDelta(short rawValue, int maxPixels, bool invert = false)
         {
             const int deadZone = 8000;
