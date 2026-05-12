@@ -140,8 +140,6 @@ function getNavigableItems() {
         const activeGrid = window.getCurrentHomeTab?.() === 'media' ? document.getElementById('mediaGrid') : document.getElementById('gameGrid');
         const cards = Array.from(activeGrid?.querySelectorAll("[tabindex='0']") ?? []);
         const profileBtn = document.getElementById('btnTopProfile');
-
-        // 🔹 FOTO DE PERFIL INSERIDA NO FLUXO GLOBAL DA NAVEGAÇÃO 🔹
         const items = [...tabs, ...cards];
         if (profileBtn) items.unshift(profileBtn);
         return items;

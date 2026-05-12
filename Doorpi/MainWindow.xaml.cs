@@ -2305,7 +2305,31 @@ namespace Doorpi
             }
             return set;
         }
-
+        private void ForceDeleteDirectory(string path)
+        {
+            if (!Directory.Exists(path)) return;
+            try
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                Directory.Delete(path, true);
+            }
+            catch
+            {
+                try
+                {
+                    // Se o WebView2 estiver segurando arquivos (travando a exclusão),
+                    // Nós movemos e renomeamos a pasta. Isso a desconecta da conta,
+                    // resolvendo o bug. O Windows apagará esse "lixo" quando fechar o app.
+                    string trashPath = path + "_deleted_" + Guid.NewGuid().ToString("N");
+                    Directory.Move(path, trashPath);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[ForceDelete] Falha ao mover pasta travada: {ex.Message}");
+                }
+            }
+        }
         private List<InstalledApp> BuildFinalList(
             List<InstalledApp> steam,
             List<InstalledApp> epic,
@@ -3229,6 +3253,95 @@ namespace Doorpi
                         });
                     }
                 }
+                else if (action == "deleteCurrentUser")
+                {
+                    var users = LoadUserProfiles();
+                    var userToRemove = users.FirstOrDefault(u => string.Equals(u.Id, currentUserId, StringComparison.OrdinalIgnoreCase));
+
+                    if (userToRemove != null)
+                    {
+                        users.Remove(userToRemove);
+                        SaveUserProfiles(users);
+
+                        // Apaga arquivos pessoais da conta
+                        try
+                        {
+                            string userDir = Path.Combine(dataFolder, "users", userToRemove.Id);
+                            if (Directory.Exists(userDir))
+                            {
+                                GC.Collect();
+                                GC.WaitForPendingFinalizers();
+                                Directory.Delete(userDir, true);
+                            }
+                        }
+                        catch (Exception ex) { Debug.WriteLine($"Erro ao deletar pasta do usuário: {ex.Message}"); }
+
+                        // Apaga todos os caches Webviews dessa conta em específico
+                        try
+                        {
+                            string safeName = string.IsNullOrWhiteSpace(userToRemove.Name) ? "default" : string.Concat(userToRemove.Name.Where(c => !Path.GetInvalidFileNameChars().Contains(c)));
+                            string profilesDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "browser-profiles");
+                            if (Directory.Exists(profilesDir))
+                            {
+                                foreach (var dir in Directory.GetDirectories(profilesDir))
+                                {
+                                    if (Path.GetFileName(dir).StartsWith($"{safeName}-"))
+                                    {
+                                        Directory.Delete(dir, true);
+                                    }
+                                }
+                            }
+                        }
+                        catch (Exception ex) { Debug.WriteLine($"Erro ao deletar caches do usuário: {ex.Message}"); }
+                    }
+
+                    if (users.Count > 0)
+                    {
+                        Dispatcher.Invoke(() => {
+                            ClearHomeUi();
+                            SendUsersToUI(requireSelection: true);
+                        });
+                    }
+                    else
+                    {
+                        currentUserId = "";
+                        if (File.Exists(currentUserFile)) File.Delete(currentUserFile);
+
+                        // LIMPEZA DEFINITIVA PARA EVITAR O BUG DO "GHOST ACCOUNT":
+                        // Deleta os arquivos da pasta raiz para forçar o sistema a abrir do absoluto zero.
+                        if (File.Exists(Path.Combine(dataFolder, "user.json"))) File.Delete(Path.Combine(dataFolder, "user.json"));
+                        if (File.Exists(Path.Combine(dataFolder, "games.json"))) File.Delete(Path.Combine(dataFolder, "games.json"));
+                        if (File.Exists(Path.Combine(dataFolder, "folders.json"))) File.Delete(Path.Combine(dataFolder, "folders.json"));
+                        if (File.Exists(Path.Combine(dataFolder, "appcache.json"))) File.Delete(Path.Combine(dataFolder, "appcache.json"));
+                        if (File.Exists(Path.Combine(dataFolder, "media.json"))) File.Delete(Path.Combine(dataFolder, "media.json"));
+
+                        Dispatcher.Invoke(() => {
+                            ClearHomeUi();
+                            webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"showSetup\"}");
+                        });
+                    }
+                
+
+                if (users.Count > 0)
+                    {
+                        // Sobraram contas? Volta pra tela de Trocar de Conta (Users List)
+                        Dispatcher.Invoke(() => {
+                            ClearHomeUi();
+                            SendUsersToUI(requireSelection: true);
+                        });
+                    }
+                    else
+                    {
+                        // Zerou os usuários? Limpa os arquivos bases e força a tela de Setup Inicial
+                        currentUserId = "";
+                        if (File.Exists(currentUserFile)) File.Delete(currentUserFile);
+
+                        Dispatcher.Invoke(() => {
+                            ClearHomeUi();
+                            webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"showSetup\"}");
+                        });
+                    }
+                }
                 else if (action == "saveUserProfile")
                 {
                     bool createNew = root.TryGetProperty("createNew", out var createEl) && createEl.GetBoolean();
@@ -3254,6 +3367,36 @@ namespace Doorpi
 
                     if (existingUser != null)
                     {
+                        // ----- LÓGICA INFALÍVEL DE RENOMEAR CACHES (Webview Profiles) -----
+                        string oldSafeName = string.IsNullOrWhiteSpace(existingUser.Name) ? "default" : string.Concat(existingUser.Name.Where(c => !Path.GetInvalidFileNameChars().Contains(c)));
+                        string newSafeName = string.IsNullOrWhiteSpace(profile.Name) ? "default" : string.Concat(profile.Name.Where(c => !Path.GetInvalidFileNameChars().Contains(c)));
+
+                        if (!string.Equals(oldSafeName, newSafeName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            try
+                            {
+                                string profilesDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "browser-profiles");
+                                if (Directory.Exists(profilesDir))
+                                {
+                                    foreach (var dir in Directory.GetDirectories(profilesDir))
+                                    {
+                                        string dirName = Path.GetFileName(dir);
+                                        if (dirName.StartsWith($"{oldSafeName}-", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            string suffix = dirName.Substring(oldSafeName.Length + 1);
+                                            string newPath = Path.Combine(profilesDir, $"{newSafeName}-{suffix}");
+                                            if (!Directory.Exists(newPath))
+                                            {
+                                                try { Directory.Move(dir, newPath); } catch { }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            catch (Exception ex) { Debug.WriteLine($"Erro ao renomear caches: {ex.Message}"); }
+                        }
+                        // --------------------------------------------------------
+
                         existingUser.Name = profile.Name;
                         existingUser.PhotoBase64 = profile.PhotoBase64;
                         existingUser.SteamGridApiKey = profile.SteamGridApiKey;
@@ -3266,6 +3409,7 @@ namespace Doorpi
                         profile.Id = MakeUserId(profile.Name);
                         users.Add(profile);
                     }
+
                     SaveUserProfiles(users);
 
                     bool isFirstEver = users.Count == 1;
@@ -3290,7 +3434,6 @@ namespace Doorpi
 
                     if (!skipTasks)
                     {
-                        // CAPTURA AS VARIÁVEIS ANTES DO TASK.RUN PRA CONGELAR O CONTEXTO!
                         string taskUserId = profile.Id;
                         string taskMediaFile = Path.Combine(dataFolder, "users", taskUserId, "media.json");
 
@@ -3298,13 +3441,7 @@ namespace Doorpi
                             try
                             {
                                 await InitializeNativeAppsAsync(taskUserId, taskMediaFile);
-
-                                if (isPrimary)
-                                {
-                                    await UpdateAppCacheAsync();
-                                    await AutoAddPlatformGamesAsync();
-                                }
-
+                                if (isPrimary) { await UpdateAppCacheAsync(); await AutoAddPlatformGamesAsync(); }
                                 if (isLast)
                                 {
                                     Dispatcher.Invoke(() => {
@@ -3314,6 +3451,77 @@ namespace Doorpi
                                 }
                             }
                             catch (Exception ex) { Debug.WriteLine("[Setup] Erro: " + ex.Message); }
+                        });
+                    }
+                    else
+                    {
+                        // O SEGREDO DO BACKEND ESTÁ AQUI:
+                        // Mesmo salvando "silenciosamente" (pelas configurações), 
+                        // obrigamos a interface a receber o JSON atualizado e sobrescrever os caches!
+                        Dispatcher.Invoke(() => {
+                            webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                            {
+                                type = "currentUserUpdated",
+                                user = profile
+                            }));
+                        });
+                    }
+                }
+                else if (action == "deleteCurrentUser")
+                {
+                    var users = LoadUserProfiles();
+                    var userToRemove = users.FirstOrDefault(u => string.Equals(u.Id, currentUserId, StringComparison.OrdinalIgnoreCase));
+
+                    if (userToRemove != null)
+                    {
+                        users.Remove(userToRemove);
+                        SaveUserProfiles(users);
+
+                        // Usa a nova deleção forçada/Renomeia na pasta principal
+                        ForceDeleteDirectory(Path.Combine(dataFolder, "users", userToRemove.Id));
+
+                        // Usa a deleção forçada nos Caches Webviews dessa conta
+                        try
+                        {
+                            string safeName = string.IsNullOrWhiteSpace(userToRemove.Name) ? "default" : string.Concat(userToRemove.Name.Where(c => !Path.GetInvalidFileNameChars().Contains(c)));
+                            string profilesDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "browser-profiles");
+                            if (Directory.Exists(profilesDir))
+                            {
+                                foreach (var dir in Directory.GetDirectories(profilesDir))
+                                {
+                                    if (Path.GetFileName(dir).StartsWith($"{safeName}-", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        ForceDeleteDirectory(dir);
+                                    }
+                                }
+                            }
+                        }
+                        catch (Exception ex) { Debug.WriteLine($"Erro ao limpar caches do usuário: {ex.Message}"); }
+                    }
+
+                    if (users.Count > 0)
+                    {
+                        Dispatcher.Invoke(() => {
+                            ClearHomeUi();
+                            SendUsersToUI(requireSelection: true);
+                        });
+                    }
+                    else
+                    {
+                        currentUserId = "";
+                        if (File.Exists(currentUserFile)) File.Delete(currentUserFile);
+
+                        // DELETA ARQUIVOS FANTASMAS DA RAIZ PARA IMPEDIR O BUG DE RESSURREIÇÃO
+                        string[] ghostFiles = { "user.json", "games.json", "folders.json", "appcache.json", "media.json" };
+                        foreach (var file in ghostFiles)
+                        {
+                            string fp = Path.Combine(dataFolder, file);
+                            if (File.Exists(fp)) File.Delete(fp);
+                        }
+
+                        Dispatcher.Invoke(() => {
+                            ClearHomeUi();
+                            webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"showSetup\"}");
                         });
                     }
                 }

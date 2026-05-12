@@ -231,6 +231,7 @@ window.chrome.webview.addEventListener('message', event => {
             }
         }
         else if (data.type === 'currentUserUpdated') {
+            window._doorpiProfile = data.user;
             const btn = document.getElementById('btnTopProfile');
             if (btn) {
                 const u = data.user;
@@ -279,7 +280,15 @@ window.chrome.webview.addEventListener('message', event => {
         }
         else if (data.type === 'clipboardText') {
             if (data.text?.trim()) {
-                if (typeof isSetupOpen !== 'undefined' && isSetupOpen) {
+                // Intercepta a colagem no Nav Menu de Configurações
+                if (window._isPastingApiKey) {
+                    window._isPastingApiKey = false;
+                    if (typeof window._updatePendingApiKey === 'function') {
+                        window._updatePendingApiKey(data.text.trim());
+                    }
+                }
+                // Configuração Incial (Setup)
+                else if (typeof isSetupOpen !== 'undefined' && isSetupOpen) {
                     const input = document.getElementById('setupApiInput');
                     if (input) {
                         input.value = data.text.trim();
@@ -290,6 +299,20 @@ window.chrome.webview.addEventListener('message', event => {
                         document.getElementById('btnSetupFinish')?.focus();
                     }
                 }
+                // Gerenciador de Extensões
+                else if (document.getElementById('doorpiExtensionsManager')?.style.display !== 'none' && document.getElementById('extensionUrlInput')) {
+                    const input = document.getElementById('extensionUrlInput');
+                    input.value = data.text.trim();
+                    const btnInstall = document.getElementById('btnInstallExtension');
+                    if (btnInstall) {
+                        btnInstall.focus();
+                        setTimeout(() => btnInstall.focus(), 1900);
+                    } else {
+                        input.focus();
+                    }
+                }
+            }
+        }
                 else if (document.getElementById('doorpiExtensionsManager')?.style.display !== 'none' && document.getElementById('extensionUrlInput')) {
                     const input = document.getElementById('extensionUrlInput');
                     input.value = data.text.trim();
@@ -316,8 +339,8 @@ window.chrome.webview.addEventListener('message', event => {
                         input.focus();
                     }
                 }
-            }
-        }
+            
+        
 
         window._mediaHandleMessage?.(data);
     } catch (e) { console.error('[bridge] Erro:', e); }
@@ -2619,9 +2642,9 @@ const VKB = (() => {
 })();
 
 const _TEXT_INPUT_TYPES = new Set(['text', 'search', 'email', 'password', 'url', 'tel', '']);
-window._vkbOpen = (el) => {
+window._vkbOpen = (el, callbacks) => {
     if (el && el.tagName === 'INPUT' && !_TEXT_INPUT_TYPES.has((el.type || '').toLowerCase())) return;
-    VKB.open(el);
+    VKB.open(el, callbacks);
 };
 window._vkbCancel = () => VKB.cancel();
 window._vkbForceClose = () => VKB.forceClose();

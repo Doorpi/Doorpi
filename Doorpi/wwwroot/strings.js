@@ -37,6 +37,22 @@ const STRINGS = {
         systemAppLabel: 'APP DO SISTEMA',
         btnAddWebApp: 'Adicionar App Web',
 
+        // ---- Textos Novos (Perfil e Settings) ----
+        navEditProfileBtn: 'Editar Perfil',
+        navStatGames: 'Jogos na Biblioteca',
+        navStatTrophies: 'Troféus Conquistados',
+        navStatTime: 'Horas Jogadas',
+        navRecentGames: 'Jogados Recentemente',
+        navNoRecentGames: 'Nenhum jogo recente',
+        navSetAccount: 'Conta e Perfil',
+        navSetAccountDesc: 'Editar avatar, nome, API Key e usuários',
+        navSetSystem: 'Sistema',
+        navSetSystemDesc: 'Ajustes do console e área de trabalho',
+        navSetExt: 'Extensões',
+        navSetExtDesc: 'Gerenciar plugins e integrações',
+        navChangeUser: 'Trocar Usuário',
+        navAvatarChange: 'Alterar Avatar',
+
         // ---- Existentes ----
         detectingLibrary: 'Detectando Biblioteca',
         readingApps: 'Lendo aplicativos instalados',
@@ -222,8 +238,6 @@ const STRINGS = {
         extStoreAddBtn: 'Adicionar extensão ao Doorpi',
         extStoreAddSub: 'Instalar via Doorpi Browser',
         toastExtSent: 'Extensão enviada ao Doorpi!',
-        toastCopied: 'Copiado!',
-        toastReturning: 'Retornando...',
         toastDoorpi: 'Doorpi',
         extAlreadyInstalledBtn: 'Já instalada no Doorpi',
         extAlreadyInstalledSub: 'Em uso no seu navegador',
@@ -243,8 +257,6 @@ const STRINGS = {
         extInstallSuccess: 'Extension installed. Reopen the web app to load.',
         dlgPhotoTitle: 'Select profile photo',
         dlgPhotoFilter: 'Images (*.png;*.jpg;*.jpeg;*.webp;*.gif)|*.png;*.jpg;*.jpeg;*.webp;*.gif',
-        toastCopied: 'Copied!',
-        toastReturning: 'Returning...',
 
         // ---- Adições de media.js ----
         sysMediaFolders: 'Folders',
@@ -279,6 +291,22 @@ const STRINGS = {
         manageExtensions: 'Manage Extensions',
         systemAppLabel: 'SYSTEM APP',
         btnAddWebApp: 'Add Web App',
+
+        // ---- Textos Novos (Perfil e Settings) ----
+        navEditProfileBtn: 'Edit Profile',
+        navStatGames: 'Games in Library',
+        navStatTrophies: 'Trophies Earned',
+        navStatTime: 'Hours Played',
+        navRecentGames: 'Recently Played',
+        navNoRecentGames: 'No recent games',
+        navSetAccount: 'Account & Profile',
+        navSetAccountDesc: 'Edit avatar, name, API Key and users',
+        navSetSystem: 'System',
+        navSetSystemDesc: 'Console and desktop settings',
+        navSetExt: 'Extensions',
+        navSetExtDesc: 'Manage plugins and integrations',
+        navChangeUser: 'Switch User',
+        navAvatarChange: 'Change Avatar',
 
         // ---- Existentes ----
         apiKeyCopied: 'API Key copied!',
@@ -457,8 +485,6 @@ const STRINGS = {
         welcomeBack: 'Welcome back',
         newUser: 'New user',
         addUsuario: 'Add User',
-
-
     },
 };
 
