@@ -157,10 +157,14 @@ namespace Doorpi
         [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT lpPoint);
         [DllImport("user32.dll")] private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
         [DllImport("xinput1_4.dll", EntryPoint = "XInputGetState")]
-        private static extern int XInputGetState(int dwUserIndex, out XINPUT_STATE pState); [StructLayout(LayoutKind.Sequential)]
+        private static extern int XInputGetState(int dwUserIndex, out XINPUT_STATE pState);
+
+        [StructLayout(LayoutKind.Sequential)]
         private struct POINT { public int X; public int Y; }
+
         [StructLayout(LayoutKind.Sequential)]
         private struct XINPUT_STATE { public uint dwPacketNumber; public XINPUT_GAMEPAD Gamepad; }
+
         [StructLayout(LayoutKind.Sequential)]
         private struct XINPUT_GAMEPAD
         {
@@ -173,10 +177,35 @@ namespace Doorpi
             public short sThumbRY;
         }
 
-        private System.Windows.Threading.DispatcherTimer? _desktopControllerTimer;
-        private ushort _desktopPrevButtons = 0;
-        private byte _desktopPrevLT = 0;
-        private byte _desktopPrevRT = 0;
+        // ========================= WIN32 SENDINPUT (NOVO MOUSE/TECLADO) =========================
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct INPUT { public uint type; public InputUnion U; public static int Size => Marshal.SizeOf(typeof(INPUT)); }
+
+        [StructLayout(LayoutKind.Explicit)]
+        private struct InputUnion
+        {
+            [FieldOffset(0)] public MOUSEINPUT mi;
+            [FieldOffset(0)] public KEYBDINPUT ki;
+            [FieldOffset(0)] public HARDWAREINPUT hi;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MOUSEINPUT { public int dx; public int dy; public uint mouseData; public uint dwFlags; public uint time; public IntPtr dwExtraInfo; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct KEYBDINPUT { public ushort wVk; public ushort wScan; public uint dwFlags; public uint time; public IntPtr dwExtraInfo; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct HARDWAREINPUT { public uint uMsg; public ushort wParamL; public ushort wParamH; }
+
+        private const uint INPUT_MOUSE = 0;
+        private const uint INPUT_KEYBOARD = 1;
+        private const uint KEYEVENTF_KEYUP = 0x0002;
+
+
 
         // ========================= CONSTRUTOR =========================
 
@@ -554,90 +583,228 @@ namespace Doorpi
             });
         }
 
+        private Thread? _systemControllerThread;
+        private volatile bool _systemControllerActive = false;
+
         private void EnterDesktopMode()
         {
             WindowState = WindowState.Minimized;
-            ShowTouchKeyboard();
-            StartDesktopControllerMode();
+
+            // 1. Configura o teclado silenciosamente no background ANTES de precisar dele
+            ConfigureTouchKeyboardForController();
+
+            // 2. Opcional: Se quiser que ele já abra imediatamente ao entrar no desktop mode:
+            // ShowTouchKeyboard(); 
+
+            StartSystemControllerMode(); // <--- Chama o motor novo
+        }
+
+        private void ConfigureTouchKeyboardForController()
+        {
+            try
+            {
+                // 1. Matamos os processos silenciosamente para que soltem o registro
+                var processes = Process.GetProcessesByName("TabTip")
+                                .Concat(Process.GetProcessesByName("TextInputHost"));
+
+                foreach (var p in processes)
+                {
+                    try { p.Kill(); } catch { }
+                }
+
+                // Aguarda os processos morrerem
+                System.Threading.Thread.Sleep(150);
+
+                // 2. Altera o registro. O caminho 1.7 é o oficial da Microsoft para o Touch Keyboard (TabTip)
+                using (var key = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\TabletTip\1.7"))
+                {
+                    if (key != null)
+                    {
+                        // 2 = Teclado Compacto Flutuante (O único perfeitamente navegável pelo controle)
+                        key.SetValue("KeyboardLayoutPreference", 2, RegistryValueKind.DWord);
+
+                        // 1 = Permite que ele flutue na tela em vez de empurrar a barra de tarefas
+                        key.SetValue("IsFloating", 1, RegistryValueKind.DWord);
+
+                        // Previne que o Windows sobrescreva sua escolha automaticamente
+                        key.SetValue("OptimizedKeyboardMode", 0, RegistryValueKind.DWord);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[DesktopMode] Erro ao configurar registro: " + ex.Message);
+            }
+        }
+
+        private void StartSystemControllerMode()
+        {
+            if (_systemControllerActive) return;
+            _systemControllerActive = true;
+            _systemControllerThread = new Thread(SystemControllerLoop) { IsBackground = true };
+            _systemControllerThread.Start();
+        }
+
+        private void StopSystemControllerMode()
+        {
+            _systemControllerActive = false;
+        }
+
+        private void SystemControllerLoop()
+        {
+            var sw = Stopwatch.StartNew();
+            ushort prevButtons = 0;
+            double exactX = -1, exactY = -1;
+            double speedMult = 1.0;
+            double remainderX = 0;
+            double remainderY = 0;
+
+            while (_systemControllerActive)
+            {
+                double dt = sw.Elapsed.TotalSeconds;
+                sw.Restart();
+                if (dt > 0.05) dt = 0.016;
+
+                if (XInputGetState(0, out var state) == 0)
+                {
+                    var gp = state.Gamepad;
+                    ushort btn = gp.wButtons;
+
+                    // --- LÓGICA DO MOUSE FLUIDO (Hardware Injection) ---
+                    double lx = gp.sThumbLX / 32767.0;
+                    double ly = gp.sThumbLY / 32767.0;
+                    const double DEAD = 0.15;
+                    if (Math.Abs(lx) < DEAD) lx = 0;
+                    if (Math.Abs(ly) < DEAD) ly = 0;
+
+                    if (lx != 0 || ly != 0)
+                    {
+                        speedMult = Math.Min(speedMult + (1.5 * dt), 3.5);
+                        const double BASE_SENSITIVITY = 1200.0; // Velocidade ajustada para movimento relativo
+
+                        double curveX = Math.Sign(lx) * Math.Pow(Math.Abs(lx), 1.5);
+                        double curveY = Math.Sign(ly) * Math.Pow(Math.Abs(ly), 1.5);
+
+                        // Calcula a distância exata que o mouse deve percorrer
+                        double moveX = curveX * BASE_SENSITIVITY * speedMult * dt + remainderX;
+                        double moveY = -curveY * BASE_SENSITIVITY * speedMult * dt + remainderY;
+
+                        int deltaX = (int)moveX;
+                        int deltaY = (int)moveY;
+
+                        // Guarda as casas decimais para o próximo loop (Garante movimentos lentos perfeitos)
+                        remainderX = moveX - deltaX;
+                        remainderY = moveY - deltaY;
+
+                        if (deltaX != 0 || deltaY != 0)
+                        {
+                            // Envia movimento de hardware! Isso força o Windows a ignorar o controle nativo.
+                            SendMouse(deltaX, deltaY, MOUSEEVENTF_MOVE);
+                        }
+                    }
+                    else
+                    {
+                        speedMult = 1.0;
+                        remainderX = 0;
+                        remainderY = 0;
+                    }
+
+                    // --- LÓGICA DO SCROLL (Analógico Direito) ---
+                    double ry = gp.sThumbRY / 32767.0;
+                    if (Math.Abs(ry) > DEAD)
+                    {
+                        int scroll = (int)(ry * 3000 * dt);
+                        if (scroll != 0) SendMouse(0, 0, MOUSEEVENTF_WHEEL, (uint)scroll);
+                    }
+
+                    // --- FUNÇÕES DE BOTÃO E TECLADO TOUCH ---
+                    bool Pressed(ushort m) => (btn & m) != 0 && (prevButtons & m) == 0;
+                    bool Released(ushort m) => (btn & m) == 0 && (prevButtons & m) != 0;
+
+                    // Sair do Desktop Mode (Start + Back)
+                    // Sair do Desktop Mode (Start + Back)
+                    if ((btn & 0x0010) != 0 && (btn & 0x0020) != 0)
+                    {
+                        _systemControllerActive = false;
+                        Dispatcher.Invoke(() => { WindowState = WindowState.Maximized; Activate(); ForceFocus(); });
+                        break;
+                    }
+
+                    // Botão A -> Clique Esquerdo (Selecionar/Entrar)
+                    if (Pressed(0x1000)) SendMouse(0, 0, MOUSEEVENTF_LEFTDOWN);
+                    if (Released(0x1000)) SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
+
+                    // Botão B -> Voltar (Mouse Button 4)
+                    if (Pressed(0x2000)) SendMouse(0, 0, MOUSEEVENTF_XDOWN, XBUTTON1);
+                    if (Released(0x2000)) SendMouse(0, 0, MOUSEEVENTF_XUP, XBUTTON1);
+
+                    // Botão X -> Menu de Contexto (Clique Direito)
+                    if (Pressed(0x4000)) SendMouse(0, 0, MOUSEEVENTF_RIGHTDOWN);
+                    if (Released(0x4000)) SendMouse(0, 0, MOUSEEVENTF_RIGHTUP);
+
+                    // Botão Y -> Abre o Teclado Touch do Windows
+                    if (Pressed(0x8000)) Dispatcher.Invoke(ShowTouchKeyboard);
+
+                    // Teclas de navegação perfeitas para o Teclado Virtual:
+                    SyncKey(Pressed(0x0001), Released(0x0001), 0x26); // DPAD UP -> Seta Cima
+                    SyncKey(Pressed(0x0002), Released(0x0002), 0x28); // DPAD DOWN -> Seta Baixo
+                    SyncKey(Pressed(0x0004), Released(0x0004), 0x25); // DPAD LEFT -> Seta Esquerda
+                    SyncKey(Pressed(0x0008), Released(0x0008), 0x27); // DPAD RIGHT -> Seta Direita
+                    SyncKey(Pressed(0x0010), Released(0x0010), 0x0D); // START -> Enter (Confirmar Seleção)
+                    SyncKey(Pressed(0x0100), Released(0x0100), 0x08); // LB -> Backspace (Opcional, útil pra apagar texto)
+
+                    prevButtons = btn;
+                }
+                Thread.Sleep(10);
+            }
+        }
+
+        private void SendMouse(int dx, int dy, uint flags, uint data = 0)
+        {
+            var input = new INPUT { type = INPUT_MOUSE };
+            input.U.mi = new MOUSEINPUT { dx = dx, dy = dy, dwFlags = flags, mouseData = data };
+            SendInput(1, new[] { input }, INPUT.Size);
+        }
+
+        private void SyncKey(bool pressed, bool released, ushort vk)
+        {
+            if (pressed)
+            {
+                var input = new INPUT { type = INPUT_KEYBOARD };
+                input.U.ki = new KEYBDINPUT { wVk = vk };
+                SendInput(1, new[] { input }, INPUT.Size);
+            }
+            else if (released)
+            {
+                var input = new INPUT { type = INPUT_KEYBOARD };
+                input.U.ki = new KEYBDINPUT { wVk = vk, dwFlags = KEYEVENTF_KEYUP };
+                SendInput(1, new[] { input }, INPUT.Size);
+            }
         }
 
         private void ShowTouchKeyboard()
         {
             try
             {
+                // Apenas "chama" o executável. Como já configuramos o registro antes, 
+                // ele vai ler as chaves e nascer no modo Flutuante/Pequeno (valor 2).
                 string tabTip = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFiles),
                     "microsoft shared", "ink", "TabTip.exe");
-                Process.Start(new ProcessStartInfo(File.Exists(tabTip) ? tabTip : "osk.exe") { UseShellExecute = true });
+
+                if (File.Exists(tabTip))
+                {
+                    Process.Start(new ProcessStartInfo(tabTip) { UseShellExecute = true });
+                }
+                else
+                {
+                    // Fallback para sistemas muito antigos (acessibilidade)
+                    Process.Start(new ProcessStartInfo("osk.exe") { UseShellExecute = true });
+                }
             }
-            catch (Exception ex) { Debug.WriteLine("[DesktopMode] teclado: " + ex.Message); }
-        }
-
-        private void StartDesktopControllerMode()
-        {
-            _desktopControllerTimer ??= new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
-            _desktopControllerTimer.Tick -= DesktopControllerTick;
-            _desktopControllerTimer.Tick += DesktopControllerTick;
-            _desktopPrevButtons = 0;
-            _desktopPrevLT = 0;
-            _desktopPrevRT = 0;
-            _desktopControllerTimer.Start();
-        }
-
-        private void StopDesktopControllerMode()
-        {
-            _desktopControllerTimer?.Stop();
-            _desktopPrevButtons = 0;
-            _desktopPrevLT = 0;
-            _desktopPrevRT = 0;
-        }
-
-        private void DesktopControllerTick(object? sender, EventArgs e)
-        {
-            if (XInputGetState(0, out var state) != 0) return;
-            var gp = state.Gamepad;
-
-            int dx = AxisToCursorDelta(gp.sThumbLX, 16);
-            int dy = AxisToCursorDelta(gp.sThumbLY, 16, invert: true);
-            if ((dx != 0 || dy != 0) && GetCursorPos(out var pt)) SetCursorPos(pt.X + dx, pt.Y + dy);
-
-            bool Pressed(ushort mask) => (gp.wButtons & mask) != 0 && (_desktopPrevButtons & mask) == 0;
-            const ushort DPAD_UP = 0x0001, DPAD_DOWN = 0x0002, DPAD_LEFT = 0x0004, DPAD_RIGHT = 0x0008;
-            const ushort START = 0x0010, BACK = 0x0020, A = 0x1000, B = 0x2000, X = 0x4000, Y = 0x8000;
-
-            if (Pressed(START) && (gp.wButtons & BACK) != 0)
+            catch (Exception ex)
             {
-                StopDesktopControllerMode();
-                WindowState = WindowState.Maximized;
-                Activate();
-                ForceFocus();
-                _desktopPrevButtons = gp.wButtons;
-                _desktopPrevLT = gp.bLeftTrigger;
-                _desktopPrevRT = gp.bRightTrigger;
-                return;
+                Debug.WriteLine("[DesktopMode] Erro ao abrir teclado: " + ex.Message);
             }
-
-            if (Pressed(A) || (gp.bRightTrigger > 80 && _desktopPrevRT <= 80))
-            {
-                mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
-                mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
-            }
-            if (Pressed(B) || (gp.bLeftTrigger > 80 && _desktopPrevLT <= 80))
-            {
-                const uint RIGHTDOWN = 0x0008, RIGHTUP = 0x0010;
-                mouse_event(RIGHTDOWN, 0, 0, 0, UIntPtr.Zero);
-                mouse_event(RIGHTUP, 0, 0, 0, UIntPtr.Zero);
-            }
-            if (Pressed(X)) ShowTouchKeyboard();
-            if (Pressed(Y)) SendVirtualKey(0x09);
-            if (Pressed(DPAD_UP)) SendVirtualKey(0x26);
-            if (Pressed(DPAD_DOWN)) SendVirtualKey(0x28);
-            if (Pressed(DPAD_LEFT)) SendVirtualKey(0x25);
-            if (Pressed(DPAD_RIGHT)) SendVirtualKey(0x27);
-            if (Pressed(START)) SendVirtualKey(0x0D);
-
-            _desktopPrevButtons = gp.wButtons;
-            _desktopPrevLT = gp.bLeftTrigger;
-            _desktopPrevRT = gp.bRightTrigger;
         }
 
         private static int AxisToCursorDelta(short rawValue, int maxPixels, bool invert = false)
@@ -2740,16 +2907,21 @@ namespace Doorpi
                         try
                         {
                             var dlg = new Microsoft.Win32.OpenFileDialog { Filter = dialogFilter, Title = dialogTitle };
-                            if (dlg.ShowDialog() == true)
+
+                            StartSystemControllerMode();
+                            bool? dialogResult = dlg.ShowDialog();
+                            StopSystemControllerMode();
+
+                            if (dialogResult == true)
                             {
                                 string filePath = dlg.FileName;
                                 string cleanName = GetGameNameFromFile(filePath) ?? Path.GetFileNameWithoutExtension(filePath);
                                 webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
                                 { type = "updateLoadingText", title = loadTitle, subtitle = loadSub }));
                                 await AddMultipleMediaAppsAsync(new List<InstalledApp>
-                {
-                    new InstalledApp { Name = cleanName, Path = filePath, IconBase64 = GetCachedIcon(filePath) }
-                });
+                                {
+                                    new InstalledApp { Name = cleanName, Path = filePath, IconBase64 = GetCachedIcon(filePath) }
+                                });
                                 await webView.CoreWebView2.ExecuteScriptAsync("closeModal();");
                             }
                             else
@@ -2781,7 +2953,12 @@ namespace Doorpi
                                 Filter = dialogFilter,
                                 Title = dialogTitle
                             };
-                            if (dlg.ShowDialog() == true)
+
+                            StartSystemControllerMode();
+                            bool? dialogResult = dlg.ShowDialog();
+                            StopSystemControllerMode();
+
+                            if (dialogResult == true) 
                             {
                                 webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
                                 {
@@ -2836,7 +3013,11 @@ namespace Doorpi
                                 Multiselect = false
                             };
 
-                            if (dlg.ShowDialog() == true)
+                            StartSystemControllerMode();
+                            bool? dialogResult = dlg.ShowDialog();
+                            StopSystemControllerMode();
+
+                            if (dialogResult == true) // <-- CORRIGIDO AQUI
                             {
                                 string selectedPath = dlg.FolderName;
                                 if (IsFolderForbidden(selectedPath))
@@ -2907,7 +3088,11 @@ namespace Doorpi
                                 Multiselect = false
                             };
 
-                            if (dlg.ShowDialog() == true)
+                            StartSystemControllerMode();
+                            bool? dialogResult = dlg.ShowDialog();
+                            StopSystemControllerMode();
+
+                            if (dialogResult == true) 
                             {
                                 string newPath = dlg.FolderName;
 
@@ -3624,7 +3809,12 @@ namespace Doorpi
                             Title = dialogTitle,
                             Filter = dialogFilter
                         };
-                        if (dlg.ShowDialog() == true)
+
+                        StartSystemControllerMode();
+                        bool? dialogResult = dlg.ShowDialog();
+                        StopSystemControllerMode();
+
+                        if (dialogResult == true) 
                         {
                             string b64 = Convert.ToBase64String(File.ReadAllBytes(dlg.FileName));
                             webView.CoreWebView2.PostWebMessageAsString(
@@ -3706,7 +3896,12 @@ namespace Doorpi
                     await Dispatcher.InvokeAsync(() =>
                     {
                         var dlg = new Microsoft.Win32.OpenFolderDialog { Title = dialogTitle };
-                        if (dlg.ShowDialog() == true)
+
+                        StartSystemControllerMode();
+                        bool? dialogResult = dlg.ShowDialog();
+                        StopSystemControllerMode();
+
+                        if (dialogResult == true) 
                         {
                             string path = dlg.FolderName;
                             if (IsFolderForbidden(path))

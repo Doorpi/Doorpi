@@ -171,9 +171,12 @@ window.chrome.webview.addEventListener('message', event => {
             createGameCard(data);
         }
         else if (data.type === 'extensionsList' || data.type === 'extensionUpdatesList') {
-            // Renderiza o gerenciador se ele estiver aberto
-            if (document.getElementById('doorpiExtensionsManager')?.style.display !== 'none') {
-                renderExtensionsManager(data.extensions || [], data.status || '', data.message || '', window._pendingExtensionUpdates);
+            if (data.type === 'extensionUpdatesList') {
+                window._pendingExtensionUpdates = data.updates || {};
+            }
+            // Atualiza a lista na nova interface do Nav Menu se estiver aberta
+            if (document.getElementById('navExtensionsList')) {
+                window._renderNavExtensionsList?.(data.extensions || [], data.status || '', data.message || '', window._pendingExtensionUpdates);
             }
         }
         else if (data.type === 'installedAppsList') {
@@ -185,13 +188,6 @@ window.chrome.webview.addEventListener('message', event => {
             if (!modal || modal.style.display === 'none') return;
             allInstalledApps = data.apps;
             refreshInstalledAppsView();
-        }
-        else if (data.type === 'extensionUpdatesList') {
-            window._pendingExtensionUpdates = data.updates || {};
-            // Atualiza a lista caso o modal do Manager esteja aberto no momento
-            if (document.getElementById('doorpiExtensionsManager')?.style.display !== 'none') {
-                postToHost({ action: 'requestExtensions' });
-            }
         }
         else if (data.type === 'showLoadingCards') {
             showLoadingCards(data.count, data.tab || 'games');
@@ -274,20 +270,31 @@ window.chrome.webview.addEventListener('message', event => {
             window._doorpiCurrentUserId = data.currentUserId || '';
             showUserPicker(data.users || [], !!data.requireSelection);
         }
-        else if (data.type === 'extensionsList') {
-
-            renderExtensionsManager(data.extensions || [], data.status || '', data.message || '', data.updates || {});
-        }
         else if (data.type === 'clipboardText') {
             if (data.text?.trim()) {
-                // Intercepta a colagem no Nav Menu de Configurações
+                // Intercepta a colagem no Nav Menu de Conta/Perfil
                 if (window._isPastingApiKey) {
                     window._isPastingApiKey = false;
                     if (typeof window._updatePendingApiKey === 'function') {
                         window._updatePendingApiKey(data.text.trim());
                     }
                 }
-                // Configuração Incial (Setup)
+                // Intercepta a colagem no Nav Menu de Extensões
+                else if (window._isPastingExtensionUrl || (document.getElementById('navExtUrlInput') && data.text.includes('chromewebstore'))) {
+                    window._isPastingExtensionUrl = false;
+                    const input = document.getElementById('navExtUrlInput');
+                    if (input) {
+                        input.value = data.text.trim();
+                        const btnInstall = document.getElementById('navExtInstallBtn');
+                        if (btnInstall) {
+                            btnInstall.focus();
+                            // Força o foco devido ao delay do navegador que fecha após ler o clipboard
+                            setTimeout(() => { if (document.getElementById('navExtUrlInput')) btnInstall.focus(); }, 1900);
+                            setTimeout(() => { if (document.getElementById('navExtUrlInput')) btnInstall.focus(); }, 2300);
+                        }
+                    }
+                }
+                // Configuração Inicial (Setup)
                 else if (typeof isSetupOpen !== 'undefined' && isSetupOpen) {
                     const input = document.getElementById('setupApiInput');
                     if (input) {
@@ -297,18 +304,6 @@ window.chrome.webview.addEventListener('message', event => {
                         if (hint) hint.textContent = typeof t === 'function' ? t('setupStep3PasteSuccess') : 'Copiado com sucesso!';
                         if (typeof _updateStatus === 'function') _updateStatus();
                         document.getElementById('btnSetupFinish')?.focus();
-                    }
-                }
-                // Gerenciador de Extensões
-                else if (document.getElementById('doorpiExtensionsManager')?.style.display !== 'none' && document.getElementById('extensionUrlInput')) {
-                    const input = document.getElementById('extensionUrlInput');
-                    input.value = data.text.trim();
-                    const btnInstall = document.getElementById('btnInstallExtension');
-                    if (btnInstall) {
-                        btnInstall.focus();
-                        setTimeout(() => btnInstall.focus(), 1900);
-                    } else {
-                        input.focus();
                     }
                 }
             }
@@ -706,140 +701,49 @@ function openCreateUserDialog() {
         openSetup(true);
     }
 }
-
-function openExtensionsManager() {
-    ensureDoorpiOverlayStyles();
-    let overlay = document.getElementById('doorpiExtensionsManager');
-    if (!overlay) {
-        overlay = document.createElement('div');
-        overlay.id = 'doorpiExtensionsManager';
-        overlay.className = 'doorpi-manager-overlay';
-        document.body.appendChild(overlay);
+window.openExtensionsManager = function () {
+    // Se o Nav Menu estiver fechado, manda abrir
+    if (!window.isNavMenuOpen) {
+        if (typeof window.openNavMenu === 'function') {
+            window.openNavMenu();
+        }
     }
-    overlay.innerHTML = `
-        <div class="doorpi-manager-panel">
-            <div class="doorpi-panel-head">
-                <div>
-                    <h2 class="doorpi-panel-title">${t('extManagerTitle')}</h2>
-                    <p class="doorpi-panel-sub">${t('extManagerSubtitle')}</p>
-                </div>
-                <button class="doorpi-manager-btn" id="btnCloseExtMgr">${t('btnBackLabel')}</button>
-            </div>
-            <div class="doorpi-manager-form">
-                <input class="doorpi-manager-input" id="extensionUrlInput" placeholder="${t('extManagerInputPlaceholder')}" tabindex="0" />
-                <button class="doorpi-manager-btn" id="btnExtPaste" tabindex="0" title="${t('btnPaste')}">${t('btnPaste')}</button>
-                <button class="doorpi-manager-btn" id="btnOpenChromeStore" tabindex="0">${t('btnStore')}</button>
-                <button class="doorpi-manager-btn primary" id="btnInstallExtension" tabindex="0">${t('btnInstall')}</button>
-            </div>
-            <div class="doorpi-status" id="extensionStatus">${t('loadingExtensions')}</div>
-            <div class="doorpi-manager-list" id="extensionsList"></div>
-        </div>`;
+    setTimeout(() => {
+        if (typeof window._navMenuOpenExtensions === 'function') {
+            window._navMenuOpenExtensions();
+        }
+    }, 120); 
+};
 
-    overlay.style.display = 'flex';
+window.openCreateUserDialog = openCreateUserDialog;
 
-    if (document.activeElement && document.activeElement !== document.body) {
-        document.activeElement.blur();
-    }
-
-    overlay.querySelector('#btnCloseExtMgr')?.addEventListener('click', () => overlay.style.display = 'none');
-    overlay.querySelector('#btnExtPaste')?.addEventListener('click', () => postToHost({ action: 'readClipboard' }));
-    overlay.querySelector('#btnOpenChromeStore')?.addEventListener('click', () => postToHost({
-        action: 'openExtensionStore',
-        extBtnTitle: t('extStoreAddBtn'),
-        extBtnSub: t('extStoreAddSub'),
-        toastTitle: t('toastDoorpi'),
-        toastSub: t('toastExtSent'),
-        extInstalledTitle: t('extAlreadyInstalledBtn'),
-        extInstalledSub: t('extAlreadyInstalledSub')
-    }));
-    overlay.querySelector('#btnInstallExtension')?.addEventListener('click', () => {
-        const url = document.getElementById('extensionUrlInput')?.value.trim();
-        const status = document.getElementById('extensionStatus');
-        if (!url) { if (status) { status.textContent = t('extPasteLinkError'); status.className = 'doorpi-status error'; } return; }
-        if (status) { status.textContent = t('extInstallingStatus'); status.className = 'doorpi-status'; }
-        postToHost({ action: 'installExtension', url, successMsg: t('extInstallSuccess') });
-    });
-    postToHost({ action: 'requestExtensions' });
-
-    requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-            const input = overlay.querySelector('#extensionUrlInput');
-            if (input) {
-                input.focus();
-                input.addEventListener('click', () => { if (!window._vkbIsOpen) window._vkbOpen?.(input); });
-                input.addEventListener('keydown', e => {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        if (!window._vkbIsOpen) window._vkbOpen?.(input);
-                    }
-                });
-            }
-        });
-    });
-}
-
-function renderExtensionsManager(extensions, status, message, updates) {
-    const overlay = document.getElementById('doorpiExtensionsManager');
-    if (!overlay || overlay.style.display === 'none') return;
-
-    const list = overlay.querySelector('#extensionsList');
-    const statusEl = overlay.querySelector('#extensionStatus');
-
-    if (statusEl) {
-        statusEl.textContent = message || (extensions.length ? t('extInstalledCount', extensions.length) : t('extNoneInstalled'));
-        statusEl.className = `doorpi-status ${status || ''}`.trim();
-    }
-
-    if (list) {
-        list.innerHTML = extensions.map(ext => {
-            const updateVersion = updates[ext.Id]; // Usa o objeto que veio no parâmetro
-            const hasUpdate = !!updateVersion;
-
-            return `
-            <div class="doorpi-manager-row">
-                <div style="display:flex; flex-direction:column; gap:2px;">
-                    <div style="display:flex; align-items:center; gap:8px;">
-                        <strong>${escapeHtml(ext.Name || t('extUnknown'))}</strong>
-                        ${hasUpdate ? '<span style="width:8px;height:8px;background:#ff4444;border-radius:50%;box-shadow: 0 0 6px #ff4444;" title="Atualização disponível"></span>' : ''}
-                    </div>
-                    <span style="color:rgba(255,255,255,.45);font-size:.82rem">
-                        ${t('extInstalled')} (v${escapeHtml(ext.Version || '?.?.?')})
-                        ${hasUpdate ? ` ➔ <strong style="color:#ff6e6e">v${updateVersion}</strong>` : ''}
-                    </span>
-                </div>
-                <div style="display:flex; gap: 8px; align-items: center;">
-${hasUpdate ? `
-                    <button class="doorpi-manager-btn primary" 
-                            style="padding: 6px 10px; display: flex; align-items: center; justify-content: center;" 
-                            title="Atualizar extensão"
-                            onclick="window._doorpiUpdateExtension('${escapeHtml(ext.Id)}')">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                            <polyline points="7 10 12 15 17 10"></polyline>
-                            <line x1="12" y1="15" x2="12" y2="3"></line>
-                        </svg>
-                    </button>` : ''}
-                    <button class="doorpi-manager-btn" 
-                            style="padding: 6px 12px; background: rgba(220,50,50,0.15); border-color: rgba(220,50,50,0.3); color: #ff6e6e;" 
-                            title="Remover extensão"
-                            onclick="window._doorpiDeleteExtension('${escapeHtml(ext.Id)}')">
-                        ✕
-                    </button>
-                </div>
-            </div>`;
-        }).join('');
-    }
-}
-
-// Handler de disparo do Update
+// Handler global para atualizar extensões
 window._doorpiUpdateExtension = function (extId) {
-    const statusEl = document.getElementById('extensionStatus');
+    // 1. Altera o texto de Status global
+    const statusEl = document.getElementById('navExtensionStatus');
     if (statusEl) {
-        statusEl.textContent = "Baixando atualização...";
-        statusEl.className = 'doorpi-status';
+        statusEl.textContent = typeof t === 'function' ? t('extDownloadingUpdate') : "Baixando atualização...";
+        statusEl.className = 'nav-ext-status';
     }
+
+    // 2. Altera visualmente o botão específico que foi clicado
+    const btn = document.querySelector(`.nav-ext-btn.primary[data-id="${extId}"]`);
+    if (btn) {
+        btn.textContent = typeof t === 'function' ? t('extUpdatingBtn') : "Atualizando...";
+        btn.style.opacity = "0.5";
+        btn.style.pointerEvents = "none";
+    }
+
+    // 3. Pede pro C# fazer a atualização
     postToHost({ action: 'updateExtension', id: extId });
 };
+// Handler global para remover extensões
+window._doorpiDeleteExtension = function (extId) {
+    postToHost({ action: 'deleteExtension', id: extId });
+    setTimeout(() => { postToHost({ action: 'requestExtensions' }); }, 500);
+};
+
+
 window.openExtensionsManager = openExtensionsManager;
 window.openCreateUserDialog = openCreateUserDialog;
 

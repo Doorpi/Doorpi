@@ -152,8 +152,18 @@ window.isNavMenuOpen = false;
         if (_bgRaf) { cancelAnimationFrame(_bgRaf); _bgRaf = null; }
     }
 
-    function _t(key, fallback) {
-        try { return (typeof t === 'function' ? t(key) : null) || fallback; }
+    function _t(key, fallback, ...args) {
+        try {
+            if (typeof t === 'function') {
+                const res = t(key, ...args);
+                if (res) return res;
+            }
+            // Fallback de segurança substituindo {0} ou %d pelo número
+            if (args.length > 0 && fallback) {
+                return fallback.replace(/\{0\}|%d/g, args[0]);
+            }
+            return fallback;
+        }
         catch { return fallback; }
     }
 
@@ -829,6 +839,10 @@ window.isNavMenuOpen = false;
             _renderSettingsAccount(body);
             return;
         }
+        if (_settingsSubView === 'extensions') {
+            _renderSettingsExtensions(body);
+            return;
+        }
 
         const svgUser = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
         const svgSys = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`;
@@ -907,8 +921,8 @@ window.isNavMenuOpen = false;
             s.id = 'nav-account-styles';
             s.textContent = `
                 .nav-api-row { display: flex; gap: 10px; width: 100%; }
-                .nav-icon-btn { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 0 clamp(10px, 1.2vw, 16px); color: rgba(255,255,255,0.8); cursor: pointer; outline: none; transition: all 0.2s; display: flex; align-items: center; justify-content: center; font-family: inherit; font-size: 0.9rem; font-weight: 500; }
-                .nav-icon-btn.nav-focused-el { border-color: #fff; background: rgba(255,255,255,0.15); color: #fff; transform: scale(1.05); box-shadow: 0 5px 15px rgba(0,0,0,0.3); z-index: 10; position: relative;}
+                .nav-icon-btn { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 0 clamp(10px, 1.2vw, 16px); color: rgba(255,255,255,0.8); cursor: pointer; outline: none; transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.1s, border-color 0.1s, color 0.1s, box-shadow 0.15s; display: flex; align-items: center; justify-content: center; font-family: inherit; font-size: 0.9rem; font-weight: 500; }
+                .nav-icon-btn.nav-focused-el { border-color: #fff; background: rgba(255,255,255,0.15); color: #fff; transform: scale(1.06); box-shadow: 0 8px 20px rgba(0,0,0,0.4); z-index: 10; position: relative;}
                 .nav-btn-danger { color: #ff6b6b; border-color: rgba(255,107,107,0.3); width: 100%; padding: 14px; font-size: 1rem; }
                 .nav-btn-danger.nav-focused-el { background: rgba(255,107,107,0.15); border-color: #ff6b6b; color: #fff; }
             `;
@@ -965,14 +979,11 @@ window.isNavMenuOpen = false;
                             <button class="nav-icon-btn" id="navApiLink" tabindex="-1">Ver Chave</button>
                         </div>
                     </div>
-
-                    <div style="height:1px; background:rgba(255,255,255,0.1); margin: 20px 0;"></div>
                     
-                    <div style="display:flex; justify-content:flex-start; align-items:center; margin-bottom: 4px;">
+<div style="display:flex; justify-content:flex-start; align-items:center; margin-bottom: 4px;">
                         <span id="navSaveStatus" style="color:#6ee696; font-size:0.95rem; font-weight:500; opacity:0; transition:opacity 0.3s;">✓ Alterações Salvas</span>
                     </div>
 
-                    <button class="modal-btn secondary" id="navManageUsers" tabindex="-1" style="width:100%">Trocar Usuário</button>
                     <button class="nav-icon-btn nav-btn-danger" id="navDeleteUser" tabindex="-1" style="margin-top:12px;">Excluir Perfil</button>
                 </div>
             </div>`;
@@ -985,15 +996,17 @@ window.isNavMenuOpen = false;
             body.querySelector('#navProfApi'),       // 3
             body.querySelector('#navApiPaste'),      // 4
             body.querySelector('#navApiLink'),       // 5
-            body.querySelector('#navManageUsers'),   // 6
-            body.querySelector('#navDeleteUser')     // 7
+            body.querySelector('#navDeleteUser')     // 6
         ].filter(Boolean);
 
         body.querySelector('#setBack')?.addEventListener('click', () => {
             _settingsSubView = null;
             _contentIdx = 0;
-            _renderContent('settings');
-            _updateContentFocus();
+            document.activeElement?.blur(); 
+            requestAnimationFrame(() => {
+                _renderContent('settings');
+                _updateContentFocus();
+            });
         });
 
         const photoBtn = body.querySelector('#navProfilePhoto');
@@ -1001,7 +1014,6 @@ window.isNavMenuOpen = false;
         const apiInput = body.querySelector('#navProfApi');
         const pasteBtn = body.querySelector('#navApiPaste');
         const linkBtn = body.querySelector('#navApiLink');
-        const usersBtn = body.querySelector('#navManageUsers');
         const deleteBtn = body.querySelector('#navDeleteUser');
 
         const _showSavedFeedback = () => {
@@ -1014,10 +1026,6 @@ window.isNavMenuOpen = false;
 
         photoBtn?.addEventListener('click', () => {
             if (typeof postToHost === 'function') postToHost({ action: 'pickProfilePhoto' });
-        });
-
-        usersBtn?.addEventListener('click', () => {
-            if (typeof postToHost === 'function') postToHost({ action: 'requestUsers' });
         });
 
         linkBtn?.addEventListener('click', () => {
@@ -1124,7 +1132,220 @@ window.isNavMenuOpen = false;
             });
         });
     }
+    // ── Extensões ─────────────────────────────────────────────────────────────
+    function _renderSettingsExtensions(body) {
+        if (!document.getElementById('nav-ext-styles')) {
+            const s = document.createElement('style');
+            s.id = 'nav-ext-styles';
+            s.textContent = `
+                .nav-ext-status { font-size: 0.9rem; color: rgba(255,255,255,0.5); margin: 16px 0 8px; min-height: 20px; }
+                .nav-ext-status.error { color: #ff6b6b; }
+                .nav-ext-list { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+                .nav-ext-row {
+                    display: flex; justify-content: space-between; align-items: center; gap: 14px;
+                    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); 
+                    border-radius: 12px; padding: 14px 18px; color: #fff;
+                }
+                .nav-ext-info { display: flex; flex-direction: column; gap: 4px; }
+                .nav-ext-info strong { font-size: 1rem; font-weight: 500; display:flex; align-items:center; gap:8px;}
+                .nav-ext-info span { font-size: 0.85rem; color: rgba(255,255,255,0.4); }
+                .nav-ext-actions { display: flex; gap: 8px; }
+                
+                .nav-ext-btn {
+                    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;
+                    padding: 8px 12px; color: #fff; font-family: inherit; font-size: 0.85rem; cursor: pointer; outline: none; transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.1s, box-shadow 0.15s;
+                }
+                .nav-ext-btn.primary { background: #fff; color: #000; font-weight: 600; border-color: transparent;}
+                .nav-ext-btn.danger { color: #ff6b6b; background: rgba(255,107,107,0.1); border-color: rgba(255,107,107,0.2); }
+                
+                .nav-ext-btn.nav-focused-el { transform: scale(1.06); box-shadow: 0 5px 15px rgba(0,0,0,0.3); border-color: #fff; background: rgba(255,255,255,0.15); color: #fff;}
+                .nav-ext-btn.primary.nav-focused-el { background: #fff; color: #000; box-shadow: 0 0 15px rgba(255,255,255,0.4); }
+                .nav-ext-btn.danger.nav-focused-el { background: #ff6b6b; color: #fff; border-color: #ff6b6b; }
 
+                /* Variante para o botão de Instalar ficar 100% visível no foco */
+                .nav-icon-btn.nav-btn-primary { background: #fff; color: #000; font-weight: 600; border-color: transparent; }
+                .nav-icon-btn.nav-btn-primary.nav-focused-el { 
+                    background: #e0e0e0; color: #000; border-color: #fff; 
+                    box-shadow: 0 0 0 4px rgba(255,255,255,0.3), 0 8px 20px rgba(0,0,0,0.5); 
+                }
+            `;
+            document.head.appendChild(s);
+        }
+
+        body.innerHTML = `
+            <div class="nav-settings-subheader">
+                <button class="nav-back-btn" id="setBackExt" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
+                <h2>${_t('extManagerTitle', 'Gerenciador de Extensões')}</h2>
+            </div>
+            
+            <div class="nav-profile-dashboard" style="flex-direction: column; gap: 10px;">
+                <p style="color: rgba(255,255,255,0.5); font-size: 0.95rem; margin: 0 0 10px;">${_t('extManagerSubtitle', 'Adicione ou gerencie recursos adicionais do sistema.')}</p>
+                
+                <div class="nav-profile-fields" style="width: 100%; padding: 24px;">
+                    <div class="nav-api-row">
+                        <input class="nav-profile-field-input" id="navExtUrlInput" readonly placeholder="${_t('extManagerInputPlaceholder', 'Cole o link da extensão aqui...')}" tabindex="-1" style="flex:1;" />
+                        <button class="nav-icon-btn" id="navExtPasteBtn" tabindex="-1">${_t('btnPaste', 'Colar')}</button>
+                        <button class="nav-icon-btn" id="navExtStoreBtn" tabindex="-1">${_t('btnStore', 'Loja')}</button>
+                        <button class="nav-icon-btn nav-btn-primary" id="navExtInstallBtn" tabindex="-1">${_t('btnInstall', 'Instalar')}</button>
+                    </div>
+                    
+                    <div class="nav-ext-status" id="navExtensionStatus">${_t('loadingExtensions', 'Carregando extensões...')}</div>
+                    
+                    <div class="nav-ext-list" id="navExtensionsList">
+                        <!-- Itens renderizados dinamicamente aqui -->
+                    </div>
+                </div>
+            </div>`;
+
+        // Itens base focáveis: Voltar (0), Input (1), Colar (2), Loja (3), Instalar (4)
+        _contentItems = [
+            body.querySelector('#setBackExt'),
+            body.querySelector('#navExtUrlInput'),
+            body.querySelector('#navExtPasteBtn'),
+            body.querySelector('#navExtStoreBtn'),
+            body.querySelector('#navExtInstallBtn')
+        ].filter(Boolean);
+
+        body.querySelector('#setBackExt')?.addEventListener('click', () => {
+            _settingsSubView = null;
+            _contentIdx = 0;
+            document.activeElement?.blur();
+            requestAnimationFrame(() => {
+                _renderContent('settings');
+                _updateContentFocus();
+            });
+        });
+
+        body.querySelector('#navExtPasteBtn')?.addEventListener('click', () => {
+            window._isPastingExtensionUrl = true;
+            if (typeof postToHost === 'function') postToHost({ action: 'readClipboard' });
+        });
+
+        body.querySelector('#navExtStoreBtn')?.addEventListener('click', () => {
+            window._isPastingExtensionUrl = true;
+            if (typeof postToHost === 'function') {
+                postToHost({
+                    action: 'openExtensionStore',
+                    extBtnTitle: _t('extStoreAddBtn'),
+                    extBtnSub: _t('extStoreAddSub'),
+                    toastTitle: _t('toastDoorpi'),
+                    toastSub: _t('toastExtSent'),
+                    extInstalledTitle: _t('extAlreadyInstalledBtn'),
+                    extInstalledSub: _t('extAlreadyInstalledSub')
+                });
+            }
+        });
+
+        const urlInput = body.querySelector('#navExtUrlInput');
+        urlInput?.addEventListener('click', () => {
+            urlInput.removeAttribute('readonly');
+            window._vkbOpen?.(urlInput, {
+                onOk: () => {
+                    urlInput.setAttribute('readonly', '');
+                    window._vkbForceClose?.();
+                },
+                onCancel: () => {
+                    urlInput.setAttribute('readonly', '');
+                    window._vkbForceClose?.();
+                }
+            });
+        });
+
+        body.querySelector('#navExtInstallBtn')?.addEventListener('click', () => {
+            const url = urlInput?.value.trim();
+            const status = document.getElementById('navExtensionStatus');
+            if (!url) {
+                if (status) { status.textContent = _t('extPasteLinkError', 'Insira um link válido.'); status.className = 'nav-ext-status error'; }
+                return;
+            }
+            if (status) { status.textContent = _t('extInstallingStatus', 'Instalando...'); status.className = 'nav-ext-status'; }
+            if (typeof postToHost === 'function') postToHost({ action: 'installExtension', url, successMsg: _t('extInstallSuccess', 'Extensão Instalada') });
+        });
+
+        // Função exportada globalmente para ser chamada pela Ponte (Event Listener do arquivo principal)
+        // Função exportada globalmente para ser chamada pela Ponte (Event Listener do arquivo principal)
+        window._renderNavExtensionsList = function (extensions, statusClass, message, updates) {
+            const listEl = document.getElementById('navExtensionsList');
+            const statusEl = document.getElementById('navExtensionStatus');
+            if (!listEl) return;
+
+            if (statusEl) {
+                statusEl.textContent = message || (extensions.length ? _t('extInstalledCount', `${extensions.length} extensão(ões) instalada(s)`, extensions.length) : _t('extNoneInstalled', 'Nenhuma extensão instalada.'));
+                statusEl.className = `nav-ext-status ${statusClass || ''}`.trim();
+            }
+
+            listEl.innerHTML = extensions.map(ext => {
+                const updateVersion = updates[ext.Id];
+                const hasUpdate = !!updateVersion;
+
+                return `
+                <div class="nav-ext-row">
+                    <div class="nav-ext-info">
+                        <strong>
+                            ${(ext.Name || _t('extUnknown', 'Desconhecida')).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[ch]))}
+                            ${hasUpdate ? '<span style="width:8px;height:8px;background:#ff4444;border-radius:50%;box-shadow: 0 0 6px #ff4444;"></span>' : ''}
+                        </strong>
+                        <span>
+                            ${_t('extInstalled', 'Instalada')} (v${(ext.Version || '?.?.?').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[ch]))})
+                            ${hasUpdate ? ` ➔ <strong style="color:#ff6e6e">v${updateVersion}</strong>` : ''}
+                        </span>
+                    </div>
+                    <div class="nav-ext-actions">
+                        ${hasUpdate ? `
+                        <button class="nav-ext-btn primary" data-action="update" data-id="${ext.Id.replace(/"/g, '&quot;')}" tabindex="-1" title="${_t('btnUpdate', 'Atualizar')}">
+                            ${_t('btnUpdate', 'Atualizar')}
+                        </button>` : ''}
+                        <button class="nav-ext-btn danger" data-action="delete" data-id="${ext.Id.replace(/"/g, '&quot;')}" tabindex="-1" title="${_t('btnRemove', 'Remover')}">
+                            ${_t('btnRemove', 'Remover')}
+                        </button>
+                    </div>
+                </div>`;
+            }).join('');
+
+            // Recria a lista de focos dinamicamente
+            _contentItems = [
+                document.getElementById('setBackExt'),
+                document.getElementById('navExtUrlInput'),
+                document.getElementById('navExtPasteBtn'),
+                document.getElementById('navExtStoreBtn'),
+                document.getElementById('navExtInstallBtn')
+            ];
+
+            // Atrela os eventos aos botões gerados e adiciona à matriz de foco
+            listEl.querySelectorAll('.nav-ext-btn').forEach(btn => {
+                _contentItems.push(btn);
+                btn.addEventListener('click', () => {
+                    const action = btn.dataset.action;
+                    const id = btn.dataset.id;
+                    if (action === 'update') window._doorpiUpdateExtension(id);
+                    if (action === 'delete') window._doorpiDeleteExtension(id);
+                });
+            });
+
+            // Re-atrela o mouseenter global de foco
+            _contentItems.forEach((el, idx) => {
+                el?.addEventListener('mouseenter', () => {
+                    _topbarFocus = false;
+                    _contentIdx = idx;
+                    _updateContentFocus();
+                });
+            });
+
+            // Garantir visual em dia
+            _updateContentFocus();
+        };
+
+        // Dispara a requisição para preencher a lista ao abrir a tela
+        if (typeof postToHost === 'function') postToHost({ action: 'requestExtensions' });
+
+        _contentItems.forEach((el, idx) => {
+            el.addEventListener('mouseenter', () => {
+                _topbarFocus = false;
+                _contentIdx = idx;
+                _updateContentFocus();
+            });
+        });
+    }
 
     // ── Foco ──────────────────────────────────────────────────────────────────
     function _setTopbarFocus(val) {
@@ -1293,9 +1514,6 @@ window.isNavMenuOpen = false;
         const cols = _gridCols();
         const total = _contentItems.length;
 
-        // ── Malha de navegação da tela de Conta (sem botão Salvar) ───────────
-        // 0=Voltar  1=Avatar  2=Nome  3=API input  4=Colar  5=Ver Chave
-        // 6=Trocar Usuário  7=Excluir Perfil
         if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'account') {
             const map = {
                 0: { ArrowDown: 1, ArrowRight: 1 },
@@ -1304,8 +1522,7 @@ window.isNavMenuOpen = false;
                 3: { ArrowUp: 2, ArrowDown: 6, ArrowRight: 4 },
                 4: { ArrowUp: 2, ArrowDown: 6, ArrowLeft: 3, ArrowRight: 5 },
                 5: { ArrowUp: 2, ArrowDown: 6, ArrowLeft: 4 },
-                6: { ArrowUp: 3, ArrowDown: 7 },
-                7: { ArrowUp: 6 }
+                6: { ArrowUp: 3 }
             };
 
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
@@ -1314,6 +1531,51 @@ window.isNavMenuOpen = false;
                     _updateContentFocus();
                 } else if (key === 'ArrowUp' && _contentIdx <= 1) {
                     _setTopbarFocus(true);
+                }
+                return;
+            }
+        }
+        // ── Malha de navegação da tela de Extensões ───────────
+        // A lista possui cabeçalho (0 a 4) e depois itens gerados dinamicamente.
+        // 0=Voltar, 1=Input, 2=Colar, 3=Loja, 4=Instalar.
+        if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'extensions') {
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
+
+                // Top row navigation manual mapping
+                if (_contentIdx <= 4) {
+                    const topMap = {
+                        0: { ArrowDown: 1, ArrowRight: 1 },
+                        1: { ArrowUp: 0, ArrowDown: 5, ArrowRight: 2 },
+                        2: { ArrowUp: 0, ArrowDown: 5, ArrowLeft: 1, ArrowRight: 3 },
+                        3: { ArrowUp: 0, ArrowDown: 5, ArrowLeft: 2, ArrowRight: 4 },
+                        4: { ArrowUp: 0, ArrowDown: 5, ArrowLeft: 3 }
+                    };
+                    if (topMap[_contentIdx] && topMap[_contentIdx][key] !== undefined) {
+                        let next = topMap[_contentIdx][key];
+                        if (next >= _contentItems.length) next = _contentItems.length - 1; // Previne erro se a lista estiver vazia
+                        _contentIdx = next;
+                        _updateContentFocus();
+                    } else if (key === 'ArrowUp' && _contentIdx <= 1) {
+                        _setTopbarFocus(true);
+                    }
+                }
+                // Navegação nos itens da lista (índice 5 em diante)
+                else {
+                    if (key === 'ArrowUp') {
+                        _contentIdx--;
+                        if (_contentIdx < 4) _contentIdx = 1; // Pula de volta pro Input
+                    }
+                    else if (key === 'ArrowDown') {
+                        if (_contentIdx < _contentItems.length - 1) _contentIdx++;
+                    }
+                    else if (key === 'ArrowLeft') {
+                        // Navega pra esquerda se houver 2 botões na mesma linha, caso contrário age como UP
+                        if (_contentIdx > 4) _contentIdx--;
+                    }
+                    else if (key === 'ArrowRight') {
+                        if (_contentIdx < _contentItems.length - 1) _contentIdx++;
+                    }
+                    _updateContentFocus();
                 }
                 return;
             }
@@ -1443,5 +1705,22 @@ window.isNavMenuOpen = false;
     // ── Expose ────────────────────────────────────────────────────────────────
     window.openNavMenu = open;
     window.closeNavMenu = close;
+    window._navMenuOpenExtensions = function () {
+        _catIdx = 2; // Categoria de Configurações
+        _settingsSubView = 'extensions';
+        document.querySelectorAll('.nav-cat-item').forEach((el, i) => el.classList.toggle('active', i === _catIdx));
+        _updateTopbarFocusVisual();
+        _contentIdx = 0;
+
+        const titleEl = document.getElementById('navContentTitle');
+        const subEl = document.getElementById('navContentSub');
+        const headerWrap = document.getElementById('navHeaderWrap');
+        if (headerWrap) headerWrap.style.display = 'block';
+        if (titleEl) titleEl.textContent = CATS[_catIdx].label;
+        if (subEl) subEl.textContent = _subtitle(CATS[_catIdx].id);
+
+        _renderContent('settings');
+        _setTopbarFocus(false);
+    };
 
 })();

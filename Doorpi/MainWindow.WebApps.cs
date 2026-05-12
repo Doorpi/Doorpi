@@ -47,6 +47,10 @@ namespace Doorpi
         private const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
         private const uint MOUSEEVENTF_RIGHTUP = 0x0010;
         private const uint MOUSEEVENTF_WHEEL = 0x0800;
+        private const uint MOUSEEVENTF_MOVE = 0x0001;
+        private const uint MOUSEEVENTF_XDOWN = 0x0080;
+        private const uint MOUSEEVENTF_XUP = 0x0100;
+        private const uint XBUTTON1 = 0x0001; // Simula o botão "Voltar" (Mouse Button 4)
 
         // ── Constantes botões XInput ──────────────────────────────────────────
         private const ushort XI_DPAD_UP = 0x0001;
