@@ -212,9 +212,8 @@ window.isNavMenuOpen = false;
             width: 100%; height: 100%;
         }
         #navMenuOverlay.visible .nav-layout { transform: scale(1); }
-
         .nav-topbar {
-            display: flex; align-items: center; padding-top: 5rem; gap: clamp(20px, 3vw, 40px);
+            display: flex; align-items: center; padding-top: clamp(5rem, 5vh, 5rem); gap: clamp(12px, 2vw, 40px);
             flex-shrink: 0; flex-direction: column;
         }
 
@@ -243,7 +242,7 @@ window.isNavMenuOpen = false;
 
         .nav-content {
             flex: 1; display: flex; flex-direction: column;
-            padding: clamp(20px, 3vh, 40px) clamp(30px, 4vw, 60px);
+            padding: clamp(10px, 2vh, 40px) clamp(20px, 3vw, 60px);
             overflow: hidden; min-width: 0;
         }
 
@@ -251,7 +250,8 @@ window.isNavMenuOpen = false;
             margin-bottom: clamp(20px, 3vh, 32px); flex-shrink: 0; text-align: left;
             animation: fadeInTop 0.4s cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
         }
-        .nav-content-title { font-size: clamp(1.8rem, 2.5vw, 3.2rem); font-weight: 300; color: #fff; margin: 0 0 6px; letter-spacing: -0.01em; }
+       .nav-content-title { font-size: clamp(1.2rem, 2vw, 3.2rem); font-weight: 300; color: #fff; margin: 0 0 4px; letter-spacing: -0.01em; }
+
         .nav-content-subtitle { font-size: clamp(0.85rem, 0.9vw, 1.1rem); color: rgba(255,255,255,0.4); margin: 0; font-weight: 400; }
 
         .nav-content-body {
@@ -304,16 +304,15 @@ window.isNavMenuOpen = false;
         .nav-vertical-card.nav-focused .nav-vertical-card-title { opacity: 1; transform: translateY(0); }
 
         /* ── HUB de Perfil (Visual Cinemático) ── */
-        .nav-profile-showcase { 
-            display: flex; flex-direction: column; gap: clamp(24px, 4vh, 40px); 
-            animation: fadeInTop 0.3s ease; 
-            max-width: 75%;
-        }
-        .nav-profile-header { 
-            display: flex; align-items: center; gap: clamp(20px, 3vw, 40px); justify-content: flex-start;
-            margin-bottom: 2%;
-            align-items: flex-start;
-        }
+.nav-profile-showcase {
+    display: flex; flex-direction: column; gap: clamp(12px, 2.5vh, 40px);
+    animation: fadeInTop 0.3s ease;
+    max-width: clamp(85%, 75vw, 1100px);
+}
+.nav-profile-header {
+    display: flex; align-items: flex-start; gap: clamp(14px, 2.5vw, 40px); justify-content: flex-start;
+    margin-bottom: clamp(4px, 1vh, 2%);
+}   
         .nav-profile-avatar-large { 
             width: clamp(70px, 12vh, 120px); height: clamp(70px, 12vh, 120px); 
             border-radius: 50%; border: 3px solid rgba(255,255,255,0.15); box-shadow: 0 15px 40px rgba(0,0,0,0.5); 
@@ -325,7 +324,8 @@ window.isNavMenuOpen = false;
         .nav-profile-info { 
             flex: 1; display: flex; flex-direction: column; gap: 8px; justify-content: center;
         }
-        .nav-profile-name { font-size: clamp(2.2rem, 3.5vw, 4rem); font-weight: 300; margin: 0; color: #fff; letter-spacing: -0.02em; line-height: 1.1; }
+        .nav-profile-name { font-size: clamp(1.6rem, 2.8vw, 4rem); font-weight: 300; margin: 0; color: #fff; letter-spacing: -0.02em; line-height: 1.1; }
+
 
         .nav-profile-edit-btn {
             background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 30px;
@@ -334,25 +334,27 @@ window.isNavMenuOpen = false;
         }
         .nav-profile-edit-btn.nav-focused-el { background: #fff; color: #000; transform: scale(1.05); box-shadow: 0 10px 30px rgba(255,255,255,0.2); }
 
-        .nav-profile-stats-row { 
-            display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; 
+        .nav-profile-stats-row {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: clamp(10px, 1.5vw, 24px);
         }
-        .nav-profile-stat-box { 
-            background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; 
-            padding: clamp(16px, 2vw, 24px); display: flex; flex-direction: column; gap: 8px; box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        .nav-profile-stat-box {
+            background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;
+            padding: clamp(10px, 1.5vh, 24px) clamp(12px, 1.5vw, 24px); display: flex; flex-direction: column; gap: clamp(4px, 0.8vh, 8px); box-shadow: 0 10px 20px rgba(0,0,0,0.2);
             align-items: center; text-align: center;
         }
         .nav-profile-stat-box.future-placeholder { opacity: 0.35; }
-        .stat-value { font-size: clamp(2rem, 3vw, 2.8rem); font-weight: 200; color: #fff; line-height: 1; }
-        .stat-label { font-size: 0.85rem; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+        .stat-value { font-size: clamp(1.4rem, 2.2vw, 2.8rem); font-weight: 200; color: #fff; line-height: 1; }
+
+        .stat-label { font-size: clamp(0.7rem, 0.8vw, 0.85rem); color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+
 
         .nav-profile-section-title { font-size: 1.3rem; font-weight: 400; color: #fff; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 12px; margin-top: 10px;}
 
         /* ── Cards Recentes (Verticais Maiores - Vitrine de Dados) ── */
         .nav-profile-recent-grid {
-            display: grid; 
-            grid-template-columns: repeat(auto-fill, minmax(clamp(150px, 12vw, 205px), 1fr)); 
-            gap: clamp(16px, 1.5vw, 24px); 
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(clamp(110px, 10vw, 205px), 1fr));
+            gap: clamp(10px, 1.2vw, 24px);
             padding-bottom: 40px;
         }
         .nav-profile-recent-card {
@@ -400,13 +402,14 @@ window.isNavMenuOpen = false;
         }
 
         /* ── Dashboard de Configurações (Grid de Categorias) ── */
-        .nav-settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 24px; animation: fadeInTop 0.4s ease; max-width: 1400px; }
-        .nav-settings-card { 
-            background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 16px; 
-            padding: 30px 24px; display: flex; align-items: flex-start; gap: 20px; cursor: pointer; outline: none; 
+        .nav-settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(200px, 22vw, 320px), 1fr)); gap: clamp(12px, 1.5vh, 24px); animation: fadeInTop 0.4s ease; max-width: 1400px; }
+        .nav-settings-card {
+            background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 16px;
+            padding: clamp(16px, 2.5vh, 30px) clamp(16px, 1.8vw, 24px); display: flex; align-items: flex-start; gap: clamp(12px, 1.5vw, 20px); cursor: pointer; outline: none;
             text-align: left; transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1); color: inherit; font-family: inherit;
         }
-        .settings-card-icon { width: 54px; height: 54px; flex-shrink: 0; color: rgba(255,255,255,0.4); transition: color 0.2s; }
+        .settings-card-icon { width: clamp(36px, 4.5vh, 54px); height: clamp(36px, 4.5vh, 54px); flex-shrink: 0; color: rgba(255,255,255,0.4); transition: color 0.2s; }
+
         .settings-card-icon svg { width: 100%; height: 100%; }
         .settings-card-info h3 { margin: 0 0 8px 0; font-size: 1.4rem; font-weight: 400; color: #fff; letter-spacing: -0.01em; }
         .settings-card-info p { margin: 0; font-size: 0.95rem; color: rgba(255,255,255,0.4); line-height: 1.5; }
@@ -461,6 +464,19 @@ window.isNavMenuOpen = false;
         .nav-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 300px; gap: 20px; color: rgba(255,255,255,0.2); animation: fadeInTop 0.4s ease; }
         .nav-placeholder-icon { font-size: clamp(3rem, 5vw, 6rem); opacity: 0.5; }
         .nav-placeholder-text { font-size: clamp(1rem, 1.2vw, 1.4rem); font-weight: 400; letter-spacing: 0.02em; }
+
+        /* ── Responsividade 720p ── */
+@media (max-height: 768px) {
+    .nav-content-header { margin-bottom: clamp(8px, 1.5vh, 20px); }
+    .nav-profile-section-title { font-size: 1rem; padding-bottom: 8px; margin-top: 4px; }
+    .nav-profile-avatar-large { width: clamp(52px, 9vh, 90px); height: clamp(52px, 9vh, 90px); }
+    .nav-profile-edit-btn { padding: 8px 16px; font-size: 0.9rem; }
+    .settings-card-info h3 { font-size: clamp(1rem, 1.8vh, 1.4rem); margin-bottom: 4px; }
+    .settings-card-info p { font-size: clamp(0.8rem, 1.3vh, 0.95rem); }
+    .nav-back-btn { padding: 7px 18px; font-size: 0.9rem; }
+    .nav-settings-subheader { margin-bottom: clamp(12px, 2vh, 30px); gap: 16px; }
+    .nav-settings-subheader h2 { font-size: clamp(1.2rem, 2.5vh, 1.8rem); }
+}
         `;
         document.head.appendChild(s);
     })();
