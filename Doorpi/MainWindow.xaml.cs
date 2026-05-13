@@ -639,29 +639,43 @@ namespace Doorpi
         private volatile bool _systemControllerActive = false;
         private void CloseTouchKeyboard()
         {
+            // Em vez de matar o processo (o que corrompe o Windows 11), 
+            // pedimos educadamente via COM para ele se esconder.
             Task.Run(() =>
             {
                 try
                 {
-                    // Mata o teclado para ele não ficar ocupando memória atoa
-                    // ou bugar a próxima vez que você precisar dele
-                    var processes = Process.GetProcessesByName("TabTip")
-                                    .Concat(Process.GetProcessesByName("TextInputHost"));
-
-                    foreach (var p in processes)
-                    {
-                        try { p.Kill(); } catch { }
-                    }
+                    var tip = (ITipInvocationAware)new UIHostNoLaunch();
+                    tip.Toggle(false);
                 }
                 catch { }
             });
+        }
+        private const uint KEYEVENTF_UNICODE = 0x0004;
+        private DesktopVkbWindow _desktopVkb;
+        private void SendUnicodeString(string text)
+        {
+            var inputs = new List<INPUT>();
+            foreach (char c in text)
+            {
+                // Pressionar a tecla
+                var down = new INPUT { type = INPUT_KEYBOARD };
+                down.U.ki = new KEYBDINPUT { wScan = c, dwFlags = KEYEVENTF_UNICODE };
+                inputs.Add(down);
+
+                // Soltar a tecla
+                var up = new INPUT { type = INPUT_KEYBOARD };
+                up.U.ki = new KEYBDINPUT { wScan = c, dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP };
+                inputs.Add(up);
+            }
+            SendInput((uint)inputs.Count, inputs.ToArray(), INPUT.Size);
         }
         private void EnterDesktopMode()
         {
             WindowState = WindowState.Minimized;
             IntPtr trayHwnd = FindWindow("Shell_TrayWnd", null);
             if (trayHwnd != IntPtr.Zero) SetForegroundWindow(trayHwnd);
-            ConfigureTouchKeyboardForController();
+   
 
             // Pré-aquece o TabTip em background para o primeiro Toggle não falhar
             _ = Task.Run(() => {
@@ -682,43 +696,7 @@ namespace Doorpi
 
             StartSystemControllerMode();
         }
-        private void ConfigureTouchKeyboardForController()
-        {
-            try
-            {
-                // 1. Matamos os processos silenciosamente para que soltem o registro
-                var processes = Process.GetProcessesByName("TabTip")
-                                .Concat(Process.GetProcessesByName("TextInputHost"));
-
-                foreach (var p in processes)
-                {
-                    try { p.Kill(); } catch { }
-                }
-
-                // Aguarda os processos morrerem
-                System.Threading.Thread.Sleep(150);
-
-                // 2. Altera o registro. O caminho 1.7 é o oficial da Microsoft para o Touch Keyboard (TabTip)
-                using (var key = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\TabletTip\1.7"))
-                {
-                    if (key != null)
-                    {
-                        // 2 = Teclado Compacto Flutuante (O único perfeitamente navegável pelo controle)
-                        key.SetValue("KeyboardLayoutPreference", 2, RegistryValueKind.DWord);
-
-                        // 1 = Permite que ele flutue na tela em vez de empurrar a barra de tarefas
-                        key.SetValue("IsFloating", 1, RegistryValueKind.DWord);
-
-                        // Previne que o Windows sobrescreva sua escolha automaticamente
-                        key.SetValue("OptimizedKeyboardMode", 0, RegistryValueKind.DWord);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine("[DesktopMode] Erro ao configurar registro: " + ex.Message);
-            }
-        }
+      
 
         private void StartSystemControllerMode()
         {
@@ -732,7 +710,6 @@ namespace Doorpi
         {
             _systemControllerActive = false;
         }
-
         private void SystemControllerLoop()
         {
             var sw = Stopwatch.StartNew();
@@ -740,8 +717,13 @@ namespace Doorpi
             double speedMult = 1.0;
             double remainderX = 0, remainderY = 0;
 
-            bool aWasOnTextField = false;   // estava em I-beam quando A foi pressionado?
-            bool aDragOccurred = false;     // o mouse se moveu enquanto A estava pressionado?
+            bool aWasOnTextField = false;
+            bool aDragOccurred = false;
+
+            // --- VARIÁVEIS NOVAS PARA O BOTÃO X (APAGAR) ---
+            bool isHoldingX = false;
+            DateTime xPressTime = DateTime.MinValue;
+            DateTime lastBackspaceFired = DateTime.MinValue;
 
             while (_systemControllerActive)
             {
@@ -754,13 +736,85 @@ namespace Doorpi
                     var gp = state.Gamepad;
                     ushort btn = gp.wButtons;
 
+                    bool Pressed(ushort m) => (btn & m) != 0 && (prevButtons & m) == 0;
+                    bool Released(ushort m) => (btn & m) == 0 && (prevButtons & m) != 0;
+
+                    // =========================================================
+                    // LÓGICA DO SEU TECLADO VIRTUAL C#
+                    // =========================================================
+                    bool vkbIsOpen = false;
+                    Dispatcher.Invoke(() => vkbIsOpen = _desktopVkb != null && _desktopVkb.IsVisible);
+
+                    if (vkbIsOpen)
+                    {
+                        // Navegação (D-Pad)
+                        if (Pressed(0x0001)) Dispatcher.Invoke(() => _desktopVkb.MoveSelection(-1, 0)); // UP
+                        if (Pressed(0x0002)) Dispatcher.Invoke(() => _desktopVkb.MoveSelection(1, 0));  // DOWN
+                        if (Pressed(0x0004)) Dispatcher.Invoke(() => _desktopVkb.MoveSelection(0, -1)); // LEFT
+                        if (Pressed(0x0008)) Dispatcher.Invoke(() => _desktopVkb.MoveSelection(0, 1));  // RIGHT
+
+                        // Botão A = Digitar Letra / Selecionar
+                        if (Pressed(0x1000)) Dispatcher.Invoke(() => _desktopVkb.PressCurrentKey());
+
+                        // Botão B = Fechar Teclado
+                        if (Pressed(0x2000)) Dispatcher.Invoke(() => { _desktopVkb.Close(); _desktopVkb = null; });
+
+                        // Botão Y = Espaço Direto
+                        if (Pressed(0x8000)) SendUnicodeString(" ");
+
+                        // START = Enter
+                        if (Pressed(0x0010)) SendVirtualKey(0x0D);
+
+                        // L3 (Analogico Esquerdo Clique) = Caps Lock (Shift)
+                        if (Pressed(0x0040)) Dispatcher.Invoke(() => _desktopVkb.ToggleShift());
+
+                        // L1 = Mover cursor do texto para Esquerda
+                        if (Pressed(0x0100)) SendVirtualKey(0x25); // VK_LEFT
+
+                        // R1 = Mover cursor do texto para Direita
+                        if (Pressed(0x0200)) SendVirtualKey(0x27); // VK_RIGHT
+
+                        // --- LÓGICA DE TEMPO REAL DO BOTÃO X (Apagar Rapidamente) ---
+                        bool currentX = (btn & 0x4000) != 0;
+
+                        if (currentX && (prevButtons & 0x4000) == 0) // ACABOU DE APERTAR (Click rápido)
+                        {
+                            isHoldingX = true;
+                            xPressTime = DateTime.Now;
+                            SendVirtualKey(0x08); // Envia Backspace apenas 1 vez imediatamente
+                            lastBackspaceFired = DateTime.Now;
+                        }
+                        else if (currentX && isHoldingX) // ESTÁ SEGURANDO O BOTÃO
+                        {
+                            // Espera 450ms (Quase meio segundo) antes de começar a metralhar
+                            if ((DateTime.Now - xPressTime).TotalMilliseconds > 450)
+                            {
+                                // Fogo rápido: apaga a cada 40ms (Ajuste se achar muito rápido/devagar)
+                                if ((DateTime.Now - lastBackspaceFired).TotalMilliseconds > 40)
+                                {
+                                    SendVirtualKey(0x08);
+                                    lastBackspaceFired = DateTime.Now;
+                                }
+                            }
+                        }
+                        else if (!currentX) // SOLTOU O BOTÃO
+                        {
+                            isHoldingX = false;
+                        }
+
+                        prevButtons = btn;
+                        Thread.Sleep(10);
+                        continue; // Pula o resto do while (não mexe o mouse)
+                    }
+                    // =========================================================
+
+                    // --- Lógica normal do Mouse ---
                     double lx = gp.sThumbLX / 32767.0;
                     double ly = gp.sThumbLY / 32767.0;
                     const double DEAD = 0.15;
                     if (Math.Abs(lx) < DEAD) lx = 0;
                     if (Math.Abs(ly) < DEAD) ly = 0;
 
-                    // Declara fora do bloco para poder usar no drag detection
                     int deltaX = 0, deltaY = 0;
 
                     if (lx != 0 || ly != 0)
@@ -780,9 +834,7 @@ namespace Doorpi
                     }
                     else
                     {
-                        speedMult = 1.0;
-                        remainderX = 0;
-                        remainderY = 0;
+                        speedMult = 1.0; remainderX = 0; remainderY = 0;
                     }
 
                     double ry = gp.sThumbRY / 32767.0;
@@ -792,16 +844,12 @@ namespace Doorpi
                         if (scroll != 0) SendMouse(0, 0, MOUSEEVENTF_WHEEL, (uint)scroll);
                     }
 
-                    bool Pressed(ushort m) => (btn & m) != 0 && (prevButtons & m) == 0;
-                    bool Released(ushort m) => (btn & m) == 0 && (prevButtons & m) != 0;
-
                     if ((btn & 0x0010) != 0 && (btn & 0x0020) != 0)
                     {
                         _systemControllerActive = false;
                         SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
-                        SendMouse(0, 0, MOUSEEVENTF_RIGHTUP);
                         Dispatcher.Invoke(() => {
-                            CloseTouchKeyboard();
+                            if (_desktopVkb != null) { _desktopVkb.Close(); _desktopVkb = null; }
                             WindowState = WindowState.Maximized;
                             Activate();
                             ForceFocus();
@@ -809,7 +857,7 @@ namespace Doorpi
                         break;
                     }
 
-                    // Botão A — registra intenção no Press, abre teclado no Release se não houve drag
+                    // GATILHO PARA ABRIR O SEU NOVO TECLADO VIRTUAL C#
                     if (Pressed(0x1000))
                     {
                         aWasOnTextField = IsCursorOnTextField();
@@ -817,11 +865,9 @@ namespace Doorpi
                         SendMouse(0, 0, MOUSEEVENTF_LEFTDOWN);
                     }
 
-                    // Detecta drag enquanto A está segurado
                     if ((btn & 0x1000) != 0 && (prevButtons & 0x1000) != 0)
                     {
-                        if (deltaX != 0 || deltaY != 0)
-                            aDragOccurred = true;
+                        if (deltaX != 0 || deltaY != 0) aDragOccurred = true;
                     }
 
                     if (Released(0x1000))
@@ -830,13 +876,31 @@ namespace Doorpi
 
                         if (aWasOnTextField && !aDragOccurred)
                         {
-                            // Delay garante que o clique focou o input antes do teclado aparecer
-                            _ = Task.Run(async () => {
-                                await Task.Delay(100);
-                                Dispatcher.Invoke(ShowTouchKeyboard);
+                            Dispatcher.Invoke(() =>
+                            {
+                                if (_desktopVkb == null)
+                                {
+                                    _desktopVkb = new DesktopVkbWindow();
+
+                                    // Quando uma tecla é apertada, envia para o Windows
+                                    _desktopVkb.OnKeyPressed += (txt) =>
+                                    {
+                                        if (txt == "BKSP") SendVirtualKey(0x08);
+                                        else if (txt == "ENTER") SendVirtualKey(0x0D);
+                                        else SendUnicodeString(txt);
+                                    };
+
+                                    // Quando cancela, fecha e limpa a variável
+                                    _desktopVkb.OnCloseRequested += () =>
+                                    {
+                                        _desktopVkb.Close();
+                                        _desktopVkb = null;
+                                    };
+
+                                    _desktopVkb.Show();
+                                }
                             });
                         }
-
                         aWasOnTextField = false;
                         aDragOccurred = false;
                     }
@@ -845,20 +909,33 @@ namespace Doorpi
                     if (Released(0x2000)) SendMouse(0, 0, MOUSEEVENTF_XUP, XBUTTON1);
                     if (Pressed(0x4000)) SendMouse(0, 0, MOUSEEVENTF_RIGHTDOWN);
                     if (Released(0x4000)) SendMouse(0, 0, MOUSEEVENTF_RIGHTUP);
-                    if (Pressed(0x8000)) Dispatcher.Invoke(ShowTouchKeyboard);
 
-                    SyncKey(Pressed(0x0001), Released(0x0001), 0x26);
-                    SyncKey(Pressed(0x0002), Released(0x0002), 0x28);
-                    SyncKey(Pressed(0x0004), Released(0x0004), 0x25);
-                    SyncKey(Pressed(0x0008), Released(0x0008), 0x27);
-                    SyncKey(Pressed(0x0010), Released(0x0010), 0x0D);
-                    SyncKey(Pressed(0x0100), Released(0x0100), 0x08);
+                    // Abre manualmente pelo Y (Opcional)
+                    if (Pressed(0x8000))
+                    {
+                        Dispatcher.Invoke(() =>
+                        {
+                            if (_desktopVkb == null)
+                            {
+                                _desktopVkb = new DesktopVkbWindow();
+                                _desktopVkb.OnKeyPressed += (txt) =>
+                                {
+                                    if (txt == "BKSP") SendVirtualKey(0x08);
+                                    else if (txt == "ENTER") SendVirtualKey(0x0D);
+                                    else SendUnicodeString(txt);
+                                };
+                                _desktopVkb.OnCloseRequested += () => { _desktopVkb.Close(); _desktopVkb = null; };
+                                _desktopVkb.Show();
+                            }
+                        });
+                    }
 
                     prevButtons = btn;
                 }
                 Thread.Sleep(10);
             }
         }
+        
 
         private void SendMouse(int dx, int dy, uint flags, uint data = 0)
         {
@@ -885,35 +962,33 @@ namespace Doorpi
 
         private void ShowTouchKeyboard()
         {
-            try
+            Task.Run(() =>
             {
-                // Tenta forçar a abertura via COM Interop (Ignora o bloqueio dos navegadores)
-                var uiHostNoLaunch = new UIHostNoLaunch();
-                var tipInvocationAware = (ITipInvocationAware)uiHostNoLaunch;
-
-                // true = Força a exibição na tela
-                tipInvocationAware.Toggle(true);
-            }
-            catch (Exception exCOM)
-            {
-                Debug.WriteLine($"[DesktopMode] Falha no COM, usando fallback: {exCOM.Message}");
-
-                // Fallback (Método Tradicional educado)
                 try
                 {
-                    string tabTip = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFiles),
-                        "microsoft shared", "ink", "TabTip.exe");
-
-                    if (File.Exists(tabTip))
-                        Process.Start(new ProcessStartInfo(tabTip) { UseShellExecute = true });
-                    else
-                        Process.Start(new ProcessStartInfo("osk.exe") { UseShellExecute = true });
+                    // Tenta abrir via COM Interop (Oficial, não corrompe o SO)
+                    var tip = (ITipInvocationAware)new UIHostNoLaunch();
+                    tip.Toggle(true);
                 }
-                catch (Exception ex)
+                catch (Exception exCOM)
                 {
-                    Debug.WriteLine("[DesktopMode] Erro ao abrir teclado: " + ex.Message);
+                    Debug.WriteLine($"[DesktopMode] Falha no COM, usando fallback: {exCOM.Message}");
+
+                    // Fallback clássico
+                    try
+                    {
+                        string tabTip = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFiles),
+                            "microsoft shared", "ink", "TabTip.exe");
+
+                        if (File.Exists(tabTip))
+                            Process.Start(new ProcessStartInfo(tabTip) { UseShellExecute = true });
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine("[DesktopMode] Erro ao abrir teclado: " + ex.Message);
+                    }
                 }
-            }
+            });
         }
         private static int AxisToCursorDelta(short rawValue, int maxPixels, bool invert = false)
         {
