@@ -59,9 +59,9 @@ const STRINGS = {
         navSetAccount: 'Conta e Perfil',
         navSetAccountDesc: 'Editar avatar, nome, API Key e usuários',
         navSetSystem: 'Sistema',
-        navSetSystemDesc: 'Ajustes do console e área de trabalho',
+        navSetSystemDesc: 'Acessar a área de trabalho',
         navSetExt: 'Extensões',
-        navSetExtDesc: 'Gerenciar plugins e integrações',
+        navSetExtDesc: 'Gerenciar plugins do navegador',
         navChangeUser: 'Trocar Usuário',
         navAvatarChange: 'Alterar Avatar',
 
@@ -311,9 +311,9 @@ const STRINGS = {
         navSetAccount: 'Account & Profile',
         navSetAccountDesc: 'Edit avatar, name, API Key and users',
         navSetSystem: 'System',
-        navSetSystemDesc: 'Console and desktop settings',
+        navSetSystemDesc: 'Desktop ',
         navSetExt: 'Extensions',
-        navSetExtDesc: 'Manage plugins and integrations',
+        navSetExtDesc: 'Manage browser plugins',
         navChangeUser: 'Switch User',
         navAvatarChange: 'Change Avatar',
 
