@@ -101,6 +101,7 @@ namespace Doorpi
         protected override void OnClosed(EventArgs e)
         {
             _topmostTimer?.Stop();
+            StopHold();
             base.OnClosed(e);
         }
 
@@ -256,11 +257,15 @@ namespace Doorpi
         {
             StopHold();                         // garante que não haja timer duplo
             Action act = BuildAction(action);
-            act?.Invoke();                       // disparo imediato
+
+            // Inicia a configuração do timer PRIMEIRO
             _pendingRepeat = act;
             _initialFired = false;
             _holdTimer.Interval = TimeSpan.FromMilliseconds(HOLD_INITIAL_MS);
             _holdTimer.Start();
+
+            // DEPOIS dispara a ação. Se a ação for "Fechar", ela matará o timer recém-criado.
+            act?.Invoke();
         }
 
         /// <summary>Chame quando o botão for SOLTO.</summary>
@@ -362,16 +367,32 @@ namespace Doorpi
 
             switch (key)
             {
-                case "SHIFT": ToggleShift(); break;
-                case "SYM": SwitchLayer(VkbLayer.Special); break;
-                case "ABC": SwitchLayer(VkbLayer.Alpha); break;
-                case "CANCEL": OnCloseRequested?.Invoke(); break;
-                case "BKSP": OnKeyPressed?.Invoke("BKSP"); break;
-                case "ENTER": OnKeyPressed?.Invoke("ENTER"); break;
-                case "SPACE": OnKeyPressed?.Invoke(" "); break;
+                case "SHIFT":
+                    StopHold();
+                    ToggleShift();
+                    break;
+                case "SYM":
+                    StopHold();
+                    SwitchLayer(VkbLayer.Special);
+                    break;
+                case "ABC":
+                    StopHold();
+                    SwitchLayer(VkbLayer.Alpha);
+                    break;
+                case "CANCEL":
+                    StopHold(); // Mata o timer imediatamente antes de pedir para fechar
+                    OnCloseRequested?.Invoke();
+                    break;
+                case "BKSP":
+                    OnKeyPressed?.Invoke("BKSP");
+                    break;
+                case "ENTER":
+                    OnKeyPressed?.Invoke("ENTER");
+                    break;
+                case "SPACE":
+                    OnKeyPressed?.Invoke(" ");
+                    break;
                 default:
-                    // Verifica se estamos na aba de Letras (Alpha) e se é um caractere válido.
-                    // Se o Shift estiver ativo, envia Maiúsculo. Se não, envia Minúsculo.
                     string toSend = key;
                     if (_layer == VkbLayer.Alpha && key.Length == 1 && char.IsLetter(key[0]))
                     {

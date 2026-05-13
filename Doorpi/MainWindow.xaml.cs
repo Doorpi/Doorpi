@@ -762,7 +762,11 @@ namespace Doorpi
 
                             if (Pressed(0x2000))
                             {
-                                Dispatcher.Invoke(() => { _desktopVkb.Close(); _desktopVkb = null; });
+                                Dispatcher.Invoke(() =>
+                                {
+                                    _desktopVkb?.Close(); 
+                                    _desktopVkb = null;
+                                });
                                 ignoreNextBRelease = true;
                             }
 
@@ -870,7 +874,7 @@ namespace Doorpi
                         }
 
                         // GATILHO (A) - SOLTOU
-                        // GATILHO (A) - SOLTOU
+              
                         if (Released(0x1000))
                         {
                             isClicking = false;
@@ -891,9 +895,13 @@ namespace Doorpi
                                             else if (txt == "CURSOR_RIGHT") SendVirtualKey(0x27);
                                             else SendUnicodeString(txt);
                                         };
-                                        _desktopVkb.OnCloseRequested += () => { _desktopVkb.Close(); _desktopVkb = null; };
+                                        _desktopVkb.OnCloseRequested += () =>
+                                        {
+                                            _desktopVkb?.Close();
+                                            _desktopVkb = null;
+                                        };
 
-                                        
+
                                         GetCursorPos(out var pt);
                                         _desktopVkb.AutoPosition(pt.Y);
 
@@ -917,12 +925,15 @@ namespace Doorpi
                         }
 
                         // Fechar Modo Desktop
+                    
                         if ((btn & 0x0010) != 0 && (btn & 0x0020) != 0)
                         {
                             _systemControllerActive = false;
                             SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
                             Dispatcher.Invoke(() => {
-                                if (_desktopVkb != null) { _desktopVkb.Close(); _desktopVkb = null; }
+                                _desktopVkb?.Close(); 
+                                _desktopVkb = null;
+
                                 WindowState = WindowState.Maximized;
                                 Activate(); ForceFocus();
                             });
@@ -946,7 +957,11 @@ namespace Doorpi
                                         else if (txt == "CURSOR_RIGHT") SendVirtualKey(0x27);
                                         else SendUnicodeString(txt);
                                     };
-                                    _desktopVkb.OnCloseRequested += () => { _desktopVkb.Close(); _desktopVkb = null; };
+                                    _desktopVkb.OnCloseRequested += () =>
+                                    {
+                                        _desktopVkb?.Close();
+                                        _desktopVkb = null;
+                                    };
 
                                     // Fixa o teclado na parte inferior
                                     _desktopVkb.SetFixedPosition();
