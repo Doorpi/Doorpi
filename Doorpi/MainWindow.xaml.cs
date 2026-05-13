@@ -692,17 +692,16 @@ namespace Doorpi
             DateTime lastBackspaceFired = DateTime.MinValue;
 
             var prevAnalogActive = new Dictionary<VkbHoldAction, bool> {
-        { VkbHoldAction.MoveUp, false },
-        { VkbHoldAction.MoveDown, false },
-        { VkbHoldAction.MoveLeft, false },
-        { VkbHoldAction.MoveRight, false },
-        { VkbHoldAction.CursorLeft, false },
-        { VkbHoldAction.CursorRight, false }
-    };
+            { VkbHoldAction.MoveUp, false },
+            { VkbHoldAction.MoveDown, false },
+            { VkbHoldAction.MoveLeft, false },
+            { VkbHoldAction.MoveRight, false },
+            { VkbHoldAction.CursorLeft, false },
+            { VkbHoldAction.CursorRight, false },
+            { VkbHoldAction.ToggleLayer, false } // <-- ADICIONADO AQUI
+        };
 
             bool ignoreNextBRelease = false;
-
-            // NOVO: Controle de estabilidade de clique (Anti-Jitter)
             bool isClicking = false;
             double clickAccumX = 0;
             double clickAccumY = 0;
@@ -738,6 +737,9 @@ namespace Doorpi
                             bool leftAnalog = lx < -DEAD;
                             bool rightAnalog = lx > DEAD;
 
+                            // LÊ O GATILHO ESQUERDO (LT) COMO ANALÓGICO:
+                            bool ltAnalog = gp.bLeftTrigger > 128;
+
                             void HandleHold(ushort btnMask, bool isAnalogActive, VkbHoldAction action)
                             {
                                 bool isDown = (btn & btnMask) != 0 || isAnalogActive;
@@ -756,6 +758,10 @@ namespace Doorpi
 
                             HandleHold(0x0100, false, VkbHoldAction.CursorLeft);  // LB
                             HandleHold(0x0200, false, VkbHoldAction.CursorRight); // RB
+
+                            // ENVIA O COMANDO DO LT PRO TECLADO:
+                            HandleHold(0, ltAnalog, VkbHoldAction.ToggleLayer);
+
 
                             if (Pressed(0x1000)) Dispatcher.Invoke(() => _desktopVkb.BeginHold(VkbHoldAction.Press));
                             if (Released(0x1000)) Dispatcher.Invoke(() => _desktopVkb.EndHold(VkbHoldAction.Press));

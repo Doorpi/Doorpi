@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
@@ -9,40 +10,40 @@ using System.Windows.Threading;
 
 namespace Doorpi
 {
-    // ─────────────────────────────────────────────────────────────
-    //  Camada do teclado (Letras  /  Símbolos)
-    // ─────────────────────────────────────────────────────────────
     public enum VkbLayer { Alpha, Special }
 
-    // ─────────────────────────────────────────────────────────────
-    //  Definição de uma tecla
-    // ─────────────────────────────────────────────────────────────
     public class VkbKey
     {
         public string Value { get; set; }
         public string Display { get; set; }
         public double Width { get; set; }
         public bool IsAction { get; set; }
+        public string ControllerIcon { get; set; }
     }
 
-    // ─────────────────────────────────────────────────────────────
-    //  Ações que o host pode segurar (hold-to-repeat)
-    //  Passe para BeginHold() no evento de "botão pressionado"
-    //  e EndHold() no evento de "botão solto".
-    // ─────────────────────────────────────────────────────────────
     public enum VkbHoldAction
     {
         MoveUp,
         MoveDown,
         MoveLeft,
         MoveRight,
-        Press,          // Confirmar tecla atual (pode repetir caractere)
-        CursorLeft,     // Mover cursor no campo de texto (← no analógico/D-pad)
-        CursorRight     // Mover cursor no campo de texto (→ no analógico/D-pad)
+        Press,
+        CursorLeft,
+        CursorRight,
+        ToggleLayer // Acione pelo Host com _vkb.BeginHold(VkbHoldAction.ToggleLayer) ao apertar LT!
     }
 
     public class DesktopVkbWindow : Window
     {
+        // ── Strings de Localização (Padrão pt-BR caso o JS não envie) ──
+        public string StrBackspace { get; private set; } = "Apagar";
+        public string StrEnter { get; private set; } = "Enter";
+        public string StrClose { get; private set; } = "Fechar";
+        public string StrShift { get; private set; } = "Maiúsc";
+        public string StrSpace { get; private set; } = "Espaço";
+        public string StrSym { get; private set; } = "&123";
+        public string StrAbc { get; private set; } = "ABC";
+
         // ── Win32 & Ocultação do Teclado Nativo ────────────────────────
         private const int GWL_EXSTYLE = -20;
         private const int WS_EX_NOACTIVATE = 0x08000000;
@@ -53,20 +54,12 @@ namespace Doorpi
         private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
         private const uint SWP_NOSIZE = 0x0001;
         private const uint SWP_NOMOVE = 0x0002;
-        private const uint SWP_SHOWWINDOW = 0x0040;
         private const uint SWP_NOACTIVATE = 0x0010;
 
         [DllImport("user32.dll")]
         private static extern IntPtr SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
         [DllImport("user32.dll")]
         private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
-
-        [ComImport, Guid("4ce576fa-83dc-4F88-951c-9d0782b4e376")]
-        private class UIHostNoLaunch { }
-
-        [ComImport, Guid("37c994e7-432b-4834-a2f7-dce1f13b834b")]
-        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-        private interface ITipInvocationAware { void Toggle(bool bEnable); }
 
         private DispatcherTimer _topmostTimer;
 
@@ -76,25 +69,13 @@ namespace Doorpi
             var helper = new WindowInteropHelper(this);
             SetWindowLong(helper.Handle, GWL_EXSTYLE, GetWindowLong(helper.Handle, GWL_EXSTYLE) | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW);
 
-            // Supressão Agressiva: O Windows tenta abrir o processo TabTip.exe
-            // Nós simplesmente matamos ele imediatamente no momento em que o nosso teclado abre.
             Task.Run(() => {
-                try
-                {
-                    foreach (var p in System.Diagnostics.Process.GetProcessesByName("TabTip"))
-                    {
-                        p.Kill();
-                    }
-                }
+                try { foreach (var p in System.Diagnostics.Process.GetProcessesByName("TabTip")) p.Kill(); }
                 catch { }
             });
 
-            // Loop mantido APENAS para forçar a janela por cima do Menu Iniciar
             _topmostTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
-            _topmostTimer.Tick += (s, ev) =>
-            {
-                SetWindowPos(helper.Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-            };
+            _topmostTimer.Tick += (s, ev) => SetWindowPos(helper.Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             _topmostTimer.Start();
         }
 
@@ -105,71 +86,43 @@ namespace Doorpi
             base.OnClosed(e);
         }
 
-        // ── Auto-Posicionamento ───────────────────────────────────────
         public void AutoPosition(int targetY)
         {
-            // Tenta colocar ACIMA do clique (com 40px de respiro pra não tampar o input)
             double desiredTop = targetY - Height - 40;
-
-            // Se colocar pra cima for cortar o teclado na tela, joga pra baixo
             if (desiredTop < 0)
             {
                 desiredTop = targetY + 40;
-                // Proteção para não vazar pela barra de tarefas
                 if (desiredTop + Height > SystemParameters.PrimaryScreenHeight)
                     desiredTop = SystemParameters.PrimaryScreenHeight - Height - 50;
             }
-
             this.Top = desiredTop;
         }
 
-        public void SetFixedPosition()
-        {
-            // Fallback genérico para o botão Y
-            this.Top = SystemParameters.PrimaryScreenHeight - Height - 50;
-        }
+        public void SetFixedPosition() => this.Top = SystemParameters.PrimaryScreenHeight - Height - 50;
+        public void TogglePosition() => this.Top = this.Top < 100 ? SystemParameters.PrimaryScreenHeight - Height - 50 : 50;
 
-        // ── Movimentação Inteligente (Fuga do Menu Iniciar) ───────────
-        private bool _isAtTop = false;
-        public void TogglePosition()
-        {
-            _isAtTop = !_isAtTop;
-            // Alterna entre o topo da tela e a parte inferior
-            this.Top = _isAtTop ? 50 : SystemParameters.PrimaryScreenHeight - Height - 50;
-        }
-
-        // ── Estado ─────────────────────────────────────────────────
         private VkbKey[][] _alphaKeys;
         private VkbKey[][] _specialKeys;
         private VkbKey[][] CurrentKeys => _layer == VkbLayer.Alpha ? _alphaKeys : _specialKeys;
 
         private VkbLayer _layer = VkbLayer.Alpha;
-        private int _row = 1;
+        private int _row = 0;
         private int _col = 0;
         private bool _shifted = false;
 
         private Grid _grid;
         private Border[][] _uiKeys;
 
-        // ── Hold-to-repeat ─────────────────────────────────────────
         private readonly DispatcherTimer _holdTimer = new DispatcherTimer();
         private Action _pendingRepeat;
         private bool _initialFired;
 
-        // Tempo até o primeiro repeat (ms) e intervalo subsequente (ms)
         private const int HOLD_INITIAL_MS = 380;
         private const int HOLD_REPEAT_MS = 75;
 
-        // ── Eventos públicos ───────────────────────────────────────
-        /// <summary>Tecla de caractere ou comando (BKSP, ENTER, CURSOR_LEFT, CURSOR_RIGHT, " ").</summary>
         public event Action<string> OnKeyPressed;
-
-        /// <summary>Usuário solicitou fechar o teclado.</summary>
         public event Action OnCloseRequested;
 
-        // ─────────────────────────────────────────────────────────────────────────
-        //  CONSTRUTOR
-        // ─────────────────────────────────────────────────────────────────────────
         public DesktopVkbWindow()
         {
             BuildKeyLayouts();
@@ -186,101 +139,121 @@ namespace Doorpi
             Left = (SystemParameters.PrimaryScreenWidth - Width) / 2;
             Top = SystemParameters.PrimaryScreenHeight - Height - 50;
 
-            Effect = new DropShadowEffect
-            {
-                Color = Colors.Black,
-                BlurRadius = 40,
-                ShadowDepth = 15,
-                Opacity = 0.7
-            };
+            Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 40, ShadowDepth = 15, Opacity = 0.7 };
 
             BuildUI();
             RefreshVisuals();
         }
 
         // ─────────────────────────────────────────────────────────────────────────
-        //  LAYOUTS DE TECLAS
+        //  PONTO DE ENTRADA DA LOCALIZAÇÃO (Invocável via Host do WebView2)
         // ─────────────────────────────────────────────────────────────────────────
-        private void BuildKeyLayouts()
+        public void SetLocalization(string bksp, string enter, string close, string shift, string space, string sym, string abc)
         {
-            const double REG = 65;
-            const double ACT = 165;
-            const double SPC = 390;
+            StrBackspace = bksp ?? StrBackspace;
+            StrEnter = enter ?? StrEnter;
+            StrClose = close ?? StrClose;
+            StrShift = shift ?? StrShift;
+            StrSpace = space ?? StrSpace;
+            StrSym = sym ?? StrSym;
+            StrAbc = abc ?? StrAbc;
 
-            VkbKey K(string val, string disp = null, double w = REG, bool act = false) =>
-                new VkbKey { Value = val, Display = disp ?? val, Width = w, IsAction = act };
-
-            // ── Letras ─────────────────────────────────────────────
-            _alphaKeys = new[]
-            {
-                new[] { K("1"), K("2"), K("3"), K("4"), K("5"), K("6"), K("7"), K("8"), K("9"), K("0"), K("-"), K("BKSP",  "Apagar  [ X ]",   ACT, true) },
-                new[] { K("Q"), K("W"), K("E"), K("R"), K("T"), K("Y"), K("U"), K("I"), K("O"), K("P"), K("ENTER", "Enter  [ Start ]", ACT, true) },
-                new[] { K("A"), K("S"), K("D"), K("F"), K("G"), K("H"), K("J"), K("K"), K("L"), K("Ç"), K("~") },
-                new[] { K("SHIFT", "Maiúsc  [ L3 ]", ACT, true), K("Z"), K("X"), K("C"), K("V"), K("B"), K("N"), K("M"), K(","), K("."), K("?") },
-                new[] { K("SYM", "#@!", ACT, true), K("SPACE", "Espaço  [ Y ]", SPC, true), K("CANCEL", "Fechar  [ B ]", ACT, true) }
-            };
-
-            // ── Símbolos / Caracteres especiais ────────────────────
-            _specialKeys = new[]
-            {
-                new[] { K("!"), K("@"), K("#"), K("$"), K("%"), K("^"), K("&"), K("*"), K("("), K(")"), K("_"), K("BKSP",  "Apagar  [ X ]",   ACT, true) },
-                new[] { K("~"), K("`"), K("|"), K("\\"), K("{"), K("}"), K("["), K("]"), K("<"), K(">"), K("ENTER", "Enter  [ Start ]", ACT, true) },
-                new[] { K(":"), K(";"), K("\""), K("'"), K(","), K("."), K("/"), K("?"), K("="), K("+"), K("-") },
-                new[] { K("€"), K("£"), K("¥"), K("©"), K("®"), K("°"), K("±"), K("×"), K("÷"), K("¿"), K("¡") },
-                new[] { K("ABC", "Letras", ACT, true), K("SPACE", "Espaço  [ Y ]", SPC, true), K("CANCEL", "Fechar  [ B ]", ACT, true) }
-
-            };
+            BuildKeyLayouts(); // Refaz os Layouts com as variáveis novas
+            if (_grid != null) RebuildUI(); // Redesenha a tela
         }
 
         // ─────────────────────────────────────────────────────────────────────────
-        //  HOLD-TO-REPEAT
+        //  LAYOUT COM VARIÁVEIS DE TRADUÇÃO I18N
         // ─────────────────────────────────────────────────────────────────────────
+        private void BuildKeyLayouts()
+        {
+            const double U1 = 65;
+            const double U2 = 138;
+            const double U7 = 503;
+
+            VkbKey K(string val, string disp = null, double w = U1, bool act = false, string icon = null) =>
+                new VkbKey { Value = val, Display = disp ?? val, Width = w, IsAction = act, ControllerIcon = icon };
+
+            _alphaKeys = new[]
+            {
+                new[] { K("1"), K("2"), K("3"), K("4"), K("5"), K("6"), K("7"), K("8"), K("9"), K("0"), K("-"), K("BKSP", StrBackspace, U2, true, "X") },
+                new[] { K("Q"), K("W"), K("E"), K("R"), K("T"), K("Y"), K("U"), K("I"), K("O"), K("P"), K("@"), K("ENTER", StrEnter, U2, true, "START") },
+                new[] { K("A"), K("S"), K("D"), K("F"), K("G"), K("H"), K("J"), K("K"), K("L"), K("Ç"), K("~"), K("CANCEL", StrClose, U2, true, "B") },
+                new[] { K("SHIFT", StrShift, U2, true, "L3"), K("Z"), K("X"), K("C"), K("V"), K("B"), K("N"), K("M"), K(","), K("."), K("?"), K("/") },
+                new[] { K("SYM", StrSym, U2, true, "LT"), K("CURSOR_LEFT", "←", U1, true, "LB"), K("SPACE", StrSpace, U7, true, "Y"), K("CURSOR_RIGHT", "→", U1, true, "RB"), K(".com", ".com", U2, true) }
+            };
+
+            _specialKeys = new[]
+            {
+                new[] { K("!"), K("@"), K("#"), K("$"), K("%"), K("^"), K("&"), K("*"), K("("), K(")"), K("_"), K("BKSP", StrBackspace, U2, true, "X") },
+                new[] { K("+"), K("-"), K("×"), K("÷"), K("="), K("±"), K("{"), K("}"), K("["), K("]"), K("\\"), K("ENTER", StrEnter, U2, true, "START") },
+                new[] { K(":"), K(";"), K("\""), K("'"), K("€"), K("£"), K("¥"), K("©"), K("®"), K("°"), K("|"), K("CANCEL", StrClose, U2, true, "B") },
+                new[] { K("SHIFT", StrShift, U2, true, "L3"), K("<"), K(">"), K("¿"), K("¡"), K("~"), K("´"), K("`"), K(","), K("."), K("?"), K("/") },
+                new[] { K("ABC", StrAbc, U2, true, "LT"), K("CURSOR_LEFT", "←", U1, true, "LB"), K("SPACE", StrSpace, U7, true, "Y"), K("CURSOR_RIGHT", "→", U1, true, "RB"), K(".com", ".com", U2, true) }
+            };
+        }
+
+        private UIElement CreateControllerIcon(string iconType)
+        {
+            if (string.IsNullOrEmpty(iconType)) return null;
+
+            var container = new Border { Margin = new Thickness(0, 4, 6, 0), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top };
+            var text = new TextBlock { Foreground = Brushes.White, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+
+            if (iconType == "X" || iconType == "Y" || iconType == "B" || iconType == "L3")
+            {
+                container.Width = 18; container.Height = 18;
+                container.CornerRadius = new CornerRadius(9);
+                text.FontSize = 10;
+                text.Text = iconType;
+
+                if (iconType == "X") container.Background = new SolidColorBrush(Color.FromRgb(45, 156, 219));
+                if (iconType == "Y") container.Background = new SolidColorBrush(Color.FromRgb(242, 201, 76));
+                if (iconType == "B") container.Background = new SolidColorBrush(Color.FromRgb(235, 87, 87));
+                if (iconType == "L3") { container.Background = new SolidColorBrush(Color.FromRgb(80, 80, 80)); text.Text = "L"; text.FontSize = 9; }
+
+                container.Child = text;
+            }
+            else if (iconType == "START")
+            {
+                var stack = new StackPanel { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 2, 0, 0) };
+                for (int i = 0; i < 3; i++) stack.Children.Add(new Border { Width = 12, Height = 2, Background = Brushes.White, Margin = new Thickness(0, 0, 0, 2), CornerRadius = new CornerRadius(1) });
+                container.Child = stack;
+            }
+            else
+            {
+                container.Background = new SolidColorBrush(Color.FromRgb(80, 80, 80));
+                container.CornerRadius = new CornerRadius(4);
+                container.Padding = new Thickness(4, 1, 4, 1);
+                text.FontSize = 9;
+                text.Text = iconType;
+                container.Child = text;
+            }
+
+            return container;
+        }
+
         private void WireHoldTimer()
         {
-            _holdTimer.Tick += (_, __) =>
-            {
-                if (!_initialFired)
-                {
-                    // Troca para o intervalo rápido após o delay inicial
-                    _initialFired = true;
-                    _holdTimer.Interval = TimeSpan.FromMilliseconds(HOLD_REPEAT_MS);
-                }
+            _holdTimer.Tick += (_, __) => {
+                if (!_initialFired) { _initialFired = true; _holdTimer.Interval = TimeSpan.FromMilliseconds(HOLD_REPEAT_MS); }
                 _pendingRepeat?.Invoke();
             };
         }
 
-        /// <summary>
-        /// Chame quando o botão for PRESSIONADO.
-        /// Dispara a ação imediatamente e inicia o repeat automático.
-        /// </summary>
         public void BeginHold(VkbHoldAction action)
         {
-            StopHold();                         // garante que não haja timer duplo
+            StopHold();
             Action act = BuildAction(action);
-
-            // Inicia a configuração do timer PRIMEIRO
             _pendingRepeat = act;
             _initialFired = false;
             _holdTimer.Interval = TimeSpan.FromMilliseconds(HOLD_INITIAL_MS);
             _holdTimer.Start();
-
-            // DEPOIS dispara a ação. Se a ação for "Fechar", ela matará o timer recém-criado.
             act?.Invoke();
         }
 
-        /// <summary>Chame quando o botão for SOLTO.</summary>
-        public void EndHold(VkbHoldAction action)
-        {
-            // Só para se for a mesma ação que está rodando
-            StopHold();
-        }
-
-        /// <summary>Para qualquer repeat em andamento (útil em limpezas gerais).</summary>
-        public void StopHold()
-        {
-            _holdTimer.Stop();
-            _pendingRepeat = null;
-        }
+        public void EndHold(VkbHoldAction action) => StopHold();
+        public void StopHold() { _holdTimer.Stop(); _pendingRepeat = null; }
 
         private Action BuildAction(VkbHoldAction action)
         {
@@ -293,71 +266,77 @@ namespace Doorpi
                 case VkbHoldAction.Press: return PressCurrentKey;
                 case VkbHoldAction.CursorLeft: return () => OnKeyPressed?.Invoke("CURSOR_LEFT");
                 case VkbHoldAction.CursorRight: return () => OnKeyPressed?.Invoke("CURSOR_RIGHT");
+                case VkbHoldAction.ToggleLayer: return ToggleAlphaSpecialLayer;
                 default: return null;
             }
         }
 
-        // ─────────────────────────────────────────────────────────────────────────
-        //  BLOQUEIO DO BOTÃO B  ← NOVO
-        //
-        //  Como o WS_EX_NOACTIVATE mantém o foco no WebView2/browser, o botão B
-        //  do controle pode acionar "voltar página" antes de fechar o teclado.
-        //
-        //  PADRÃO DE USO NO HOST:
-        //
-        //      // No loop de polling do controle:
-        //      if (ButtonBPressed())
-        //      {
-        //          if (!_vkb.ConsumeCancelPress())   // ← teclado estava aberto → apenas fecha
-        //              NavigateBack();               // ← só volta a página se teclado fechado
-        //      }
-        //
-        //  ConsumeCancelPress() retorna true e dispara OnCloseRequested quando o
-        //  teclado está visível, interceptando o B antes que chegue ao browser.
-        // ─────────────────────────────────────────────────────────────────────────
-
-        /// <summary>
-        /// Intercepta o botão B/Cancelar quando o teclado está aberto.
-        /// Retorna <c>true</c> se o evento foi consumido pelo teclado (não propague ao browser).
-        /// Retorna <c>false</c> se o teclado estava fechado (propague normalmente).
-        /// </summary>
         public bool ConsumeCancelPress()
         {
             if (!IsVisible) return false;
-
             OnCloseRequested?.Invoke();
             return true;
         }
 
-        // ─────────────────────────────────────────────────────────────────────────
-        //  NAVEGAÇÃO E TECLAS
-        // ─────────────────────────────────────────────────────────────────────────
+        private double GetKeyCenterX(int r, int c)
+        {
+            double x = 0;
+            for (int i = 0; i < c; i++) x += CurrentKeys[r][i].Width + 8;
+            x += (CurrentKeys[r][c].Width) / 2.0;
+            return x;
+        }
+
         public void MoveSelection(int dr, int dc)
         {
-            int newRow = (_row + dr + CurrentKeys.Length) % CurrentKeys.Length;
+            int newRow = _row;
+            int newCol = _col;
+
+            if (dr != 0)
+            {
+                double currentX = GetKeyCenterX(_row, _col);
+                newRow = (_row + dr + CurrentKeys.Length) % CurrentKeys.Length;
+
+                double minDistance = double.MaxValue;
+                int bestCol = 0;
+
+                for (int c = 0; c < CurrentKeys[newRow].Length; c++)
+                {
+                    double testX = GetKeyCenterX(newRow, c);
+                    double dist = Math.Abs(testX - currentX);
+                    if (dist < minDistance)
+                    {
+                        minDistance = dist;
+                        bestCol = c;
+                    }
+                }
+                newCol = bestCol;
+            }
+
+            if (dc != 0)
+            {
+                newCol += dc;
+                int rowLen = CurrentKeys[newRow].Length;
+                if (newCol < 0) newCol = rowLen - 1;
+                if (newCol >= rowLen) newCol = 0;
+            }
+
             _row = newRow;
-
-            int newCol = _col + dc;
-            int rowLen = CurrentKeys[_row].Length;
-            if (newCol < 0) newCol = rowLen - 1;
-            if (newCol >= rowLen) newCol = rowLen - 1;
             _col = newCol;
-
             RefreshVisuals();
         }
 
-        public void ToggleShift()
+        public void ToggleShift() { _shifted = !_shifted; RefreshVisuals(); }
+
+        public void ToggleAlphaSpecialLayer()
         {
-            _shifted = !_shifted;
-            RefreshVisuals();
+            StopHold();
+            SwitchLayer(_layer == VkbLayer.Alpha ? VkbLayer.Special : VkbLayer.Alpha);
         }
 
         private void SwitchLayer(VkbLayer layer)
         {
             _layer = layer;
             _shifted = false;
-            _row = 1;
-            _col = 0;
             RebuildUI();
         }
 
@@ -367,80 +346,44 @@ namespace Doorpi
 
             switch (key)
             {
-                case "SHIFT":
-                    StopHold();
-                    ToggleShift();
-                    break;
+                case "SHIFT": StopHold(); ToggleShift(); break;
                 case "SYM":
-                    StopHold();
-                    SwitchLayer(VkbLayer.Special);
-                    break;
-                case "ABC":
-                    StopHold();
-                    SwitchLayer(VkbLayer.Alpha);
-                    break;
-                case "CANCEL":
-                    StopHold(); // Mata o timer imediatamente antes de pedir para fechar
-                    OnCloseRequested?.Invoke();
-                    break;
-                case "BKSP":
-                    OnKeyPressed?.Invoke("BKSP");
-                    break;
-                case "ENTER":
-                    OnKeyPressed?.Invoke("ENTER");
-                    break;
-                case "SPACE":
-                    OnKeyPressed?.Invoke(" ");
-                    break;
+                case "ABC": ToggleAlphaSpecialLayer(); break;
+                case "CANCEL": StopHold(); OnCloseRequested?.Invoke(); break;
+                case "BKSP": OnKeyPressed?.Invoke("BKSP"); break;
+                case "ENTER": OnKeyPressed?.Invoke("ENTER"); break;
+                case "SPACE": OnKeyPressed?.Invoke(" "); break;
+                case "CURSOR_LEFT": OnKeyPressed?.Invoke("CURSOR_LEFT"); break;
+                case "CURSOR_RIGHT": OnKeyPressed?.Invoke("CURSOR_RIGHT"); break;
                 default:
                     string toSend = key;
                     if (_layer == VkbLayer.Alpha && key.Length == 1 && char.IsLetter(key[0]))
-                    {
                         toSend = _shifted ? key.ToUpper() : key.ToLower();
-                    }
-
                     OnKeyPressed?.Invoke(toSend);
                     break;
             }
         }
 
-        // ─────────────────────────────────────────────────────────────────────────
-        //  CONSTRUÇÃO E ATUALIZAÇÃO DA UI
-        // ─────────────────────────────────────────────────────────────────────────
-        private void BuildUI()
-        {
-            _grid = new Grid { Margin = new Thickness(15, 25, 15, 25) };
-            Content = _grid;
-            PopulateGrid();
-        }
-
-        private void RebuildUI()
-        {
-            _grid.Children.Clear();
-            _grid.RowDefinitions.Clear();
-            PopulateGrid();
-        }
+        private void BuildUI() { _grid = new Grid { Margin = new Thickness(15, 25, 15, 25) }; Content = _grid; PopulateGrid(); }
+        private void RebuildUI() { _grid.Children.Clear(); _grid.RowDefinitions.Clear(); PopulateGrid(); }
 
         private void PopulateGrid()
         {
             var keys = CurrentKeys;
-            for (int i = 0; i < keys.Length; i++)
-                _grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            for (int i = 0; i < keys.Length; i++) _grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
             _uiKeys = new Border[keys.Length][];
 
             for (int r = 0; r < keys.Length; r++)
             {
-                var row = new StackPanel
-                {
-                    Orientation = Orientation.Horizontal,
-                    HorizontalAlignment = HorizontalAlignment.Center
-                };
+                var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
                 _uiKeys[r] = new Border[keys[r].Length];
 
                 for (int c = 0; c < keys[r].Length; c++)
                 {
                     var def = keys[r][c];
+                    var innerGrid = new Grid();
+
                     var tb = new TextBlock
                     {
                         Text = def.Display,
@@ -451,27 +394,32 @@ namespace Doorpi
                         FontFamily = new FontFamily("Segoe UI"),
                         FontWeight = def.IsAction ? FontWeights.SemiBold : FontWeights.Normal
                     };
+                    innerGrid.Children.Add(tb);
+
+                    var icon = CreateControllerIcon(def.ControllerIcon);
+                    if (icon != null) innerGrid.Children.Add(icon);
+
                     var border = new Border
                     {
                         Width = def.Width,
                         Margin = new Thickness(4),
                         CornerRadius = new CornerRadius(6),
                         Background = new SolidColorBrush(Color.FromRgb(30, 33, 43)),
-                        Child = tb
+                        Child = innerGrid
                     };
+
                     _uiKeys[r][c] = border;
                     row.Children.Add(border);
                 }
                 Grid.SetRow(row, r);
                 _grid.Children.Add(row);
             }
-
             RefreshVisuals();
         }
 
         private static readonly SolidColorBrush BrushKeyNormal = new SolidColorBrush(Color.FromRgb(25, 28, 38));
         private static readonly SolidColorBrush BrushKeyAction = new SolidColorBrush(Color.FromRgb(40, 44, 55));
-        private static readonly SolidColorBrush BrushKeySpecial = new SolidColorBrush(Color.FromRgb(28, 38, 55)); // azul leve para camada especial
+        private static readonly SolidColorBrush BrushKeySpecial = new SolidColorBrush(Color.FromRgb(28, 38, 55));
 
         private void RefreshVisuals()
         {
@@ -482,28 +430,25 @@ namespace Doorpi
                 {
                     var def = keys[r][c];
                     var border = _uiKeys[r][c];
-                    var tb = (TextBlock)border.Child;
+
+                    var innerGrid = (Grid)border.Child;
+                    var tb = (TextBlock)innerGrid.Children[0];
                     bool focus = (r == _row && c == _col);
 
                     if (focus)
                     {
+                        // Tecla Focada: Fundo branco, letra preta (Sem inchar)
                         border.Background = Brushes.White;
                         tb.Foreground = Brushes.Black;
-                        border.RenderTransform = new ScaleTransform(1.06, 1.06);
-                        border.RenderTransformOrigin = new Point(0.5, 0.5);
                     }
                     else
                     {
-                        border.Background = def.IsAction
-                            ? BrushKeyAction
-                            : (_layer == VkbLayer.Special ? BrushKeySpecial : BrushKeyNormal);
+                        // Tecla sem Foco
+                        border.Background = def.IsAction ? BrushKeyAction : (_layer == VkbLayer.Special ? BrushKeySpecial : BrushKeyNormal);
                         tb.Foreground = Brushes.White;
-                        border.RenderTransform = null;
                     }
 
-                    // Atualiza label de letras conforme Shift na camada Alpha
-                    if (_layer == VkbLayer.Alpha && !def.IsAction
-                        && def.Value.Length == 1 && char.IsLetter(def.Value[0]))
+                    if (_layer == VkbLayer.Alpha && !def.IsAction && def.Value.Length == 1 && char.IsLetter(def.Value[0]))
                     {
                         tb.Text = _shifted ? def.Value.ToUpper() : def.Value.ToLower();
                     }

@@ -144,10 +144,17 @@ const STRINGS = {
         editModalCancel: 'Cancelar',
         editModalSave: 'Salvar',
 
+        // ---- Teclado Virtual ----
         vkbPreviewLabel: 'Editando',
-        vkbSpace: 'ESPAÇO',
-        vkbCancel: 'CANCELAR',
+        vkbSpace: 'Espaço',
+        vkbCancel: 'Cancelar',
         vkbOk: 'OK',
+        vkbBackspace: 'Apagar',
+        vkbEnter: 'Enter',
+        vkbClose: 'Fechar',
+        vkbShift: 'Maiúsc',
+        vkbSym: '&123',
+        vkbAbc: 'ABC',
 
         filterLabels: { all: 'Todos', Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Riot: 'Riot Games', Windows: 'Windows & Pastas' },
         platformLabels: { Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Riot: 'Riot Games', Folder: 'Pasta', Windows: 'Windows' },
@@ -474,10 +481,17 @@ const STRINGS = {
         editModalCancel: 'Cancel',
         editModalSave: 'Save',
 
+        // ---- Teclado Virtual ----
         vkbPreviewLabel: 'Editing',
-        vkbSpace: 'SPACE',
-        vkbCancel: 'CANCEL',
+        vkbSpace: 'Space',
+        vkbCancel: 'Cancel',
         vkbOk: 'OK',
+        vkbBackspace: 'Backspace',
+        vkbEnter: 'Enter',
+        vkbClose: 'Close',
+        vkbShift: 'Shift',
+        vkbSym: '&123',
+        vkbAbc: 'ABC',
 
         filterLabels: { all: 'All', Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Riot: 'Riot Games', Windows: 'Windows & Folders' },
         platformLabels: { Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Riot: 'Riot Games', Folder: 'Folder', Windows: 'Windows' },
