@@ -887,26 +887,36 @@ namespace Doorpi
 
                         if (mlx != 0 || mly != 0)
                         {
-                            speedMult = Math.Min(speedMult + (1.5 * dt), 3.5);
-                            const double BASE_SENSITIVITY = 1200.0;
-                            double curveX = Math.Sign(mlx) * Math.Pow(Math.Abs(mlx), 1.5);
-                            double curveY = Math.Sign(mly) * Math.Pow(Math.Abs(mly), 1.5);
-                            double moveX = curveX * BASE_SENSITIVITY * speedMult * dt + remainderX;
-                            double moveY = -curveY * BASE_SENSITIVITY * speedMult * dt + remainderY;
+                            // Sensibilidade máxima bruta. Como tiramos a aceleração, 
+                            // isso define a velocidade quando o analógico está 100% inclinado.
+                            // 1800 atravessa uma tela 1080p rápido e de forma constante.
+                            const double BASE_SENSITIVITY = 1800.0;
+
+                            // A curva de resposta (2.2).
+                            // O que isso faz?
+                            // - Inclinar 20%: Velocidade super lenta (~50 pixels/s) para precisão fina.
+                            // - Inclinar 100%: Velocidade total (1800 pixels/s) constante, sempre igual.
+                            double curveX = Math.Sign(mlx) * Math.Pow(Math.Abs(mlx), 2.2);
+                            double curveY = Math.Sign(mly) * Math.Pow(Math.Abs(mly), 2.2);
+
+                            // Calculamos o movimento sem variável de tempo acumulado (speedMult)
+                            double moveX = curveX * BASE_SENSITIVITY * dt + remainderX;
+                            double moveY = -curveY * BASE_SENSITIVITY * dt + remainderY;
+
                             deltaX = (int)moveX;
                             deltaY = (int)moveY;
+
                             remainderX = moveX - deltaX;
                             remainderY = moveY - deltaY;
 
                             if (deltaX != 0 || deltaY != 0)
                             {
-                                // LÓGICA ANTI-JITTER (Se mover o analógico < 5 pixels enquanto aperta o botão, o mouse ignora)
+                                // LÓGICA ANTI-JITTER (Mantida, pois é ótima para cliques firmes)
                                 if (isClicking && !dragBrokeThreshold)
                                 {
                                     clickAccumX += deltaX;
                                     clickAccumY += deltaY;
 
-                                    // Se ultrapassar 5 pixels, é um arraste intencional, libera o mouse
                                     if (Math.Abs(clickAccumX) > 5 || Math.Abs(clickAccumY) > 5)
                                     {
                                         dragBrokeThreshold = true;
@@ -923,7 +933,8 @@ namespace Doorpi
                         }
                         else
                         {
-                            speedMult = 1.0; remainderX = 0; remainderY = 0;
+                            remainderX = 0; remainderY = 0;
+                            // Removido o speedMult = 1.0 daqui também.
                         }
 
                         double ry = gp.sThumbRY / 32767.0;
