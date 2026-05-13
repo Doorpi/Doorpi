@@ -162,7 +162,11 @@ namespace Doorpi
         private System.Threading.Timer? _mousePollTimer;
         private const int MOUSE_IDLE_MS = 3000;
 
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
 
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
         // ========================= DETECÇÃO DO CURSOR (I-BEAM) =========================
         [StructLayout(LayoutKind.Sequential)]
@@ -184,15 +188,7 @@ namespace Doorpi
         private const int CURSOR_SHOWING = 0x00000001;
 
         // ========================= TECLADO TOUCH (COM INTEROP) =========================
-        [ComImport, Guid("4ce576fa-83dc-4F88-951c-9d0782b4e376")]
-        private class UIHostNoLaunch { }
 
-        [ComImport, Guid("37c994e7-432b-4834-a2f7-dce1f13b834b")]
-        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-        private interface ITipInvocationAware
-        {
-            void Toggle(bool bEnable);
-        }
         [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
         private static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
         [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT lpPoint);
@@ -298,6 +294,63 @@ namespace Doorpi
                 }
             };
 
+        }
+        private bool IsForegroundWindowNativeWindows()
+        {
+            try
+            {
+                IntPtr hwnd = GetForegroundWindow();
+                if (hwnd == IntPtr.Zero) return false;
+
+                GetWindowThreadProcessId(hwnd, out uint pid);
+                var proc = Process.GetProcessById((int)pid);
+                string name = proc.ProcessName.ToLowerInvariant();
+
+                var nativeProcesses = new HashSet<string>
+        {
+            "explorer",                   // File Explorer, Desktop, Barra de Tarefas
+            "shellexperiencehost",         // Menu Iniciar, Central de Ação
+            "startmenuexperiencehost",     // Menu Iniciar (Win11)
+            "searchhost",                 // Pesquisa do Windows (Win11)
+            "searchapp",                  // Pesquisa do Windows (Win10)
+            "systemsettings",             // Configurações
+            "textinputhost",              // Hospedeiro de entrada de texto nativo
+            "applicationframehost",       // Wrapper de apps UWP
+            "lockapp",                    // Tela de bloqueio
+            "cortana",
+        };
+
+                return nativeProcesses.Contains(name);
+            }
+            catch { return false; }
+        }
+        private void OpenNativeTouchKeyboard()
+        {
+            try
+            {
+                string textInputHost = Path.Combine(Environment.SystemDirectory, "TextInputHost.exe");
+                string tabTip = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFiles),
+                    "microsoft shared", "ink", "TabTip.exe");
+
+                string? toLaunch = File.Exists(textInputHost) ? textInputHost
+                                 : File.Exists(tabTip) ? tabTip
+                                 : null;
+
+                if (toLaunch != null)
+                {
+                    Process.Start(new ProcessStartInfo(toLaunch) { UseShellExecute = true });
+                    Debug.WriteLine($"[TipTab] Teclado nativo aberto: {Path.GetFileName(toLaunch)}");
+                }
+                else
+                {
+                    Debug.WriteLine("[TipTab] Nenhum executável de teclado nativo encontrado.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[TipTab] Falha: {ex.Message}");
+            }
         }
         private bool IsCursorOnTextField()
         {
@@ -863,8 +916,9 @@ namespace Doorpi
                         // =========================================================
                         // MODO MOUSE (FORA DO TECLADO)
                         // =========================================================
-                        double mlx = gp.sThumbLX / 32767.0;
-                        double mly = gp.sThumbLY / 32767.0;
+
+                        double mlx = gp.sThumbRX / 32767.0;
+                        double mly = gp.sThumbRY / 32767.0;
                         const double MDEAD = 0.15;
                         if (Math.Abs(mlx) < MDEAD) mlx = 0;
                         if (Math.Abs(mly) < MDEAD) mly = 0;
@@ -885,102 +939,114 @@ namespace Doorpi
                             SendMouse(0, 0, MOUSEEVENTF_LEFTDOWN);
                         }
 
-                        if (mlx != 0 || mly != 0)
+                        bool rtHeld = gp.bRightTrigger > 128;
+
+                        if (rtHeld)
                         {
-                            // Sensibilidade máxima bruta. Como tiramos a aceleração, 
-                            // isso define a velocidade quando o analógico está 100% inclinado.
-                            // 1800 atravessa uma tela 1080p rápido e de forma constante.
-                            const double BASE_SENSITIVITY = 1800.0;
-
-                            // A curva de resposta (2.2).
-                            // O que isso faz?
-                            // - Inclinar 20%: Velocidade super lenta (~50 pixels/s) para precisão fina.
-                            // - Inclinar 100%: Velocidade total (1800 pixels/s) constante, sempre igual.
-                            double curveX = Math.Sign(mlx) * Math.Pow(Math.Abs(mlx), 2.2);
-                            double curveY = Math.Sign(mly) * Math.Pow(Math.Abs(mly), 2.2);
-
-                            // Calculamos o movimento sem variável de tempo acumulado (speedMult)
-                            double moveX = curveX * BASE_SENSITIVITY * dt + remainderX;
-                            double moveY = -curveY * BASE_SENSITIVITY * dt + remainderY;
-
-                            deltaX = (int)moveX;
-                            deltaY = (int)moveY;
-
-                            remainderX = moveX - deltaX;
-                            remainderY = moveY - deltaY;
-
-                            if (deltaX != 0 || deltaY != 0)
+                            // MODO SCROLL — cursor congelado, direito rola a tela infinitamente
+                            double scrollY = gp.sThumbRY / 32767.0;
+                            if (Math.Abs(scrollY) > MDEAD)
                             {
-                                // LÓGICA ANTI-JITTER (Mantida, pois é ótima para cliques firmes)
-                                if (isClicking && !dragBrokeThreshold)
-                                {
-                                    clickAccumX += deltaX;
-                                    clickAccumY += deltaY;
-
-                                    if (Math.Abs(clickAccumX) > 5 || Math.Abs(clickAccumY) > 5)
-                                    {
-                                        dragBrokeThreshold = true;
-                                        aDragOccurred = true;
-                                        SendMouse((int)clickAccumX, (int)clickAccumY, MOUSEEVENTF_MOVE);
-                                    }
-                                }
-                                else
-                                {
-                                    if (isClicking) aDragOccurred = true;
-                                    SendMouse(deltaX, deltaY, MOUSEEVENTF_MOVE);
-                                }
+                                int scroll = (int)(scrollY * 3000 * dt);
+                                if (scroll != 0) SendMouse(0, 0, MOUSEEVENTF_WHEEL, (uint)scroll);
                             }
+                            remainderX = 0;
+                            remainderY = 0;
+                            mlx = 0;
+                            mly = 0;
                         }
                         else
                         {
-                            remainderX = 0; remainderY = 0;
-                            // Removido o speedMult = 1.0 daqui também.
+                            // MODO MOUSE — direito move o cursor
+                            mlx = gp.sThumbRX / 32767.0;
+                            mly = gp.sThumbRY / 32767.0;
+                            if (Math.Abs(mlx) < MDEAD) mlx = 0;
+                            if (Math.Abs(mly) < MDEAD) mly = 0;
+
+                            if (mlx != 0 || mly != 0)
+                            {
+                                const double BASE_SENSITIVITY = 1800.0;
+                                double curveX = Math.Sign(mlx) * Math.Pow(Math.Abs(mlx), 2.2);
+                                double curveY = Math.Sign(mly) * Math.Pow(Math.Abs(mly), 2.2);
+                                double moveX = curveX * BASE_SENSITIVITY * dt + remainderX;
+                                double moveY = -curveY * BASE_SENSITIVITY * dt + remainderY;
+                                deltaX = (int)moveX;
+                                deltaY = (int)moveY;
+                                remainderX = moveX - deltaX;
+                                remainderY = moveY - deltaY;
+
+                                if (deltaX != 0 || deltaY != 0)
+                                {
+                                    if (isClicking && !dragBrokeThreshold)
+                                    {
+                                        clickAccumX += deltaX;
+                                        clickAccumY += deltaY;
+                                        if (Math.Abs(clickAccumX) > 5 || Math.Abs(clickAccumY) > 5)
+                                        {
+                                            dragBrokeThreshold = true;
+                                            aDragOccurred = true;
+                                            SendMouse((int)clickAccumX, (int)clickAccumY, MOUSEEVENTF_MOVE);
+                                        }
+                                    }
+                                    else
+                                    {
+                                        if (isClicking) aDragOccurred = true;
+                                        SendMouse(deltaX, deltaY, MOUSEEVENTF_MOVE);
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                remainderX = 0;
+                                remainderY = 0;
+                            }
                         }
 
-                        double ry = gp.sThumbRY / 32767.0;
-                        if (Math.Abs(ry) > MDEAD)
-                        {
-                            int scroll = (int)(ry * 3000 * dt);
-                            if (scroll != 0) SendMouse(0, 0, MOUSEEVENTF_WHEEL, (uint)scroll);
-                        }
 
                         // GATILHO (A) - SOLTOU
-              
+
                         if (Released(0x1000))
                         {
                             isClicking = false;
                             SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
 
-                            if (aWasOnTextField && !aDragOccurred)
+                            if (aWasOnTextField && !aDragOccurred && IsCursorOnTextField())
                             {
-                                Dispatcher.Invoke(() =>
+                                if (IsForegroundWindowNativeWindows())
                                 {
-                                    if (_desktopVkb == null)
+                                    // Janela nativa do Windows: usa o TipTab do sistema
+                                    OpenNativeTouchKeyboard();
+                                }
+                                else
+                                {
+                                    // Qualquer outro programa: abre o teclado do Doorpi normalmente
+                                    Dispatcher.Invoke(() =>
                                     {
-                                        _desktopVkb = new DesktopVkbWindow();
-                                        _desktopVkb.SetLocalization(_vkbStrBackspace, _vkbStrEnter, _vkbStrClose, _vkbStrShift, _vkbStrSpace, _vkbStrSym, _vkbStrAbc);
-
-                                        _desktopVkb.OnKeyPressed += (txt) =>
+                                        if (_desktopVkb == null)
                                         {
-                                            if (txt == "BKSP") SendVirtualKey(0x08);
-                                            else if (txt == "ENTER") SendVirtualKey(0x0D);
-                                            else if (txt == "CURSOR_LEFT") SendVirtualKey(0x25);
-                                            else if (txt == "CURSOR_RIGHT") SendVirtualKey(0x27);
-                                            else SendUnicodeString(txt);
-                                        };
-                                        _desktopVkb.OnCloseRequested += () =>
-                                        {
-                                            _desktopVkb?.Close();
-                                            _desktopVkb = null;
-                                        };
+                                            _desktopVkb = new DesktopVkbWindow();
+                                            _desktopVkb.SetLocalization(_vkbStrBackspace, _vkbStrEnter, _vkbStrClose, _vkbStrShift, _vkbStrSpace, _vkbStrSym, _vkbStrAbc);
 
+                                            _desktopVkb.OnKeyPressed += (txt) =>
+                                            {
+                                                if (txt == "BKSP") SendVirtualKey(0x08);
+                                                else if (txt == "ENTER") SendVirtualKey(0x0D);
+                                                else if (txt == "CURSOR_LEFT") SendVirtualKey(0x25);
+                                                else if (txt == "CURSOR_RIGHT") SendVirtualKey(0x27);
+                                                else SendUnicodeString(txt);
+                                            };
+                                            _desktopVkb.OnCloseRequested += () =>
+                                            {
+                                                _desktopVkb?.Close();
+                                                _desktopVkb = null;
+                                            };
 
-                                        GetCursorPos(out var pt);
-                                        _desktopVkb.AutoPosition(pt.Y);
-
-                                        _desktopVkb.Show();
-                                    }
-                                });
+                                            GetCursorPos(out var pt);
+                                            _desktopVkb.AutoPosition(pt.Y);
+                                            _desktopVkb.Show();
+                                        }
+                                    });
+                                }
                             }
                             aWasOnTextField = false;
                             aDragOccurred = false;
