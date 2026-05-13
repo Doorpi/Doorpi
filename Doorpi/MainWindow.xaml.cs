@@ -637,20 +637,6 @@ namespace Doorpi
 
         private Thread? _systemControllerThread;
         private volatile bool _systemControllerActive = false;
-        private void CloseTouchKeyboard()
-        {
-            // Em vez de matar o processo (o que corrompe o Windows 11), 
-            // pedimos educadamente via COM para ele se esconder.
-            Task.Run(() =>
-            {
-                try
-                {
-                    var tip = (ITipInvocationAware)new UIHostNoLaunch();
-                    tip.Toggle(false);
-                }
-                catch { }
-            });
-        }
         private const uint KEYEVENTF_UNICODE = 0x0004;
         private DesktopVkbWindow _desktopVkb;
         private void SendUnicodeString(string text)
@@ -672,31 +658,11 @@ namespace Doorpi
         }
         private void EnterDesktopMode()
         {
+            // Apenas minimizamos. Deixamos o Windows decidir o foco naturalmente para não bugar o Menu Iniciar
             WindowState = WindowState.Minimized;
-            IntPtr trayHwnd = FindWindow("Shell_TrayWnd", null);
-            if (trayHwnd != IntPtr.Zero) SetForegroundWindow(trayHwnd);
-   
-
-            // Pré-aquece o TabTip em background para o primeiro Toggle não falhar
-            _ = Task.Run(() => {
-                try
-                {
-                    string tabTip = Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFiles),
-                        "microsoft shared", "ink", "TabTip.exe");
-                    if (File.Exists(tabTip) && Process.GetProcessesByName("TabTip").Length == 0)
-                    {
-                        Process.Start(new ProcessStartInfo(tabTip) { UseShellExecute = true });
-                        Thread.Sleep(600);
-                        try { ((ITipInvocationAware)new UIHostNoLaunch()).Toggle(false); } catch { }
-                    }
-                }
-                catch { }
-            });
-
             StartSystemControllerMode();
         }
-      
+
 
         private void StartSystemControllerMode()
         {
@@ -710,6 +676,7 @@ namespace Doorpi
         {
             _systemControllerActive = false;
         }
+
         private void SystemControllerLoop()
         {
             var sw = Stopwatch.StartNew();
@@ -720,222 +687,286 @@ namespace Doorpi
             bool aWasOnTextField = false;
             bool aDragOccurred = false;
 
-            // --- VARIÁVEIS NOVAS PARA O BOTÃO X (APAGAR) ---
             bool isHoldingX = false;
             DateTime xPressTime = DateTime.MinValue;
             DateTime lastBackspaceFired = DateTime.MinValue;
 
+            var prevAnalogActive = new Dictionary<VkbHoldAction, bool> {
+        { VkbHoldAction.MoveUp, false },
+        { VkbHoldAction.MoveDown, false },
+        { VkbHoldAction.MoveLeft, false },
+        { VkbHoldAction.MoveRight, false },
+        { VkbHoldAction.CursorLeft, false },
+        { VkbHoldAction.CursorRight, false }
+    };
+
+            bool ignoreNextBRelease = false;
+
+            // NOVO: Controle de estabilidade de clique (Anti-Jitter)
+            bool isClicking = false;
+            double clickAccumX = 0;
+            double clickAccumY = 0;
+            bool dragBrokeThreshold = false;
+
             while (_systemControllerActive)
             {
-                double dt = sw.Elapsed.TotalSeconds;
-                sw.Restart();
-                if (dt > 0.05) dt = 0.016;
-
-                if (XInputGetState(0, out var state) == 0)
+                try
                 {
-                    var gp = state.Gamepad;
-                    ushort btn = gp.wButtons;
+                    double dt = sw.Elapsed.TotalSeconds;
+                    sw.Restart();
+                    if (dt > 0.05) dt = 0.016;
 
-                    bool Pressed(ushort m) => (btn & m) != 0 && (prevButtons & m) == 0;
-                    bool Released(ushort m) => (btn & m) == 0 && (prevButtons & m) != 0;
-
-                    // =========================================================
-                    // LÓGICA DO SEU TECLADO VIRTUAL C#
-                    // =========================================================
-                    bool vkbIsOpen = false;
-                    Dispatcher.Invoke(() => vkbIsOpen = _desktopVkb != null && _desktopVkb.IsVisible);
-
-                    if (vkbIsOpen)
+                    if (XInputGetState(0, out var state) == 0)
                     {
-                        // Navegação (D-Pad)
-                        if (Pressed(0x0001)) Dispatcher.Invoke(() => _desktopVkb.MoveSelection(-1, 0)); // UP
-                        if (Pressed(0x0002)) Dispatcher.Invoke(() => _desktopVkb.MoveSelection(1, 0));  // DOWN
-                        if (Pressed(0x0004)) Dispatcher.Invoke(() => _desktopVkb.MoveSelection(0, -1)); // LEFT
-                        if (Pressed(0x0008)) Dispatcher.Invoke(() => _desktopVkb.MoveSelection(0, 1));  // RIGHT
+                        var gp = state.Gamepad;
+                        ushort btn = gp.wButtons;
 
-                        // Botão A = Digitar Letra / Selecionar
-                        if (Pressed(0x1000)) Dispatcher.Invoke(() => _desktopVkb.PressCurrentKey());
+                        bool Pressed(ushort m) => (btn & m) != 0 && (prevButtons & m) == 0;
+                        bool Released(ushort m) => (btn & m) == 0 && (prevButtons & m) != 0;
 
-                        // Botão B = Fechar Teclado
-                        if (Pressed(0x2000)) Dispatcher.Invoke(() => { _desktopVkb.Close(); _desktopVkb = null; });
+                        bool vkbIsOpen = false;
+                        Dispatcher.Invoke(() => vkbIsOpen = _desktopVkb != null && _desktopVkb.IsVisible);
 
-                        // Botão Y = Espaço Direto
-                        if (Pressed(0x8000)) SendUnicodeString(" ");
-
-                        // START = Enter
-                        if (Pressed(0x0010)) SendVirtualKey(0x0D);
-
-                        // L3 (Analogico Esquerdo Clique) = Caps Lock (Shift)
-                        if (Pressed(0x0040)) Dispatcher.Invoke(() => _desktopVkb.ToggleShift());
-
-                        // L1 = Mover cursor do texto para Esquerda
-                        if (Pressed(0x0100)) SendVirtualKey(0x25); // VK_LEFT
-
-                        // R1 = Mover cursor do texto para Direita
-                        if (Pressed(0x0200)) SendVirtualKey(0x27); // VK_RIGHT
-
-                        // --- LÓGICA DE TEMPO REAL DO BOTÃO X (Apagar Rapidamente) ---
-                        bool currentX = (btn & 0x4000) != 0;
-
-                        if (currentX && (prevButtons & 0x4000) == 0) // ACABOU DE APERTAR (Click rápido)
+                        if (vkbIsOpen)
                         {
-                            isHoldingX = true;
-                            xPressTime = DateTime.Now;
-                            SendVirtualKey(0x08); // Envia Backspace apenas 1 vez imediatamente
-                            lastBackspaceFired = DateTime.Now;
-                        }
-                        else if (currentX && isHoldingX) // ESTÁ SEGURANDO O BOTÃO
-                        {
-                            // Espera 450ms (Quase meio segundo) antes de começar a metralhar
-                            if ((DateTime.Now - xPressTime).TotalMilliseconds > 450)
+                            double lx = gp.sThumbLX / 32767.0;
+                            double ly = gp.sThumbLY / 32767.0;
+                            const double DEAD = 0.6;
+
+                            bool upAnalog = ly > DEAD;
+                            bool downAnalog = ly < -DEAD;
+                            bool leftAnalog = lx < -DEAD;
+                            bool rightAnalog = lx > DEAD;
+
+                            void HandleHold(ushort btnMask, bool isAnalogActive, VkbHoldAction action)
                             {
-                                // Fogo rápido: apaga a cada 40ms (Ajuste se achar muito rápido/devagar)
-                                if ((DateTime.Now - lastBackspaceFired).TotalMilliseconds > 40)
+                                bool isDown = (btn & btnMask) != 0 || isAnalogActive;
+                                bool wasDown = (prevButtons & btnMask) != 0 || prevAnalogActive[action];
+
+                                if (isDown && !wasDown) Dispatcher.Invoke(() => _desktopVkb.BeginHold(action));
+                                else if (!isDown && wasDown) Dispatcher.Invoke(() => _desktopVkb.EndHold(action));
+
+                                prevAnalogActive[action] = isDown;
+                            }
+
+                            HandleHold(0x0001, upAnalog, VkbHoldAction.MoveUp);
+                            HandleHold(0x0002, downAnalog, VkbHoldAction.MoveDown);
+                            HandleHold(0x0004, leftAnalog, VkbHoldAction.MoveLeft);
+                            HandleHold(0x0008, rightAnalog, VkbHoldAction.MoveRight);
+
+                            HandleHold(0x0100, false, VkbHoldAction.CursorLeft);  // LB
+                            HandleHold(0x0200, false, VkbHoldAction.CursorRight); // RB
+
+                            if (Pressed(0x1000)) Dispatcher.Invoke(() => _desktopVkb.BeginHold(VkbHoldAction.Press));
+                            if (Released(0x1000)) Dispatcher.Invoke(() => _desktopVkb.EndHold(VkbHoldAction.Press));
+
+                            if (Pressed(0x2000))
+                            {
+                                Dispatcher.Invoke(() => { _desktopVkb.Close(); _desktopVkb = null; });
+                                ignoreNextBRelease = true;
+                            }
+
+                            if (Pressed(0x8000)) SendUnicodeString(" ");
+                            if (Pressed(0x0010)) SendVirtualKey(0x0D);
+                            if (Pressed(0x0040)) Dispatcher.Invoke(() => _desktopVkb.ToggleShift());
+                            if (Pressed(0x0080)) Dispatcher.Invoke(() => _desktopVkb.TogglePosition());
+                            bool currentX = (btn & 0x4000) != 0;
+                            if (currentX && (prevButtons & 0x4000) == 0)
+                            {
+                                isHoldingX = true;
+                                xPressTime = DateTime.Now;
+                                SendVirtualKey(0x08);
+                                lastBackspaceFired = DateTime.Now;
+                            }
+                            else if (currentX && isHoldingX)
+                            {
+                                if ((DateTime.Now - xPressTime).TotalMilliseconds > 450)
                                 {
-                                    SendVirtualKey(0x08);
-                                    lastBackspaceFired = DateTime.Now;
+                                    if ((DateTime.Now - lastBackspaceFired).TotalMilliseconds > 40)
+                                    {
+                                        SendVirtualKey(0x08);
+                                        lastBackspaceFired = DateTime.Now;
+                                    }
+                                }
+                            }
+                            else if (!currentX) isHoldingX = false;
+
+                            prevButtons = btn;
+                            Thread.Sleep(10);
+                            continue;
+                        }
+
+                        // =========================================================
+                        // MODO MOUSE (FORA DO TECLADO)
+                        // =========================================================
+                        double mlx = gp.sThumbLX / 32767.0;
+                        double mly = gp.sThumbLY / 32767.0;
+                        const double MDEAD = 0.15;
+                        if (Math.Abs(mlx) < MDEAD) mlx = 0;
+                        if (Math.Abs(mly) < MDEAD) mly = 0;
+
+                        int deltaX = 0, deltaY = 0;
+
+                        // GATILHO (A) - PRESSIONOU
+                        if (Pressed(0x1000))
+                        {
+                            aWasOnTextField = IsCursorOnTextField();
+                            aDragOccurred = false;
+
+                            isClicking = true;
+                            clickAccumX = 0;
+                            clickAccumY = 0;
+                            dragBrokeThreshold = false;
+
+                            SendMouse(0, 0, MOUSEEVENTF_LEFTDOWN);
+                        }
+
+                        if (mlx != 0 || mly != 0)
+                        {
+                            speedMult = Math.Min(speedMult + (1.5 * dt), 3.5);
+                            const double BASE_SENSITIVITY = 1200.0;
+                            double curveX = Math.Sign(mlx) * Math.Pow(Math.Abs(mlx), 1.5);
+                            double curveY = Math.Sign(mly) * Math.Pow(Math.Abs(mly), 1.5);
+                            double moveX = curveX * BASE_SENSITIVITY * speedMult * dt + remainderX;
+                            double moveY = -curveY * BASE_SENSITIVITY * speedMult * dt + remainderY;
+                            deltaX = (int)moveX;
+                            deltaY = (int)moveY;
+                            remainderX = moveX - deltaX;
+                            remainderY = moveY - deltaY;
+
+                            if (deltaX != 0 || deltaY != 0)
+                            {
+                                // LÓGICA ANTI-JITTER (Se mover o analógico < 5 pixels enquanto aperta o botão, o mouse ignora)
+                                if (isClicking && !dragBrokeThreshold)
+                                {
+                                    clickAccumX += deltaX;
+                                    clickAccumY += deltaY;
+
+                                    // Se ultrapassar 5 pixels, é um arraste intencional, libera o mouse
+                                    if (Math.Abs(clickAccumX) > 5 || Math.Abs(clickAccumY) > 5)
+                                    {
+                                        dragBrokeThreshold = true;
+                                        aDragOccurred = true;
+                                        SendMouse((int)clickAccumX, (int)clickAccumY, MOUSEEVENTF_MOVE);
+                                    }
+                                }
+                                else
+                                {
+                                    if (isClicking) aDragOccurred = true;
+                                    SendMouse(deltaX, deltaY, MOUSEEVENTF_MOVE);
                                 }
                             }
                         }
-                        else if (!currentX) // SOLTOU O BOTÃO
+                        else
                         {
-                            isHoldingX = false;
+                            speedMult = 1.0; remainderX = 0; remainderY = 0;
                         }
 
-                        prevButtons = btn;
-                        Thread.Sleep(10);
-                        continue; // Pula o resto do while (não mexe o mouse)
-                    }
-                    // =========================================================
+                        double ry = gp.sThumbRY / 32767.0;
+                        if (Math.Abs(ry) > MDEAD)
+                        {
+                            int scroll = (int)(ry * 3000 * dt);
+                            if (scroll != 0) SendMouse(0, 0, MOUSEEVENTF_WHEEL, (uint)scroll);
+                        }
 
-                    // --- Lógica normal do Mouse ---
-                    double lx = gp.sThumbLX / 32767.0;
-                    double ly = gp.sThumbLY / 32767.0;
-                    const double DEAD = 0.15;
-                    if (Math.Abs(lx) < DEAD) lx = 0;
-                    if (Math.Abs(ly) < DEAD) ly = 0;
+                        // GATILHO (A) - SOLTOU
+                        // GATILHO (A) - SOLTOU
+                        if (Released(0x1000))
+                        {
+                            isClicking = false;
+                            SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
 
-                    int deltaX = 0, deltaY = 0;
+                            if (aWasOnTextField && !aDragOccurred)
+                            {
+                                Dispatcher.Invoke(() =>
+                                {
+                                    if (_desktopVkb == null)
+                                    {
+                                        _desktopVkb = new DesktopVkbWindow();
+                                        _desktopVkb.OnKeyPressed += (txt) =>
+                                        {
+                                            if (txt == "BKSP") SendVirtualKey(0x08);
+                                            else if (txt == "ENTER") SendVirtualKey(0x0D);
+                                            else if (txt == "CURSOR_LEFT") SendVirtualKey(0x25);
+                                            else if (txt == "CURSOR_RIGHT") SendVirtualKey(0x27);
+                                            else SendUnicodeString(txt);
+                                        };
+                                        _desktopVkb.OnCloseRequested += () => { _desktopVkb.Close(); _desktopVkb = null; };
 
-                    if (lx != 0 || ly != 0)
-                    {
-                        speedMult = Math.Min(speedMult + (1.5 * dt), 3.5);
-                        const double BASE_SENSITIVITY = 1200.0;
-                        double curveX = Math.Sign(lx) * Math.Pow(Math.Abs(lx), 1.5);
-                        double curveY = Math.Sign(ly) * Math.Pow(Math.Abs(ly), 1.5);
-                        double moveX = curveX * BASE_SENSITIVITY * speedMult * dt + remainderX;
-                        double moveY = -curveY * BASE_SENSITIVITY * speedMult * dt + remainderY;
-                        deltaX = (int)moveX;
-                        deltaY = (int)moveY;
-                        remainderX = moveX - deltaX;
-                        remainderY = moveY - deltaY;
-                        if (deltaX != 0 || deltaY != 0)
-                            SendMouse(deltaX, deltaY, MOUSEEVENTF_MOVE);
-                    }
-                    else
-                    {
-                        speedMult = 1.0; remainderX = 0; remainderY = 0;
-                    }
+                                        
+                                        GetCursorPos(out var pt);
+                                        _desktopVkb.AutoPosition(pt.Y);
 
-                    double ry = gp.sThumbRY / 32767.0;
-                    if (Math.Abs(ry) > DEAD)
-                    {
-                        int scroll = (int)(ry * 3000 * dt);
-                        if (scroll != 0) SendMouse(0, 0, MOUSEEVENTF_WHEEL, (uint)scroll);
-                    }
+                                        _desktopVkb.Show();
+                                    }
+                                });
+                            }
+                            aWasOnTextField = false;
+                            aDragOccurred = false;
+                        }
 
-                    if ((btn & 0x0010) != 0 && (btn & 0x0020) != 0)
-                    {
-                        _systemControllerActive = false;
-                        SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
-                        Dispatcher.Invoke(() => {
-                            if (_desktopVkb != null) { _desktopVkb.Close(); _desktopVkb = null; }
-                            WindowState = WindowState.Maximized;
-                            Activate();
-                            ForceFocus();
-                        });
-                        break;
-                    }
+                        // GATILHOS DE VOLTAR (B)
+                        if (ignoreNextBRelease)
+                        {
+                            if ((btn & 0x2000) == 0) ignoreNextBRelease = false;
+                        }
+                        else
+                        {
+                            if (Pressed(0x2000)) SendMouse(0, 0, MOUSEEVENTF_XDOWN, XBUTTON1);
+                            if (Released(0x2000)) SendMouse(0, 0, MOUSEEVENTF_XUP, XBUTTON1);
+                        }
 
-                    // GATILHO PARA ABRIR O SEU NOVO TECLADO VIRTUAL C#
-                    if (Pressed(0x1000))
-                    {
-                        aWasOnTextField = IsCursorOnTextField();
-                        aDragOccurred = false;
-                        SendMouse(0, 0, MOUSEEVENTF_LEFTDOWN);
-                    }
+                        // Fechar Modo Desktop
+                        if ((btn & 0x0010) != 0 && (btn & 0x0020) != 0)
+                        {
+                            _systemControllerActive = false;
+                            SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
+                            Dispatcher.Invoke(() => {
+                                if (_desktopVkb != null) { _desktopVkb.Close(); _desktopVkb = null; }
+                                WindowState = WindowState.Maximized;
+                                Activate(); ForceFocus();
+                            });
+                            break;
+                        }
 
-                    if ((btn & 0x1000) != 0 && (prevButtons & 0x1000) != 0)
-                    {
-                        if (deltaX != 0 || deltaY != 0) aDragOccurred = true;
-                    }
-
-                    if (Released(0x1000))
-                    {
-                        SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
-
-                        if (aWasOnTextField && !aDragOccurred)
+                        if (Pressed(0x4000)) SendMouse(0, 0, MOUSEEVENTF_RIGHTDOWN);
+                        if (Released(0x4000)) SendMouse(0, 0, MOUSEEVENTF_RIGHTUP);
+                        // Botão Y (Abre teclado avulso)
+                        if (Pressed(0x8000))
                         {
                             Dispatcher.Invoke(() =>
                             {
                                 if (_desktopVkb == null)
                                 {
                                     _desktopVkb = new DesktopVkbWindow();
-
-                                    // Quando uma tecla é apertada, envia para o Windows
-                                    _desktopVkb.OnKeyPressed += (txt) =>
-                                    {
+                                    _desktopVkb.OnKeyPressed += (txt) => {
                                         if (txt == "BKSP") SendVirtualKey(0x08);
                                         else if (txt == "ENTER") SendVirtualKey(0x0D);
+                                        else if (txt == "CURSOR_LEFT") SendVirtualKey(0x25);
+                                        else if (txt == "CURSOR_RIGHT") SendVirtualKey(0x27);
                                         else SendUnicodeString(txt);
                                     };
+                                    _desktopVkb.OnCloseRequested += () => { _desktopVkb.Close(); _desktopVkb = null; };
 
-                                    // Quando cancela, fecha e limpa a variável
-                                    _desktopVkb.OnCloseRequested += () =>
-                                    {
-                                        _desktopVkb.Close();
-                                        _desktopVkb = null;
-                                    };
+                                    // Fixa o teclado na parte inferior
+                                    _desktopVkb.SetFixedPosition();
 
                                     _desktopVkb.Show();
                                 }
                             });
                         }
-                        aWasOnTextField = false;
-                        aDragOccurred = false;
+
+                        prevButtons = btn;
                     }
-
-                    if (Pressed(0x2000)) SendMouse(0, 0, MOUSEEVENTF_XDOWN, XBUTTON1);
-                    if (Released(0x2000)) SendMouse(0, 0, MOUSEEVENTF_XUP, XBUTTON1);
-                    if (Pressed(0x4000)) SendMouse(0, 0, MOUSEEVENTF_RIGHTDOWN);
-                    if (Released(0x4000)) SendMouse(0, 0, MOUSEEVENTF_RIGHTUP);
-
-                    // Abre manualmente pelo Y (Opcional)
-                    if (Pressed(0x8000))
-                    {
-                        Dispatcher.Invoke(() =>
-                        {
-                            if (_desktopVkb == null)
-                            {
-                                _desktopVkb = new DesktopVkbWindow();
-                                _desktopVkb.OnKeyPressed += (txt) =>
-                                {
-                                    if (txt == "BKSP") SendVirtualKey(0x08);
-                                    else if (txt == "ENTER") SendVirtualKey(0x0D);
-                                    else SendUnicodeString(txt);
-                                };
-                                _desktopVkb.OnCloseRequested += () => { _desktopVkb.Close(); _desktopVkb = null; };
-                                _desktopVkb.Show();
-                            }
-                        });
-                    }
-
-                    prevButtons = btn;
                 }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[Modo Desktop] Erro na leitura do controle: {ex.Message}");
+                }
+
                 Thread.Sleep(10);
             }
         }
-        
 
         private void SendMouse(int dx, int dy, uint flags, uint data = 0)
         {
@@ -960,36 +991,7 @@ namespace Doorpi
             }
         }
 
-        private void ShowTouchKeyboard()
-        {
-            Task.Run(() =>
-            {
-                try
-                {
-                    // Tenta abrir via COM Interop (Oficial, não corrompe o SO)
-                    var tip = (ITipInvocationAware)new UIHostNoLaunch();
-                    tip.Toggle(true);
-                }
-                catch (Exception exCOM)
-                {
-                    Debug.WriteLine($"[DesktopMode] Falha no COM, usando fallback: {exCOM.Message}");
-
-                    // Fallback clássico
-                    try
-                    {
-                        string tabTip = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFiles),
-                            "microsoft shared", "ink", "TabTip.exe");
-
-                        if (File.Exists(tabTip))
-                            Process.Start(new ProcessStartInfo(tabTip) { UseShellExecute = true });
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine("[DesktopMode] Erro ao abrir teclado: " + ex.Message);
-                    }
-                }
-            });
-        }
+    
         private static int AxisToCursorDelta(short rawValue, int maxPixels, bool invert = false)
         {
             const int deadZone = 8000;
