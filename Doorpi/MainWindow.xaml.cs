@@ -199,7 +199,8 @@ namespace Doorpi
         [DllImport("user32.dll")] private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
         [DllImport("xinput1_4.dll", EntryPoint = "XInputGetState")]
         private static extern int XInputGetState(int dwUserIndex, out XINPUT_STATE pState);
-
+        [DllImport("xinput1_4.dll", EntryPoint = "#100")]
+        private static extern int XInputGetStateSecret(int dwUserIndex, out XINPUT_STATE pState);
         [StructLayout(LayoutKind.Sequential)]
         private struct POINT { public int X; public int Y; }
 
@@ -284,6 +285,19 @@ namespace Doorpi
 
             EnsureCursorHidden();
             StartMainScreenMouseWatch();
+
+            this.PreviewMouseDown += (s, e) =>
+            {
+                if (_systemControllerActive) ExitDesktopMode();
+            };
+            this.StateChanged += (s, e) =>
+            {
+                if (_systemControllerActive && this.WindowState != WindowState.Minimized)
+                {
+                    ExitDesktopMode();
+                }
+            };
+
         }
         private bool IsCursorOnTextField()
         {
@@ -666,12 +680,36 @@ namespace Doorpi
         }
         private void EnterDesktopMode()
         {
-            // Apenas minimizamos. Deixamos o Windows decidir o foco naturalmente para não bugar o Menu Iniciar
+            // 1. Minimiza o App
             WindowState = WindowState.Minimized;
+
+            // 2. Calcula o meio exato do monitor
+            int centerX = (int)(SystemParameters.PrimaryScreenWidth / 2);
+            int centerY = (int)(SystemParameters.PrimaryScreenHeight / 2);
+
+            // 3. Joga o ponteiro do mouse fisicamente para o centro
+            SetCursorPos(centerX, centerY);
+
+            // 4. Inicia a leitura do controle
             StartSystemControllerMode();
         }
 
+        private void ExitDesktopMode()
+        {
+            if (!_systemControllerActive) return;
 
+            _systemControllerActive = false; 
+            SendMouse(0, 0, MOUSEEVENTF_LEFTUP); 
+
+            Dispatcher.Invoke(() => {
+                _desktopVkb?.Close();
+                _desktopVkb = null;
+
+                WindowState = WindowState.Maximized;
+                Activate();
+                ForceFocus();
+            });
+        }
         private void StartSystemControllerMode()
         {
             if (_systemControllerActive) return;
@@ -689,6 +727,13 @@ namespace Doorpi
         {
             var sw = Stopwatch.StartNew();
             ushort prevButtons = 0;
+
+            if (XInputGetStateSecret(0, out var initialState) == 0) 
+            {
+                prevButtons = initialState.Gamepad.wButtons;
+            }
+
+
             double speedMult = 1.0;
             double remainderX = 0, remainderY = 0;
 
@@ -723,7 +768,8 @@ namespace Doorpi
                     sw.Restart();
                     if (dt > 0.05) dt = 0.016;
 
-                    if (XInputGetState(0, out var state) == 0)
+                    if (XInputGetStateSecret(0, out var state) == 0)
+
                     {
                         var gp = state.Gamepad;
                         ushort btn = gp.wButtons;
@@ -941,19 +987,14 @@ namespace Doorpi
                         }
 
                         // Fechar Modo Desktop
-                    
-                        if ((btn & 0x0010) != 0 && (btn & 0x0020) != 0)
-                        {
-                            _systemControllerActive = false;
-                            SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
-                            Dispatcher.Invoke(() => {
-                                _desktopVkb?.Close(); 
-                                _desktopVkb = null;
 
-                                WindowState = WindowState.Maximized;
-                                Activate(); ForceFocus();
-                            });
-                            break;
+                        bool isStartSelect = (btn & 0x0010) != 0 && (btn & 0x0020) != 0;
+                        bool isXboxButton = (btn & 0x0400) != 0;
+
+                        if (isStartSelect || isXboxButton)
+                        {
+                            ExitDesktopMode();
+                            break; 
                         }
 
                         if (Pressed(0x4000)) SendMouse(0, 0, MOUSEEVENTF_RIGHTDOWN);
