@@ -125,6 +125,14 @@ namespace Doorpi
         private string _currentToastTitle = "";
         private string _currentToastSub = "";
 
+        private string _vkbStrBackspace = "Apagar";
+        private string _vkbStrEnter = "Enter";
+        private string _vkbStrClose = "Fechar";
+        private string _vkbStrShift = "Maiúsc";
+        private string _vkbStrSpace = "Espaço";
+        private string _vkbStrSym = "&123";
+        private string _vkbStrAbc = "ABC";
+
         private string _extBtnTitle = "Adicionar extensão ao Doorpi";
         private string _extBtnSub = "Instalar via Doorpi Browser";
         private string _extToastTitle = "Doorpi";
@@ -893,6 +901,8 @@ namespace Doorpi
                                     if (_desktopVkb == null)
                                     {
                                         _desktopVkb = new DesktopVkbWindow();
+                                        _desktopVkb.SetLocalization(_vkbStrBackspace, _vkbStrEnter, _vkbStrClose, _vkbStrShift, _vkbStrSpace, _vkbStrSym, _vkbStrAbc);
+
                                         _desktopVkb.OnKeyPressed += (txt) =>
                                         {
                                             if (txt == "BKSP") SendVirtualKey(0x08);
@@ -956,6 +966,8 @@ namespace Doorpi
                                 if (_desktopVkb == null)
                                 {
                                     _desktopVkb = new DesktopVkbWindow();
+                                    _desktopVkb.SetLocalization(_vkbStrBackspace, _vkbStrEnter, _vkbStrClose, _vkbStrShift, _vkbStrSpace, _vkbStrSym, _vkbStrAbc);
+
                                     _desktopVkb.OnKeyPressed += (txt) => {
                                         if (txt == "BKSP") SendVirtualKey(0x08);
                                         else if (txt == "ENTER") SendVirtualKey(0x0D);
@@ -3034,6 +3046,24 @@ namespace Doorpi
                                 webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}"));
                         }
                     });
+                }
+                else if (action == "updateVkbTranslations")
+                {
+                    _vkbStrBackspace = GetStr(root, "vkbBackspace", "Apagar");
+                    _vkbStrEnter = GetStr(root, "vkbEnter", "Enter");
+                    _vkbStrClose = GetStr(root, "vkbClose", "Fechar");
+                    _vkbStrShift = GetStr(root, "vkbShift", "Maiúsc");
+                    _vkbStrSpace = GetStr(root, "vkbSpace", "Espaço");
+                    _vkbStrSym = GetStr(root, "vkbSym", "&123");
+                    _vkbStrAbc = GetStr(root, "vkbAbc", "ABC");
+
+
+                    if (_desktopVkb != null)
+                    {
+                        Dispatcher.Invoke(() => _desktopVkb.SetLocalization(
+                            _vkbStrBackspace, _vkbStrEnter, _vkbStrClose,
+                            _vkbStrShift, _vkbStrSpace, _vkbStrSym, _vkbStrAbc));
+                    }
                 }
                 else if (action == "updateExtension")
                 {

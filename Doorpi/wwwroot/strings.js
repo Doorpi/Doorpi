@@ -547,6 +547,21 @@ function applyI18n() {
     document.querySelectorAll('[data-i18n]').forEach(el => {
         el.textContent = t(el.dataset.i18n);
     });
+
+
+    if (window.chrome && window.chrome.webview) {
+
+        window.chrome.webview.postMessage(JSON.stringify({
+            action: "updateVkbTranslations",
+            vkbBackspace: t('vkbBackspace'),
+            vkbEnter: t('vkbEnter'),
+            vkbClose: t('vkbClose'),
+            vkbShift: t('vkbShift'),
+            vkbSpace: t('vkbSpace'),
+            vkbSym: t('vkbSym'),
+            vkbAbc: t('vkbAbc')
+        }));
+    }
 }
 
 if (document.readyState !== 'loading') applyI18n();
