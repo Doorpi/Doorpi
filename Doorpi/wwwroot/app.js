@@ -8,6 +8,7 @@ window.isGlobalLoading = false;
 window._doorpiUsers = [];
 window._doorpiCurrentUserId = '';
 window._pendingExtensionUpdates = {};
+window._isBatchRendering = false;
 
 const PLATFORMS = {
     Steam: {
@@ -46,7 +47,35 @@ const FILTER_SOURCES = {
 };
 
 const SCAN_LIBS = ['Steam', 'Epic', 'GOG', 'Riot', 'Windows', 'Folder'];
+// ── ANTI-WEB FIXES (Impede bordas brancas e força Loading na GPU corretamente) ───────────
+(function applyAntiWebFixes() {
+    const s = document.createElement('style');
+    s.textContent = `
+        /* 1. Elimina as bordas nativas do navegador em imagens vazias/carregando */
+        img { 
+            border: none !important; 
+            outline: none !important; 
+            color: transparent !important; 
+            -webkit-user-drag: none; 
+        }
+        img:not([src]), img[src=""] { 
+            visibility: hidden !important; 
+        }
 
+        /* 2. Joga a tela de Loading para a GPU (Placa de vídeo) SEM quebrar os giros */
+        #systemLoadingOverlay, 
+        #globalLoadingOverlay {
+            will-change: opacity;
+        }
+        
+        /* Apenas avisa o navegador para processar o giro separadamente, sem travar o eixo */
+        .vb-ring, 
+        .vb-ring-wrap {
+            will-change: transform;
+        }
+    `;
+    document.head.appendChild(s);
+})();
 // 🔹 INJEÇÃO DA FOTO DE PERFIL NO CANTO SUPERIOR ESQUERDO
 (function injectTopProfile() {
     const btn = document.createElement('button');
@@ -108,70 +137,7 @@ const SCAN_LIBS = ['Steam', 'Epic', 'GOG', 'Riot', 'Windows', 'Folder'];
     `;
     document.head.appendChild(s);
 })();
-
-function reorderGrid(gridId, btnId) {
-    const grid = document.getElementById(gridId);
-    if (!grid) return;
-    const btnAdd = document.getElementById(btnId);
-
-    // Ignora o botão Add na ordenação, pegando apenas os cards reais e os skeletons
-    const cards = Array.from(grid.querySelectorAll('.card')).filter(c => c !== btnAdd && !c.classList.contains('add-card'));
-
-    // Resolve a tag de NOVO universalmente (incluindo WebApps)
-    cards.forEach(c => {
-        const id = c.dataset.gameId || c.dataset.appId || c.dataset.appUrl || '';
-        // Verifica com e sem barra no final para garantir que a URL do WebApp não falhe
-        if (window.newGameIdsThisSession.has(id) || window.newGameIdsThisSession.has(id.replace(/\/$/, ''))) {
-            c.classList.add('new-game');
-        }
-    });
-
-    const featured = cards.find(c => c.classList.contains('featured'));
-    const rest = cards.filter(c => c !== featured);
-
-    rest.sort((a, b) => {
-        const aIsLoading = a.classList.contains('loading-card') ? 1 : 0;
-        const bIsLoading = b.classList.contains('loading-card') ? 1 : 0;
-
-        const aId = a.dataset.gameId || a.dataset.appId || a.dataset.appUrl || '';
-        const bId = b.dataset.gameId || b.dataset.appId || b.dataset.appUrl || '';
-
-        const aNew = window.newGameIdsThisSession.has(aId) ? 1 : 0;
-        const bNew = window.newGameIdsThisSession.has(bId) ? 1 : 0;
-
-        const aOIdx = window.recentlyOpenedIds.indexOf(aId);
-        const bOIdx = window.recentlyOpenedIds.indexOf(bId);
-
-        // 1º LUGAR ABSOLUTO: Skeletons aparecem primeiro, imediatamente após o destaque!
-        if (aIsLoading !== bIsLoading) return bIsLoading - aIsLoading;
-
-        // 2º LUGAR: Jogos e Apps Novos que acabaram de baixar a capa
-        if (bNew !== aNew) return bNew - aNew;
-
-        // 3º LUGAR: Ordem de jogo aberto recentemente
-        if (!aNew && !bNew) {
-            if (aOIdx !== -1 && bOIdx === -1) return -1;
-            if (aOIdx === -1 && bOIdx !== -1) return 1;
-            if (aOIdx !== -1 && bOIdx !== -1) return aOIdx - bOIdx;
-        }
-        return 0;
-    });
-
-    if (featured) grid.prepend(featured);
-    rest.forEach(card => {
-        if (btnAdd) grid.insertBefore(card, btnAdd);
-        else grid.appendChild(card);
-    });
-}
-
-window.trackGameOpened = function (gameId) {
-    window.recentlyOpenedIds = [
-        gameId,
-        ...window.recentlyOpenedIds.filter(id => id !== gameId)
-    ];
-    reorderGrid('gameGrid', 'btnAdd');
-    reorderGrid('mediaGrid', 'btnAddMedia');
-};
+    
 
 setInterval(() => {
     document.getElementById('clock').innerText = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -185,13 +151,14 @@ window.chrome.webview.addEventListener('message', event => {
         if (data.updates) {
             window._pendingExtensionUpdates = data.updates;
         }
+        // 1. Quando o C# envia um ÚNICO jogo novo
         if (data.type === 'newGame') {
-            const isMediaApp = data.isMedia || data.tab === 'media' || data.appUrl !== undefined || data.appType !== undefined;
-            if (isMediaApp && typeof createMediaCard === 'function') {
-                createMediaCard(data);
-            } else {
-                createGameCard(data);
-            }
+            const channel = (data.isMedia || data.tab === 'media' || data.appUrl !== undefined || data.appType !== undefined) ? 'media' : 'games';
+            if (window.AppStore) window.AppStore.mutations.addItem(channel, data);
+        }
+        // 2. Quando o C# envia A LISTA COMPLETA de uma vez (Início do App)
+        else if (data.type === 'renderGames') {
+            if (window.AppStore) window.AppStore.mutations.setBatch('games', data.games || []);
         }
         else if (data.type === 'extensionsList' || data.type === 'extensionUpdatesList') {
             if (data.type === 'extensionUpdatesList') {
@@ -214,7 +181,7 @@ window.chrome.webview.addEventListener('message', event => {
         }
         else if (data.type === 'clearLoadingCards') {
             clearLoadingCards(data.tab || 'games');
-            if (!data.tab) clearLoadingCards('media'); 
+            if (!data.tab) clearLoadingCards('media');
         }
         else if (data.type === 'showSetup') {
             if (typeof openSetup === 'function') openSetup();
@@ -228,15 +195,24 @@ window.chrome.webview.addEventListener('message', event => {
         else if (data.type === 'browsersDetected') {
             window._setupRenderBrowsers?.(data.browsers);
         }
-        else if (data.type === 'staticSaved') {
-            updateToLocalFile(data.gameId, data.imageType, data.newUrl);
-        }
+        // 1. Quando o C# manda limpar a grade (Ao iniciar ou resetar)
         else if (data.type === 'clearGamesGrid') {
-            const grid = document.getElementById('gameGrid');
-            if (grid) {
-                const btnAdd = document.getElementById('btnAdd');
-                grid.innerHTML = '';
-                if (btnAdd) grid.appendChild(btnAdd);
+            if (window.AppStore) window.AppStore.mutations.setBatch('games', []);
+        }
+
+        // 2. Quando o C# avisa que salvou a imagem estática localmente
+        else if (data.type === 'staticSaved') {
+            const patch = {};
+            if (data.imageType === 'GridStatic') patch.staticVertical = data.newUrl;
+            if (data.imageType === 'HorizontalStatic') patch.staticHorizontal = data.newUrl;
+            if (data.imageType === 'HeroStatic') patch.staticHero = data.newUrl;
+            if (data.imageType === 'LogoStatic') patch.staticLogo = data.newUrl;
+
+            // Avisamos o Store da mudança. O Store avisa o Grid, e a imagem é atualizada sem piscar.
+            if (window.AppStore.queries.hasItem('games', data.gameId)) {
+                window.AppStore.mutations.patchItem('games', data.gameId, patch);
+            } else if (window.AppStore.queries.hasItem('media', data.gameId)) {
+                window.AppStore.mutations.patchItem('media', data.gameId, patch);
             }
         }
         else if (data.type === 'clearMediaGrid') {
@@ -329,34 +305,34 @@ window.chrome.webview.addEventListener('message', event => {
                 }
             }
         }
-                else if (document.getElementById('doorpiExtensionsManager')?.style.display !== 'none' && document.getElementById('extensionUrlInput')) {
-                    const input = document.getElementById('extensionUrlInput');
-                    input.value = data.text.trim();
+        else if (document.getElementById('doorpiExtensionsManager')?.style.display !== 'none' && document.getElementById('extensionUrlInput')) {
+            const input = document.getElementById('extensionUrlInput');
+            input.value = data.text.trim();
 
-                    const btnInstall = document.getElementById('btnInstallExtension');
-                    if (btnInstall) {
-                        // Tenta focar imediatamente
+            const btnInstall = document.getElementById('btnInstallExtension');
+            if (btnInstall) {
+                // Tenta focar imediatamente
+                btnInstall.focus();
+
+                // Força o foco exatamente após o fechamento da janela da loja (que leva 1800ms)
+                setTimeout(() => {
+                    if (document.getElementById('doorpiExtensionsManager')?.style.display !== 'none') {
                         btnInstall.focus();
-
-                        // Força o foco exatamente após o fechamento da janela da loja (que leva 1800ms)
-                        setTimeout(() => {
-                            if (document.getElementById('doorpiExtensionsManager')?.style.display !== 'none') {
-                                btnInstall.focus();
-                            }
-                        }, 1900);
-
-                        // Margem de segurança extra para casos onde o PC demore a renderizar o retorno
-                        setTimeout(() => {
-                            if (document.getElementById('doorpiExtensionsManager')?.style.display !== 'none') {
-                                btnInstall.focus();
-                            }
-                        }, 2300);
-                    } else {
-                        input.focus();
                     }
-                }
-            
-        
+                }, 1900);
+
+                // Margem de segurança extra para casos onde o PC demore a renderizar o retorno
+                setTimeout(() => {
+                    if (document.getElementById('doorpiExtensionsManager')?.style.display !== 'none') {
+                        btnInstall.focus();
+                    }
+                }, 2300);
+            } else {
+                input.focus();
+            }
+        }
+
+
 
         window._mediaHandleMessage?.(data);
     } catch (e) { console.error('[bridge] Erro:', e); }
@@ -733,7 +709,7 @@ window.openExtensionsManager = function () {
         if (typeof window._navMenuOpenExtensions === 'function') {
             window._navMenuOpenExtensions();
         }
-    }, 120); 
+    }, 120);
 };
 
 window.openCreateUserDialog = openCreateUserDialog;
@@ -1284,130 +1260,6 @@ async function processImage(card, src, dsKey, imageType, entityId) {
     });
 }
 
-/* Seção: Cards e interações */
-function createGameCard(data) {
-    const grid = document.getElementById('gameGrid');
-    const btnAdd = document.getElementById('btnAdd');
-    const card = document.createElement('div');
-
-    if (grid.querySelectorAll('.card:not(.add-card)').length >= 12) return;
-    const pendingLoading = grid.querySelector('.card.loading-card');
-    if (pendingLoading) {
-        if (pendingLoading.classList.contains('featured')) {
-            card.classList.add('featured');
-        }
-        pendingLoading.remove();
-    }
-    card.className = 'card';
-    card.tabIndex = 0;
-    card.dataset.badgeNew = t('badgeNew');
-    const gameId = data.launchUrl || data.path;
-    card.dataset.gameId = gameId;
-    card.dataset.hero = data.hero || '';
-    card.dataset.logo = data.logo || '';
-    card.dataset.vertical = data.imageData || '';
-    card.dataset.horizontal = data.horizontalImage || '';
-    card.dataset.staticVertical = data.staticImageData || '';
-    card.dataset.staticHorizontal = data.staticHorizontalImage || '';
-    card.dataset.staticHero = data.staticHero || '';
-    card.dataset.staticLogo = data.staticLogo || '';
-
-    if (data.isFeatured) card.classList.add('featured');
-
-    const img = document.createElement('img');
-    img.decoding = 'async';
-
-    Promise.all([
-        processImage(card, card.dataset.vertical, 'staticVertical', 'GridStatic', gameId),
-        processImage(card, card.dataset.horizontal, 'staticHorizontal', 'HorizontalStatic', gameId),
-        processImage(card, card.dataset.hero, 'staticHero', 'HeroStatic', gameId),
-        processImage(card, card.dataset.logo, 'staticLogo', 'LogoStatic', gameId),
-    ]).then(() => {
-        const src = card.classList.contains('featured')
-            ? (card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical)
-            : (card.dataset.staticVertical || card.dataset.vertical);
-        if (src) { img.src = src; img.style.opacity = '1'; }
-    });
-
-    const startInteraction = async () => {
-        const bgSrc = card.dataset.staticVertical || card.dataset.vertical;
-        const logoSrc = card.dataset.staticLogo || card.dataset.logo;
-        const heroSrc = card.dataset.staticHero || card.dataset.hero || card.dataset.staticHorizontal || card.dataset.horizontal || bgSrc;
-
-        switchHeroBackground(bgSrc, logoSrc, heroSrc);
-
-        if (card._animTimer) clearTimeout(card._animTimer);
-        card._animTimer = setTimeout(async () => {
-            const active = () => document.activeElement === card || card.matches(':hover');
-            if (!active()) return;
-            const animGrid = card.classList.contains('featured') ? (card.dataset.horizontal || card.dataset.vertical) : card.dataset.vertical;
-            if (animGrid) await setImgSrc(img, animGrid);
-
-            const animHero = card.dataset.hero;
-            if (animHero && animHero !== (card.dataset.staticHero || animHero) && active())
-                await setImgSrc(document.getElementById('heroImage'), animHero);
-
-            const animLogo = card.dataset.logo;
-            if (animLogo && animLogo !== (card.dataset.staticLogo || animLogo) && active()) {
-                const logoEl = document.getElementById('gameLogo');
-                if (logoEl) { await setImgSrc(logoEl, animLogo); logoEl.classList.add('visible'); }
-            }
-        }, 200);
-    };
-
-    const stopInteraction = () => {
-        if (card._animTimer) clearTimeout(card._animTimer);
-        if (document.activeElement === card || card.matches(':hover')) return;
-
-        const staticGrid = card.classList.contains('featured')
-            ? (card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical)
-            : (card.dataset.staticVertical || card.dataset.vertical);
-        setImgSrc(img, staticGrid);
-
-        window._heroCleanupTimer = setTimeout(() => {
-            const bgBlur = document.getElementById('bgBlur');
-            const heroImg = document.getElementById('heroImage');
-            const logoEl = document.getElementById('gameLogo');
-            const gridBgImg = document.getElementById('gridBgImg');
-
-            if (bgBlur) bgBlur.style.opacity = '0';
-            if (heroImg) heroImg.style.opacity = '0';
-            if (logoEl) { logoEl.classList.remove('visible'); logoEl.style.opacity = ''; }
-            if (gridBgImg) gridBgImg.removeAttribute('src');
-
-            _currentBgSrc = '';
-            if (typeof _heroReqId !== 'undefined') _heroReqId++;
-        }, 80);
-    };
-
-    card._startInteraction = startInteraction;
-    card._stopInteraction = stopInteraction;
-    card.addEventListener('mouseenter', startInteraction);
-    card.addEventListener('mouseleave', stopInteraction);
-    card.addEventListener('focus', () => { pendingInteractionCard = card; signalNavigation(); });
-    card.addEventListener('blur', () => { if (pendingInteractionCard === card) pendingInteractionCard = null; stopInteraction(); });
-    card.addEventListener('click', () => {
-        window.trackGameOpened?.(gameId);
-        postToHost({ action: 'launch', path: gameId, errorMsg: t('msgErrorLaunch') });
-    });
-
-    card.appendChild(img);
-    const title = document.createElement('div');
-    title.className = 'title';
-    title.innerText = data.name;
-    card.appendChild(title);
-
-    if (btnAdd) grid.insertBefore(card, btnAdd);
-    else grid.appendChild(card);
-    reorderGrid('gameGrid', 'btnAdd');
-
-    if (data.isFeatured) {
-        setTimeout(() => {
-            startInteraction();
-            window.focusFeaturedCard?.();
-        }, 100);
-    }
-}
 
 function moveCardToTop(card) {
     if (!card) return;
@@ -1620,6 +1472,7 @@ async function setImgSrc(imgEl, src) {
         }
     }
 }
+
 function toggleNavMenu(isOpen) {
     const hint = document.getElementById('navHintDown');
     if (isOpen) {
@@ -2802,41 +2655,7 @@ document.addEventListener('focusin', () => {
         }, 80);
     }
 });
-function showLoadingCards(count, tab = 'games') {
-    const gridId = tab === 'games' ? 'gameGrid' : 'mediaGrid';
-    const btnId = tab === 'games' ? 'btnAdd' : 'btnAddMedia';
-    const grid = document.getElementById(gridId);
-    if (!grid) return;
 
-    // Gera EXATAMENTE a quantidade de skeletons que o usuário selecionou no contador
-    for (let i = 0; i < count; i++) {
-        const card = document.createElement('div');
-        card.className = 'card loading-card';
-
-        // 🖼️ Imagem SVG dummy para forçar o skeleton a ter a proporção exata de um card normal
-        const imgDummy = document.createElement('img');
-        imgDummy.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 900'%3E%3C/svg%3E";
-        imgDummy.style.opacity = '0';
-        card.appendChild(imgDummy);
-
-        const titleDummy = document.createElement('div');
-        titleDummy.className = 'title';
-        titleDummy.style.opacity = '0';
-        titleDummy.innerText = '...';
-        card.appendChild(titleDummy);
-
-        const btnAdd = document.getElementById(btnId);
-        if (btnAdd) grid.insertBefore(card, btnAdd);
-        else grid.appendChild(card);
-    }
-
-    // Move os skeletons imediatamente para a primeira posição
-    reorderGrid(gridId, btnId);
-
-    // Limpa o contador de seleção do modal
-    const selectionCounter = document.getElementById(tab === 'games' ? 'selectionCounter' : 'selectionCounterMedia');
-    selectionCounter?.classList.remove('visible');
-}
 
 function clearLoadingCards(tab = 'games') {
     const gridId = tab === 'games' ? 'gameGrid' : 'mediaGrid';

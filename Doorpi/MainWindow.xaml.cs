@@ -704,8 +704,7 @@ namespace Doorpi
             RestartWatchers();
 
             _ = Task.Run(async () => {
-                // PASSANDO AS VARIAVEIS:
-                await InitializeNativeAppsAsync(currentUserId, mediaFile);
+                await InitializeNativeAppsAsync(currentUserId, mediaFile, silent: true);
                 Dispatcher.Invoke(() => LoadCurrentUserIntoUI());
             });
         }
@@ -1316,7 +1315,8 @@ namespace Doorpi
         }
 
         // Parâmetros foram adicionados para isolar a tarefa
-        private async Task InitializeNativeAppsAsync(string targetUserId, string targetMediaFile)
+        private async Task InitializeNativeAppsAsync(string targetUserId, string targetMediaFile, bool silent = false)
+
         {
             var existing = LoadMediaAppsForUser(targetUserId);
             var existingById = existing.ToDictionary(a => a.Id, StringComparer.OrdinalIgnoreCase);
@@ -1406,7 +1406,7 @@ namespace Doorpi
             // 🔹 Salva forçando as variáveis isoladas do loop corrente
             await Task.Run(() => SaveMediaAppsForSpecificUser(apps, targetUserId, targetMediaFile));
 
-            if (targetUserId == currentUserId) SendMediaAppsToUI(apps);
+            if (!silent && targetUserId == currentUserId) SendMediaAppsToUI(apps);
         }
         private void PostProgress(string appId, string state)
         {
@@ -3765,18 +3765,20 @@ namespace Doorpi
                                 foreach (var item in savedProfiles)
                                 {
                                     string mediaPath = Path.Combine(dataFolder, "users", item.Profile.Id, "media.json");
-                                    await InitializeNativeAppsAsync(item.Profile.Id, mediaPath);
+                                    // Passamos silent: true para não engasgar a UI
+                                    await InitializeNativeAppsAsync(item.Profile.Id, mediaPath, silent: true);
+
                                 }
 
-                                await UpdateAppCacheAsync();
-
-                                // Bloqueia a auto-importação para novos usuários criados posteriormente.
-                                // A importação só ocorre no setup inicial do programa (wasEmpty).
+                                // Só roda o processamento pesado de Cache e Steam se for a primeira conta
                                 if (wasEmpty)
                                 {
+                                    await UpdateAppCacheAsync();
                                     await AutoAddPlatformGamesAsync();
                                 }
 
+                                // Agora sim, com o backend 100% pronto e descansado, 
+                                // mandamos a UI montar a tela DE UMA SÓ VEZ e tirar o loading.
                                 Dispatcher.Invoke(() =>
                                 {
                                     LoadCurrentUserIntoUI();
@@ -4373,14 +4375,18 @@ namespace Doorpi
                 dbChanged = true;
                 SaveGames(existingGames);
 
-                Dispatcher.Invoke(() => SendGameToUI(game, isFirstGame));
-                if (isFirstGame) isFirstGame = false;
             }
-            Dispatcher.Invoke(() => LoadGamesIntoUI());
 
-            if (dbChanged) SaveGames(existingGames);
+
+            if (dbChanged)
+            {
+                SaveGames(existingGames);
+
+               
+                Dispatcher.Invoke(() => LoadGamesIntoUI());
+            }
             Dispatcher.Invoke(() =>
-            webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"clearLoadingCards\"}"));
+                webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"clearLoadingCards\"}"));
         }
 
         // ========================= STEAMGRID =========================
@@ -4515,6 +4521,35 @@ namespace Doorpi
             catch (Exception ex) { Debug.WriteLine("Erro ao buscar imagem: " + ex.Message); return null; }
         }
 
+        private static bool IsLocalFileAnimated(string localFilePath)
+        {
+            if (string.IsNullOrEmpty(localFilePath) || !File.Exists(localFilePath))
+                return false;
+            try
+            {
+                var header = new byte[256];
+                using var fs = new FileStream(localFilePath, FileMode.Open,
+                                               FileAccess.Read, FileShare.Read);
+                int read = fs.Read(header, 0, header.Length);
+
+                // GIF: magic bytes G I F
+                if (read >= 3 && header[0] == 0x47 && header[1] == 0x49 && header[2] == 0x46)
+                    return true;
+
+                // APNG: chunk acTL | WebP ANIM
+                byte[] ACTL = { 0x61, 0x63, 0x54, 0x4C };
+                byte[] ANIM = { 0x41, 0x4E, 0x49, 0x4D };
+                for (int i = 0; i < read - 4; i++)
+                {
+                    if (header[i] == ACTL[0] && header[i + 1] == ACTL[1] &&
+                        header[i + 2] == ACTL[2] && header[i + 3] == ACTL[3]) return true;
+                    if (header[i] == ANIM[0] && header[i + 1] == ANIM[1] &&
+                        header[i + 2] == ANIM[2] && header[i + 3] == ANIM[3]) return true;
+                }
+            }
+            catch { }
+            return false;
+        }
         private async Task<string?> DownloadImageAsync(string url, string folder, string name)
         {
             for (int attempt = 1; attempt <= 3; attempt++)
@@ -4732,6 +4767,7 @@ namespace Doorpi
 
         // ========================= GAMES DB =========================
 
+
         private void SaveGames(List<GameModel> games)
         {
             File.WriteAllText(gamesFile, JsonSerializer.Serialize(games,
@@ -4747,32 +4783,81 @@ namespace Doorpi
             return JsonSerializer.Deserialize<List<GameModel>>(json) ?? new List<GameModel>();
         }
 
+        // 1. NOVA FUNÇÃO AUXILIAR: Detecta se o jogo é realmente novo ou se é um falso-positivo de migração
+        private bool IsGameActuallyNew(DateTime dateAdded, DateTime lastPlayed)
+        {
+            // Se a data for nula/mínima (arquivos de save antigos sem data), não é novo
+            if (dateAdded <= DateTime.MinValue.AddDays(1)) return false;
+
+            // Se já passou de 48 horas reais, definitivamente não é novo
+            if ((DateTime.Now - dateAdded).TotalHours >= 48) return false;
+
+            // A MÁGICA AQUI: Se o jogo foi jogado ANTES de ser "adicionado", 
+            // significa que é um jogo legado que o sistema tentou colocar a data de hoje. Tira o badge!
+            if (lastPlayed > DateTime.MinValue && lastPlayed < dateAdded.AddMinutes(-5)) return false;
+
+            return true;
+        }
+
+        private object MapGameToAnonObject(GameModel game, bool isFeatured)
+        {
+            string localGridPath = string.IsNullOrEmpty(game.GridImage) ? "" :
+                Path.Combine(dataFolder,
+                    new Uri(game.GridImage).AbsolutePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+
+            return new
+            {
+                id = !string.IsNullOrEmpty(game.LaunchUrl) ? game.LaunchUrl : game.Path,
+                name = game.Name,
+                path = game.Path,
+                launchUrl = game.LaunchUrl,
+                type = "game",
+                imageData = game.GridImage,
+                staticImageData = game.GridStaticImage,
+                horizontalImage = game.GridHorizontalImage,
+                staticHorizontalImage = game.GridHorizontalStaticImage,
+                hero = game.HeroImage,
+                staticHero = game.HeroStaticImage,
+                logo = game.LogoImage,
+                staticLogo = game.LogoStaticImage,
+                isFeatured = isFeatured,
+                isNew = false, // <--- CORREÇÃO APLICADA
+                isAnimated = IsLocalFileAnimated(localGridPath),
+            };
+        }
+
         private void LoadGamesIntoUI()
         {
             var allGames = LoadGames();
             if (allGames.Count == 0) return;
 
-            webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"clearGamesGrid\"}");
             var featured = allGames.OrderByDescending(g => g.LastPlayed).FirstOrDefault();
+
+            var sortedGames = new List<object>();
 
             if (featured != null)
             {
-                SendGameToUI(featured, isFeatured: true);
+                // Adiciona o Featured primeiro
+                sortedGames.Add(MapGameToAnonObject(featured, true));
 
-                var others = allGames.Where(g => g.Path != featured.Path || g.LaunchUrl != featured.LaunchUrl).ToList();
-
-                var sortedOthers = others
-                    .OrderByDescending(g => (DateTime.Now - g.DateAdded).TotalHours < 48)
+                // Adiciona os outros ordenando corretamente (Novos primeiro, depois Últimos Jogados)
+                var others = allGames.Where(g => g.Path != featured.Path || g.LaunchUrl != featured.LaunchUrl)
+                    .OrderByDescending(g => IsGameActuallyNew(g.DateAdded, g.LastPlayed)) // <--- CORREÇÃO APLICADA
                     .ThenByDescending(g => g.LastPlayed)
                     .ThenByDescending(g => g.DateAdded)
-                    .Take(11)
-                    .ToList();
+                    .Take(11);
 
-                foreach (var game in sortedOthers)
+                foreach (var game in others)
                 {
-                    SendGameToUI(game, isFeatured: false);
+                    sortedGames.Add(MapGameToAnonObject(game, false));
                 }
             }
+
+            var payload = new { type = "renderGames", games = sortedGames };
+
+            Dispatcher.Invoke(() =>
+                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(payload))
+            );
         }
 
         private void SendGameToUI(GameModel game, bool isFeatured = false)
@@ -4792,12 +4877,14 @@ namespace Doorpi
                 logo = game.LogoImage,
                 staticLogo = game.LogoStaticImage,
                 isFeatured = isFeatured,
-                isNew = (DateTime.Now - game.DateAdded).TotalHours < 48
+                isNew = false // <--- CORREÇÃO APLICADA
             };
             webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(data));
         }
 
         // ========================= HELPERS =========================
+
+    
 
         private string? GetGameNameFromFile(string exePath)
         {

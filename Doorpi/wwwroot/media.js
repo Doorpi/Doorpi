@@ -24,6 +24,29 @@ let _currentHomeTab = 'games';
 (function injectMediaStyles() {
     const s = document.createElement('style');
     s.textContent = `
+
+    /* Badge de NOVO fixo e visível */
+.card.new-game {
+    position: relative;
+    /* Garante que o container tenha contexto para o ::before */
+}
+
+.card.new-game::before {
+    content: attr(data-badge-new);
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 100; /* Prioridade máxima */
+    background: #fff;
+    color: #06060e;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    padding: 3px 6px;
+    border-radius: 3px;
+    pointer-events: none;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+}
     .media-card-fallback {
         position: absolute;
         inset: 0;
@@ -172,177 +195,17 @@ window.switchHomeTab = switchHomeTab;
 window.cycleHomeTab = cycleHomeTab;
 window.getCurrentHomeTab = () => _currentHomeTab;
 
-// ── Criar card de mídia (Igual ao Card de Jogo!) ─────────────────────────────
-function createMediaCard(data) {
-    const grid = document.getElementById('mediaGrid');
-    if (!grid) return;
-    const btnAdd = document.getElementById('btnAddMedia');
-
-    if (grid.querySelectorAll('.card:not(.add-card)').length >= MEDIA_GRID_LIMIT) return;
-
-    const card = document.createElement('div');
-
-    // Substitui skeleton de loading um a um, igual ao de Jogos
-    const pendingLoading = grid.querySelector('.card.loading-card');
-    if (pendingLoading) {
-        if (pendingLoading.classList.contains('featured')) {
-            card.classList.add('featured');
-        }
-        pendingLoading.remove();
-    }
-
-    card.className = 'card media-card';
-    card.tabIndex = 0;
-    card.dataset.badgeNew = t('badgeNew');
-
-    const appId = data.Id || data.id || '';
-    const appUrl = data.Url || data.url || data.launchUrl || data.path || '';
-
-    // Tag de NOVO (Identifica se foi baixado na sessão atual)
-    if (newGameIdsThisSession.has(appUrl)) card.classList.add('new-game');
-
-    card.dataset.appId = appId;
-    card.dataset.appUrl = appUrl;
-    card.dataset.appType = data.Type || data.type || 'browser';
-    card.dataset.shareMode = data.ShareMode || data.shareMode || 'private';
-    card.dataset.sharedFromOther = (data.IsSharedFromOtherUser || data.isSharedFromOtherUser) ? 'true' : 'false';
-    card.dataset.hero = data.HeroImage || data.heroImage || data.hero || '';
-    card.dataset.logo = data.LogoImage || data.logoImage || data.logo || '';
-    card.dataset.vertical = data.GridImage || data.gridImage || data.imageData || '';
-    card.dataset.horizontal = data.GridHorizontalImage || data.gridHorizontalImage || data.horizontalImage || '';
-    card.dataset.staticVertical = data.GridStaticImage || data.gridStaticImage || data.staticImageData || '';
-    card.dataset.staticHorizontal = data.GridHorizontalStaticImage || data.gridHorizontalStaticImage || data.staticHorizontalImage || '';
-    card.dataset.staticHero = data.HeroStaticImage || data.heroStaticImage || data.staticHero || '';
-    card.dataset.staticLogo = data.LogoStaticImage || data.logoStaticImage || data.staticLogo || '';
-
-    // Se é o primeiro card e não há mais nada na tela que seja featured
-    if (data.isFeatured || (!grid.querySelector('.card.featured') && !card.classList.contains('featured'))) {
-        card.classList.add('featured');
-    }
-
-    const img = document.createElement('img');
-    img.decoding = 'async';
-    const fallback = document.createElement('div');
-    fallback.className = 'media-card-fallback';
-    fallback.textContent = (data.Name || data.name || '?').trim().charAt(0) || '?';
-
-    Promise.all([
-        processImage(card, card.dataset.vertical, 'staticVertical', 'GridStatic', appId),
-        processImage(card, card.dataset.horizontal, 'staticHorizontal', 'HorizontalStatic', appId),
-        processImage(card, card.dataset.hero, 'staticHero', 'HeroStatic', appId),
-        processImage(card, card.dataset.logo, 'staticLogo', 'LogoStatic', appId),
-    ]).then(() => {
-        const src = card.classList.contains('featured')
-            ? (card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical)
-            : (card.dataset.staticVertical || card.dataset.vertical);
-        if (src) {
-            img.src = src;
-            img.style.opacity = '1';
-            fallback.remove();
-        } else {
-            card.classList.add('no-art');
-        }
-    });
-
-    const startInteraction = async () => {
-        if (_currentHomeTab === 'media') {
-            const bgSrc = card.dataset.staticVertical || card.dataset.vertical;
-            const logoSrc = card.dataset.staticLogo || card.dataset.logo;
-            const heroSrc = card.dataset.staticHero || card.dataset.hero || card.dataset.staticHorizontal || card.dataset.horizontal || bgSrc;
-            switchHeroBackground(bgSrc, logoSrc, heroSrc);
-        }
-
-        if (card._animTimer) clearTimeout(card._animTimer);
-        card._animTimer = setTimeout(async () => {
-            const active = () => document.activeElement === card || card.matches(':hover');
-            if (!active()) return;
-
-            const animGrid = card.classList.contains('featured') ? (card.dataset.horizontal || card.dataset.vertical) : card.dataset.vertical;
-            if (animGrid) await setImgSrc(img, animGrid);
-
-            const animHero = card.dataset.hero;
-            if (animHero && animHero !== (card.dataset.staticHero || animHero) && active() && _currentHomeTab === 'media')
-                await setImgSrc(document.getElementById('heroImage'), animHero);
-
-            const animLogo = card.dataset.logo;
-            if (animLogo && animLogo !== (card.dataset.staticLogo || animLogo) && active() && _currentHomeTab === 'media') {
-                const logoEl = document.getElementById('gameLogo');
-                if (logoEl) { await setImgSrc(logoEl, animLogo); logoEl.classList.add('visible'); }
-            }
-        }, 200);
-    };
-
-    const stopInteraction = () => {
-        if (card._animTimer) clearTimeout(card._animTimer);
-        if (document.activeElement === card || card.matches(':hover')) return;
-
-        const staticGrid = card.classList.contains('featured')
-            ? (card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical)
-            : (card.dataset.staticVertical || card.dataset.vertical);
-        setImgSrc(img, staticGrid);
-
-        // O clearHero é tratado globalmente pelo app.js, não apagamos a arte aqui imediatamente.
-    };
-
-    card._startInteraction = startInteraction;
-    card._stopInteraction = stopInteraction;
-    card.addEventListener('mouseenter', startInteraction);
-    card.addEventListener('mouseleave', stopInteraction);
-    card.addEventListener('focus', () => { pendingInteractionCard = card; signalNavigation(); });
-    card.addEventListener('blur', () => { if (pendingInteractionCard === card) pendingInteractionCard = null; stopInteraction(); });
-
-    card.addEventListener('click', () => {
-        window.trackGameOpened?.(appUrl);
-        window.isMediaAppActive = true;
-        postToHost({
-            action: 'launchMediaApp',
-            url: appUrl,
-            appType: card.dataset.appType,
-            toastTitle: t('toastCopied'),
-            toastSub: t('toastReturning')
-        });
-    });
-
-    card.appendChild(img);
-    card.appendChild(fallback);
-    const title = document.createElement('div');
-    title.className = 'title';
-    title.innerText = data.Name || data.name;
-    card.appendChild(title);
-
-    if (card.dataset.shareMode !== 'private' || card.dataset.sharedFromOther === 'true') {
-        const badge = document.createElement('div');
-        badge.className = 'title';
-        badge.style.cssText = 'font-size:0.65em;color:rgba(120,190,255,.95);bottom:8px;';
-        badge.innerText = card.dataset.sharedFromOther === 'true' ? t('sharedFromOther') : t('sharedAccount');
-        card.appendChild(badge);
-    }
-
-    if (btnAdd) grid.insertBefore(card, btnAdd);
-    else grid.appendChild(card);
-
-    reorderGrid('mediaGrid', 'btnAddMedia');
-
-    if (card.classList.contains('featured') && _currentHomeTab === 'media') {
-        setTimeout(() => {
-            startInteraction();
-            window.focusFeaturedCard?.();
-        }, 100);
-    }
-}
-
-function renderMediaCarousel(apps) {
-    const grid = document.getElementById('mediaGrid');
-    if (!grid) return;
-    grid.querySelectorAll('.card:not(.add-card)').forEach(c => c.remove());
-    apps.slice(0, MEDIA_GRID_LIMIT).forEach(app => createMediaCard(app));
-}
 
 // ── Bridge Específica (Processos internos da tab de mídia) ────────────────────
 window._mediaHandleMessage = (data) => {
     switch (data.type) {
         case 'nativeAppsLoaded':
-            renderMediaCarousel(data.apps);
+            if (Array.isArray(data.apps)) {
+                data.apps.forEach(a => {
+                    if (a.IsNew || a.isNew) AppStore.mutations.markNew(a.Id || a.id);
+                });
+                AppStore.mutations.setBatch('media', data.apps);
+            }
             break;
 
         case 'hideSystemLoading':

@@ -63,207 +63,213 @@
             </div>
         </div>
     </div>
-        <!-- Modal -->
-        <div id="addGameContainer">
-            <div class="modal-layout">
+    <!-- Modal -->
+    <div id="addGameContainer">
+        <div class="modal-layout">
 
-                <div class="modal-sidebar">
-                    <p class="sidebar-eyebrow" data-i18n="sidebarEyebrow">Menu</p>
-                    <h1 class="sidebar-title" data-i18n="sidebarTitle">Configurações</h1>
-                    <div class="sidebar-menu">
-                        <div style="display: flex; flex-direction: column;">
+            <div class="modal-sidebar">
+                <p class="sidebar-eyebrow" data-i18n="sidebarEyebrow">Menu</p>
+                <h1 class="sidebar-title" data-i18n="sidebarTitle">Configurações</h1>
+                <div class="sidebar-menu">
+                    <div style="display: flex; flex-direction: column;">
 
-                            <button class="menu-tab active" tabindex="0" onclick="switchTab('apps')">
-                                <span class="tab-icon">
-                                    <!-- Jogos (corrigido) -->
-                                    <svg viewBox="0 0 24 24" fill="none">
-                                        <!-- Corpo -->
-                                        <rect x="3" y="7" width="18" height="10" rx="4"
-                                              stroke="currentColor"
-                                              stroke-width="1.5" />
-
-                                        <!-- D-pad -->
-                                        <path d="M7 12h4M9 10v4"
-                                              stroke="currentColor"
-                                              stroke-width="1.8"
-                                              stroke-linecap="round" />
-
-                                        <!-- Botões alinhados -->
-                                        <circle cx="16.5" cy="11" r="0.9" fill="currentColor" />
-                                        <circle cx="18.5" cy="13" r="0.9" fill="currentColor" />
-                                    </svg>
-                                </span>
-                                <span data-i18n="tabGames">Jogos</span>
-                            </button>
-
-                            <button class="menu-tab" tabindex="0" onclick="switchTab('media-apps')">
-                                <span class="tab-icon">
-                                    <!-- Apps -->
-                                    <svg viewBox="0 0 24 24" fill="none">
-                                        <rect x="4" y="4" width="6" height="6" rx="1.5"
-                                              stroke="currentColor"
-                                              stroke-width="1.5" />
-                                        <rect x="14" y="4" width="6" height="6" rx="1.5"
-                                              stroke="currentColor"
-                                              stroke-width="1.5" />
-                                        <rect x="4" y="14" width="6" height="6" rx="1.5"
-                                              stroke="currentColor"
-                                              stroke-width="1.5" />
-                                        <rect x="14" y="14" width="6" height="6" rx="1.5"
-                                              stroke="currentColor"
-                                              stroke-width="1.5" />
-                                    </svg>
-                                </span>
-                                <span data-i18n="tabApps">Aplicativos</span>
-                            </button>
-
-                        </div>
-
-                        <button class="menu-tab" tabindex="0" onclick="switchTab('folders')">
+                        <button class="menu-tab active" tabindex="0" onclick="switchTab('apps')">
                             <span class="tab-icon">
-                                <!-- Pastas -->
+                                <!-- Jogos (corrigido) -->
                                 <svg viewBox="0 0 24 24" fill="none">
-                                    <path d="M3 7h6l2 2h10v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"
+                                    <!-- Corpo -->
+                                    <rect x="3" y="7" width="18" height="10" rx="4"
                                           stroke="currentColor"
-                                          stroke-width="1.5"
-                                          stroke-linejoin="round" />
+                                          stroke-width="1.5" />
+
+                                    <!-- D-pad -->
+                                    <path d="M7 12h4M9 10v4"
+                                          stroke="currentColor"
+                                          stroke-width="1.8"
+                                          stroke-linecap="round" />
+
+                                    <!-- Botões alinhados -->
+                                    <circle cx="16.5" cy="11" r="0.9" fill="currentColor" />
+                                    <circle cx="18.5" cy="13" r="0.9" fill="currentColor" />
                                 </svg>
                             </span>
-                            <span data-i18n="tabFolders">Gerenciar Pastas</span>
+                            <span data-i18n="tabGames">Jogos</span>
                         </button>
-                    </div>
-                </div>
 
-                <div class="modal-content-area">
+                        <button class="menu-tab" tabindex="0" onclick="switchTab('media-apps')">
+                            <span class="tab-icon">
+                                <!-- Apps -->
+                                <svg viewBox="0 0 24 24" fill="none">
+                                    <rect x="4" y="4" width="6" height="6" rx="1.5"
+                                          stroke="currentColor"
+                                          stroke-width="1.5" />
+                                    <rect x="14" y="4" width="6" height="6" rx="1.5"
+                                          stroke="currentColor"
+                                          stroke-width="1.5" />
+                                    <rect x="4" y="14" width="6" height="6" rx="1.5"
+                                          stroke="currentColor"
+                                          stroke-width="1.5" />
+                                    <rect x="14" y="14" width="6" height="6" rx="1.5"
+                                          stroke="currentColor"
+                                          stroke-width="1.5" />
+                                </svg>
+                            </span>
+                            <span data-i18n="tabApps">Aplicativos</span>
+                        </button>
 
-                    <!-- ── View: Aplicativos ──────────────────────────────────── -->
-                    <div id="view-apps" class="view-section active">
-                        <div class="view-header">
-                            <h2 id="modalTitle" data-i18n="selectApps">Selecione os aplicativos para adicionar</h2>
-                            <div class="filter-bar" id="filterBar"></div>
-                        </div>
-                        <div class="applist-wrapper">
-                            <div id="appList"></div>
-                        </div>
-                        <div class="action-bar" id="modalActions">
-                            <div class="selection-counter" id="selectionCounter">
-                                <span class="counter-dot"></span>
-                                <span id="selectionCounterText"></span>
-                            </div>
-                            <div class="action-buttons">
-                                <button class="modal-btn primary"
-                                        id="btnConfirmAdd"
-                                        data-gamepad-hint="start"
-                                        tabindex="0">
-                                    <span data-i18n="btnConfirmLabel">Adicionar Selecionados</span>
-                                </button>
-                                <button class="modal-btn secondary"
-                                        id="btnSearch"
-                                        data-gamepad-hint="triangle"
-                                        tabindex="0">
-                                    <span data-i18n="btnSearchLabel">Procurar Manualmente</span>
-                                </button>
-                                <button class="modal-btn cancel"
-                                        id="btnCancelAdd"
-                                        data-gamepad-hint="cancel"
-                                        tabindex="0">
-                                    <span data-i18n="btnCancelLabel">Voltar</span>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    <!-- ── View: Aplicativos ─────────────────────────────────── -->
-                    <div id="view-media-apps" class="view-section hidden">
-                        <div class="view-header">
-                            <h2 data-i18n="tabApps">Aplicativos</h2>
-                            <div class="media-app-subtabs" id="mediaAppSubtabs">
-                                <button class="subtab active" data-subtab="web" tabindex="0" data-i18n="subtabWeb">App Web</button>
-                                <button class="subtab" data-subtab="exe" tabindex="0" data-i18n="subtabExe">Executável</button>
-                            </div>
-                        </div>
-
-                        <!-- Sub-aba: App Web -->
-                        <div id="subview-web" class="subview active">
-                            <div class="web-app-form">
-                                <div class="web-app-field">
-                                    <label class="web-app-label" data-i18n="webAppNameLabel">Nome do Aplicativo</label>
-                                    <input class="web-app-input" id="webAppNameInput" type="text" readonly
-                                           data-i18n-placeholder="webAppNamePlaceholder" />
-                                </div>
-                                <div class="web-app-field">
-                                    <label class="web-app-label" data-i18n="webAppUrlLabel">Endereço (URL)</label>
-                                    <div class="setup-api-row">
-                                        <input class="setup-input" id="webAppUrlInput" type="text" readonly tabindex="0" />
-                                        <button class="setup-icon-btn" id="btnWebAppPaste" tabindex="0">
-                                            <span data-i18n="pasteAppLink">Colar</span>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="web-app-hint" id="webAppHint"></div>
-                        </div>
-
-                        <!-- Sub-aba: Executável (mesma lista de apps, alvo diferente) -->
-                        <div id="subview-exe" class="subview hidden">
-                            <div class="applist-wrapper">
-                                <div id="appListMedia"></div>
-                            </div>
-                        </div>
-
-                        <div class="action-bar" id="mediaAppActions">
-                            <!-- preenchido por JS dependendo da sub-aba ativa -->
-                        </div>
-                    </div>
-                    <!-- ── View: Pastas ───────────────────────────────────────── -->
-                    <div id="view-folders" class="view-section hidden">
-                        <div class="view-header">
-                            <h2 data-i18n="foldersTitle">Pastas Monitoradas</h2>
-                            <p class="subtitle" data-i18n="foldersSubtitle">O sistema buscará jogos automaticamente nestes diretórios.</p>
-                        </div>
-                        <div class="applist-wrapper">
-                            <div id="folderList"></div>
-                        </div>
-                        <div class="action-bar">
-                            <!--
-                Barra de total: oculta por padrão (display:none no CSS).
-                app.js mostra e preenche ao receber foldersList do C#.
-            -->
-
-                            <div class="action-buttons">
-                                <button class="modal-btn primary"
-                                        id="btnScanFolder"
-                                        data-gamepad-hint="triangle"
-                                        tabindex="0">
-                                    <span data-i18n="btnAddFolderLabel">Adicionar Nova Pasta</span>
-                                </button>
-                                <button class="modal-btn cancel"
-                                        data-gamepad-hint="cancel"
-                                        tabindex="0"
-                                        onclick="closeModal()">
-                                    <span data-i18n="btnBackLabel">Voltar</span>
-                                </button>
-                            </div>
-                        </div>
                     </div>
 
+                    <button class="menu-tab" tabindex="0" onclick="switchTab('folders')">
+                        <span class="tab-icon">
+                            <!-- Pastas -->
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <path d="M3 7h6l2 2h10v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"
+                                      stroke="currentColor"
+                                      stroke-width="1.5"
+                                      stroke-linejoin="round" />
+                            </svg>
+                        </span>
+                        <span data-i18n="tabFolders">Gerenciar Pastas</span>
+                    </button>
                 </div>
             </div>
-        </div>
 
-        <!--
+            <div class="modal-content-area">
+
+                <!-- ── View: Aplicativos ──────────────────────────────────── -->
+                <div id="view-apps" class="view-section active">
+                    <div class="view-header">
+                        <h2 id="modalTitle" data-i18n="selectApps">Selecione os aplicativos para adicionar</h2>
+                        <div class="filter-bar" id="filterBar"></div>
+                    </div>
+                    <div class="applist-wrapper">
+                        <div id="appList"></div>
+                    </div>
+                    <div class="action-bar" id="modalActions">
+                        <div class="selection-counter" id="selectionCounter">
+                            <span class="counter-dot"></span>
+                            <span id="selectionCounterText"></span>
+                        </div>
+                        <div class="action-buttons">
+                            <button class="modal-btn primary"
+                                    id="btnConfirmAdd"
+                                    data-gamepad-hint="start"
+                                    tabindex="0">
+                                <span data-i18n="btnConfirmLabel">Adicionar Selecionados</span>
+                            </button>
+                            <button class="modal-btn secondary"
+                                    id="btnSearch"
+                                    data-gamepad-hint="triangle"
+                                    tabindex="0">
+                                <span data-i18n="btnSearchLabel">Procurar Manualmente</span>
+                            </button>
+                            <button class="modal-btn cancel"
+                                    id="btnCancelAdd"
+                                    data-gamepad-hint="cancel"
+                                    tabindex="0">
+                                <span data-i18n="btnCancelLabel">Voltar</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <!-- ── View: Aplicativos ─────────────────────────────────── -->
+                <div id="view-media-apps" class="view-section hidden">
+                    <div class="view-header">
+                        <h2 data-i18n="tabApps">Aplicativos</h2>
+                        <div class="media-app-subtabs" id="mediaAppSubtabs">
+                            <button class="subtab active" data-subtab="web" tabindex="0" data-i18n="subtabWeb">App Web</button>
+                            <button class="subtab" data-subtab="exe" tabindex="0" data-i18n="subtabExe">Executável</button>
+                        </div>
+                    </div>
+
+                    <!-- Sub-aba: App Web -->
+                    <div id="subview-web" class="subview active">
+                        <div class="web-app-form">
+                            <div class="web-app-field">
+                                <label class="web-app-label" data-i18n="webAppNameLabel">Nome do Aplicativo</label>
+                                <input class="web-app-input" id="webAppNameInput" type="text" readonly
+                                       data-i18n-placeholder="webAppNamePlaceholder" />
+                            </div>
+                            <div class="web-app-field">
+                                <label class="web-app-label" data-i18n="webAppUrlLabel">Endereço (URL)</label>
+                                <div class="setup-api-row">
+                                    <input class="setup-input" id="webAppUrlInput" type="text" readonly tabindex="0" />
+                                    <button class="setup-icon-btn" id="btnWebAppPaste" tabindex="0">
+                                        <span data-i18n="pasteAppLink">Colar</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="web-app-hint" id="webAppHint"></div>
+                    </div>
+
+                    <!-- Sub-aba: Executável (mesma lista de apps, alvo diferente) -->
+                    <div id="subview-exe" class="subview hidden">
+                        <div class="applist-wrapper">
+                            <div id="appListMedia"></div>
+                        </div>
+                    </div>
+
+                    <div class="action-bar" id="mediaAppActions">
+                        <!-- preenchido por JS dependendo da sub-aba ativa -->
+                    </div>
+                </div>
+                <!-- ── View: Pastas ───────────────────────────────────────── -->
+                <div id="view-folders" class="view-section hidden">
+                    <div class="view-header">
+                        <h2 data-i18n="foldersTitle">Pastas Monitoradas</h2>
+                        <p class="subtitle" data-i18n="foldersSubtitle">O sistema buscará jogos automaticamente nestes diretórios.</p>
+                    </div>
+                    <div class="applist-wrapper">
+                        <div id="folderList"></div>
+                    </div>
+                    <div class="action-bar">
+                        <!--
+                            Barra de total: oculta por padrão (display:none no CSS).
+                            app.js mostra e preenche ao receber foldersList do C#.
+                        -->
+
+                        <div class="action-buttons">
+                            <button class="modal-btn primary"
+                                    id="btnScanFolder"
+                                    data-gamepad-hint="triangle"
+                                    tabindex="0">
+                                <span data-i18n="btnAddFolderLabel">Adicionar Nova Pasta</span>
+                            </button>
+                            <button class="modal-btn cancel"
+                                    data-gamepad-hint="cancel"
+                                    tabindex="0"
+                                    onclick="closeModal()">
+                                <span data-i18n="btnBackLabel">Voltar</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!--
         Ordem obrigatória:
           1. strings.js    — t() disponível para todos
           2. navigation.js — declara isModalOpen, pendingInteractionCard e toda lógica de input
           3. app.js        — define switchTab + toda lógica de app (NÃO redefinir switchTab aqui)
     -->
-        <div id="setupContainer"></div>
+    <div id="setupContainer"></div>
 
-        <script src="strings.js"></script>
-        <script src="navigation.js"></script>
-        <script src="app.js"></script>
-        <script src="media.js"></script>
-        <script src="nav-menu.js"></script>
-        <script src="setup.js"></script>
+
+    <script src="strings.js"></script>
+
+    <script src="store.js"></script>
+    <script src="renderer.js"></script>
+    <script src="grid-controller.js"></script>
+
+    <script src="navigation.js"></script>
+    <script src="app.js"></script>
+    <script src="media.js"></script>
+    <script src="nav-menu.js"></script>
+    <script src="setup.js"></script>
 
 </body>
 </html>

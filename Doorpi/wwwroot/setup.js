@@ -519,30 +519,32 @@ function _validateAndFinish() {
         }
     }
 
+    // 1. Fecha o Setup e limpa a memória (fundo animado, etc)
     closeSetup();
 
-   
+    // 2. Aciona a interface de Loading
     const title = typeof t === 'function' ? t('preparingSystem', 'Preparando...') : 'Preparando...';
     if (typeof showSystemLoading === 'function') {
         showSystemLoading(title, 'Configurando pastas e baixando mídias...');
     } else if (typeof showGlobalLoading === 'function') {
         showGlobalLoading(title, 'Configurando pastas e baixando mídias...');
     } else {
-       
         window.postMessage({ type: 'showSystemLoading', title: title, subtitle: 'Configurando pastas e baixando mídias...' }, '*');
     }
 
-    postToHost({
-        action: 'saveSetupUsers',
-        activeIndex: 0,
-        createAll: _isAddingUserMode,
-        users: _setupUsers.map(u => ({
-            name: u.name,
-            photoBase64: u.photoBase64,
-            apiKey: u.apiKey,
-            folders: u.folders
-        }))
-    });
+    setTimeout(() => {
+        postToHost({
+            action: 'saveSetupUsers',
+            activeIndex: 0,
+            createAll: _isAddingUserMode,
+            users: _setupUsers.map(u => ({
+                name: u.name,
+                photoBase64: u.photoBase64,
+                apiKey: u.apiKey,
+                folders: u.folders
+            }))
+        });
+    }, 150);
 }
 
 function _bindSetupEvents() {
