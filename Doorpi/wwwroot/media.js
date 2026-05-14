@@ -1,6 +1,6 @@
 // =============================================================================
 // media.js — Apps nativos de mídia · System Loading · Carrossel de mídia
-// Toda lógica de card espelha createGameCard do app.js
+// Toda lógica de card espelha createGameCard do app.js perfeitamente agora
 // =============================================================================
 
 const NATIVE_APPS = [
@@ -20,37 +20,10 @@ const MEDIA_GRID_LIMIT = 12;
 window.isSystemLoading = false;
 let _currentHomeTab = 'games';
 
-// ── Estilos ───────────────────────────────────────────────────────────────────
+// ── Estilos (Removido estilos de Skeleton duplicados) ──────────────────────────
 (function injectMediaStyles() {
     const s = document.createElement('style');
     s.textContent = `
-
-    /* ── System Loading ── */
-    /* ── Card em carregamento (Skeletons) ── */
-    .card.is-loading {
-        pointer-events: none;
-    }
-    .card.is-loading img {
-        opacity: 0;
-    }
-    .card.is-loading::before {
-        content: '';
-        position: absolute;
-        inset: 0;
-        border-radius: inherit;
-        background: linear-gradient(
-            90deg,
-            rgba(255,255,255,0.04) 0%,
-            rgba(255,255,255,0.10) 40%,
-            rgba(255,255,255,0.04) 100%
-        );
-        background-size: 200% 100%;
-        animation: cardShimmer 1.4s ease infinite;
-        z-index: 1;
-    }
-    .card.is-loading .title {
-        opacity: 0;
-    }
     .media-card-fallback {
         position: absolute;
         inset: 0;
@@ -67,154 +40,54 @@ let _currentHomeTab = 'games';
             linear-gradient(135deg, rgba(32,42,76,0.98), rgba(11,13,26,0.98) 58%, rgba(42,35,72,0.98));
         text-transform: uppercase;
     }
-    .media-card.no-art img {
-        display: none;
-    }
-    @keyframes cardShimmer {
-        0%   { background-position: 200% 0; }
-        100% { background-position: -200% 0; }
-    }
+    .media-card.no-art img { display: none; }
 
     #systemLoadingOverlay {
-        position: fixed;
-        inset: 0;
-        z-index: 8500;
-        display: none;
-        align-items: center;
-        justify-content: center;
-        background: #07071a;
-        flex-direction: column;
-        opacity: 1;
-        transition: opacity 0.45s ease;
+        position: fixed; inset: 0; z-index: 8500; display: none;
+        align-items: center; justify-content: center; background: #07071a;
+        flex-direction: column; opacity: 1; transition: opacity 0.45s ease;
     }
-    #systemLoadingOverlay.hiding {
-        opacity: 0;
-        pointer-events: none;
-    }
-    #systemLoadingOverlay .vb-wrap {
-        width: min(540px, 88vw);
-        text-align: center;
-    }
+    #systemLoadingOverlay.hiding { opacity: 0; pointer-events: none; }
+    #systemLoadingOverlay .vb-wrap { width: min(540px, 88vw); text-align: center; }
     .sys-apps-progress {
-        display: flex;
-        flex-direction: column;
-        gap: clamp(8px, 0.9vw, 13px);
-        margin-top: clamp(20px, 2.4vw, 36px);
-        text-align: left;
+        display: flex; flex-direction: column; gap: clamp(8px, 0.9vw, 13px);
+        margin-top: clamp(20px, 2.4vw, 36px); text-align: left;
     }
     .sys-app-row {
-        display: flex;
-        align-items: center;
-        gap: clamp(10px, 1.1vw, 16px);
-        font-family: 'Outfit', sans-serif;
-        font-size: clamp(0.8rem, 0.9vw, 1.05rem);
-        color: rgba(255,255,255,0.25);
-        transition: color 0.3s ease;
+        display: flex; align-items: center; gap: clamp(10px, 1.1vw, 16px);
+        font-family: 'Outfit', sans-serif; font-size: clamp(0.8rem, 0.9vw, 1.05rem);
+        color: rgba(255,255,255,0.25); transition: color 0.3s ease;
     }
     .sys-app-row.active { color: rgba(255,255,255,0.82); }
     .sys-app-row.done   { color: rgba(100,220,120,0.75); }
     .sys-app-dot {
-        width: 5px; height: 5px;
-        border-radius: 50%;
-        background: currentColor;
-        flex-shrink: 0;
-        transition: background 0.3s;
+        width: 5px; height: 5px; border-radius: 50%;
+        background: currentColor; flex-shrink: 0; transition: background 0.3s;
     }
-    .sys-app-row.active .sys-app-dot {
-        width: 7px; height: 7px;
-        box-shadow: 0 0 8px rgba(255,255,255,0.5);
-    }
+    .sys-app-row.active .sys-app-dot { width: 7px; height: 7px; box-shadow: 0 0 8px rgba(255,255,255,0.5); }
 
     /* ── Home Tabs ── */
-    .home-tabs {
-        display: flex;
-        align-items: center;
-        gap: clamp(4px, 0.5vw, 8px);
-        padding: 0 clamp(24px, 3.2vw, 64px);
-        position: relative;
-        z-index: 2;
-        -webkit-user-select: none;
-        user-select: none;
-    }
-    .home-tab {
-        background: none;
-        border: none;
-        font-family: 'Outfit', sans-serif;
-        font-size: clamp(0.82rem, 1.05vw, 1.3rem);
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.11em;
-        color: rgba(255,255,255,0.25);
-        cursor: pointer;
-        outline: none;
-        padding: clamp(5px, 0.6vw, 9px) clamp(7px, 0.9vw, 14px);
-        border-radius: 8px;
-        transition: color 0.2s, background 0.2s;
-        position: relative;
-    }
-    .home-tab::after {
-        content: '';
-        position: absolute;
-        bottom: -5px; left: 50%;
-        transform: translateX(-50%) scaleX(0);
-        width: 65%;
-        height: 2px;
-        background: rgba(255,255,255,0.9);
-        border-radius: 2px;
-        transition: transform 0.28s cubic-bezier(0.22,1,0.36,1);
-    }
+    .home-tabs { display: flex; align-items: center; gap: clamp(4px, 0.5vw, 8px); padding: 0 clamp(24px, 3.2vw, 64px); position: relative; z-index: 2; user-select: none; }
+    .home-tab { background: none; border: none; font-family: 'Outfit', sans-serif; font-size: clamp(0.82rem, 1.05vw, 1.3rem); font-weight: 700; text-transform: uppercase; letter-spacing: 0.11em; color: rgba(255,255,255,0.25); cursor: pointer; outline: none; padding: clamp(5px, 0.6vw, 9px) clamp(7px, 0.9vw, 14px); border-radius: 8px; transition: color 0.2s, background 0.2s; position: relative; }
+    .home-tab::after { content: ''; position: absolute; bottom: -5px; left: 50%; transform: translateX(-50%) scaleX(0); width: 65%; height: 2px; background: rgba(255,255,255,0.9); border-radius: 2px; transition: transform 0.28s cubic-bezier(0.22,1,0.36,1); }
     .home-tab.active { color: rgba(255,255,255,0.92); }
     .home-tab.active::after { transform: translateX(-50%) scaleX(1); }
-    .home-tab:focus, .home-tab:hover {
-        color: rgba(255,255,255,0.65);
-        background: rgba(255,255,255,0.06);
-    }
-    .home-tab.active:focus, .home-tab.active:hover {
-        color: #fff;
-        background: rgba(255,255,255,0.06);
-    }
-    .home-tabs-hint {
-        margin-left: auto;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-family: 'Outfit', sans-serif;
-        font-size: clamp(0.6rem, 1vw, 1.4rem);
-
-        letter-spacing: 0.05em;
-        user-select: none;
-    }
-    .home-tabs-hint b {
-        background: rgba(255,255,255,0.08);
-        border: 1px solid rgba(255,255,255,0.1);
-        border-radius: 4px;
-        padding: 1px 5px;
-        font-weight: 600;
-        font-size: 0.95em;
-    }
-
-    /* ── Visibilidade por aba ── */
+    .home-tab:focus, .home-tab:hover { color: rgba(255,255,255,0.65); background: rgba(255,255,255,0.06); }
+    .home-tab.active:focus, .home-tab.active:hover { color: #fff; background: rgba(255,255,255,0.06); }
+    
     #mediaGrid { display: none; }
     #mediaGrid.active { display: flex; }
     #gameGrid.tab-hidden { display: none; }
 
-    /* ── Media queries ── */
-    @media (max-height: 900px), (max-width: 1600px) {
-        .home-tab { font-size: clamp(0.7rem, 0.88vw, 1rem); }
-    }
-    @media (max-height: 768px) {
-        .home-tab { font-size: clamp(0.65rem, 0.8vw, 0.88rem); padding: 4px 8px; }
-        .home-tabs { margin-bottom: 6px; }
-    }
+    @media (max-height: 900px), (max-width: 1600px) { .home-tab { font-size: clamp(0.7rem, 0.88vw, 1rem); } }
+    @media (max-height: 768px) { .home-tab { font-size: clamp(0.65rem, 0.8vw, 0.88rem); padding: 4px 8px; } .home-tabs { margin-bottom: 6px; } }
     `;
     document.head.appendChild(s);
 })();
 
 // ── System Loading ────────────────────────────────────────────────────────────
 function showSystemLoading(title, subtitle, folders = []) {
-
     window.isSystemLoading = true;
-
     let overlay = document.getElementById('systemLoadingOverlay');
     if (!overlay) {
         overlay = document.createElement('div');
@@ -223,58 +96,23 @@ function showSystemLoading(title, subtitle, folders = []) {
     }
 
     overlay.classList.remove('hiding');
-
-    // Rows dos apps nativos
-    const stepRows = NATIVE_APPS.map(app =>
-        `<div class="sys-app-row" id="sysRow_${app.id}">
-            <div class="sys-app-dot"></div>
-            <span>${app.name}</span>
-        </div>`
-    ).join('');
-
-    // Rows das pastas (só renderiza se houver pastas)
-    const folderRows = folders.length > 0
-        ? `<div class="sys-section-sep" style="height:10px;"></div>
-           <div class="sys-section-label" style="font-size: 0.75rem; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 2px;">${t('sysMediaFolders')}</div>
-           ${folders.map(f => {
-            const name = f.replace(/\\/g, '/').split('/').filter(Boolean).pop() || f;
-            return `<div class="sys-app-row" id="sysFolderRow_${CSS.escape(f)}" data-folder-path="${f.replace(/"/g, '&quot;')}">
-                   <div class="sys-app-dot"></div>
-                   <span>${name}</span>
-                   <span class="sys-folder-count">...</span>
-               </div>`;
-        }).join('')}`
-        : '';
-
-    // Status de Loading dos Jogos Iniciais
-    const syncRow = `<div class="sys-section-sep" style="height:10px;"></div>
-                     <div class="sys-app-row active" id="sysRow_artSync">
-                        <div class="sys-app-dot"></div>
-                        <span>${t('sysMediaDownloadingCovers')}</span>
-                     </div>`;
+    const stepRows = NATIVE_APPS.map(app => `<div class="sys-app-row" id="sysRow_${app.id}"><div class="sys-app-dot"></div><span>${app.name}</span></div>`).join('');
+    const folderRows = folders.length > 0 ? `<div class="sys-section-sep" style="height:10px;"></div><div class="sys-section-label" style="font-size: 0.75rem; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 2px;">${t('sysMediaFolders')}</div>${folders.map(f => { const name = f.replace(/\\/g, '/').split('/').filter(Boolean).pop() || f; return `<div class="sys-app-row" id="sysFolderRow_${CSS.escape(f)}" data-folder-path="${f.replace(/"/g, '&quot;')}"><div class="sys-app-dot"></div><span>${name}</span><span class="sys-folder-count">...</span></div>`; }).join('')}` : '';
+    const syncRow = `<div class="sys-section-sep" style="height:10px;"></div><div class="sys-app-row active" id="sysRow_artSync"><div class="sys-app-dot"></div><span>${t('sysMediaDownloadingCovers')}</span></div>`;
 
     overlay.innerHTML = `
         <div class="vb-wrap">
             <div class="vb-center">
                 <div class="vb-ring-wrap">
-                    <div class="vb-ring outer"></div>
-                    <div class="vb-ring inner"></div>
-                    <div class="vb-ring core"></div>
-                    <div class="vb-ring-dot"></div>
+                    <div class="vb-ring outer"></div><div class="vb-ring inner"></div><div class="vb-ring core"></div><div class="vb-ring-dot"></div>
                 </div>
                 <div class="vb-text">
-                    <div class="vb-title">${title}</div>
-                    <div class="vb-subtitle">${subtitle}</div>
+                    <div class="vb-title">${title}</div><div class="vb-subtitle">${subtitle}</div>
                     <div class="vb-dots"><span></span><span></span><span></span></div>
                 </div>
             </div>
-            <div class="sys-apps-progress" id="sysAppsProgress">
-                ${stepRows}
-                ${folderRows}
-                ${syncRow}
-            </div>
+            <div class="sys-apps-progress" id="sysAppsProgress">${stepRows}${folderRows}${syncRow}</div>
         </div>`;
-
     overlay.style.display = 'flex';
 }
 
@@ -282,19 +120,10 @@ function hideSystemLoading() {
     window.isSystemLoading = false;
     const overlay = document.getElementById('systemLoadingOverlay');
     if (!overlay || overlay.style.display === 'none') return;
-
-    // Atualiza a linha de progresso das artes para verde caso estivesse rodando
     const syncRow = document.getElementById('sysRow_artSync');
-    if (syncRow) {
-        syncRow.classList.remove('active');
-        syncRow.classList.add('done');
-    }
-
+    if (syncRow) { syncRow.classList.remove('active'); syncRow.classList.add('done'); }
     overlay.classList.add('hiding');
-    setTimeout(() => {
-        overlay.style.display = 'none';
-        overlay.classList.remove('hiding');
-    }, 460);
+    setTimeout(() => { overlay.style.display = 'none'; overlay.classList.remove('hiding'); }, 460);
 }
 
 function updateSysAppProgress(appId, state) {
@@ -309,9 +138,7 @@ function switchHomeTab(tab) {
     if (_currentHomeTab === tab) return;
     _currentHomeTab = tab;
 
-    document.querySelectorAll('.home-tab').forEach(btn =>
-        btn.classList.toggle('active', btn.dataset.tab === tab)
-    );
+    document.querySelectorAll('.home-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tab));
 
     const gameGrid = document.getElementById('gameGrid');
     const mediaGrid = document.getElementById('mediaGrid');
@@ -345,75 +172,59 @@ window.switchHomeTab = switchHomeTab;
 window.cycleHomeTab = cycleHomeTab;
 window.getCurrentHomeTab = () => _currentHomeTab;
 
-// ── Criar card de mídia ───────────────────────────────────────────────────────
-
-function _moveMediaCardToTop(card) {
-    if (!card) return;
-    const grid = document.getElementById('mediaGrid');
-
-    grid.querySelectorAll('.card.featured').forEach(c => {
-        c.classList.remove('featured');
-        const img = c.querySelector('img');
-        if (img) img.src = c.dataset.staticVertical || c.dataset.vertical || '';
-    });
-
-    card.classList.add('featured');
-
-    const btnAddMedia = document.getElementById('btnAddMedia');
-    grid.insertBefore(card, grid.firstChild);
-    grid.appendChild(btnAddMedia);
-
-    const img = card.querySelector('img');
-    if (img) {
-        const src = card.dataset.staticHorizontal || card.dataset.horizontal
-            || card.dataset.staticVertical || card.dataset.vertical || '';
-        if (src) img.src = src;
-    }
-
-    if (_currentHomeTab === 'media') card._startInteraction?.();
-}
-
+// ── Criar card de mídia (Igual ao Card de Jogo!) ─────────────────────────────
 function createMediaCard(data) {
     const grid = document.getElementById('mediaGrid');
     if (!grid) return;
+    const btnAdd = document.getElementById('btnAddMedia');
+
     if (grid.querySelectorAll('.card:not(.add-card)').length >= MEDIA_GRID_LIMIT) return;
 
-    const appId = data.Id || data.id || '';
-    const appUrl = data.Url || data.url || '';
-    const appType = data.Type || data.type || 'browser';
-    const appName = data.Name || data.name || '';
-
     const card = document.createElement('div');
+
+    // Substitui skeleton de loading um a um, igual ao de Jogos
+    const pendingLoading = grid.querySelector('.card.loading-card');
+    if (pendingLoading) {
+        if (pendingLoading.classList.contains('featured')) {
+            card.classList.add('featured');
+        }
+        pendingLoading.remove();
+    }
+
     card.className = 'card media-card';
     card.tabIndex = 0;
+    card.dataset.badgeNew = t('badgeNew');
+
+    const appId = data.Id || data.id || '';
+    const appUrl = data.Url || data.url || data.launchUrl || data.path || '';
+
+    // Tag de NOVO (Identifica se foi baixado na sessão atual)
+    if (newGameIdsThisSession.has(appUrl)) card.classList.add('new-game');
 
     card.dataset.appId = appId;
     card.dataset.appUrl = appUrl;
-    card.dataset.appType = appType;
-    card.dataset.ownerUserId = data.OwnerUserId || data.ownerUserId || '';
+    card.dataset.appType = data.Type || data.type || 'browser';
     card.dataset.shareMode = data.ShareMode || data.shareMode || 'private';
-    card.dataset.sharedWithUserId = data.SharedWithUserId || data.sharedWithUserId || '';
     card.dataset.sharedFromOther = (data.IsSharedFromOtherUser || data.isSharedFromOtherUser) ? 'true' : 'false';
-    card.dataset.sharedFromName = data.SharedFromUserName || data.sharedFromUserName || '';
-    card.dataset.hero = data.HeroImage || data.heroImage || '';
-    card.dataset.logo = data.LogoImage || data.logoImage || '';
-    card.dataset.vertical = data.GridImage || data.gridImage || '';
-    card.dataset.horizontal = data.GridHorizontalImage || data.gridHorizontalImage || '';
-    card.dataset.staticVertical = data.GridStaticImage || data.gridStaticImage || '';
-    card.dataset.staticHorizontal = data.GridHorizontalStaticImage || data.gridHorizontalStaticImage || '';
-    card.dataset.staticHero = data.HeroStaticImage || data.heroStaticImage || '';
-    card.dataset.staticLogo = data.LogoStaticImage || data.logoStaticImage || '';
+    card.dataset.hero = data.HeroImage || data.heroImage || data.hero || '';
+    card.dataset.logo = data.LogoImage || data.logoImage || data.logo || '';
+    card.dataset.vertical = data.GridImage || data.gridImage || data.imageData || '';
+    card.dataset.horizontal = data.GridHorizontalImage || data.gridHorizontalImage || data.horizontalImage || '';
+    card.dataset.staticVertical = data.GridStaticImage || data.gridStaticImage || data.staticImageData || '';
+    card.dataset.staticHorizontal = data.GridHorizontalStaticImage || data.gridHorizontalStaticImage || data.staticHorizontalImage || '';
+    card.dataset.staticHero = data.HeroStaticImage || data.heroStaticImage || data.staticHero || '';
+    card.dataset.staticLogo = data.LogoStaticImage || data.logoStaticImage || data.staticLogo || '';
 
-    if (!grid.querySelector('.card.featured')) card.classList.add('featured');
+    // Se é o primeiro card e não há mais nada na tela que seja featured
+    if (data.isFeatured || (!grid.querySelector('.card.featured') && !card.classList.contains('featured'))) {
+        card.classList.add('featured');
+    }
 
     const img = document.createElement('img');
     img.decoding = 'async';
     const fallback = document.createElement('div');
     fallback.className = 'media-card-fallback';
-    fallback.textContent = (appName || '?').trim().charAt(0) || '?';
-
-    const hasSrc = card.dataset.vertical || card.dataset.staticVertical;
-    if (!hasSrc) card.classList.add('is-loading');
+    fallback.textContent = (data.Name || data.name || '?').trim().charAt(0) || '?';
 
     Promise.all([
         processImage(card, card.dataset.vertical, 'staticVertical', 'GridStatic', appId),
@@ -422,15 +233,13 @@ function createMediaCard(data) {
         processImage(card, card.dataset.logo, 'staticLogo', 'LogoStatic', appId),
     ]).then(() => {
         const src = card.classList.contains('featured')
-            ? card.dataset.staticHorizontal
-            : card.dataset.staticVertical;
+            ? (card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical)
+            : (card.dataset.staticVertical || card.dataset.vertical);
         if (src) {
             img.src = src;
             img.style.opacity = '1';
-            card.classList.remove('is-loading');
             fallback.remove();
         } else {
-            card.classList.remove('is-loading');
             card.classList.add('no-art');
         }
     });
@@ -439,9 +248,7 @@ function createMediaCard(data) {
         if (_currentHomeTab === 'media') {
             const bgSrc = card.dataset.staticVertical || card.dataset.vertical;
             const logoSrc = card.dataset.staticLogo || card.dataset.logo;
-            const heroSrc = card.dataset.staticHero || card.dataset.hero
-                || card.dataset.staticHorizontal || card.dataset.horizontal
-                || bgSrc;
+            const heroSrc = card.dataset.staticHero || card.dataset.hero || card.dataset.staticHorizontal || card.dataset.horizontal || bgSrc;
             switchHeroBackground(bgSrc, logoSrc, heroSrc);
         }
 
@@ -450,9 +257,7 @@ function createMediaCard(data) {
             const active = () => document.activeElement === card || card.matches(':hover');
             if (!active()) return;
 
-            const animGrid = card.classList.contains('featured')
-                ? (card.dataset.horizontal || card.dataset.vertical)
-                : card.dataset.vertical;
+            const animGrid = card.classList.contains('featured') ? (card.dataset.horizontal || card.dataset.vertical) : card.dataset.vertical;
             if (animGrid) await setImgSrc(img, animGrid);
 
             const animHero = card.dataset.hero;
@@ -476,46 +281,35 @@ function createMediaCard(data) {
             : (card.dataset.staticVertical || card.dataset.vertical);
         setImgSrc(img, staticGrid);
 
-        if (_currentHomeTab === 'media') {
-            const staticHero = card.dataset.staticHero || card.dataset.hero;
-            if (staticHero) setImgSrc(document.getElementById('heroImage'), staticHero);
-
-            const staticLogo = card.dataset.staticLogo || card.dataset.logo;
-            const logoEl = document.getElementById('gameLogo');
-            if (logoEl && staticLogo) setImgSrc(logoEl, staticLogo);
-        }
+        // O clearHero é tratado globalmente pelo app.js, não apagamos a arte aqui imediatamente.
     };
 
     card._startInteraction = startInteraction;
     card._stopInteraction = stopInteraction;
-
     card.addEventListener('mouseenter', startInteraction);
     card.addEventListener('mouseleave', stopInteraction);
-    card.addEventListener('focus', () => {
-        pendingInteractionCard = card;
-        signalNavigation();
-    });
-    card.addEventListener('blur', () => {
-        if (pendingInteractionCard === card) pendingInteractionCard = null;
-        stopInteraction();
-    });
+    card.addEventListener('focus', () => { pendingInteractionCard = card; signalNavigation(); });
+    card.addEventListener('blur', () => { if (pendingInteractionCard === card) pendingInteractionCard = null; stopInteraction(); });
+
     card.addEventListener('click', () => {
-        _moveMediaCardToTop(card);
+        window.trackGameOpened?.(appUrl);
         window.isMediaAppActive = true;
         postToHost({
             action: 'launchMediaApp',
             url: appUrl,
-            appType: appType,
+            appType: card.dataset.appType,
             toastTitle: t('toastCopied'),
             toastSub: t('toastReturning')
         });
     });
+
     card.appendChild(img);
     card.appendChild(fallback);
     const title = document.createElement('div');
     title.className = 'title';
-    title.innerText = appName;
+    title.innerText = data.Name || data.name;
     card.appendChild(title);
+
     if (card.dataset.shareMode !== 'private' || card.dataset.sharedFromOther === 'true') {
         const badge = document.createElement('div');
         badge.className = 'title';
@@ -524,15 +318,19 @@ function createMediaCard(data) {
         card.appendChild(badge);
     }
 
-    const btnAddMedia = document.getElementById('btnAddMedia');
-    grid.insertBefore(card, btnAddMedia);
+    if (btnAdd) grid.insertBefore(card, btnAdd);
+    else grid.appendChild(card);
+
+    reorderGrid('mediaGrid', 'btnAddMedia');
 
     if (card.classList.contains('featured') && _currentHomeTab === 'media') {
-        startInteraction();
+        setTimeout(() => {
+            startInteraction();
+            window.focusFeaturedCard?.();
+        }, 100);
     }
 }
 
-// ── Renderizar carrossel ──────────────────────────────────────────────────────
 function renderMediaCarousel(apps) {
     const grid = document.getElementById('mediaGrid');
     if (!grid) return;
@@ -540,7 +338,7 @@ function renderMediaCarousel(apps) {
     apps.slice(0, MEDIA_GRID_LIMIT).forEach(app => createMediaCard(app));
 }
 
-// ── Bridge ────────────────────────────────────────────────────────────────────
+// ── Bridge Específica (Processos internos da tab de mídia) ────────────────────
 window._mediaHandleMessage = (data) => {
     switch (data.type) {
         case 'nativeAppsLoaded':
@@ -554,35 +352,6 @@ window._mediaHandleMessage = (data) => {
         case 'nativeAppProgress':
             updateSysAppProgress(data.appId, data.state);
             break;
-
-        // Cria os esqueletos ao adicionar jogos
-        case 'showLoadingCards': {
-            const grid = document.getElementById(data.tab === 'media' ? 'mediaGrid' : 'gameGrid');
-            if (!grid) break;
-
-            for (let i = 0; i < data.count; i++) {
-                const skel = document.createElement('div');
-                skel.className = 'card is-loading loading-skeleton'; // Utiliza exatamente a classe nativa 'card'
-                skel.tabIndex = -1; // Não pode receber foco
-
-                // Insere sempre APÓS o card featured (ou no começo se não houver)
-                const feat = grid.querySelector('.card.featured');
-                if (feat && feat.nextSibling) {
-                    grid.insertBefore(skel, feat.nextSibling);
-                } else if (feat) {
-                    grid.appendChild(skel);
-                } else {
-                    grid.insertBefore(skel, grid.firstChild);
-                }
-            }
-            break;
-        }
-
-        // Limpa os esqueletos assim que os downloads do C# finalizam
-        case 'clearLoadingCards': {
-            document.querySelectorAll('.loading-skeleton').forEach(el => el.remove());
-            break;
-        }
 
         case 'scanProgress': {
             const rows = document.querySelectorAll('#systemLoadingOverlay .sys-app-row[data-folder-path]');

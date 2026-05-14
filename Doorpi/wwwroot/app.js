@@ -109,25 +109,46 @@ const SCAN_LIBS = ['Steam', 'Epic', 'GOG', 'Riot', 'Windows', 'Folder'];
     document.head.appendChild(s);
 })();
 
-function reorderGameGrid() {
-    const grid = document.getElementById('gameGrid');
+function reorderGrid(gridId, btnId) {
+    const grid = document.getElementById(gridId);
     if (!grid) return;
-    const btnAdd = document.getElementById('btnAdd');
+    const btnAdd = document.getElementById(btnId);
 
-    const cards = Array.from(grid.querySelectorAll('.card:not(.add-card):not(.loading-card)'));
+    // Ignora o botão Add na ordenação, pegando apenas os cards reais e os skeletons
+    const cards = Array.from(grid.querySelectorAll('.card')).filter(c => c !== btnAdd && !c.classList.contains('add-card'));
+
+    // Resolve a tag de NOVO universalmente (incluindo WebApps)
+    cards.forEach(c => {
+        const id = c.dataset.gameId || c.dataset.appId || c.dataset.appUrl || '';
+        // Verifica com e sem barra no final para garantir que a URL do WebApp não falhe
+        if (window.newGameIdsThisSession.has(id) || window.newGameIdsThisSession.has(id.replace(/\/$/, ''))) {
+            c.classList.add('new-game');
+        }
+    });
 
     const featured = cards.find(c => c.classList.contains('featured'));
-    const rest = cards.filter(c => !c.classList.contains('featured'));
+    const rest = cards.filter(c => c !== featured);
 
     rest.sort((a, b) => {
-        const aId = a.dataset.gameId;
-        const bId = b.dataset.gameId;
+        const aIsLoading = a.classList.contains('loading-card') ? 1 : 0;
+        const bIsLoading = b.classList.contains('loading-card') ? 1 : 0;
+
+        const aId = a.dataset.gameId || a.dataset.appId || a.dataset.appUrl || '';
+        const bId = b.dataset.gameId || b.dataset.appId || b.dataset.appUrl || '';
+
         const aNew = window.newGameIdsThisSession.has(aId) ? 1 : 0;
         const bNew = window.newGameIdsThisSession.has(bId) ? 1 : 0;
+
         const aOIdx = window.recentlyOpenedIds.indexOf(aId);
         const bOIdx = window.recentlyOpenedIds.indexOf(bId);
 
+        // 1º LUGAR ABSOLUTO: Skeletons aparecem primeiro, imediatamente após o destaque!
+        if (aIsLoading !== bIsLoading) return bIsLoading - aIsLoading;
+
+        // 2º LUGAR: Jogos e Apps Novos que acabaram de baixar a capa
         if (bNew !== aNew) return bNew - aNew;
+
+        // 3º LUGAR: Ordem de jogo aberto recentemente
         if (!aNew && !bNew) {
             if (aOIdx !== -1 && bOIdx === -1) return -1;
             if (aOIdx === -1 && bOIdx !== -1) return 1;
@@ -141,11 +162,6 @@ function reorderGameGrid() {
         if (btnAdd) grid.insertBefore(card, btnAdd);
         else grid.appendChild(card);
     });
-    const loadingCards = Array.from(grid.querySelectorAll('.card.loading-card'));
-    loadingCards.forEach(c => {
-        if (btnAdd) grid.insertBefore(c, btnAdd);
-        else grid.appendChild(c);
-    });
 }
 
 window.trackGameOpened = function (gameId) {
@@ -153,8 +169,10 @@ window.trackGameOpened = function (gameId) {
         gameId,
         ...window.recentlyOpenedIds.filter(id => id !== gameId)
     ];
-    reorderGameGrid();
+    reorderGrid('gameGrid', 'btnAdd');
+    reorderGrid('mediaGrid', 'btnAddMedia');
 };
+
 setInterval(() => {
     document.getElementById('clock').innerText = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }, 1000);
@@ -168,7 +186,12 @@ window.chrome.webview.addEventListener('message', event => {
             window._pendingExtensionUpdates = data.updates;
         }
         if (data.type === 'newGame') {
-            createGameCard(data);
+            const isMediaApp = data.isMedia || data.tab === 'media' || data.appUrl !== undefined || data.appType !== undefined;
+            if (isMediaApp && typeof createMediaCard === 'function') {
+                createMediaCard(data);
+            } else {
+                createGameCard(data);
+            }
         }
         else if (data.type === 'extensionsList' || data.type === 'extensionUpdatesList') {
             if (data.type === 'extensionUpdatesList') {
@@ -189,11 +212,9 @@ window.chrome.webview.addEventListener('message', event => {
             allInstalledApps = data.apps;
             refreshInstalledAppsView();
         }
-        else if (data.type === 'showLoadingCards') {
-            showLoadingCards(data.count, data.tab || 'games');
-        }
         else if (data.type === 'clearLoadingCards') {
-            clearLoadingCards('games');
+            clearLoadingCards(data.tab || 'games');
+            if (!data.tab) clearLoadingCards('media'); 
         }
         else if (data.type === 'showSetup') {
             if (typeof openSetup === 'function') openSetup();
@@ -1131,8 +1152,7 @@ function populateAppModal(apps) {
             selected.forEach(g => newGameIdsThisSession.add(g.LaunchUrl || g.Path));
             postToHost({ action: 'addSelectedGames', games: selected });
             showLoadingCards(selected.length, 'games');
-            showGlobalLoading(t('downloadingCovers'), t('readingApps'));
-            setTimeout(closeModal, 3000);
+            closeModal(); // Fecha instantaneamente e deixa os skeletons na UI
         } else {
             closeModal();
         }
@@ -1293,7 +1313,6 @@ function createGameCard(data) {
     card.dataset.staticLogo = data.staticLogo || '';
 
     if (data.isFeatured) card.classList.add('featured');
-    if (newGameIdsThisSession.has(gameId)) card.classList.add('new-game');
 
     const img = document.createElement('img');
     img.decoding = 'async';
@@ -1380,7 +1399,7 @@ function createGameCard(data) {
 
     if (btnAdd) grid.insertBefore(card, btnAdd);
     else grid.appendChild(card);
-    reorderGameGrid();
+    reorderGrid('gameGrid', 'btnAdd');
 
     if (data.isFeatured) {
         setTimeout(() => {
@@ -1621,6 +1640,55 @@ function toggleNavMenu(isOpen) {
 (function injectStyles() {
     const s = document.createElement('style');
     s.textContent = `
+    .home-tabs-hint {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-family: 'Outfit', sans-serif;
+        font-size: clamp(0.6rem, 1vw, 1.4rem);
+        color: rgba(255, 255, 255, 0.4);
+        letter-spacing: 0.05em;
+        user-select: none;
+    }
+    .home-tabs-hint b {
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 4px;
+        padding: 1px 5px;
+        font-weight: 600;
+        font-size: 0.95em;
+        color: #fff;
+    }
+    /* ── Skeletons de Loading (Tamanho e Shimmer perfeitos) ── */
+    .card.loading-card {
+        pointer-events: none;
+        position: relative;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.02);
+    }
+    .card.loading-card img {
+        display: none !important;
+    }
+    .card.loading-card::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: linear-gradient(
+            90deg,
+            rgba(255,255,255,0.02) 0%,
+            rgba(255,255,255,0.08) 40%,
+            rgba(255,255,255,0.02) 100%
+        );
+        background-size: 200% 100%;
+        animation: cardShimmer 1.4s ease infinite;
+        z-index: 1;
+    }
+    @keyframes cardShimmer {
+        0%   { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+    }
         /* Camadas de Renderização Otimizadas */
         .main-content-wrapper,
         #heroImage,
@@ -2736,25 +2804,38 @@ document.addEventListener('focusin', () => {
 });
 function showLoadingCards(count, tab = 'games') {
     const gridId = tab === 'games' ? 'gameGrid' : 'mediaGrid';
+    const btnId = tab === 'games' ? 'btnAdd' : 'btnAddMedia';
     const grid = document.getElementById(gridId);
     if (!grid) return;
 
-    const btnRef = tab === 'games'
-        ? document.getElementById('btnAdd')
-        : document.getElementById('btnAddMedia');
-
-    const existing = grid.querySelectorAll('.card:not(.add-card):not(.loading-card)').length;
-    const toShow = Math.min(count, Math.max(0, 12 - existing));
-
-    for (let i = 0; i < toShow; i++) {
+    // Gera EXATAMENTE a quantidade de skeletons que o usuário selecionou no contador
+    for (let i = 0; i < count; i++) {
         const card = document.createElement('div');
         card.className = 'card loading-card';
-        if (i === 0 && !grid.querySelector('.card.featured:not(.loading-card)')) {
-            card.classList.add('featured');
-        }
-        if (btnRef) grid.insertBefore(card, btnRef);
+
+        // 🖼️ Imagem SVG dummy para forçar o skeleton a ter a proporção exata de um card normal
+        const imgDummy = document.createElement('img');
+        imgDummy.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 900'%3E%3C/svg%3E";
+        imgDummy.style.opacity = '0';
+        card.appendChild(imgDummy);
+
+        const titleDummy = document.createElement('div');
+        titleDummy.className = 'title';
+        titleDummy.style.opacity = '0';
+        titleDummy.innerText = '...';
+        card.appendChild(titleDummy);
+
+        const btnAdd = document.getElementById(btnId);
+        if (btnAdd) grid.insertBefore(card, btnAdd);
         else grid.appendChild(card);
     }
+
+    // Move os skeletons imediatamente para a primeira posição
+    reorderGrid(gridId, btnId);
+
+    // Limpa o contador de seleção do modal
+    const selectionCounter = document.getElementById(tab === 'games' ? 'selectionCounter' : 'selectionCounterMedia');
+    selectionCounter?.classList.remove('visible');
 }
 
 function clearLoadingCards(tab = 'games') {
@@ -2918,8 +2999,12 @@ function _submitWebApp() {
         url = 'https://' + url;
     }
 
-    showGlobalLoading(t('downloadingCovers'), t('readingApps'));
+    // Adiciona ao set de IDs para marcar como "novo"
+    window.newGameIdsThisSession.add(url);
+    // Mostra 1 skeleton para o webapp que será adicionado
+    showLoadingCards(1, 'media');
     postToHost({ action: 'addWebApp', name, url });
+    closeModal(); // Fecha o modal imediatamente
 }
 
 function _shakeWebField(inputId, hintEl, msg) {
@@ -2968,10 +3053,9 @@ function _renderExeAppModal() {
 
         if (selected.length > 0) {
             selected.forEach(app => newGameIdsThisSession.add(app.LaunchUrl || app.Path));
-            showLoadingCards(selected.length, 'media');
             postToHost({ action: 'addSelectedMediaApps', apps: selected });
-            showGlobalLoading(t('downloadingCovers'), t('readingApps'));
-            setTimeout(closeModal, 3000);
+            showLoadingCards(selected.length, 'media');
+            closeModal(); // Fecha instantaneamente
         } else {
             closeModal();
         }

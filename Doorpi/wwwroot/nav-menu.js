@@ -278,7 +278,6 @@ window.isNavMenuOpen = false;
             gap: clamp(16px, 0.8vw, 24px); padding-bottom: 40px;
             animation: fadeInTop 0.4s ease;
         }
-
         .nav-vertical-card {
             aspect-ratio: 2/3; border-radius: 8px; overflow: hidden;
             background: rgba(255,255,255,0.03); border: 2px solid transparent;
@@ -629,8 +628,11 @@ window.isNavMenuOpen = false;
                 card.dataset.appType = item.Type || 'browser';
             }
 
-            const itemKey = item.LaunchUrl || item.Path || '';
-            if (item._isNew || window.newGameIdsThisSession?.has(itemKey)) {
+            const itemKey = item.LaunchUrl || item.Path || item.Url || item.Id || '';
+            const isNewSession = window.newGameIdsThisSession?.has(itemKey) ||
+                window.newGameIdsThisSession?.has(itemKey.replace(/\/$/, ''));
+
+            if (item._isNew || isNewSession) {
                 card.classList.add('new-game');
             }
 
