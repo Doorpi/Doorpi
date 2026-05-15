@@ -243,6 +243,7 @@ namespace Doorpi
         private const uint INPUT_KEYBOARD = 1;
         private const uint KEYEVENTF_KEYUP = 0x0002;
 
+        private Process? _mediaExeProcess;
 
 
         // ========================= CONSTRUTOR =========================
@@ -250,12 +251,28 @@ namespace Doorpi
         public MainWindow()
         {
             InitializeComponent();
+            // DEPOIS:
             this.Activated += (s, e) => {
-                if (webView?.CoreWebView2 != null)
+                if (_mediaExeModeActive)
                 {
-                    webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"windowFocused\"}");
+                    // Usuário voltou para o Doorpi (taskbar, alt-tab, etc.) — sai do modo exe
+                    _mediaExeModeActive = false;
+                    _mediaExeProcess = null;
+                    SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
+                    Dispatcher.InvokeAsync(() =>
+                    {
+                        _desktopVkb?.Close();
+                        _desktopVkb = null;
+                        WindowState = WindowState.Maximized;
+                        webView?.Focus();
+                    });
+                    // Continua para enviar windowFocused normalmente
                 }
+                if (webView?.CoreWebView2 != null)
+                    webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"windowFocused\"}");
             };
+
+
             dataFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data");
             gridFolder = Path.Combine(dataFolder, "images", "grid");
             heroFolder = Path.Combine(dataFolder, "images", "hero");
@@ -718,6 +735,275 @@ namespace Doorpi
         private volatile bool _systemControllerActive = false;
         private const uint KEYEVENTF_UNICODE = 0x0004;
         private DesktopVkbWindow _desktopVkb;
+
+        private volatile bool _mediaExeModeActive = false;
+        private Thread? _mediaExeThread;
+
+        private void MediaExeControllerLoop()
+        {
+            var sw = Stopwatch.StartNew();
+            ushort prevButtons = 0;
+            double remainderX = 0, remainderY = 0;
+
+            bool isClicking = false, aWasOnTextField = false, aDragOccurred = false;
+            double clickAccumX = 0, clickAccumY = 0;
+            bool dragBrokeThreshold = false;
+            bool ignoreNextBRelease = false;
+
+            bool isHoldingX = false;
+            DateTime xPressTime = DateTime.MinValue, lastBackspaceFired = DateTime.MinValue;
+
+            var prevAnalogActive = new Dictionary<VkbHoldAction, bool> {
+        { VkbHoldAction.MoveUp, false }, { VkbHoldAction.MoveDown, false },
+        { VkbHoldAction.MoveLeft, false }, { VkbHoldAction.MoveRight, false },
+        { VkbHoldAction.CursorLeft, false }, { VkbHoldAction.CursorRight, false },
+        { VkbHoldAction.ToggleLayer, false }
+    };
+
+            while (_mediaExeModeActive)
+            {
+                try
+                {
+                    double dt = sw.Elapsed.TotalSeconds;
+                    sw.Restart();
+                    if (dt > 0.05) dt = 0.016;
+
+                    if (XInputGetStateSecret(0, out var state) == 0)
+                    {
+                        var gp = state.Gamepad;
+                        ushort btn = gp.wButtons;
+
+                        bool Pressed(ushort m) => (btn & m) != 0 && (prevButtons & m) == 0;
+                        bool Released(ushort m) => (btn & m) == 0 && (prevButtons & m) != 0;
+
+                        // ── Start+Select ou botão Xbox = voltar pro Doorpi ──
+                        bool exitCombo = (btn & 0x0010) != 0 && (btn & 0x0020) != 0;
+                        bool xboxBtn = (btn & 0x0400) != 0;
+                        if (exitCombo || xboxBtn)
+                        {
+                            _mediaExeModeActive = false;
+                            _mediaExeProcess = null;
+                            SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
+                            Dispatcher.Invoke(() =>
+                            {
+                                _desktopVkb?.Close();
+                                _desktopVkb = null;
+                                WindowState = WindowState.Maximized;
+                                Activate();
+                                webView?.Focus();
+                                webView?.CoreWebView2?.ExecuteScriptAsync(
+                                    "window.isMediaAppActive = false; window.focusFeaturedCard();");
+                            });
+                            break;
+                        }
+
+                        // ── VKB aberto: redireciona analógico esquerdo para navegar ──
+                        bool vkbIsOpen = false;
+                        Dispatcher.Invoke(() => vkbIsOpen = _desktopVkb?.IsVisible == true);
+
+                        if (vkbIsOpen)
+                        {
+                            double lx = gp.sThumbLX / 32767.0, ly = gp.sThumbLY / 32767.0;
+                            const double DEAD = 0.6;
+                            bool ltAnalog = gp.bLeftTrigger > 128;
+
+                            void HandleHold(ushort mask, bool analogActive, VkbHoldAction action)
+                            {
+                                bool isDown = (btn & mask) != 0 || analogActive;
+                                bool wasDown = (prevButtons & mask) != 0 || prevAnalogActive[action];
+                                if (isDown && !wasDown) Dispatcher.Invoke(() => _desktopVkb.BeginHold(action));
+                                else if (!isDown && wasDown) Dispatcher.Invoke(() => _desktopVkb.EndHold(action));
+                                prevAnalogActive[action] = isDown;
+                            }
+
+                            HandleHold(0x0001, ly > DEAD, VkbHoldAction.MoveUp);
+                            HandleHold(0x0002, ly < -DEAD, VkbHoldAction.MoveDown);
+                            HandleHold(0x0004, lx < -DEAD, VkbHoldAction.MoveLeft);
+                            HandleHold(0x0008, lx > DEAD, VkbHoldAction.MoveRight);
+                            HandleHold(0x0100, false, VkbHoldAction.CursorLeft);
+                            HandleHold(0x0200, false, VkbHoldAction.CursorRight);
+                            HandleHold(0, ltAnalog, VkbHoldAction.ToggleLayer);
+
+                            if (Pressed(0x1000)) Dispatcher.Invoke(() => _desktopVkb.BeginHold(VkbHoldAction.Press));
+                            if (Released(0x1000)) Dispatcher.Invoke(() => _desktopVkb.EndHold(VkbHoldAction.Press));
+
+                            // B fecha o VKB
+                            if (Pressed(0x2000))
+                            {
+                                Dispatcher.Invoke(() => { _desktopVkb?.Close(); _desktopVkb = null; });
+                                ignoreNextBRelease = true;
+                            }
+
+                            if (Pressed(0x8000)) SendUnicodeString(" ");  // Y = espaço
+                            if (Pressed(0x0010)) SendVirtualKey(0x0D);    // Start = Enter
+                            if (Pressed(0x0040)) Dispatcher.Invoke(() => _desktopVkb.ToggleShift()); // L3
+
+                            // X = backspace com hold repeat
+                            bool curX = (btn & 0x4000) != 0;
+                            if (curX && !isHoldingX)
+                            {
+                                isHoldingX = true; xPressTime = DateTime.Now;
+                                SendVirtualKey(0x08); lastBackspaceFired = DateTime.Now;
+                            }
+                            else if (curX && isHoldingX &&
+                                     (DateTime.Now - xPressTime).TotalMilliseconds > 450 &&
+                                     (DateTime.Now - lastBackspaceFired).TotalMilliseconds > 40)
+                            {
+                                SendVirtualKey(0x08); lastBackspaceFired = DateTime.Now;
+                            }
+                            else if (!curX) isHoldingX = false;
+                        }
+                        else
+                        {
+                            // ── MODO MOUSE ──────────────────────────────────────────────────
+
+                            // Analógico esquerdo = mover mouse
+                            double mlx = gp.sThumbLX / 32767.0;
+                            double mly = gp.sThumbLY / 32767.0;
+                            const double MDEAD = 0.15;
+                            if (Math.Abs(mlx) < MDEAD) mlx = 0;
+                            if (Math.Abs(mly) < MDEAD) mly = 0;
+
+                            // Analógico direito = scroll vertical
+                            double scrollY = gp.sThumbRY / 32767.0;
+                            if (Math.Abs(scrollY) > 0.20)
+                            {
+                                int scroll = (int)(scrollY * 3000 * dt);
+                                if (scroll != 0) SendMouse(0, 0, MOUSEEVENTF_WHEEL, (uint)scroll);
+                            }
+
+                            // A pressionado = botão esquerdo do mouse down
+                            if (Pressed(0x1000))
+                            {
+                                aWasOnTextField = IsCursorOnTextField();
+                                aDragOccurred = false; isClicking = true;
+                                clickAccumX = 0; clickAccumY = 0; dragBrokeThreshold = false;
+                                SendMouse(0, 0, MOUSEEVENTF_LEFTDOWN);
+                            }
+
+                            // Movimento do mouse
+                            if (mlx != 0 || mly != 0)
+                            {
+                                const double BASE = 1800.0;
+                                double cx = Math.Sign(mlx) * Math.Pow(Math.Abs(mlx), 2.2);
+                                double cy = Math.Sign(mly) * Math.Pow(Math.Abs(mly), 2.2);
+                                double mx = cx * BASE * dt + remainderX;
+                                double my = -cy * BASE * dt + remainderY;
+                                int dx = (int)mx, dy = (int)my;
+                                remainderX = mx - dx; remainderY = my - dy;
+
+                                if (dx != 0 || dy != 0)
+                                {
+                                    if (isClicking && !dragBrokeThreshold)
+                                    {
+                                        clickAccumX += dx; clickAccumY += dy;
+                                        if (Math.Abs(clickAccumX) > 5 || Math.Abs(clickAccumY) > 5)
+                                        {
+                                            dragBrokeThreshold = true; aDragOccurred = true;
+                                            SendMouse((int)clickAccumX, (int)clickAccumY, MOUSEEVENTF_MOVE);
+                                        }
+                                    }
+                                    else
+                                    {
+                                        if (isClicking) aDragOccurred = true;
+                                        SendMouse(dx, dy, MOUSEEVENTF_MOVE);
+                                    }
+                                }
+                            }
+                            else { remainderX = 0; remainderY = 0; }
+
+                            // A solto = botão esquerdo up + auto-VKB se campo de texto
+                            if (Released(0x1000))
+                            {
+                                isClicking = false;
+                                SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
+
+                                if (aWasOnTextField && !aDragOccurred && IsCursorOnTextField())
+                                    OpenMediaExeVkb(autoPositioned: true);
+
+                                aWasOnTextField = false; aDragOccurred = false;
+                            }
+
+                            // B = Mouse Button 4 (voltar)
+                            if (ignoreNextBRelease) { if ((btn & 0x2000) == 0) ignoreNextBRelease = false; }
+                            else
+                            {
+                                if (Pressed(0x2000)) SendMouse(0, 0, MOUSEEVENTF_XDOWN, XBUTTON1);
+                                if (Released(0x2000)) SendMouse(0, 0, MOUSEEVENTF_XUP, XBUTTON1);
+                            }
+
+                            // X (quadrado) = clique direito
+                            if (Pressed(0x4000)) SendMouse(0, 0, MOUSEEVENTF_RIGHTDOWN);
+                            if (Released(0x4000)) SendMouse(0, 0, MOUSEEVENTF_RIGHTUP);
+
+                            // Y (triângulo) = abrir teclado virtual
+                            if (Pressed(0x8000)) OpenMediaExeVkb(autoPositioned: false);
+
+                            // LB/RB = navegar cursor em campos de texto
+                            if (Pressed(0x0100)) SendVirtualKey(0x25); // cursor ←
+                            if (Pressed(0x0200)) SendVirtualKey(0x27); // cursor →
+                        }
+
+                        prevButtons = btn;
+                    }
+                }
+                catch (Exception ex) { Debug.WriteLine($"[MediaExeMode] {ex.Message}"); }
+
+                Thread.Sleep(10);
+            }
+        }
+
+        // Helper para abrir o VKB sem duplicar código
+        private void OpenMediaExeVkb(bool autoPositioned)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                if (_desktopVkb != null) return;
+
+                _desktopVkb = new DesktopVkbWindow();
+                _desktopVkb.SetLocalization(_vkbStrBackspace, _vkbStrEnter, _vkbStrClose,
+                                            _vkbStrShift, _vkbStrSpace, _vkbStrSym, _vkbStrAbc);
+                _desktopVkb.OnKeyPressed += txt =>
+                {
+                    if (txt == "BKSP") SendVirtualKey(0x08);
+                    else if (txt == "ENTER") SendVirtualKey(0x0D);
+                    else if (txt == "CURSOR_LEFT") SendVirtualKey(0x25);
+                    else if (txt == "CURSOR_RIGHT") SendVirtualKey(0x27);
+                    else SendUnicodeString(txt);
+                };
+                _desktopVkb.OnCloseRequested += () => { _desktopVkb?.Close(); _desktopVkb = null; };
+
+                if (autoPositioned) { GetCursorPos(out var pt); _desktopVkb.AutoPosition(pt.Y); }
+                else _desktopVkb.SetFixedPosition();
+
+                _desktopVkb.Show();
+            });
+        }
+
+        private void EnterMediaExeMode(Process proc)
+        {
+            if (_mediaExeModeActive) return;
+            _mediaExeProcess = proc;
+            _mediaExeModeActive = true;
+
+            Dispatcher.Invoke(() => {
+                WindowState = WindowState.Minimized;
+                EnsureCursorVisible();
+            });
+
+            _mediaExeThread = new Thread(MediaExeControllerLoop) { IsBackground = true };
+            _mediaExeThread.Start();
+        }
+
+        private void ExitMediaExeMode()
+        {
+            if (!_mediaExeModeActive) return;
+            _mediaExeModeActive = false;
+            _mediaExeProcess = null;        // 🔹
+
+            SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
+            Dispatcher.Invoke(() => { _desktopVkb?.Close(); _desktopVkb = null; });
+        }
         private void SendUnicodeString(string text)
         {
             var inputs = new List<INPUT>();
@@ -1882,6 +2168,9 @@ namespace Doorpi
 
         public void ForceFocus()
         {
+            // 🔹 Sai do modo media exe se estiver ativo (processo fechou externamente)
+            if (_mediaExeModeActive) ExitMediaExeMode();
+
             Dispatcher.BeginInvoke(() =>
             {
                 var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
@@ -1889,8 +2178,6 @@ namespace Doorpi
                 SetForegroundWindow(hwnd);
                 Activate();
                 webView?.Focus();
-
-                // 🔹 Reseta a flag + foca o card
                 webView?.CoreWebView2.ExecuteScriptAsync(
                     "window.isMediaAppActive = false; window.focusFeaturedCard();");
             });
@@ -4204,6 +4491,7 @@ namespace Doorpi
                     {
                         var medias = LoadMediaApps();
                         var media = medias.FirstOrDefault(m => m.Url == mediaUrl || m.Id == mediaUrl);
+            
                         if (media != null)
                         {
                             media.LastPlayed = DateTime.Now;
@@ -4215,41 +4503,47 @@ namespace Doorpi
                                 tab = "media",
                                 id = media.Id
                             }));
+
+                           
+                            Dispatcher.InvokeAsync(() => SendMediaAppsToUI(LoadMediaApps()));
                         }
 
                         if (appType == "webview" || appType == "browser")
                             _ = Dispatcher.InvokeAsync(async () => await OpenWebViewInlineAsync(mediaUrl, mediaUrl.Contains("youtube.com")));
                         else if (appType == "exe")
                         {
-
                             Dispatcher.Invoke(() =>
                             {
                                 try
                                 {
+                                    Process? proc = null;
                                     if (File.Exists(mediaUrl))
                                     {
-                                        var proc = Process.Start(new ProcessStartInfo
+                                        proc = Process.Start(new ProcessStartInfo
                                         {
                                             FileName = mediaUrl,
                                             UseShellExecute = true,
                                             WorkingDirectory = Path.GetDirectoryName(mediaUrl)
                                         });
-                                        if (proc != null) WatchAndRefocus(proc);
                                     }
                                     else if (!string.IsNullOrWhiteSpace(mediaUrl))
                                     {
                                         EnsureLauncherRunning(mediaUrl);
-                                        var proc = Process.Start(new ProcessStartInfo(mediaUrl) { UseShellExecute = true });
-                                        if (proc != null) WatchAndRefocus(proc);
+                                        proc = Process.Start(new ProcessStartInfo(mediaUrl) { UseShellExecute = true });
+                                    }
+
+                                    if (proc != null)
+                                    {
+                                        EnterMediaExeMode(proc);
+
                                     }
                                 }
                                 catch (Exception ex) { Debug.WriteLine($"[launchMediaApp/exe] {ex.Message}"); }
                             });
                         }
-                        else
-                            Dispatcher.Invoke(() => OpenInBrowser(mediaUrl));
                     }
                 }
+
                 else if (action == "pickFolderForSetup")
                 {
                     string dialogTitle = GetStr(root, "dialogTitle");

@@ -247,14 +247,8 @@ window.chrome.webview.addEventListener('message', event => {
             if (typeof clearHero === 'function') clearHero();
         }
         else if (data.type === 'updateFeaturedCard') {
-            const gridId = data.tab === 'games' ? 'gameGrid' : 'mediaGrid';
-            const grid = document.getElementById(gridId);
-            if (grid) {
-                const card = Array.from(grid.querySelectorAll('.card:not(.add-card)')).find(c =>
-                    c.dataset.gameId === data.id || c.dataset.appId === data.id
-                );
-                if (card) moveCardToTop(card);
-            }
+            // 🔹 Avisa o Store: ele reordena o carrossel E atualiza o hero automaticamente
+            if (window.AppStore) window.AppStore.mutations.trackOpened(data.id);
         }
         else if (data.type === 'updateLoadingText') {
             if (window.isGlobalLoading) {
