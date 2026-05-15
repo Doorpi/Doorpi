@@ -1,22 +1,10 @@
-// =============================================================================
-// store.js — Single Source of Truth para games e media
-// =============================================================================
-
 window.AppStore = (() => {
     const _state = {
         games: [],
         media: [],
         featuredId: { games: null, media: null },
-        newIds: new Set(),
-        recentlyOpened: [],
+        newIds: new Set()
     };
-
-    // 1. MEMÓRIA IMPLACÁVEL: Restaura o histórico de últimos abertos do front-end.
-    // Isso garante que a ordem de Jogos e Mídias seja IDÊNTICA e lembrada entre reinicializações.
-    try {
-        const saved = localStorage.getItem('doorpi_recently_opened');
-        if (saved) _state.recentlyOpened = JSON.parse(saved);
-    } catch (e) { console.error('[Store] Erro ao restaurar recentlyOpened', e); }
 
     const _subscribers = new Map();
 
@@ -27,57 +15,31 @@ window.AppStore = (() => {
     }
 
     function _normalize(raw, channel) {
-        // 2. CORREÇÃO DO BADGE "NOVO": Lê a flag corretamente do servidor.
-        const isNewFromServer = raw.isNew || raw.IsNew || false;
-
         let id = raw.id || raw.Id || raw.appId || raw.launchUrl || raw.LaunchUrl || raw.path || raw.Path || raw.Url || raw.url || '';
 
-        // Monta um array com TODAS as variações de IDs ou URLs possíveis
-        const possibleIds = [
-            raw.id, raw.Id, raw.appId, raw.launchUrl, raw.LaunchUrl,
-            raw.path, raw.Path, raw.Url, raw.url, id
-        ].filter(Boolean);
+        const possibleIds = [raw.id, raw.Id, raw.appId, raw.launchUrl, raw.LaunchUrl, raw.path, raw.Path, raw.Url, raw.url, id].filter(Boolean);
+        const isSessionNew = possibleIds.some(pid => window.newGameIdsThisSession?.has(pid) || window.newGameIdsThisSession?.has(pid.replace(/\/$/, '')));
 
-        // Verifica se QUALQUER variação de ID foi adicionada na sessão atual da UI
-        const isSessionNew = possibleIds.some(pid =>
-            window.newGameIdsThisSession?.has(pid) ||
-            window.newGameIdsThisSession?.has(pid.replace(/\/$/, ''))
-        );
-
-        // COMBINAÇÃO: Se o C# diz que é novo (< 48h) OU se foi adicionado agora, MARCA COMO NOVO.
-        if (isNewFromServer || isSessionNew) {
-            _state.newIds.add(id);
-        } else {
-            _state.newIds.delete(id); // Agora só deleta se realmente não for novo em nenhum lugar
-        }
+        if ((raw.isNew || raw.IsNew) || isSessionNew) _state.newIds.add(id);
+        else _state.newIds.delete(id);
 
         if (channel === 'games') {
             return {
-                id,
-                name: raw.name || raw.Name || '',
-                path: raw.path || raw.Path || '',
-                launchUrl: raw.launchUrl || raw.LaunchUrl || '',
-                channel: 'games',
-                appType: 'game',
+                id, name: raw.name || raw.Name || '', path: raw.path || raw.Path || '',
+                launchUrl: raw.launchUrl || raw.LaunchUrl || '', channel: 'games', appType: 'game',
                 staticVertical: raw.staticImageData || raw.GridStaticImage || raw.staticVertical || '',
                 staticHorizontal: raw.staticHorizontalImage || raw.GridHorizontalStaticImage || raw.staticHorizontal || '',
-                staticHero: raw.staticHero || raw.HeroStaticImage || '',
-                staticLogo: raw.staticLogo || raw.LogoStaticImage || '',
+                staticHero: raw.staticHero || raw.HeroStaticImage || '', staticLogo: raw.staticLogo || raw.LogoStaticImage || '',
                 vertical: raw.imageData || raw.GridImage || raw.vertical || '',
                 horizontal: raw.horizontalImage || raw.GridHorizontalImage || raw.horizontal || '',
-                hero: raw.hero || raw.HeroImage || '',
-                logo: raw.logo || raw.LogoImage || '',
+                hero: raw.hero || raw.HeroImage || '', logo: raw.logo || raw.LogoImage || '',
                 isAnimated: raw.isAnimated || false,
             };
         }
 
         return {
-            id,
-            name: raw.Name || raw.name || '',
-            url: raw.Url || raw.url || '',
-            channel: 'media',
-            appType: raw.Type || raw.type || raw.appType || 'browser',
-            shareMode: raw.ShareMode || raw.shareMode || 'private',
+            id, name: raw.Name || raw.name || '', url: raw.Url || raw.url || '', channel: 'media',
+            appType: raw.Type || raw.type || raw.appType || 'browser', shareMode: raw.ShareMode || raw.shareMode || 'private',
             sharedFromOther: raw.IsSharedFromOtherUser || raw.isSharedFromOtherUser || false,
             sharedFromName: raw.SharedFromUserName || raw.sharedFromName || '',
             sharedWithUserId: raw.SharedWithUserId || raw.sharedWithUserId || '',
@@ -87,64 +49,39 @@ window.AppStore = (() => {
             staticLogo: raw.LogoStaticImage || raw.logoStaticImage || raw.staticLogo || '',
             vertical: raw.GridImage || raw.gridImage || raw.imageData || '',
             horizontal: raw.GridHorizontalImage || raw.gridHorizontalImage || '',
-            hero: raw.HeroImage || raw.heroImage || raw.hero || '',
-            logo: raw.LogoImage || raw.logoImage || raw.logo || '',
+            hero: raw.HeroImage || raw.heroImage || raw.hero || '', logo: raw.LogoImage || raw.logoImage || raw.logo || '',
             isAnimated: raw.isAnimated || false,
         };
     }
 
-    function _sortByRecency(items) {
-        // 1. Descobre quem é o verdadeiro Hero (O último que foi aberto)
-        const heroId = _state.recentlyOpened.length > 0 ? _state.recentlyOpened[0] : null;
-
-        return [...items].sort((a, b) => {
-            // 2. O Hero é inegociável, fica na posição 0
-            if (a.id === heroId) return -1;
-            if (b.id === heroId) return 1;
-
-            // 3. Os "Novos" ficam logo atrás do Hero
-            const aIsNew = _state.newIds.has(a.id);
-            const bIsNew = _state.newIds.has(b.id);
-            if (aIsNew && !bIsNew) return -1;
-            if (!aIsNew && bIsNew) return 1;
-
-            // 4. Ordem normal do histórico recente (quem não é novo, vai pra trás)
-            const ai = _state.recentlyOpened.indexOf(a.id);
-            const bi = _state.recentlyOpened.indexOf(b.id);
-            const ar = ai === -1 ? 999 : ai;
-            const br = bi === -1 ? 999 : bi;
-            return ar - br;
-        });
-    }
-
     const mutations = {
         setBatch(channel, rawItems) {
-            const LIMIT = 12;
-            const items = (rawItems || []).map(r => _normalize(r, channel)).slice(0, LIMIT);
+            // Apenas repassa a lista mastigada pelo C# (que já tem max 12 itens)
+            const items = (rawItems || []).map(r => _normalize(r, channel));
+            _state[channel] = items;
+            _state.featuredId[channel] = items[0]?.id ?? null;
 
-            const ordered = _sortByRecency(items);
-            _state[channel] = ordered;
-            _state.featuredId[channel] = ordered[0]?.id ?? null;
-
-            _notify(channel, { type: 'reset', items: ordered });
+            _notify(channel, { type: 'reset', items });
             _notify('featured', { channel, id: _state.featuredId[channel] });
         },
+
         addItem(channel, raw) {
-            const LIMIT = 12;
             const item = _normalize(raw, channel);
-
-            // Remove se já existe e adiciona na lista
             let list = _state[channel].filter(i => i.id !== item.id);
-            list.push(item);
 
-            // Força a lista a passar pela REGRA MESTRA (Hero -> Novos -> Antigos)
-            list = _sortByRecency(list);
-            if (list.length > LIMIT) list = list.slice(0, LIMIT);
+           
+            if (list.length > 0) {
+                list.splice(1, 0, item);
+            } else {
+                list.push(item);
+            }
+
+           
+            if (list.length > 12) list.pop();
 
             _state[channel] = list;
             _state.featuredId[channel] = list[0]?.id ?? null;
 
-            // Manda um "reset" para a UI redesenhar perfeitamente na ordem certa
             _notify(channel, { type: 'reset', items: list });
             _notify('featured', { channel, id: _state.featuredId[channel] });
         },
@@ -152,35 +89,27 @@ window.AppStore = (() => {
         removeItem(channel, id) {
             const idx = _state[channel].findIndex(i => i.id === id);
             if (idx === -1) return;
-
             _state[channel].splice(idx, 1);
 
             if (_state.featuredId[channel] === id) {
                 _state.featuredId[channel] = _state[channel][0]?.id ?? null;
                 _notify('featured', { channel, id: _state.featuredId[channel] });
             }
-
             _notify(channel, { type: 'remove', id });
         },
 
         trackOpened(id) {
-            // Mantém os 50 últimos jogados na memória
-            _state.recentlyOpened = [id, ..._state.recentlyOpened.filter(x => x !== id)].slice(0, 50);
-
-            // 3. SALVA O ESTADO: Sempre que abrir um App ou Jogo, salva no navegador.
-            try {
-                localStorage.setItem('doorpi_recently_opened', JSON.stringify(_state.recentlyOpened));
-            } catch (e) { }
-
             ['games', 'media'].forEach(channel => {
-                if (!_state[channel].some(i => i.id === id)) return;
+                const idx = _state[channel].findIndex(i => i.id === id);
+                if (idx > -1) {
+                    const item = _state[channel][idx];
+                    _state[channel].splice(idx, 1);
+                    _state[channel].unshift(item); 
 
-                const reordered = _sortByRecency(_state[channel]);
-                _state[channel] = reordered;
-                _state.featuredId[channel] = reordered[0]?.id ?? null;
-
-                _notify(channel, { type: 'reorder', items: reordered });
-                _notify('featured', { channel, id: _state.featuredId[channel] });
+                    _state.featuredId[channel] = item.id;
+                    _notify(channel, { type: 'reorder', items: _state[channel] });
+                    _notify('featured', { channel, id: item.id });
+                }
             });
         },
 
@@ -198,10 +127,6 @@ window.AppStore = (() => {
 
             Object.assign(item, normalizedPatch);
             _notify(channel, { type: 'update', id, patch: normalizedPatch });
-        },
-
-        markNew(id) {
-            if (id) _state.newIds.add(id);
         },
     };
 
@@ -225,7 +150,3 @@ window.AppStore = (() => {
 
     return { mutations, subscribe, queries };
 })();
-
-window.trackGameOpened = function (id) {
-    window.AppStore.mutations.trackOpened(id);
-};

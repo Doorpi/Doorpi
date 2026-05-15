@@ -739,7 +739,11 @@ namespace Doorpi
         private volatile bool _mediaExeModeActive = false;
         private Thread? _mediaExeThread;
 
-        private void MediaExeControllerLoop()
+        private volatile bool _dialogModeActive = false;
+
+
+        // ========================= CONTROLE COMPARTILHADO (APP EXE & DIALOGS) =========================
+        private void SharedGamepadControllerLoop(Func<bool> isActive, Action onExitCombo)
         {
             var sw = Stopwatch.StartNew();
             ushort prevButtons = 0;
@@ -754,13 +758,13 @@ namespace Doorpi
             DateTime xPressTime = DateTime.MinValue, lastBackspaceFired = DateTime.MinValue;
 
             var prevAnalogActive = new Dictionary<VkbHoldAction, bool> {
-        { VkbHoldAction.MoveUp, false }, { VkbHoldAction.MoveDown, false },
-        { VkbHoldAction.MoveLeft, false }, { VkbHoldAction.MoveRight, false },
-        { VkbHoldAction.CursorLeft, false }, { VkbHoldAction.CursorRight, false },
-        { VkbHoldAction.ToggleLayer, false }
-    };
+                { VkbHoldAction.MoveUp, false }, { VkbHoldAction.MoveDown, false },
+                { VkbHoldAction.MoveLeft, false }, { VkbHoldAction.MoveRight, false },
+                { VkbHoldAction.CursorLeft, false }, { VkbHoldAction.CursorRight, false },
+                { VkbHoldAction.ToggleLayer, false }
+            };
 
-            while (_mediaExeModeActive)
+            while (isActive())
             {
                 try
                 {
@@ -776,25 +780,17 @@ namespace Doorpi
                         bool Pressed(ushort m) => (btn & m) != 0 && (prevButtons & m) == 0;
                         bool Released(ushort m) => (btn & m) == 0 && (prevButtons & m) != 0;
 
-                        // ── Start+Select ou botão Xbox = voltar pro Doorpi ──
+                        // ── Start+Select ou botão Xbox = Voltar/Sair do modo ──
                         bool exitCombo = (btn & 0x0010) != 0 && (btn & 0x0020) != 0;
                         bool xboxBtn = (btn & 0x0400) != 0;
                         if (exitCombo || xboxBtn)
                         {
-                            _mediaExeModeActive = false;
-                            _mediaExeProcess = null;
-                            SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
-                            Dispatcher.Invoke(() =>
-                            {
-                                _desktopVkb?.Close();
-                                _desktopVkb = null;
-                                WindowState = WindowState.Maximized;
-                                Activate();
-                                webView?.Focus();
-                                webView?.CoreWebView2?.ExecuteScriptAsync(
-                                    "window.isMediaAppActive = false; window.focusFeaturedCard();");
-                            });
-                            break;
+                            onExitCombo?.Invoke();
+                            if (!isActive()) break;
+
+                            prevButtons = btn;
+                            Thread.Sleep(10);
+                            continue;
                         }
 
                         // ── VKB aberto: redireciona analógico esquerdo para navegar ──
@@ -947,10 +943,62 @@ namespace Doorpi
                         prevButtons = btn;
                     }
                 }
-                catch (Exception ex) { Debug.WriteLine($"[MediaExeMode] {ex.Message}"); }
+                catch (Exception ex) { Debug.WriteLine($"[SharedGamepadLoop] {ex.Message}"); }
 
                 Thread.Sleep(10);
             }
+        }
+
+        private void MediaExeControllerLoop()
+        {
+            SharedGamepadControllerLoop(
+                () => _mediaExeModeActive,
+                () =>
+                {
+                    _mediaExeModeActive = false;
+                    _mediaExeProcess = null;
+                    SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
+                    Dispatcher.Invoke(() =>
+                    {
+                        _desktopVkb?.Close();
+                        _desktopVkb = null;
+                        WindowState = WindowState.Maximized;
+                        Activate();
+                        webView?.Focus();
+                        webView?.CoreWebView2?.ExecuteScriptAsync(
+                            "window.isMediaAppActive = false; window.focusFeaturedCard();");
+                    });
+                }
+            );
+        }
+
+        private void StartDialogControllerMode()
+        {
+            if (_dialogModeActive) return;
+            _dialogModeActive = true;
+            new Thread(() =>
+            {
+                SharedGamepadControllerLoop(
+                    () => _dialogModeActive,
+                    () =>
+                    {
+                        // Se pressionar o combo de sair durante o Dialog, enviamos ESC para fechá-lo
+                        SendVirtualKey(0x1B); // VK_ESCAPE
+                    }
+                );
+            })
+            { IsBackground = true }.Start();
+        }
+
+        private void StopDialogControllerMode()
+        {
+            if (!_dialogModeActive) return;
+            _dialogModeActive = false;
+            SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
+            Dispatcher.Invoke(() => {
+                _desktopVkb?.Close();
+                _desktopVkb = null;
+            });
         }
 
         // Helper para abrir o VKB sem duplicar código
@@ -2154,14 +2202,33 @@ namespace Doorpi
 
         private void SendMediaAppsToUI(List<MediaAppModel> apps)
         {
-            var sortedApps = apps
-                .OrderByDescending(a => a.LastPlayed > a.DateAdded ? a.LastPlayed : a.DateAdded)
-                .ToList();
+            if (apps.Count == 0) return;
+
+            var featured = apps
+                .Where(a => a.LastPlayed > DateTime.MinValue)
+                .OrderByDescending(a => a.LastPlayed)
+                .FirstOrDefault()
+                ?? apps.OrderByDescending(a => a.DateAdded).FirstOrDefault();
+
+            var sortedApps = new List<MediaAppModel>();
+
+            if (featured != null)
+            {
+                sortedApps.Add(featured);
+                var others = apps.Where(a => a.Id != featured.Id)
+                    .OrderByDescending(a => a.LastPlayed > a.DateAdded ? a.LastPlayed : a.DateAdded)
+                    .Take(11)
+                    .ToList();
+
+                sortedApps.AddRange(others);
+            }
 
             var payload = new { type = "nativeAppsLoaded", apps = sortedApps };
             Dispatcher.Invoke(() =>
                 webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(payload)));
         }
+
+
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern bool SetForegroundWindow(IntPtr hWnd); [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
@@ -3556,9 +3623,9 @@ namespace Doorpi
                         {
                             var dlg = new Microsoft.Win32.OpenFileDialog { Filter = dialogFilter, Title = dialogTitle };
 
-                            StartSystemControllerMode();
+                            StartDialogControllerMode();
                             bool? dialogResult = dlg.ShowDialog();
-                            StopSystemControllerMode();
+                            StopDialogControllerMode();
 
                             if (dialogResult == true)
                             {
@@ -3602,9 +3669,9 @@ namespace Doorpi
                                 Title = dialogTitle
                             };
 
-                            StartSystemControllerMode();
+                            StartDialogControllerMode();
                             bool? dialogResult = dlg.ShowDialog();
-                            StopSystemControllerMode();
+                            StopDialogControllerMode();
 
                             if (dialogResult == true) 
                             {
@@ -3661,11 +3728,11 @@ namespace Doorpi
                                 Multiselect = false
                             };
 
-                            StartSystemControllerMode();
+                            StartDialogControllerMode();
                             bool? dialogResult = dlg.ShowDialog();
-                            StopSystemControllerMode();
+                            StopDialogControllerMode();
 
-                            if (dialogResult == true) // <-- CORRIGIDO AQUI
+                            if (dialogResult == true) 
                             {
                                 string selectedPath = dlg.FolderName;
                                 if (IsFolderForbidden(selectedPath))
@@ -3736,9 +3803,9 @@ namespace Doorpi
                                 Multiselect = false
                             };
 
-                            StartSystemControllerMode();
+                            StartDialogControllerMode();
                             bool? dialogResult = dlg.ShowDialog();
-                            StopSystemControllerMode();
+                            StopDialogControllerMode();
 
                             if (dialogResult == true) 
                             {
@@ -3894,23 +3961,35 @@ namespace Doorpi
                 else if (action == "deleteGame" && root.TryGetProperty("gameId", out var delGameIdEl))
                 {
                     string gameId = delGameIdEl.GetString() ?? "";
+                    bool isMedia = root.TryGetProperty("isMedia", out var isMediaEl) && isMediaEl.GetBoolean();
+
                     if (!string.IsNullOrEmpty(gameId))
                     {
-                        var games = LoadGames();
-                        var game = games.FirstOrDefault(g =>
-                            string.Equals(g.Path, gameId, StringComparison.OrdinalIgnoreCase) ||
-                            string.Equals(g.LaunchUrl, gameId, StringComparison.OrdinalIgnoreCase));
-
-                        if (game != null)
+                        if (!isMedia)
                         {
-                            DeleteGameImages(game);
-                            games.Remove(game);
-                            SaveGames(games);
-                            Debug.WriteLine($"[deleteGame] Jogo Removido: {gameId}");
+                            var games = LoadGames();
+                            var game = games.FirstOrDefault(g =>
+                                string.Equals(g.Path, gameId, StringComparison.OrdinalIgnoreCase) ||
+                                string.Equals(g.LaunchUrl, gameId, StringComparison.OrdinalIgnoreCase));
+
+                            if (game != null)
+                            {
+                                DeleteGameImages(game);
+                                games.Remove(game);
+                                SaveGames(games);
+                                Debug.WriteLine($"[deleteGame] Jogo Removido: {gameId}");
+
+                                // Puxa o 13º da fila para preencher o buraco, após a animação do Front terminar (350ms)
+                                _ = Task.Run(async () =>
+                                {
+                                    await Task.Delay(350);
+                                    Dispatcher.Invoke(() => LoadGamesIntoUI());
+                                });
+                            }
                         }
                         else
                         {
-                            // MÍDIAS - Se não for um Jogo, tenta achar em Mídia e apaga!
+                            // MÍDIAS
                             if (gameId.Equals("youtube", StringComparison.OrdinalIgnoreCase)) return;
 
                             var medias = LoadMediaApps();
@@ -3918,53 +3997,36 @@ namespace Doorpi
 
                             if (media != null)
                             {
-                                // 1. Remove Imagens e Salva no media.json
                                 DeleteMediaImages(media);
                                 medias.Remove(media);
                                 SaveMediaApps(medias);
                                 Debug.WriteLine($"[deleteGame] Mídia Removida: {gameId}");
 
-                                // 2. Lógica para apagar o Cache (browser-profiles)
+                                // Apagar Cache físico do WebView2
                                 try
                                 {
-                                    // Identifica se a mídia era um App Nativo para achar o nome da pasta
                                     var nativeApp = _nativeApps.FirstOrDefault(a => media.Url.Contains(a.Id));
-
-                                    // Evita apagar cache de "apps web customizados", pois eles dividem a mesma pasta "default"
                                     if (nativeApp != default && nativeApp.Id != "youtube")
                                     {
-                                        string profileName;
-                                        if (nativeApp.MultiUser)
-                                        {
-                                            profileName = $"shared-{nativeApp.Id}";
-                                        }
-                                        else
-                                        {
-                                            var profile = LoadUserProfile();
-                                            string safeName = string.IsNullOrWhiteSpace(profile.Name)
-                                                ? "default"
-                                                : string.Concat(profile.Name.Where(c => !Path.GetInvalidFileNameChars().Contains(c)));
-
-                                            profileName = $"{safeName}-{nativeApp.Id}";
-                                        }
-
+                                        string profileName = nativeApp.MultiUser ? $"shared-{nativeApp.Id}" : $"{currentUserId}-{nativeApp.Id}";
                                         string cachePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "browser-profiles", profileName);
 
                                         if (Directory.Exists(cachePath))
                                         {
-                                            // Força o Garbage Collector a soltar arquivos do WebView antes de deletar
                                             GC.Collect();
                                             GC.WaitForPendingFinalizers();
-
                                             Directory.Delete(cachePath, true);
-                                            Debug.WriteLine($"[deleteGame] Cache físico apagado: {profileName}");
                                         }
                                     }
                                 }
-                                catch (Exception ex)
+                                catch (Exception ex) { Debug.WriteLine($"[deleteGame] Erro cache: {ex.Message}"); }
+
+                                // Atualiza a fila de mídia para preencher o buraco
+                                _ = Task.Run(async () =>
                                 {
-                                    Debug.WriteLine($"[deleteGame] Erro ao tentar apagar o cache: {ex.Message}");
-                                }
+                                    await Task.Delay(350);
+                                    Dispatcher.Invoke(() => SendMediaAppsToUI(LoadMediaApps()));
+                                });
                             }
                         }
                     }
@@ -4460,9 +4522,9 @@ namespace Doorpi
                             Filter = dialogFilter
                         };
 
-                        StartSystemControllerMode();
+                        StartDialogControllerMode();
                         bool? dialogResult = dlg.ShowDialog();
-                        StopSystemControllerMode();
+                        StopDialogControllerMode();
 
                         if (dialogResult == true) 
                         {
@@ -4554,9 +4616,9 @@ namespace Doorpi
                     {
                         var dlg = new Microsoft.Win32.OpenFolderDialog { Title = dialogTitle };
 
-                        StartSystemControllerMode();
+                        StartDialogControllerMode();
                         bool? dialogResult = dlg.ShowDialog();
-                        StopSystemControllerMode();
+                        StopDialogControllerMode();
 
                         if (dialogResult == true) 
                         {
@@ -5132,20 +5194,22 @@ namespace Doorpi
             var allGames = LoadGames();
             if (allGames.Count == 0) return;
 
-            var featured = allGames.OrderByDescending(g => g.LastPlayed).FirstOrDefault();
+            var featured = allGames
+                .Where(g => g.LastPlayed > DateTime.MinValue)
+                .OrderByDescending(g => g.LastPlayed)
+                .FirstOrDefault()
+                ?? allGames.OrderByDescending(g => g.DateAdded).FirstOrDefault();
 
             var sortedGames = new List<object>();
 
             if (featured != null)
             {
-                // Adiciona o Featured primeiro
+                // Adiciona o Featured primeiro (posição 0)
                 sortedGames.Add(MapGameToAnonObject(featured, true));
 
-                // Adiciona os outros ordenando corretamente (Novos primeiro, depois Últimos Jogados)
-                var others = allGames.Where(g => g.Path != featured.Path || g.LaunchUrl != featured.LaunchUrl)
-                    .OrderByDescending(g => IsGameActuallyNew(g.DateAdded, g.LastPlayed)) // <--- CORREÇÃO APLICADA
-                    .ThenByDescending(g => g.LastPlayed)
-                    .ThenByDescending(g => g.DateAdded)
+
+                var others = allGames.Where(g => g != featured)
+                    .OrderByDescending(g => g.LastPlayed > g.DateAdded ? g.LastPlayed : g.DateAdded)
                     .Take(11);
 
                 foreach (var game in others)
@@ -5160,7 +5224,6 @@ namespace Doorpi
                 webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(payload))
             );
         }
-
         private void SendGameToUI(GameModel game, bool isFeatured = false)
         {
             var data = new
