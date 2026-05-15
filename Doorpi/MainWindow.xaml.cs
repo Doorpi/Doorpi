@@ -300,7 +300,7 @@ namespace Doorpi
             InitializeUserStorage();
 
             InitializeAsync();
-
+            StartMainUiGamepadNavigation();
             EnsureCursorHidden();
             StartMainScreenMouseWatch();
 
@@ -5329,7 +5329,68 @@ namespace Doorpi
             catch { }
             return "";
         }
+        private Thread? _mainUiGamepadThread;
+        private volatile bool _mainUiGamepadActive = false;
 
+        private void StartMainUiGamepadNavigation()
+        {
+            if (_mainUiGamepadActive) return;
+            _mainUiGamepadActive = true;
+            _mainUiGamepadThread = new Thread(MainUiGamepadLoop) { IsBackground = true };
+            _mainUiGamepadThread.Start();
+        }
+
+        private void MainUiGamepadLoop()
+        {
+            const int INITIAL_DELAY_MS = 400;
+            const int REPEAT_DELAY_MS = 80;
+            const double AXIS_THRESHOLD = 0.6;
+
+            int moveState = 0;
+            string? currentDir = null;
+            DateTime lastMoveTime = DateTime.MinValue;
+
+            while (_mainUiGamepadActive)
+            {
+                try
+                {
+                    if (_systemControllerActive || _mediaExeModeActive || _dialogModeActive)
+                    {
+                        moveState = 0; currentDir = null;
+                        Thread.Sleep(50); continue;
+                    }
+
+                    if (XInputGetStateSecret(0, out var state) != 0) { Thread.Sleep(10); continue; }
+
+                    var gp = state.Gamepad;
+                    double ax = gp.sThumbLX / 32767.0;
+                    double ay = gp.sThumbLY / 32767.0;
+                    ushort btn = gp.wButtons;
+
+                    string? dir = null;
+                    if (ax > AXIS_THRESHOLD || (btn & 0x0008) != 0) dir = "RIGHT";
+                    else if (ax < -AXIS_THRESHOLD || (btn & 0x0004) != 0) dir = "LEFT";
+                    else if (ay < -AXIS_THRESHOLD || (btn & 0x0002) != 0) dir = "DOWN";
+                    else if (ay > AXIS_THRESHOLD || (btn & 0x0001) != 0) dir = "UP";
+
+                    if (dir != null)
+                    {
+                        byte vk = dir switch { "RIGHT" => 0x27, "LEFT" => 0x25, "DOWN" => 0x28, _ => 0x26 };
+                        var now = DateTime.Now;
+
+                        if (dir != currentDir)
+                        { SendVirtualKey(vk); lastMoveTime = now; moveState = 1; currentDir = dir; }
+                        else if (moveState == 1 && (now - lastMoveTime).TotalMilliseconds > INITIAL_DELAY_MS)
+                        { SendVirtualKey(vk); lastMoveTime = now; moveState = 2; }
+                        else if (moveState == 2 && (now - lastMoveTime).TotalMilliseconds > REPEAT_DELAY_MS)
+                        { SendVirtualKey(vk); lastMoveTime = now; }
+                    }
+                    else { moveState = 0; currentDir = null; }
+                }
+                catch (Exception ex) { Debug.WriteLine($"[MainUiGamepad] {ex.Message}"); }
+                Thread.Sleep(10);
+            }
+        }
         private int GetSourcePriority(string source) => source switch
         {
             "Steam" => 1,

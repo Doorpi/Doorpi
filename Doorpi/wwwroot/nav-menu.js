@@ -1468,6 +1468,9 @@ window.isNavMenuOpen = false;
     };
 
     window._navMenuHandleKey = function (key) {
+        
+        if (window._vkbIsOpen) return;
+
         if (key === 'L1') { window._navMenuCycleTab(-1); return; }
         if (key === 'R1') { window._navMenuCycleTab(1); return; }
 
@@ -1476,24 +1479,39 @@ window.isNavMenuOpen = false;
     };
 
     document.addEventListener('keydown', e => {
-        if (!window.isNavMenuOpen) return;
+        // 1. Se nada estiver aberto, deixa o sistema fluir
+        if (!window.isNavMenuOpen && !isSetupOpen && !window._vkbIsOpen && !isCtxMenuOpen && !isEditModalOpen) {
+            return;
+        }
 
-        // Quando o VKB está aberto, START (ou F10) confirma como se fosse OK
+        // 2. Se o VKB está aberto, ele é o DONO ABSOLUTO do teclado
         if (window._vkbIsOpen) {
-            if (e.key === 'Start' || e.key === 'F10') {
-                e.preventDefault();
-                e.stopImmediatePropagation();
-                window._vkbTriggerOk?.();
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            if (['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].includes(e.key)) {
+                const dirMap = { 'ArrowRight': 'RIGHT', 'ArrowLeft': 'LEFT', 'ArrowDown': 'DOWN', 'ArrowUp': 'UP' };
+                moveFocus(dirMap[e.key]);
+            }
+            else if (e.key === 'Escape') { window._vkbCancel?.(); }
+            else if (e.key === 'Enter') { document.activeElement?.click(); }
+            else if (e.key === 'Backspace') { window._vkbPhysicalKey?.('Backspace'); }
+            else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                window._vkbPhysicalKey?.(e.key);
             }
             return;
         }
 
-        if (typeof isEditModalOpen !== 'undefined' && isEditModalOpen) return;
-        if (document.querySelector('.context-menu.visible')) return;
+        // 3. Se NavMenu estiver aberto
+        if (window.isNavMenuOpen) {
+            if (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) return;
+            if (typeof isEditModalOpen !== 'undefined' && isEditModalOpen) return; 
 
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        window._navMenuHandleKey(e.key);
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            if (e.key === 'Escape') { closeNavMenu(); return; }
+            window._navMenuHandleKey(e.key);
+            return;
+        }
     }, true);
 
     function _navTopbar(key) {

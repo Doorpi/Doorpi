@@ -1,75 +1,140 @@
 // =============================================================================
-// renderer.js — Renderização sem DOM Thrashing + CardInteraction
+// renderer.js — Renderização Blindada contra Stuttering (Off-DOM Preloading)
+// =============================================================================
+
+// =============================================================================
+// renderer.js — CardInteraction Definitivo (Decode via GPU Off-Thread)
 // =============================================================================
 
 const CardInteraction = (() => {
+    let heroTimer = null;
+    let animTimer = null;
+    let currentActiveCard = null;
+
     function start(card) {
         const channel = card.dataset.channel;
-
         if (channel === 'media' && window.getCurrentHomeTab?.() !== 'media') return;
+
+        if (currentActiveCard && currentActiveCard !== card) {
+            stop(currentActiveCard);
+        }
+        currentActiveCard = card;
+
+        if (heroTimer) clearTimeout(heroTimer);
+        if (animTimer) clearTimeout(animTimer);
 
         const bgSrc = card.dataset.staticVertical || card.dataset.vertical;
         const logoSrc = card.dataset.staticLogo || card.dataset.logo;
-        const heroSrc = card.dataset.staticHero || card.dataset.hero
-            || card.dataset.staticHorizontal || card.dataset.horizontal
-            || bgSrc;
+        const heroSrc = card.dataset.staticHero || card.dataset.hero || card.dataset.staticHorizontal || card.dataset.horizontal || bgSrc;
 
-        switchHeroBackground(bgSrc, logoSrc, heroSrc);
+        // ✅ Delay maior quando usuário está varrendo com gamepad
+        // Evita disparar switchHeroBackground em cards de passagem
+        const heroDelay = window._gpNavigating ? 120 : 60;
+        const animDelay = window._gpNavigating ? 380 : 250;
 
-        if (card._animTimer) clearTimeout(card._animTimer);
-
-        card._animTimer = setTimeout(async () => {
-            const active = () => document.activeElement === card || card.matches(':hover');
-            if (!active()) return;
-
-            const img = card.querySelector('img');
-            const isFeatured = card.classList.contains('featured');
-
-            const animSrc = isFeatured
-                ? (card.dataset.horizontal || card.dataset.vertical)
-                : card.dataset.vertical;
-
-            const staticSrc = isFeatured
-                ? (card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical)
-                : (card.dataset.staticVertical || card.dataset.vertical);
-
-            if (animSrc && animSrc !== staticSrc) {
-                await setImgSrc(img, animSrc);
+        heroTimer = setTimeout(() => {
+            if (currentActiveCard === card && typeof switchHeroBackground === 'function') {
+                switchHeroBackground(bgSrc, logoSrc, heroSrc);
             }
+        }, heroDelay);
 
-            if (!active()) return;
-
-            const animHero = card.dataset.hero;
-            if (animHero && animHero !== card.dataset.staticHero)
-                await setImgSrc(document.getElementById('heroImage'), animHero);
-
-            if (!active()) return;
-
-            const animLogo = card.dataset.logo;
-            if (animLogo && animLogo !== card.dataset.staticLogo) {
-                const logoEl = document.getElementById('gameLogo');
-                if (logoEl) { await setImgSrc(logoEl, animLogo); logoEl.classList.add('visible'); }
+        animTimer = setTimeout(() => {
+            if (currentActiveCard === card) {
+                triggerAnimations(card);
             }
-        }, 200);
+        }, animDelay);
     }
 
     function stop(card) {
-        if (card._animTimer) clearTimeout(card._animTimer);
-        if (document.activeElement === card || card.matches(':hover')) return;
+        if (currentActiveCard === card) {
+            currentActiveCard = null;
+            if (heroTimer) clearTimeout(heroTimer);
+            if (animTimer) clearTimeout(animTimer);
+        }
 
         const img = card.querySelector('img');
-        const staticSrc = card.classList.contains('featured')
-            ? (card.dataset.staticHorizontal || card.dataset.horizontal
-                || card.dataset.staticVertical || card.dataset.vertical)
+        if (!img) return;
+
+        const isFeatured = card.classList.contains('featured');
+        const staticSrc = isFeatured
+            ? (card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical)
             : (card.dataset.staticVertical || card.dataset.vertical);
 
-        if (img && staticSrc && img.src !== staticSrc) {
-            setImgSrc(img, staticSrc);
+        if (staticSrc && !img.src.endsWith(staticSrc)) {
+            img.style.transition = 'none';
+            setTimeout(() => {
+                // Só reverte se o card ainda não estiver ativo novamente
+                if (currentActiveCard !== card) {
+                    img.src = staticSrc;
+                }
+            }, 0);
         }
+    }
+
+    function triggerAnimations(card) {
+        const isFeatured = card.classList.contains('featured');
+        const animSrc = isFeatured ? (card.dataset.horizontal || card.dataset.vertical) : card.dataset.vertical;
+        const staticSrc = isFeatured ? (card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical) : (card.dataset.staticVertical || card.dataset.vertical);
+
+        // Dispara a Placa de Vídeo para preparar a capa
+        if (animSrc && animSrc !== staticSrc) {
+            const img = card.querySelector('img');
+            if (img) safeLoadImage(img, animSrc, () => currentActiveCard === card);
+        }
+
+        // Prepara o Hero Animado na GPU
+        const animHero = card.dataset.hero;
+        if (animHero && animHero !== card.dataset.staticHero) {
+            const heroImg = document.getElementById('heroImage');
+            if (heroImg) safeLoadImage(heroImg, animHero, () => currentActiveCard === card);
+        }
+
+        // Prepara a Logo Animada na GPU
+        const animLogo = card.dataset.logo;
+        if (animLogo && animLogo !== card.dataset.staticLogo) {
+            const logoEl = document.getElementById('gameLogo');
+            if (logoEl) {
+                safeLoadImage(logoEl, animLogo, () => currentActiveCard === card, () => {
+                    if (currentActiveCard === card) logoEl.classList.add('visible');
+                });
+            }
+        }
+    }
+
+    function safeLoadImage(targetEl, src, isActiveFn, onComplete) {
+        if (!src || (targetEl.src && targetEl.src.endsWith(src))) {
+            if (isActiveFn() && onComplete) onComplete();
+            return;
+        }
+
+        const tempImg = new Image();
+        tempImg.src = src;
+
+        tempImg.decode().then(() => {
+            if (!isActiveFn()) return;
+
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    if (isActiveFn()) {
+                        targetEl.style.transition = 'none';
+                        targetEl.src = src;
+                        if (onComplete) onComplete();
+                    }
+                });
+            });
+        }).catch(() => {
+            if (isActiveFn()) {
+                requestAnimationFrame(() => {
+                    targetEl.src = src;
+                    if (onComplete) onComplete();
+                });
+            }
+        });
     }
 
     return { start, stop };
 })();
+
 
 const CardRenderer = (() => {
 
@@ -93,7 +158,9 @@ const CardRenderer = (() => {
     function _recycle(card) {
         card._abortCtrl?.abort();
         card._abortCtrl = null;
-        if (card._animTimer) { clearTimeout(card._animTimer); card._animTimer = null; }
+
+        // Avisa a interação que este card morreu
+        CardInteraction.stop(card);
 
         for (const key of Object.keys(card.dataset)) delete card.dataset[key];
 
@@ -129,10 +196,6 @@ const CardRenderer = (() => {
         card.classList.add('card');
         if (item.channel === 'media') card.classList.add('media-card');
         if (isFeatured) card.classList.add('featured');
-        if (window.AppStore.queries.isNew(item.id)) {
-            card.classList.add('new-game');
-        }
-        // 🔹 Verifica no Store Global unificado se o item foi marcado como Novo
         if (window.AppStore.queries.isNew(item.id)) {
             card.classList.add('new-game');
         }
@@ -255,10 +318,8 @@ const CardRenderer = (() => {
             fragment.appendChild(card);
         });
 
-        // Limpa apenas o que for skeleton, preserva o anchor (botão adicionar)
         gridEl.querySelectorAll('.loading-card').forEach(c => c.remove());
 
-        // Limpa cards antigos, mas ignora o botão adicionar
         const old = Array.from(gridEl.querySelectorAll('.card:not(.add-card):not(.loading-card)'));
         old.forEach(_recycle);
         old.forEach(c => c.remove());
@@ -285,7 +346,6 @@ const CardRenderer = (() => {
             }
         });
 
-        // Insere o card fisicamente no topo do Grid
         gridEl.insertBefore(card, gridEl.firstElementChild);
         return card;
     }
@@ -301,18 +361,15 @@ const CardRenderer = (() => {
     function reorderDOM(items, gridEl, anchorEl) {
         const cardMap = new Map();
 
-        // Pega todos os cards reais existentes
         gridEl.querySelectorAll('.card:not(.add-card):not(.loading-card)').forEach(c => {
             cardMap.set(c.dataset.id, c);
         });
 
-        // Move os cards fisicamente para a ordem correta antes do botão Adicionar
         items.forEach(item => {
             const card = cardMap.get(item.id);
             if (card) gridEl.insertBefore(card, anchorEl);
         });
 
-        // Atualiza a imagem Featured (se o cara perdeu a coroa, volta pra arte vertical)
         const first = items[0];
         if (first) {
             cardMap.forEach((card, id) => {
@@ -366,12 +423,10 @@ const CardRenderer = (() => {
     }
 
     function syncDOM(channel, items, gridEl, anchorEl) {
-        // 1. Captura a posição inicial de todos os cards antes de mover
         const existingCards = Array.from(gridEl.querySelectorAll('.card:not(.add-card):not(.loading-card)'));
         const firstPositions = new Map();
         existingCards.forEach(c => firstPositions.set(c.dataset.id, c.getBoundingClientRect()));
 
-        // 2. Faz o reordenamento lógico no DOM (o "teleporte")
         const existingMap = new Map();
         existingCards.forEach(c => existingMap.set(c.dataset.id, c));
 
@@ -404,24 +459,20 @@ const CardRenderer = (() => {
             }
         });
 
-        // 3. A MÁGICA: Compara a posição nova com a antiga e aplica a animação de "Glide"
         existingCards.forEach(card => {
             const newPos = card.getBoundingClientRect();
             const oldPos = firstPositions.get(card.dataset.id);
 
             if (oldPos && (oldPos.left !== newPos.left || oldPos.top !== newPos.top)) {
-                // Calcula a diferença
                 const deltaX = oldPos.left - newPos.left;
                 const deltaY = oldPos.top - newPos.top;
 
-                // Move o elemento visualmente para onde ele estava
                 card.style.transition = 'none';
                 card.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
 
-                // Força um repaint do navegador
                 requestAnimationFrame(() => {
                     card.style.transition = '';
-                    card.style.transform = ''; // E desliza para a posição nova!
+                    card.style.transform = '';
                 });
             }
         });

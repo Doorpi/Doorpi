@@ -74,6 +74,18 @@ function updateGamepadUI(connected, type = 'generic') {
     }
 }
 
+function canCloseProfileSelection() {
+    if (window.requireProfileSelection || window._isMandatoryLogin) return false;
+
+    const profileBtn = document.getElementById('btnTopProfile');
+    // Só bloqueia se o botão existir na tela E não tiver nenhum dado de usuário atrelado a ele/sistema
+    if (profileBtn && (!profileBtn.dataset.userId && !profileBtn.dataset.username) && !window.currentUserId) {
+        return false;
+    }
+
+    return true; // Libera o B / Esc para o resto do sistema!
+}
+
 let _navIdleTimeout = null;
 function signalNavigation() {
     if (_navIdleTimeout) clearTimeout(_navIdleTimeout);
@@ -158,6 +170,7 @@ function getNavigableItems() {
     return [];
 }
 
+// ALGORITMO DE NAVEGAÇÃO ESPACIAL ORIGINAL RESTAURADO
 function findSpatialCandidate(items, current, direction) {
     const cr = current.getBoundingClientRect();
     const cx = cr.left + cr.width / 2, cy = cr.top + cr.height / 2;
@@ -174,6 +187,26 @@ function findSpatialCandidate(items, current, direction) {
             case 'UP': valid = icy < cy; dist = cy - icy; overlap = Math.min(cr.right, r.right) - Math.max(cr.left, r.left); break;
         }
         if (valid && overlap > -10 && dist < bestDist) { bestDist = dist; best = item; }
+    });
+    return best;
+}
+
+function findWrapCandidate(items, current, direction) {
+    const cr = current.getBoundingClientRect();
+    const cx = cr.left + cr.width / 2, cy = cr.top + cr.height / 2;
+    let best = null, maxDist = -1;
+    items.forEach(item => {
+        if (item === current) return;
+        const r = item.getBoundingClientRect();
+        const icx = r.left + r.width / 2, icy = r.top + r.height / 2;
+        let opp = false, dist = 0, overlap = 0;
+        switch (direction) {
+            case 'RIGHT': opp = icx < cx; dist = cx - icx; overlap = Math.min(cr.bottom, r.bottom) - Math.max(cr.top, r.top); break;
+            case 'LEFT': opp = icx > cx; dist = cx - icx; overlap = Math.min(cr.bottom, r.bottom) - Math.max(cr.top, r.top); break;
+            case 'DOWN': opp = icy < cy; dist = cy - icy; overlap = Math.min(cr.right, r.right) - Math.max(cr.left, r.left); break;
+            case 'UP': opp = icy > cy; dist = icy - cy; overlap = Math.min(cr.right, r.right) - Math.max(cr.left, r.left); break;
+        }
+        if (opp && overlap > -10 && dist > maxDist) { maxDist = dist; best = item; }
     });
     return best;
 }
@@ -332,7 +365,10 @@ document.addEventListener('focusin', () => {
     if (items.includes(document.activeElement)) _lastSetupFocused = document.activeElement;
 });
 
-function gamepadCancel() { if (isModalOpen && !window.isGlobalLoading) closeModal?.(); }
+function gamepadCancel() {
+    if (isModalOpen && !window.isGlobalLoading) closeModal?.();
+}
+
 function gamepadStart() {
     if (window.isGlobalLoading) return;
     if (isModalOpen) { closeModal?.(); return; }
@@ -340,18 +376,23 @@ function gamepadStart() {
     if (window.getCurrentHomeTab?.() === 'media') document.getElementById('btnAddMedia')?.click();
     else document.getElementById('btnAdd')?.click();
 }
+
 function gamepadTriangle() { if (isModalOpen && !window.isGlobalLoading) document.getElementById('btnSearch')?.click(); }
 
 function moveFocus(direction) {
     if (window.isGlobalLoading) return;
 
     if (window._vkbIsOpen) {
-        const items = Array.from(document.querySelectorAll('.vkb-key[tabindex="0"]'));
+        const items = Array.from(document.querySelectorAll('.vkb-key'));
         const current = document.activeElement;
-        if (!items.includes(current)) { items[0]?.focus(); return; }
+
+        if (!current || !current.classList.contains('vkb-key')) {
+            items[0]?.focus();
+            return;
+        }
+
         let target = findVkbCandidate(items, current, direction);
-        if (!target) target = current;
-        if (target && target !== current) target.focus();
+        if (target) target.focus();
         return;
     }
 
@@ -382,57 +423,30 @@ function moveFocus(direction) {
         return;
     }
 
+    // 🟢 SETUP: ALGORITMO ORIGINAL RESTAURADO NA ÍNTEGRA
     if (isSetupOpen) {
         const items = getSetupItems();
         if (!items.length) return;
         const current = document.activeElement;
-        const scrollSetup = (el, dir) => {
-            const container = document.getElementById('setupContainer');
-            if (!container || !el) return;
-            const cr = container.getBoundingClientRect();
-            const er = el.getBoundingClientRect();
-            let targetScrollTop = container.scrollTop;
-
-            if (dir === 'UP' && er.top < cr.top + 600) targetScrollTop = container.scrollTop - (cr.top + 600 - er.top);
-            else if (dir === 'DOWN' && er.bottom > cr.bottom - 40) targetScrollTop = container.scrollTop + (er.bottom - cr.bottom + 40);
-            else return;
-
-            targetScrollTop = Math.max(0, Math.min(container.scrollHeight - container.clientHeight, targetScrollTop));
-            window._setupSmoothScroll?.(targetScrollTop);
-        };
 
         if (!items.includes(current)) {
             items[0]?.focus();
-            scrollSetup(items[0], 'UP');
             return;
         }
 
-        let target = null;
+        let target = findSpatialCandidate(items, current, direction);
 
-   
-        if (current.id === 'btnSetupAddFolder' && direction === 'UP') {
-            const deleteBtns = Array.from(document.querySelectorAll('#setupFolderList .setup-btn-delete[tabindex="0"]'));
-            if (deleteBtns.length > 0) target = deleteBtns[deleteBtns.length - 1];
-        } else if (current.classList.contains('setup-btn-delete') && current.closest('#setupFolderList') && direction === 'DOWN') {
-            const idx = Array.from(document.querySelectorAll('#setupFolderList .setup-btn-delete')).indexOf(current);
-            const total = document.querySelectorAll('#setupFolderList .setup-btn-delete').length;
-            if (idx === total - 1) target = document.getElementById('btnSetupAddFolder');
-        }
-
-
-        if (!target) {
-            target = findSpatialCandidate(items, current, direction);
-        }
-
-
-        if (!target) {
-            const idx = items.indexOf(current);
-            if (direction === 'DOWN' && idx < items.length - 1) target = items[idx + 1];
-            else if (direction === 'UP' && idx > 0) target = items[idx - 1];
-        }
         if (target && target !== current) {
             target.focus();
-            scrollSetup(target, direction);
+
+            // Scroll suave automático para não sumir da tela
+            const container = document.getElementById('setupContainer');
+            if (container) {
+                const cr = container.getBoundingClientRect();
+                const tr = target.getBoundingClientRect();
+                if (tr.bottom > cr.bottom) container.scrollTop += (tr.bottom - cr.bottom) + 40;
+                else if (tr.top < cr.top) container.scrollTop -= (cr.top - tr.top) + 40;
+            }
         }
         return;
     }
@@ -611,7 +625,6 @@ document.addEventListener('keydown', e => {
         const dirMapOverlay = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' };
         if (dirMapOverlay[e.key]) { e.preventDefault(); moveFocus(dirMapOverlay[e.key]); return; }
 
-        // 🔹 TECLADO FÍSICO NOS SELECTS (Sobreposição e EditModal)
         if (e.key === 'Enter') {
             e.preventDefault();
             const el = document.activeElement;
@@ -626,9 +639,17 @@ document.addEventListener('keydown', e => {
             else el?.click();
             return;
         }
-        if (e.key === 'Escape') { e.preventDefault(); window.closeDoorpiTopOverlay?.(); return; }
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            // 🔒 TRAVA GLOBAL AQUI
+            if (!canCloseProfileSelection()) return;
+            window.closeDoorpiTopOverlay?.();
+            return;
+        }
     }
-    if (window.isNavMenuOpen && !isCtxMenuOpen) return;
+
+    // O NavMenu bloqueia o teclado, a menos que as popups que abriram dele estejam no topo
+    if (window.isNavMenuOpen && !isCtxMenuOpen && !isEditModalOpen) return;
 
     if (window._vkbIsOpen) {
         const dirMap = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' };
@@ -641,10 +662,15 @@ document.addEventListener('keydown', e => {
         }
         return;
     }
-    const dirMap = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' };
-    if (dirMap[e.key]) { e.preventDefault(); moveFocus(dirMap[e.key]); return; }
 
-    // 🔹 TECLADO FÍSICO NOS SELECTS E NAVEGAÇÃO GERAL
+    // TODAS as setas do teclado / C# batem aqui
+    const dirMap = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' };
+    if (dirMap[e.key]) {
+        e.preventDefault();
+        moveFocus(dirMap[e.key]);
+        return;
+    }
+
     if (e.key === 'Enter') {
         e.preventDefault();
         const el = document.activeElement;
@@ -665,8 +691,18 @@ document.addEventListener('keydown', e => {
             e.preventDefault(); triggerContextMenu(); return;
         }
     }
+
     if (e.key === 'Escape') {
         e.preventDefault();
+
+        // 1. Se for o Overlay de Perfil, aplica a trava de segurança
+        if (window.isDoorpiOverlayOpen?.()) {
+            if (!canCloseProfileSelection()) return;
+            window.closeDoorpiTopOverlay?.();
+            return;
+        }
+
+        // 2. Se for Setup, Contexto, Edição ou Modal, fecha normalmente
         if (isSetupOpen) {
             const cancelBtn = document.getElementById('btnSetupCancel');
             if (cancelBtn && cancelBtn.style.display !== 'none') cancelBtn.click();
@@ -674,12 +710,16 @@ document.addEventListener('keydown', e => {
         }
         if (isCtxMenuOpen) { closeCtxMenu(); return; }
         if (isEditModalOpen) { window._editModalClose?.(); return; }
-        if (isModalOpen) { gamepadCancel(); return; }
+        if (isModalOpen) { closeModal?.(); return; } // Aqui volta a fechar Add Jogo/App
     }
 });
 
 let _gamepadIndex = null, _controllerType = 'generic', _btnCooldown = {}, _lastMoveTime = 0, _moveState = 0, _currentDirection = null;
 let _cursorHoldState = { l1: 0, r1: 0 }, _cursorLastTime = { l1: 0, r1: 0 };
+
+window._gpNavigating = false;
+let _gpNavigatingTimeout = null;
+
 function buttonJustPressed(btn, index) {
     if (btn?.pressed) { if (!_btnCooldown[index]) { _btnCooldown[index] = true; return true; } return false; }
     _btnCooldown[index] = false; return false;
@@ -706,20 +746,23 @@ window.addEventListener('gamepaddisconnected', e => {
         const ax = gamepad.axes[0], ay = gamepad.axes[1], thr = GAMEPAD.AXIS_THRESHOLD, now = performance.now();
         let dir = null;
 
-        // 🔹 UNIFICAÇÃO: Analógico e D-Pad definem a direção em qualquer cenário (incluindo VKB)
         if (ax > thr || buttons[GAMEPAD.BTN_RIGHT]?.pressed) dir = 'RIGHT';
         else if (ax < -thr || buttons[GAMEPAD.BTN_LEFT]?.pressed) dir = 'LEFT';
         else if (ay > thr || buttons[GAMEPAD.BTN_DOWN]?.pressed) dir = 'DOWN';
         else if (ay < -thr || buttons[GAMEPAD.BTN_UP]?.pressed) dir = 'UP';
 
-        if (window.isDoorpiOverlayOpen?.() && !window._vkbIsOpen) {
-            if (dir) {
-                if (dir !== _currentDirection) { moveFocus(dir); _lastMoveTime = now; _moveState = 1; _currentDirection = dir; }
-                else if (_moveState === 1 && now - _lastMoveTime > GAMEPAD.INITIAL_DELAY) { moveFocus(dir); _lastMoveTime = now; _moveState = 2; }
-                else if (_moveState === 2 && now - _lastMoveTime > GAMEPAD.REPEAT_DELAY) { moveFocus(dir); _lastMoveTime = now; }
-            } else { _moveState = 0; _currentDirection = null; }
+        if (dir) {
+            window._gpNavigating = true;
+            if (_gpNavigatingTimeout) clearTimeout(_gpNavigatingTimeout);
+            _gpNavigatingTimeout = setTimeout(() => {
+                window._gpNavigating = false;
+            }, NAV.GAMEPAD.REPEAT_DELAY + 50);
+        }
 
-            // 🔹 CORREÇÃO DE SELECT PARA O GAMEPAD BOTÃO "A"
+        // 🚫 TODO O CÓDIGO DIRECIONAL DAQUI FOI REMOVIDO!
+        // O controle manda a tecla pelo C#, que é pega pelo Listener ali de cima.
+
+        if (window.isDoorpiOverlayOpen?.() && !window._vkbIsOpen) {
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
                 const el = document.activeElement;
                 if (el && el.tagName === 'INPUT') window._vkbOpen?.(el);
@@ -732,19 +775,17 @@ window.addEventListener('gamepaddisconnected', e => {
                 }
                 else el?.click();
             }
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) window.closeDoorpiTopOverlay?.();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
+                // 🔒 TRAVA GLOBAL AQUI TAMBÉM
+                if (!canCloseProfileSelection()) return;
+                window.closeDoorpiTopOverlay?.();
+            }
             return;
         }
 
         if (window.isNavMenuOpen) {
             if (!window._vkbIsOpen) {
                 if (typeof isEditModalOpen !== 'undefined' && isEditModalOpen) {
-                    if (dir) {
-                        if (dir !== _currentDirection) { moveFocus(dir); _lastMoveTime = now; _moveState = 1; _currentDirection = dir; }
-                        else if (_moveState === 1 && now - _lastMoveTime > GAMEPAD.INITIAL_DELAY) { moveFocus(dir); _lastMoveTime = now; _moveState = 2; }
-                        else if (_moveState === 2 && now - _lastMoveTime > GAMEPAD.REPEAT_DELAY) { moveFocus(dir); _lastMoveTime = now; }
-                    } else { _moveState = 0; _currentDirection = null; }
-
                     if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
                         const el = document.activeElement;
                         if (el && el.tagName === 'INPUT') window._vkbOpen?.(el);
@@ -761,22 +802,11 @@ window.addEventListener('gamepaddisconnected', e => {
                     return;
                 }
                 else if (isCtxMenuOpen) {
-                    if (dir) {
-                        if (dir !== _currentDirection) { moveFocus(dir); _lastMoveTime = now; _moveState = 1; _currentDirection = dir; }
-                        else if (_moveState === 1 && now - _lastMoveTime > GAMEPAD.INITIAL_DELAY) { moveFocus(dir); _lastMoveTime = now; _moveState = 2; }
-                        else if (_moveState === 2 && now - _lastMoveTime > GAMEPAD.REPEAT_DELAY) { moveFocus(dir); _lastMoveTime = now; }
-                    } else { _moveState = 0; _currentDirection = null; }
                     if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
                     if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) closeCtxMenu();
                     return;
                 }
                 else {
-                    const dirMap = { RIGHT: 'ArrowRight', LEFT: 'ArrowLeft', DOWN: 'ArrowDown', UP: 'ArrowUp' };
-                    if (dir) {
-                        if (dir !== _currentDirection) { window._navMenuHandleKey?.(dirMap[dir]); _lastMoveTime = now; _moveState = 1; _currentDirection = dir; }
-                        else if (_moveState === 1 && now - _lastMoveTime > GAMEPAD.INITIAL_DELAY) { window._navMenuHandleKey?.(dirMap[dir]); _lastMoveTime = now; _moveState = 2; }
-                        else if (_moveState === 2 && now - _lastMoveTime > GAMEPAD.REPEAT_DELAY) { window._navMenuHandleKey?.(dirMap[dir]); _lastMoveTime = now; }
-                    } else { _moveState = 0; _currentDirection = null; }
                     if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) window._navMenuHandleKey?.('Enter');
                     if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) window._navMenuHandleKey?.('Escape');
                     if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) window._navMenuTriggerCtxMenu?.();
@@ -787,22 +817,8 @@ window.addEventListener('gamepaddisconnected', e => {
             }
         }
 
-        // ═════════════════════════════════════════════════════════════════════
-        // VKB OPEN - Mouse desativado. 100% focado na navegação entre as teclas.
-        // ═════════════════════════════════════════════════════════════════════
         if (window._vkbIsOpen) {
-
-            if (dir) {
-                if (dir !== _currentDirection) { moveFocus(dir); _lastMoveTime = now; _moveState = 1; _currentDirection = dir; }
-                else if (_moveState === 1 && now - _lastMoveTime > GAMEPAD.INITIAL_DELAY) { moveFocus(dir); _lastMoveTime = now; _moveState = 2; }
-                else if (_moveState === 2 && now - _lastMoveTime > GAMEPAD.REPEAT_DELAY) { moveFocus(dir); _lastMoveTime = now; }
-            } else { _moveState = 0; _currentDirection = null; }
-
-            // Confirma focado na tecla atual
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
-                document.activeElement?.click();
-            }
-
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) window._vkbCancel?.();
             if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) window._editModalSave?.();
 
@@ -827,15 +843,7 @@ window.addEventListener('gamepaddisconnected', e => {
             return;
         }
 
-        const items = getNavigableItems();
-        if (!items.length) return;
-
-        if (dir) {
-            if (dir !== _currentDirection) { moveFocus(dir); _lastMoveTime = now; _moveState = 1; _currentDirection = dir; }
-            else if (_moveState === 1 && now - _lastMoveTime > GAMEPAD.INITIAL_DELAY) { moveFocus(dir); _lastMoveTime = now; _moveState = 2; }
-            else if (_moveState === 2 && now - _lastMoveTime > GAMEPAD.REPEAT_DELAY) { moveFocus(dir); _lastMoveTime = now; }
-        } else { _moveState = 0; _currentDirection = null; }
-
+        // Botões de ação globais
         if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
             const el = document.activeElement;
             if (el && el.tagName === 'INPUT') window._vkbOpen?.(el);
@@ -849,12 +857,21 @@ window.addEventListener('gamepaddisconnected', e => {
             else el?.click();
         }
         if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
+            // 1. Se estiver na seleção de perfil, checa a trava
+            if (window.isDoorpiOverlayOpen?.()) {
+                if (!canCloseProfileSelection()) return;
+                window.closeDoorpiTopOverlay?.();
+                return;
+            }
+
+            // 2. Senão, trata os outros menus normalmente
             if (isCtxMenuOpen) closeCtxMenu();
             else if (isEditModalOpen) window._editModalClose?.();
             else if (isSetupOpen) {
                 const cancelBtn = document.getElementById('btnSetupCancel');
                 if (cancelBtn && cancelBtn.style.display !== 'none') cancelBtn.click();
             }
+            else if (isModalOpen) closeModal?.(); // Fecha Add Jogo/App
             else gamepadCancel();
         }
         if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) {
@@ -879,6 +896,7 @@ window.addEventListener('gamepaddisconnected', e => {
         requestAnimationFrame(gamepadLoop);
     }
 })();
+
 window.addEventListener('load', () => {
     const pads = navigator.getGamepads();
     for (const pad of pads) if (pad) {
@@ -956,22 +974,3 @@ document.getElementById('btnAddMedia')?.addEventListener('click', () => {
         }
     }, 50);
 });
-function findWrapCandidate(items, current, direction) {
-    const cr = current.getBoundingClientRect();
-    const cx = cr.left + cr.width / 2, cy = cr.top + cr.height / 2;
-    let best = null, maxDist = -1;
-    items.forEach(item => {
-        if (item === current) return;
-        const r = item.getBoundingClientRect();
-        const icx = r.left + r.width / 2, icy = r.top + r.height / 2;
-        let opp = false, dist = 0, overlap = 0;
-        switch (direction) {
-            case 'RIGHT': opp = icx < cx; dist = cx - icx; overlap = Math.min(cr.bottom, r.bottom) - Math.max(cr.top, r.top); break;
-            case 'LEFT': opp = icx > cx; dist = cx - icx; overlap = Math.min(cr.bottom, r.bottom) - Math.max(cr.top, r.top); break;
-            case 'DOWN': opp = icy < cy; dist = cy - icy; overlap = Math.min(cr.right, r.right) - Math.max(cr.left, r.left); break;
-            case 'UP': opp = icy > cy; dist = icy - cy; overlap = Math.min(cr.right, r.right) - Math.max(cr.left, r.left); break;
-        }
-        if (opp && overlap > -10 && dist > maxDist) { maxDist = dist; best = item; }
-    });
-    return best;
-}
