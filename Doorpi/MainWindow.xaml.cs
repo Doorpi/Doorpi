@@ -250,7 +250,12 @@ namespace Doorpi
         public MainWindow()
         {
             InitializeComponent();
-
+            this.Activated += (s, e) => {
+                if (webView?.CoreWebView2 != null)
+                {
+                    webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"windowFocused\"}");
+                }
+            };
             dataFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data");
             gridFolder = Path.Combine(dataFolder, "images", "grid");
             heroFolder = Path.Combine(dataFolder, "images", "hero");
@@ -1885,7 +1890,9 @@ namespace Doorpi
                 Activate();
                 webView?.Focus();
 
-                webView?.CoreWebView2.ExecuteScriptAsync("window.focusFeaturedCard();");
+                // 🔹 Reseta a flag + foca o card
+                webView?.CoreWebView2.ExecuteScriptAsync(
+                    "window.isMediaAppActive = false; window.focusFeaturedCard();");
             });
         }
 

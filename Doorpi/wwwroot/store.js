@@ -94,12 +94,26 @@ window.AppStore = (() => {
     }
 
     function _sortByRecency(items) {
+        // 1. Descobre quem é o verdadeiro Hero (O último que foi aberto)
+        const heroId = _state.recentlyOpened.length > 0 ? _state.recentlyOpened[0] : null;
+
         return [...items].sort((a, b) => {
+            // 2. O Hero é inegociável, fica na posição 0
+            if (a.id === heroId) return -1;
+            if (b.id === heroId) return 1;
+
+            // 3. Os "Novos" ficam logo atrás do Hero
+            const aIsNew = _state.newIds.has(a.id);
+            const bIsNew = _state.newIds.has(b.id);
+            if (aIsNew && !bIsNew) return -1;
+            if (!aIsNew && bIsNew) return 1;
+
+            // 4. Ordem normal do histórico recente (quem não é novo, vai pra trás)
             const ai = _state.recentlyOpened.indexOf(a.id);
             const bi = _state.recentlyOpened.indexOf(b.id);
             const ar = ai === -1 ? 999 : ai;
             const br = bi === -1 ? 999 : bi;
-            return ar - br; // Os recém abertos sobem pro topo com prioridade máxima
+            return ar - br;
         });
     }
 
@@ -115,19 +129,24 @@ window.AppStore = (() => {
             _notify(channel, { type: 'reset', items: ordered });
             _notify('featured', { channel, id: _state.featuredId[channel] });
         },
-
         addItem(channel, raw) {
             const LIMIT = 12;
             const item = _normalize(raw, channel);
 
-            _state[channel] = _state[channel].filter(i => i.id !== item.id);
-            _state[channel].unshift(item);
-            if (_state[channel].length > LIMIT) _state[channel].pop();
+            // Remove se já existe e adiciona na lista
+            let list = _state[channel].filter(i => i.id !== item.id);
+            list.push(item);
 
-            _state.featuredId[channel] = item.id;
+            // Força a lista a passar pela REGRA MESTRA (Hero -> Novos -> Antigos)
+            list = _sortByRecency(list);
+            if (list.length > LIMIT) list = list.slice(0, LIMIT);
 
-            _notify(channel, { type: 'prepend', item });
-            _notify('featured', { channel, id: item.id });
+            _state[channel] = list;
+            _state.featuredId[channel] = list[0]?.id ?? null;
+
+            // Manda um "reset" para a UI redesenhar perfeitamente na ordem certa
+            _notify(channel, { type: 'reset', items: list });
+            _notify('featured', { channel, id: _state.featuredId[channel] });
         },
 
         removeItem(channel, id) {

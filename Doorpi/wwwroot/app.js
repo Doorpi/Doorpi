@@ -160,6 +160,13 @@ window.chrome.webview.addEventListener('message', event => {
         else if (data.type === 'renderGames') {
             if (window.AppStore) window.AppStore.mutations.setBatch('games', data.games || []);
         }
+        // app.js — handler de mensagens do C#
+        else if (data.type === 'windowFocused') {
+            window.isMediaAppActive = false; // 🔹 Libera o gamepad loop
+            if (!window._vkbIsOpen) {
+                recoverGlobalFocus();
+            }
+        }
         else if (data.type === 'extensionsList' || data.type === 'extensionUpdatesList') {
             if (data.type === 'extensionUpdatesList') {
                 window._pendingExtensionUpdates = data.updates || {};
@@ -337,7 +344,31 @@ window.chrome.webview.addEventListener('message', event => {
         window._mediaHandleMessage?.(data);
     } catch (e) { console.error('[bridge] Erro:', e); }
 });
+function recoverGlobalFocus() {
+    // 1. Prioridade: Se tem um Modal de Adicionar aberto, foca nos botões dele
+    if (window.isModalOpen) {
+        const btn = document.querySelector('#btnAddWebApp') || document.querySelector('#btnConfirmAdd') || document.querySelector('#btnConfirmAddMedia');
+        if (btn && btn.style.display !== 'none') { btn.focus(); return; }
+    }
 
+    // 2. Prioridade: Se o usuário estiver na tela principal (jogos ou mídia)
+    const currentTab = (typeof window.getCurrentHomeTab === 'function') ? window.getCurrentHomeTab() : 'games';
+    const gridId = currentTab === 'media' ? 'mediaGrid' : 'gameGrid';
+    const grid = document.getElementById(gridId);
+
+    // Tenta focar no Card Featured ou no primeiro card da lista
+    if (grid) {
+        const target = grid.querySelector('.card.featured') || grid.querySelector('.card:not(.add-card)');
+        if (target) {
+            target.focus();
+            return;
+        }
+    }
+
+    // 3. Fallback: Qualquer coisa clicável na tela
+    const fallback = document.querySelector('button, [tabindex="0"]');
+    if (fallback) fallback.focus();
+}
 function postToHost(payload) {
     window.chrome?.webview?.postMessage(JSON.stringify(payload));
 }
@@ -900,18 +931,31 @@ function switchTab(tabId) {
     view?.classList.remove('hidden');
     view?.classList.add('active');
 
-    if (tabId === 'folders') {
+    // Controle inteligente de exibição dos botões
+    const modalActions = document.getElementById('modalActions');
+    const mediaAppActions = document.getElementById('mediaAppActions');
+
+    if (tabId === 'apps') {
+        if (modalActions) modalActions.style.display = 'flex';
+        if (mediaAppActions) mediaAppActions.style.display = 'none';
+        refreshInstalledAppsView(); // Força a lista a renderizar novamente
+    }
+    else if (tabId === 'folders') {
+        if (modalActions) modalActions.style.display = 'none';
+        if (mediaAppActions) mediaAppActions.style.display = 'none';
         if (cachedFolders === null) {
             showGlobalLoading(t('foldersTitle'), t('readingApps'));
             requestFolders();
         } else {
             renderFolderList(cachedFolders);
         }
-    } else if (tabId === 'media-apps') {
+    }
+    else if (tabId === 'media-apps') {
+        if (modalActions) modalActions.style.display = 'none';
+        if (mediaAppActions) mediaAppActions.style.display = 'flex';
         _initMediaAppsView();
     }
 }
-
 /* Seção: Filtros e barra de filtros */
 currentSourceFilter = ['all'];
 
@@ -1121,9 +1165,24 @@ function populateAppModal(apps) {
 
     rebindAction('btnCancelAdd', closeModal);
     rebindAction('btnConfirmAdd', () => {
+        // Verifica se a ABA PRINCIPAL DE MÍDIA é a que está visível na tela no momento
+        const isMediaViewActive = document.getElementById('view-media-apps')?.classList.contains('active');
+
+        // Se a tela de Mídia estiver aberta, repassa a ação para o controle funcionar nela
+        if (isMediaViewActive) {
+            if (document.getElementById('subview-web')?.classList.contains('active')) {
+                document.getElementById('btnAddWebApp')?.click();
+            } else {
+                document.getElementById('btnConfirmAddMedia')?.click();
+            }
+            return;
+        }
+
+        // Lógica normal se estivermos na aba de JOGOS (view-apps)
         const selected = Array.from(appList.querySelectorAll('.app-item.selected')).map(el => ({
             Name: el.dataset.name, Path: el.dataset.path, LaunchUrl: el.dataset.launch,
         }));
+
         if (selected.length > 0) {
             selected.forEach(g => newGameIdsThisSession.add(g.LaunchUrl || g.Path));
             postToHost({ action: 'addSelectedGames', games: selected });
