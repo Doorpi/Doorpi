@@ -353,7 +353,7 @@ body {
     align-items: flex-end;
     filter: saturate(1.4) brightness(0.7);
     border: 3px solid rgba(255,255,255,0.00);
-    transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.4s cubic-bezier(0.22, 1, 0.36, 1), filter 0.4s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.4s ease;
+    transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) !important;
     will-change: transform, opacity;
 }
 
@@ -2365,4 +2365,72 @@ body {
 }
 .tab-icon svg {
     stroke-width: 1.8;
+}
+
+
+/* Animação do card sendo removido (dura os ~280ms do seu timeout atual) */
+.card.removing {
+    animation: shrinkOut 0.28s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    pointer-events: none;
+}
+
+@keyframes shrinkOut {
+    0% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    100% {
+        opacity: 0;
+        transform: scale(0.8) translateY(-20px);
+    }
+}
+
+/* Animação do 13º jogo subindo do Nav Menu para preencher a vaga */
+.card.promoted-up {
+    animation: slideUpFromNav 0.5s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+    pointer-events: none; /* Evita que o hover dispare no meio do ar */
+    transform-origin: bottom center;
+}
+
+@keyframes slideUpFromNav {
+    0% {
+        opacity: 0;
+        transform: translateY(120px) scale(0.85); /* Começa lá embaixo, menor */
+    }
+
+    60% {
+        opacity: 1;
+        transform: translateY(-5px) scale(1.02); /* Dá um leve "quique" para cima */
+    }
+
+    100% {
+        opacity: 1;
+        transform: translateY(0) scale(1); /* Assenta perfeitamente no grid */
+    }
+}
+/* Animação Premium PS5 Otimizada: Afundando no Vazio */
+.card.removing {
+    /* 1. MATA a transição nativa de hover para ela não brigar com a animação */
+    transition: none !important;
+    /* 2. Força o navegador a jogar esse card para a GPU (Placa de vídeo) */
+    will-change: transform, opacity;
+    /* 3. Tempo cravado em 280ms (0.28s) para bater com a remoção exata do seu JS */
+    animation: sinkIntoVoid 0.28s cubic-bezier(0.2, 0, 0, 1) forwards !important;
+    pointer-events: none !important;
+    z-index: 0 !important;
+}
+
+@keyframes sinkIntoVoid {
+    0% {
+        opacity: 1;
+        /* translateZ(0) reforça a aceleração de hardware */
+        transform: scale(1) translateZ(0);
+    }
+
+    100% {
+        opacity: 0;
+        /* Encolhe bastante (0.75) e desce sutilmente (10px) simulando peso e gravidade */
+        transform: scale(0.75) translateY(10px) translateZ(0);
+    }
 }

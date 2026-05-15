@@ -1936,12 +1936,6 @@ body.nav-menu-active .nav-menu {
     }
     .vkb-key[data-key="shift"].shifted:focus { background: rgba(255,255,255,0.97); color: #080810; }
 
-    .card.removing {
-        opacity: 0 !important; transform: scale(0.88) !important;
-        transition: opacity 0.25s ease, transform 0.25s ease !important;
-        pointer-events: none !important;
-    }
-
     @keyframes editOverlayIn { from{opacity:0} to{opacity:1} }
     @keyframes editModalIn   { from{opacity:0;transform:scale(0.93) translateY(10px)} to{opacity:1;transform:scale(1) translateY(0)} }
     

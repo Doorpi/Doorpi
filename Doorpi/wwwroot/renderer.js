@@ -365,5 +365,76 @@ const CardRenderer = (() => {
         }
     }
 
-    return { renderBatch, prependCard, removeCard, reorderDOM, applyPatch };
+    function syncDOM(channel, items, gridEl, anchorEl) {
+        // 1. Captura a posição inicial de todos os cards antes de mover
+        const existingCards = Array.from(gridEl.querySelectorAll('.card:not(.add-card):not(.loading-card)'));
+        const firstPositions = new Map();
+        existingCards.forEach(c => firstPositions.set(c.dataset.id, c.getBoundingClientRect()));
+
+        // 2. Faz o reordenamento lógico no DOM (o "teleporte")
+        const existingMap = new Map();
+        existingCards.forEach(c => existingMap.set(c.dataset.id, c));
+
+        const isUpdate = existingCards.length > 0;
+        const hasSkeletons = gridEl.querySelectorAll('.loading-card').length > 0;
+
+        items.forEach((item, index) => {
+            const isFeatured = index === 0;
+            let card = existingMap.get(item.id);
+
+            if (card) {
+                if (card.classList.contains('featured') !== isFeatured) {
+                    card.classList.toggle('featured', isFeatured);
+                    const img = card.querySelector('img');
+                    if (img) {
+                        const src = isFeatured
+                            ? (card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical)
+                            : (card.dataset.staticVertical || card.dataset.vertical);
+                        if (src) img.src = src;
+                    }
+                }
+                gridEl.insertBefore(card, anchorEl);
+            } else {
+                card = _buildCard(item, isFeatured);
+                if (isUpdate && index > 0 && !hasSkeletons) {
+                    card.classList.add('promoted-up');
+                    setTimeout(() => card.classList.remove('promoted-up'), 500);
+                }
+                gridEl.insertBefore(card, anchorEl);
+            }
+        });
+
+        // 3. A MÁGICA: Compara a posição nova com a antiga e aplica a animação de "Glide"
+        existingCards.forEach(card => {
+            const newPos = card.getBoundingClientRect();
+            const oldPos = firstPositions.get(card.dataset.id);
+
+            if (oldPos && (oldPos.left !== newPos.left || oldPos.top !== newPos.top)) {
+                // Calcula a diferença
+                const deltaX = oldPos.left - newPos.left;
+                const deltaY = oldPos.top - newPos.top;
+
+                // Move o elemento visualmente para onde ele estava
+                card.style.transition = 'none';
+                card.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+
+                // Força um repaint do navegador
+                requestAnimationFrame(() => {
+                    card.style.transition = '';
+                    card.style.transform = ''; // E desliza para a posição nova!
+                });
+            }
+        });
+
+        gridEl.querySelectorAll('.loading-card').forEach(c => c.remove());
+
+        const newIds = new Set(items.map(i => i.id));
+        existingCards.forEach(c => {
+            if (!newIds.has(c.dataset.id) && !c.classList.contains('removing')) {
+                _recycle(c);
+                c.remove();
+            }
+        });
+    }
+    return { renderBatch, prependCard, removeCard, reorderDOM, applyPatch, syncDOM };
 })();

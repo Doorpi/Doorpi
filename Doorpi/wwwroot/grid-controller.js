@@ -39,8 +39,7 @@ window.GridController = (() => {
 
             switch (mutation.type) {
                 case 'reset':
-                    CardRenderer.renderBatch(channel, mutation.items, el, anchor);
- 
+                    CardRenderer.syncDOM(channel, mutation.items, el, anchor);
                     break;
 
                 case 'prepend':
