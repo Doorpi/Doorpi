@@ -162,7 +162,13 @@ window.chrome.webview.addEventListener('message', event => {
         }
         // app.js — handler de mensagens do C#
         else if (data.type === 'windowFocused') {
-            window.isMediaAppActive = false; // 🔹 Libera o gamepad loop
+            window.isMediaAppActive = false;
+            window.isGameLaunchActive = false;
+            window._doorpiGameInputSuppressedUntil = 0;
+
+            if (typeof GameLaunchOverlay !== 'undefined') {
+                GameLaunchOverlay.hide();
+            }
             if (!window._vkbIsOpen) {
                 recoverGlobalFocus();
             }
@@ -268,6 +274,11 @@ window.chrome.webview.addEventListener('message', event => {
             window._doorpiCurrentUserId = data.currentUserId || '';
             showUserPicker(data.users || [], !!data.requireSelection);
         }
+        else if (data.type === 'usersData') {
+            window._doorpiUsers = data.users || [];
+            window._doorpiCurrentUserId = data.currentUserId || '';
+            window._doorpiUsersDataReady?.(window._doorpiUsers, window._doorpiCurrentUserId);
+        }
         else if (data.type === 'clipboardText') {
             if (data.text?.trim()) {
                 // Intercepta a colagem no Nav Menu de Conta/Perfil
@@ -304,6 +315,26 @@ window.chrome.webview.addEventListener('message', event => {
                         document.getElementById('btnSetupFinish')?.focus();
                     }
                 }
+            }
+        }
+        else if (data.type === 'gameLaunching') {
+            GameLaunchOverlay.show(data.gameName, data.heroImage, data.gridImage);
+        }
+        else if (data.type === 'gameLaunchReady') {
+            GameLaunchOverlay.setRunning();
+        }
+        else if (data.type === 'gameLaunchFailed') {
+            window.isGameLaunchActive = false;
+            window._doorpiGameInputSuppressedUntil = 0;
+            GameLaunchOverlay.setError(data.gameName, data.reason);
+        }
+        else if (data.type === 'gameLaunchDone') {
+            window.isGameLaunchActive = false;
+            window._doorpiGameInputSuppressedUntil = 0;
+
+            GameLaunchOverlay.hide();
+            if (!window._vkbIsOpen) {
+                recoverGlobalFocus();
             }
         }
         else if (document.getElementById('doorpiExtensionsManager')?.style.display !== 'none' && document.getElementById('extensionUrlInput')) {
@@ -1988,6 +2019,9 @@ const _ctxMenu = (() => {
         <button class="ctx-item" id="ctxExtensions" role="menuitem">
             <span class="ctx-icon">+</span> <span data-i18n="manageExtensions">${t('manageExtensions')}</span>
         </button>
+        <button class="ctx-item" id="ctxSharing" role="menuitem">
+            <span class="ctx-icon">=</span> <span data-i18n="accountSharingLabel">${t('accountSharingLabel')}</span>
+        </button>
         <div class="ctx-separator"></div>
         <button class="ctx-item" id="ctxEdit" role="menuitem">
             <span class="ctx-icon">✎</span> <span data-i18n="ctxEditName">${t('ctxEditName')}</span>
@@ -2016,8 +2050,9 @@ function _openCtxMenu(card, x, y) {
 
     const ctxEditBtn = _ctxMenu.querySelector('#ctxEdit');
     const ctxDeleteBtn = _ctxMenu.querySelector('#ctxDelete');
+    const ctxSharingBtn = _ctxMenu.querySelector('#ctxSharing');
     const isBrowserMedia = (card.hasAttribute('data-app-id') || card.closest('#mediaGrid')) &&
-        (card.dataset.appType || 'browser') !== 'exe';
+        ['browser', 'webview'].includes((card.dataset.appType || 'browser').toLowerCase());
 
     const dotHtml = updateCount > 0
         ? `<span class="update-dot" style="display:inline-flex; align-items:center; justify-content:center; min-width:18px; height:18px; padding:0 6px 0px 5px; background:#ff4444; color:#fff; font-size:11px; font-weight:800; line-height:0; letter-spacing:0; border-radius:10px; margin-left:8px; box-shadow: 0 0 10px rgba(255,68,68,0.4); flex-shrink:0; box-sizing:border-box;">${updateCount}</span>`
@@ -2048,12 +2083,14 @@ function _openCtxMenu(card, x, y) {
     if (isYoutube) {
         if (ctxEditBtn) ctxEditBtn.style.display = 'none';
         if (ctxExtensionsBtn) ctxExtensionsBtn.style.display = isBrowserMedia ? 'flex' : 'none';
+        if (ctxSharingBtn) ctxSharingBtn.style.display = isBrowserMedia ? 'flex' : 'none';
         if (ctxDeleteBtn) ctxDeleteBtn.style.display = 'none';
         ctxCloseBtn.style.display = 'flex';
         _ctxMenu.querySelector('#ctxGameName').textContent = t('systemAppLabel');
     } else {
         if (ctxEditBtn) ctxEditBtn.style.display = 'flex';
         if (ctxExtensionsBtn) ctxExtensionsBtn.style.display = isBrowserMedia ? 'flex' : 'none';
+        if (ctxSharingBtn) ctxSharingBtn.style.display = isBrowserMedia ? 'flex' : 'none';
         if (ctxDeleteBtn) ctxDeleteBtn.style.display = 'flex';
         ctxCloseBtn.style.display = 'none';
         _ctxMenu.querySelector('#ctxGameName').textContent = card.querySelector('.title, .nav-vertical-card-title')?.innerText?.trim() || '';
@@ -2067,7 +2104,7 @@ function _openCtxMenu(card, x, y) {
         _ctxMenu.classList.add('visible');
         isCtxMenuOpen = true;
 
-        if (isYoutube) ctxCloseBtn.focus();
+        if (isYoutube) (isBrowserMedia ? ctxSharingBtn : ctxCloseBtn)?.focus();
         else ctxEditBtn?.focus();
     });
 }
@@ -2096,6 +2133,13 @@ document.getElementById('ctxEdit').addEventListener('click', () => {
 document.getElementById('ctxExtensions').addEventListener('click', () => {
     _closeCtxMenu();
     openExtensionsManager();
+});
+
+document.getElementById('ctxSharing').addEventListener('click', () => {
+    const card = _ctxCard;
+    const appId = card?.dataset.appId || card?.dataset.gameId || '';
+    _closeCtxMenu();
+    if (appId) window._navMenuOpenAccountSharing?.(appId);
 });
 
 document.getElementById('ctxDelete').addEventListener('click', () => {
@@ -2183,40 +2227,22 @@ function openEditGameModal(card) {
 
     const appType = card.dataset.appType || 'browser';
     const canManageBrowser = isMediaCard && appType !== 'browser' ? false : (isMediaCard && appType !== 'exe');
-    const shareMode = card.dataset.shareMode || 'private';
-    const sharedWithUserId = card.dataset.sharedWithUserId || '';
+    const canManageSharing = isMediaCard && ['browser', 'webview'].includes(appType.toLowerCase());
     const isSharedFromOther = card.dataset.sharedFromOther === 'true';
-    const shareUsers = (window._doorpiUsers || []).filter(u => u.Id !== window._doorpiCurrentUserId);
-    const shareModeOptions = [
-        { value: 'private', label: t('shareModePrivate') },
-        { value: 'all', label: t('shareModeAll') },
-        { value: 'user', label: t('shareModeUser') }
-    ];
-    const shareUserOptions = [
-        { value: '', label: t('shareChooseUser') },
-        ...shareUsers.map(u => ({ value: u.Id, label: u.Name || t('defaultUser') }))
-    ];
+    const sharedWithNames = (() => {
+        try { return JSON.parse(card.dataset.sharedWithUserNames || '[]'); } catch { return []; }
+    })();
+    const shareSummary = isSharedFromOther
+        ? t('sharedByInfo', escapeHtml(card.dataset.sharedFromName || t('defaultOtherUser')))
+        : (card.dataset.shareMode === 'all'
+            ? t('shareModeAll')
+            : (card.dataset.shareMode === 'user' && sharedWithNames.length ? sharedWithNames.join(', ') : t('shareModePrivate')));
 
-    const shareOptions = shareUsers.map(u => `<option value="${escapeHtml(u.Id)}" ${sharedWithUserId === u.Id ? 'selected' : ''}>${escapeHtml(u.Name || t('defaultUser'))}</option>`).join('');
-
-    const mediaExtras = isMediaCard ? `
+    const mediaExtras = canManageSharing ? `
                 <div class="edit-modal-field">
                     <label class="edit-modal-label">${t('accountSharingLabel')}</label>
-                    ${isSharedFromOther
-            ? `<div class="doorpi-shared-note">${t('sharedByInfo', escapeHtml(card.dataset.sharedFromName || t('defaultOtherUser')))}</div>`
-            : `<div class="doorpi-share-grid">
-                            ${renderDoorpiChoice('editShareModeChoice', shareModeOptions, shareMode)}
-                            ${renderDoorpiChoice('editShareUserChoice', shareUserOptions, sharedWithUserId, shareMode !== 'user')}
-                            <select class="doorpi-share-select" id="editShareMode" tabindex="0">
-                                <option value="private" ${shareMode === 'private' ? 'selected' : ''}>${t('shareModePrivate')}</option>
-                                <option value="all" ${shareMode === 'all' ? 'selected' : ''}>${t('shareModeAll')}</option>
-                                <option value="user" ${shareMode === 'user' ? 'selected' : ''}>${t('shareModeUser')}</option>
-                            </select>
-                            <select class="doorpi-share-select" id="editShareUser" tabindex="0" ${shareMode === 'user' ? '' : 'disabled'}>
-                                <option value="">${t('shareChooseUser')}</option>
-                                ${shareOptions}
-                            </select>
-                        </div>`}
+                    <div class="doorpi-shared-note">${escapeHtml(shareSummary)}</div>
+                    <button class="modal-btn secondary" id="editSharingBtn" type="button" tabindex="0">${t('accountSharingLabel')}</button>
                 </div>
                 ${canManageBrowser ? `<button class="modal-btn secondary" id="editExtensionsBtn" type="button" tabindex="0">${t('manageExtensions')}</button>` : ''}` : '';
 
@@ -2272,6 +2298,12 @@ function openEditGameModal(card) {
         openExtensionsManager();
     });
 
+    overlay.querySelector('#editSharingBtn')?.addEventListener('click', () => {
+        const appId = card.dataset.appId || card.dataset.gameId || '';
+        doClose();
+        window._navMenuOpenAccountSharing?.(appId);
+    });
+
     const doSave = () => {
         const newName = input.value.trim();
         if (newName && newName !== currentName) {
@@ -2291,14 +2323,6 @@ function openEditGameModal(card) {
                 });
             }
             postToHost({ action: 'editGame', gameId: gameId, newName });
-        }
-        if (isMediaCard && !isSharedFromOther) {
-            const mode = getDoorpiChoiceValue('editShareModeChoice') || 'private';
-            const targetUser = getDoorpiChoiceValue('editShareUserChoice') || '';
-            const appId = card.dataset.appId || card.dataset.gameId;
-            card.dataset.shareMode = mode;
-            card.dataset.sharedWithUserId = mode === 'user' ? targetUser : '';
-            postToHost({ action: 'updateAppSharing', appId, shareMode: mode, sharedWithUserId: targetUser });
         }
         doClose();
     };
@@ -2980,6 +3004,103 @@ document.addEventListener('keydown', (e) => {
     }
 });
 // Solicita o status de atualizações de extensões após o carregamento inicial da UI
+const GameLaunchOverlay = (() => {
+    const overlay = document.getElementById('gameLaunchOverlay');
+    const bg = document.getElementById('overlayBg');
+    const artBox = document.getElementById('gameArtBox');
+    const nameEl = document.getElementById('overlayGameName');
+    const statusEl = document.getElementById('overlayStatusText');
+    const errTitle = document.getElementById('overlayErrorTitle');
+    const errSub = document.getElementById('overlayErrorSub');
+
+    const i18n = {
+        opening: 'Abrindo',
+        running: 'Em execução',
+        errTitle: 'Não foi possível abrir',
+        errCrash: 'O jogo fechou inesperadamente. Verifique se o executável está correto.',
+        errTimeout: 'O jogo demorou demais para iniciar. Tente novamente.',
+        errGeneric: 'Verifique se o jogo está instalado corretamente.',
+        dismiss: 'OK',
+    };
+
+    function setState(state) {
+        overlay.classList.remove('state-loading', 'state-running', 'state-error');
+        overlay.classList.add('state-' + state);
+    }
+
+    function setArt(gridImage) {
+        artBox.innerHTML = '';
+        if (gridImage) {
+            const img = document.createElement('img');
+            img.src = gridImage;
+            img.alt = '';
+            img.onerror = () => setArtFallback();
+            artBox.appendChild(img);
+        } else {
+            setArtFallback();
+        }
+    }
+
+    function setArtFallback() {
+        artBox.innerHTML = `
+      <svg class="game-art-placeholder" viewBox="0 0 24 24" fill="none"
+           xmlns="http://www.w3.org/2000/svg">
+        <rect x="2" y="6" width="20" height="12" rx="3"
+              stroke="white" stroke-width="1.5"/>
+        <path d="M7 12h4M9 10v4" stroke="white" stroke-width="1.5"
+              stroke-linecap="round"/>
+        <circle cx="15" cy="12" r="0.75" fill="white"/>
+        <circle cx="17" cy="10.5" r="0.75" fill="white"/>
+        <circle cx="17" cy="13.5" r="0.75" fill="white"/>
+      </svg>`;
+    }
+
+    function show(gameName, heroImage, gridImage) {
+        nameEl.textContent = gameName || '';
+        statusEl.textContent = i18n.opening;
+        if (bg) bg.style.backgroundImage = heroImage ? `url('${heroImage}')` : 'none';
+        setArt(gridImage);
+        setState('loading');
+        overlay.classList.add('visible');
+    }
+
+    function setRunning() {
+        const el = document.getElementById('overlayRunningText');
+        if (el) el.textContent = i18n.running;
+        setState('running');
+    }
+
+    function setError(gameName, reason) {
+        errTitle.textContent = i18n.errTitle + (gameName ? ` "${gameName}"` : '');
+        errSub.textContent = reason === 'crash' ? i18n.errCrash
+            : reason === 'timeout' ? i18n.errTimeout
+                : i18n.errGeneric;
+        setState('error');
+        setTimeout(() => document.getElementById('overlayDismissBtn')?.focus(), 50);
+    }
+
+    function hide() {
+        // Remove blur e eventos imediatamente — o usuário vê/interage com a grade
+        // enquanto o overlay ainda faz o fade de opacidade no background.
+        overlay.style.backdropFilter = 'none';
+        overlay.style.webkitBackdropFilter = 'none';
+        overlay.style.pointerEvents = 'none';
+        overlay.classList.remove('visible');
+
+        setTimeout(() => {
+            overlay.style.backdropFilter = '';
+            overlay.style.webkitBackdropFilter = '';
+            overlay.style.pointerEvents = '';
+            setState('loading');
+            nameEl.textContent = '';
+            setArtFallback();
+            if (bg) bg.style.backgroundImage = 'none';
+        }, 400);
+    }
+
+    return { show, setRunning, setError, hide };
+})();
+
 
 setTimeout(() => {
     postToHost({ action: 'requestExtensionUpdates' });

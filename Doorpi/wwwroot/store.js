@@ -43,6 +43,9 @@ window.AppStore = (() => {
             sharedFromOther: raw.IsSharedFromOtherUser || raw.isSharedFromOtherUser || false,
             sharedFromName: raw.SharedFromUserName || raw.sharedFromName || '',
             sharedWithUserId: raw.SharedWithUserId || raw.sharedWithUserId || '',
+            sharedWithUserIds: raw.SharedWithUserIds || raw.sharedWithUserIds || [],
+            sharedWithUserNames: raw.SharedWithUserNames || raw.sharedWithUserNames || [],
+            ownerUserId: raw.OwnerUserId || raw.ownerUserId || '',
             staticVertical: raw.GridStaticImage || raw.gridStaticImage || raw.staticImageData || '',
             staticHorizontal: raw.GridHorizontalStaticImage || raw.gridHorizontalStaticImage || '',
             staticHero: raw.HeroStaticImage || raw.heroStaticImage || raw.staticHero || '',
@@ -124,6 +127,8 @@ window.AppStore = (() => {
             if (patch.staticHero || patch.HeroStaticImage) normalizedPatch.staticHero = patch.staticHero || patch.HeroStaticImage;
             if (patch.staticLogo || patch.LogoStaticImage) normalizedPatch.staticLogo = patch.staticLogo || patch.LogoStaticImage;
             if (patch.shareMode || patch.ShareMode) normalizedPatch.shareMode = patch.shareMode || patch.ShareMode;
+            if (patch.sharedWithUserIds || patch.SharedWithUserIds) normalizedPatch.sharedWithUserIds = patch.sharedWithUserIds || patch.SharedWithUserIds;
+            if (patch.sharedWithUserNames || patch.SharedWithUserNames) normalizedPatch.sharedWithUserNames = patch.sharedWithUserNames || patch.SharedWithUserNames;
 
             Object.assign(item, normalizedPatch);
             _notify(channel, { type: 'update', id, patch: normalizedPatch });

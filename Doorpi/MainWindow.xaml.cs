@@ -4,16 +4,17 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows;
-using System.Text.Json.Nodes;
+using System.Windows.Input;
 using System.Xml.Linq;
 
 namespace Doorpi
@@ -29,7 +30,9 @@ namespace Doorpi
         public string OwnerUserId { get; set; } = "";
         public string ShareMode { get; set; } = "private"; // "private" | "all" | "user"
         public string SharedWithUserId { get; set; } = "";
+        public List<string> SharedWithUserIds { get; set; } = new();
         public string SharedWithUserName { get; set; } = "";
+        public List<string> SharedWithUserNames { get; set; } = new();
         public bool IsSharedFromOtherUser { get; set; }
         public string SharedFromUserName { get; set; } = "";
         public string GridImage { get; set; } = "";
@@ -162,6 +165,17 @@ namespace Doorpi
         private System.Threading.Timer? _mousePollTimer;
         private const int MOUSE_IDLE_MS = 3000;
 
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
+    int X, int Y, int cx, int cy, uint uFlags);
+
+        private static readonly IntPtr HWND_TOP = new IntPtr(0);
+        private static readonly IntPtr HWND_BOTTOM = new IntPtr(1);
+        private const uint SWP_NOMOVE = 0x0002;
+        private const uint SWP_NOSIZE = 0x0001;
+        private const uint SWP_NOACTIVATE = 0x0010;
+
         [DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
 
@@ -251,6 +265,10 @@ namespace Doorpi
         public MainWindow()
         {
             InitializeComponent();
+            SourceInitialized += (_, _) =>
+            {
+                _mainWindowHandle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            };
             // DEPOIS:
             this.Activated += (s, e) => {
                 if (_mediaExeModeActive)
@@ -266,12 +284,21 @@ namespace Doorpi
                         WindowState = WindowState.Maximized;
                         webView?.Focus();
                     });
-                    // Continua para enviar windowFocused normalmente
+                   
                 }
+                if (_gameSessionActive)
+                {
+                    lock (_gameLaunchMonitorLock)
+                    {
+                        _gameLaunchMonitorCts?.Cancel(); // para o loop do monitor
+                    }
+                    ForceFocus();
+                    return; // ForceFocus já manda focusFeaturedCard via JS
+                }
+
                 if (webView?.CoreWebView2 != null)
                     webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"windowFocused\"}");
             };
-
 
             dataFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data");
             gridFolder = Path.Combine(dataFolder, "images", "grid");
@@ -615,6 +642,180 @@ namespace Doorpi
             return string.IsNullOrWhiteSpace(clean) ? "default" : clean;
         }
 
+        private static string SafeBrowserProfileToken(string value)
+        {
+            var clean = Regex.Replace(value ?? "", @"[^\p{L}\p{Nd}]+", "_").Trim('_').ToLowerInvariant();
+            return string.IsNullOrWhiteSpace(clean) ? "default" : clean;
+        }
+
+        private string GetUserProfileToken(string userId, IReadOnlyList<UserProfile>? users = null)
+        {
+            users ??= LoadUserProfiles();
+            var user = users.FirstOrDefault(u => string.Equals(u.Id, userId, StringComparison.OrdinalIgnoreCase));
+            return SafeBrowserProfileToken(!string.IsNullOrWhiteSpace(user?.Name) ? user.Name : userId);
+        }
+
+        private static string GetMediaAppKey(MediaAppModel app)
+        {
+            if (!string.IsNullOrWhiteSpace(app.Id)) return SafeBrowserProfileToken(app.Id);
+            var source = !string.IsNullOrWhiteSpace(app.Url) ? app.Url : app.Name;
+            if (string.IsNullOrWhiteSpace(source)) return "app";
+            return Convert.ToHexString(System.Security.Cryptography.MD5.HashData(
+                System.Text.Encoding.UTF8.GetBytes(source)))[..10].ToLowerInvariant();
+        }
+
+        private List<string> NormalizeSharedUserIds(MediaAppModel app)
+        {
+            var ids = new List<string>();
+            if (app.SharedWithUserIds != null) ids.AddRange(app.SharedWithUserIds);
+            if (!string.IsNullOrWhiteSpace(app.SharedWithUserId)) ids.Add(app.SharedWithUserId);
+            return ids
+                .Where(id => !string.IsNullOrWhiteSpace(id) && !string.Equals(id, app.OwnerUserId, StringComparison.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private void ApplySharedUserNames(MediaAppModel app, IReadOnlyList<UserProfile>? users = null)
+        {
+            users ??= LoadUserProfiles();
+            var ids = NormalizeSharedUserIds(app);
+            app.SharedWithUserIds = ids;
+            app.SharedWithUserId = ids.FirstOrDefault() ?? "";
+            app.SharedWithUserNames = ids
+                .Select(id => users.FirstOrDefault(u => string.Equals(u.Id, id, StringComparison.OrdinalIgnoreCase))?.Name ?? "")
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .ToList();
+            app.SharedWithUserName = app.SharedWithUserNames.FirstOrDefault() ?? "";
+        }
+
+        private string GetBrowserProfileNameForMediaApp(MediaAppModel app)
+        {
+            var users = LoadUserProfiles();
+            var owner = string.IsNullOrWhiteSpace(app.OwnerUserId) ? currentUserId : app.OwnerUserId;
+            var appKey = GetMediaAppKey(app);
+
+            if (app.ShareMode == "all")
+                return SafePathSegment($"{GetUserProfileToken(owner, users)}_{appKey}_publico");
+
+            if (app.ShareMode == "user" || app.IsSharedFromOtherUser)
+            {
+                var ids = NormalizeSharedUserIds(app);
+                var participants = new[] { owner }
+                    .Concat(ids)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+                    .Select(id => GetUserProfileToken(id, users));
+                return SafePathSegment($"{string.Join("_", participants)}_{appKey}");
+            }
+
+            return SafePathSegment($"{owner}-{appKey}");
+        }
+
+        private string BrowserProfilesFolder =>
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "browser-profiles");
+
+        private string GetBrowserProfilePath(string profileName) =>
+            Path.Combine(BrowserProfilesFolder, profileName);
+
+        private void CopyDirectoryContent(string source, string destination)
+        {
+            Directory.CreateDirectory(destination);
+            foreach (var directory in Directory.GetDirectories(source, "*", SearchOption.AllDirectories))
+            {
+                Directory.CreateDirectory(directory.Replace(source, destination));
+            }
+            foreach (var file in Directory.GetFiles(source, "*", SearchOption.AllDirectories))
+            {
+                var dest = file.Replace(source, destination);
+                Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+                SafeCopy(file, dest);
+            }
+        }
+
+        private void MoveOrCopyBrowserProfile(string sourceName, string destinationName)
+        {
+            if (string.Equals(sourceName, destinationName, StringComparison.OrdinalIgnoreCase)) return;
+            var source = GetBrowserProfilePath(sourceName);
+            var destination = GetBrowserProfilePath(destinationName);
+            if (!Directory.Exists(source)) return;
+
+            Directory.CreateDirectory(BrowserProfilesFolder);
+            try
+            {
+                if (!Directory.Exists(destination))
+                    Directory.Move(source, destination);
+                else
+                    CopyDirectoryContent(source, destination);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Sharing] Falha ao migrar perfil {sourceName} -> {destinationName}: {ex.Message}");
+                try { CopyDirectoryContent(source, destination); } catch { }
+            }
+        }
+
+        private IEnumerable<string> BrowserProfileCandidatesForApp(string appKey, IEnumerable<string> affectedUserIds)
+        {
+            var users = LoadUserProfiles();
+            foreach (var userId in affectedUserIds.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                yield return SafePathSegment($"{userId}-{appKey}");
+                yield return SafePathSegment($"{GetUserProfileToken(userId, users)}_{appKey}");
+            }
+            foreach (var user in users)
+            {
+                yield return SafePathSegment($"shared-{user.Id}-{appKey}");
+                yield return SafePathSegment($"{GetUserProfileToken(user.Id, users)}_{appKey}_publico");
+            }
+        }
+
+        private void DeleteBrowserProfiles(IEnumerable<string> profileNames, string exceptProfileName)
+        {
+            foreach (var profileName in profileNames.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                if (string.IsNullOrWhiteSpace(profileName) ||
+                    string.Equals(profileName, exceptProfileName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                try
+                {
+                    var path = GetBrowserProfilePath(profileName);
+                    if (Directory.Exists(path)) ForceDeleteDirectory(path);
+                }
+                catch (Exception ex) { Debug.WriteLine($"[Sharing] Falha ao remover perfil {profileName}: {ex.Message}"); }
+            }
+        }
+
+        private void PrepareBrowserProfileForSharingChange(MediaAppModel before, MediaAppModel after)
+        {
+            try
+            {
+                var appKey = GetMediaAppKey(after);
+                var beforeName = GetBrowserProfileNameForMediaApp(before);
+                var afterName = GetBrowserProfileNameForMediaApp(after);
+                var hadCurrentProfile = Directory.Exists(GetBrowserProfilePath(beforeName));
+                MoveOrCopyBrowserProfile(beforeName, afterName);
+
+                var legacyBeforeName = before.ShareMode == "private"
+                    ? SafePathSegment($"{before.OwnerUserId}-{appKey}")
+                    : SafePathSegment($"shared-{before.OwnerUserId}-{appKey}");
+                if (!hadCurrentProfile)
+                    MoveOrCopyBrowserProfile(legacyBeforeName, afterName);
+
+                var users = LoadUserProfiles();
+                var affected = after.ShareMode == "all"
+                    ? users.Select(u => u.Id).ToList()
+                    : new[] { after.OwnerUserId }.Concat(NormalizeSharedUserIds(after)).ToList();
+
+                DeleteBrowserProfiles(BrowserProfileCandidatesForApp(appKey, affected), afterName);
+                DeleteBrowserProfiles(new[] { beforeName, legacyBeforeName }, afterName);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[Sharing] Falha ao preparar perfil de navegador: " + ex.Message);
+            }
+        }
+
         private void SetActiveUser(UserProfile profile, bool migrateLegacyFiles)
         {
             if (string.IsNullOrWhiteSpace(profile.Id)) profile.Id = MakeUserId(profile.Name);
@@ -682,6 +883,18 @@ namespace Doorpi
                     users,
                     currentUserId,
                     requireSelection
+                })));
+        }
+
+        private void SendUsersDataToUI()
+        {
+            var users = LoadUserProfiles().OrderByDescending(u => u.LastUsed).ToList();
+            Dispatcher.Invoke(() =>
+                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                {
+                    type = "usersData",
+                    users,
+                    currentUserId
                 })));
         }
 
@@ -1766,7 +1979,7 @@ namespace Doorpi
                 if (string.IsNullOrWhiteSpace(app.OwnerUserId)) app.OwnerUserId = currentUserId;
                 if (app.ShareMode == "user")
                 {
-                    app.SharedWithUserName = users.FirstOrDefault(u => string.Equals(u.Id, app.SharedWithUserId, StringComparison.OrdinalIgnoreCase))?.Name ?? app.SharedWithUserName;
+                    ApplySharedUserNames(app, users);
                 }
                 visible.Add(app);
             }
@@ -1775,8 +1988,10 @@ namespace Doorpi
             {
                 foreach (var app in LoadMediaAppsForUser(user.Id))
                 {
+                    if (string.IsNullOrWhiteSpace(app.OwnerUserId)) app.OwnerUserId = user.Id;
+                    if (app.ShareMode == "user") ApplySharedUserNames(app, users);
                     bool sharedToCurrent = app.ShareMode == "all" ||
-                        (app.ShareMode == "user" && string.Equals(app.SharedWithUserId, currentUserId, StringComparison.OrdinalIgnoreCase));
+                        (app.ShareMode == "user" && NormalizeSharedUserIds(app).Contains(currentUserId, StringComparer.OrdinalIgnoreCase));
                     if (!sharedToCurrent) continue;
 
                     var clone = CloneMediaApp(app);
@@ -1815,6 +2030,8 @@ namespace Doorpi
                 var apps = JsonSerializer.Deserialize<List<MediaAppModel>>(SafeReadAllText(file)) ?? new List<MediaAppModel>();
                 foreach (var app in apps.Where(a => string.IsNullOrWhiteSpace(a.OwnerUserId)))
                     app.OwnerUserId = userId;
+                foreach (var app in apps.Where(a => a.ShareMode == "user"))
+                    ApplySharedUserNames(app);
                 return apps;
             }
             catch { return new List<MediaAppModel>(); }
@@ -1855,6 +2072,14 @@ namespace Doorpi
                 .Select(a =>
                 {
                     a.OwnerUserId = string.IsNullOrWhiteSpace(a.OwnerUserId) ? targetUserId : a.OwnerUserId;
+                    if (a.ShareMode == "user") ApplySharedUserNames(a);
+                    else
+                    {
+                        a.SharedWithUserId = "";
+                        a.SharedWithUserIds = new List<string>();
+                        a.SharedWithUserName = "";
+                        a.SharedWithUserNames = new List<string>();
+                    }
                     return a;
                 })
                 .ToList();
@@ -2230,24 +2455,72 @@ namespace Doorpi
 
 
         [System.Runtime.InteropServices.DllImport("user32.dll")]
-        private static extern bool SetForegroundWindow(IntPtr hWnd); [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
+        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool IsWindowVisible(IntPtr hWnd);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool IsIconic(IntPtr hWnd);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern int GetWindowTextLength(IntPtr hWnd);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder text, int count);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern IntPtr GetShellWindow();
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool BringWindowToTop(IntPtr hWnd);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        private static extern uint GetCurrentThreadId();
+
+        private long _focusRestoredAtTicks = 0;
         public void ForceFocus()
         {
-            // 🔹 Sai do modo media exe se estiver ativo (processo fechou externamente)
+            _gameSessionActive = false;
             if (_mediaExeModeActive) ExitMediaExeMode();
+            _mainUiGamepadSuspendedForGame = false;
+            Interlocked.Exchange(ref _mainUiGamepadSuppressUntilUtcTicks, 0);
+            Interlocked.Exchange(ref _focusRestoredAtTicks, DateTime.UtcNow.Ticks);
+
+            SendGameLaunchStatus("gameLaunchDone");
+            ReleaseAllStuckKeys();
 
             Dispatcher.BeginInvoke(() =>
             {
-                var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-                ShowWindow(hwnd, 3);
-                SetForegroundWindow(hwnd);
+                var hwnd = _mainWindowHandle != IntPtr.Zero
+                    ? _mainWindowHandle
+                    : new System.Windows.Interop.WindowInteropHelper(this).Handle;
+
+                // Usa o mesmo método robusto usado para focar janelas de jogos
+                // (AttachThreadInput + BringWindowToTop + SetForegroundWindow)
+                // em vez de SetWindowPos(SWP_NOACTIVATE) + SetForegroundWindow simples,
+                // que falha silenciosamente quando o processo não tem direito de foreground.
+                FocusExternalWindow(hwnd);
                 Activate();
                 webView?.Focus();
-                webView?.CoreWebView2.ExecuteScriptAsync(
-                    "window.isMediaAppActive = false; window.focusFeaturedCard();");
+                Keyboard.Focus(webView);
+
+                // Foca o card imediatamente — sem delay artificial
+                webView?.CoreWebView2?.ExecuteScriptAsync(
+                    "window.isMediaAppActive = false; window.focusFeaturedCard?.();");
             });
+            // Task.Delay(200) removido — não é mais necessário
         }
 
         private void WatchAndRefocus(Process process)
@@ -2258,6 +2531,491 @@ namespace Doorpi
                 try { process.WaitForExit(); } catch { }
                 ForceFocus();
             });
+        }
+
+        private CancellationTokenSource? _gameLaunchMonitorCts;
+        private readonly object _gameLaunchMonitorLock = new();
+
+        private sealed class GameLaunchMonitorContext
+        {
+            public required GameModel Game { get; init; }
+            public required HashSet<int> BaselineProcessIds { get; init; }
+            public Process? LaunchedProcess { get; init; }
+            public int LaunchedProcessId { get; init; }
+            public string DirectExePath { get; init; } = "";
+            public string[] NameTokens { get; init; } = Array.Empty<string>();
+            public DateTime StartedUtc { get; init; } = DateTime.UtcNow;
+            public HashSet<int> SeenCandidatePids { get; } = new();
+        }
+
+        private sealed class GameWindowCandidate
+        {
+            public IntPtr Hwnd { get; init; }
+            public int ProcessId { get; init; }
+            public int Score { get; init; }
+            public string ProcessName { get; init; } = "";
+        }
+
+        private static readonly HashSet<string> _knownLauncherProcessNames = new(StringComparer.OrdinalIgnoreCase)
+{
+    "steam", "steamwebhelper", "epicgameslauncher", "epicwebhelper", "galaxyclient",
+    "goggalaxy", "riotclientservices", "riotclientux", "riotclientuxrender",
+    "leagueclient", "leagueclientux", "leagueclientuxrender",          // ← NOVO
+    "eadesktop", "eabackgroundservice", "origin", "battle.net", "battle.net helper",
+    "ubisoftconnect", "upc", "rockstarservice", "rockstarlauncher"
+};
+
+        private static readonly HashSet<string> _shellProcessNames = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "explorer", "shellexperiencehost", "startmenuexperiencehost", "searchhost",
+            "searchapp", "taskmgr", "applicationframehost", "textinputhost"
+        };
+
+        private HashSet<int> SnapshotProcessIds()
+        {
+            try { return Process.GetProcesses().Select(p => p.Id).ToHashSet(); }
+            catch { return new HashSet<int>(); }
+        }
+
+        private void StartGameLaunchMonitor(GameModel game, Process? launched, HashSet<int> baselineProcessIds)
+        {
+            CancellationTokenSource cts;
+            lock (_gameLaunchMonitorLock)
+            {
+                _gameLaunchMonitorCts?.Cancel();
+                _gameLaunchMonitorCts?.Dispose();
+                _gameLaunchMonitorCts = new CancellationTokenSource();
+                cts = _gameLaunchMonitorCts;
+            }
+
+            var context = new GameLaunchMonitorContext
+            {
+                Game = game,
+                BaselineProcessIds = baselineProcessIds,
+                LaunchedProcess = launched,
+                LaunchedProcessId = SafeProcessId(launched),
+                DirectExePath = GetDirectGameExePath(game),
+                NameTokens = BuildGameNameTokens(game),
+                StartedUtc = DateTime.UtcNow
+            };
+
+            _gameSessionActive = true; // ← arma o guard antes de qualquer BeginInvoke
+            _ = Task.Run(() => MonitorGameLaunchAsync(context, cts.Token));
+        }
+
+        private async Task MonitorGameLaunchAsync(
+          GameLaunchMonitorContext context, CancellationToken token)
+        {
+            try
+            {
+                bool gameSeen = false;
+                bool doorpiHidden = false;
+                DateTime gameFirstSeenUtc = DateTime.MinValue;
+                int ghostChecks = 0;
+
+                // Para processos diretos que disparam o evento de encerramento
+                if (context.LaunchedProcess != null)
+                {
+                    try
+                    {
+                        if (!context.LaunchedProcess.HasExited)
+                        {
+                            context.LaunchedProcess.EnableRaisingEvents = true;
+                            context.LaunchedProcess.Exited += (_, _) =>
+                            {
+                                if (!token.IsCancellationRequested)
+                                    Dispatcher.BeginInvoke(() => ForceFocus());
+                            };
+                        }
+                    }
+                    catch { }
+                }
+
+                while (!token.IsCancellationRequested)
+                {
+                    var now = DateTime.UtcNow;
+                    var elapsed = now - context.StartedUtc;
+
+                    // O usuário pediu explicitamente: se o Doorpi recuperou o foco visual (Alt+Tab ou fechamento real),
+                    // não perca tempo processando mais nada, assuma que o controle precisa ser restaurado imediatamente.
+                    if (gameSeen && IsDoorpiMainWindowForeground())
+                    {
+                        ForceFocus();
+                        return;
+                    }
+
+                    var candidate = FindBestGameWindowCandidate(context);
+
+                    if (candidate != null && candidate.Score >= 55)
+                    {
+                        if (!gameSeen) { gameSeen = true; gameFirstSeenUtc = now; }
+                        context.SeenCandidatePids.Add(candidate.ProcessId);
+                        ghostChecks = 0; // A janela está na tela, zera o contador de "fantasma"
+
+                        if (!doorpiHidden)
+                        {
+                            bool gameHasFocus = IsForegroundOwnedByProcess(candidate.ProcessId);
+                            bool graceExpired = (now - gameFirstSeenUtc).TotalSeconds >= 3;
+
+                            if (gameHasFocus || graceExpired)
+                            {
+                                if (!gameHasFocus) FocusExternalWindow(candidate.Hwnd);
+                                doorpiHidden = true;
+                                SendDoorpiToBackground();
+                                SendGameLaunchStatus("gameLaunchReady");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (!gameSeen)
+                        {
+                            bool procExited = context.LaunchedProcess != null && SafeHasExited(context.LaunchedProcess);
+
+                            if (procExited && elapsed.TotalSeconds > 4 && IsForegroundDesktopOrShell())
+                            {
+                                SendGameLaunchStatus("gameLaunchFailed", context.Game.Name, context.Game.HeroImage, context.Game.GridImage, "crash");
+                                ForceFocus();
+                                return;
+                            }
+
+                            if (elapsed.TotalMinutes > 4)
+                            {
+                                SendGameLaunchStatus("gameLaunchFailed", context.Game.Name, context.Game.HeroImage, context.Game.GridImage, "timeout");
+                                ForceFocus();
+                                return;
+                            }
+                        }
+                        else
+                        {
+                            // ATENDENDO AO FEEDBACK: 
+                            // Não vamos mais calcular gap de 2.5s se o processo de fundo do PPSSPP continuar rodando.
+                            // Se o jogo já tinha aparecido e agora o candidate (a janela) sumiu da varredura, 
+                            // damos só uma margem pequena (2 ciclos rápidos ~300ms) para ter certeza de que a janela 
+                            // não "piscou" durante uma mudança de resolução. Se continuar sem janela, restaura tudo!
+                            ghostChecks++;
+                            if (ghostChecks >= 2)
+                            {
+                                ForceFocus();
+                                return;
+                            }
+                        }
+                    }
+
+                    await Task.Delay(gameSeen ? 150 : 200, token).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) { Debug.WriteLine($"[GameLaunchMonitor] {ex.Message}"); }
+        }
+        private void SendGameLaunchStatus(string type,
+    string gameName = "",
+    string heroImage = "",
+    string gridImage = "",
+    string reason = "")
+        {
+            // BeginInvoke para não bloquear threads de background
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (webView?.CoreWebView2 == null) return;
+                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                {
+                    type,
+                    gameName,
+                    heroImage,
+                    gridImage,
+                    reason
+                }));
+            });
+        }
+        private void ReleaseAllStuckKeys()
+        {
+            byte[] keys =
+            {
+        0x10, 0x11, 0x12,       // Shift, Ctrl, Alt
+        0x5B, 0x5C,             // Win L / Win R
+        0x1B, 0x0D, 0x08, 0x09 // Esc, Enter, Backspace, Tab
+    };
+
+            foreach (var vk in keys)
+            {
+                var input = new INPUT { type = INPUT_KEYBOARD };
+                input.U.ki = new KEYBDINPUT { wVk = vk, dwFlags = KEYEVENTF_KEYUP };
+                SendInput(1, new[] { input }, INPUT.Size);
+            }
+        }
+        private void SendDoorpiToBackground()
+        {
+            Dispatcher.BeginInvoke(() =>
+            {
+                // Se ForceFocus já foi chamado (ex: saiu do jogo antes do BeginInvoke executar),
+                // _gameSessionActive já é false — descarta este push para não sobrepor o HWND_TOP.
+                if (!_gameSessionActive) return;
+                var hwnd = _mainWindowHandle;
+                if (hwnd == IntPtr.Zero) return;
+                SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            });
+        }
+
+        private static int SafeProcessId(Process? process)
+        {
+            try { return process?.Id ?? 0; } catch { return 0; }
+        }
+
+        private static bool SafeHasExited(Process process)
+        {
+            try { return process.HasExited; } catch { return true; }
+        }
+
+        private static string GetDirectGameExePath(GameModel game)
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(game.Path) && File.Exists(game.Path))
+                    return Path.GetFullPath(game.Path);
+
+                if (!string.IsNullOrWhiteSpace(game.LaunchUrl) &&
+                    game.LaunchUrl.StartsWith("riot:", StringComparison.OrdinalIgnoreCase))
+                {
+                    var cmd = game.LaunchUrl.Substring(5).Trim();
+                    if (cmd.StartsWith("\""))
+                    {
+                        var endQuote = cmd.IndexOf("\"", 1, StringComparison.Ordinal);
+                        if (endQuote > 0)
+                        {
+                            var exePath = cmd.Substring(1, endQuote - 1);
+                            if (File.Exists(exePath)) return Path.GetFullPath(exePath);
+                        }
+                    }
+                    else
+                    {
+                        var exeIndex = cmd.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
+                        if (exeIndex > 0)
+                        {
+                            var exePath = cmd.Substring(0, exeIndex + 4).Trim();
+                            if (File.Exists(exePath)) return Path.GetFullPath(exePath);
+                        }
+                    }
+                }
+            }
+            catch { }
+            return "";
+        }
+
+        private static string[] BuildGameNameTokens(GameModel game)
+        {
+            var stop = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "the", "and", "for", "with", "edition", "deluxe", "ultimate", "demo",
+                "remaster", "remastered", "definitive", "standard", "windows", "game"
+            };
+
+            var raw = $"{game.Name} {Path.GetFileNameWithoutExtension(game.Path ?? "")}";
+            return Regex.Replace(raw, @"[^\p{L}\p{Nd}]+", " ")
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(t => t.Length >= 3 && !stop.Contains(t))
+                .Select(t => t.ToLowerInvariant())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(8)
+                .ToArray();
+        }
+
+        private GameWindowCandidate? FindBestGameWindowCandidate(GameLaunchMonitorContext context)
+        {
+            GameWindowCandidate? best = null;
+
+            foreach (var hWnd in EnumerateTopLevelWindows())
+            {
+                GetWindowThreadProcessId(hWnd, out var pidRaw);
+                var pid = (int)pidRaw;
+                if (pid <= 0 || pid == Environment.ProcessId) continue;
+
+                Process process;
+                try { process = Process.GetProcessById(pid); }
+                catch { continue; }
+
+                var score = ScoreGameWindowCandidate(context, process, hWnd);
+                if (score < 35) continue;
+
+                var candidate = new GameWindowCandidate
+                {
+                    Hwnd = hWnd,
+                    ProcessId = pid,
+                    ProcessName = SafeProcessName(process),
+                    Score = score
+                };
+
+                if (best == null || candidate.Score > best.Score)
+                    best = candidate;
+            }
+
+            return best;
+        }
+
+        private IEnumerable<IntPtr> EnumerateTopLevelWindows()
+        {
+            var windows = new List<IntPtr>();
+            var shell = GetShellWindow();
+            var doorpi = _mainWindowHandle;
+
+            EnumWindows((hWnd, _) =>
+            {
+                if (hWnd == IntPtr.Zero || hWnd == shell || hWnd == doorpi) return true;
+                if (!IsWindowVisible(hWnd)) return true;
+                windows.Add(hWnd);
+                return true;
+            }, IntPtr.Zero);
+
+            return windows;
+        }
+
+        private int ScoreGameWindowCandidate(GameLaunchMonitorContext context, Process process, IntPtr hWnd)
+        {
+            var processName = SafeProcessName(process);
+            if (string.IsNullOrWhiteSpace(processName)) return 0;
+            if (_shellProcessNames.Contains(processName)) return 0;
+
+            var score = 0;
+            var pid = SafeProcessId(process);
+            var title = GetWindowTitle(hWnd);
+            var exePath = SafeProcessPath(process);
+            var exeName = Path.GetFileNameWithoutExtension(exePath);
+            var haystack = $"{processName} {exeName} {title} {exePath}".ToLowerInvariant();
+            var isLauncher = _knownLauncherProcessNames.Contains(processName);
+
+            if (pid == context.LaunchedProcessId) score += 30;
+            if (!context.BaselineProcessIds.Contains(pid)) score += 28;
+            if (context.SeenCandidatePids.Contains(pid)) score += 18;
+            if (!string.IsNullOrWhiteSpace(title)) score += 8;
+
+            if (!string.IsNullOrWhiteSpace(context.DirectExePath) &&
+                !string.IsNullOrWhiteSpace(exePath))
+            {
+                if (PathsEqual(context.DirectExePath, exePath)) score += 120;
+                else
+                {
+                    var gameDir = Path.GetDirectoryName(context.DirectExePath) ?? "";
+                    if (!string.IsNullOrWhiteSpace(gameDir) &&
+                        exePath.StartsWith(gameDir, StringComparison.OrdinalIgnoreCase))
+                        score += 45;
+                }
+            }
+
+            var tokenMatches = context.NameTokens.Count(t => haystack.Contains(t, StringComparison.OrdinalIgnoreCase));
+            score += tokenMatches * 18;
+            if (tokenMatches >= Math.Min(2, Math.Max(1, context.NameTokens.Length))) score += 22;
+
+            try
+            {
+                var mb = process.WorkingSet64 / 1024 / 1024;
+                if (mb > 450) score += 12;
+                if (mb > 1400) score += 12;
+            }
+            catch { }
+
+            if (isLauncher) score -= 30;
+            return Math.Max(0, score);
+        }
+
+        private static bool PathsEqual(string a, string b)
+        {
+            try
+            {
+                return string.Equals(Path.GetFullPath(a).TrimEnd('\\'),
+                    Path.GetFullPath(b).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        private static string SafeProcessName(Process process)
+        {
+            try { return process.ProcessName ?? ""; } catch { return ""; }
+        }
+
+        private static string SafeProcessPath(Process process)
+        {
+            try { return process.MainModule?.FileName ?? ""; } catch { return ""; }
+        }
+
+        private static string GetWindowTitle(IntPtr hWnd)
+        {
+            try
+            {
+                var length = Math.Max(GetWindowTextLength(hWnd), 0);
+                var builder = new System.Text.StringBuilder(length + 1);
+                GetWindowText(hWnd, builder, builder.Capacity);
+                return builder.ToString();
+            }
+            catch { return ""; }
+        }
+
+        private bool IsForegroundOwnedByProcess(int processId)
+        {
+            try
+            {
+                var foreground = GetForegroundWindow();
+                if (foreground == IntPtr.Zero) return false;
+                GetWindowThreadProcessId(foreground, out var foregroundPid);
+                return foregroundPid == processId;
+            }
+            catch { return false; }
+        }
+
+        private bool IsForegroundDesktopOrShell()
+        {
+            try
+            {
+                var foreground = GetForegroundWindow();
+                if (foreground == IntPtr.Zero || foreground == GetShellWindow()) return true;
+
+                var doorpi = _mainWindowHandle;
+                if (doorpi != IntPtr.Zero && foreground == doorpi) return false;
+
+                GetWindowThreadProcessId(foreground, out var pidRaw);
+                if (pidRaw == 0) return true;
+                var process = Process.GetProcessById((int)pidRaw);
+                return _shellProcessNames.Contains(SafeProcessName(process));
+            }
+            catch { return true; }
+        }
+
+        private void FocusExternalWindow(IntPtr hWnd)
+        {
+            if (hWnd == IntPtr.Zero) return;
+            try
+            {
+                if (IsIconic(hWnd)) ShowWindow(hWnd, 9);
+                else ShowWindow(hWnd, 5);
+
+                var foreground = GetForegroundWindow();
+                var foregroundThread = foreground != IntPtr.Zero
+                    ? GetWindowThreadProcessId(foreground, out _)
+                    : 0;
+                var targetThread = GetWindowThreadProcessId(hWnd, out _);
+                var currentThread = GetCurrentThreadId();
+
+                var attachedForeground = false;
+                var attachedTarget = false;
+                try
+                {
+                    if (foregroundThread != 0 && foregroundThread != currentThread)
+                        attachedForeground = AttachThreadInput(currentThread, foregroundThread, true);
+                    if (targetThread != 0 && targetThread != currentThread && targetThread != foregroundThread)
+                        attachedTarget = AttachThreadInput(currentThread, targetThread, true);
+
+                    BringWindowToTop(hWnd);
+                    SetForegroundWindow(hWnd);
+                }
+                finally
+                {
+                    if (attachedTarget) AttachThreadInput(currentThread, targetThread, false);
+                    if (attachedForeground) AttachThreadInput(currentThread, foregroundThread, false);
+                }
+            }
+            catch { }
         }
 
         private void OpenInBrowser(string url)
@@ -4426,6 +5184,10 @@ namespace Doorpi
                 {
                     SendUsersToUI(requireSelection: false);
                 }
+                else if (action == "requestUsersData")
+                {
+                    SendUsersDataToUI();
+                }
                 else if (action == "selectUser")
                 {
                     string userId = GetStr(root, "userId");
@@ -4492,20 +5254,50 @@ namespace Doorpi
                 {
                     string appId = GetStr(root, "appId");
                     string shareMode = GetStr(root, "shareMode", "private");
-                    string sharedWithUserId = GetStr(root, "sharedWithUserId");
                     var users = LoadUserProfiles();
+                    var sharedWithUserIds = new List<string>();
+                    if (root.TryGetProperty("sharedWithUserIds", out var sharedIdsEl) && sharedIdsEl.ValueKind == JsonValueKind.Array)
+                    {
+                        sharedWithUserIds = sharedIdsEl.EnumerateArray()
+                            .Select(e => e.GetString() ?? "")
+                            .Where(id => !string.IsNullOrWhiteSpace(id) && !string.Equals(id, currentUserId, StringComparison.OrdinalIgnoreCase))
+                            .Distinct(StringComparer.OrdinalIgnoreCase)
+                            .ToList();
+                    }
+                    else
+                    {
+                        string sharedWithUserId = GetStr(root, "sharedWithUserId");
+                        if (!string.IsNullOrWhiteSpace(sharedWithUserId) && !string.Equals(sharedWithUserId, currentUserId, StringComparison.OrdinalIgnoreCase))
+                            sharedWithUserIds.Add(sharedWithUserId);
+                    }
+
                     var apps = LoadMediaAppsForUser(currentUserId);
                     var app = apps.FirstOrDefault(a => string.Equals(a.Id, appId, StringComparison.OrdinalIgnoreCase) ||
                                                        string.Equals(a.Url, appId, StringComparison.OrdinalIgnoreCase));
                     if (app != null && !app.IsSharedFromOtherUser)
                     {
+                        if (!string.Equals(app.Type, "browser", StringComparison.OrdinalIgnoreCase) &&
+                            !string.Equals(app.Type, "webview", StringComparison.OrdinalIgnoreCase))
+                            return;
+
+                        var before = CloneMediaApp(app);
+                        if (string.IsNullOrWhiteSpace(before.OwnerUserId)) before.OwnerUserId = currentUserId;
                         app.OwnerUserId = currentUserId;
                         app.ShareMode = shareMode is "all" or "user" ? shareMode : "private";
-                        app.SharedWithUserId = app.ShareMode == "user" ? sharedWithUserId : "";
-                        app.SharedWithUserName = app.ShareMode == "user"
-                            ? users.FirstOrDefault(u => string.Equals(u.Id, sharedWithUserId, StringComparison.OrdinalIgnoreCase))?.Name ?? ""
-                            : "";
+                        if (app.ShareMode == "user" && sharedWithUserIds.Count == 0)
+                            app.ShareMode = "private";
+                        app.SharedWithUserIds = app.ShareMode == "user" ? sharedWithUserIds : new List<string>();
+                        app.SharedWithUserId = app.SharedWithUserIds.FirstOrDefault() ?? "";
+                        app.SharedWithUserNames = app.ShareMode == "user"
+                            ? app.SharedWithUserIds
+                                .Select(id => users.FirstOrDefault(u => string.Equals(u.Id, id, StringComparison.OrdinalIgnoreCase))?.Name ?? "")
+                                .Where(name => !string.IsNullOrWhiteSpace(name))
+                                .ToList()
+                            : new List<string>();
+                        app.SharedWithUserName = app.SharedWithUserNames.FirstOrDefault() ?? "";
+                        PrepareBrowserProfileForSharingChange(before, app);
                         SaveMediaApps(apps);
+                        SendUsersDataToUI();
                         SendMediaAppsToUI(LoadMediaApps());
                     }
                 }
@@ -4979,7 +5771,10 @@ namespace Doorpi
                         id = identifier
                     })));
 
+                    var processSnapshot = SnapshotProcessIds();
                     Process? launched = null;
+                    bool launchAttempted = false;
+                    SuspendMainUiGamepadForGameLaunch();
 
                     if (!string.IsNullOrWhiteSpace(game.LaunchUrl) &&
                         game.LaunchUrl.StartsWith("goggalaxy://", StringComparison.OrdinalIgnoreCase))
@@ -4992,6 +5787,7 @@ namespace Doorpi
 
                         if (File.Exists(gogClientPath))
                         {
+                            launchAttempted = true;
                             launched = Process.Start(new ProcessStartInfo
                             {
                                 FileName = gogClientPath,
@@ -5001,6 +5797,7 @@ namespace Doorpi
                         }
                         else
                         {
+                            launchAttempted = true;
                             launched = Process.Start(new ProcessStartInfo(game.LaunchUrl) { UseShellExecute = true });
                         }
                     }
@@ -5034,6 +5831,7 @@ namespace Doorpi
 
                         if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath))
                         {
+                            launchAttempted = true;
                             launched = Process.Start(new ProcessStartInfo
                             {
                                 FileName = exePath,
@@ -5046,10 +5844,12 @@ namespace Doorpi
                     else if (!string.IsNullOrWhiteSpace(game.LaunchUrl))
                     {
                         EnsureLauncherRunning(game.LaunchUrl);
+                        launchAttempted = true;
                         launched = Process.Start(new ProcessStartInfo(game.LaunchUrl) { UseShellExecute = true });
                     }
                     else if (File.Exists(game.Path))
                     {
+                        launchAttempted = true;
                         launched = Process.Start(new ProcessStartInfo
                         {
                             FileName = game.Path,
@@ -5058,7 +5858,15 @@ namespace Doorpi
                         });
                     }
 
-                    if (launched != null) WatchAndRefocus(launched);
+                    if (launchAttempted)
+                    {
+                        StartGameLaunchMonitor(game, launched, processSnapshot);
+
+                        SendGameLaunchStatus("gameLaunching",
+                            game.Name,
+                            game.HeroImage ?? "",
+                            game.GridImage ?? "");
+                    }
                 }
             }
             catch (Exception ex) { System.Windows.MessageBox.Show(errorMsg + ex.Message); }
@@ -5331,6 +6139,48 @@ namespace Doorpi
         }
         private Thread? _mainUiGamepadThread;
         private volatile bool _mainUiGamepadActive = false;
+        private volatile bool _mainUiGamepadSuspendedForGame = false;
+        private long _mainUiGamepadSuppressUntilUtcTicks = 0;
+        private IntPtr _mainWindowHandle = IntPtr.Zero;
+        private volatile bool _gameSessionActive = false;
+        private bool IsDoorpiMainWindowForeground()
+        {
+            var hwnd = _mainWindowHandle;
+            if (hwnd == IntPtr.Zero)
+            {
+                try
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        _mainWindowHandle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                        hwnd = _mainWindowHandle;
+                    });
+                }
+                catch { return false; }
+            }
+
+            return hwnd != IntPtr.Zero && GetForegroundWindow() == hwnd;
+        }
+
+        private void SuspendMainUiGamepadForGameLaunch(int milliseconds = 15000)
+        {
+            _mainUiGamepadSuspendedForGame = true;
+            Interlocked.Exchange(ref _mainUiGamepadSuppressUntilUtcTicks,
+                DateTime.UtcNow.AddMilliseconds(milliseconds).Ticks);
+        }
+
+        private bool IsMainUiGamepadSuspendedForGame()
+        {
+            if (!_mainUiGamepadSuspendedForGame) return false;
+
+            var resumeAt = Interlocked.Read(ref _mainUiGamepadSuppressUntilUtcTicks);
+            if (DateTime.UtcNow.Ticks < resumeAt) return true;
+            if (!IsDoorpiMainWindowForeground()) return true;
+
+            _mainUiGamepadSuspendedForGame = false;
+            Interlocked.Exchange(ref _mainUiGamepadSuppressUntilUtcTicks, 0);
+            return false;
+        }
 
         private void StartMainUiGamepadNavigation()
         {
@@ -5354,7 +6204,12 @@ namespace Doorpi
             {
                 try
                 {
-                    if (_systemControllerActive || _mediaExeModeActive || _dialogModeActive)
+                    bool foregroundOk = IsDoorpiMainWindowForeground() ||
+                        (DateTime.UtcNow.Ticks - Interlocked.Read(ref _focusRestoredAtTicks))
+                        < TimeSpan.FromSeconds(2).Ticks;
+
+                    if (_systemControllerActive || _mediaExeModeActive || _dialogModeActive ||
+                        _ytWebView != null || !foregroundOk || IsMainUiGamepadSuspendedForGame())
                     {
                         moveState = 0; currentDir = null;
                         Thread.Sleep(50); continue;

@@ -222,6 +222,10 @@ const CardRenderer = (() => {
             card.dataset.appId = item.id;
             card.dataset.appUrl = item.url || '';
             card.dataset.shareMode = item.shareMode || 'private';
+            card.dataset.sharedWithUserId = item.sharedWithUserId || '';
+            card.dataset.sharedWithUserIds = JSON.stringify(item.sharedWithUserIds || []);
+            card.dataset.sharedWithUserNames = JSON.stringify(item.sharedWithUserNames || []);
+            card.dataset.ownerUserId = item.ownerUserId || '';
             card.dataset.sharedFromOther = item.sharedFromOther ? 'true' : 'false';
             card.dataset.sharedFromName = item.sharedFromName || '';
         }
@@ -284,6 +288,7 @@ const CardRenderer = (() => {
             window.AppStore.mutations.trackOpened(item.id);
 
             if (item.channel === 'games') {
+                window.suspendDoorpiGameInput?.();
                 postToHost({ action: 'launch', path: launchId, errorMsg: typeof t === 'function' ? t('msgErrorLaunch') : 'Erro ao iniciar' });
             } else {
                 window.isMediaAppActive = true;

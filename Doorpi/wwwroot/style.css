@@ -2434,3 +2434,350 @@ body {
         transform: scale(0.75) translateY(10px) translateZ(0);
     }
 }
+
+/* ── Reset ─────────────────────────────────────────── */
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background: #0d0d0d;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* ── Demo controls (retire no projeto real) ──────── */
+.demo-controls {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 10px;
+    z-index: 9999;
+}
+
+.demo-btn {
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: 1px solid #444;
+    background: #1a1a1a;
+    color: #fff;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+    .demo-btn:hover {
+        background: #2a2a2a;
+    }
+
+/* ══════════════════════════════════════════════════════
+     OVERLAY PRINCIPAL
+  ══════════════════════════════════════════════════════ */
+#gameLaunchOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9998;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease;
+}
+
+    #gameLaunchOverlay.visible {
+        opacity: 1;
+        pointer-events: all;
+    }
+
+/* ── Fundo desfocado (hero image) ─────────────────── */
+.overlay-bg {
+    position: absolute;
+    inset: 0;
+    background-size: cover;
+    background-position: center;
+    filter: blur(32px) brightness(0.25);
+    transform: scale(1.08); /* cobre as bordas do blur */
+    transition: background-image 0.4s ease;
+}
+
+/* fallback de cor quando não há hero */
+.overlay-bg-solid {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at 50% 60%, #1a1a2e 0%, #0d0d0d 70%);
+}
+
+/* ── Card central ─────────────────────────────────── */
+.overlay-card {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    padding: 0 32px 40px;
+    max-width: 320px;
+    width: 100%;
+    transform: translateY(20px);
+    transition: transform 0.4s cubic-bezier(.22,1,.36,1);
+}
+
+#gameLaunchOverlay.visible .overlay-card {
+    transform: translateY(0);
+}
+
+/* Arte do jogo (portrait) */
+.game-art {
+    width: 180px;
+    height: 240px;
+    border-radius: 12px;
+    object-fit: cover;
+    background: #1e1e1e;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.7);
+    transition: opacity 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+    .game-art img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+/* Fallback quando não há arte */
+.game-art-placeholder {
+    width: 60px;
+    height: 60px;
+    opacity: 0.2;
+}
+
+/* Nome do jogo */
+.game-name {
+    font-size: 18px;
+    font-weight: 600;
+    color: #fff;
+    text-align: center;
+    letter-spacing: 0.01em;
+    text-shadow: 0 2px 12px rgba(0,0,0,0.8);
+    max-width: 280px;
+    line-height: 1.3;
+}
+
+/* ── Status text ──────────────────────────────────── */
+.status-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 28px;
+}
+
+.status-text {
+    font-size: 13px;
+    color: rgba(255,255,255,0.55);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+/* ── Dots animados (loading) ──────────────────────── */
+.dots {
+    display: flex;
+    gap: 5px;
+}
+
+.dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.4);
+    animation: dotBounce 1.2s ease-in-out infinite;
+}
+
+    .dot:nth-child(2) {
+        animation-delay: 0.2s;
+    }
+
+    .dot:nth-child(3) {
+        animation-delay: 0.4s;
+    }
+
+@keyframes dotBounce {
+    0%, 80%, 100% {
+        transform: scale(0.7);
+        opacity: 0.4;
+    }
+
+    40% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+/* ── Estado: jogo rodando ─────────────────────────── */
+.status-running {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: rgba(255,255,255,0.4);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.pulse-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #4ade80;
+    box-shadow: 0 0 0 0 rgba(74,222,128,0.5);
+    animation: pulseGreen 2s ease-in-out infinite;
+}
+
+@keyframes pulseGreen {
+    0% {
+        box-shadow: 0 0 0 0 rgba(74,222,128,0.5);
+    }
+
+    70% {
+        box-shadow: 0 0 0 8px rgba(74,222,128,0);
+    }
+
+    100% {
+        box-shadow: 0 0 0 0 rgba(74,222,128,0);
+    }
+}
+
+/* ── Estado: erro ─────────────────────────────────── */
+.error-block {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    text-align: center;
+}
+
+.error-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: rgba(239,68,68,0.15);
+    border: 1.5px solid rgba(239,68,68,0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ef4444;
+    font-size: 18px;
+}
+
+.error-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.85);
+}
+
+.error-sub {
+    font-size: 12px;
+    color: rgba(255,255,255,0.35);
+    max-width: 220px;
+    line-height: 1.5;
+}
+
+/* Botão dismiss */
+.dismiss-btn {
+    margin-top: 4px;
+    padding: 9px 24px;
+    border-radius: 8px;
+    border: 1.5px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.07);
+    color: rgba(255,255,255,0.7);
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s, color 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+    .dismiss-btn:hover,
+    .dismiss-btn:focus {
+        background: rgba(255,255,255,0.12);
+        border-color: rgba(255,255,255,0.3);
+        color: #fff;
+        outline: none;
+    }
+
+    .dismiss-btn .btn-hint {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        border-radius: 4px;
+        background: rgba(255,255,255,0.15);
+        font-size: 10px;
+        font-weight: 700;
+        color: rgba(255,255,255,0.6);
+    }
+
+/* ── Modo: loading ────────────────────────────────── */
+#gameLaunchOverlay.state-loading .status-loading {
+    display: flex;
+}
+
+#gameLaunchOverlay.state-loading .status-running {
+    display: none;
+}
+
+#gameLaunchOverlay.state-loading .error-block {
+    display: none;
+}
+
+/* ── Modo: running ────────────────────────────────── */
+#gameLaunchOverlay.state-running .status-loading {
+    display: none;
+}
+
+#gameLaunchOverlay.state-running .status-running {
+    display: flex;
+}
+
+#gameLaunchOverlay.state-running .error-block {
+    display: none;
+}
+
+/* ── Modo: error ──────────────────────────────────── */
+#gameLaunchOverlay.state-error .status-loading {
+    display: none;
+}
+
+#gameLaunchOverlay.state-error .status-running {
+    display: none;
+}
+
+#gameLaunchOverlay.state-error .error-block {
+    display: flex;
+}
+
+/* padrão: loading visível */
+.status-loading {
+    display: flex;
+}
+
+.status-running {
+    display: none;
+}
+
+.error-block {
+    display: none;
+}

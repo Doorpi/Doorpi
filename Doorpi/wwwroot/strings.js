@@ -40,7 +40,7 @@ const STRINGS = {
         // ---- Compartilhamento ----
         shareModePrivate: 'Separado por usuário',
         shareModeAll: 'Compartilhar com todos',
-        shareModeUser: 'Compartilhar com usuário',
+        shareModeUser: 'Compartilhar com usuários',
         shareChooseUser: 'Escolha o usuário',
         defaultUser: 'Usuário',
         accountSharingLabel: 'Compartilhamento de conta',
@@ -63,6 +63,12 @@ const STRINGS = {
         navSetExt: 'Extensões',
         navSetExtDesc: 'Gerenciar plugins do navegador',
         navChangeUser: 'Trocar Usuário',
+        navSetSharing: 'Contas dos apps',
+        navSetSharingDesc: 'Definir cache separado, compartilhado ou publico',
+        navAccountProfileData: 'Dados do perfil',
+        navAccountProfileDataDesc: 'Alterar avatar, nome e API Key',
+        shareStatusAll: 'Este app esta publico para todos os usuarios atuais e futuros.',
+        navSharingSaved: 'Compartilhamento salvo.',
         navAvatarChange: 'Alterar Avatar',
 
         // ---- Existentes ----
@@ -292,7 +298,7 @@ const STRINGS = {
         // ---- Compartilhamento ----
         shareModePrivate: 'Separated by user',
         shareModeAll: 'Share with everyone',
-        shareModeUser: 'Share with specific user',
+        shareModeUser: 'Share with specific users',
         shareChooseUser: 'Choose the user',
         defaultUser: 'User',
         accountSharingLabel: 'Account sharing',
@@ -315,6 +321,12 @@ const STRINGS = {
         navSetExt: 'Extensions',
         navSetExtDesc: 'Manage browser plugins',
         navChangeUser: 'Switch User',
+        navSetSharing: 'App accounts',
+        navSetSharingDesc: 'Set separate, shared, or public cache',
+        navAccountProfileData: 'Profile data',
+        navAccountProfileDataDesc: 'Change avatar, name, and API key',
+        shareStatusAll: 'This app is public for all current and future users.',
+        navSharingSaved: 'Sharing saved.',
         navAvatarChange: 'Change Avatar',
 
         // ---- Existentes ----

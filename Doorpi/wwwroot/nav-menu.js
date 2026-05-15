@@ -167,6 +167,40 @@ window.isNavMenuOpen = false;
         catch { return fallback; }
     }
 
+    function _esc(value) {
+        return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+    }
+
+    function _userId(user) {
+        if (typeof user === 'string') return user;
+        return user?.Id || user?.id || user?.UserId || user?.userId || '';
+    }
+
+    function _userName(user) {
+        return user?.Name || user?.name || _t('defaultUser', 'Usuario');
+    }
+
+    function _sameId(a, b) {
+        return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+    }
+
+    function _appId(app) {
+        return app?.Id || app?.id || app?.Url || app?.url || '';
+    }
+
+    function _appName(app) {
+        return app?.Name || app?.name || _appId(app);
+    }
+
+    function _appType(app) {
+        return String(app?.Type || app?.type || app?.appType || 'browser').toLowerCase();
+    }
+
+    function _isWebAccountApp(app) {
+        const type = _appType(app);
+        return type === 'browser' || type === 'webview';
+    }
+
     // ── Categorias ────────────────────────────────────────────────────────────
     const CATS = [
         { id: 'games', icon: '⊞', get label() { return _t('navGames', 'Jogos'); } },
@@ -184,6 +218,8 @@ window.isNavMenuOpen = false;
     let _bgRaf = null;
     let _lastFocus = null;
     let _settingsSubView = null;
+    let _sharingFocusAppId = '';
+    let _preserveSettingsSubViewOnce = false;
 
     // ── Estilos ────────────────────────────────────────
     (function injectStyles() {
@@ -538,7 +574,11 @@ window.isNavMenuOpen = false;
     // ── Seleção de categoria ──────────────────────────────────────────────────
     function _selectCat(idx) {
         _catIdx = Number(idx);
-        _settingsSubView = null;
+        if (_preserveSettingsSubViewOnce) {
+            _preserveSettingsSubViewOnce = false;
+        } else {
+            _settingsSubView = null;
+        }
 
         document.querySelectorAll('.nav-cat-item').forEach((el, i) => {
             el.classList.toggle('active', i === _catIdx);
@@ -696,6 +736,7 @@ window.isNavMenuOpen = false;
             if (catId === 'games') {
                 const targetPath = item.LaunchUrl || item.Path || '';
                 window.trackGameOpened?.(targetPath);
+                window.suspendDoorpiGameInput?.();
                 postToHost({ action: 'launch', path: targetPath, errorMsg: _t('msgErrorLaunch', 'Erro ao abrir') });
             } else if (catId === 'media') {
                 const targetUrl = item.Url || '';
@@ -783,7 +824,7 @@ window.isNavMenuOpen = false;
             _contentItems.push(btnEdit);
             btnEdit.addEventListener('click', () => {
                 _catIdx = 2; // Configurações
-                _settingsSubView = 'account';
+                _settingsSubView = 'accountHub';
                 document.querySelectorAll('.nav-cat-item').forEach((el, i) => el.classList.toggle('active', i === _catIdx));
                 _updateTopbarFocusVisual();
                 _contentIdx = 0;
@@ -845,12 +886,20 @@ window.isNavMenuOpen = false;
 
     // ── Novo Hub de Configurações ─────────────────────────────────────────────
     function _renderSettings(body) {
+        if (_settingsSubView === 'accountHub') {
+            _renderSettingsAccountHub(body);
+            return;
+        }
         if (_settingsSubView === 'account') {
             _renderSettingsAccount(body);
             return;
         }
         if (_settingsSubView === 'extensions') {
             _renderSettingsExtensions(body);
+            return;
+        }
+        if (_settingsSubView === 'sharing') {
+            _renderSettingsSharing(body);
             return;
         }
 
@@ -891,7 +940,7 @@ window.isNavMenuOpen = false;
         ].filter(Boolean);
 
         body.querySelector('#setAccount')?.addEventListener('click', () => {
-            _settingsSubView = 'account';
+            _settingsSubView = 'accountHub';
             _contentIdx = 0;
             _renderContent('settings');
             _updateContentFocus();
@@ -925,6 +974,66 @@ window.isNavMenuOpen = false;
     //   2 → Nome            3 → Input API
     //   4 → Colar API       5 → Ver Chave
     //   6 → Trocar Usuário  7 → Excluir Perfil
+    function _renderSettingsAccountHub(body) {
+        const svgProfile = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
+        const svgShare = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 10.6l6.8-4.2M8.6 13.4l6.8 4.2"/></svg>`;
+
+        body.innerHTML = `
+            <div class="nav-settings-subheader">
+                <button class="nav-back-btn" id="setBackAccountHub" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
+                <h2>${_t('navSetAccount', 'Conta e Perfil')}</h2>
+            </div>
+            <div class="nav-settings-grid">
+                <button class="nav-settings-card" id="setProfileData" tabindex="-1">
+                    <div class="settings-card-icon">${svgProfile}</div>
+                    <div class="settings-card-info">
+                        <h3>${_t('navAccountProfileData', 'Dados do perfil')}</h3>
+                        <p>${_t('navAccountProfileDataDesc', 'Alterar avatar, nome e API Key')}</p>
+                    </div>
+                </button>
+                <button class="nav-settings-card" id="setAccountSharing" tabindex="-1">
+                    <div class="settings-card-icon">${svgShare}</div>
+                    <div class="settings-card-info">
+                        <h3>${_t('navSetSharing', 'Contas dos apps')}</h3>
+                        <p>${_t('navSetSharingDesc', 'Dividir contas web por usuario, grupo ou todos')}</p>
+                    </div>
+                </button>
+            </div>`;
+
+        _contentItems = [
+            body.querySelector('#setBackAccountHub'),
+            body.querySelector('#setProfileData'),
+            body.querySelector('#setAccountSharing')
+        ].filter(Boolean);
+
+        body.querySelector('#setBackAccountHub')?.addEventListener('click', () => {
+            _settingsSubView = null;
+            _contentIdx = 0;
+            _renderContent('settings');
+            _updateContentFocus();
+        });
+        body.querySelector('#setProfileData')?.addEventListener('click', () => {
+            _settingsSubView = 'account';
+            _contentIdx = 0;
+            _renderContent('settings');
+            _updateContentFocus();
+        });
+        body.querySelector('#setAccountSharing')?.addEventListener('click', () => {
+            _settingsSubView = 'sharing';
+            _contentIdx = 0;
+            _renderContent('settings');
+            _updateContentFocus();
+        });
+
+        _contentItems.forEach((el, idx) => {
+            el.addEventListener('mouseenter', () => {
+                _topbarFocus = false;
+                _contentIdx = idx;
+                _updateContentFocus();
+            });
+        });
+    }
+
     function _renderSettingsAccount(body) {
         if (!document.getElementById('nav-account-styles')) {
             const s = document.createElement('style');
@@ -935,6 +1044,31 @@ window.isNavMenuOpen = false;
                 .nav-icon-btn.nav-focused-el { border-color: #fff; background: rgba(255,255,255,0.15); color: #fff; transform: scale(1.06); box-shadow: 0 8px 20px rgba(0,0,0,0.4); z-index: 10; position: relative;}
                 .nav-btn-danger { color: #ff6b6b; border-color: rgba(255,107,107,0.3); width: 100%; padding: 14px; font-size: 1rem; }
                 .nav-btn-danger.nav-focused-el { background: rgba(255,107,107,0.15); border-color: #ff6b6b; color: #fff; }
+                .nav-sharing-layout { display: grid; grid-template-columns: minmax(220px, 0.9fr) minmax(360px, 1.4fr); gap: 18px; align-items: start; max-width: 1180px; animation: fadeInTop 0.3s ease; }
+                .nav-sharing-apps, .nav-sharing-panel { background: rgba(255,255,255,0.035); border: 1px solid rgba(255,255,255,0.09); border-radius: 10px; padding: 14px; }
+                .nav-sharing-apps { display: flex; flex-direction: column; gap: 8px; max-height: 58vh; overflow: auto; }
+                .nav-sharing-app { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 52px; padding: 0 12px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #fff; font: inherit; text-align: left; outline: none; cursor: pointer; }
+                .nav-sharing-app.active { background: rgba(120,190,255,0.08); border-color: rgba(120,190,255,0.22); }
+                .nav-sharing-app.nav-focused-el { background: rgba(255,255,255,0.14); border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,0.22), 0 10px 24px rgba(0,0,0,0.35); }
+                .nav-sharing-app small { color: rgba(255,255,255,0.45); white-space: nowrap; }
+                .nav-sharing-panel { min-height: 360px; display: flex; flex-direction: column; gap: 16px; }
+                .nav-sharing-title { margin: 0; color: #fff; font-size: 1.35rem; font-weight: 500; }
+                .nav-sharing-sub { margin: -6px 0 0; color: rgba(255,255,255,0.55); line-height: 1.45; }
+                .nav-sharing-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+                .nav-sharing-mode, .nav-sharing-save { min-height: 48px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.05); color: #fff; font: inherit; outline: none; cursor: pointer; }
+                .nav-sharing-mode.active { border-color: rgba(120,190,255,0.55); background: rgba(120,190,255,0.12); }
+                .nav-sharing-mode.nav-focused-el { border-color: #fff; background: rgba(255,255,255,0.16); box-shadow: 0 0 0 2px rgba(255,255,255,0.2), 0 8px 20px rgba(0,0,0,0.32); }
+                .nav-sharing-users { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; }
+                .nav-sharing-user { min-height: 112px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04); color: #fff; font: inherit; outline: none; cursor: pointer; position: relative; }
+                .nav-sharing-user.selected { border-color: rgba(120,190,255,0.52); background: rgba(120,190,255,0.10); }
+                .nav-sharing-user.nav-focused-el { border-color: #fff; background: rgba(255,255,255,0.14); box-shadow: 0 0 0 2px rgba(255,255,255,0.2), 0 10px 24px rgba(0,0,0,0.35); }
+                .nav-sharing-user.selected::after { content: 'OK'; position: absolute; top: 8px; right: 8px; font-size: 0.62rem; color: #111; background: #fff; border-radius: 999px; padding: 2px 6px; font-weight: 800; }
+                .nav-sharing-avatar { width: 44px; height: 44px; border-radius: 50%; overflow: hidden; background: rgba(255,255,255,0.10); display:flex; align-items:center; justify-content:center; color: rgba(255,255,255,0.65); }
+                .nav-sharing-avatar img { width: 100%; height: 100%; object-fit: cover; }
+                .nav-sharing-save { align-self: flex-start; padding: 0 22px; font-weight: 700; background: #fff; color: #080812; border-color: transparent; }
+                .nav-sharing-save.nav-focused-el { background: #101018; color: #fff; border-color: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,0.26), 0 10px 26px rgba(0,0,0,0.45); transform: scale(1.04); }
+                .nav-sharing-save[disabled] { opacity: .45; pointer-events: none; }
+                .nav-sharing-note { min-height: 22px; color: rgba(130,210,255,0.95); font-size: 0.92rem; }
             `;
             document.head.appendChild(s);
         }
@@ -994,6 +1128,7 @@ window.isNavMenuOpen = false;
                         <span id="navSaveStatus" style="color:#6ee696; font-size:0.95rem; font-weight:500; opacity:0; transition:opacity 0.3s;">✓ Alterações Salvas</span>
                     </div>
 
+                    <button class="nav-icon-btn" id="navAccountSharing" tabindex="-1" style="width:100%; padding:14px; font-size:1rem;">${_t('navSetSharing', 'Contas dos apps')}</button>
                     <button class="nav-icon-btn nav-btn-danger" id="navDeleteUser" tabindex="-1" style="margin-top:12px;">Excluir Perfil</button>
                 </div>
             </div>`;
@@ -1006,11 +1141,12 @@ window.isNavMenuOpen = false;
             body.querySelector('#navProfApi'),       // 3
             body.querySelector('#navApiPaste'),      // 4
             body.querySelector('#navApiLink'),       // 5
-            body.querySelector('#navDeleteUser')     // 6
+            body.querySelector('#navAccountSharing'),// 6
+            body.querySelector('#navDeleteUser')     // 7
         ].filter(Boolean);
 
         body.querySelector('#setBack')?.addEventListener('click', () => {
-            _settingsSubView = null;
+            _settingsSubView = 'accountHub';
             _contentIdx = 0;
             document.activeElement?.blur(); 
             requestAnimationFrame(() => {
@@ -1024,6 +1160,7 @@ window.isNavMenuOpen = false;
         const apiInput = body.querySelector('#navProfApi');
         const pasteBtn = body.querySelector('#navApiPaste');
         const linkBtn = body.querySelector('#navApiLink');
+        const sharingBtn = body.querySelector('#navAccountSharing');
         const deleteBtn = body.querySelector('#navDeleteUser');
 
         const _showSavedFeedback = () => {
@@ -1043,6 +1180,13 @@ window.isNavMenuOpen = false;
         });
 
         // Colar: lê o clipboard e salva automaticamente ao retornar
+        sharingBtn?.addEventListener('click', () => {
+            _settingsSubView = 'sharing';
+            _contentIdx = 0;
+            _renderContent('settings');
+            _updateContentFocus();
+        });
+
         pasteBtn?.addEventListener('click', () => {
             window._isPastingApiKey = true;
             if (typeof postToHost === 'function') postToHost({ action: 'readClipboard' });
@@ -1143,6 +1287,247 @@ window.isNavMenuOpen = false;
         });
     }
     // ── Extensões ─────────────────────────────────────────────────────────────
+    function _renderSettingsSharing(body) {
+        if (!document.getElementById('nav-sharing-styles')) {
+            const s = document.createElement('style');
+            s.id = 'nav-sharing-styles';
+            s.textContent = `
+                .nav-sharing-layout { display: grid; grid-template-columns: minmax(220px, 0.9fr) minmax(360px, 1.4fr); gap: 18px; align-items: start; max-width: 1180px; animation: fadeInTop 0.3s ease; }
+                .nav-sharing-apps, .nav-sharing-panel { background: rgba(255,255,255,0.035); border: 1px solid rgba(255,255,255,0.09); border-radius: 10px; padding: 14px; }
+                .nav-sharing-apps { display: flex; flex-direction: column; gap: 8px; max-height: 58vh; overflow: auto; }
+                .nav-sharing-app { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 52px; padding: 0 12px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #fff; font: inherit; text-align: left; outline: none; cursor: pointer; }
+                .nav-sharing-app.active { background: rgba(120,190,255,0.08); border-color: rgba(120,190,255,0.22); }
+                .nav-sharing-app.nav-focused-el { background: rgba(255,255,255,0.14); border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,0.22), 0 10px 24px rgba(0,0,0,0.35); }
+                .nav-sharing-app small { color: rgba(255,255,255,0.45); white-space: nowrap; }
+                .nav-sharing-panel { min-height: 360px; display: flex; flex-direction: column; gap: 16px; }
+                .nav-sharing-title { margin: 0; color: #fff; font-size: 1.35rem; font-weight: 500; }
+                .nav-sharing-sub { margin: -6px 0 0; color: rgba(255,255,255,0.55); line-height: 1.45; }
+                .nav-sharing-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+                .nav-sharing-mode, .nav-sharing-save { min-height: 48px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.05); color: #fff; font: inherit; outline: none; cursor: pointer; }
+                .nav-sharing-mode.active { border-color: rgba(120,190,255,0.55); background: rgba(120,190,255,0.12); }
+                .nav-sharing-mode.nav-focused-el { border-color: #fff; background: rgba(255,255,255,0.16); box-shadow: 0 0 0 2px rgba(255,255,255,0.2), 0 8px 20px rgba(0,0,0,0.32); }
+                .nav-sharing-users { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; }
+                .nav-sharing-user { min-height: 112px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04); color: #fff; font: inherit; outline: none; cursor: pointer; position: relative; }
+                .nav-sharing-user.selected { border-color: rgba(120,190,255,0.52); background: rgba(120,190,255,0.10); }
+                .nav-sharing-user.nav-focused-el { border-color: #fff; background: rgba(255,255,255,0.14); box-shadow: 0 0 0 2px rgba(255,255,255,0.2), 0 10px 24px rgba(0,0,0,0.35); }
+                .nav-sharing-user.selected::after { content: 'OK'; position: absolute; top: 8px; right: 8px; font-size: 0.62rem; color: #111; background: #fff; border-radius: 999px; padding: 2px 6px; font-weight: 800; }
+                .nav-sharing-avatar { width: 44px; height: 44px; border-radius: 50%; overflow: hidden; background: rgba(255,255,255,0.10); display:flex; align-items:center; justify-content:center; color: rgba(255,255,255,0.65); }
+                .nav-sharing-avatar img { width: 100%; height: 100%; object-fit: cover; }
+                .nav-sharing-save { align-self: flex-start; padding: 0 22px; font-weight: 700; background: #fff; color: #080812; border-color: transparent; }
+                .nav-sharing-save.nav-focused-el { background: #101018; color: #fff; border-color: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,0.26), 0 10px 26px rgba(0,0,0,0.45); transform: scale(1.04); }
+                .nav-sharing-save[disabled] { opacity: .45; pointer-events: none; }
+                .nav-sharing-note { min-height: 22px; color: rgba(130,210,255,0.95); font-size: 0.92rem; }
+            `;
+            document.head.appendChild(s);
+        }
+
+        if (!Array.isArray(window._doorpiUsers) || window._doorpiUsers.length === 0) {
+            if (typeof postToHost === 'function') postToHost({ action: 'requestUsersData' });
+        }
+
+        const currentUserId = _userId(_menuData.user) || _userId(window._doorpiProfile) || window._doorpiCurrentUserId || '';
+        const users = (window._doorpiUsers || []).filter(u => _userId(u));
+        const shareUsers = users.filter(u => !_sameId(_userId(u), currentUserId));
+        const apps = (_menuData.media || []).filter(app => _isWebAccountApp(app));
+        let selectedAppId = _sharingFocusAppId || _appId(apps[0]) || '';
+        let selectedApp = apps.find(app => _sameId(_appId(app), selectedAppId)) || apps[0] || null;
+        if (selectedApp) selectedAppId = _appId(selectedApp);
+
+        const sharedIdsOf = (app) => {
+            const ids = Array.isArray(app?.SharedWithUserIds || app?.sharedWithUserIds)
+                ? (app.SharedWithUserIds || app.sharedWithUserIds)
+                : [];
+            const legacy = app?.SharedWithUserId || app?.sharedWithUserId || '';
+            return [...ids, legacy].filter(Boolean).filter(id => !_sameId(id, currentUserId));
+        };
+        let draftMode = selectedApp?.ShareMode || selectedApp?.shareMode || 'private';
+        let draftUsers = new Set(sharedIdsOf(selectedApp));
+
+        const appStatus = (app) => {
+            if (app.IsSharedFromOtherUser || app.isSharedFromOtherUser)
+                return app.SharedFromUserName || app.sharedFromName || _t('sharedFromOther', 'Compartilhado');
+            const mode = app.ShareMode || app.shareMode || 'private';
+            if (mode === 'all') return _t('shareModeAll', 'Publico');
+            if (mode === 'user') {
+                const names = app.SharedWithUserNames || app.sharedWithUserNames || [];
+                return names.length ? names.join(', ') : _t('shareModeUser', 'Usuarios');
+            }
+            return _t('shareModePrivate', 'Separado');
+        };
+
+        const userAvatar = (u) => (u.PhotoBase64 || u.photoBase64)
+            ? `<img src="data:image/png;base64,${u.PhotoBase64 || u.photoBase64}" />`
+            : _esc((_userName(u) || '?').charAt(0).toUpperCase());
+
+        body.innerHTML = `
+            <div class="nav-settings-subheader">
+                <button class="nav-back-btn" id="setBackSharing" tabindex="-1">< ${_t('navBack', 'Voltar')}</button>
+                <h2>${_t('accountSharingLabel', 'Compartilhamento de conta')}</h2>
+            </div>
+            <div class="nav-sharing-layout">
+                <div class="nav-sharing-apps" id="navSharingApps">
+                    ${apps.length ? apps.map(app => {
+                        const id = _appId(app);
+                        return `<button class="nav-sharing-app ${id === selectedAppId ? 'active' : ''}" data-app-id="${_esc(id)}" tabindex="-1">
+                            <span>${_esc(_appName(app))}</span>
+                            <small>${_esc(appStatus(app))}</small>
+                        </button>`;
+                    }).join('') : `<div class="nav-sharing-sub">${_t('navNoMedia', 'Nenhum app configurado')}</div>`}
+                </div>
+                <div class="nav-sharing-panel" id="navSharingPanel"></div>
+            </div>`;
+
+        const panel = body.querySelector('#navSharingPanel');
+
+        const renderPanel = () => {
+            if (!panel) return;
+            if (!selectedApp) {
+                panel.innerHTML = `<p class="nav-sharing-sub">${_t('navNoMedia', 'Nenhum app configurado')}</p>`;
+                return;
+            }
+
+            const appName = _appName(selectedApp);
+            const sharedFrom = selectedApp.SharedFromUserName || selectedApp.sharedFromName || '';
+            const locked = !!(selectedApp.IsSharedFromOtherUser || selectedApp.isSharedFromOtherUser);
+            const selectedNames = Array.from(draftUsers)
+                .map(id => _userName(users.find(u => _sameId(_userId(u), id))))
+                .filter(Boolean);
+            const currentText = locked
+                ? _t('sharedByInfo', `Compartilhado por ${sharedFrom || _t('defaultOtherUser', 'outro usuario')}.`, sharedFrom || _t('defaultOtherUser', 'outro usuario'))
+                : draftMode === 'all'
+                    ? _t('shareStatusAll', 'Este app esta publico para todos os usuarios atuais e futuros.')
+                    : draftMode === 'user'
+                        ? (selectedNames.length ? `Compartilhado com ${selectedNames.join(', ')}.` : 'Escolha um ou mais usuarios.')
+                        : 'Este app usa uma conta separada para cada usuario.';
+
+            panel.innerHTML = `
+                <h3 class="nav-sharing-title">${_esc(appName)}</h3>
+                <p class="nav-sharing-sub">${_esc(currentText)}</p>
+                ${locked ? '' : `
+                    <div class="nav-sharing-modes">
+                        <button class="nav-sharing-mode ${draftMode === 'private' ? 'active' : ''}" data-mode="private" tabindex="-1">${_t('shareModePrivate', 'Separado por usuario')}</button>
+                        <button class="nav-sharing-mode ${draftMode === 'user' ? 'active' : ''}" data-mode="user" tabindex="-1">${_t('shareModeUser', 'Usuarios especificos')}</button>
+                        <button class="nav-sharing-mode ${draftMode === 'all' ? 'active' : ''}" data-mode="all" tabindex="-1">${_t('shareModeAll', 'Publico')}</button>
+                    </div>
+                    <div class="nav-sharing-users" style="${draftMode === 'user' ? '' : 'display:none;'}">
+                        ${shareUsers.map(u => {
+                            const uid = _userId(u);
+                            const selected = Array.from(draftUsers).some(id => _sameId(id, uid));
+                            return `
+                            <button class="nav-sharing-user ${selected ? 'selected' : ''}" data-user-id="${_esc(uid)}" tabindex="-1">
+                                <span class="nav-sharing-avatar">${userAvatar(u)}</span>
+                                <span>${_esc(_userName(u))}</span>
+                            </button>`;
+                        }).join('')}
+                    </div>
+                    <button class="nav-sharing-save" id="navSharingSave" tabindex="-1" ${draftMode === 'user' && draftUsers.size === 0 ? 'disabled' : ''}>${_t('editModalSave', 'Salvar')}</button>
+                    <div class="nav-sharing-note" id="navSharingNote"></div>
+                `}
+            `;
+
+            panel.querySelectorAll('.nav-sharing-mode').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    draftMode = btn.dataset.mode || 'private';
+                    renderPanel();
+                    refreshSharingFocus();
+                });
+            });
+            panel.querySelectorAll('.nav-sharing-user').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const id = btn.dataset.userId || '';
+                    const existing = Array.from(draftUsers).find(value => _sameId(value, id));
+                    if (existing) draftUsers.delete(existing);
+                    else draftUsers.add(id);
+                    renderPanel();
+                    refreshSharingFocus();
+                });
+            });
+            panel.querySelector('#navSharingSave')?.addEventListener('click', () => {
+                if (!selectedApp) return;
+                const ids = draftMode === 'user' ? Array.from(draftUsers) : [];
+                if (draftMode === 'user' && ids.length === 0) return;
+                selectedApp.ShareMode = draftMode;
+                selectedApp.shareMode = draftMode;
+                selectedApp.SharedWithUserIds = ids;
+                selectedApp.sharedWithUserIds = ids;
+                selectedApp.SharedWithUserNames = ids.map(id => _userName(users.find(u => _sameId(_userId(u), id)))).filter(Boolean);
+                selectedApp.sharedWithUserNames = selectedApp.SharedWithUserNames;
+                if (typeof postToHost === 'function') {
+                    window._doorpiSuppressSharingRefreshUntil = Date.now() + 1200;
+                    postToHost({ action: 'updateAppSharing', appId: selectedAppId, shareMode: draftMode, sharedWithUserIds: ids });
+                }
+                const activeRow = Array.from(body.querySelectorAll('.nav-sharing-app'))
+                    .find(btn => _sameId(btn.dataset.appId, selectedAppId));
+                const statusEl = activeRow?.querySelector('small');
+                if (statusEl) statusEl.textContent = appStatus(selectedApp);
+                const note = panel.querySelector('#navSharingNote');
+                if (note) {
+                    note.textContent = _t('navSharingSaved', 'Compartilhamento salvo.');
+                    clearTimeout(note._clearTimer);
+                    note._clearTimer = setTimeout(() => {
+                        if (document.contains(note)) note.textContent = '';
+                    }, 2200);
+                }
+                const saveBtn = panel.querySelector('#navSharingSave');
+                if (saveBtn) {
+                    const idx = _contentItems.indexOf(saveBtn);
+                    if (idx >= 0) _contentIdx = idx;
+                    _updateContentFocus();
+                }
+            });
+        };
+
+        const selectApp = (appId) => {
+            _sharingFocusAppId = appId;
+            selectedApp = apps.find(app => _sameId(_appId(app), appId)) || apps[0] || null;
+            selectedAppId = _appId(selectedApp);
+            draftMode = selectedApp?.ShareMode || selectedApp?.shareMode || 'private';
+            draftUsers = new Set(sharedIdsOf(selectedApp));
+            body.querySelectorAll('.nav-sharing-app').forEach(btn => btn.classList.toggle('active', btn.dataset.appId === selectedAppId));
+            renderPanel();
+            refreshSharingFocus();
+        };
+
+        function refreshSharingFocus() {
+            _contentItems = [
+                body.querySelector('#setBackSharing'),
+                ...Array.from(body.querySelectorAll('.nav-sharing-app')),
+                ...Array.from(body.querySelectorAll('.nav-sharing-mode, .nav-sharing-user, .nav-sharing-save')).filter(el => !el.disabled && el.offsetParent !== null)
+            ].filter(Boolean);
+            _contentItems.forEach((el, idx) => {
+                el.onmouseenter = () => {
+                    _topbarFocus = false;
+                    _contentIdx = idx;
+                    _updateContentFocus();
+                };
+            });
+        }
+
+        body.querySelector('#setBackSharing')?.addEventListener('click', () => {
+            _settingsSubView = 'accountHub';
+            _contentIdx = 0;
+            _renderContent('settings');
+            _updateContentFocus();
+        });
+        body.querySelectorAll('.nav-sharing-app').forEach(btn => {
+            btn.addEventListener('click', () => selectApp(btn.dataset.appId || ''));
+        });
+
+        window._doorpiUsersDataReady = () => {
+            if (_settingsSubView === 'sharing' && window.isNavMenuOpen) {
+                if (Date.now() < (window._doorpiSuppressSharingRefreshUntil || 0)) return;
+                _renderSettingsSharing(body);
+                _updateContentFocus();
+            }
+        };
+
+        renderPanel();
+        refreshSharingFocus();
+        const focusedApp = _sharingFocusAppId ? body.querySelector(`.nav-sharing-app[data-app-id="${CSS.escape(_sharingFocusAppId)}"]`) : null;
+        const idx = focusedApp ? _contentItems.indexOf(focusedApp) : 0;
+        _contentIdx = idx >= 0 ? idx : 0;
+    }
+
     function _renderSettingsExtensions(body) {
         if (!document.getElementById('nav-ext-styles')) {
             const s = document.createElement('style');
@@ -1550,7 +1935,8 @@ window.isNavMenuOpen = false;
                 3: { ArrowUp: 2, ArrowDown: 6, ArrowRight: 4 },
                 4: { ArrowUp: 2, ArrowDown: 6, ArrowLeft: 3, ArrowRight: 5 },
                 5: { ArrowUp: 2, ArrowDown: 6, ArrowLeft: 4 },
-                6: { ArrowUp: 3 }
+                6: { ArrowUp: 3, ArrowDown: 7 },
+                7: { ArrowUp: 6 }
             };
 
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
@@ -1566,6 +1952,90 @@ window.isNavMenuOpen = false;
         // ── Malha de navegação da tela de Extensões ───────────
         // A lista possui cabeçalho (0 a 4) e depois itens gerados dinamicamente.
         // 0=Voltar, 1=Input, 2=Colar, 3=Loja, 4=Instalar.
+        if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'accountHub') {
+            const map = {
+                0: { ArrowUp: 'top', ArrowDown: 1, ArrowRight: 1 },
+                1: { ArrowUp: 0, ArrowRight: 2 },
+                2: { ArrowUp: 0, ArrowLeft: 1 }
+            };
+
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
+                const next = map[_contentIdx]?.[key];
+                if (next === 'top') {
+                    _setTopbarFocus(true);
+                } else if (next !== undefined && next < total) {
+                    _contentIdx = next;
+                    _updateContentFocus();
+                }
+                return;
+            }
+        }
+
+        if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'sharing') {
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
+                const appCount = document.querySelectorAll('.nav-sharing-app').length;
+                const modeCount = document.querySelectorAll('.nav-sharing-mode').length;
+                const userCount = document.querySelectorAll('.nav-sharing-user').length;
+                const hasSave = !!document.querySelector('.nav-sharing-save:not([disabled])');
+                const appsStart = 1;
+                const rightStart = appsStart + appCount;
+                const modesStart = rightStart;
+                const usersStart = modesStart + modeCount;
+                const saveIdx = usersStart + userCount;
+                const activeApp = Array.from(document.querySelectorAll('.nav-sharing-app')).findIndex(el => el.classList.contains('active'));
+                const activeAppIdx = activeApp >= 0 ? appsStart + activeApp : appsStart;
+
+                if (_contentIdx === 0) {
+                    if (key === 'ArrowDown' || key === 'ArrowRight') {
+                        const next = appCount ? appsStart : rightStart;
+                        if (next < total) _contentIdx = next;
+                        else _setTopbarFocus(true);
+                    }
+                    else if (key === 'ArrowUp') _setTopbarFocus(true);
+                    _updateContentFocus();
+                    return;
+                }
+
+                if (_contentIdx >= appsStart && _contentIdx < rightStart) {
+                    if (key === 'ArrowUp') _contentIdx = _contentIdx === appsStart ? 0 : _contentIdx - 1;
+                    else if (key === 'ArrowDown') _contentIdx = _contentIdx < rightStart - 1 ? _contentIdx + 1 : _contentIdx;
+                    else if (key === 'ArrowRight' && rightStart < total) _contentIdx = rightStart;
+                    else if (key === 'ArrowLeft') _setTopbarFocus(true);
+                    _updateContentFocus();
+                    return;
+                }
+
+                if (_contentIdx >= modesStart && _contentIdx < usersStart) {
+                    const modeOffset = _contentIdx - modesStart;
+                    if (key === 'ArrowLeft') _contentIdx = modeOffset === 0 ? activeAppIdx : _contentIdx - 1;
+                    else if (key === 'ArrowRight') _contentIdx = modeOffset < modeCount - 1 ? _contentIdx + 1 : _contentIdx;
+                    else if (key === 'ArrowUp') _contentIdx = 0;
+                    else if (key === 'ArrowDown') _contentIdx = userCount ? usersStart : (hasSave ? saveIdx : _contentIdx);
+                    _updateContentFocus();
+                    return;
+                }
+
+                if (_contentIdx >= usersStart && _contentIdx < usersStart + userCount) {
+                    const userOffset = _contentIdx - usersStart;
+                    const grid = document.querySelector('.nav-sharing-users');
+                    const gridCols = grid ? Math.max(1, getComputedStyle(grid).gridTemplateColumns.split(' ').length) : 1;
+                    if (key === 'ArrowLeft') _contentIdx = userOffset === 0 ? activeAppIdx : _contentIdx - 1;
+                    else if (key === 'ArrowRight') _contentIdx = userOffset < userCount - 1 ? _contentIdx + 1 : _contentIdx;
+                    else if (key === 'ArrowUp') _contentIdx = userOffset < gridCols ? modesStart + Math.min(userOffset, Math.max(0, modeCount - 1)) : _contentIdx - gridCols;
+                    else if (key === 'ArrowDown') _contentIdx = userOffset + gridCols < userCount ? _contentIdx + gridCols : (hasSave ? saveIdx : _contentIdx);
+                    _updateContentFocus();
+                    return;
+                }
+
+                if (hasSave && _contentIdx === saveIdx) {
+                    if (key === 'ArrowLeft') _contentIdx = activeAppIdx;
+                    else if (key === 'ArrowUp') _contentIdx = userCount ? usersStart + userCount - 1 : modesStart;
+                    _updateContentFocus();
+                    return;
+                }
+            }
+        }
+
         if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'extensions') {
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
 
@@ -1637,7 +2107,7 @@ window.isNavMenuOpen = false;
             case 'Escape':
             case 'Backspace':
                 if (CATS[_catIdx]?.id === 'settings' && _settingsSubView) {
-                    _settingsSubView = null;
+                    _settingsSubView = (_settingsSubView === 'account' || _settingsSubView === 'sharing') ? 'accountHub' : null;
                     _contentIdx = 0;
                     _renderContent('settings');
                     _updateContentFocus();
@@ -1736,6 +2206,36 @@ window.isNavMenuOpen = false;
     window._navMenuOpenExtensions = function () {
         _catIdx = 2; // Categoria de Configurações
         _settingsSubView = 'extensions';
+        document.querySelectorAll('.nav-cat-item').forEach((el, i) => el.classList.toggle('active', i === _catIdx));
+        _updateTopbarFocusVisual();
+        _contentIdx = 0;
+
+        const titleEl = document.getElementById('navContentTitle');
+        const subEl = document.getElementById('navContentSub');
+        const headerWrap = document.getElementById('navHeaderWrap');
+        if (headerWrap) headerWrap.style.display = 'block';
+        if (titleEl) titleEl.textContent = CATS[_catIdx].label;
+        if (subEl) subEl.textContent = _subtitle(CATS[_catIdx].id);
+
+        _renderContent('settings');
+        _setTopbarFocus(false);
+    };
+
+    window._navMenuOpenAccountSharing = async function (appId = '') {
+        if (!window.isNavMenuOpen) {
+            _catIdx = 2;
+            _settingsSubView = 'sharing';
+            _sharingFocusAppId = appId || '';
+            _preserveSettingsSubViewOnce = true;
+            await open();
+            requestAnimationFrame(() => _setTopbarFocus(false));
+            return;
+        }
+
+        _catIdx = 2;
+        _settingsSubView = 'sharing';
+        _sharingFocusAppId = appId || '';
+
         document.querySelectorAll('.nav-cat-item').forEach((el, i) => el.classList.toggle('active', i === _catIdx));
         _updateTopbarFocusVisual();
         _contentIdx = 0;

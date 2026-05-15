@@ -822,10 +822,16 @@ namespace Doorpi
             if (gp && document.hasFocus()) {
                 for (const [idx,[code,key]] of Object.entries(map))
                     processButton(Number(idx), !!gp.buttons[idx]?.pressed, code, key);
-                processButton(100, gp.axes[1] < -0.5, 38, 'ArrowUp');
-                processButton(101, gp.axes[1] >  0.5, 40, 'ArrowDown');
-                processButton(102, gp.axes[0] < -0.5, 37, 'ArrowLeft');
-                processButton(103, gp.axes[0] >  0.5, 39, 'ArrowRight');
+                const dpadUp = !!gp.buttons[12]?.pressed;
+                const dpadDown = !!gp.buttons[13]?.pressed;
+                const dpadLeft = !!gp.buttons[14]?.pressed;
+                const dpadRight = !!gp.buttons[15]?.pressed;
+                const axisX = gp.axes[0] || 0;
+                const axisY = gp.axes[1] || 0;
+                processButton(100, !dpadUp && !dpadDown && axisY < -0.5, 38, 'ArrowUp');
+                processButton(101, !dpadUp && !dpadDown && axisY >  0.5, 40, 'ArrowDown');
+                processButton(102, !dpadLeft && !dpadRight && axisX < -0.5, 37, 'ArrowLeft');
+                processButton(103, !dpadLeft && !dpadRight && axisX >  0.5, 39, 'ArrowRight');
                 processButton(1, !!gp.buttons[1]?.pressed, 27, 'Escape');
             }
         } catch(_) {}

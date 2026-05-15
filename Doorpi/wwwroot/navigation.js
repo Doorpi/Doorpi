@@ -144,7 +144,7 @@ function getNavigableItems() {
     if (isSetupOpen) return typeof getSetupItems === 'function' ? getSetupItems() : [];
     if (isCtxMenuOpen) return getCtxMenuItems();
     if (isEditModalOpen) {
-        return Array.from(document.querySelectorAll('.edit-modal-input, .doorpi-choice-trigger, .doorpi-choice-option, #editExtensionsBtn, .edit-modal-actions button'))
+        return Array.from(document.querySelectorAll('.edit-modal-input, .doorpi-choice-trigger, .doorpi-choice-option, #editSharingBtn, #editExtensionsBtn, .edit-modal-actions button'))
             .filter(el => el.offsetWidth > 0 && !el.disabled && !el.closest('.doorpi-choice-wrap.is-disabled'));
     }
     if (!isModalOpen) {
@@ -620,6 +620,15 @@ function smoothHorizontalScroll(element, onDone) {
 });
 
 document.addEventListener('keydown', e => {
+    if (isDoorpiGameInputSuppressed()) {
+        const blocked = ['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Enter', ' ', 'Spacebar', 'Escape'];
+        if (blocked.includes(e.key)) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+        }
+        return;
+    }
+
     if (window.isGlobalLoading) { e.preventDefault(); return; }
     if (window.isDoorpiOverlayOpen?.() && !window._vkbIsOpen) {
         const dirMapOverlay = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' };
@@ -719,6 +728,20 @@ let _cursorHoldState = { l1: 0, r1: 0 }, _cursorLastTime = { l1: 0, r1: 0 };
 
 window._gpNavigating = false;
 let _gpNavigatingTimeout = null;
+window._doorpiGameInputSuppressedUntil = 0;
+
+window.suspendDoorpiGameInput = function (durationMs = 15000) {
+    window._doorpiGameInputSuppressedUntil = performance.now() + durationMs;
+    window.isGameLaunchActive = true;
+};
+
+function isDoorpiGameInputSuppressed() {
+    if (!window.isGameLaunchActive && !window._doorpiGameInputSuppressedUntil) return false;
+    if (performance.now() < (window._doorpiGameInputSuppressedUntil || 0)) return true;
+    window.isGameLaunchActive = false;
+    window._doorpiGameInputSuppressedUntil = 0;
+    return false;
+}
 
 function buttonJustPressed(btn, index) {
     if (btn?.pressed) { if (!_btnCooldown[index]) { _btnCooldown[index] = true; return true; } return false; }
@@ -740,7 +763,7 @@ window.addEventListener('gamepaddisconnected', e => {
     try {
         const gamepad = _gamepadIndex !== null ? navigator.getGamepads()[_gamepadIndex] : null;
         if (!gamepad) return;
-        if (window.isGlobalLoading || window.isMediaAppActive || !document.hasFocus()) return;
+        if (window.isGlobalLoading || window.isMediaAppActive || isDoorpiGameInputSuppressed() || !document.hasFocus()) return;
 
         const { GAMEPAD } = NAV, buttons = gamepad.buttons;
         const ax = gamepad.axes[0], ay = gamepad.axes[1], thr = GAMEPAD.AXIS_THRESHOLD, now = performance.now();

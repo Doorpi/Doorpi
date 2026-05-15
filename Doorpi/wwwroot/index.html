@@ -258,6 +258,61 @@
     -->
     <div id="setupContainer"></div>
 
+    <div id="gameLaunchOverlay" class="state-loading">
+
+        <!-- Fundo sólido (sempre visível) -->
+        <div class="overlay-bg-solid"></div>
+        <!-- Fundo hero desfocado (preenchido via JS) -->
+        <div class="overlay-bg" id="overlayBg"></div>
+
+        <div class="overlay-card">
+
+            <!-- Arte portrait do jogo -->
+            <div class="game-art" id="gameArtBox">
+                <!-- Ícone SVG placeholder -->
+                <svg class="game-art-placeholder" viewBox="0 0 24 24" fill="none"
+                     xmlns="http://www.w3.org/2000/svg">
+                    <rect x="2" y="6" width="20" height="12" rx="3"
+                          stroke="white" stroke-width="1.5" />
+                    <path d="M7 12h4M9 10v4" stroke="white" stroke-width="1.5"
+                          stroke-linecap="round" />
+                    <circle cx="15" cy="12" r="0.75" fill="white" />
+                    <circle cx="17" cy="10.5" r="0.75" fill="white" />
+                    <circle cx="17" cy="13.5" r="0.75" fill="white" />
+                </svg>
+            </div>
+
+            <!-- Nome do jogo -->
+            <div class="game-name" id="overlayGameName">Carregando…</div>
+
+            <!-- Status: loading (default) -->
+            <div class="status-row status-loading">
+                <span class="status-text" id="overlayStatusText">Abrindo</span>
+                <div class="dots">
+                    <div class="dot"></div>
+                    <div class="dot"></div>
+                    <div class="dot"></div>
+                </div>
+            </div>
+
+            <!-- Status: rodando -->
+            <div class="status-row status-running">
+                <div class="pulse-dot"></div>
+                <span class="status-text" id="overlayRunningText">Em execução</span>
+            </div>
+
+            <!-- Status: erro -->
+            <div class="error-block">
+                <div class="error-icon">✕</div>
+                <div class="error-title" id="overlayErrorTitle">Não foi possível abrir</div>
+                <div class="error-sub" id="overlayErrorSub">Verifique se o executável do jogo está correto.</div>
+                <button class="dismiss-btn" id="overlayDismissBtn" onclick="GameLaunchOverlay.hide()">
+                    <span class="btn-hint">A</span> OK
+                </button>
+            </div>
+
+        </div><!-- /overlay-card -->
+    </div><!-- /gameLaunchOverlay -->
 
     <script src="strings.js"></script>
 
