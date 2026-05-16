@@ -935,15 +935,27 @@ namespace Doorpi
 
             user.LastUsed = DateTime.Now;
             SaveUserProfiles(users);
-            SetActiveUser(user, migrateLegacyFiles: false);
-            RestartWatchers();
 
-            _ = Task.Run(async () => {
+            // Fade-out antes de tocar em qualquer dado
+            Dispatcher.Invoke(() =>
+                webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"userSwitchStart\"}"));
+
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(320); // Espera o fade-out completar
+
+                SetActiveUser(user, migrateLegacyFiles: false);
+                RestartWatchers();
                 await InitializeNativeAppsAsync(currentUserId, mediaFile, silent: true);
-                Dispatcher.Invoke(() => LoadCurrentUserIntoUI());
+
+                Dispatcher.Invoke(() =>
+                {
+                    LoadCurrentUserIntoUI();
+                    // Todo o novo conteúdo já foi enviado — agora faz o fade-in
+                    webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"userSwitchComplete\"}");
+                });
             });
         }
-
         private Thread? _systemControllerThread;
         private volatile bool _systemControllerActive = false;
         private const uint KEYEVENTF_UNICODE = 0x0004;

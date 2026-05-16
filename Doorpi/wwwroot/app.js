@@ -320,6 +320,12 @@ window.chrome.webview.addEventListener('message', event => {
         else if (data.type === 'gameLaunching') {
             GameLaunchOverlay.show(data.gameName, data.heroImage, data.gridImage);
         }
+        else if (data.type === 'userSwitchStart') {
+            _userSwitchFadeOut();
+        }
+        else if (data.type === 'userSwitchComplete') {
+            _userSwitchFadeIn();
+        }
         else if (data.type === 'gameLaunchReady') {
             GameLaunchOverlay.setRunning();
         }
@@ -424,7 +430,7 @@ function ensureDoorpiOverlayStyles() {
     }
 
     .doorpi-user-panel {
-        width: 100%; max-width: 1200px;
+        width: 100%;
         display: flex; flex-direction: column; align-items: center; gap: clamp(30px, 4vw, 50px);
     }
     .doorpi-manager-panel {
@@ -1431,6 +1437,7 @@ async function crossfadeBanner(el, newSrc) {
 }
 
 function switchHeroBackground(bgSrc, logoSrc, heroSrc) {
+    if (window._userSwitching) return;
     if (window._heroCleanupTimer) {
         clearTimeout(window._heroCleanupTimer);
         window._heroCleanupTimer = null;
@@ -2726,7 +2733,54 @@ document.addEventListener('focusin', () => {
         }, 80);
     }
 });
+function _userSwitchFadeOut() {
+    // Limpa o hero na hora, sem delay, e bloqueia novos switches
+    window._userSwitching = true;
+    _currentBgSrc = '';
+    if (typeof _heroReqId !== 'undefined') _heroReqId++;
 
+    const heroImg = document.getElementById('heroImage');
+    const bgBlur = document.getElementById('bgBlur');
+    const logoEl = document.getElementById('gameLogo');
+    const gridBg = document.getElementById('gridBgImg');
+
+    if (heroImg) heroImg.style.opacity = '0';
+    if (bgBlur) { bgBlur.style.opacity = '0'; bgBlur.removeAttribute('src'); }
+    if (logoEl) logoEl.classList.remove('visible');
+    if (gridBg) gridBg.removeAttribute('src');
+
+    const wrap = document.querySelector('.main-content-wrapper');
+    if (!wrap) return;
+    wrap.style.opacity = '0';
+    wrap.style.transform = 'scale(0.97) translateY(-10px)';
+    wrap.style.pointerEvents = 'none';
+}
+
+function _userSwitchFadeIn() {
+    const wrap = document.querySelector('.main-content-wrapper');
+    if (!wrap) return;
+
+    wrap.style.setProperty('transition', 'none', 'important');
+    wrap.style.opacity = '0';
+    wrap.style.transform = 'scale(0.97) translateY(14px)';
+
+    void wrap.offsetWidth;
+
+    wrap.style.setProperty(
+        'transition',
+        'opacity 0.42s ease, transform 0.46s cubic-bezier(0.23, 1, 0.32, 1)',
+        'important'
+    );
+    wrap.style.opacity = '1';
+    wrap.style.transform = 'none';
+    wrap.style.pointerEvents = '';
+
+    setTimeout(() => {
+        wrap.style.removeProperty('transition');
+        wrap.style.transform = '';
+        window._userSwitching = false; // libera — hero pode aparecer agora
+    }, 500);
+}
 
 function clearLoadingCards(tab = 'games') {
     const gridId = tab === 'games' ? 'gameGrid' : 'mediaGrid';
