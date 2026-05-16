@@ -144,7 +144,7 @@ function getNavigableItems() {
     if (isSetupOpen) return typeof getSetupItems === 'function' ? getSetupItems() : [];
     if (isCtxMenuOpen) return getCtxMenuItems();
     if (isEditModalOpen) {
-        return Array.from(document.querySelectorAll('.edit-modal-input, .doorpi-choice-trigger, .doorpi-choice-option, #editSharingBtn, #editExtensionsBtn, .edit-modal-actions button'))
+        return Array.from(document.querySelectorAll('.edit-modal-input, .doorpi-choice-trigger, .doorpi-choice-option, #editSharingBtn, #editExtensionsBtn, .edit-toggle-row, .edit-modal-actions button'))
             .filter(el => el.offsetWidth > 0 && !el.disabled && !el.closest('.doorpi-choice-wrap.is-disabled'));
     }
     if (!isModalOpen) {

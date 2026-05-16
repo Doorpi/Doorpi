@@ -192,6 +192,22 @@ window.chrome.webview.addEventListener('message', event => {
             allInstalledApps = data.apps;
             refreshInstalledAppsView();
         }
+        else if (data.type === 'nativeAppsLoaded') {
+            if (data.apps) {
+                window._mediaGamepadConfig = window._mediaGamepadConfig || {};
+                data.apps.forEach(app => {
+                    window._mediaGamepadConfig[app.Id] = !!app.DisableGamepadControl;
+                });
+
+                // Aplica aos cards que já possam estar ativos no DOM
+                document.querySelectorAll('.card[data-app-id]').forEach(card => {
+                    const id = card.dataset.appId;
+                    if (window._mediaGamepadConfig[id] !== undefined) {
+                        card.dataset.disableGamepadControl = window._mediaGamepadConfig[id] ? 'true' : 'false';
+                    }
+                });
+            }
+        }
         else if (data.type === 'clearLoadingCards') {
             clearLoadingCards(data.tab || 'games');
             if (!data.tab) clearLoadingCards('media');
@@ -422,7 +438,7 @@ function ensureDoorpiOverlayStyles() {
         -webkit-backdrop-filter: blur(40px) saturate(1.5);
         display: flex; align-items: center; justify-content: center;
         padding: clamp(24px, 5vw, 60px); box-sizing: border-box;
-        animation: doorpiOverlayFadeIn 0.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        animation: doorpiOverlayFadeIn 0.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
     }
     @keyframes doorpiOverlayFadeIn {
         from { opacity: 0; }
@@ -515,7 +531,7 @@ function ensureDoorpiOverlayStyles() {
     padding: 0;
     transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
     position: relative;
-    animation: doorpiCardRise 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+    animation: doorpiCardRise 0.3s cubic-bezier(0.16, 1, 0.3, 1) backwards;
     will-change: transform;
 }
 
@@ -701,13 +717,13 @@ function showUserPicker(users, requireSelection = false) {
     overlay.dataset.required = requireSelection ? 'true' : 'false';
 
     const cards = users.map((user, idx) => `
-    <button class="doorpi-user-card" data-user-id="${escapeHtml(user.Id)}" tabindex="0" style="animation-delay: ${idx * 0.06}s">
+    <button class="doorpi-user-card" data-user-id="${escapeHtml(user.Id)}" tabindex="0" style="animation-delay: ${idx * 0.03}s">
         ${avatarMarkup(user)}
         <span class="doorpi-user-name">${escapeHtml(user.Name)}</span>
         ${user.Id === window._doorpiCurrentUserId ? `<span class="doorpi-user-badge">${t('badgeCurrent')}</span>` : ''}
     </button>`).join('');
 
-    const createUserDelay = users.length * 0.05;
+    const createUserDelay = users.length * 0.03; 
 
     overlay.innerHTML = `
         <div class="doorpi-user-panel">
@@ -2008,6 +2024,74 @@ body.nav-menu-active .nav-menu {
     align-items: center;
     justify-content: center;
 }
+.edit-toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    cursor: pointer;
+    padding: 11px 14px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 9px;
+    transition: background 0.15s;
+    user-select: none;
+}
+.edit-toggle-row:hover {
+    background: rgba(255,255,255,0.07);
+    border-color: rgba(255,255,255,0.14);
+}
+.edit-toggle-switch {
+    position: relative;
+    width: 36px;
+    height: 20px;
+    flex-shrink: 0;
+}
+.edit-toggle-switch input {
+    position: absolute;
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    cursor: pointer;
+}
+.edit-toggle-slider {
+    position: absolute;
+    inset: 0;
+    background: rgba(255,255,255,0.15);
+    border-radius: 20px;
+    transition: background 0.2s;
+    pointer-events: none;
+}
+.edit-toggle-slider::before {
+    content: '';
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    left: 3px;
+    top: 3px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.2s;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+}
+.edit-toggle-switch input:checked ~ .edit-toggle-slider {
+    background: rgba(80,140,255,0.65);
+}
+.edit-toggle-switch input:checked ~ .edit-toggle-slider::before {
+    transform: translateX(16px);
+}
+.edit-toggle-label {
+    font-size: 14px;
+    color: rgba(255,255,255,0.8);
+    flex: 1;
+    line-height: 1.4;
+}
+.edit-toggle-row:focus {
+    outline: none;
+    border-color: rgba(255,255,255,0.3);
+    background: rgba(255,255,255,0.09);
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.15);
+}
     `;
     document.head.appendChild(s);
 })();
@@ -2236,6 +2320,10 @@ function openEditGameModal(card) {
     const canManageBrowser = isMediaCard && appType !== 'browser' ? false : (isMediaCard && appType !== 'exe');
     const canManageSharing = isMediaCard && ['browser', 'webview'].includes(appType.toLowerCase());
     const isSharedFromOther = card.dataset.sharedFromOther === 'true';
+
+    const isExeApp = isMediaCard && appType === 'exe';
+    const disableGamepadControl = card.dataset.disableGamepadControl === 'true';
+
     const sharedWithNames = (() => {
         try { return JSON.parse(card.dataset.sharedWithUserNames || '[]'); } catch { return []; }
     })();
@@ -2271,11 +2359,23 @@ function openEditGameModal(card) {
                     <span class="edit-modal-input-hint">${t('editModalHint')}</span>
                 </div>
                 ${mediaExtras}
+${isExeApp ? `
+<div class="edit-modal-field">
+    <label class="edit-modal-label">${t('gamepadControlLabel')}</label>
+    <label class="edit-toggle-row" tabindex="0">
+        <span class="edit-toggle-switch">
+            <input type="checkbox" id="editDisableGamepadControl" tabindex="-1" ${disableGamepadControl ? 'checked' : ''} />
+            <span class="edit-toggle-slider"></span>
+        </span>
+        <span class="edit-toggle-label">${t('disableGamepadControlLabel')}</span>
+    </label>
+    <span class="edit-modal-input-hint">${t('disableGamepadControlHint')}</span>
+</div>` : ''}
             </div>
             <div class="edit-modal-actions">
                 <button class="modal-btn cancel" id="editCancelBtn">${t('editModalCancel')}</button>
                 <button class="modal-btn primary" id="editSaveBtn">${t('editModalSave')}</button>
-            </div>
+            </div>  
         </div>
     `;
     document.body.appendChild(overlay);
@@ -2310,10 +2410,15 @@ function openEditGameModal(card) {
         doClose();
         window._navMenuOpenAccountSharing?.(appId);
     });
-
     const doSave = () => {
         const newName = input.value.trim();
-        if (newName && newName !== currentName) {
+        const nameChanged = newName && newName !== currentName;
+
+        const disableCheckbox = overlay.querySelector('#editDisableGamepadControl');
+        const newDisable = disableCheckbox ? disableCheckbox.checked : disableGamepadControl;
+        const disableChanged = isExeApp && newDisable !== disableGamepadControl;
+
+        if (nameChanged) {
             const gameId = card.dataset.gameId || card.dataset.appId;
             const allCards = Array.from(document.querySelectorAll('.card, .nav-vertical-card')).filter(c =>
                 c.dataset.gameId === gameId || c.dataset.appId === gameId
@@ -2329,8 +2434,22 @@ function openEditGameModal(card) {
                     if (item) item.Name = newName;
                 });
             }
-            postToHost({ action: 'editGame', gameId: gameId, newName });
         }
+
+        if (nameChanged || disableChanged) {
+            const gameId = card.dataset.gameId || card.dataset.appId;
+            const payload = { action: 'editGame', gameId };
+            if (nameChanged) payload.newName = newName;
+            if (isExeApp) payload.disableGamepadControl = newDisable;
+            postToHost(payload);
+
+            if (disableChanged) {
+                card.dataset.disableGamepadControl = String(newDisable);
+                window._mediaGamepadConfig = window._mediaGamepadConfig || {};
+                window._mediaGamepadConfig[gameId] = newDisable;
+            }
+        }
+
         doClose();
     };
 
@@ -2762,13 +2881,13 @@ function _userSwitchFadeIn() {
 
     wrap.style.setProperty('transition', 'none', 'important');
     wrap.style.opacity = '0';
-    wrap.style.transform = 'scale(0.97) translateY(14px)';
+    wrap.style.transform = 'scale(0.98) translateY(10px)'; 
 
     void wrap.offsetWidth;
 
     wrap.style.setProperty(
         'transition',
-        'opacity 0.42s ease, transform 0.46s cubic-bezier(0.23, 1, 0.32, 1)',
+        'opacity 0.25s ease, transform 0.3s cubic-bezier(0.23, 1, 0.32, 1)',
         'important'
     );
     wrap.style.opacity = '1';
@@ -2778,8 +2897,8 @@ function _userSwitchFadeIn() {
     setTimeout(() => {
         wrap.style.removeProperty('transition');
         wrap.style.transform = '';
-        window._userSwitching = false; // libera — hero pode aparecer agora
-    }, 500);
+        window._userSwitching = false;
+    }, 320);
 }
 
 function clearLoadingCards(tab = 'games') {

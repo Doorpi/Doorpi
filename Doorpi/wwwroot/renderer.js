@@ -228,6 +228,14 @@ const CardRenderer = (() => {
             card.dataset.ownerUserId = item.ownerUserId || '';
             card.dataset.sharedFromOther = item.sharedFromOther ? 'true' : 'false';
             card.dataset.sharedFromName = item.sharedFromName || '';
+
+   
+            let dgc = !!(item.disableGamepadControl || item.DisableGamepadControl);
+            if (window._mediaGamepadConfig && window._mediaGamepadConfig[item.id] !== undefined) {
+                dgc = window._mediaGamepadConfig[item.id];
+            }
+            card.dataset.disableGamepadControl = dgc ? 'true' : 'false';
+
         }
 
         const img = card.querySelector('img');
@@ -413,7 +421,7 @@ const CardRenderer = (() => {
         if (patch.staticHero) card.dataset.staticHero = patch.staticHero;
         if (patch.staticLogo) card.dataset.staticLogo = patch.staticLogo;
         if (patch.shareMode) card.dataset.shareMode = patch.shareMode;
-
+        if (patch.disableGamepadControl != null) card.dataset.disableGamepadControl = String(patch.disableGamepadControl);
         const img = card.querySelector('img');
         if (img && patch.staticVertical) {
             card.classList.remove('no-art');
@@ -493,4 +501,52 @@ const CardRenderer = (() => {
         });
     }
     return { renderBatch, prependCard, removeCard, reorderDOM, applyPatch, syncDOM };
+})();
+// ── Transição Estilo "Swipe / Scroll" (Otimizada para 60fps) ───────────
+(function injectScrollTabTransitions() {
+    if (document.getElementById('doorpiTabTransitions')) {
+        document.getElementById('doorpiTabTransitions').remove();
+    }
+
+    const style = document.createElement('style');
+    style.id = 'doorpiTabTransitions';
+    style.textContent = `
+        /* ABA DA ESQUERDA (Jogos) */
+        @keyframes slideInFromLeft {
+            0% {
+                opacity: 0;
+                transform: translateX(-50px); /* Distância menor e mais leve */
+            }
+            100% {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        /* ABA DA DIREITA (Mídia) */
+        @keyframes slideInFromRight {
+            0% {
+                opacity: 0;
+                transform: translateX(50px);
+            }
+            100% {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        #gameGrid, 
+        #view-apps.active {
+            animation: slideInFromLeft 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) forwards !important;
+            will-change: transform, opacity; /* Sem blur para evitar engasgos da GPU */
+        }
+
+        #mediaGrid, 
+        #view-media-apps.active,
+        #view-folders.active {
+            animation: slideInFromRight 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) forwards !important;
+            will-change: transform, opacity;
+        }
+    `;
+    document.head.appendChild(style);
 })();

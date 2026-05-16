@@ -258,9 +258,16 @@ const STRINGS = {
         toastReturning: 'Retornando...',
         toastExtSent: 'Extensão enviada ao Doorpi!',
         toastDoorpi: 'Doorpi',
+
+        gamepadControlLabel: 'Controle via gamepad',
+        disableGamepadControlLabel: 'Desabilitar mouse e teclado via controle',
+        disableGamepadControlHint: 'Útil para apps que já usam o controle nativamente (emuladores, jogos, etc.)',
     },
 
     'en-US': {
+        gamepadControlLabel: 'Gamepad control',
+        disableGamepadControlLabel: 'Disable mouse and keyboard via controller',
+        disableGamepadControlHint: 'Useful for apps that natively use the controller (emulators, games, etc.)',
         // ---- Adições de media.js ----
         sysMediaFolders: 'Folders',
         sysMediaDownloadingCovers: 'Downloading game covers...',

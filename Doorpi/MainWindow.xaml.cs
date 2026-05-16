@@ -34,6 +34,7 @@ namespace Doorpi
         public string SharedWithUserName { get; set; } = "";
         public List<string> SharedWithUserNames { get; set; } = new();
         public bool IsSharedFromOtherUser { get; set; }
+        public bool DisableGamepadControl { get; set; } = false;
         public string SharedFromUserName { get; set; } = "";
         public string GridImage { get; set; } = "";
         public string GridStaticImage { get; set; } = "";
@@ -936,13 +937,13 @@ namespace Doorpi
             user.LastUsed = DateTime.Now;
             SaveUserProfiles(users);
 
-            // Fade-out antes de tocar em qualquer dado
+ 
             Dispatcher.Invoke(() =>
                 webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"userSwitchStart\"}"));
 
             _ = Task.Run(async () =>
             {
-                await Task.Delay(320); // Espera o fade-out completar
+                await Task.Delay(150); 
 
                 SetActiveUser(user, migrateLegacyFiles: false);
                 RestartWatchers();
@@ -951,7 +952,6 @@ namespace Doorpi
                 Dispatcher.Invoke(() =>
                 {
                     LoadCurrentUserIntoUI();
-                    // Todo o novo conteúdo já foi enviado — agora faz o fade-in
                     webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"userSwitchComplete\"}");
                 });
             });
@@ -4801,14 +4801,14 @@ namespace Doorpi
                         }
                     }
                 }
-                else if (action == "editGame" &&
-                         root.TryGetProperty("gameId", out var editIdEl) &&
-                         root.TryGetProperty("newName", out var editNameEl))
+                else if (action == "editGame" && root.TryGetProperty("gameId", out var editIdEl))
                 {
                     string gameId = editIdEl.GetString() ?? "";
-                    string newName = editNameEl.GetString() ?? "";
+                    bool hasNewName = root.TryGetProperty("newName", out var editNameEl);
+                    string newName = hasNewName ? (editNameEl.GetString() ?? "") : "";
+                    bool hasDisableGamepad = root.TryGetProperty("disableGamepadControl", out var dgcEl);
 
-                    if (!string.IsNullOrEmpty(gameId) && !string.IsNullOrEmpty(newName))
+                    if (!string.IsNullOrEmpty(gameId))
                     {
                         var games = LoadGames();
                         var game = games.FirstOrDefault(g =>
@@ -4817,22 +4817,38 @@ namespace Doorpi
 
                         if (game != null)
                         {
-                            game.Name = newName;
-                            SaveGames(games);
-                            Debug.WriteLine($"[editGame] '{game.Path}' renomeado para: {newName}");
+                            if (hasNewName && !string.IsNullOrEmpty(newName))
+                            {
+                                game.Name = newName;
+                                SaveGames(games);
+                                Debug.WriteLine($"[editGame] '{game.Path}' renomeado para: {newName}");
+                            }
                         }
                         else
                         {
-                            // MÍDIAS - Se não for um Jogo, edita o nome na lista de Mídia
                             if (gameId.Equals("youtube", StringComparison.OrdinalIgnoreCase)) return;
 
-                            var medias = LoadMediaApps();
-                            var media = medias.FirstOrDefault(m => string.Equals(m.Id, gameId, StringComparison.OrdinalIgnoreCase) || string.Equals(m.Url, gameId, StringComparison.OrdinalIgnoreCase));
+                            var medias = LoadMediaAppsForUser(currentUserId);
+                            var media = medias.FirstOrDefault(m =>
+                                string.Equals(m.Id, gameId, StringComparison.OrdinalIgnoreCase) ||
+                                string.Equals(m.Url, gameId, StringComparison.OrdinalIgnoreCase));
+
                             if (media != null)
                             {
-                                media.Name = newName;
-                                SaveMediaApps(medias); // Atualiza e salva o media.json
-                                Debug.WriteLine($"[editGame] Mídia renomeada para: {newName}");
+                                bool changed = false;
+                                if (hasNewName && !string.IsNullOrEmpty(newName))
+                                {
+                                    media.Name = newName;
+                                    changed = true;
+                                    Debug.WriteLine($"[editGame] Mídia renomeada para: {newName}");
+                                }
+                                if (hasDisableGamepad)
+                                {
+                                    media.DisableGamepadControl = dgcEl.GetBoolean();
+                                    changed = true;
+                                    Debug.WriteLine($"[editGame] DisableGamepadControl={media.DisableGamepadControl} para: {gameId}");
+                                }
+                                if (changed) SaveMediaApps(medias);
                             }
                         }
                     }
@@ -5398,10 +5414,9 @@ namespace Doorpi
                                         proc = Process.Start(new ProcessStartInfo(mediaUrl) { UseShellExecute = true });
                                     }
 
-                                    if (proc != null)
+                                    if (proc != null && !media.DisableGamepadControl)
                                     {
                                         EnterMediaExeMode(proc);
-
                                     }
                                 }
                                 catch (Exception ex) { Debug.WriteLine($"[launchMediaApp/exe] {ex.Message}"); }
