@@ -220,14 +220,29 @@ window.isNavMenuOpen = false;
     let _settingsSubView = null;
     let _sharingFocusAppId = '';
     let _preserveSettingsSubViewOnce = false;
-
+    let _autoStartEnabled = false;
     // ── Estilos ────────────────────────────────────────
     (function injectStyles() {
         if (document.getElementById('nav-menu-styles')) return;
         const s = document.createElement('style');
         s.id = 'nav-menu-styles';
         s.textContent = `
-
+        /* ── Toggle Iniciar com o Windows ── */
+.nav-toggle {
+    width: 52px; height: 28px; border-radius: 999px;
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14);
+    position: relative; flex-shrink: 0; align-self: center;
+    transition: background 0.25s ease, border-color 0.25s ease;
+    pointer-events: none; /* o clique é no card inteiro */
+}
+.nav-toggle.on  { background: rgba(100,220,120,0.28); border-color: rgba(100,220,120,0.55); }
+.nav-toggle-thumb {
+    position: absolute; top: 3px; left: 3px;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: rgba(255,255,255,0.38);
+    transition: transform 0.25s cubic-bezier(0.34,1.56,0.64,1), background 0.25s;
+}
+.nav-toggle.on .nav-toggle-thumb { transform: translateX(24px); background: #6ee696; }
         /* ── Estilos dos Atalhos no Modal de Edição ── */
 .edit-shortcuts-grid {
         display: flex;
@@ -931,83 +946,89 @@ window.isNavMenuOpen = false;
 
     // ── Novo Hub de Configurações ─────────────────────────────────────────────
     function _renderSettings(body) {
-        if (_settingsSubView === 'accountHub') {
-            _renderSettingsAccountHub(body);
-            return;
-        }
-        if (_settingsSubView === 'account') {
-            _renderSettingsAccount(body);
-            return;
-        }
-        if (_settingsSubView === 'extensions') {
-            _renderSettingsExtensions(body);
-            return;
-        }
-        if (_settingsSubView === 'sharing') {
-            _renderSettingsSharing(body);
-            return;
-        }
+        if (_settingsSubView === 'accountHub') { _renderSettingsAccountHub(body); return; }
+        if (_settingsSubView === 'account') { _renderSettingsAccount(body); return; }
+        if (_settingsSubView === 'extensions') { _renderSettingsExtensions(body); return; }
+        if (_settingsSubView === 'sharing') { _renderSettingsSharing(body); return; }
+
+        // Solicita o estado atual ao backend ao abrir as configurações
+        if (typeof postToHost === 'function') postToHost({ action: 'requestAutoStartState' });
 
         const svgUser = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
         const svgSys = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`;
         const svgExt = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`;
+        const svgBoot = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2v6"/><path d="M8.56 3.69a9 9 0 1 0 6.88 0"/></svg>`;
 
         body.innerHTML = `
-            <div class="nav-settings-grid">
-                <button class="nav-settings-card" id="setAccount" tabindex="-1">
-                    <div class="settings-card-icon">${svgUser}</div>
-                    <div class="settings-card-info">
-                        <h3>${_t('navSetAccount', 'Conta e Perfil')}</h3>
-                        <p>${_t('navSetAccountDesc', 'Editar avatar, nome, API Key e usuários')}</p>
-                    </div>
-                </button>
-                <button class="nav-settings-card" id="setSystem" tabindex="-1">
-                    <div class="settings-card-icon">${svgSys}</div>
-                    <div class="settings-card-info">
-                        <h3>${_t('navSetSystem', 'Sistema')}</h3>
-                        <p>${_t('navSetSystemDesc', 'Ajustes do console e área de trabalho')}</p>
-                    </div>
-                </button>
-                <button class="nav-settings-card" id="setExt" tabindex="-1">
-                    <div class="settings-card-icon">${svgExt}</div>
-                    <div class="settings-card-info">
-                        <h3>${_t('navSetExt', 'Extensões')}</h3>
-                        <p>${_t('navSetExtDesc', 'Gerenciar plugins e integrações')}</p>
-                    </div>
-                </button>
-            </div>
-        `;
+        <div class="nav-settings-grid">
+            <button class="nav-settings-card" id="setAccount" tabindex="-1">
+                <div class="settings-card-icon">${svgUser}</div>
+                <div class="settings-card-info">
+                    <h3>${_t('navSetAccount', 'Conta e Perfil')}</h3>
+                    <p>${_t('navSetAccountDesc', 'Editar avatar, nome, API Key e usuários')}</p>
+                </div>
+            </button>
+            <button class="nav-settings-card" id="setSystem" tabindex="-1">
+                <div class="settings-card-icon">${svgSys}</div>
+                <div class="settings-card-info">
+                    <h3>${_t('navSetSystem', 'Sistema')}</h3>
+                    <p>${_t('navSetSystemDesc', 'Ajustes do console e área de trabalho')}</p>
+                </div>
+            </button>
+            <button class="nav-settings-card" id="setExt" tabindex="-1">
+                <div class="settings-card-icon">${svgExt}</div>
+                <div class="settings-card-info">
+                    <h3>${_t('navSetExt', 'Extensões')}</h3>
+                    <p>${_t('navSetExtDesc', 'Gerenciar plugins e integrações')}</p>
+                </div>
+            </button>
+            <button class="nav-settings-card" id="setAutoStart" tabindex="-1" style="justify-content:space-between;">
+                <div class="settings-card-icon">${svgBoot}</div>
+                <div class="settings-card-info" style="flex:1;">
+                    <h3>${_t('navSetAutoStart', 'Iniciar com o Windows')}</h3>
+                    <p id="autoStartDesc">${_t('navSetAutoStartLoading', 'Verificando...')}</p>
+                </div>
+                <div class="nav-toggle" id="autoStartToggle"><div class="nav-toggle-thumb"></div></div>
+            </button>
+        </div>
+    `;
 
         _contentItems = [
             body.querySelector('#setAccount'),
             body.querySelector('#setSystem'),
-            body.querySelector('#setExt')
+            body.querySelector('#setExt'),
+            body.querySelector('#setAutoStart')
         ].filter(Boolean);
 
         body.querySelector('#setAccount')?.addEventListener('click', () => {
-            _settingsSubView = 'accountHub';
-            _contentIdx = 0;
-            _renderContent('settings');
-            _updateContentFocus();
+            _settingsSubView = 'accountHub'; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
         });
-
         body.querySelector('#setSystem')?.addEventListener('click', () => {
             if (typeof postToHost === 'function') postToHost({ action: 'enterDesktopMode' });
         });
-
         body.querySelector('#setExt')?.addEventListener('click', () => {
             window.openExtensionsManager?.();
+        });
+        body.querySelector('#setAutoStart')?.addEventListener('click', () => {
+            _autoStartEnabled = !_autoStartEnabled;
+            _updateAutoStartUI();
+            if (typeof postToHost === 'function') postToHost({ action: 'setAutoStart', enable: _autoStartEnabled });
         });
 
         _contentItems.forEach((btn, idx) => {
             btn.addEventListener('mouseenter', () => {
-                _topbarFocus = false;
-                _contentIdx = idx;
-                _updateContentFocus();
+                _topbarFocus = false; _contentIdx = idx; _updateContentFocus();
             });
         });
     }
-
+    function _updateAutoStartUI() {
+        const toggle = document.getElementById('autoStartToggle');
+        const desc = document.getElementById('autoStartDesc');
+        if (toggle) toggle.classList.toggle('on', _autoStartEnabled);
+        if (desc) desc.textContent = _autoStartEnabled
+            ? _t('autoStartOn', 'Ativo — o app inicia automaticamente com o Windows')
+            : _t('autoStartOff', 'Desativado — não inicia automaticamente');
+    }
     // ── Conta e Perfil ────────────────────────────────────────────────────────
     // Sem botão "Salvar Alterações": todas as mudanças salvam automaticamente.
     // Nome e API → salvam ao confirmar OK (ou START) no VKB.
@@ -2185,8 +2206,10 @@ window.isNavMenuOpen = false;
                         }
                     }
                 }
-
-                // Atualização da foto — salva imediatamente, sem botão extra
+                if (data.type === 'autoStartState') {
+                    _autoStartEnabled = !!data.enabled;
+                    _updateAutoStartUI();
+                }
                 // Atualização da foto — salva imediatamente, sem botão extra
                 if (data.type === 'profilePhotoSelected' && data.base64) {
                     if (typeof isSetupOpen !== 'undefined' && isSetupOpen) return;

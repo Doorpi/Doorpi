@@ -291,9 +291,18 @@ const STRINGS = {
         defaultUserName: (n) => `Usuário ${n}`,
         playedOn: (date) => `Jogado em ${date}`,
         setupBtnCancel: 'Cancelar',
+
+        navSetAutoStart: 'Iniciar com o Windows',
+        navSetAutoStartLoading: 'Verificando...',
+        autoStartOn: 'Ativo — o app inicia automaticamente com o Windows',
+        autoStartOff: 'Desativado — não inicia automaticamente',
     },
 
     'en-US': {
+        navSetAutoStart: 'Launch with Windows',
+        navSetAutoStartLoading: 'Checking...',
+        autoStartOn: 'Active — the app starts automatically with Windows',
+        autoStartOff: 'Disabled — does not start automatically',
         // ---- Textos Dinâmicos do Painel de Conta / Compartilhamento ----
         shareStatusUser: (names) => `Shared with ${names}.`,
         shareStatusUserEmpty: 'Choose one or more users.',

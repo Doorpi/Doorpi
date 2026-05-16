@@ -1742,7 +1742,51 @@ namespace Doorpi
             File.WriteAllText(Path.Combine(dataFolder, "user.json"), JsonSerializer.Serialize(profile,
                 new JsonSerializerOptions { WriteIndented = true }));
         }
+        // ========================= INICIAR COM O WINDOWS =========================
 
+        private const string AutoStartRegKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
+        private const string AutoStartAppName = "Doorpi";
+
+        private bool IsAutoStartEnabled()
+        {
+            try
+            {
+                using var key = Registry.CurrentUser.OpenSubKey(AutoStartRegKey);
+                return key?.GetValue(AutoStartAppName) is string val && !string.IsNullOrWhiteSpace(val);
+            }
+            catch (Exception ex) { Debug.WriteLine($"[AutoStart] Erro ao ler registro: {ex.Message}"); return false; }
+        }
+
+        private void SetAutoStart(bool enable)
+        {
+            try
+            {
+                using var key = Registry.CurrentUser.OpenSubKey(AutoStartRegKey, writable: true);
+                if (key == null) { Debug.WriteLine("[AutoStart] Chave do registro não encontrada."); return; }
+
+                if (enable)
+                {
+                    string exePath = Process.GetCurrentProcess().MainModule?.FileName
+                                     ?? System.Reflection.Assembly.GetExecutingAssembly().Location;
+                    key.SetValue(AutoStartAppName, $"\"{exePath}\"");
+                    Debug.WriteLine($"[AutoStart] Ativado → {exePath}");
+                }
+                else
+                {
+                    key.DeleteValue(AutoStartAppName, throwOnMissingValue: false);
+                    Debug.WriteLine("[AutoStart] Desativado.");
+                }
+            }
+            catch (Exception ex) { Debug.WriteLine($"[AutoStart] Erro ao gravar registro: {ex.Message}"); }
+        }
+
+        private void SendAutoStartStateToUI()
+        {
+            bool enabled = IsAutoStartEnabled();
+            Dispatcher.Invoke(() =>
+                webView.CoreWebView2.PostWebMessageAsString(
+                    JsonSerializer.Serialize(new { type = "autoStartState", enabled })));
+        }
         private string GetSteamGridApiKey() => LoadUserProfile().SteamGridApiKey;
 
         private async Task<string> SgdbGetStringAsync(string url)
@@ -4330,7 +4374,16 @@ namespace Doorpi
                         }
                     });
                 }
-
+                else if (action == "requestAutoStartState")
+                {
+                    SendAutoStartStateToUI();
+                }
+                else if (action == "setAutoStart")
+                {
+                    bool enable = root.TryGetProperty("enable", out var enableEl) && enableEl.GetBoolean();
+                    SetAutoStart(enable);
+                    SendAutoStartStateToUI(); 
+                }
                 else if (action == "addSelectedGames" && root.TryGetProperty("games", out var gamesElement))
                 {
                     var selectedApps = JsonSerializer.Deserialize<List<InstalledApp>>(gamesElement.GetRawText());
