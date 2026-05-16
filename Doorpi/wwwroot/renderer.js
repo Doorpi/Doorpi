@@ -503,6 +503,7 @@ const CardRenderer = (() => {
     return { renderBatch, prependCard, removeCard, reorderDOM, applyPatch, syncDOM };
 })();
 // ── Transição Estilo "Swipe / Scroll" (Otimizada para 60fps) ───────────
+// ── Transição Estilo "Swipe / Scroll" (Otimizada e Longa) ───────────
 (function injectScrollTabTransitions() {
     if (document.getElementById('doorpiTabTransitions')) {
         document.getElementById('doorpiTabTransitions').remove();
@@ -515,7 +516,7 @@ const CardRenderer = (() => {
         @keyframes slideInFromLeft {
             0% {
                 opacity: 0;
-                transform: translateX(-50px); /* Distância menor e mais leve */
+                transform: translateX(-150px); /* Distância maior e mais perceptível */
             }
             100% {
                 opacity: 1;
@@ -527,7 +528,7 @@ const CardRenderer = (() => {
         @keyframes slideInFromRight {
             0% {
                 opacity: 0;
-                transform: translateX(50px);
+                transform: translateX(150px);
             }
             100% {
                 opacity: 1;
@@ -537,16 +538,37 @@ const CardRenderer = (() => {
 
         #gameGrid, 
         #view-apps.active {
-            animation: slideInFromLeft 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) forwards !important;
-            will-change: transform, opacity; /* Sem blur para evitar engasgos da GPU */
+            /* 'both' é a mágica: aplica opacidade 0 antes de iniciar, matando a piscada */
+            animation: slideInFromLeft 0.45s cubic-bezier(0.22, 1, 0.36, 1) both !important;
+            will-change: transform, opacity;
+            backface-visibility: hidden; /* Força 2D por hardware, evita tremulação nos pixels */
         }
 
         #mediaGrid, 
         #view-media-apps.active,
         #view-folders.active {
-            animation: slideInFromRight 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) forwards !important;
+            animation: slideInFromRight 0.45s cubic-bezier(0.22, 1, 0.36, 1) both !important;
             will-change: transform, opacity;
+            backface-visibility: hidden;
         }
     `;
     document.head.appendChild(style);
 })();
+
+// ── Reseta o fundo imediatamente ao clicar ou focar em qualquer aba/menu lateral ───────────
+document.addEventListener('mousedown', (e) => {
+    if (e.target.closest('.nav-menu, .menu-tab, .nav-item, .nav-btn')) {
+        if (typeof clearHero === 'function') {
+            clearHero(true); 
+        }
+    }
+}, true);
+
+document.addEventListener('focusin', (e) => {
+
+    if (e.target.closest('.nav-menu, .menu-tab, .nav-item, .nav-btn')) {
+        if (typeof clearHero === 'function') {
+            clearHero(true);
+        }
+    }
+}, true);

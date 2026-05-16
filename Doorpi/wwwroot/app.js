@@ -1396,9 +1396,13 @@ let _heroReqId = 0;
 
 function cancelHeroTransition() {
     if (_heroTimer) { clearTimeout(_heroTimer); _heroTimer = null; }
-    document.querySelectorAll('.crossfade-clone-heroImage, .crossfade-clone-gridBgImg').forEach(c => c.remove());
-}
 
+    document.querySelectorAll('.crossfade-clone-heroImage, .crossfade-clone-gridBgImg').forEach(c => {
+        c.style.setProperty('transition', 'opacity 0.2s ease-out', 'important');
+        c.style.opacity = '0';
+        setTimeout(() => { if (c.parentNode) c.remove(); }, 200);
+    });
+}
 function preloadImage(src) {
     return new Promise(resolve => {
         if (!src) return resolve();
@@ -2907,24 +2911,38 @@ function clearLoadingCards(tab = 'games') {
     if (!grid) return;
     grid.querySelectorAll('.card.loading-card').forEach(c => c.remove());
 }
-function clearHero() {
+function clearHero(instant = false) {
     const isNavMenuActive = document.body.classList.contains('nav-menu-active') || window.isNavMenuOpen;
-    if (isNavMenuActive) return;
+ 
+    if (isNavMenuActive && !instant) return;
 
-    window._heroCleanupTimer = setTimeout(() => {
+    if (window._heroCleanupTimer) {
+        clearTimeout(window._heroCleanupTimer);
+        window._heroCleanupTimer = null;
+    }
+
+    const doClear = () => {
         const bgBlur = document.getElementById('bgBlur');
         const heroImg = document.getElementById('heroImage');
         const logoEl = document.getElementById('gameLogo');
         const gridBgImg = document.getElementById('gridBgImg');
 
-        if (bgBlur) bgBlur.style.opacity = '0';
-        if (heroImg) heroImg.style.opacity = '0';
+        if (bgBlur) { bgBlur.style.opacity = '0'; bgBlur.removeAttribute('src'); }
+        if (heroImg) { heroImg.style.opacity = '0'; }
         if (logoEl) { logoEl.classList.remove('visible'); logoEl.style.opacity = ''; }
-        if (gridBgImg) gridBgImg.removeAttribute('src');
+        if (gridBgImg) { gridBgImg.style.opacity = '0'; gridBgImg.removeAttribute('src'); }
+
+        cancelHeroTransition(); 
 
         _currentBgSrc = '';
         if (typeof _heroReqId !== 'undefined') _heroReqId++;
-    }, 80);
+    };
+
+    if (instant === true) {
+        doClear();
+    } else {
+        window._heroCleanupTimer = setTimeout(doClear, 80);
+    }
 }
 document.getElementById('btnAdd')?.addEventListener('mouseenter', clearHero);
 document.getElementById('btnAdd')?.addEventListener('focus', clearHero);
