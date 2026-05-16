@@ -2306,19 +2306,31 @@ function _executeDelete(card) {
 
 let _editCard = null;
 let _editOverlay = null;
+
 function openEditGameModal(card) {
     ensureDoorpiOverlayStyles();
+
     const currentName = card.querySelector('.title')?.innerText?.trim() ||
         card.querySelector('.nav-vertical-card-title')?.innerText?.trim() || '';
     _editCard = card;
 
     const gameId = card.dataset.gameId || card.dataset.appId || card.dataset.appUrl;
 
-    // 🔹 DETECÇÃO INFALÍVEL DE MÍDIA PARA O MENU CONTEXTO DA BIBLIOTECA 🔹
+    // 🔹 DETECÇÃO INFALÍVEL DE MÍDIA PARA TÍTULOS DINÂMICOS 🔹
     const isMediaTabActive = typeof window.getCurrentHomeTab === 'function' && window.getCurrentHomeTab() === 'media';
     const isMediaCard = card.hasAttribute('data-app-id') ||
         card.closest('#mediaGrid') !== null ||
         isMediaTabActive;
+
+    // Textos Dinâmicos Baseados no Tipo
+    const modalTitle = isMediaCard
+        ? (typeof t === 'function' ? t('editAppTitle', 'Editar App') : 'Editar App')
+        : (typeof t === 'function' ? t('editGameTitle', 'Editar Jogo') : 'Editar Jogo');
+
+    const modalSubtitle = isMediaCard
+        ? (typeof t === 'function' ? t('editAppSubtitle', 'Ajuste os detalhes deste aplicativo.') : 'Ajuste os detalhes deste aplicativo.')
+        : (typeof t === 'function' ? t('editGameSubtitle', 'Ajuste os detalhes deste jogo.') : 'Ajuste os detalhes deste jogo.');
+
 
     const appType = card.dataset.appType || 'browser';
     const canManageBrowser = isMediaCard && appType !== 'browser' ? false : (isMediaCard && appType !== 'exe');
@@ -2332,53 +2344,84 @@ function openEditGameModal(card) {
         try { return JSON.parse(card.dataset.sharedWithUserNames || '[]'); } catch { return []; }
     })();
     const shareSummary = isSharedFromOther
-        ? t('sharedByInfo', escapeHtml(card.dataset.sharedFromName || t('defaultOtherUser')))
+        ? (typeof t === 'function' ? t('sharedByInfo', escapeHtml(card.dataset.sharedFromName || 'outro')) : `Compartilhado por ${escapeHtml(card.dataset.sharedFromName || 'outro')}`)
         : (card.dataset.shareMode === 'all'
-            ? t('shareModeAll')
-            : (card.dataset.shareMode === 'user' && sharedWithNames.length ? sharedWithNames.join(', ') : t('shareModePrivate')));
+            ? (typeof t === 'function' ? t('shareModeAll') : 'Público')
+            : (card.dataset.shareMode === 'user' && sharedWithNames.length ? sharedWithNames.join(', ') : (typeof t === 'function' ? t('shareModePrivate') : 'Separado por usuário')));
 
-    const mediaExtras = canManageSharing ? `
-                <div class="edit-modal-field">
-                    <label class="edit-modal-label">${t('accountSharingLabel')}</label>
-                    <div class="doorpi-shared-note">${escapeHtml(shareSummary)}</div>
-                    <button class="modal-btn secondary" id="editSharingBtn" type="button" tabindex="0">${t('accountSharingLabel')}</button>
-                </div>
-                ${canManageBrowser ? `<button class="modal-btn secondary" id="editExtensionsBtn" type="button" tabindex="0">${t('manageExtensions')}</button>` : ''}` : '';
+    // ── Geração dos novos Botões em Grid ──
+    const svgShare = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 10.6l6.8-4.2M8.6 13.4l6.8 4.2"/></svg>`;
+    const svgExt = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`;
+
+    const sharingBtnHtml = canManageSharing ? `
+        <button class="edit-shortcut-card" id="editSharingBtn" type="button" tabindex="0">
+            <div class="edit-shortcut-icon">${svgShare}</div>
+            <div class="edit-shortcut-info">
+                <h4>${typeof t === 'function' ? t('accountSharingLabel', 'Contas e Acesso') : 'Contas e Acesso'}</h4>
+                <p>${escapeHtml(shareSummary)}</p>
+            </div>
+        </button>
+    ` : '';
+
+    const extensionsBtnHtml = canManageBrowser ? `
+        <button class="edit-shortcut-card" id="editExtensionsBtn" type="button" tabindex="0">
+            <div class="edit-shortcut-icon">${svgExt}</div>
+            <div class="edit-shortcut-info">
+                <h4>${typeof t === 'function' ? t('manageExtensions', 'Extensões') : 'Extensões'}</h4>
+                <p>${typeof t === 'function' ? t('manageExtensionsDesc', 'Gerenciar plugins nativos') : 'Gerenciar plugins nativos'}</p>
+            </div>
+        </button>
+    ` : '';
+
+    const mediaExtras = (canManageSharing || canManageBrowser) ? `
+        <div class="edit-modal-field" style="margin-top: 8px;">
+            <label class="edit-modal-label">${typeof t === 'function' ? t('editShortcutsLabel', 'Atalhos do Sistema') : 'Atalhos do Sistema'}</label>
+            <div class="edit-shortcuts-grid">
+                ${sharingBtnHtml}
+                ${extensionsBtnHtml}
+            </div>
+        </div>
+    ` : '';
 
     const overlay = document.createElement('div');
     overlay.className = 'edit-modal-overlay';
     _editOverlay = overlay;
+
     overlay.innerHTML = `
-        <div class="edit-modal" role="dialog" aria-modal="true" aria-label="${t('editModalTitle')}">
+        <div class="edit-modal" role="dialog" aria-modal="true" aria-label="${modalTitle}">
             <div class="edit-modal-header">
                 <div>
-                    <h3 class="edit-modal-title">${t('editModalTitle')}</h3>
-                    <p class="edit-modal-subtitle">${t('editModalSubtitle')}</p>
+                    <h3 class="edit-modal-title">${modalTitle}</h3>
+                    <p class="edit-modal-subtitle">${modalSubtitle}</p>
                 </div>
             </div>
             <div class="edit-modal-body">
                 <div class="edit-modal-field">
-                    <label class="edit-modal-label" for="editNameInput">${t('editModalFieldName')}</label>
+                    <label class="edit-modal-label" for="editNameInput">
+                        ${typeof t === 'function' ? t('editModalFieldName', 'NOME NA BIBLIOTECA') : 'NOME NA BIBLIOTECA'}
+                    </label>
                     <input class="edit-modal-input" id="editNameInput" type="text" autocomplete="off" spellcheck="false" />
-                    <span class="edit-modal-input-hint">${t('editModalHint')}</span>
+                    <span class="edit-modal-input-hint">
+                        ${typeof t === 'function' ? t('editModalHint', 'Pressione enter para alterar') : 'Pressione enter para alterar'}
+                    </span>
                 </div>
                 ${mediaExtras}
-${isExeApp ? `
-<div class="edit-modal-field">
-    <label class="edit-modal-label">${t('gamepadControlLabel')}</label>
-    <label class="edit-toggle-row" tabindex="0">
-        <span class="edit-toggle-switch">
-            <input type="checkbox" id="editDisableGamepadControl" tabindex="-1" ${disableGamepadControl ? 'checked' : ''} />
-            <span class="edit-toggle-slider"></span>
-        </span>
-        <span class="edit-toggle-label">${t('disableGamepadControlLabel')}</span>
-    </label>
-    <span class="edit-modal-input-hint">${t('disableGamepadControlHint')}</span>
-</div>` : ''}
+                ${isExeApp ? `
+                <div class="edit-modal-field" style="margin-top: 8px;">
+                    <label class="edit-modal-label">${typeof t === 'function' ? t('gamepadControlLabel', 'CONTROLE XINPUT') : 'CONTROLE XINPUT'}</label>
+                    <label class="edit-toggle-row" tabindex="0">
+                        <span class="edit-toggle-switch">
+                            <input type="checkbox" id="editDisableGamepadControl" tabindex="-1" ${disableGamepadControl ? 'checked' : ''} />
+                            <span class="edit-toggle-slider"></span>
+                        </span>
+                        <span class="edit-toggle-label">${typeof t === 'function' ? t('disableGamepadControlLabel', 'Desativar modo controle emulado') : 'Desativar modo controle emulado'}</span>
+                    </label>
+                    <span class="edit-modal-input-hint">${typeof t === 'function' ? t('disableGamepadControlHint', 'Recomendado para apps que possuem suporte nativo a controle.') : 'Recomendado para apps que possuem suporte nativo a controle.'}</span>
+                </div>` : ''}
             </div>
             <div class="edit-modal-actions">
-                <button class="modal-btn cancel" id="editCancelBtn">${t('editModalCancel')}</button>
-                <button class="modal-btn primary" id="editSaveBtn">${t('editModalSave')}</button>
+                <button class="modal-btn cancel" id="editCancelBtn">${typeof t === 'function' ? t('editModalCancel', 'Cancelar') : 'Cancelar'}</button>
+                <button class="modal-btn primary" id="editSaveBtn">${typeof t === 'function' ? t('editModalSave', 'Salvar') : 'Salvar'}</button>
             </div>  
         </div>
     `;
@@ -2386,14 +2429,6 @@ ${isExeApp ? `
 
     const input = overlay.querySelector('#editNameInput');
     input.value = currentName;
-    bindDoorpiChoice(overlay.querySelector('#editShareModeChoice'), value => {
-        setDoorpiChoiceDisabled('editShareUserChoice', value !== 'user');
-    });
-    bindDoorpiChoice(overlay.querySelector('#editShareUserChoice'));
-    overlay.querySelector('#editShareMode')?.addEventListener('change', e => {
-        const userSelect = overlay.querySelector('#editShareUser');
-        if (userSelect) userSelect.disabled = e.target.value !== 'user';
-    });
 
     const doClose = () => {
         isEditModalOpen = false;
@@ -2405,8 +2440,8 @@ ${isExeApp ? `
     };
 
     overlay.querySelector('#editExtensionsBtn')?.addEventListener('click', () => {
-        doClose(); // 🔹 Fecha o modal de Editar antes de abrir Extensões
-        openExtensionsManager();
+        doClose();
+        window.openExtensionsManager?.();
     });
 
     overlay.querySelector('#editSharingBtn')?.addEventListener('click', () => {
@@ -2414,6 +2449,7 @@ ${isExeApp ? `
         doClose();
         window._navMenuOpenAccountSharing?.(appId);
     });
+
     const doSave = () => {
         const newName = input.value.trim();
         const nameChanged = newName && newName !== currentName;
@@ -2461,17 +2497,70 @@ ${isExeApp ? `
     overlay.querySelector('#editCancelBtn').addEventListener('click', doClose);
     overlay.addEventListener('mousedown', e => { if (e.target === overlay) doClose(); });
 
-    input.addEventListener('keydown', e => {
+    // ── GESTÃO CENTRAL DE TECLADO E CONTROLE (Foco Perfeito) ──
+    overlay.addEventListener('keydown', e => {
         if (window._vkbIsOpen) return;
-        if (e.key === 'Enter') {
+
+        // 1. Enter no Input -> Abre o teclado virtual
+        if (e.target.id === 'editNameInput' && e.key === 'Enter') {
             e.preventDefault();
-            window._vkbOpen?.(input);
+            window._vkbOpen?.(e.target);
+            return;
         }
-        if (e.key === 'Escape') { e.preventDefault(); doClose(); }
+
+        // 2. Enter no Checkbox -> Marca/Desmarca
+        if (e.target.classList.contains('edit-toggle-row') && e.key === 'Enter') {
+            e.preventDefault();
+            const chk = overlay.querySelector('#editDisableGamepadControl');
+            if (chk) chk.checked = !chk.checked;
+            return;
+        }
+
+        // 3. Voltar / Cancelar (Botão B no controle ou Esc)
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            doClose();
+            return;
+        }
+
+        // 4. "DESENTUPIDOR DE FOCO": Se o motor do navegador travar nas bordas do modal
+        if (['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+            const activeBefore = document.activeElement;
+
+            // Espera meio milissegundo pra ver se o navegador moveu sozinho
+            setTimeout(() => {
+                const activeAfter = document.activeElement;
+
+                // Se o foco não andou nada (bateu na barreira invisível)
+                if (activeBefore === activeAfter) {
+                    // Mapeia tudo que é clicável no modal
+                    const focusables = Array.from(overlay.querySelectorAll('input, button, .edit-toggle-row'))
+                        .filter(el => el.offsetParent !== null && !el.disabled);
+
+                    const currentIndex = focusables.indexOf(activeBefore);
+                    if (currentIndex === -1) return;
+
+                    // Força a descida
+                    if (e.key === 'ArrowDown' && currentIndex < focusables.length - 1) {
+                        focusables[currentIndex + 1].focus();
+                    }
+                    // Força a subida
+                    else if (e.key === 'ArrowUp' && currentIndex > 0) {
+                        focusables[currentIndex - 1].focus();
+                    }
+                    // Alterna entre Cancelar <-> Salvar no rodapé
+                    else if (e.key === 'ArrowRight' && activeBefore.id === 'editCancelBtn') {
+                        overlay.querySelector('#editSaveBtn')?.focus();
+                    }
+                    else if (e.key === 'ArrowLeft' && activeBefore.id === 'editSaveBtn') {
+                        overlay.querySelector('#editCancelBtn')?.focus();
+                    }
+                }
+            }, 10);
+        }
     });
 
-    input.addEventListener('click', () => { if (!window._vkbIsOpen) window._vkbOpen?.(); });
-
+    // Mantém as declarações finais que já existiam
     window._editModalClose = doClose;
     window._editModalSave = doSave;
     isEditModalOpen = true;
@@ -2480,7 +2569,7 @@ ${isExeApp ? `
         input.focus();
         input.setSelectionRange(input.value.length, input.value.length);
     });
-}
+} 
 
 // ══════════════════════════════════════════════════════════════════════════
 // Teclado Virtual

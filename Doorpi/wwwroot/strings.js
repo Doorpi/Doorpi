@@ -142,10 +142,18 @@ const STRINGS = {
 
         ctxEditName: 'Editar',
         ctxRemoveGame: 'Remover da Biblioteca',
+        // ---- Edição de App/Jogo ----
 
-        editModalTitle: 'Editar Jogo',
+        editGameTitle: 'Editar Jogo',
+        editAppTitle: 'Editar App',
+        editGameSubtitle: 'Ajuste os detalhes deste jogo.',
+        editAppSubtitle: 'Ajuste os detalhes deste aplicativo.',
+        editShortcutsLabel: 'Atalhos do Sistema',
+        manageExtensionsDesc: 'Gerenciar plugins nativos',
+
+        editModalTitle: 'Editar Jogo', // 
         editModalSubtitle: 'Clique em um campo para editar',
-        editModalFieldName: 'Nome',
+        editModalFieldName: 'NOME NA BIBLIOTECA',
         editModalHint: '⌨ Clique para abrir o teclado',
         editModalCancel: 'Cancelar',
         editModalSave: 'Salvar',
@@ -268,9 +276,39 @@ const STRINGS = {
         hintBack: 'Voltar',
         hintAdd: 'Adicionar',
         hintStartBtn: 'START',
+
+        // ---- Textos Dinâmicos do Painel de Conta / Compartilhamento ----
+        shareStatusUser: (names) => `Compartilhado com ${names}.`,
+        shareStatusUserEmpty: 'Escolha um ou mais usuários.',
+        shareStatusPrivate: 'Este app usa uma conta separada para cada usuário.',
+        btnViewKey: 'Ver Chave',
+        btnDeleteProfile: 'Excluir Perfil',
+        btnDeleteProfileConfirm: 'Tem certeza? Pressione novamente para excluir',
+        toastChangesSaved: '✓ Alterações Salvas',
+        titleRemoveUser: 'Remover Usuário',
+        titleAddUser: 'Adicionar Usuário',
+        titleRemoveFolder: 'Remover Pasta',
+        defaultUserName: (n) => `Usuário ${n}`,
+        playedOn: (date) => `Jogado em ${date}`,
+        setupBtnCancel: 'Cancelar',
     },
 
     'en-US': {
+        // ---- Textos Dinâmicos do Painel de Conta / Compartilhamento ----
+        shareStatusUser: (names) => `Shared with ${names}.`,
+        shareStatusUserEmpty: 'Choose one or more users.',
+        shareStatusPrivate: 'This app uses a separate account for each user.',
+        btnViewKey: 'View Key',
+        btnDeleteProfile: 'Delete Profile',
+        btnDeleteProfileConfirm: 'Are you sure? Press again to delete',
+        toastChangesSaved: '✓ Changes Saved',
+        titleRemoveUser: 'Remove User',
+        titleAddUser: 'Add User',
+        titleRemoveFolder: 'Remove Folder',
+        defaultUserName: (n) => `User ${n}`,
+        playedOn: (date) => `Played on ${date}`,
+        setupBtnCancel: 'Cancel',
+
         hintOptions: 'Options',
         hintConfirm: 'Confirm',
         hintBack: 'Back',
@@ -502,8 +540,16 @@ const STRINGS = {
         unitGB: (v) => `${v} GB`,
         unitMB: (v) => `${v} MB`,
 
-        ctxEditName: 'Edit Name',
+        ctxEditName: 'Edit',
         ctxRemoveGame: 'Remove from Library',
+
+        // ---- Edição de App/Jogo ----
+        editGameTitle: 'Edit Game',
+        editAppTitle: 'Edit App',
+        editGameSubtitle: 'Adjust the details of this game.',
+        editAppSubtitle: 'Adjust the details of this application.',
+        editShortcutsLabel: 'System Shortcuts',
+        manageExtensionsDesc: 'Manage native plugins',
 
         editModalTitle: 'Edit Game',
         editModalSubtitle: 'Click a field to edit',
@@ -552,7 +598,7 @@ function detectSystemLanguage() {
     return match || FALLBACK_LANG;
 }
 
-const DEFAULT_LANG = detectSystemLanguage();
+const DEFAULT_LANG = 'en-US';
 let currentLang = DEFAULT_LANG;
 
 function t(key, ...args) {

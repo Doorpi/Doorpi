@@ -208,7 +208,7 @@ let _isAddingUserMode = false;
         </div>
 
 <div class="setup-footer">
-            <button class="setup-icon-btn setup-focusable" id="btnSetupCancel" style="display:none; margin-right: 12px;">Cancelar</button>
+            <button class="setup-icon-btn setup-focusable" id="btnSetupCancel" style="display:none; margin-right: 12px;" data-i18n="setupBtnCancel">Cancelar</button>
             <button class="setup-finish-btn setup-focusable" id="btnSetupFinish"></button>
         </div>
     </div>`;
@@ -240,15 +240,15 @@ function _renderSetupUsers() {
                 <div class="setup-user-pill-avatar">
                     ${u.photoBase64 ? `<img src="data:image/png;base64,${u.photoBase64}" />` : `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`}
                 </div>
-                <span>${u.name || `Usuário ${i + 1}`}</span>
+                <span>${u.name || (typeof t === 'function' ? t('defaultUserName', i + 1) : `Usuário ${i + 1}`)}</span>
             </button>
             ${_setupUsers.length > 1 ? `
-            <button class="setup-btn-delete setup-focusable" data-idx="${i}" tabindex="-1" title="Remover Usuário">
+            <button class="setup-btn-delete setup-focusable" data-idx="${i}" tabindex="-1" title="${typeof t === 'function' ? t('titleRemoveUser') : 'Remover Usuário'}">
                 ${deleteSvg}
             </button>` : ''}
         </div>
     `).join('');
-    html += `<button class="setup-user-add setup-focusable" id="btnSetupAddUser" tabindex="-1" title="Adicionar Usuário">+</button>`;
+    html += `<button class="setup-user-add setup-focusable" id="btnSetupAddUser" tabindex="-1" title="${typeof t === 'function' ? t('titleAddUser') : 'Adicionar Usuário'}">+</button>`;
     bar.innerHTML = html;
 
     // Ação ao selecionar a pílula do usuário
@@ -640,7 +640,7 @@ function _renderSetupFolders() {
     list.innerHTML = _currUser.folders.map((f, i) => `
         <div class="setup-folder-item">
             <span class="setup-folder-path" title="${f}">${f}</span>
-            <button class="setup-btn-delete setup-focusable" data-idx="${i}" tabindex="-1" title="Remover Pasta">
+            <button class="setup-btn-delete setup-focusable" data-idx="${i}" tabindex="-1" title="${typeof t === 'function' ? t('titleRemoveFolder') : 'Remover Pasta'}">
                 ${deleteSvg}
             </button>
         </div>`).join('');

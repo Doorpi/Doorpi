@@ -227,6 +227,51 @@ window.isNavMenuOpen = false;
         const s = document.createElement('style');
         s.id = 'nav-menu-styles';
         s.textContent = `
+
+        /* ── Estilos dos Atalhos no Modal de Edição ── */
+.edit-shortcuts-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin-top: 4px;
+    }
+    .edit-shortcut-card {
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+        padding: 12px 14px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        cursor: pointer;
+        outline: none;
+        text-align: left;
+        transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1);
+        color: inherit;
+        font-family: inherit;
+    }
+    .edit-shortcut-icon {
+        width: 32px;
+        height: 32px;
+        flex-shrink: 0;
+        color: rgba(255,255,255,0.4);
+        transition: color 0.2s;
+    }
+    .edit-shortcut-icon svg { width: 100%; height: 100%; }
+    .edit-shortcut-info { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+    .edit-shortcut-info h4 { margin: 0; font-size: 0.95rem; font-weight: 500; color: #fff; line-height: 1.1; letter-spacing: 0.01em;}
+    .edit-shortcut-info p { margin: 0; font-size: 0.75rem; color: rgba(255,255,255,0.45); line-height: 1.3; }
+
+    .edit-shortcut-card:hover, .edit-shortcut-card:focus {
+        transform: translateY(-2px) scale(1.02);
+        background: rgba(255,255,255,0.08);
+        border-color: rgba(255,255,255,0.4);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    }
+    .edit-shortcut-card:hover .edit-shortcut-icon, .edit-shortcut-card:focus .edit-shortcut-icon {
+        color: #fff;
+    }
+
         /* ── Overlay Transição ── */
         #navMenuOverlay {
             content-visibility: visible;
@@ -865,7 +910,7 @@ window.isNavMenuOpen = false;
                         <div class="nav-profile-recent-platform-icon">${pData.svg}</div>
                         <div class="nav-profile-recent-text">
                             <span class="nav-profile-recent-title">${gameName}</span>
-                            <span class="nav-profile-recent-date">Jogado em ${dateStr}</span>
+                            <span class="nav-profile-recent-date">${_t('playedOn', `Jogado em ${dateStr}`, dateStr)}</span>
                         </div>
                     </div>
                 `;
@@ -1115,21 +1160,21 @@ window.isNavMenuOpen = false;
                         <input class="nav-profile-field-input" id="navProfName" readonly value="${pendingName}" tabindex="-1" />
                     </div>
                     
-                    <div class="nav-profile-field" style="margin-top: 10px;">
+<div class="nav-profile-field" style="margin-top: 10px;">
                         <span class="nav-profile-field-label">${_t('navProfileApiLabel', 'Chave API SteamGridDB')}</span>
                         <div class="nav-api-row">
                             <input class="nav-profile-field-input" id="navProfApi" readonly value="${maskApi(pendingApi)}" tabindex="-1" style="flex:1;" />
-                            <button class="nav-icon-btn" id="navApiPaste" tabindex="-1">Colar</button>
-                            <button class="nav-icon-btn" id="navApiLink" tabindex="-1">Ver Chave</button>
+                            <button class="nav-icon-btn" id="navApiPaste" tabindex="-1">${_t('btnPaste', 'Colar')}</button>
+                            <button class="nav-icon-btn" id="navApiLink" tabindex="-1">${_t('btnViewKey', 'Ver Chave')}</button>
                         </div>
                     </div>
                     
-<div style="display:flex; justify-content:flex-start; align-items:center; margin-bottom: 4px;">
-                        <span id="navSaveStatus" style="color:#6ee696; font-size:0.95rem; font-weight:500; opacity:0; transition:opacity 0.3s;">✓ Alterações Salvas</span>
+                    <div style="display:flex; justify-content:flex-start; align-items:center; margin-bottom: 4px;">
+                        <span id="navSaveStatus" style="color:#6ee696; font-size:0.95rem; font-weight:500; opacity:0; transition:opacity 0.3s;">${_t('toastChangesSaved', '✓ Alterações Salvas')}</span>
                     </div>
 
                     <button class="nav-icon-btn" id="navAccountSharing" tabindex="-1" style="width:100%; padding:14px; font-size:1rem;">${_t('navSetSharing', 'Contas dos apps')}</button>
-                    <button class="nav-icon-btn nav-btn-danger" id="navDeleteUser" tabindex="-1" style="margin-top:12px;">Excluir Perfil</button>
+                    <button class="nav-icon-btn nav-btn-danger" id="navDeleteUser" tabindex="-1" style="margin-top:12px;">${_t('btnDeleteProfile', 'Excluir Perfil')}</button>
                 </div>
             </div>`;
 
@@ -1197,13 +1242,13 @@ window.isNavMenuOpen = false;
         deleteBtn?.addEventListener('click', () => {
             if (!_deleteConfirmStep) {
                 _deleteConfirmStep = true;
-                deleteBtn.textContent = 'Tem certeza? Pressione novamente para excluir';
+                deleteBtn.textContent = _t('btnDeleteProfileConfirm', 'Tem certeza? Pressione novamente para excluir');
                 deleteBtn.style.backgroundColor = 'rgba(255,50,50,0.3)';
                 deleteBtn.style.borderColor = '#ff4444';
 
                 const revert = () => {
                     _deleteConfirmStep = false;
-                    deleteBtn.textContent = 'Excluir Perfil';
+                    deleteBtn.textContent = _t('btnDeleteProfile', 'Excluir Perfil');
                     deleteBtn.style.backgroundColor = '';
                     deleteBtn.style.borderColor = '';
                     deleteBtn.removeEventListener('blur', revert);
@@ -1392,13 +1437,14 @@ window.isNavMenuOpen = false;
             const selectedNames = Array.from(draftUsers)
                 .map(id => _userName(users.find(u => _sameId(_userId(u), id))))
                 .filter(Boolean);
+            // Fica mais ou menos na linha onde tem: const currentText = locked ? ...
             const currentText = locked
                 ? _t('sharedByInfo', `Compartilhado por ${sharedFrom || _t('defaultOtherUser', 'outro usuario')}.`, sharedFrom || _t('defaultOtherUser', 'outro usuario'))
                 : draftMode === 'all'
                     ? _t('shareStatusAll', 'Este app esta publico para todos os usuarios atuais e futuros.')
                     : draftMode === 'user'
-                        ? (selectedNames.length ? `Compartilhado com ${selectedNames.join(', ')}.` : 'Escolha um ou mais usuarios.')
-                        : 'Este app usa uma conta separada para cada usuario.';
+                        ? (selectedNames.length ? _t('shareStatusUser', `Compartilhado com ${selectedNames.join(', ')}.`, selectedNames.join(', ')) : _t('shareStatusUserEmpty', 'Escolha um ou mais usuarios.'))
+                        : _t('shareStatusPrivate', 'Este app usa uma conta separada para cada usuario.');
 
             panel.innerHTML = `
                 <h3 class="nav-sharing-title">${_esc(appName)}</h3>
