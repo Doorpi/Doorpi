@@ -1880,7 +1880,6 @@ namespace Doorpi
 
         // Parâmetros foram adicionados para isolar a tarefa
         private async Task InitializeNativeAppsAsync(string targetUserId, string targetMediaFile, bool silent = false)
-
         {
             var existing = LoadMediaAppsForUser(targetUserId);
             var existingById = existing.ToDictionary(a => a.Id, StringComparer.OrdinalIgnoreCase);
@@ -1900,10 +1899,11 @@ namespace Doorpi
                     continue;
                 }
 
-                string localGrid = Directory.GetFiles(gridFolder, id + ".*").FirstOrDefault();
-                string localHorizontal = Directory.GetFiles(gridHorizontalFolder, id + "_h.*").FirstOrDefault();
-                string localHero = Directory.GetFiles(heroFolder, id + ".*").FirstOrDefault();
-                string localLogo = Directory.GetFiles(logoFolder, id + "_logo.*").FirstOrDefault();
+                // Troca GetFiles (Lento e aloca array inteiro na memória) por EnumerateFiles (Preguiçoso e rápido)
+                string? localGrid = Directory.EnumerateFiles(gridFolder, id + ".*").FirstOrDefault();
+                string? localHorizontal = Directory.EnumerateFiles(gridHorizontalFolder, id + "_h.*").FirstOrDefault();
+                string? localHero = Directory.EnumerateFiles(heroFolder, id + ".*").FirstOrDefault();
+                string? localLogo = Directory.EnumerateFiles(logoFolder, id + "_logo.*").FirstOrDefault();
 
                 if (localGrid != null && localHero != null)
                 {
@@ -1914,7 +1914,7 @@ namespace Doorpi
                         Url = url,
                         Type = type,
                         MultiUser = multiUser,
-                        OwnerUserId = targetUserId, // 🔹 Usa targetUserId
+                        OwnerUserId = targetUserId,
                         ShareMode = existingEntry.ShareMode,
                         SharedWithUserId = existingEntry.SharedWithUserId,
                         SharedWithUserName = existingEntry.SharedWithUserName,
@@ -1928,14 +1928,14 @@ namespace Doorpi
                     continue;
                 }
 
-                var (gridUrl, horizontalUrl, heroUrl, logoUrl) = await FetchMediaAppAssetsAsync(name, query);
+                var (gridUrl, horizontalUrl, heroUrl, logoUrl) = await FetchMediaAppAssetsAsync(name, query).ConfigureAwait(false);
 
                 var gridDlTask = !string.IsNullOrEmpty(gridUrl) ? DownloadImageAsync(gridUrl, gridFolder, id) : Task.FromResult<string?>(null);
                 var hDlTask = !string.IsNullOrEmpty(horizontalUrl) ? DownloadImageAsync(horizontalUrl, gridHorizontalFolder, id + "_h") : Task.FromResult<string?>(null);
                 var heroDlTask = !string.IsNullOrEmpty(heroUrl) ? DownloadImageAsync(heroUrl, heroFolder, id) : Task.FromResult<string?>(null);
                 var logoDlTask = !string.IsNullOrEmpty(logoUrl) ? DownloadImageAsync(logoUrl, logoFolder, id + "_logo") : Task.FromResult<string?>(null);
 
-                await Task.WhenAll(gridDlTask, hDlTask, heroDlTask, logoDlTask);
+                await Task.WhenAll(gridDlTask, hDlTask, heroDlTask, logoDlTask).ConfigureAwait(false);
 
                 apps.Add(new MediaAppModel
                 {
@@ -1944,7 +1944,7 @@ namespace Doorpi
                     Url = url,
                     Type = type,
                     MultiUser = multiUser,
-                    OwnerUserId = targetUserId, // 🔹 Usa targetUserId
+                    OwnerUserId = targetUserId,
                     ShareMode = existingEntry.ShareMode,
                     SharedWithUserId = existingEntry.SharedWithUserId,
                     SharedWithUserName = existingEntry.SharedWithUserName,
@@ -1952,29 +1952,25 @@ namespace Doorpi
                     GridHorizontalImage = hDlTask.Result != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(hDlTask.Result)}" : existingEntry.GridHorizontalImage,
                     HeroImage = heroDlTask.Result != null ? $"https://data.local/images/hero/{Path.GetFileName(heroDlTask.Result)}" : existingEntry.HeroImage,
                     LogoImage = logoDlTask.Result != null ? $"https://data.local/images/logo/{Path.GetFileName(logoDlTask.Result)}" : existingEntry.LogoImage,
-                    GridStaticImage = existingEntry.GridStaticImage,
-                    GridHorizontalStaticImage = existingEntry.GridHorizontalStaticImage,
-                    HeroStaticImage = existingEntry.HeroStaticImage,
-                    LogoStaticImage = existingEntry.LogoStaticImage,
-                    LastPlayed = existingEntry.LastPlayed,
                     DateAdded = existingEntry.DateAdded == DateTime.MinValue ? DateTime.Now : existingEntry.DateAdded
                 });
 
                 if (targetUserId == currentUserId) PostProgress(id, "done");
-                await Task.Delay(200);
+                await Task.Delay(150).ConfigureAwait(false);
             }
 
             var nativeIds = _nativeApps.Select(a => a.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
             apps.AddRange(existing.Where(a => !a.IsSharedFromOtherUser && !nativeIds.Contains(a.Id)));
 
-            // 🔹 Salva forçando as variáveis isoladas do loop corrente
-            await Task.Run(() => SaveMediaAppsForSpecificUser(apps, targetUserId, targetMediaFile));
+            await Task.Run(() => SaveMediaAppsForSpecificUser(apps, targetUserId, targetMediaFile)).ConfigureAwait(false);
 
-            if (!silent && targetUserId == currentUserId) SendMediaAppsToUI(apps);
+            if (!silent && targetUserId == currentUserId)
+                Dispatcher.BeginInvoke(() => SendMediaAppsToUI(apps));
         }
         private void PostProgress(string appId, string state)
         {
-            Dispatcher.Invoke(() =>
+   
+            Dispatcher.BeginInvoke(() =>
                 webView.CoreWebView2.PostWebMessageAsString(
                     JsonSerializer.Serialize(new { type = "nativeAppProgress", appId, state })));
         }
@@ -4111,7 +4107,6 @@ namespace Doorpi
 
         private async Task AutoAddPlatformGamesAsync()
         {
-
             if (LoadGames().Any()) return;
 
             var cache = LoadAppCache() ?? new AppCacheModel();
@@ -4127,16 +4122,11 @@ namespace Doorpi
 
             if (!platformGames.Any()) return;
 
-
-            Dispatcher.Invoke(() =>
+            Dispatcher.BeginInvoke(() =>
                 webView.CoreWebView2.PostWebMessageAsString(
                     JsonSerializer.Serialize(new { type = "showLoadingCards", count = platformGames.Count, tab = "games" })));
 
-            await AddMultipleGamesAsync(platformGames);
-
-
-            Dispatcher.Invoke(() =>
-                webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"clearLoadingCards\"}"));
+            await AddMultipleGamesAsync(platformGames).ConfigureAwait(false);
         }
         private async Task AddWebMediaAppAsync(string name, string url)
         {
@@ -4280,7 +4270,8 @@ namespace Doorpi
 
                 if (action == "requestInstalledApps")
                 {
-                    _ = Task.Run(async () => {
+                    _ = Task.Run(async () =>
+                    {
                         try
                         {
 
@@ -4443,7 +4434,7 @@ namespace Doorpi
                             bool? dialogResult = dlg.ShowDialog();
                             StopDialogControllerMode();
 
-                            if (dialogResult == true) 
+                            if (dialogResult == true)
                             {
                                 webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
                                 {
@@ -4474,7 +4465,8 @@ namespace Doorpi
                 }
                 else if (action == "requestFolders")
                 {
-                    _ = Task.Run(() => {
+                    _ = Task.Run(() =>
+                    {
                         try { SendFoldersToUI(); }
                         finally { Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}")); }
                     });
@@ -4502,7 +4494,7 @@ namespace Doorpi
                             bool? dialogResult = dlg.ShowDialog();
                             StopDialogControllerMode();
 
-                            if (dialogResult == true) 
+                            if (dialogResult == true)
                             {
                                 string selectedPath = dlg.FolderName;
                                 if (IsFolderForbidden(selectedPath))
@@ -4528,7 +4520,8 @@ namespace Doorpi
                                     AddFolderWatcher(selectedPath);
                                 }
 
-                                _ = Task.Run(async () => {
+                                _ = Task.Run(async () =>
+                                {
                                     try
                                     {
                                         await UpdateAppCacheAsync();
@@ -4577,7 +4570,7 @@ namespace Doorpi
                             bool? dialogResult = dlg.ShowDialog();
                             StopDialogControllerMode();
 
-                            if (dialogResult == true) 
+                            if (dialogResult == true)
                             {
                                 string newPath = dlg.FolderName;
 
@@ -4608,7 +4601,8 @@ namespace Doorpi
                                 foreach (var w in dead) { w.EnableRaisingEvents = false; w.Dispose(); }
                                 foreach (var w in dead) _folderWatchers.Remove(w);
                                 AddFolderWatcher(newPath);
-                                _ = Task.Run(async () => {
+                                _ = Task.Run(async () =>
+                                {
                                     try
                                     {
                                         await UpdateAppCacheAsync();
@@ -4640,7 +4634,8 @@ namespace Doorpi
                     {
                         DeleteWatchedFolder(delPath);
 
-                        _ = Task.Run(async () => {
+                        _ = Task.Run(async () =>
+                        {
                             try
                             {
                                 await UpdateAppCacheAsync();
@@ -4904,24 +4899,23 @@ namespace Doorpi
                         {
                             try
                             {
+                                // O Segredo 1: Executa a validação das mídias simultaneamente para TODOS os usuários
+                                var initTasks = new List<Task>();
                                 foreach (var item in savedProfiles)
                                 {
                                     string mediaPath = Path.Combine(dataFolder, "users", item.Profile.Id, "media.json");
-                                    // Passamos silent: true para não engasgar a UI
-                                    await InitializeNativeAppsAsync(item.Profile.Id, mediaPath, silent: true);
-
+                                    initTasks.Add(InitializeNativeAppsAsync(item.Profile.Id, mediaPath, silent: true));
                                 }
 
-                                // Só roda o processamento pesado de Cache e Steam se for a primeira conta
+                                await Task.WhenAll(initTasks).ConfigureAwait(false);
+
                                 if (wasEmpty)
                                 {
-                                    await UpdateAppCacheAsync();
-                                    await AutoAddPlatformGamesAsync();
+                                    await UpdateAppCacheAsync().ConfigureAwait(false);
+                                    await AutoAddPlatformGamesAsync().ConfigureAwait(false); // Setup limpo chama essa de forma não bloqueante
                                 }
 
-                                // Agora sim, com o backend 100% pronto e descansado, 
-                                // mandamos a UI montar a tela DE UMA SÓ VEZ e tirar o loading.
-                                Dispatcher.Invoke(() =>
+                                Dispatcher.BeginInvoke(() =>
                                 {
                                     LoadCurrentUserIntoUI();
                                     webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideSystemLoading\"}");
@@ -4930,7 +4924,7 @@ namespace Doorpi
                             catch (Exception ex)
                             {
                                 Debug.WriteLine("[SetupBatch] Erro: " + ex.Message);
-                                Dispatcher.Invoke(() =>
+                                Dispatcher.BeginInvoke(() =>
                                     webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideSystemLoading\"}"));
                             }
                         });
@@ -4980,7 +4974,8 @@ namespace Doorpi
 
                     if (users.Count > 0)
                     {
-                        Dispatcher.Invoke(() => {
+                        Dispatcher.Invoke(() =>
+                        {
                             ClearHomeUi();
                             SendUsersToUI(requireSelection: true);
                         });
@@ -4998,17 +4993,19 @@ namespace Doorpi
                         if (File.Exists(Path.Combine(dataFolder, "appcache.json"))) File.Delete(Path.Combine(dataFolder, "appcache.json"));
                         if (File.Exists(Path.Combine(dataFolder, "media.json"))) File.Delete(Path.Combine(dataFolder, "media.json"));
 
-                        Dispatcher.Invoke(() => {
+                        Dispatcher.Invoke(() =>
+                        {
                             ClearHomeUi();
                             webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"showSetup\"}");
                         });
                     }
-                
 
-                if (users.Count > 0)
+
+                    if (users.Count > 0)
                     {
                         // Sobraram contas? Volta pra tela de Trocar de Conta (Users List)
-                        Dispatcher.Invoke(() => {
+                        Dispatcher.Invoke(() =>
+                        {
                             ClearHomeUi();
                             SendUsersToUI(requireSelection: true);
                         });
@@ -5019,7 +5016,8 @@ namespace Doorpi
                         currentUserId = "";
                         if (File.Exists(currentUserFile)) File.Delete(currentUserFile);
 
-                        Dispatcher.Invoke(() => {
+                        Dispatcher.Invoke(() =>
+                        {
                             ClearHomeUi();
                             webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"showSetup\"}");
                         });
@@ -5120,14 +5118,16 @@ namespace Doorpi
                         string taskUserId = profile.Id;
                         string taskMediaFile = Path.Combine(dataFolder, "users", taskUserId, "media.json");
 
-                        _ = Task.Run(async () => {
+                        _ = Task.Run(async () =>
+                        {
                             try
                             {
                                 await InitializeNativeAppsAsync(taskUserId, taskMediaFile);
                                 if (isPrimary) { await UpdateAppCacheAsync(); await AutoAddPlatformGamesAsync(); }
                                 if (isLast)
                                 {
-                                    Dispatcher.Invoke(() => {
+                                    Dispatcher.Invoke(() =>
+                                    {
                                         LoadCurrentUserIntoUI();
                                         webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideSystemLoading\"}");
                                     });
@@ -5141,7 +5141,8 @@ namespace Doorpi
                         // O SEGREDO DO BACKEND ESTÁ AQUI:
                         // Mesmo salvando "silenciosamente" (pelas configurações), 
                         // obrigamos a interface a receber o JSON atualizado e sobrescrever os caches!
-                        Dispatcher.Invoke(() => {
+                        Dispatcher.Invoke(() =>
+                        {
                             webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
                             {
                                 type = "currentUserUpdated",
@@ -5184,7 +5185,8 @@ namespace Doorpi
 
                     if (users.Count > 0)
                     {
-                        Dispatcher.Invoke(() => {
+                        Dispatcher.Invoke(() =>
+                        {
                             ClearHomeUi();
                             SendUsersToUI(requireSelection: true);
                         });
@@ -5202,7 +5204,8 @@ namespace Doorpi
                             if (File.Exists(fp)) File.Delete(fp);
                         }
 
-                        Dispatcher.Invoke(() => {
+                        Dispatcher.Invoke(() =>
+                        {
                             ClearHomeUi();
                             webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"showSetup\"}");
                         });
@@ -5346,7 +5349,7 @@ namespace Doorpi
                         bool? dialogResult = dlg.ShowDialog();
                         StopDialogControllerMode();
 
-                        if (dialogResult == true) 
+                        if (dialogResult == true)
                         {
                             string b64 = Convert.ToBase64String(File.ReadAllBytes(dlg.FileName));
                             webView.CoreWebView2.PostWebMessageAsString(
@@ -5373,7 +5376,7 @@ namespace Doorpi
                     {
                         var medias = LoadMediaApps();
                         var media = medias.FirstOrDefault(m => m.Url == mediaUrl || m.Id == mediaUrl);
-            
+
                         if (media != null)
                         {
                             media.LastPlayed = DateTime.Now;
@@ -5386,7 +5389,7 @@ namespace Doorpi
                                 id = media.Id
                             }));
 
-                           
+
                             Dispatcher.InvokeAsync(() => SendMediaAppsToUI(LoadMediaApps()));
                         }
 
@@ -5439,7 +5442,7 @@ namespace Doorpi
                         bool? dialogResult = dlg.ShowDialog();
                         StopDialogControllerMode();
 
-                        if (dialogResult == true) 
+                        if (dialogResult == true)
                         {
                             string path = dlg.FolderName;
                             if (IsFolderForbidden(path))
@@ -5530,15 +5533,18 @@ namespace Doorpi
                 if (!string.IsNullOrEmpty(app.LaunchUrl) && app.LaunchUrl.StartsWith("steam://run/"))
                     steamAppId = app.LaunchUrl.Replace("steam://run/", "").Trim();
 
-                var (gridUrl, gridHorizontalUrl, heroUrl, logoUrl) = await FetchSteamGridAssetsAsync(app.Name, steamAppId);
-                await Task.Delay(150);
+               
+                var (gridUrl, gridHorizontalUrl, heroUrl, logoUrl) = await FetchSteamGridAssetsAsync(app.Name, steamAppId).ConfigureAwait(false);
+
+                await Task.Delay(150).ConfigureAwait(false); 
+
                 string safeName = app.Path.GetHashCode().ToString();
                 string? localGrid = null, localGridHorizontal = null, localHero = null, localLogo = null;
 
-                if (!string.IsNullOrEmpty(gridHorizontalUrl)) localGridHorizontal = await DownloadImageAsync(gridHorizontalUrl, gridHorizontalFolder, safeName + "_h");
-                if (!string.IsNullOrEmpty(gridUrl)) localGrid = await DownloadImageAsync(gridUrl, gridFolder, safeName);
-                if (!string.IsNullOrEmpty(heroUrl)) localHero = await DownloadImageAsync(heroUrl, heroFolder, safeName);
-                if (!string.IsNullOrEmpty(logoUrl)) localLogo = await DownloadImageAsync(logoUrl, logoFolder, safeName + "_logo");
+                if (!string.IsNullOrEmpty(gridHorizontalUrl)) localGridHorizontal = await DownloadImageAsync(gridHorizontalUrl, gridHorizontalFolder, safeName + "_h").ConfigureAwait(false);
+                if (!string.IsNullOrEmpty(gridUrl)) localGrid = await DownloadImageAsync(gridUrl, gridFolder, safeName).ConfigureAwait(false);
+                if (!string.IsNullOrEmpty(heroUrl)) localHero = await DownloadImageAsync(heroUrl, heroFolder, safeName).ConfigureAwait(false);
+                if (!string.IsNullOrEmpty(logoUrl)) localLogo = await DownloadImageAsync(logoUrl, logoFolder, safeName + "_logo").ConfigureAwait(false);
 
                 var game = new GameModel
                 {
@@ -5546,6 +5552,7 @@ namespace Doorpi
                     Path = app.Path,
                     LaunchUrl = app.LaunchUrl,
                     GridImage = localGrid != null ? $"https://data.local/images/grid/{Path.GetFileName(localGrid)}" : "",
+                   
                     GridHorizontalImage = localGridHorizontal != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(localGridHorizontal)}" : "",
                     HeroImage = localHero != null ? $"https://data.local/images/hero/{Path.GetFileName(localHero)}" : "",
                     LogoImage = localLogo != null ? $"https://data.local/images/logo/{Path.GetFileName(localLogo)}" : "",
@@ -5555,19 +5562,17 @@ namespace Doorpi
 
                 existingGames.Add(game);
                 dbChanged = true;
-                SaveGames(existingGames);
-
             }
-
 
             if (dbChanged)
             {
+               
                 SaveGames(existingGames);
 
-               
-                Dispatcher.Invoke(() => LoadGamesIntoUI());
+                Dispatcher.BeginInvoke(() => LoadGamesIntoUI());
             }
-            Dispatcher.Invoke(() =>
+
+            Dispatcher.BeginInvoke(() =>
                 webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"clearLoadingCards\"}"));
         }
 
