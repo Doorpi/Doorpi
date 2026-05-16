@@ -1604,17 +1604,17 @@ function toggleNavMenu(isOpen) {
 (function injectStyles() {
     const s = document.createElement('style');
     s.textContent = `
-    .home-tabs-hint {
-        margin-left: auto;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-family: 'Outfit', sans-serif;
-        font-size: clamp(0.6rem, 1vw, 1.4rem);
-        color: rgba(255, 255, 255, 0.4);
-        letter-spacing: 0.05em;
-        user-select: none;
-    }
+.home-tabs-hint {
+    /* margin-left: auto;  ← remover esta linha */
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'Outfit', sans-serif;
+    font-size: clamp(0.6rem, 1vw, 1.4rem);
+    color: rgba(255, 255, 255, 1);
+    letter-spacing: 0.05em;
+    user-select: none;
+}
     .home-tabs-hint b {
         background: rgba(255, 255, 255, 0.08);
         border: 1px solid rgba(255, 255, 255, 0.1);

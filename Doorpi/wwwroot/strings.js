@@ -262,9 +262,21 @@ const STRINGS = {
         gamepadControlLabel: 'Controle via gamepad',
         disableGamepadControlLabel: 'Desabilitar mouse e teclado via controle',
         disableGamepadControlHint: 'Útil para apps que já usam o controle nativamente (emuladores, jogos, etc.)',
+
+        hintOptions: 'Opções',
+        hintConfirm: 'Confirmar',
+        hintBack: 'Voltar',
+        hintAdd: 'Adicionar',
+        hintStartBtn: 'START',
     },
 
     'en-US': {
+        hintOptions: 'Options',
+        hintConfirm: 'Confirm',
+        hintBack: 'Back',
+        hintAdd: 'Add',
+        hintStartBtn: 'START',
+
         gamepadControlLabel: 'Gamepad control',
         disableGamepadControlLabel: 'Disable mouse and keyboard via controller',
         disableGamepadControlHint: 'Useful for apps that natively use the controller (emulators, games, etc.)',

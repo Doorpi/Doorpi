@@ -25,10 +25,10 @@ const CardInteraction = (() => {
 
         const bgSrc = card.dataset.staticVertical || card.dataset.vertical;
         const logoSrc = card.dataset.staticLogo || card.dataset.logo;
-        const heroSrc = card.dataset.staticHero || card.dataset.hero || card.dataset.staticHorizontal || card.dataset.horizontal || bgSrc;
+        const heroSrc = card.dataset.staticHero || card.dataset.hero
+            || card.dataset.staticHorizontal || card.dataset.horizontal
+            || bgSrc;
 
-        // ✅ Delay maior quando usuário está varrendo com gamepad
-        // Evita disparar switchHeroBackground em cards de passagem
         const heroDelay = window._gpNavigating ? 120 : 60;
         const animDelay = window._gpNavigating ? 380 : 250;
 
@@ -57,39 +57,42 @@ const CardInteraction = (() => {
 
         const isFeatured = card.classList.contains('featured');
         const staticSrc = isFeatured
-            ? (card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical)
+            ? (card.dataset.staticHorizontal || card.dataset.horizontal
+                || card.dataset.staticVertical || card.dataset.vertical)
             : (card.dataset.staticVertical || card.dataset.vertical);
 
-        if (staticSrc && !img.src.endsWith(staticSrc)) {
-            img.style.transition = 'none';
-            setTimeout(() => {
-                // Só reverte se o card ainda não estiver ativo novamente
-                if (currentActiveCard !== card) {
-                    img.src = staticSrc;
-                }
-            }, 0);
+        // Só reverte se o src atual já é diferente — evita flicker desnecessário
+        if (staticSrc && img.src && !img.src.endsWith(staticSrc)) {
+            img.src = staticSrc;
         }
     }
 
     function triggerAnimations(card) {
         const isFeatured = card.classList.contains('featured');
-        const animSrc = isFeatured ? (card.dataset.horizontal || card.dataset.vertical) : card.dataset.vertical;
-        const staticSrc = isFeatured ? (card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical) : (card.dataset.staticVertical || card.dataset.vertical);
 
-        // Dispara a Placa de Vídeo para preparar a capa
+        const animSrc = isFeatured
+            ? (card.dataset.horizontal || card.dataset.vertical)
+            : card.dataset.vertical;
+
+        const staticSrc = isFeatured
+            ? (card.dataset.staticHorizontal || card.dataset.horizontal
+                || card.dataset.staticVertical || card.dataset.vertical)
+            : (card.dataset.staticVertical || card.dataset.vertical);
+
+        // Capa do card
         if (animSrc && animSrc !== staticSrc) {
             const img = card.querySelector('img');
             if (img) safeLoadImage(img, animSrc, () => currentActiveCard === card);
         }
 
-        // Prepara o Hero Animado na GPU
+        // Hero animado
         const animHero = card.dataset.hero;
         if (animHero && animHero !== card.dataset.staticHero) {
             const heroImg = document.getElementById('heroImage');
             if (heroImg) safeLoadImage(heroImg, animHero, () => currentActiveCard === card);
         }
 
-        // Prepara a Logo Animada na GPU
+        // Logo animada
         const animLogo = card.dataset.logo;
         if (animLogo && animLogo !== card.dataset.staticLogo) {
             const logoEl = document.getElementById('gameLogo');
@@ -101,35 +104,45 @@ const CardInteraction = (() => {
         }
     }
 
+    // Versão estável — sem decode(), sem double rAF, sem off-thread.
+    // Usa onload clássico: o browser carrega o arquivo completo antes de
+    // aplicar, então GIF/APNG/WebP animado funcionam nativamente e sem piscar.
     function safeLoadImage(targetEl, src, isActiveFn, onComplete) {
-        if (!src || (targetEl.src && targetEl.src.endsWith(src))) {
+        if (!src) return;
+
+        // Já está exibindo esse src — só dispara o callback se necessário
+        if (targetEl.src && targetEl.src.endsWith(src)) {
             if (isActiveFn() && onComplete) onComplete();
             return;
         }
 
-        const tempImg = new Image();
-        tempImg.src = src;
+        const tmp = new Image();
 
-        tempImg.decode().then(() => {
+        tmp.onload = function () {
+            // Guarda foi embora enquanto carregava?
             if (!isActiveFn()) return;
 
+            // Troca sem transition para evitar o flash do estado intermediário
+            const prev = targetEl.style.transition;
+            targetEl.style.transition = 'none';
+            targetEl.src = src;
+
+            // Restaura a transition no próximo frame, depois que o browser
+            // já pintou o novo src
             requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                    if (isActiveFn()) {
-                        targetEl.style.transition = 'none';
-                        targetEl.src = src;
-                        if (onComplete) onComplete();
-                    }
-                });
+                targetEl.style.transition = prev;
+                if (onComplete) onComplete();
             });
-        }).catch(() => {
-            if (isActiveFn()) {
-                requestAnimationFrame(() => {
-                    targetEl.src = src;
-                    if (onComplete) onComplete();
-                });
-            }
-        });
+        };
+
+        tmp.onerror = function () {
+            // Falhou ao carregar — aplica mesmo assim (fallback do onerror do img)
+            if (!isActiveFn()) return;
+            targetEl.src = src;
+            if (onComplete) onComplete();
+        };
+
+        tmp.src = src;
     }
 
     return { start, stop };

@@ -2781,3 +2781,134 @@ body {
 .error-block {
     display: none;
 }
+/* ══════════════════════════════════════════════════
+   HOME TABS BAR — Pílulas ornadas
+   ══════════════════════════════════════════════════ */
+
+/* Pílula base — compartilhada pelos três grupos */
+.home-tabs-group,
+.gp-hints-inner,
+.home-tabs-hint {
+    display: flex;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.38);
+    backdrop-filter: blur(12px) saturate(1.4);
+    -webkit-backdrop-filter: blur(12px) saturate(1.4);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    box-shadow: 0 2px 16px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    padding: clamp(5px, 0.45vw, 9px) clamp(12px, 1.1vw, 22px);
+}
+
+/* Gaps individuais */
+.home-tabs-group {
+    gap: clamp(4px, 0.4vw, 8px);
+}
+
+.gp-hints-inner {
+    gap: clamp(8px, 1.2vw, 22px);
+}
+
+.home-tabs-hint {
+    gap: 8px;
+    font-family: 'Outfit', sans-serif;
+    font-size: clamp(0.6rem, 1vw, 1.4rem);
+    color: rgba(255, 255, 255, 0.4);
+    letter-spacing: 0.05em;
+    user-select: none;
+    /* margin-left: auto removido — .gp-hints usa flex:1 agora */
+}
+
+    .home-tabs-hint b {
+        background: rgba(255, 255, 255, 0.10);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 4px;
+        padding: 1px 6px;
+        font-weight: 600;
+        font-size: 0.95em;
+        color: #fff;
+    }
+
+/* ── Gamepad Hints ── */
+.gp-hints {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    user-select: none;
+}
+
+.gp-hint-item {
+    display: flex;
+    align-items: center;
+    gap: clamp(4px, 0.35vw, 7px);
+}
+
+.gp-hint-sep {
+    width: 1px;
+    height: clamp(10px, 0.9vw, 16px);
+    background: rgba(255, 255, 255, 0.12);
+    flex-shrink: 0;
+}
+
+/* Botão redondo — base */
+.gp-face-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    width: clamp(15px, 1.2vw, 24px);
+    height: clamp(15px, 1.2vw, 24px);
+    font-size: clamp(7px, 0.6vw, 12px);
+    font-weight: 900;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    flex-shrink: 0;
+
+}
+
+/* Cores Xbox */
+.gp-a {
+    background: #52B043;
+    color: #fff;
+}
+
+.gp-b {
+    background: #C7131A;
+    color: #fff;
+}
+
+.gp-x {
+    background: #2E6DB4;
+    color: #fff;
+}
+
+.gp-y {
+    background: #E8A800;
+    color: #1a1000;
+}
+
+/* Botão Menu (≡) — retângulo arredondado */
+.gp-face-btn.gp-start {
+    border-radius: clamp(3px, 0.25vw, 5px);
+    background: rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    color: rgba(255, 255, 255, 0.9);
+    box-shadow: none;
+}
+
+    .gp-face-btn.gp-start svg {
+        width: clamp(8px, 0.65vw, 13px);
+        height: clamp(8px, 0.65vw, 13px);
+    }
+
+/* Rótulo ao lado do botão */
+.gp-hint-label {
+    font-family: 'Outfit', sans-serif;
+    font-size: clamp(12px, 0.62vw, 15px);
+    font-weight: 500;
+    color: rgba(255, 255, 255, 1);
+    letter-spacing: 0.035em;
+    white-space: nowrap;
+}

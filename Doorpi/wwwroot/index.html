@@ -41,11 +41,46 @@
         <img id="gridBgImg" />
         <div class="main-content-wrapper">
             <div class="home-tabs" id="homeTabs">
-                <button class="home-tab active" data-tab="games" tabindex="0" data-i18n="tabGames"></button>
-                <button class="home-tab" data-tab="media" tabindex="0" data-i18n="tabMedia"></button>
+
+                <div class="home-tabs-group">
+                    <button class="home-tab active" data-tab="games" tabindex="0" data-i18n="tabGames"></button>
+                    <button class="home-tab" data-tab="media" tabindex="0" data-i18n="tabMedia"></button>
+                </div>
+
+                <div class="gp-hints">
+                    <div class="gp-hints-inner">
+                        <span class="gp-hint-item">
+                            <span class="gp-face-btn gp-x">X</span>
+                            <span class="gp-hint-label" data-i18n="hintOptions"></span>
+                        </span>
+                        <span class="gp-hint-sep"></span>
+                        <span class="gp-hint-item">
+                            <span class="gp-face-btn gp-a">A</span>
+                            <span class="gp-hint-label" data-i18n="hintConfirm"></span>
+                        </span>
+                        <span class="gp-hint-sep"></span>
+                        <span class="gp-hint-item">
+                            <span class="gp-face-btn gp-b">B</span>
+                            <span class="gp-hint-label" data-i18n="hintBack"></span>
+                        </span>
+                        <span class="gp-hint-sep"></span>
+                        <span class="gp-hint-item">
+                            <span class="gp-face-btn gp-start">
+                                <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <rect x="2" y="3.5" width="12" height="1.5" rx="0.75" fill="currentColor" />
+                                    <rect x="2" y="7.25" width="12" height="1.5" rx="0.75" fill="currentColor" />
+                                    <rect x="2" y="11" width="12" height="1.5" rx="0.75" fill="currentColor" />
+                                </svg>
+                            </span>
+                            <span class="gp-hint-label" data-i18n="hintAdd"></span>
+                        </span>
+                    </div>
+                </div>
+
                 <span class="home-tabs-hint">
                     <b>L1</b> <b>R1</b> <span data-i18n="tabsHint"></span>
                 </span>
+
             </div>
 
             <div class="game-grid" id="gameGrid">
