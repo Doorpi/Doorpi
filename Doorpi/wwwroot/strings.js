@@ -277,6 +277,11 @@ const STRINGS = {
         hintAdd: 'Adicionar',
         hintStartBtn: 'START',
 
+        powerExit: 'Sair',
+        powerSuspend: 'Suspender',
+        powerRestart: 'Reiniciar',
+        powerShutdown: 'Desligar',
+
         // ---- Textos Dinâmicos do Painel de Conta / Compartilhamento ----
         shareStatusUser: (names) => `Compartilhado com ${names}.`,
         shareStatusUserEmpty: 'Escolha um ou mais usuários.',
@@ -299,6 +304,11 @@ const STRINGS = {
     },
 
     'en-US': {
+        powerExit: 'Exit',
+        powerSuspend: 'Sleep',
+        powerRestart: 'Restart',
+        powerShutdown: 'Shut down',
+
         navSetAutoStart: 'Launch with Windows',
         navSetAutoStartLoading: 'Checking...',
         autoStartOn: 'Active — the app starts automatically with Windows',

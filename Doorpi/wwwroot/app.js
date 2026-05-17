@@ -151,6 +151,7 @@ window.chrome.webview.addEventListener('message', event => {
         if (data.updates) {
             window._pendingExtensionUpdates = data.updates;
         }
+
         // 1. Quando o C# envia um ÚNICO jogo novo
         if (data.type === 'newGame') {
             const channel = (data.isMedia || data.tab === 'media' || data.appUrl !== undefined || data.appType !== undefined) ? 'media' : 'games';
@@ -171,6 +172,11 @@ window.chrome.webview.addEventListener('message', event => {
             }
             if (!window._vkbIsOpen) {
                 recoverGlobalFocus();
+            }
+        }
+        else if (data.type === 'openUserPicker') {
+            if (!window.isNavMenuOpen && !window.isModalOpen && !window.isSetupOpen && !window._vkbIsOpen) {
+                postToHost({ action: 'requestUsers' });
             }
         }
         else if (data.type === 'extensionsList' || data.type === 'extensionUpdatesList') {
@@ -431,6 +437,39 @@ function ensureDoorpiOverlayStyles() {
     const s = document.createElement('style');
     s.id = 'doorpiOverlayStyles';
     s.textContent = `
+
+    .doorpi-power-row {
+    display: flex; align-items: center; justify-content: center;
+    gap: 6px; flex-wrap: wrap;
+    margin-top: clamp(20px, 3vh, 36px);
+    padding: clamp(8px, 1.2vh, 12px) clamp(12px, 1.5vw, 20px);
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 14px;
+}
+.doorpi-power-sep {
+    width: 1px; height: 22px;
+    background: rgba(255,255,255,0.1);
+    margin: 0 2px; flex-shrink: 0;
+}
+.doorpi-power-btn {
+    background: none; border: 1px solid transparent; border-radius: 9px;
+    color: rgba(255,255,255,0.38); padding: 7px 13px;
+    display: flex; align-items: center; gap: 7px;
+    cursor: pointer; outline: none; font: inherit;
+    font-size: clamp(0.68rem, 0.8vw, 0.88rem); font-weight: 500;
+    letter-spacing: 0.02em;
+    transition: all 0.16s cubic-bezier(0.25, 1, 0.5, 1);
+}
+.doorpi-power-btn svg { width: 15px; height: 15px; flex-shrink: 0; stroke-width: 1.6; }
+.doorpi-power-btn:hover, .doorpi-power-btn:focus {
+    background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.16);
+    color: rgba(255,255,255,0.82); transform: translateY(-1px);
+}
+.doorpi-power-btn.p-danger:hover, .doorpi-power-btn.p-danger:focus {
+    background: rgba(255,65,65,0.12); border-color: rgba(255,95,95,0.28);
+    color: #ff8585;
+}
     .doorpi-user-overlay, .doorpi-manager-overlay {
         position: fixed; inset: 0; z-index: 9200;
         background: rgba(6, 6, 14, 0.75);
@@ -712,6 +751,64 @@ function showUserPicker(users, requireSelection = false) {
         overlay = document.createElement('div');
         overlay.id = 'doorpiUserPicker';
         overlay.className = 'doorpi-user-overlay';
+
+        // Controle de navegação forçado (Fase de Captura para bloquear a navegação nativa)
+        overlay.addEventListener('keydown', (e) => {
+            const active = document.activeElement || document.body;
+
+            if (e.key === 'ArrowDown') {
+                const isUserCard = active.closest('.doorpi-user-card');
+                const isBackBtn = active.closest('#doorpiCloseUsers');
+
+                if (isUserCard) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const backBtn = overlay.querySelector('#doorpiCloseUsers');
+                    if (backBtn) {
+                        backBtn.focus();
+                    } else {
+                        overlay.querySelector('.doorpi-power-btn')?.focus();
+                    }
+                } else if (isBackBtn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    overlay.querySelector('.doorpi-power-btn')?.focus();
+                }
+            } else if (e.key === 'ArrowUp') {
+                const isPowerBtn = active.closest('.doorpi-power-btn');
+                const isBackBtn = active.closest('#doorpiCloseUsers');
+
+                if (isPowerBtn || isBackBtn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const backBtn = overlay.querySelector('#doorpiCloseUsers');
+
+                    // Se estivermos na energia, subir obrigatoriamente para o Back
+                    if (isPowerBtn && backBtn) {
+                        backBtn.focus();
+                        return;
+                    }
+
+                    // Se estivermos no Back ou na energia (sem botão Back disponível), subir pros Usuários
+                    const userCards = Array.from(overlay.querySelectorAll('.doorpi-user-card'));
+                    if (userCards.length) {
+                        const activeRect = active.getBoundingClientRect();
+                        let bestCard = userCards[0];
+                        let minDiff = Infinity;
+                        userCards.forEach(c => {
+                            const cRect = c.getBoundingClientRect();
+                            const diff = Math.abs((cRect.left + cRect.width / 2) - (activeRect.left + activeRect.width / 2));
+                            if (diff < minDiff) {
+                                minDiff = diff;
+                                bestCard = c;
+                            }
+                        });
+                        bestCard.focus();
+                    }
+                }
+            }
+        }, true); // Ativa o Capture Phase
+
         document.body.appendChild(overlay);
     }
     overlay.dataset.required = requireSelection ? 'true' : 'false';
@@ -723,33 +820,41 @@ function showUserPicker(users, requireSelection = false) {
         ${user.Id === window._doorpiCurrentUserId ? `<span class="doorpi-user-badge">${t('badgeCurrent')}</span>` : ''}
     </button>`).join('');
 
-    const createUserDelay = users.length * 0.03; 
+    const createUserDelay = users.length * 0.03;
+
+    const svgExit = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`;
+    const svgSleep = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
+    const svgRestart = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.84"/></svg>`;
+    const svgShutdown = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>`;
 
     overlay.innerHTML = `
         <div class="doorpi-user-panel">
             <div class="doorpi-panel-head">
-                <h2 class="doorpi-panel-title" data-i18n="whoIsPlaying">${t('whoIsPlaying')}</h2>
-                <p class="doorpi-panel-sub" data-i18n="welcomeBack">${t('welcomeBack')}</p>
+                <h2 class="doorpi-panel-title">${t('whoIsPlaying')}</h2>
+                <p class="doorpi-panel-sub">${t('welcomeBack')}</p>
             </div>
             <div class="doorpi-user-grid">
                 ${cards}
                 <button class="doorpi-user-card create-card" id="doorpiCreateUserCard" tabindex="0" style="animation-delay: ${createUserDelay}s">
-                    <div class="doorpi-avatar">
-                        <div class="doorpi-create-user-icon">+</div>
-                    </div>
-                    <span class="doorpi-user-name" data-i18n="newUser">${t('newUser')}</span>
+                    <div class="doorpi-avatar"><div class="doorpi-create-user-icon">+</div></div>
+                    <span class="doorpi-user-name">${t('newUser')}</span>
                 </button>
             </div>
-            ${requireSelection ? '' : '<button class="doorpi-manager-btn" id="doorpiCloseUsers" style="margin-top: 30px; animation: doorpiCardRise 0.5s backwards; animation-delay: ' + (createUserDelay + 0.1) + 's">' + t('btnBackLabel') + '</button>'}
+                        ${requireSelection ? '' : `<button class="doorpi-manager-btn" id="doorpiCloseUsers" tabindex="0" style="margin-top: 24px; animation: doorpiCardRise 0.5s backwards; animation-delay: ${(createUserDelay + 0.1)}s">${t('btnBackLabel')}</button>`}
+
+            <div class="doorpi-power-row" style="animation: doorpiCardRise 0.5s backwards; animation-delay: ${(createUserDelay + 0.15)}s">
+                <button class="doorpi-power-btn" id="doorpiExitApp" tabindex="0">${svgExit}${t('powerExit', 'Sair')}</button>
+                <div class="doorpi-power-sep"></div>
+                <button class="doorpi-power-btn" id="doorpiSuspend" tabindex="0">${svgSleep}${t('powerSuspend', 'Suspender')}</button>
+                <button class="doorpi-power-btn" id="doorpiRestart" tabindex="0">${svgRestart}${t('powerRestart', 'Reiniciar')}</button>
+                <button class="doorpi-power-btn p-danger" id="doorpiShutdown" tabindex="0">${svgShutdown}${t('powerShutdown', 'Desligar')}</button>
+            </div>
         </div>`;
 
     if (typeof applyI18n === 'function') applyI18n();
-
     overlay.style.display = 'flex';
 
-    if (document.activeElement && document.activeElement !== document.body) {
-        document.activeElement.blur();
-    }
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
 
     overlay.querySelectorAll('[data-user-id]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -763,11 +868,12 @@ function showUserPicker(users, requireSelection = false) {
     });
     overlay.querySelector('#doorpiCloseUsers')?.addEventListener('click', () => overlay.style.display = 'none');
 
-    requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-            overlay.querySelector('.doorpi-user-card')?.focus();
-        });
-    });
+    overlay.querySelector('#doorpiExitApp')?.addEventListener('click', () => postToHost({ action: 'exitApp' }));
+    overlay.querySelector('#doorpiSuspend')?.addEventListener('click', () => postToHost({ action: 'suspendSystem' }));
+    overlay.querySelector('#doorpiRestart')?.addEventListener('click', () => postToHost({ action: 'restartSystem' }));
+    overlay.querySelector('#doorpiShutdown')?.addEventListener('click', () => postToHost({ action: 'shutdownSystem' }));
+
+    requestAnimationFrame(() => requestAnimationFrame(() => overlay.querySelector('.doorpi-user-card')?.focus()));
 }
 
 function openCreateUserDialog() {

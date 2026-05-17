@@ -166,6 +166,8 @@ namespace Doorpi
         private System.Threading.Timer? _mousePollTimer;
         private const int MOUSE_IDLE_MS = 3000;
 
+        [DllImport("Powrprof.dll", CharSet = CharSet.Auto, ExactSpelling = true)]
+        private static extern bool SetSuspendState(bool hiberate, bool forceCritical, bool disableWakeEvent);
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
@@ -477,7 +479,6 @@ namespace Doorpi
         async void InitializeAsync()
         {
             await webView.EnsureCoreWebView2Async(null);
-            webView.CoreWebView2.OpenDevToolsWindow();
 
             string folderPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot");
 
@@ -4331,6 +4332,24 @@ namespace Doorpi
                         }
                     });
                 }
+                else if (action == "exitApp")
+                {
+                    Dispatcher.Invoke(() => Application.Current.Shutdown());
+                }
+                else if (action == "shutdownSystem")
+                {
+                    Process.Start(new ProcessStartInfo("shutdown.exe", "/s /t 0") { UseShellExecute = false, CreateNoWindow = true });
+                    Dispatcher.Invoke(() => Application.Current.Shutdown());
+                }
+                else if (action == "restartSystem")
+                {
+                    Process.Start(new ProcessStartInfo("shutdown.exe", "/r /t 0") { UseShellExecute = false, CreateNoWindow = true });
+                    Dispatcher.Invoke(() => Application.Current.Shutdown());
+                }
+                else if (action == "suspendSystem")
+                {
+                    SetSuspendState(false, true, true);
+                }
                 else if (action == "updateVkbTranslations")
                 {
                     _vkbStrBackspace = GetStr(root, "vkbBackspace", "Apagar");
@@ -6284,6 +6303,7 @@ namespace Doorpi
             int moveState = 0;
             string? currentDir = null;
             DateTime lastMoveTime = DateTime.MinValue;
+            ushort prevButtons = 0; // ← NOVO
 
             while (_mainUiGamepadActive)
             {
@@ -6307,6 +6327,18 @@ namespace Doorpi
                     double ay = gp.sThumbLY / 32767.0;
                     ushort btn = gp.wButtons;
 
+                    bool BtnPressed(ushort m) => (btn & m) != 0 && (prevButtons & m) == 0;
+
+                    // ── Xbox (0x0400) ou SELECT (0x0020) → abre seletor de usuário ──
+                    if (BtnPressed(0x0400) || BtnPressed(0x0020))
+                    {
+                        Dispatcher.BeginInvoke(() =>
+                        {
+                            if (webView?.CoreWebView2 != null)
+                                webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"openUserPicker\"}");
+                        });
+                    }
+
                     string? dir = null;
                     if (ax > AXIS_THRESHOLD || (btn & 0x0008) != 0) dir = "RIGHT";
                     else if (ax < -AXIS_THRESHOLD || (btn & 0x0004) != 0) dir = "LEFT";
@@ -6326,6 +6358,8 @@ namespace Doorpi
                         { SendVirtualKey(vk); lastMoveTime = now; }
                     }
                     else { moveState = 0; currentDir = null; }
+
+                    prevButtons = btn; // ← NOVO
                 }
                 catch (Exception ex) { Debug.WriteLine($"[MainUiGamepad] {ex.Message}"); }
                 Thread.Sleep(10);
