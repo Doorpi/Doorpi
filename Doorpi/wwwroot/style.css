@@ -114,36 +114,81 @@ body:not(.nav-menu-active) #heroImage {
     --fs-app-item: clamp(0.7rem, min(0.78vw, 1.39vh), 1.35rem);
     --accent: rgba(255,255,255,0.92);
 }
-.gp-hint {
+/* ══════════════════════════════════════════════════════
+   GAMEPAD HINTS - ESTILO XBOX (PAI COLORIDO)
+   ══════════════════════════════════════════════════════ */
+
+/* 1. O PAI (Círculo/Container) */
+.gp-hint,
+.gp-face-btn {
     display: inline-flex;
-    align-items: center;
     justify-content: center;
- 
-    width: clamp(22px, 1.72vw, 35px);
-    height: clamp(22px, 1.72vw, 35px);
-    background: #00000045;
-    border-radius: 100%;
-
-    margin-right: clamp(3px, 0.5vw, 2px);
-
-    font-size: clamp(0.6rem, 0.72vw, 1.3rem);
+    width: clamp(20px, 1.5vw, 33px);
+    height: clamp(20px, 1.5vw, 32px);
+    border-radius: 50%;
+    font-size: clamp(10px, 0.7vw, 18px);
+    font-weight: 900;
     line-height: 1;
-
     flex-shrink: 0;
+    transition: all 0.2s cubic-bezier(0.23, 1, 0.32, 1);
+    color: #fff;
+    border: none;
+    margin-right: 4px;
+    align-items: center;
 }
 
-.gp-btn {
-    font-size: inherit;
-    line-height: 1;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
-.gp-b{
-    color:red;
-}
-.gp-y{
-    color:yellow;
+    /* 2. O FILHO (Letra/Ícone) - Removemos o fundo dele */
+    .gp-btn,
+    .gp-hint .gp-btn {
+        background: none !important;
+        box-shadow: none !important;
+        border: none !important;
+        color: inherit !important;
+        filter: drop-shadow(0px 0px 1px black);
+    }
+
+    /* 3. CORES FIXAS (Para Barra Inferior e Modais) */
+
+    /* VERDE (A / Confirmar) */
+    .gp-hint:has(.gp-a), .gp-hint:has(.gp-confirm), .gp-a,
+    [data-gamepad-hint="confirm"] .gp-hint {
+        background: #107c10 !important;
+    }
+
+    /* VERMELHO (B / Cancelar) */
+    .gp-hint:has(.gp-b), .gp-hint:has(.gp-cancel), .gp-b,
+    [data-gamepad-hint="cancel"] .gp-hint {
+        background: #e81123 !important;
+    }
+
+    /* AZUL (X) */
+    .gp-hint:has(.gp-x), .gp-x {
+        background: #003e92 !important;
+    }
+
+    /* AMARELO (Y) */
+    .gp-hint:has(.gp-y), .gp-y,
+    [data-gamepad-hint="triangle"] .gp-hint {
+        background: #f3c200 !important;
+        color: #ffffff !important;
+
+    }
+
+    /* START / MENU (Pílula Branca) */
+    .gp-hint:has(.gp-start), .gp-start,
+    [data-gamepad-hint="start"] .gp-hint {
+        background: #fff !important;
+        color: #000 !important;
+
+
+    }
+
+
+
+.gp-start svg {
+    width: 12px;
+    height: 12px;
+    fill: currentColor;
 }
 
 *, *::before, *::after {
@@ -1267,28 +1312,25 @@ body {
 }
 
 .modal-btn {
-    background: rgba(255,255,255,0.10);
-    color: rgba(255,255,255,0.85);
-    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255, 255, 255, 0.10);
+    color: rgba(255, 255, 255, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.12);
     padding: 1%;
     border-radius: clamp(8px, 0.66vw, 13px);
     font-family: 'Outfit', sans-serif;
     font-size: var(--fs-btn);
     font-weight: 600;
+    display: flex;
     cursor: pointer;
     transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
     width: 20%;
     flex-shrink: 1;
     min-width: clamp(110px, 9.5vw, 220px);
     max-width: clamp(180px, 18vw, 340px);
+    align-items: center;
+    justify-content: center;
 }
 
-
-    .modal-btn.primary {
-        background: rgba(255,255,255,0.16);
-        border-color: rgba(255,255,255,0.22);
-        color: #f5f5ff;
-    }
 
     .modal-btn:focus,
     .modal-btn:hover {
@@ -1300,14 +1342,6 @@ body {
         box-shadow: 0 8px 24px rgba(0,0,0,0.50);
     }
 
-    .modal-btn.cancel:focus,
-    .modal-btn.cancel:hover {
-        background: rgba(255,255,255,0.14);
-        color: rgba(255,255,255,0.92);
-        border-color: rgba(255,255,255,0.28);
-        transform: none;
-        box-shadow: none;
-    }
 
 
 ::-webkit-scrollbar {
@@ -2899,8 +2933,8 @@ body {
 }
 
     .gp-face-btn.gp-start svg {
-        width: clamp(8px, 0.65vw, 13px);
-        height: clamp(8px, 0.65vw, 13px);
+        width: clamp(12px, 0.65vw, 20px);
+        height: clamp(12px, 0.65vw, 20px);
     }
 
 /* Rótulo ao lado do botão */

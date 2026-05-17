@@ -617,7 +617,7 @@ function detectSystemLanguage() {
     return match || FALLBACK_LANG;
 }
 
-const DEFAULT_LANG = 'en-US';
+const DEFAULT_LANG = detectSystemLanguage() ;
 let currentLang = DEFAULT_LANG;
 
 function t(key, ...args) {

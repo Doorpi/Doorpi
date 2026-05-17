@@ -175,7 +175,10 @@ window.chrome.webview.addEventListener('message', event => {
             }
         }
         else if (data.type === 'openUserPicker') {
-            if (!window.isNavMenuOpen && !window.isModalOpen && !window.isSetupOpen && !window._vkbIsOpen) {
+            const picker = document.getElementById('doorpiUserPicker');
+            const isPickerOpen = picker && picker.style.display !== 'none';
+
+            if (!window.isNavMenuOpen && !window.isModalOpen && !window.isSetupOpen && !window._vkbIsOpen && !isPickerOpen) {
                 postToHost({ action: 'requestUsers' });
             }
         }
@@ -804,6 +807,24 @@ function showUserPicker(users, requireSelection = false) {
                             }
                         });
                         bestCard.focus();
+                    }
+                }
+            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                const isUserCard = active.closest('.doorpi-user-card');
+                if (isUserCard) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const userCards = Array.from(overlay.querySelectorAll('.doorpi-user-card'));
+                    const currentIndex = userCards.indexOf(isUserCard);
+
+                    if (currentIndex !== -1) {
+                        if (e.key === 'ArrowLeft') {
+                            const prevIndex = currentIndex > 0 ? currentIndex - 1 : userCards.length - 1;
+                            userCards[prevIndex].focus();
+                        } else {
+                            const nextIndex = currentIndex < userCards.length - 1 ? currentIndex + 1 : 0;
+                            userCards[nextIndex].focus();
+                        }
                     }
                 }
             }
@@ -1706,10 +1727,16 @@ function toggleNavMenu(isOpen) {
     }
 }
 
+
+// Para aplicar, você pode inserir dinamicamente:
+const s = document.createElement('style');
+
+document.head.appendChild(s);
 /* Seção: Injeção de estilos e elementos auxiliares */
 (function injectStyles() {
     const s = document.createElement('style');
     s.textContent = `
+
 .home-tabs-hint {
     /* margin-left: auto;  ← remover esta linha */
     display: flex;
