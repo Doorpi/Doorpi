@@ -64,7 +64,7 @@ const STRINGS = {
         navSetExtDesc: 'Gerenciar plugins do navegador',
         navChangeUser: 'Trocar Usuário',
         navSetSharing: 'Contas dos apps',
-        navSetSharingDesc: 'Definir cache separado, compartilhado ou publico',
+        navSetSharingDesc: 'Configurações de compartilhamento entre contas',
         navAccountProfileData: 'Dados do perfil',
         navAccountProfileDataDesc: 'Alterar avatar, nome e API Key',
         shareStatusAll: 'Este app esta publico para todos os usuarios atuais e futuros.',

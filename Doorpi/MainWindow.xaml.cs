@@ -506,8 +506,13 @@ namespace Doorpi
                     Topmost = true; Activate(); Topmost = false; webView.Focus();
                 });
             };
+            // Configurações de Produção / Kiosk Mode
             webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
-            webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
+            webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false; 
+            webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
+            webView.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = false;
+            webView.CoreWebView2.Settings.IsZoomControlEnabled = false;
+            webView.CoreWebView2.Settings.IsBuiltInErrorPageEnabled = false; 
 
             StartWatchers();
             _ = Task.Run(WatchWindowsRegistry);
