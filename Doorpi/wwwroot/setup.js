@@ -712,8 +712,3 @@ window._setupHandleFolderAdded = (path) => {
         _updateStatus();
     }
 };
-
-// =============================================================================
-// O "window._startBlobBg" que sobrescrevia as funções globais foi propositalmente
-// retirado daqui! Isso resolve 100% dos travamentos ao utilizar nav-menus e os cards.
-// =============================================================================

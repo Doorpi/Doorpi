@@ -2980,27 +2980,46 @@ function _esc(str) {
             position: absolute; inset: 0;
             background: radial-gradient(circle at 50% 50%, transparent 25%, rgba(0,0,18,0.62) 85%);
         }
-        /* As trajetórias replicam os ângulos do Math.sin() que tínhamos no JS */
-        @keyframes ab1 { 0% { transform: translate(0, 0); } 33% { transform: translate(52vw, 28vh); } 66% { transform: translate(68vw, -8vh); } 100% { transform: translate(22vw, 50vh); } }
-        @keyframes ab2 { 0% { transform: translate(0, 0); } 40% { transform: translate(-45vw, 15vh); } 70% { transform: translate(-20vw, -32vh); } 100% { transform: translate(-38vw, -5vh); } }
-        @keyframes ab3 { 0% { transform: translate(0, 0); } 35% { transform: translate(-50vw, 22vh); } 65% { transform: translate(-28vw, -18vh); } 100% { transform: translate(-44vw, 32vh); } }
-        @keyframes ab4 { 0% { transform: translate(0, 0); } 30% { transform: translate(56vw, -28vh); } 60% { transform: translate(32vw, 22vh); } 100% { transform: translate(50vw, -12vh); } }
-        @keyframes ab5 { 0% { transform: translate(0, 0); } 45% { transform: translate(22vw, -36vh); } 75% { transform: translate(-24vw, 16vh); } 100% { transform: translate(12vw, -30vh); } }
-        @keyframes ab6 { 0% { transform: translate(0, 0); } 38% { transform: translate(-28vw, -24vh); } 72% { transform: translate(26vw, 22vh); } 100% { transform: translate(-14vw, -28vh); } }
+        
+        /* Movimentos amplos: as bolas cruzam a tela para direções opostas */
+        
+        /* ab1: Começa no Topo-Esquerdo, viaja para a Direita e Baixo */
+        @keyframes ab1 { 0% { transform: translate(0, 0); } 34% { transform: translate(45vw, 20vh); } 68% { transform: translate(75vw, 65vh); } 100% { transform: translate(35vw, 85vh); } }
+        
+        /* ab2: Começa no Topo-Direito, viaja para a Esquerda e Baixo */
+        @keyframes ab2 { 0% { transform: translate(0, 0); } 30% { transform: translate(-35vw, 45vh); } 65% { transform: translate(-75vw, 25vh); } 100% { transform: translate(-20vw, 75vh); } }
+        
+        /* ab3: Começa no Fundo-Esquerdo, viaja para a Direita e Topo */
+        @keyframes ab3 { 0% { transform: translate(0, 0); } 37% { transform: translate(50vw, -35vh); } 70% { transform: translate(70vw, -5vh); } 100% { transform: translate(25vw, -65vh); } }
+        
+        /* ab4: Começa no Fundo-Direito, viaja para a Esquerda e Topo */
+        @keyframes ab4 { 0% { transform: translate(0, 0); } 32% { transform: translate(-45vw, -25vh); } 66% { transform: translate(-80vw, -65vh); } 100% { transform: translate(-35vw, -80vh); } }
+        
+        /* ab5: Começa na Lateral-Esquerda, faz uma órbita oval enorme pela tela toda */
+        @keyframes ab5 { 0% { transform: translate(0, 0); } 35% { transform: translate(65vw, -45vh); } 72% { transform: translate(85vw, 35vh); } 100% { transform: translate(45vw, 55vh); } }
+        
+        /* ab6: Começa na Lateral-Direita, faz uma órbita oposta */
+        @keyframes ab6 { 0% { transform: translate(0, 0); } 38% { transform: translate(-55vw, 55vh); } 68% { transform: translate(-85vw, -30vh); } 100% { transform: translate(-40vw, -50vh); } }
     `;
     document.head.appendChild(s);
 
-    // 3. Monta o HTML dos Blobs (Usa <div> no lugar do <canvas>)
+    // 3. Monta o HTML dos Blobs (Bolas distribuídas nas extremidades)
     const container = document.createElement('div');
     container.id = 'appBlobBg';
 
     const blobDefs = [
-        { kf: 'ab1', dur: '38s', delay: '0s', top: '-10%', left: '-18%', w: '124vmin', h: '90vmin', color: '45,65,185' },
-        { kf: 'ab2', dur: '44s', delay: '-12s', top: '58%', left: '58%', w: '112vmin', h: '80vmin', color: '28,85,210' },
-        { kf: 'ab3', dur: '52s', delay: '-7s', top: '-4%', left: '62%', w: '104vmin', h: '75vmin', color: '70,50,165' },
-        { kf: 'ab4', dur: '41s', delay: '-20s', top: '62%', left: '-8%', w: '100vmin', h: '72vmin', color: '22,110,175' },
-        { kf: 'ab5', dur: '47s', delay: '-5s', top: '22%', left: '28%', w: '92vmin', h: '66vmin', color: '90,70,195' },
-        { kf: 'ab6', dur: '35s', delay: '-15s', top: '44%', left: '38%', w: '84vmin', h: '60vmin', color: '30,130,190' },
+        // Canto Superior Esquerdo
+        { kf: 'ab1', dur: '63s', delay: '0s', top: '-15%', left: '-10%', w: '144vmin', h: '110vmin', color: '45,65,185' },
+        // Canto Superior Direito
+        { kf: 'ab2', dur: '74s', delay: '-12s', top: '-10%', left: '65%', w: '132vmin', h: '100vmin', color: '28,85,210' },
+        // Canto Inferior Esquerdo
+        { kf: 'ab3', dur: '86s', delay: '-7s', top: '65%', left: '-15%', w: '124vmin', h: '95vmin', color: '70,50,165' },
+        // Canto Inferior Direito
+        { kf: 'ab4', dur: '68s', delay: '-20s', top: '70%', left: '60%', w: '120vmin', h: '92vmin', color: '22,110,175' },
+        // Lateral Esquerda (Meio)
+        { kf: 'ab5', dur: '79s', delay: '-25s', top: '25%', left: '-20%', w: '112vmin', h: '86vmin', color: '90,70,195' },
+        // Lateral Direita (Meio)
+        { kf: 'ab6', dur: '58s', delay: '-15s', top: '35%', left: '70%', w: '104vmin', h: '80vmin', color: '30,130,190' },
     ];
 
     container.innerHTML = blobDefs.map(b => `
@@ -3012,7 +3031,7 @@ function _esc(str) {
 
     document.body.appendChild(container);
 
-    // 4. Controle puramente por Opacidade (adeus setInterval/requestAnimationFrame pesado)
+    // 4. Controle puramente por Opacidade
     let _blobShowTimer = null;
     let _blobHideTimer = null;
 
@@ -3037,8 +3056,6 @@ function _esc(str) {
         }
     }
 
-    // Estas funções agora NUNCA matam a animação. 
-    // Só mostram ou ocultam. Isso garante 100% que ela não congela!
     window._startBlobBg = () => {
         if (_blobHideTimer) { clearTimeout(_blobHideTimer); _blobHideTimer = null; }
         container.style.opacity = '1';
