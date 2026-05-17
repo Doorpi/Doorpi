@@ -2981,45 +2981,45 @@ function _esc(str) {
             background: radial-gradient(circle at 50% 50%, transparent 25%, rgba(0,0,18,0.62) 85%);
         }
         
-        /* Movimentos amplos: as bolas cruzam a tela para direções opostas */
+        /* Movimentos contidos: cruzam a tela mas não escapam das bordas */
         
-        /* ab1: Começa no Topo-Esquerdo, viaja para a Direita e Baixo */
-        @keyframes ab1 { 0% { transform: translate(0, 0); } 34% { transform: translate(45vw, 20vh); } 68% { transform: translate(75vw, 65vh); } 100% { transform: translate(35vw, 85vh); } }
+        /* ab1: Topo-Esquerdo. Vai pro centro e um pouco pra direita/baixo */
+        @keyframes ab1 { 0% { transform: translate(0, 0); } 34% { transform: translate(30vw, 15vh); } 68% { transform: translate(50vw, 45vh); } 100% { transform: translate(20vw, 55vh); } }
         
-        /* ab2: Começa no Topo-Direito, viaja para a Esquerda e Baixo */
-        @keyframes ab2 { 0% { transform: translate(0, 0); } 30% { transform: translate(-35vw, 45vh); } 65% { transform: translate(-75vw, 25vh); } 100% { transform: translate(-20vw, 75vh); } }
+        /* ab2: Topo-Direito. Vem pro centro/esquerda e desce */
+        @keyframes ab2 { 0% { transform: translate(0, 0); } 30% { transform: translate(-25vw, 35vh); } 65% { transform: translate(-55vw, 20vh); } 100% { transform: translate(-20vw, 60vh); } }
         
-        /* ab3: Começa no Fundo-Esquerdo, viaja para a Direita e Topo */
-        @keyframes ab3 { 0% { transform: translate(0, 0); } 37% { transform: translate(50vw, -35vh); } 70% { transform: translate(70vw, -5vh); } 100% { transform: translate(25vw, -65vh); } }
+        /* ab3: Fundo-Esquerdo. Sobe pro centro e direita */
+        @keyframes ab3 { 0% { transform: translate(0, 0); } 37% { transform: translate(35vw, -25vh); } 70% { transform: translate(60vw, -15vh); } 100% { transform: translate(25vw, -50vh); } }
         
-        /* ab4: Começa no Fundo-Direito, viaja para a Esquerda e Topo */
-        @keyframes ab4 { 0% { transform: translate(0, 0); } 32% { transform: translate(-45vw, -25vh); } 66% { transform: translate(-80vw, -65vh); } 100% { transform: translate(-35vw, -80vh); } }
+        /* ab4: Fundo-Direito. Sobe pro centro e esquerda */
+        @keyframes ab4 { 0% { transform: translate(0, 0); } 32% { transform: translate(-30vw, -20vh); } 66% { transform: translate(-55vw, -45vh); } 100% { transform: translate(-35vw, -55vh); } }
         
-        /* ab5: Começa na Lateral-Esquerda, faz uma órbita oval enorme pela tela toda */
-        @keyframes ab5 { 0% { transform: translate(0, 0); } 35% { transform: translate(65vw, -45vh); } 72% { transform: translate(85vw, 35vh); } 100% { transform: translate(45vw, 55vh); } }
+        /* ab5: Lateral-Esquerda. Flutua pro meio e circula */
+        @keyframes ab5 { 0% { transform: translate(0, 0); } 35% { transform: translate(40vw, -20vh); } 72% { transform: translate(55vw, 25vh); } 100% { transform: translate(25vw, 35vh); } }
         
-        /* ab6: Começa na Lateral-Direita, faz uma órbita oposta */
-        @keyframes ab6 { 0% { transform: translate(0, 0); } 38% { transform: translate(-55vw, 55vh); } 68% { transform: translate(-85vw, -30vh); } 100% { transform: translate(-40vw, -50vh); } }
+        /* ab6: Lateral-Direita. Flutua pro meio e circula oposto */
+        @keyframes ab6 { 0% { transform: translate(0, 0); } 38% { transform: translate(-35vw, 30vh); } 68% { transform: translate(-55vw, -15vh); } 100% { transform: translate(-25vw, -30vh); } }
     `;
     document.head.appendChild(s);
 
-    // 3. Monta o HTML dos Blobs (Bolas distribuídas nas extremidades)
+    // 3. Monta o HTML dos Blobs (Bolas puxadas mais pra dentro da tela)
     const container = document.createElement('div');
     container.id = 'appBlobBg';
 
     const blobDefs = [
         // Canto Superior Esquerdo
-        { kf: 'ab1', dur: '63s', delay: '0s', top: '-15%', left: '-10%', w: '144vmin', h: '110vmin', color: '45,65,185' },
+        { kf: 'ab1', dur: '63s', delay: '0s', top: '-5%', left: '-5%', w: '135vmin', h: '105vmin', color: '45,65,185' },
         // Canto Superior Direito
-        { kf: 'ab2', dur: '74s', delay: '-12s', top: '-10%', left: '65%', w: '132vmin', h: '100vmin', color: '28,85,210' },
+        { kf: 'ab2', dur: '74s', delay: '-12s', top: '-5%', left: '55%', w: '125vmin', h: '95vmin', color: '28,85,210' },
         // Canto Inferior Esquerdo
-        { kf: 'ab3', dur: '86s', delay: '-7s', top: '65%', left: '-15%', w: '124vmin', h: '95vmin', color: '70,50,165' },
+        { kf: 'ab3', dur: '86s', delay: '-7s', top: '55%', left: '-5%', w: '120vmin', h: '90vmin', color: '70,50,165' },
         // Canto Inferior Direito
-        { kf: 'ab4', dur: '68s', delay: '-20s', top: '70%', left: '60%', w: '120vmin', h: '92vmin', color: '22,110,175' },
+        { kf: 'ab4', dur: '68s', delay: '-20s', top: '55%', left: '55%', w: '115vmin', h: '88vmin', color: '22,110,175' },
         // Lateral Esquerda (Meio)
-        { kf: 'ab5', dur: '79s', delay: '-25s', top: '25%', left: '-20%', w: '112vmin', h: '86vmin', color: '90,70,195' },
+        { kf: 'ab5', dur: '79s', delay: '-25s', top: '25%', left: '-5%', w: '110vmin', h: '85vmin', color: '90,70,195' },
         // Lateral Direita (Meio)
-        { kf: 'ab6', dur: '58s', delay: '-15s', top: '35%', left: '70%', w: '104vmin', h: '80vmin', color: '30,130,190' },
+        { kf: 'ab6', dur: '58s', delay: '-15s', top: '30%', left: '60%', w: '105vmin', h: '80vmin', color: '30,130,190' },
     ];
 
     container.innerHTML = blobDefs.map(b => `
