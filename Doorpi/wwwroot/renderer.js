@@ -12,6 +12,8 @@ const CardInteraction = (() => {
     let currentActiveCard = null;
 
     function start(card) {
+        window._stopBlobBg?.(); // ← NOVO: para blob imediatamente ao focar card
+
         const channel = card.dataset.channel;
         if (channel === 'media' && window.getCurrentHomeTab?.() !== 'media') return;
 
@@ -24,17 +26,17 @@ const CardInteraction = (() => {
         if (animTimer) clearTimeout(animTimer);
 
         const bgSrc = card.dataset.staticVertical || card.dataset.vertical;
-        const logoSrc = card.dataset.staticLogo || card.dataset.logo;
         const heroSrc = card.dataset.staticHero || card.dataset.hero
             || card.dataset.staticHorizontal || card.dataset.horizontal
             || bgSrc;
 
+        // ← MUDANÇA: logoSrc removido — triggerAnimations assume controle total do logo
         const heroDelay = window._gpNavigating ? 120 : 60;
         const animDelay = window._gpNavigating ? 380 : 250;
 
         heroTimer = setTimeout(() => {
             if (currentActiveCard === card && typeof switchHeroBackground === 'function') {
-                switchHeroBackground(bgSrc, logoSrc, heroSrc);
+                switchHeroBackground(bgSrc, null, heroSrc); // null = não setar logo aqui
             }
         }, heroDelay);
 
@@ -73,31 +75,29 @@ const CardInteraction = (() => {
         const animSrc = isFeatured
             ? (card.dataset.horizontal || card.dataset.vertical)
             : card.dataset.vertical;
-
         const staticSrc = isFeatured
             ? (card.dataset.staticHorizontal || card.dataset.horizontal
                 || card.dataset.staticVertical || card.dataset.vertical)
             : (card.dataset.staticVertical || card.dataset.vertical);
 
-        // Capa do card
         if (animSrc && animSrc !== staticSrc) {
             const img = card.querySelector('img');
             if (img) safeLoadImage(img, animSrc, () => currentActiveCard === card);
         }
 
-        // Hero animado
         const animHero = card.dataset.hero;
         if (animHero && animHero !== card.dataset.staticHero) {
             const heroImg = document.getElementById('heroImage');
             if (heroImg) safeLoadImage(heroImg, animHero, () => currentActiveCard === card);
         }
 
-        // Logo animada
-        const animLogo = card.dataset.logo;
-        if (animLogo && animLogo !== card.dataset.staticLogo) {
-            const logoEl = document.getElementById('gameLogo');
-            if (logoEl) {
-                safeLoadImage(logoEl, animLogo, () => currentActiveCard === card, () => {
+        // ← MUDANÇA: logo tratado aqui exclusivamente (sem concorrência com setImgSrc)
+        // Usa animado se existir, senão usa estático — NUNCA há race condition
+        const logoEl = document.getElementById('gameLogo');
+        if (logoEl) {
+            const logoToSet = card.dataset.logo || card.dataset.staticLogo;
+            if (logoToSet) {
+                safeLoadImage(logoEl, logoToSet, () => currentActiveCard === card, () => {
                     if (currentActiveCard === card) logoEl.classList.add('visible');
                 });
             }
@@ -110,39 +110,32 @@ const CardInteraction = (() => {
     function safeLoadImage(targetEl, src, isActiveFn, onComplete) {
         if (!src) return;
 
-        // Já está exibindo esse src — só dispara o callback se necessário
         if (targetEl.src && targetEl.src.endsWith(src)) {
             if (isActiveFn() && onComplete) onComplete();
             return;
         }
 
-        const tmp = new Image();
+       
+        targetEl.__req = Symbol();
 
-        tmp.onload = function () {
-            // Guarda foi embora enquanto carregava?
+        targetEl.onload = null;
+        targetEl.onerror = null;
+
+        targetEl.onload = function () {
+            targetEl.onload = null;
+            targetEl.onerror = null;
             if (!isActiveFn()) return;
-
-            // Troca sem transition para evitar o flash do estado intermediário
-            const prev = targetEl.style.transition;
-            targetEl.style.transition = 'none';
-            targetEl.src = src;
-
-            // Restaura a transition no próximo frame, depois que o browser
-            // já pintou o novo src
-            requestAnimationFrame(() => {
-                targetEl.style.transition = prev;
-                if (onComplete) onComplete();
-            });
-        };
-
-        tmp.onerror = function () {
-            // Falhou ao carregar — aplica mesmo assim (fallback do onerror do img)
-            if (!isActiveFn()) return;
-            targetEl.src = src;
             if (onComplete) onComplete();
         };
 
-        tmp.src = src;
+        targetEl.onerror = function () {
+            targetEl.onload = null;
+            targetEl.onerror = null;
+            if (!isActiveFn()) return;
+            if (onComplete) onComplete();
+        };
+
+        targetEl.src = src;
     }
 
     return { start, stop };

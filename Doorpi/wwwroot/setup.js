@@ -20,6 +20,7 @@ let _isAddingUserMode = false;
     #setupContainer.visible { animation: setupFadeIn 0.35s ease forwards; }
 
     #setupBg { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+
     .setup-form { position: relative; z-index: 1; width: min(760px, 96vw); display: flex; flex-direction: column; gap: clamp(8px, 1vw, 14px); margin: 0 auto; }
     @keyframes setupFadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
@@ -63,7 +64,6 @@ let _isAddingUserMode = false;
         background: rgba(235, 60, 60, 0.95); border-color: rgba(255, 120, 120, 1); color: #fff;
         transform: scale(1.15); box-shadow: 0 0 0 4px rgba(235, 60, 60, 0.25), 0 6px 16px rgba(0,0,0,0.4);
     }
-
 
     .setup-user-add { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,0.05); border: 1px dashed rgba(255,255,255,0.3); cursor: pointer; color: #fff; transition: all 0.2s; outline: none; }
     .setup-user-add:hover, .setup-user-add:focus { background: rgba(255,255,255,0.15); border-color: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,0.2); }
@@ -207,7 +207,7 @@ let _isAddingUserMode = false;
             </div>
         </div>
 
-<div class="setup-footer">
+        <div class="setup-footer">
             <button class="setup-icon-btn setup-focusable" id="btnSetupCancel" style="display:none; margin-right: 12px;" data-i18n="setupBtnCancel">Cancelar</button>
             <button class="setup-finish-btn setup-focusable" id="btnSetupFinish"></button>
         </div>
@@ -358,7 +358,7 @@ function _expandSection(sectionEl) {
     if (_currentSection && _currentSection !== sectionEl) _collapseSection(_currentSection);
     sectionEl.classList.add('expanded');
     _currentSection = sectionEl;
-   
+
     sectionEl.querySelectorAll('.setup-focusable:not(.setup-section-header)').forEach(el => { el.tabIndex = 0; });
 }
 
@@ -413,10 +413,14 @@ window._setupSmoothScroll = (targetScrollTop) => {
     if (container) _smoothScrollSetup(container, targetScrollTop);
 };
 
+// ── Lógica Restaurada do Canvas de Fundo (Exclusivo e Isolado do Setup) ────────
 let _bgRaf = null;
+
 function _startSetupBg() {
+    if (_bgRaf) return; // Evita empilhar o requestAnimationFrame
     const canvas = document.getElementById('setupBg');
     if (!canvas) return;
+
     const ctx = canvas.getContext('2d');
     const blobs = [
         { px: 0.0, py: 0.3, sx: 0.00018, sy: 0.00013, r: 0.62, color: [45, 65, 185] },
@@ -427,14 +431,28 @@ function _startSetupBg() {
         { px: 1.8, py: 4.2, sx: 0.00020, sy: 0.00015, r: 0.42, color: [30, 130, 190] },
     ];
     let t = 0;
-    function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+
+    function resize() {
+        if (!canvas) return;
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
     resize();
-    window.addEventListener('resize', resize);
+
+    // Anexa evento resize de modo seguro
+    if (!canvas._hasResize) {
+        window.addEventListener('resize', resize);
+        canvas._hasResize = true;
+    }
+
     function frame() {
+        if (!isSetupOpen) return;
         const W = canvas.width, H = canvas.height;
         ctx.clearRect(0, 0, W, H);
+
         ctx.fillStyle = '#07071a';
         ctx.fillRect(0, 0, W, H);
+
         blobs.forEach(b => {
             const x = W * (0.15 + 0.7 * (0.5 + 0.5 * Math.sin(t * b.sx + b.px)));
             const y = H * (0.10 + 0.8 * (0.5 + 0.5 * Math.sin(t * b.sy + b.py)));
@@ -449,17 +467,27 @@ function _startSetupBg() {
             ctx.ellipse(x, y, r, r * 0.72, t * 0.00004, 0, Math.PI * 2);
             ctx.fill();
         });
+
         const vig = ctx.createRadialGradient(W / 2, H / 2, H * 0.25, W / 2, H / 2, H * 0.85);
         vig.addColorStop(0, 'rgba(0,0,0,0)');
         vig.addColorStop(1, 'rgba(0,0,18,0.62)');
         ctx.fillStyle = vig;
         ctx.fillRect(0, 0, W, H);
+
         t++;
         _bgRaf = requestAnimationFrame(frame);
     }
     frame();
 }
-function _stopSetupBg() { if (_bgRaf) { cancelAnimationFrame(_bgRaf); _bgRaf = null; } }
+
+function _stopSetupBg() {
+    if (_bgRaf) {
+        cancelAnimationFrame(_bgRaf);
+        _bgRaf = null;
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 
 function openSetup(isAddingUser = false) {
     if (document.activeElement && document.activeElement !== document.body) {
@@ -489,7 +517,7 @@ function openSetup(isAddingUser = false) {
         const header = document.querySelector('.setup-section-header');
         if (header && !_currentSection) _toggleSection(header.parentElement);
         header?.focus();
-        _startSetupBg();
+        _startSetupBg(); // Inicia o background animado nativo
     });
 }
 
@@ -498,7 +526,7 @@ function closeSetup() {
     const c = document.getElementById('setupContainer');
     c.style.display = 'none';
     c.classList.remove('visible');
-    _stopSetupBg();
+    _stopSetupBg(); // Para a animação do Setup ao fechar para poupar recursos
     window.focusFeaturedCard?.();
 }
 
@@ -630,7 +658,6 @@ function _bindSetupEvents() {
     document.getElementById('btnSetupFinish').addEventListener('click', _validateAndFinish);
 }
 
-
 function _renderSetupFolders() {
     const list = document.getElementById('setupFolderList');
     if (!list || !_currUser) return;
@@ -671,6 +698,7 @@ function _renderSetupFolders() {
         list.querySelectorAll('.setup-focusable').forEach(el => el.tabIndex = 0);
     }
 }
+
 window._setupHandlePhotoSelected = (base64) => {
     if (_currUser) _currUser.photoBase64 = base64;
     _loadCurrentUserIntoForm();
@@ -685,5 +713,7 @@ window._setupHandleFolderAdded = (path) => {
     }
 };
 
-window._startBlobBg = _startSetupBg;
-window._stopBlobBg = _stopSetupBg;
+// =============================================================================
+// O "window._startBlobBg" que sobrescrevia as funções globais foi propositalmente
+// retirado daqui! Isso resolve 100% dos travamentos ao utilizar nav-menus e os cards.
+// =============================================================================

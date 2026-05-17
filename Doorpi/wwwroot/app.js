@@ -2955,86 +2955,99 @@ function _esc(str) {
 })();
 
 // ── Fundo animado (blobs) — aparece quando não há hero ativo ──────────────────
+// ── Fundo animado (blobs) — Renderizado via GPU (Zero Stutter/Sem Pausas) ────
 (function initBlobBackground() {
-    const canvas = document.createElement('canvas');
-    canvas.id = 'appBlobBg';
-    canvas.style.cssText =
-        'position:fixed;inset:0;width:100%;height:100%;z-index:-1;' +
-        'pointer-events:none;opacity:0;transition:opacity 0.6s ease;';
-    document.body.appendChild(canvas);
+    // 1. Remove qualquer canvas antigo para evitar lixo
+    const oldCanvas = document.getElementById('appBlobBg');
+    if (oldCanvas) oldCanvas.remove();
 
-    const ctx = canvas.getContext('2d');
+    // 2. Injeta as Animações CSS (Roda direto na Compositor Thread)
+    const s = document.createElement('style');
+    s.textContent = `
+        #appBlobBg {
+            position: fixed; inset: 0; width: 100%; height: 100%; z-index: -1;
+            pointer-events: none; opacity: 0; transition: opacity 0.6s ease;
+            background: #07071a; overflow: hidden;
+        }
+        .app-blob {
+            position: absolute; border-radius: 50%;
+            will-change: transform;
+            animation-timing-function: ease-in-out;
+            animation-iteration-count: infinite;
+            animation-direction: alternate;
+        }
+        #appBlobVig {
+            position: absolute; inset: 0;
+            background: radial-gradient(circle at 50% 50%, transparent 25%, rgba(0,0,18,0.62) 85%);
+        }
+        /* As trajetórias replicam os ângulos do Math.sin() que tínhamos no JS */
+        @keyframes ab1 { 0% { transform: translate(0, 0); } 33% { transform: translate(52vw, 28vh); } 66% { transform: translate(68vw, -8vh); } 100% { transform: translate(22vw, 50vh); } }
+        @keyframes ab2 { 0% { transform: translate(0, 0); } 40% { transform: translate(-45vw, 15vh); } 70% { transform: translate(-20vw, -32vh); } 100% { transform: translate(-38vw, -5vh); } }
+        @keyframes ab3 { 0% { transform: translate(0, 0); } 35% { transform: translate(-50vw, 22vh); } 65% { transform: translate(-28vw, -18vh); } 100% { transform: translate(-44vw, 32vh); } }
+        @keyframes ab4 { 0% { transform: translate(0, 0); } 30% { transform: translate(56vw, -28vh); } 60% { transform: translate(32vw, 22vh); } 100% { transform: translate(50vw, -12vh); } }
+        @keyframes ab5 { 0% { transform: translate(0, 0); } 45% { transform: translate(22vw, -36vh); } 75% { transform: translate(-24vw, 16vh); } 100% { transform: translate(12vw, -30vh); } }
+        @keyframes ab6 { 0% { transform: translate(0, 0); } 38% { transform: translate(-28vw, -24vh); } 72% { transform: translate(26vw, 22vh); } 100% { transform: translate(-14vw, -28vh); } }
+    `;
+    document.head.appendChild(s);
 
-    const blobs = [
-        { px: 0.0, py: 0.3, sx: 0.00018, sy: 0.00013, r: 0.62, color: [45, 65, 185] },
-        { px: 1.2, py: 2.1, sx: 0.00014, sy: 0.00019, r: 0.56, color: [28, 85, 210] },
-        { px: 2.5, py: 0.8, sx: 0.00022, sy: 0.00011, r: 0.52, color: [70, 50, 165] },
-        { px: 0.7, py: 3.4, sx: 0.00016, sy: 0.00024, r: 0.50, color: [22, 110, 175] },
-        { px: 3.1, py: 1.6, sx: 0.00012, sy: 0.00017, r: 0.46, color: [90, 70, 195] },
-        { px: 1.8, py: 4.2, sx: 0.00020, sy: 0.00015, r: 0.42, color: [30, 130, 190] },
+    // 3. Monta o HTML dos Blobs (Usa <div> no lugar do <canvas>)
+    const container = document.createElement('div');
+    container.id = 'appBlobBg';
+
+    const blobDefs = [
+        { kf: 'ab1', dur: '38s', delay: '0s', top: '-10%', left: '-18%', w: '124vmin', h: '90vmin', color: '45,65,185' },
+        { kf: 'ab2', dur: '44s', delay: '-12s', top: '58%', left: '58%', w: '112vmin', h: '80vmin', color: '28,85,210' },
+        { kf: 'ab3', dur: '52s', delay: '-7s', top: '-4%', left: '62%', w: '104vmin', h: '75vmin', color: '70,50,165' },
+        { kf: 'ab4', dur: '41s', delay: '-20s', top: '62%', left: '-8%', w: '100vmin', h: '72vmin', color: '22,110,175' },
+        { kf: 'ab5', dur: '47s', delay: '-5s', top: '22%', left: '28%', w: '92vmin', h: '66vmin', color: '90,70,195' },
+        { kf: 'ab6', dur: '35s', delay: '-15s', top: '44%', left: '38%', w: '84vmin', h: '60vmin', color: '30,130,190' },
     ];
 
-    let t = 0, _raf = null;
+    container.innerHTML = blobDefs.map(b => `
+        <div class="app-blob" style="
+            width:${b.w}; height:${b.h}; top:${b.top}; left:${b.left};
+            background:radial-gradient(circle, rgba(${b.color},0.55) 0%, rgba(${b.color},0.22) 40%, transparent 70%);
+            animation-name:${b.kf}; animation-duration:${b.dur}; animation-delay:${b.delay};
+        "></div>`).join('') + `<div id="appBlobVig"></div>`;
 
-    function resize() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-    }
-    resize();
-    window.addEventListener('resize', resize);
+    document.body.appendChild(container);
 
-    function frame() {
-        const W = canvas.width, H = canvas.height;
-        ctx.clearRect(0, 0, W, H);
-        ctx.fillStyle = '#07071a';
-        ctx.fillRect(0, 0, W, H);
-
-        blobs.forEach(b => {
-            const x = W * (0.15 + 0.7 * (0.5 + 0.5 * Math.sin(t * b.sx + b.px)));
-            const y = H * (0.10 + 0.8 * (0.5 + 0.5 * Math.sin(t * b.sy + b.py)));
-            const r = Math.min(W, H) * b.r;
-            const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-            const [cr, cg, cb] = b.color;
-            g.addColorStop(0, `rgba(${cr},${cg},${cb},0.55)`);
-            g.addColorStop(0.4, `rgba(${cr},${cg},${cb},0.22)`);
-            g.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
-            ctx.fillStyle = g;
-            ctx.beginPath();
-            ctx.ellipse(x, y, r, r * 0.72, t * 0.00004, 0, Math.PI * 2);
-            ctx.fill();
-        });
-
-        const vig = ctx.createRadialGradient(W / 2, H / 2, H * 0.25, W / 2, H / 2, H * 0.85);
-        vig.addColorStop(0, 'rgba(0,0,0,0)');
-        vig.addColorStop(1, 'rgba(0,0,18,0.62)');
-        ctx.fillStyle = vig;
-        ctx.fillRect(0, 0, W, H);
-
-        t++;
-        _raf = requestAnimationFrame(frame);
-    }
-
-    frame();
-
+    // 4. Controle puramente por Opacidade (adeus setInterval/requestAnimationFrame pesado)
     let _blobShowTimer = null;
+    let _blobHideTimer = null;
 
     function checkHeroState() {
         const bgBlur = document.getElementById('bgBlur');
-        const heroInactive = !bgBlur?.src || bgBlur.style.opacity === '0' || !bgBlur.src;
+        const heroInactive = !bgBlur?.src || bgBlur.style.opacity === '0';
 
         if (heroInactive) {
+            if (_blobHideTimer) { clearTimeout(_blobHideTimer); _blobHideTimer = null; }
             if (!_blobShowTimer) {
                 _blobShowTimer = setTimeout(() => {
-                    const stillInactive = !bgBlur?.src || bgBlur.style.opacity === '0';
-                    if (stillInactive) canvas.style.opacity = '1';
                     _blobShowTimer = null;
+                    const bg = document.getElementById('bgBlur');
+                    if (!bg?.src || bg?.style.opacity === '0') {
+                        container.style.opacity = '1';
+                    }
                 }, 400);
             }
         } else {
             if (_blobShowTimer) { clearTimeout(_blobShowTimer); _blobShowTimer = null; }
-            canvas.style.opacity = '0';
+            container.style.opacity = '0';
         }
     }
+
+    // Estas funções agora NUNCA matam a animação. 
+    // Só mostram ou ocultam. Isso garante 100% que ela não congela!
+    window._startBlobBg = () => {
+        if (_blobHideTimer) { clearTimeout(_blobHideTimer); _blobHideTimer = null; }
+        container.style.opacity = '1';
+    };
+
+    window._stopBlobBg = () => {
+        if (_blobShowTimer) { clearTimeout(_blobShowTimer); _blobShowTimer = null; }
+        container.style.opacity = '0';
+    };
 
     const bgBlur = document.getElementById('bgBlur');
     if (bgBlur) {
@@ -3051,9 +3064,8 @@ function _esc(str) {
     };
 
     checkHeroState();
-    window._startBlobBg = () => { if (!_raf) frame(); };
-    window._stopBlobBg = () => { if (_raf) { cancelAnimationFrame(_raf); _raf = null; } };
 })();
+
 document.addEventListener('focusin', () => {
     const focused = document.activeElement;
     const isCard = focused?.classList?.contains('card');
