@@ -360,7 +360,8 @@ function getGroupTransition(direction, groupName, groups, current) {
 
 let _lastFocusedApp = null, _lastFocusedFilter = null, _lastFocusedSidebar = null, _lastSetupFocused = null;
 document.addEventListener('focusin', () => {
-    if (!isSetupOpen) return;
+    if (!window.isSetupOpen) return;
+
     const items = typeof getSetupItems === 'function' ? getSetupItems() : [];
     if (items.includes(document.activeElement)) _lastSetupFocused = document.activeElement;
 });
@@ -370,6 +371,10 @@ function gamepadCancel() {
 }
 
 function gamepadStart() {
+    if (window.DoorpiIntro?.isRunning?.()) {
+        window.DoorpiIntro.skip?.();
+        return;
+    }
     if (window.isGlobalLoading) return;
     if (isModalOpen) { closeModal?.(); return; }
 
@@ -620,6 +625,13 @@ function smoothHorizontalScroll(element, onDone) {
 });
 
 document.addEventListener('keydown', e => {
+    if (window.DoorpiIntro?.isRunning?.()) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        window.DoorpiIntro.skip?.();
+        return;
+    }
+
     if (isDoorpiGameInputSuppressed()) {
         const blocked = ['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Enter', ' ', 'Spacebar', 'Escape'];
         if (blocked.includes(e.key)) {
@@ -767,6 +779,17 @@ window.addEventListener('gamepaddisconnected', e => {
 
         const { GAMEPAD } = NAV, buttons = gamepad.buttons;
         const ax = gamepad.axes[0], ay = gamepad.axes[1], thr = GAMEPAD.AXIS_THRESHOLD, now = performance.now();
+
+        if (window.DoorpiIntro?.isRunning?.()) {
+            for (let i = 0; i < buttons.length; i++) {
+                if (buttonJustPressed(buttons[i], i)) {
+                    window.DoorpiIntro.skip?.();
+                    break;
+                }
+            }
+            return;
+        }
+
         let dir = null;
 
         if (ax > thr || buttons[GAMEPAD.BTN_RIGHT]?.pressed) dir = 'RIGHT';

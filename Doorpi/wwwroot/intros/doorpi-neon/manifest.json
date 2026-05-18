@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "doorpi-neon",
+  "name": "Doorpi Neon Boot",
+  "version": "0.0.1",
+  "author": "Doorpi",
+  "entry": "index.html",
+  "durationMs": 9000,
+  "fallbackTimeoutMs": 12000,
+  "exitFadeMs": 520,
+  "capabilities": {
+    "html": true,
+    "css": true,
+    "javascript": true,
+    "handoff": true
+  },
+  "handoff": {
+    "enabled": true,
+    "ambient": "blob",
+    "background": "#000",
+    "vignette": "radial-gradient(circle at 50% 50%, transparent 25%, rgba(0, 0, 18, 0.85) 95%)",
+    "colors": [
+      "rgba(15,25,85,0.7)",
+      "rgba(10,30,85,0.7)",
+      "rgba(25,15,70,0.7)",
+      "rgba(5,40,75,0.7)",
+      "rgba(20,20,90,0.6)",
+      "rgba(15,35,70,0.6)",
+      "rgba(10,15,60,0.7)",
+      "rgba(30,20,80,0.6)"
+    ],
+    "userPicker": {
+      "transparentBackdrop": true,
+      "className": "doorpi-neon-picker"
+    }
+  }
+}

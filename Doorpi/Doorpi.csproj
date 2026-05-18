@@ -20,6 +20,12 @@
     <None Update="wwwroot\grid-controller.js">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="wwwroot\intro-system.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="wwwroot\intros\**\*.*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="wwwroot\media.js">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

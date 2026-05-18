@@ -112,7 +112,23 @@ let _isAddingUserMode = false;
     .setup-folder-remove { background: none; border: none; color: rgba(255,80,80,0.40); cursor: pointer; font-size: clamp(0.8rem, 0.88vw, 1.05rem); padding: 4px 10px; border-radius: 6px; outline: none; transition: color 0.15s, box-shadow 0.15s; flex-shrink: 0; }
     .setup-folder-remove:focus, .setup-folder-remove:hover { color: rgba(255,80,80,1); box-shadow: 0 0 0 3px rgba(255,80,80,0.25); }
 
-    .setup-footer { display: flex; justify-content: center; padding: clamp(8px, 1vw, 14px) 0 clamp(16px, 1.8vw, 28px); }
+    .setup-power-btn {
+        background: none; border: 1px solid transparent; border-radius: 9px;
+        color: rgba(255,255,255,0.38); padding: 7px 13px;
+        display: flex; align-items: center; gap: 7px;
+        cursor: pointer; outline: none; font: inherit;
+        font-size: clamp(0.68rem, 0.8vw, 0.88rem); font-weight: 500;
+        letter-spacing: 0.02em;
+        transition: all 0.16s cubic-bezier(0.25, 1, 0.5, 1);
+        align-self: center;
+    }
+    .setup-power-btn svg { width: 15px; height: 15px; flex-shrink: 0; stroke-width: 1.6; }
+    .setup-power-btn:hover, .setup-power-btn:focus {
+        background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.16);
+        color: rgba(255,255,255,0.82); transform: translateY(-1px);
+    }
+
+    .setup-footer { display: flex; justify-content: center; align-items: center; gap: 16px; padding: clamp(8px, 1vw, 14px) 0 clamp(16px, 1.8vw, 28px); }
     .setup-finish-btn { background: rgba(255,255,255,0.92); border: 2px solid transparent; border-radius: clamp(12px, 1.2vw, 16px); color: #06060e; font-size: clamp(1rem, 1.15vw, 1.5rem); font-weight: 700; padding: clamp(15px, 1.6vw, 22px) clamp(52px, 5.2vw, 80px); cursor: pointer; outline: none; letter-spacing: 0.02em; transition: all 0.2s; box-shadow: 0 6px 24px rgba(0,0,0,0.35); }
     .setup-finish-btn:focus, .setup-finish-btn:hover { background: #fff; transform: translateY(-2px) scale(1.03); box-shadow: 0 0 0 5px rgba(255,255,255,0.2), 0 16px 36px rgba(0,0,0,0.5); }
     `;
@@ -126,6 +142,7 @@ let _isAddingUserMode = false;
 
     const chevron = `<span class="setup-section-chevron"><svg viewBox="0 0 24 24"><polyline points="9 6 15 12 9 18"/></svg></span>`;
     const personSvg = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`;
+    const svgExit = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`;
 
     container.innerHTML = `
     <canvas id="setupBg"></canvas>
@@ -208,7 +225,10 @@ let _isAddingUserMode = false;
         </div>
 
         <div class="setup-footer">
-            <button class="setup-icon-btn setup-focusable" id="btnSetupCancel" style="display:none; margin-right: 12px;" data-i18n="setupBtnCancel">Cancelar</button>
+            <button class="setup-power-btn setup-focusable" id="btnSetupExit" style="display:none;" tabindex="-1">
+                ${svgExit} <span data-i18n="powerExit">Sair</span>
+            </button>
+            <button class="setup-icon-btn setup-focusable" id="btnSetupCancel" style="display:none;" data-i18n="setupBtnCancel">Cancelar</button>
             <button class="setup-finish-btn setup-focusable" id="btnSetupFinish"></button>
         </div>
     </div>`;
@@ -446,7 +466,7 @@ function _startSetupBg() {
     }
 
     function frame() {
-        if (!isSetupOpen) return;
+        if (!window.isSetupOpen) return;
         const W = canvas.width, H = canvas.height;
         ctx.clearRect(0, 0, W, H);
 
@@ -508,7 +528,7 @@ function openSetup(isAddingUser = false) {
     if (btnCancel) btnCancel.style.display = isAddingUser ? 'block' : 'none';
 
     document.getElementById('btnSetupFinish').textContent = isAddingUser ? (typeof t === 'function' ? t('addUsuario', 'Adicionar Usuário') : 'Adicionar Usuário') : (typeof t === 'function' ? t('setupStep4Finish') : 'Concluir');
-
+    window.isSetupOpen = true;
     isSetupOpen = true;
     const c = document.getElementById('setupContainer');
     c.style.display = 'flex';
@@ -528,6 +548,7 @@ function closeSetup() {
     c.classList.remove('visible');
     _stopSetupBg(); // Para a animação do Setup ao fechar para poupar recursos
     window.focusFeaturedCard?.();
+    window.isSetupOpen = false;
 }
 
 function setupBack() { closeSetup(); }
@@ -607,6 +628,9 @@ function _bindSetupEvents() {
                 input.removeAttribute('readonly');
                 input.style.caretColor = '';
             }
+        });
+        document.getElementById('btnSetupExit')?.addEventListener('click', () => {
+            postToHost({ action: 'exitApp' });
         });
         input.addEventListener('blur', () => {
             if (!window._vkbIsOpen) {

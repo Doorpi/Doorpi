@@ -321,6 +321,7 @@ namespace Doorpi
             mediaFile = Path.Combine(dataFolder, "media.json");
 
             Directory.CreateDirectory(Path.Combine(dataFolder, "extensions"));
+            Directory.CreateDirectory(Path.Combine(dataFolder, "intros"));
             Directory.CreateDirectory(Path.Combine(dataFolder, "users"));
             Directory.CreateDirectory(dataFolder);
             Directory.CreateDirectory(gridFolder);
@@ -649,6 +650,12 @@ namespace Doorpi
         {
             var clean = string.Concat((value ?? "").Where(c => !Path.GetInvalidFileNameChars().Contains(c))).Trim();
             return string.IsNullOrWhiteSpace(clean) ? "default" : clean;
+        }
+
+        private static string SafeIntroId(string value)
+        {
+            var clean = Regex.Replace(value ?? "", @"[^\p{L}\p{Nd}_-]+", "-").Trim('-').ToLowerInvariant();
+            return string.IsNullOrWhiteSpace(clean) ? "intro" : clean;
         }
 
         private static string SafeBrowserProfileToken(string value)
@@ -2488,6 +2495,112 @@ namespace Doorpi
                 status,
                 message
             })));
+        }
+
+        private string IntroDataFolder => Path.Combine(dataFolder, "intros");
+        private string ActiveIntroFile => Path.Combine(IntroDataFolder, "active.json");
+
+        private object? ReadIntroManifestPayload(string manifestPath, string source)
+        {
+            try
+            {
+                if (!File.Exists(manifestPath)) return null;
+                using var doc = JsonDocument.Parse(File.ReadAllText(manifestPath));
+                var root = doc.RootElement;
+                var folderId = SafeIntroId(Path.GetFileName(Path.GetDirectoryName(manifestPath)) ?? "");
+                var id = string.Equals(source, "installed", StringComparison.OrdinalIgnoreCase)
+                    ? folderId
+                    : SafeIntroId(GetStr(root, "id", folderId));
+                return new
+                {
+                    id,
+                    source,
+                    name = GetStr(root, "name", id),
+                    version = GetStr(root, "version", ""),
+                    author = GetStr(root, "author", ""),
+                    manifest = source == "builtin"
+                        ? $"https://app.local/intros/{id}/manifest.json"
+                        : $"{id}/manifest.json"
+                };
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Intro] Manifest inválido {manifestPath}: {ex.Message}");
+                return null;
+            }
+        }
+
+        private string GetActiveIntroId()
+        {
+            try
+            {
+                if (!File.Exists(ActiveIntroFile)) return "doorpi-neon";
+                using var doc = JsonDocument.Parse(File.ReadAllText(ActiveIntroFile));
+                var root = doc.RootElement;
+                if (root.TryGetProperty("enabled", out var enabled) && enabled.ValueKind == JsonValueKind.False)
+                    return "";
+                var id = GetStr(root, "id");
+                if (!string.IsNullOrWhiteSpace(id)) return SafeIntroId(id);
+                var manifest = GetStr(root, "manifest");
+                var match = Regex.Match(manifest, @"(?:^|/)([^/]+)/manifest\.json$", RegexOptions.IgnoreCase);
+                return match.Success ? SafeIntroId(match.Groups[1].Value) : "doorpi-neon";
+            }
+            catch { return "doorpi-neon"; }
+        }
+
+        private void SendIntrosToUI()
+        {
+            Directory.CreateDirectory(IntroDataFolder);
+            var intros = new List<object>();
+
+            var builtinRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot", "intros");
+            if (Directory.Exists(builtinRoot))
+            {
+                foreach (var manifest in Directory.GetFiles(builtinRoot, "manifest.json", SearchOption.AllDirectories))
+                {
+                    var payload = ReadIntroManifestPayload(manifest, "builtin");
+                    if (payload != null) intros.Add(payload);
+                }
+            }
+
+            foreach (var manifest in Directory.Exists(IntroDataFolder)
+                ? Directory.GetFiles(IntroDataFolder, "manifest.json", SearchOption.AllDirectories)
+                : Array.Empty<string>())
+            {
+                var payload = ReadIntroManifestPayload(manifest, "installed");
+                if (payload != null) intros.Add(payload);
+            }
+
+            Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+            {
+                type = "introsList",
+                activeId = GetActiveIntroId(),
+                intros
+            })));
+        }
+
+        private void SetActiveIntro(string id, string source)
+        {
+            Directory.CreateDirectory(IntroDataFolder);
+            id = SafeIntroId(id);
+
+            if (string.IsNullOrWhiteSpace(id) || id == "none")
+            {
+                File.WriteAllText(ActiveIntroFile, JsonSerializer.Serialize(new { enabled = false }, new JsonSerializerOptions { WriteIndented = true }));
+                return;
+            }
+
+            var manifest = string.Equals(source, "builtin", StringComparison.OrdinalIgnoreCase)
+                ? $"https://app.local/intros/{id}/manifest.json"
+                : $"{id}/manifest.json";
+
+            File.WriteAllText(ActiveIntroFile, JsonSerializer.Serialize(new
+            {
+                enabled = true,
+                id,
+                source = string.Equals(source, "builtin", StringComparison.OrdinalIgnoreCase) ? "builtin" : "installed",
+                manifest
+            }, new JsonSerializerOptions { WriteIndented = true }));
         }
 
         private void SendMediaAppsToUI(List<MediaAppModel> apps)
@@ -5345,6 +5458,15 @@ namespace Doorpi
                 else if (action == "requestExtensions")
                 {
                     SendExtensionsToUI();
+                }
+                else if (action == "requestIntros")
+                {
+                    SendIntrosToUI();
+                }
+                else if (action == "setActiveIntro")
+                {
+                    SetActiveIntro(GetStr(root, "id"), GetStr(root, "source", "installed"));
+                    SendIntrosToUI();
                 }
                 else if (action == "requestExtensionUpdates")
                 {

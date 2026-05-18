@@ -178,7 +178,10 @@ window.chrome.webview.addEventListener('message', event => {
             const picker = document.getElementById('doorpiUserPicker');
             const isPickerOpen = picker && picker.style.display !== 'none';
 
-            if (!window.isNavMenuOpen && !window.isModalOpen && !window.isSetupOpen && !window._vkbIsOpen && !isPickerOpen) {
+
+            if (window.isSetupOpen) return;
+
+            if (!window.isNavMenuOpen && !window.isModalOpen && !window._vkbIsOpen && !isPickerOpen) {
                 postToHost({ action: 'requestUsers' });
             }
         }
@@ -222,7 +225,12 @@ window.chrome.webview.addEventListener('message', event => {
             if (!data.tab) clearLoadingCards('media');
         }
         else if (data.type === 'showSetup') {
-            if (typeof openSetup === 'function') openSetup();
+            const open = () => {
+                window.DoorpiIntro?.finishHandoff?.();
+                if (typeof openSetup === 'function') openSetup();
+            };
+            if (window.DoorpiIntro?.isRunning?.()) window.DoorpiIntro.runAfterIntro(open);
+            else open();
         }
         else if (data.type === 'profilePhotoSelected') {
             window._setupHandlePhotoSelected?.(data.base64);
@@ -748,6 +756,11 @@ function avatarMarkup(user) {
 }
 
 function showUserPicker(users, requireSelection = false) {
+    if (window.DoorpiIntro?.shouldDeferUserPicker?.()) {
+        window.DoorpiIntro.runAfterIntro(() => showUserPicker(users, requireSelection));
+        return;
+    }
+
     ensureDoorpiOverlayStyles();
     let overlay = document.getElementById('doorpiUserPicker');
     if (!overlay) {
@@ -833,6 +846,14 @@ function showUserPicker(users, requireSelection = false) {
         document.body.appendChild(overlay);
     }
     overlay.dataset.required = requireSelection ? 'true' : 'false';
+    if (overlay.dataset.introPickerClasses) {
+        overlay.classList.remove(...overlay.dataset.introPickerClasses.split(/\s+/).filter(Boolean));
+    }
+    const introPickerClasses = window.DoorpiIntro?.isHandoffActive?.()
+        ? (window.DoorpiIntro.getUserPickerClasses?.() || [])
+        : [];
+    if (introPickerClasses.length) overlay.classList.add(...introPickerClasses);
+    overlay.dataset.introPickerClasses = introPickerClasses.join(' ');
 
     const cards = users.map((user, idx) => `
     <button class="doorpi-user-card" data-user-id="${escapeHtml(user.Id)}" tabindex="0" style="animation-delay: ${idx * 0.03}s">
@@ -877,17 +898,22 @@ function showUserPicker(users, requireSelection = false) {
 
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
 
+    const hidePicker = () => {
+        overlay.style.display = 'none';
+        window.DoorpiIntro?.finishHandoff?.();
+    };
+
     overlay.querySelectorAll('[data-user-id]').forEach(btn => {
         btn.addEventListener('click', () => {
             postToHost({ action: 'selectUser', userId: btn.dataset.userId });
-            overlay.style.display = 'none';
+            hidePicker();
         });
     });
     overlay.querySelector('#doorpiCreateUserCard')?.addEventListener('click', () => {
-        overlay.style.display = 'none';
+        hidePicker();
         openCreateUserDialog();
     });
-    overlay.querySelector('#doorpiCloseUsers')?.addEventListener('click', () => overlay.style.display = 'none');
+    overlay.querySelector('#doorpiCloseUsers')?.addEventListener('click', hidePicker);
 
     overlay.querySelector('#doorpiExitApp')?.addEventListener('click', () => postToHost({ action: 'exitApp' }));
     overlay.querySelector('#doorpiSuspend')?.addEventListener('click', () => postToHost({ action: 'suspendSystem' }));
@@ -983,7 +1009,10 @@ window.closeDoorpiTopOverlay = function (force = false) {
         .filter(el => el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
     const top = overlays.at(-1);
     if (!force && top?.dataset.required === 'true') return;
-    if (top) top.style.display = 'none';
+    if (top) {
+        top.style.display = 'none';
+        if (top.id === 'doorpiUserPicker') window.DoorpiIntro?.finishHandoff?.();
+    }
 };
 
 document.addEventListener('click', (e) => {
@@ -1207,6 +1236,10 @@ function refreshInstalledAppsView() {
 }
 
 document.getElementById('btnAdd').addEventListener('click', () => {
+    if (window.DoorpiIntro?.isRunning?.()) {
+        window.DoorpiIntro.skip?.();
+        return;
+    }
     isModalOpen = true;
     _modalReady = false;
     if (isSetupOpen) return;
@@ -1221,6 +1254,10 @@ document.getElementById('btnAdd').addEventListener('click', () => {
 });
 
 document.getElementById('btnAddMedia')?.addEventListener('click', () => {
+    if (window.DoorpiIntro?.isRunning?.()) {
+        window.DoorpiIntro.skip?.();
+        return;
+    }
     isModalOpen = true;
     _modalReady = false;
     if (isSetupOpen) return;

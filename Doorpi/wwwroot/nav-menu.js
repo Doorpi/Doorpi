@@ -2291,8 +2291,13 @@ window.isNavMenuOpen = false;
 
                 // Forçar a reabertura do setup via nav menu se não restarem usuários
                 if (data.type === 'showSetup') {
-                    if (window.isNavMenuOpen) close();
-                    if (typeof openSetup === 'function') openSetup();
+                    const open = () => {
+                        window.DoorpiIntro?.finishHandoff?.();
+                        if (window.isNavMenuOpen) close();
+                        if (typeof openSetup === 'function') openSetup();
+                    };
+                    if (window.DoorpiIntro?.isRunning?.()) window.DoorpiIntro.runAfterIntro(open);
+                    else open();
                 }
 
             } catch { }
