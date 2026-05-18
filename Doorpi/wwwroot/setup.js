@@ -524,8 +524,13 @@ function openSetup(isAddingUser = false) {
 
     _loadCurrentUserIntoForm();
     _renderSetupUsers();
+
     const btnCancel = document.getElementById('btnSetupCancel');
     if (btnCancel) btnCancel.style.display = isAddingUser ? 'block' : 'none';
+
+    // MOSTRA O BOTÃO "SAIR" SE FOR O PRIMEIRO SETUP
+    const btnExit = document.getElementById('btnSetupExit');
+    if (btnExit) btnExit.style.display = isAddingUser ? 'none' : 'flex';
 
     document.getElementById('btnSetupFinish').textContent = isAddingUser ? (typeof t === 'function' ? t('addUsuario', 'Adicionar Usuário') : 'Adicionar Usuário') : (typeof t === 'function' ? t('setupStep4Finish') : 'Concluir');
     window.isSetupOpen = true;
@@ -629,9 +634,6 @@ function _bindSetupEvents() {
                 input.style.caretColor = '';
             }
         });
-        document.getElementById('btnSetupExit')?.addEventListener('click', () => {
-            postToHost({ action: 'exitApp' });
-        });
         input.addEventListener('blur', () => {
             if (!window._vkbIsOpen) {
                 input.setAttribute('readonly', true);
@@ -644,6 +646,11 @@ function _bindSetupEvents() {
         input.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !window._vkbIsOpen) window._vkbOpen?.(e.currentTarget);
         });
+    });
+
+    // EVENTO DE FECHAR O APP - Removido de dentro do forEach
+    document.getElementById('btnSetupExit')?.addEventListener('click', () => {
+        postToHost({ action: 'exitApp' });
     });
 
     document.getElementById('setupPhotoBtn').addEventListener('click', () => { postToHost({ action: 'pickProfilePhoto' }); });
@@ -679,6 +686,7 @@ function _bindSetupEvents() {
             postToHost({ action: 'requestUsers' });
         }
     });
+
     document.getElementById('btnSetupFinish').addEventListener('click', _validateAndFinish);
 }
 
