@@ -264,7 +264,9 @@ namespace Doorpi
         private const uint KEYEVENTF_KEYUP = 0x0002;
 
         private Process? _mediaExeProcess;
-
+        private volatile bool _mediaExeWatcherPaused = false;
+        private CancellationTokenSource? _mediaExeWatcherCts;
+        private string _mediaExeCurrentUrl = "";
 
         // ========================= CONSTRUTOR =========================
 
@@ -274,17 +276,21 @@ namespace Doorpi
 
       
             this.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#020309"));
+            webView.DefaultBackgroundColor = System.Drawing.Color.Transparent;
             SourceInitialized += (_, _) =>
             {
                 _mainWindowHandle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
             };
-            // DEPOIS:
-            this.Activated += (s, e) => {
+            this.Activated += (s, e) =>
+            {
                 if (_mediaExeModeActive)
                 {
-                    // Usuário voltou para o Doorpi (taskbar, alt-tab, etc.) — sai do modo exe
+                    // Alt-Tab inesperado de volta pro Doorpi — cancela tudo
+                    _mediaExeWatcherCts?.Cancel();
+                    _mediaExeWatcherPaused = true;
                     _mediaExeModeActive = false;
                     _mediaExeProcess = null;
+                    _mediaExeCurrentUrl = "";
                     SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
                     Dispatcher.InvokeAsync(() =>
                     {
@@ -293,16 +299,15 @@ namespace Doorpi
                         WindowState = WindowState.Maximized;
                         webView?.Focus();
                     });
-                   
                 }
                 if (_gameSessionActive)
                 {
                     lock (_gameLaunchMonitorLock)
                     {
-                        _gameLaunchMonitorCts?.Cancel(); // para o loop do monitor
+                        _gameLaunchMonitorCts?.Cancel();
                     }
                     ForceFocus();
-                    return; // ForceFocus já manda focusFeaturedCard via JS
+                    return;
                 }
 
                 if (webView?.CoreWebView2 != null)
@@ -1123,8 +1128,17 @@ namespace Doorpi
                             }
 
                             // A pressionado = botão esquerdo do mouse down
-                            if (Pressed(0x1000))
+                            // No SharedGamepadControllerLoop...
+                            if (Pressed(0x1000)) // Botão A pressionado
                             {
+               
+                                IntPtr foregroundHwnd = GetForegroundWindow();
+                                if (foregroundHwnd != IntPtr.Zero)
+                                {
+                                    FocusExternalWindow(foregroundHwnd); // Re-garante que o Windows sabe que você quer interagir com ESSA janela
+                                }
+                                // ----------------------------------
+
                                 aWasOnTextField = IsCursorOnTextField();
                                 aDragOccurred = false; isClicking = true;
                                 clickAccumX = 0; clickAccumY = 0; dragBrokeThreshold = false;
@@ -1209,11 +1223,14 @@ namespace Doorpi
                 () => _mediaExeModeActive,
                 () =>
                 {
-                    // SUPRESSÃO PRIMEIRO
+                    // PAUSA o watcher (mantém o processo rastreado para possível restore)
+                    _mediaExeWatcherPaused = true;
+
                     Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil,
                         DateTime.UtcNow.AddMilliseconds(800).Ticks);
                     _mediaExeModeActive = false;
-                    _mediaExeProcess = null;
+                    // _mediaExeProcess e _mediaExeCurrentUrl intencionalmente preservados
+
                     SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
                     Dispatcher.Invoke(() =>
                     {
@@ -1284,17 +1301,182 @@ namespace Doorpi
                 _desktopVkb.Show();
             });
         }
+        // Retorna a primeira janela visível de um processo por PID
+        private IntPtr FindVisibleWindowForProcess(int pid)
+        {
+            IntPtr result = IntPtr.Zero;
+            EnumWindows((hWnd, _) =>
+            {
+                GetWindowThreadProcessId(hWnd, out uint wpid);
+                if ((int)wpid == pid && IsWindowVisible(hWnd))
+                {
+                    // Verifica se a janela tem um título (janelas de sistema/renderização Electron geralmente não têm)
+                    int length = GetWindowTextLength(hWnd);
+                    if (length > 0)
+                    {
+                        result = hWnd;
+                        return false; // Achamos a janela real, para a busca
+                    }
+                }
+                return true;
+            }, IntPtr.Zero);
+            return result;
+        }
 
-        private void EnterMediaExeMode(Process proc)
+        // Varre os processos em execução e retorna o que corresponde ao exePath
+        private Process? FindRunningProcessForExe(string exePath)
+        {
+            if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath)) return null;
+            try
+            {
+                string fullPath = Path.GetFullPath(exePath);
+                string name = Path.GetFileNameWithoutExtension(exePath);
+                var processes = Process.GetProcessesByName(name);
+
+                // Primeiro tenta achar um processo que corresponda ao caminho exato e tenha janela visível
+                foreach (var p in processes)
+                {
+                    try
+                    {
+                        if (PathsEqual(SafeProcessPath(p), fullPath) && FindVisibleWindowForProcess(p.Id) != IntPtr.Zero)
+                            return p;
+                    }
+                    catch { }
+                }
+
+                // Se não achou com janela visível, retorna qualquer um com o caminho exato
+                foreach (var p in processes)
+                {
+                    try { if (PathsEqual(SafeProcessPath(p), fullPath)) return p; }
+                    catch { }
+                }
+            }
+            catch { }
+            return null;
+        }
+        // Aguarda a janela do app aparecer (até ~10s) e a maximiza
+        // Aguarda a janela do app aparecer e a maximiza
+        private async Task TryMaximizeExternalWindowAsync(Process proc, string mediaUrl)
+        {
+            for (int i = 0; i < 50; i++)
+            {
+                await Task.Delay(200);
+                try
+                {
+                    Process? targetProc = proc;
+                    // Se o processo inicial (Launcher) já morreu, tenta buscar o app real
+                    if (SafeHasExited(targetProc))
+                    {
+                        targetProc = FindRunningProcessForExe(mediaUrl);
+                        if (targetProc == null) continue;
+                    }
+
+                    IntPtr hwnd = targetProc.MainWindowHandle;
+                    if (hwnd == IntPtr.Zero) hwnd = FindVisibleWindowForProcess(targetProc.Id);
+
+                    if (hwnd != IntPtr.Zero)
+                    {
+                        if (IsIconic(hwnd)) ShowWindow(hwnd, 9);       // SW_RESTORE
+                        ShowWindow(hwnd, 3);                           // SW_MAXIMIZE
+                        FocusExternalWindow(hwnd);
+                        return;
+                    }
+                }
+                catch { }
+            }
+        }
+
+        private void StartMediaExeWatcher(Process proc, string mediaUrl, CancellationToken token)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    Process? currentProc = proc;
+                    int windowNotFoundCount = 0;
+                    string exeName = Path.GetFileNameWithoutExtension(mediaUrl);
+
+                    while (!token.IsCancellationRequested)
+                    {
+                        if (_mediaExeWatcherPaused) { await Task.Delay(500, token); continue; }
+
+                        // 1. Tenta achar a janela principal de qualquer processo com esse nome
+                        IntPtr activeHwnd = IntPtr.Zero;
+                        var processes = Process.GetProcessesByName(exeName);
+
+                        foreach (var p in processes)
+                        {
+                            IntPtr h = FindVisibleWindowForProcess(p.Id);
+                            if (h != IntPtr.Zero) { activeHwnd = h; break; }
+                        }
+
+                        // 2. Lógica de detecção de fechamento
+                        if (activeHwnd == IntPtr.Zero)
+                        {
+                            windowNotFoundCount++;
+                            // Se por 4 ciclos (2 segundos) não houver janela nenhuma, o app fechou
+                            if (windowNotFoundCount >= 4)
+                            {
+                                ReturnToDoorpiFromMedia();
+                                return;
+                            }
+                        }
+                        else
+                        {
+                            windowNotFoundCount = 0;
+                        }
+
+                        await Task.Delay(500, token);
+                    }
+                }
+                catch (Exception ex) { Debug.WriteLine($"[Watcher] {ex.Message}"); }
+            });
+        }
+
+        // Helper para centralizar a volta ao Doorpi
+        private void ReturnToDoorpiFromMedia()
+        {
+            _mediaExeModeActive = false;
+            _mediaExeProcess = null;
+            _mediaExeCurrentUrl = "";
+
+            Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil, DateTime.UtcNow.AddMilliseconds(500).Ticks);
+            SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
+
+            Dispatcher.BeginInvoke(() =>
+            {
+                _desktopVkb?.Close();
+                _desktopVkb = null;
+                WindowState = WindowState.Maximized;
+                Activate();
+                ForceFocus(); // Usa sua função de foco ultra-agressiva
+                webView?.CoreWebView2?.ExecuteScriptAsync("window.isMediaAppActive = false; window.focusFeaturedCard?.();");
+            });
+        }
+        private void EnterMediaExeMode(Process proc, string url = "")
         {
             if (_mediaExeModeActive) return;
-            _mediaExeProcess = proc;
-            _mediaExeModeActive = true;
 
-            Dispatcher.Invoke(() => {
+            // Cancela watcher anterior antes de criar um novo
+            _mediaExeWatcherCts?.Cancel();
+            _mediaExeWatcherCts = new CancellationTokenSource();
+
+            _mediaExeProcess = proc;
+            _mediaExeCurrentUrl = url;
+            _mediaExeModeActive = true;
+            _mediaExeWatcherPaused = false;
+
+            Dispatcher.Invoke(() =>
+            {
                 WindowState = WindowState.Minimized;
                 EnsureCursorVisible();
             });
+
+            // Tenta maximizar/fullscreen o app de forma assíncrona (AGORA PASSANDO A URL)
+            _ = TryMaximizeExternalWindowAsync(proc, url);
+
+            // Inicia o watcher de encerramento (AGORA PASSANDO A URL)
+            StartMediaExeWatcher(proc, url, _mediaExeWatcherCts.Token);
 
             _mediaExeThread = new Thread(MediaExeControllerLoop) { IsBackground = true };
             _mediaExeThread.Start();
@@ -1303,8 +1485,11 @@ namespace Doorpi
         private void ExitMediaExeMode()
         {
             if (!_mediaExeModeActive) return;
+            _mediaExeWatcherCts?.Cancel(); // Cancela por completo (chamado via ForceFocus etc.)
+            _mediaExeWatcherPaused = true;
             _mediaExeModeActive = false;
-            _mediaExeProcess = null;        // 🔹
+            _mediaExeProcess = null;
+            _mediaExeCurrentUrl = "";
 
             SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
             Dispatcher.Invoke(() => { _desktopVkb?.Close(); _desktopVkb = null; });
@@ -1856,6 +2041,7 @@ namespace Doorpi
             }
             catch (Exception ex) { Debug.WriteLine($"[BootMode] Erro ao gravar registro: {ex.Message}"); }
         }
+
         private void EnsureExplorerIsRunningInBackstage()
         {
             // Se o explorer já estiver rodando, não fazemos nada
@@ -1863,13 +2049,37 @@ namespace Doorpi
 
             try
             {
-
                 this.Topmost = true;
 
                 Process.Start(new ProcessStartInfo
                 {
                     FileName = "explorer.exe",
                     UseShellExecute = true
+                });
+
+                // Monitorar o foco durante o boot do explorer (ele demora e rouba o foco quando a barra de tarefas/desktop carrega)
+                _ = Task.Run(async () =>
+                {
+                    // Monitora por até 15 segundos (150 iterações de 100ms)
+                    for (int i = 0; i < 150; i++)
+                    {
+                        await Task.Delay(100);
+
+                        Dispatcher.Invoke(() =>
+                        {
+                            // Só roubamos o foco de volta se estivermos no modo padrão da UI
+                            if (!_systemControllerActive &&
+                                !_gameSessionActive &&
+                                !_mediaExeModeActive &&
+                                !_dialogModeActive)
+                            {
+                                if (!IsDoorpiMainWindowForeground())
+                                {
+                                    RestoreWindowFocusSilent();
+                                }
+                            }
+                        });
+                    }
                 });
 
                 Debug.WriteLine("[Boot] Explorer.exe iniciado em background com sucesso.");
@@ -2745,7 +2955,20 @@ namespace Doorpi
 
         [System.Runtime.InteropServices.DllImport("kernel32.dll")]
         private static extern uint GetCurrentThreadId();
+        private void RestoreWindowFocusSilent()
+        {
+            Dispatcher.BeginInvoke(() =>
+            {
+                var hwnd = _mainWindowHandle != IntPtr.Zero
+                    ? _mainWindowHandle
+                    : new System.Windows.Interop.WindowInteropHelper(this).Handle;
 
+                FocusExternalWindow(hwnd);
+                Activate();
+                webView?.Focus();
+                Keyboard.Focus(webView);
+            });
+        }
         private long _focusRestoredAtTicks = 0;
         public void ForceFocus()
         {
@@ -4663,7 +4886,8 @@ namespace Doorpi
                                 {
                                     appFound = true;
 
-                                    Dispatcher.Invoke(() => {
+                                    Dispatcher.Invoke(() =>
+                                    {
                                         // Força a janela a maximizar
                                         IntPtr fgHwnd = GetForegroundWindow();
                                         if (fgHwnd != IntPtr.Zero)
@@ -4694,7 +4918,8 @@ namespace Doorpi
                                 if (Process.GetProcessesByName("SystemSettings").Length == 0)
                                 {
                                     // A janela fechou! Tira do modo Desktop e volta pro Doorpi
-                                    Dispatcher.Invoke(() => {
+                                    Dispatcher.Invoke(() =>
+                                    {
                                         if (_systemControllerActive)
                                         {
                                             ExitDesktopMode();
@@ -5786,6 +6011,56 @@ namespace Doorpi
                             {
                                 try
                                 {
+                                    // ── Já está rodando? Restaura em vez de relançar ─────────────
+                                    Process? existingProc = null;
+
+                                    if (_mediaExeProcess != null && !SafeHasExited(_mediaExeProcess) &&
+                                        string.Equals(_mediaExeCurrentUrl, mediaUrl, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        // Mesmo app que estava rastreado
+                                        existingProc = _mediaExeProcess;
+                                    }
+                                    else if (File.Exists(mediaUrl))
+                                    {
+                                        // Busca nos processos em execução (cobre o caso de voltar pro app A depois do B)
+                                        existingProc = FindRunningProcessForExe(mediaUrl);
+                                    }
+
+                                    if (existingProc != null)
+                                    {
+                                        // NOVIDADE: Verifica se o processo que já existe tem uma JANELA REAL na tela
+                                        IntPtr hwnd = FindVisibleWindowForProcess(existingProc.Id);
+
+                                        if (hwnd != IntPtr.Zero)
+                                        {
+                                            // CASO 1: O app está aberto e visível. Apenas damos foco.
+                                            _mediaExeWatcherCts?.Cancel();
+                                            _mediaExeWatcherCts = new CancellationTokenSource();
+                                            _mediaExeProcess = existingProc;
+                                            _mediaExeCurrentUrl = mediaUrl;
+                                            _mediaExeWatcherPaused = false;
+
+                                            if (IsIconic(hwnd)) ShowWindow(hwnd, 9);
+                                            ShowWindow(hwnd, 3);
+                                            FocusExternalWindow(hwnd);
+
+                                            StartMediaExeWatcher(existingProc, mediaUrl, _mediaExeWatcherCts.Token);
+
+                                            if (media?.DisableGamepadControl != true && !_mediaExeModeActive)
+                                            {
+                                                _mediaExeModeActive = true;
+                                                WindowState = WindowState.Minimized;
+                                                EnsureCursorVisible();
+                                                _mediaExeThread = new Thread(MediaExeControllerLoop) { IsBackground = true };
+                                                _mediaExeThread.Start();
+                                            }
+                                            return;
+                                        }
+                                    }
+                                        // ── Lança um processo novo ────────────────────────────────────
+                                        _mediaExeWatcherCts?.Cancel();
+                                    _mediaExeWatcherPaused = true;
+
                                     Process? proc = null;
                                     if (File.Exists(mediaUrl))
                                     {
@@ -5802,9 +6077,26 @@ namespace Doorpi
                                         proc = Process.Start(new ProcessStartInfo(mediaUrl) { UseShellExecute = true });
                                     }
 
-                                    if (proc != null && !media.DisableGamepadControl)
+                                    if (proc != null)
                                     {
-                                        EnterMediaExeMode(proc);
+                                        if (media?.DisableGamepadControl != true)
+                                        {
+                                            EnterMediaExeMode(proc, mediaUrl);
+                                        }
+                                        else
+                                        {
+                                            // Gamepad desativado, mas ainda vigia o encerramento do app
+                                            _mediaExeWatcherCts = new CancellationTokenSource();
+                                            _mediaExeProcess = proc;
+                                            _mediaExeCurrentUrl = mediaUrl;
+                                            _mediaExeWatcherPaused = false;
+
+                                            // Retoma a vigilância (CORRIGIDO AQUI: mediaUrl adicionado)
+                                            StartMediaExeWatcher(proc, mediaUrl, _mediaExeWatcherCts.Token);
+
+                                            WindowState = WindowState.Minimized;
+                                            EnsureCursorVisible();
+                                        }
                                     }
                                 }
                                 catch (Exception ex) { Debug.WriteLine($"[launchMediaApp/exe] {ex.Message}"); }
