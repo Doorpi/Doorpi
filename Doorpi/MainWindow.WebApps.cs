@@ -77,7 +77,7 @@ namespace Doorpi
         private bool _isCurrentSiteYouTube = false;
         private bool _canUseXInputEx = true;
         private bool _mediaMouseActive = false;
-        private bool _sgdbRedirected = false;
+
 
         // Estado VKB — sincronizado entre thread do controller e mensagens web
         private volatile bool _vkbIsOpen = false;

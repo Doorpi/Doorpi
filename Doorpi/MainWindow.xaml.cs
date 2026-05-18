@@ -279,6 +279,12 @@ namespace Doorpi
         }
         public MainWindow()
         {
+            this.Closing += (s, e) =>
+            {
+                StopMainScreenMouseWatch(); // Desliga os verificadores de mouse de segundo plano
+                ReleaseAllStuckKeys();
+                ReleaseAllStuckMouseButtons();
+            };
             InitializeComponent();
 
 
@@ -294,14 +300,16 @@ namespace Doorpi
                 if (DateTime.UtcNow.Ticks < Interlocked.Read(ref _returnFromExternalModeSuppressUntil))
                     return;
 
-                if (_mediaExeModeActive)
+                if (_mediaExeModeActive && _mediaExeProcess != null)
                 {
                     _mediaExeWatcherCts?.Cancel();
                     _mediaExeWatcherPaused = true;
+                    Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil,
+    DateTime.UtcNow.AddMilliseconds(800).Ticks);
                     _mediaExeModeActive = false;
                     _mediaExeProcess = null;
                     _mediaExeCurrentUrl = "";
-                    SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
+                    ReleaseAllStuckMouseButtons();
                     SendGameLaunchStatus("gameLaunchDone");
                     Dispatcher.InvokeAsync(() =>
                     {
@@ -355,7 +363,7 @@ namespace Doorpi
             StartMainUiGamepadNavigation();
             EnsureCursorHidden();
             StartMainScreenMouseWatch();
-
+            StartEmergencyEscapeWatchdog();
             this.PreviewMouseDown += (s, e) =>
             {
                 if (_systemControllerActive) ExitDesktopMode();
@@ -1008,9 +1016,27 @@ namespace Doorpi
         private volatile bool _mediaExeModeActive = false;
         private Thread? _mediaExeThread;
 
+        private const int MINIMUM_LAUNCH_ANIMATION_MS = 3000; 
+        private DateTime _launchAnimationStartedUtc = DateTime.MinValue;
         private volatile bool _dialogModeActive = false;
 
+        // ========================= FOCUS GUARD DE TRANSIÇÃO =========================
 
+
+        /// <summary>
+        /// Aguarda até que o tempo mínimo de animação de segurança tenha passado desde "gameLaunching".
+        /// Garante que a tela de carregamento sempre seja exibida por pelo menos MINIMUM_LAUNCH_ANIMATION_MS.
+        /// </summary>
+        private async Task EnsureMinimumAnimationTimeAsync(CancellationToken token)
+        {
+            var elapsed = (DateTime.UtcNow - _launchAnimationStartedUtc).TotalMilliseconds;
+            int remaining = MINIMUM_LAUNCH_ANIMATION_MS - (int)elapsed;
+            if (remaining > 0)
+            {
+                try { await Task.Delay(remaining, token).ConfigureAwait(false); }
+                catch (OperationCanceledException) { }
+            }
+        }
         // ========================= CONTROLE COMPARTILHADO (APP EXE & DIALOGS) =========================
         private void SharedGamepadControllerLoop(Func<bool> isActive, Action onExitCombo)
         {
@@ -1235,13 +1261,14 @@ namespace Doorpi
                 {
                     if (_mediaExeSessionId != sessionId) return;
 
-                    _mediaExeWatcherCts?.Cancel(); // ← ADICIONADO: mata o maximize task e o watcher
+                    _mediaExeWatcherCts?.Cancel(); 
                     _mediaExeWatcherPaused = true;
                     Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil,
                         DateTime.UtcNow.AddMilliseconds(800).Ticks);
                     _mediaExeModeActive = false;
 
-                    SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
+                    SetCursorPos(0, 0);
+                    ReleaseAllStuckMouseButtons();
                     SendGameLaunchStatus("gameLaunchDone");
                     Dispatcher.Invoke(() =>
                     {
@@ -1249,11 +1276,12 @@ namespace Doorpi
                         _desktopVkb = null;
                         EnsureCursorHidden();
                         _mainScreenMouseVisible = false;
-                        WindowState = WindowState.Maximized;
+                        if (WindowState != WindowState.Maximized)  
+                            WindowState = WindowState.Maximized;
                         Activate();
                         webView?.Focus();
                         webView?.CoreWebView2?.ExecuteScriptAsync(
-                            "window.isMediaAppActive = false; window.focusFeaturedCard();");
+                            "window.isMediaAppActive = false; window.focusFeaturedCard?.();");
                     });
                 }
             );
@@ -1281,7 +1309,7 @@ namespace Doorpi
         {
             if (!_dialogModeActive) return;
             _dialogModeActive = false;
-            SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
+            ReleaseAllStuckMouseButtons();
             Dispatcher.Invoke(() => {
                 _desktopVkb?.Close();
                 _desktopVkb = null;
@@ -1389,10 +1417,10 @@ namespace Doorpi
 
                     if (hwnd != IntPtr.Zero)
                     {
-                        // Double-check antes de focar — pode ter mudado enquanto aguardava
                         if (token.IsCancellationRequested || !_mediaExeModeActive) return;
-                        if (IsIconic(hwnd)) ShowWindow(hwnd, 9);
-                        ShowWindow(hwnd, 3);
+
+                        // APENAS FOQUE E RESTAURE! Removido o "ShowWindow(hwnd, 3)" que quebrava o Discord.
+                        // Deixe o app lidar com o próprio tamanho de janela.
                         FocusExternalWindow(hwnd);
                         return;
                     }
@@ -1400,7 +1428,6 @@ namespace Doorpi
                 catch { }
             }
         }
-
         private void StartMediaExeWatcher(Process proc, string mediaUrl, string appName, CancellationToken token)
         {
             _ = Task.Run(async () =>
@@ -1434,19 +1461,23 @@ namespace Doorpi
                             if (h != IntPtr.Zero) { activeHwnd = h; break; }
                         }
 
+                        // DEPOIS:
                         if (activeHwnd != IntPtr.Zero)
                         {
                             hasStarted = true;
                             SendGameLaunchStatus("gameLaunchReady"); // Atualiza o texto na UI
-                            await Task.Delay(800, token);            // Dá tempo pro app renderizar na tela
 
-                            // A MÁGICA ACONTECE AQUI: Minimiza o Doorpi só depois que o app carregou
-                            Dispatcher.Invoke(() =>
-                            {
-                                WindowState = WindowState.Minimized;
-                            });
+                            // Garante o tempo mínimo de animação de segurança ANTES de minimizar o Doorpi.
+                            // Isso previne que o Windows roube o foco para a taskbar durante transições rápidas.
+                            await EnsureMinimumAnimationTimeAsync(token);
+                            if (token.IsCancellationRequested || !_mediaExeModeActive) return;
 
-                            SendGameLaunchStatus("gameLaunchDone");  // Remove a tela de carregamento
+                            // Tempo extra para o app renderizar completamente antes de esconder o Doorpi
+                            await Task.Delay(300, token);
+                            if (token.IsCancellationRequested || !_mediaExeModeActive) return;
+
+                            Dispatcher.Invoke(() => WindowState = WindowState.Minimized);
+                            SendGameLaunchStatus("gameLaunchDone"); // Para o guard e remove a tela de carregamento
                             break; // Avança para a Fase 2
                         }
 
@@ -1504,7 +1535,7 @@ namespace Doorpi
 
             Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil,
                 DateTime.UtcNow.AddMilliseconds(500).Ticks);
-            SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
+            ReleaseAllStuckMouseButtons();
             SendGameLaunchStatus("gameLaunchDone");
 
             Dispatcher.BeginInvoke(() =>
@@ -1583,7 +1614,7 @@ namespace Doorpi
             _mediaExeProcess = null;
             _mediaExeCurrentUrl = "";
 
-            SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
+            ReleaseAllStuckMouseButtons();
             Dispatcher.Invoke(() =>
             {
                 _desktopVkb?.Close();
@@ -1637,7 +1668,7 @@ namespace Doorpi
             Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil,
                 DateTime.UtcNow.AddMilliseconds(800).Ticks);
             _systemControllerActive = false;
-            SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
+            ReleaseAllStuckMouseButtons();
 
             Dispatcher.Invoke(() => {
                 _desktopVkb?.Close();
@@ -1662,6 +1693,8 @@ namespace Doorpi
         private void StopSystemControllerMode()
         {
             _systemControllerActive = false;
+            ReleaseAllStuckMouseButtons();
+
         }
 
         private void SystemControllerLoop()
@@ -3078,6 +3111,7 @@ namespace Doorpi
 
             SendGameLaunchStatus("gameLaunchDone");
             ReleaseAllStuckKeys();
+            ReleaseAllStuckMouseButtons();
 
             Dispatcher.BeginInvoke(() =>
             {
@@ -3231,9 +3265,18 @@ namespace Doorpi
                             bool gameHasFocus = IsForegroundOwnedByProcess(candidate.ProcessId);
                             bool graceExpired = (now - gameFirstSeenUtc).TotalSeconds >= 3;
 
+                            // DEPOIS:
                             if (gameHasFocus || graceExpired)
                             {
                                 if (!gameHasFocus) FocusExternalWindow(candidate.Hwnd);
+
+                                // Garante o tempo mínimo de animação ANTES de esconder o Doorpi.
+                                // O guard continua ativo durante essa espera, impedindo o desktop de roubar o foco.
+                                await EnsureMinimumAnimationTimeAsync(token);
+                                if (token.IsCancellationRequested) return;
+
+                                // O jogo assumiu — o guard não é mais necessário, o próprio jogo mantém o foco.
+                           
                                 doorpiHidden = true;
                                 SendDoorpiToBackground();
                                 SendGameLaunchStatus("gameLaunchReady");
@@ -3314,14 +3357,123 @@ namespace Doorpi
                 Debug.WriteLine($"[Session] {game.Name}: +{sessionMinutes}min (total: {game.TotalPlaytimeMinutes}min)");
             });
         }
-
-        private void SendGameLaunchStatus(string type,
-    string gameName = "",
-    string heroImage = "",
-    string gridImage = "",
-    string reason = "")
+        private void StartGlobalFocusWatchdog()
         {
-            // BeginInvoke para não bloquear threads de background
+            new Thread(() =>
+            {
+                while (true)
+                {
+                    Thread.Sleep(500); // Roda a cada meio segundo
+
+                    try
+                    {
+                        // Se estamos no modo Desktop (controlando o mouse), o usuário está no comando, não interferimos
+                        if (_systemControllerActive) continue;
+
+                        bool isDesktopOrShell = IsForegroundDesktopOrShell();
+
+                        // CENÁRIO 1: Doorpi devia estar na tela, mas o foco caiu no Windows Explorer/Taskbar
+                        if (!_gameSessionActive && !_mediaExeModeActive && !_dialogModeActive)
+                        {
+                            if (isDesktopOrShell && !IsDoorpiMainWindowForeground())
+                            {
+                                Dispatcher.Invoke(() => RestoreWindowFocusSilent());
+                            }
+                            continue;
+                        }
+
+                        // CENÁRIO 2: Um App de Mídia (Media Exe) está rodando
+                        if (_mediaExeModeActive && _mediaExeProcess != null)
+                        {
+                            if (_mediaExeProcess.HasExited)
+                            {
+                                // O processo morreu ou fechou e o evento não pegou
+                                Dispatcher.Invoke(() => ReturnToDoorpiFromMedia());
+                                continue;
+                            }
+
+                            // Se o foco caiu na Área de trabalho (Limbo), traz o app de volta
+                            if (isDesktopOrShell)
+                            {
+                                IntPtr appHwnd = _mediaExeProcess.MainWindowHandle;
+                                if (appHwnd == IntPtr.Zero) appHwnd = FindVisibleWindowForProcess(_mediaExeProcess.Id);
+
+                                if (appHwnd != IntPtr.Zero)
+                                {
+                                    Dispatcher.Invoke(() => FocusExternalWindow(appHwnd));
+                                }
+                                else
+                                {
+                                    // Failsafe: se não achou a janela, puxa o Doorpi de volta
+                                    Dispatcher.Invoke(() => ForceFocus());
+                                }
+                            }
+                            // NOTA: Se o foco estiver no DISCORD, "isDesktopOrShell" será false. 
+                            // O Watchdog não faz nada, respeitando o Alt+Tab do usuário!
+                        }
+                    }
+                    catch { }
+                }
+            })
+            { IsBackground = true, Name = "GlobalFocusWatchdog" }.Start();
+        }
+
+        private void StartEmergencyEscapeWatchdog()
+        {
+            new Thread(() =>
+            {
+                int holdCount = 0;
+                while (true)
+                {
+                    Thread.Sleep(100); // Lê o controle a cada 100ms
+                    try
+                    {
+                        if (XInputGetStateSecret(0, out var state) == 0)
+                        {
+                            var btn = state.Gamepad.wButtons;
+
+                            // Segurar Start + Select OU o botão do Xbox
+                            bool exitCombo = (btn & 0x0010) != 0 && (btn & 0x0020) != 0;
+                            bool xboxBtn = (btn & 0x0400) != 0;
+
+                            if (exitCombo || xboxBtn)
+                            {
+                                holdCount++;
+
+                                // Se segurar por 1 segundo (10 ciclos de 100ms)
+                                if (holdCount >= 10)
+                                {
+                                    holdCount = 0;
+                                    Dispatcher.Invoke(() =>
+                                    {
+                                        // Reseta todos os modos e força a volta pra casa
+                                        if (_mediaExeModeActive) ExitMediaExeMode();
+                                        if (_systemControllerActive) ExitDesktopMode();
+                                        ForceFocus();
+                                    });
+
+                                    // Pausa para não floodar comandos
+                                    Thread.Sleep(2000);
+                                }
+                            }
+                            else
+                            {
+                                holdCount = 0; // Reseta se o usuário soltar os botões
+                            }
+                        }
+                    }
+                    catch { }
+                }
+            })
+            { IsBackground = true, Name = "EmergencyEscapeWatchdog" }.Start();
+        }
+        private void SendGameLaunchStatus(string type, string gameName = "", string heroImage = "", string gridImage = "", string reason = "")
+        {
+            if (type == "gameLaunching")
+            {
+                _launchAnimationStartedUtc = DateTime.UtcNow;
+            }
+
             Dispatcher.BeginInvoke(() =>
             {
                 if (webView?.CoreWebView2 == null) return;
@@ -3335,21 +3487,59 @@ namespace Doorpi
                 }));
             });
         }
+
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern short GetAsyncKeyState(int vKey);
+
         private void ReleaseAllStuckKeys()
         {
-            byte[] keys =
+            try
             {
-        0x10, 0x11, 0x12,       // Shift, Ctrl, Alt
-        0x5B, 0x5C,             // Win L / Win R
-        0x1B, 0x0D, 0x08, 0x09 // Esc, Enter, Backspace, Tab
-    };
+                byte[] keys =
+                {
+                    0x10, 0x11, 0x12,       // Shift, Ctrl, Alt
+                    0x5B, 0x5C,             // Win L / Win R
+                    0x1B, 0x0D, 0x08, 0x09  // Esc, Enter, Backspace, Tab
+                };
 
-            foreach (var vk in keys)
-            {
-                var input = new INPUT { type = INPUT_KEYBOARD };
-                input.U.ki = new KEYBDINPUT { wVk = vk, dwFlags = KEYEVENTF_KEYUP };
-                SendInput(1, new[] { input }, INPUT.Size);
+                foreach (var vk in keys)
+                {
+                    // O bit 0x8000 verifica se a tecla está ATUALMENTE pressionada para o Windows
+                    if ((GetAsyncKeyState(vk) & 0x8000) != 0)
+                    {
+                        var input = new INPUT { type = INPUT_KEYBOARD };
+                        input.U.ki = new KEYBDINPUT { wVk = vk, dwFlags = KEYEVENTF_KEYUP };
+                        SendInput(1, new[] { input }, INPUT.Size);
+                    }
+                }
             }
+            catch { }
+        }
+
+        private void ReleaseAllStuckMouseButtons()
+        {
+            try
+            {
+                // Verifica o estado real do Windows antes de soltar os botões.
+                // Evita que o WebView2/Chromium entenda um "UP" avulso como um clique.
+
+                // 0x01 = Left Button | 0x0004 = MOUSEEVENTF_LEFTUP
+                if ((GetAsyncKeyState(0x01) & 0x8000) != 0) SendMouse(0, 0, 0x0004);
+
+                // 0x02 = Right Button | 0x0010 = MOUSEEVENTF_RIGHTUP
+                if ((GetAsyncKeyState(0x02) & 0x8000) != 0) SendMouse(0, 0, 0x0010);
+
+                // 0x04 = Middle Button | 0x0040 = MOUSEEVENTF_MIDDLEUP
+                if ((GetAsyncKeyState(0x04) & 0x8000) != 0) SendMouse(0, 0, 0x0040);
+
+                // 0x05 = XButton 1 | 0x0100 = MOUSEEVENTF_XUP
+                if ((GetAsyncKeyState(0x05) & 0x8000) != 0) SendMouse(0, 0, 0x0100, 1);
+
+                // 0x06 = XButton 2 | 0x0100 = MOUSEEVENTF_XUP
+                if ((GetAsyncKeyState(0x06) & 0x8000) != 0) SendMouse(0, 0, 0x0100, 2);
+            }
+            catch { }
         }
         private void SendDoorpiToBackground()
         {
@@ -3594,33 +3784,17 @@ namespace Doorpi
             if (hWnd == IntPtr.Zero) return;
             try
             {
-                if (IsIconic(hWnd)) ShowWindow(hWnd, 9);
-                else ShowWindow(hWnd, 5);
+                if (IsIconic(hWnd)) ShowWindow(hWnd, 9); // SW_RESTORE
+                else ShowWindow(hWnd, 5); // SW_SHOW
 
-                var foreground = GetForegroundWindow();
-                var foregroundThread = foreground != IntPtr.Zero
-                    ? GetWindowThreadProcessId(foreground, out _)
-                    : 0;
-                var targetThread = GetWindowThreadProcessId(hWnd, out _);
-                var currentThread = GetCurrentThreadId();
+                // O Truque do TopMost: Eleva a janela acima de TUDO no Windows, 
+                // rouba o foco naturalmente, e depois remove o status TopMost.
+                // Sem simular teclado, sem travar inputs!
+                SetWindowPos(hWnd, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002); // HWND_TOPMOST, SWP_NOSIZE | SWP_NOMOVE
+                SetWindowPos(hWnd, new IntPtr(-2), 0, 0, 0, 0, 0x0001 | 0x0002); // HWND_NOTOPMOST
 
-                var attachedForeground = false;
-                var attachedTarget = false;
-                try
-                {
-                    if (foregroundThread != 0 && foregroundThread != currentThread)
-                        attachedForeground = AttachThreadInput(currentThread, foregroundThread, true);
-                    if (targetThread != 0 && targetThread != currentThread && targetThread != foregroundThread)
-                        attachedTarget = AttachThreadInput(currentThread, targetThread, true);
-
-                    BringWindowToTop(hWnd);
-                    SetForegroundWindow(hWnd);
-                }
-                finally
-                {
-                    if (attachedTarget) AttachThreadInput(currentThread, targetThread, false);
-                    if (attachedForeground) AttachThreadInput(currentThread, foregroundThread, false);
-                }
+                SetForegroundWindow(hWnd);
+                BringWindowToTop(hWnd);
             }
             catch { }
         }
@@ -4886,22 +5060,30 @@ namespace Doorpi
                         }
                     });
                 }
-                else if (action == "exitApp")
+                if (action == "exitApp")
                 {
+                    ReleaseAllStuckKeys();
+                    ReleaseAllStuckMouseButtons();
                     Dispatcher.Invoke(() => Application.Current.Shutdown());
                 }
                 else if (action == "shutdownSystem")
                 {
+                    ReleaseAllStuckKeys();
+                    ReleaseAllStuckMouseButtons();
                     Process.Start(new ProcessStartInfo("shutdown.exe", "/s /t 0") { UseShellExecute = false, CreateNoWindow = true });
                     Dispatcher.Invoke(() => Application.Current.Shutdown());
                 }
                 else if (action == "restartSystem")
                 {
+                    ReleaseAllStuckKeys();
+                    ReleaseAllStuckMouseButtons();
                     Process.Start(new ProcessStartInfo("shutdown.exe", "/r /t 0") { UseShellExecute = false, CreateNoWindow = true });
                     Dispatcher.Invoke(() => Application.Current.Shutdown());
                 }
                 else if (action == "suspendSystem")
                 {
+                    ReleaseAllStuckKeys();
+                    ReleaseAllStuckMouseButtons();
                     SetSuspendState(false, true, true);
                 }
                 else if (action == "updateVkbTranslations")
@@ -6102,6 +6284,9 @@ namespace Doorpi
                             string heroImg = media?.HeroImage ?? "";
                             string gridImg = media?.GridImage ?? "";
                             _ = Dispatcher.InvokeAsync(async () => await OpenWebViewInlineAsync(mediaUrl, mediaUrl.Contains("youtube.com"), mediaName, heroImg, gridImg));
+
+                            // TESTE: mesmo modo gamepad dos apps exe (mouse nativo + VKB C#, sem watcher de processo)
+       
                         }
                         else if (appType == "exe")
                         {
