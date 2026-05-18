@@ -451,7 +451,7 @@ namespace Doorpi
 
             _mouseIdleTimer = new System.Threading.Timer(_ =>
             {
-                if (_ytWebView != null) return;
+                if (_mediaMouseActive) return;
                 Dispatcher.Invoke(() =>
                 {
                     if (!_mainScreenMouseVisible) return;
@@ -462,7 +462,7 @@ namespace Doorpi
 
             _mousePollTimer = new System.Threading.Timer(_ =>
             {
-                if (_ytWebView != null) return;
+                if (_mediaMouseActive) return;
                 if (!GetCursorPos(out var pt)) return;
                 if (pt.X == _lastKnownCursorPos.X && pt.Y == _lastKnownCursorPos.Y) return;
 
@@ -6076,7 +6076,12 @@ namespace Doorpi
                         }
 
                         if (appType == "webview" || appType == "browser")
-                            _ = Dispatcher.InvokeAsync(async () => await OpenWebViewInlineAsync(mediaUrl, mediaUrl.Contains("youtube.com")));
+                        {
+                            string mediaName = media?.Name ?? "App";
+                            string heroImg = media?.HeroImage ?? "";
+                            string gridImg = media?.GridImage ?? "";
+                            _ = Dispatcher.InvokeAsync(async () => await OpenWebViewInlineAsync(mediaUrl, mediaUrl.Contains("youtube.com"), mediaName, heroImg, gridImg));
+                        }
                         else if (appType == "exe")
                         {
                             Dispatcher.Invoke(() =>
@@ -6992,7 +6997,7 @@ namespace Doorpi
                         (DateTime.UtcNow.Ticks - Interlocked.Read(ref _focusRestoredAtTicks))
                         < TimeSpan.FromSeconds(2).Ticks;
                     if (_systemControllerActive || _mediaExeModeActive || _dialogModeActive ||
-                        _ytWebView != null || !foregroundOk || IsMainUiGamepadSuspendedForGame())
+                                            _mediaMouseActive || !foregroundOk || IsMainUiGamepadSuspendedForGame())
                     {
                         moveState = 0; currentDir = null;
                         if (XInputGetStateSecret(0, out var snap) == 0)

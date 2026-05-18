@@ -69,7 +69,10 @@ namespace Doorpi
         private const ushort XI_Y = 0x8000;
 
         // ── Campos ────────────────────────────────────────────────────────────
+        private Window? _webAppWindow;
         private WebView2? _ytWebView;
+        private string _currentWebAppUrl = "";
+
         private bool _ytClosing = false;
         private bool _isCurrentSiteYouTube = false;
         private bool _canUseXInputEx = true;
@@ -169,31 +172,40 @@ namespace Doorpi
                     bool Held(ushort m) => (btn & m) != 0;
 
                     // ════════════════════════════════════════════════════════
-                    // 🚨 EMERGÊNCIA — Guide (XBOX) ou START+BACK
-                    //    Funciona com página congelada, popup aberto, JS morto.
-                    // ════════════════════════════════════════════════════════
                     if (Held(XI_GUIDE) || (Held(XI_START) && Held(XI_BACK)))
                     {
+                        // Evita o vazamento do botão XBOX para a UI principal (abre seletor de usuário)
+                        Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil,
+                            DateTime.UtcNow.AddMilliseconds(800).Ticks);
+
                         Dispatcher.Invoke(() =>
                         {
                             _vkbIsOpen = false;
                             _vkbOwnerView = null;
                             _vkbHasFocus = false;
-                            CloseYouTubeInline();
+
+                            if (_webAppWindow != null)
+                            {
+                                StopMediaControllerMode();
+                                _webAppWindow.WindowState = WindowState.Minimized;
+                                this.WindowState = WindowState.Maximized;
+                                this.Activate();
+                                this.ForceFocus();
+                                StartMainScreenMouseWatch();
+                            }
+                            else
+                            {
+                                // Se for utilitário interno (SteamGrid/Chrome Store), fecha de vez
+                                CloseYouTubeInline();
+                            }
                         });
                         prevButtons = btn;
                         Thread.Sleep(300);
                         continue;
                     }
+
                     // ════════════════════════════════════════════════════════
-                    // MOUSE — ativo somente quando NÃO é YouTube TV
-                    // YouTube navega 100% pelo JS (YtInjectGamepadAsync)
-                    // ════════════════════════════════════════════════════════
-                    // ════════════════════════════════════════════════════════
-                    // MOUSE — ativo somente quando NÃO é YouTube TV
-                    // YouTube navega 100% pelo JS (YtInjectGamepadAsync)
-                    // ════════════════════════════════════════════════════════
-                    if (!_isCurrentSiteYouTube && !_vkbIsOpen) // <-- ADICIONADO !_vkbIsOpen
+                    if (!_isCurrentSiteYouTube && !_vkbIsOpen)
                     {
                         double lx = gp.sThumbLX / 32767.0;
                         double ly = gp.sThumbLY / 32767.0;
@@ -1026,21 +1038,62 @@ function _vkbClose() {{
             await cw.AddScriptToExecuteOnDocumentCreatedAsync(script);
         }
 
-        private async Task OpenWebViewInlineAsync(string url, bool isYouTube = false)
+        private async Task OpenWebViewInlineAsync(string url, bool isYouTube = false, string appName = "", string heroImg = "", string gridImg = "")
         {
+            bool isUtility = url.Contains("steamgriddb.com") || url.Contains("chromewebstore.google.com");
+
             if (_ytWebView != null)
             {
-                Panel.SetZIndex(_ytWebView, 1000);
-                _ytWebView.Visibility = Visibility.Visible;
-                _ytWebView.Focus();
-                return;
+                if (isUtility && _webAppWindow == null)
+                {
+                    Panel.SetZIndex(_ytWebView, 1000);
+                    _ytWebView.Visibility = Visibility.Visible;
+                    _ytWebView.Focus();
+                    return;
+                }
+                else if (_webAppWindow != null)
+                {
+                    if (_currentWebAppUrl == url)
+                    {
+                        // Restaura o app se for a MESMA url
+                        SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg);
+
+                        _webAppWindow.WindowState = WindowState.Maximized;
+                        _webAppWindow.Activate();
+                        _ytWebView.Focus();
+                        _ytWebView.CoreWebView2?.ExecuteScriptAsync("window.focus();");
+
+                        SendGameLaunchStatus("gameLaunchReady");
+                        await Task.Delay(800);
+
+                        this.WindowState = WindowState.Minimized;
+                        StartMediaControllerMode();
+                        StopMainScreenMouseWatch();
+
+                        SendGameLaunchStatus("gameLaunchDone");
+                        return;
+                    }
+                    else
+                    {
+                        CloseYouTubeInline();
+                        await Task.Delay(300);
+                    }
+                }
+                else
+                {
+                    CloseYouTubeInline();
+                    await Task.Delay(300);
+                }
             }
+
+            _currentWebAppUrl = url;
+
+            if (!isUtility) SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg);
 
             _ytClosing = false;
             _isCurrentSiteYouTube = isYouTube;
             _vkbIsOpen = false;
             _vkbOwnerView = null;
-            webView.Visibility = Visibility.Collapsed;
 
             await YtEnsureBlocklistAsync();
 
@@ -1049,8 +1102,33 @@ function _vkbClose() {{
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Stretch,
             };
-            Panel.SetZIndex(_ytWebView, 1000);
-            RootGrid.Children.Add(_ytWebView);
+
+            if (isUtility)
+            {
+                webView.Visibility = Visibility.Collapsed;
+                Panel.SetZIndex(_ytWebView, 1000);
+                RootGrid.Children.Add(_ytWebView);
+            }
+            else
+            {
+                _webAppWindow = new Window
+                {
+                    Title = string.IsNullOrEmpty(appName) ? "Doorpi Web App" : appName,
+                    WindowStyle = WindowStyle.None,
+                    WindowState = WindowState.Maximized,
+                    Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.Black),
+                    ShowInTaskbar = false
+                };
+
+                _webAppWindow.Content = _ytWebView;
+
+                _webAppWindow.Closed += (s, e) =>
+                {
+                    if (!_ytClosing) Dispatcher.Invoke(CloseYouTubeInline);
+                };
+
+                _webAppWindow.Show();
+            }
 
             string profileName = GetBrowserProfileNameForUrl(url, isYouTube);
             string userDataPath = Path.Combine(
@@ -1093,6 +1171,17 @@ function _vkbClose() {{
             {
                 await YtInjectGenericSiteAsync(_ytWebView.CoreWebView2);
             }
+
+            _ytWebView.CoreWebView2.NavigationCompleted += async (s, e) =>
+            {
+                if (!isUtility && !_ytClosing && this.WindowState != WindowState.Minimized)
+                {
+                    SendGameLaunchStatus("gameLaunchReady");
+                    await Task.Delay(800);
+                    this.WindowState = WindowState.Minimized;
+                    SendGameLaunchStatus("gameLaunchDone");
+                }
+            };
 
             _ytWebView.CoreWebView2.Navigate(url);
             _ytWebView.Focus();
@@ -1184,12 +1273,18 @@ function _vkbClose() {{
             _ytWebView.CoreWebView2.WebMessageReceived -= YtOnWebMessageReceived;
             _ytWebView.CoreWebView2.NewWindowRequested -= OnNewWindowRequested;
 
+            try { _webAppWindow?.Close(); } catch { }
+            _webAppWindow = null;
+
+           
             RootGrid.Children.Remove(_ytWebView);
+
             try { _ytWebView.Dispose(); } catch { }
             _ytWebView = null;
             _ytClosing = false;
 
             webView.Visibility = Visibility.Visible;
+            this.WindowState = WindowState.Maximized;
             ForceFocus();
             webView.CoreWebView2?.PostWebMessageAsString("{\"type\":\"mediaAppClosed\"}");
             StartMainScreenMouseWatch();
