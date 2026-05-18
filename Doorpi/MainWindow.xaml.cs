@@ -7227,10 +7227,25 @@ namespace Doorpi
                     bool BtnPressed(ushort m) => (btn & m) != 0 && (prevButtons & m) == 0;
 
 
-                    // ── Xbox (0x0400) ou SELECT (0x0020) → abre seletor de usuário ──
+                    bool isStartHeld = (btn & 0x0010) != 0;  // Start/Menu
+                    bool isSelectHeld = (btn & 0x0020) != 0; // Select/View
+                    bool isXboxHeld = (btn & 0x0400) != 0;   // Botão Xbox
+
+                    // 2. Prioridade Máxima: Se for o Combo de Emergência, ignore o resto do loop
+                    if ((isStartHeld && isSelectHeld) || isXboxHeld)
+                    {
+                        // Se estiver segurando o combo, não processamos comandos de navegação ou menu individual
+                        prevButtons = btn;
+                        Thread.Sleep(10);
+                        continue;
+                    }
+
+                    // 3. Abre o seletor apenas se NÃO estiver segurando o outro botão do combo
+                    // (Prevenindo que o Select sozinho dispare enquanto você tenta apertar Start+Select)
                     if (DateTime.UtcNow.Ticks > Interlocked.Read(ref _returnFromExternalModeSuppressUntil))
                     {
-                        if (BtnPressed(0x0400) || BtnPressed(0x0020))
+                        // Só abre se apertar Select (sem Start) ou o botão Xbox (que já checamos no pânico acima)
+                        if (BtnPressed(0x0020) && !isStartHeld)
                         {
                             Dispatcher.BeginInvoke(() =>
                             {
