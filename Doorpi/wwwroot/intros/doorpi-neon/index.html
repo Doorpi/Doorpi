@@ -58,7 +58,6 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-    
             animation: sceneIn 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
         }
 
@@ -236,7 +235,8 @@
         }
     </style>
 </head>
-<body>
+<!-- Já iniciamos com a classe boot-step-draw direto na tag body para o frame 0 atuar -->
+<body class="boot-step-draw">
     <div id="appBlobWrap"><div id="appBlobVig"></div></div>
 
     <div id="boot-sequence">
@@ -244,6 +244,16 @@
             <svg viewBox="357 366 357 302" id="door-logo" xmlns="http://www.w3.org/2000/svg">
                 <path id="door-path-stroke" d="M491.466248,448.851471 C491.608276,430.705597 491.779083,413.042450 491.876709,395.378906 C491.981354,376.446472 508.188202,366.194916 525.097473,374.768524 C545.386963,385.055969 565.459961,395.770844 585.616089,406.320831 C594.313293,410.873047 602.936646,415.568481 611.678162,420.033142 C623.370544,426.004913 629.275146,435.542358 629.111328,448.569122 C628.545471,493.556702 627.830200,538.542419 627.159241,583.528687 C626.903259,600.689453 626.754395,617.853821 626.241333,635.007141 C626.110962,639.366943 627.244263,641.305237 631.672974,642.608398 C657.675049,650.259399 683.562744,658.299133 709.485840,666.218262 C710.266846,666.456848 711.013245,666.808777 713.093750,667.624756 C675.661926,667.624756 639.601135,667.624756 602.966492,667.624756 C602.966492,665.443115 602.941467,663.498840 602.970093,661.555298 C603.971924,593.576843 604.936218,525.597778 606.029602,457.620758 C606.198303,447.128326 601.579468,439.620483 592.603638,434.901001 C578.896790,427.694000 565.018494,420.808441 551.135925,413.942352 C543.803528,410.315796 539.581421,412.998871 539.488892,421.233521 C538.822205,480.550201 538.205566,539.867432 537.564026,599.184387 C537.333740,620.477661 536.995544,641.770325 536.914490,663.064087 C536.900513,666.735291 535.945618,667.921204 532.135193,667.910828 C475.811768,667.757141 419.487885,667.758850 363.164154,667.699768 C361.375824,667.697876 359.587738,667.440491 357.704132,666.710815 C365.264282,664.606689 372.823639,662.499756 380.384735,660.398987 C415.153320,650.738831 449.908630,641.030273 484.712067,631.497314 C488.290710,630.517151 489.743225,629.202698 489.761627,625.199585 C489.976105,578.551147 490.385681,531.903442 490.805603,485.256104 C490.913391,473.281097 491.237885,461.308014 491.466248,448.851471 z" />
             </svg>
+            <!-- Script inline bloqueante minúsculo para calcular o tamanho da linha e definir pro CSS antes da tela piscar -->
+            <script>
+                (function () {
+                    const p = document.getElementById('door-path-stroke');
+                    const len = p.getTotalLength();
+                    p.style.setProperty('--path-len', len + 'px');
+                    p.style.strokeDasharray = len;
+                    p.style.strokeDashoffset = len;
+                })();
+            </script>
         </div>
         <div id="boot-message">
             <span id="boot-sysname">Doorpi</span>
@@ -260,19 +270,11 @@
             const blobWrap = document.getElementById('appBlobWrap');
             const colors = ['rgba(15,25,85,0.7)', 'rgba(10,30,85,0.7)', 'rgba(25,15,70,0.7)', 'rgba(5,40,75,0.7)', 'rgba(20,20,90,0.6)', 'rgba(15,35,70,0.6)', 'rgba(10,15,60,0.7)', 'rgba(30,20,80,0.6)'];
 
-            const len = strokePath.getTotalLength();
-            strokePath.style.setProperty('--path-len', `${len}px`);
-            strokePath.style.strokeDasharray = len;
-            strokePath.style.strokeDashoffset = len;
-
             const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
             const blobs = [];
             function post(type, payload = {}) { try { window.parent?.postMessage({ type, ...payload }, '*'); } catch { } }
 
-            // 👇 Começa o desenho da linha instantaneamente no frame 0
-            body.classList.add('boot-step-draw');
-
-            function createBigBang() { /* ... Seu codigo BigBang igual ao anterior ... */
+            function createBigBang() {
                 const cx = window.innerWidth / 2; const cy = window.innerHeight / 2;
                 const ratio = Math.max(1, window.innerWidth / Math.max(1, window.innerHeight));
                 for (let i = 0; i < 8; i++) {
@@ -337,11 +339,12 @@
             }
 
             async function runBootSequence() {
-                // Diminuido para combinar com a ausência do fade opacity
+                // A animação do traçado começou exatamente no Frame 0 pois hardcodamos a class no body.
+                // Apenas esperamos os 2.2s de duração da animação para iniciar a próxima fase!
                 await wait(2200);
 
                 strokePath.style.strokeDashoffset = '0';
-                void strokePath.getBoundingClientRect();
+                void strokePath.getBoundingClientRect(); // Força reflow (boa prática)
                 body.classList.add('boot-step-charge');
 
                 const sparkInterval = setInterval(() => spawnSparks(false), 300);

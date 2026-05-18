@@ -25,7 +25,128 @@ window.isNavMenuOpen = false;
         if (url.startsWith('riot:')) return { name: 'Riot Games', svg: PLATFORM_ICONS.Riot };
         return { name: 'Windows / Pasta', svg: PLATFORM_ICONS.Windows };
     }
+    function _renderSettingsSystem(body) {
+        // Solicita o estado real do C# assim que a tela abre
+        if (typeof postToHost === 'function') postToHost({ action: 'requestBootMode' });
 
+        const svgDesktop = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:20px;height:20px;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`;
+
+        body.innerHTML = `
+            <div class="nav-settings-subheader">
+                <button class="nav-back-btn" id="setBackSystem" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
+                <h2>${_t('navSetSystem', 'Sistema')}</h2>
+            </div>
+            
+            <div style="max-width: 900px;">
+                <h3 style="font-size: 1.1rem; font-weight: 500; color: #fff; margin-bottom: 12px;">${_t('sysBootBehavior', 'Comportamento de Inicialização')}</h3>
+                
+                <div class="nav-radio-group">
+                    <button class="nav-radio-btn" data-mode="0" tabindex="-1">
+                        <div class="nav-radio-circle"></div>
+                        <div class="nav-radio-text">
+                            <strong>${_t('sysBootNoneTitle', 'Não Iniciar Automaticamente')}</strong>
+                            <span>${_t('sysBootNoneDesc', 'O aplicativo deve ser aberto manualmente pelo usuário.')}</span>
+                        </div>
+                    </button>
+                    
+                    <button class="nav-radio-btn" data-mode="1" tabindex="-1">
+                        <div class="nav-radio-circle"></div>
+                        <div class="nav-radio-text">
+                            <strong>${_t('sysBootRunTitle', 'Iniciar com Windows (Padrão)')}</strong>
+                            <span>${_t('sysBootRunDesc', 'Inicia junto com o sistema operacional, mantendo a Área de Trabalho acessível ao fundo.')}</span>
+                        </div>
+                    </button>
+                    
+                    <button class="nav-radio-btn" data-mode="2" tabindex="-1">
+                        <div class="nav-radio-circle"></div>
+                        <div class="nav-radio-text">
+                            <strong>${_t('sysBootShellTitle', 'Modo Console (Imersivo)')}</strong>
+                            <span>${_t('sysBootShellDesc', 'Substitui a Área de Trabalho e silencia o boot do Windows, criando uma experiência contínua e dedicada para a sua sala.')}</span>
+                        </div>
+                    </button>
+                </div>
+
+                <div class="nav-netplwiz-box" id="navNetplwizNotice">
+                    <div class="nav-netplwiz-text">
+                         <strong>${_t('sysSuggestion', 'Sugestão')}:</strong> ${_t('sysBootNoticeText', 'Para uma experiência autêntica de console, recomendamos desativar a opção "Exigir o Windows Hello" e remover seu PIN ou senha nas opções do Windows. Assim, o sistema fará login automático ligando direto no aplicativo.')}
+                    </div>
+                    <button class="nav-icon-btn nav-btn-primary" id="btnSignInOptions" tabindex="-1" style="flex-shrink: 0;">${_t('sysBootNoticeBtn', 'Opções de Entrada')}</button>
+                </div>
+
+                <h3 style="font-size: 1.1rem; font-weight: 500; color: #fff; margin-bottom: 12px; margin-top: 32px;">${_t('sysActionsHeader', 'Ações do Sistema')}</h3>
+                
+                <button class="nav-settings-card" id="btnEnterDesktop" tabindex="-1" style="width: 100%;">
+                    <div class="settings-card-icon" style="width:36px;height:36px;">${svgDesktop}</div>
+                    <div class="settings-card-info">
+                        <h3>${_t('sysActionDesktopTitle', 'Acessar Área de Trabalho')}</h3>
+                        <p>${_t('sysActionDesktopDesc', 'Minimiza o aplicativo temporariamente para que você possa atualizar o sistema ou gerenciar arquivos importantes. O seu controle funcionará como mouse e teclado neste modo.')}</p>
+                    </div>
+                </button>
+            </div>
+        `;
+
+        // Função global para ser chamada pelo WebMessageReceived
+        window._updateBootModeUI = () => {
+            const currentMode = window._doorpiBootMode || 0;
+
+            // Atualiza Rádios
+            const radios = body.querySelectorAll('.nav-radio-btn');
+            radios.forEach(r => r.classList.toggle('active', parseInt(r.dataset.mode) === currentMode));
+
+            // Banner visível apenas no Modo Console (2)
+            const notice = body.querySelector('#navNetplwizNotice');
+            if (notice) notice.classList.toggle('visible', currentMode === 2);
+
+            // CORREÇÃO DO FOCO FANTASMA: Filtra apenas os botões que estão fisicamente renderizados!
+            _contentItems = [
+                body.querySelector('#setBackSystem'),
+                ...Array.from(body.querySelectorAll('.nav-radio-btn')),
+                body.querySelector('#btnSignInOptions'),
+                body.querySelector('#btnEnterDesktop')
+            ].filter(el => el && el.offsetParent !== null);
+
+            // Re-aplica eventos de mouse na nova lista higienizada
+            _contentItems.forEach((el, idx) => {
+                el.onmouseenter = () => {
+                    _topbarFocus = false;
+                    _contentIdx = idx;
+                    _updateContentFocus();
+                };
+            });
+        };
+
+        // Aplica estado inicial visual
+        window._updateBootModeUI();
+
+        // Listeners de Clique
+        body.querySelector('#setBackSystem')?.addEventListener('click', () => {
+            _settingsSubView = null;
+            _contentIdx = 0;
+            _renderContent('settings');
+            _updateContentFocus();
+        });
+
+        body.querySelectorAll('.nav-radio-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const mode = parseInt(btn.dataset.mode);
+                if (typeof postToHost === 'function') postToHost({ action: 'setBootMode', mode: mode });
+                window._doorpiBootMode = mode;
+                window._updateBootModeUI();
+
+                // Reseta o foco para evitar cair em "buracos"
+                _contentIdx = 1;
+                _updateContentFocus();
+            });
+        });
+
+        body.querySelector('#btnSignInOptions')?.addEventListener('click', () => {
+            if (typeof postToHost === 'function') postToHost({ action: 'openSignInOptions' });
+        });
+
+        body.querySelector('#btnEnterDesktop')?.addEventListener('click', () => {
+            if (typeof postToHost === 'function') postToHost({ action: 'enterDesktopMode' });
+        });
+    }
     async function _loadJSONs() {
         const domCards = Array.from(document.querySelectorAll('#gameGrid .card:not(.add-card)'));
         if (domCards.length > 0 && _menuData.games.length > 0) {
@@ -582,6 +703,35 @@ window.isNavMenuOpen = false;
     .nav-settings-subheader { margin-bottom: clamp(12px, 2vh, 30px); gap: 16px; }
     .nav-settings-subheader h2 { font-size: clamp(1.2rem, 2.5vh, 1.8rem); }
 }
+
+        /* ── Configurações de Sistema (Modos de Boot) ── */
+.nav-radio-group { display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px; animation: fadeInTop 0.3s ease;}
+.nav-radio-btn {
+    display: flex; align-items: center; gap: 16px; padding: 16px 20px;
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px; cursor: pointer; color: #fff; text-align: left;
+    transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1); font-family: inherit; outline: none;
+}
+.nav-radio-btn.active { background: rgba(120,190,255,0.1); border-color: rgba(120,190,255,0.5); }
+.nav-radio-btn.nav-focused-el { border-color: #fff; background: rgba(255,255,255,0.15); transform: scale(1.02); box-shadow: 0 5px 20px rgba(0,0,0,0.3); }
+.nav-radio-circle {
+    width: 20px; height: 20px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.3);
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.nav-radio-btn.active .nav-radio-circle { border-color: #78beff; }
+.nav-radio-btn.active .nav-radio-circle::after { content: ''; width: 10px; height: 10px; border-radius: 50%; background: #78beff; }
+.nav-radio-text { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+.nav-radio-text strong { font-weight: 500; font-size: 1.05rem; }
+.nav-radio-text span { font-size: 0.85rem; color: rgba(255,255,255,0.45); line-height: 1.4;}
+
+.nav-netplwiz-box {
+    background: rgba(255,180,50,0.1); border: 1px solid rgba(255,180,50,0.3); border-radius: 10px;
+    padding: 16px; margin-bottom: 24px; display: flex; align-items: center; gap: 16px;
+    animation: fadeInTop 0.4s ease; display: none;
+}
+.nav-netplwiz-box.visible { display: flex; }
+.nav-netplwiz-text { flex: 1; font-size: 0.85rem; color: rgba(255,255,255,0.8); line-height: 1.4;}
+
         `;
         document.head.appendChild(s);
     })();
@@ -994,14 +1144,11 @@ window.isNavMenuOpen = false;
         if (_settingsSubView === 'account') { _renderSettingsAccount(body); return; }
         if (_settingsSubView === 'extensions') { _renderSettingsExtensions(body); return; }
         if (_settingsSubView === 'sharing') { _renderSettingsSharing(body); return; }
-
-        // Solicita o estado atual ao backend ao abrir as configurações
-        if (typeof postToHost === 'function') postToHost({ action: 'requestAutoStartState' });
+        if (_settingsSubView === 'system') { _renderSettingsSystem(body); return; }
 
         const svgUser = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
         const svgSys = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`;
         const svgExt = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`;
-        const svgBoot = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2v6"/><path d="M8.56 3.69a9 9 0 1 0 6.88 0"/></svg>`;
 
         body.innerHTML = `
         <div class="nav-settings-grid">
@@ -1015,8 +1162,8 @@ window.isNavMenuOpen = false;
             <button class="nav-settings-card" id="setSystem" tabindex="-1">
                 <div class="settings-card-icon">${svgSys}</div>
                 <div class="settings-card-info">
-                    <h3>${_t('navSetSystem', 'Sistema')}</h3>
-                    <p>${_t('navSetSystemDesc', 'Ajustes do console e área de trabalho')}</p>
+                    <h3>${_t('navSetSystem', 'Sistema e Inicialização')}</h3>
+                    <p>${_t('navSetSystemDesc', 'Ajustes de inicialização do console e acesso à área de trabalho')}</p>
                 </div>
             </button>
             <button class="nav-settings-card" id="setExt" tabindex="-1">
@@ -1026,37 +1173,25 @@ window.isNavMenuOpen = false;
                     <p>${_t('navSetExtDesc', 'Gerenciar plugins e integrações')}</p>
                 </div>
             </button>
-            <button class="nav-settings-card" id="setAutoStart" tabindex="-1" style="justify-content:space-between;">
-                <div class="settings-card-icon">${svgBoot}</div>
-                <div class="settings-card-info" style="flex:1;">
-                    <h3>${_t('navSetAutoStart', 'Iniciar com o Windows')}</h3>
-                    <p id="autoStartDesc">${_t('navSetAutoStartLoading', 'Verificando...')}</p>
-                </div>
-                <div class="nav-toggle" id="autoStartToggle"><div class="nav-toggle-thumb"></div></div>
-            </button>
         </div>
     `;
 
         _contentItems = [
             body.querySelector('#setAccount'),
             body.querySelector('#setSystem'),
-            body.querySelector('#setExt'),
-            body.querySelector('#setAutoStart')
+            body.querySelector('#setExt')
         ].filter(Boolean);
 
         body.querySelector('#setAccount')?.addEventListener('click', () => {
             _settingsSubView = 'accountHub'; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
         });
+
         body.querySelector('#setSystem')?.addEventListener('click', () => {
-            if (typeof postToHost === 'function') postToHost({ action: 'enterDesktopMode' });
+            _settingsSubView = 'system'; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
         });
+
         body.querySelector('#setExt')?.addEventListener('click', () => {
             window.openExtensionsManager?.();
-        });
-        body.querySelector('#setAutoStart')?.addEventListener('click', () => {
-            _autoStartEnabled = !_autoStartEnabled;
-            _updateAutoStartUI();
-            if (typeof postToHost === 'function') postToHost({ action: 'setAutoStart', enable: _autoStartEnabled });
         });
 
         _contentItems.forEach((btn, idx) => {
@@ -1090,8 +1225,8 @@ window.isNavMenuOpen = false;
 
         body.innerHTML = `
             <div class="nav-settings-subheader">
-                <button class="nav-back-btn" id="setBackAccountHub" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
-                <h2>${_t('navSetAccount', 'Conta e Perfil')}</h2>
+                <button class="nav-back-btn" id="setBackSystem" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
+                <h2>${_t('navSetSystem', 'Sistema e Inicialização')}</h2>
             </div>
             <div class="nav-settings-grid">
                 <button class="nav-settings-card" id="setProfileData" tabindex="-1">
@@ -2248,6 +2383,13 @@ window.isNavMenuOpen = false;
                         if (text !== _menuData.user.SteamGridApiKey) {
                             _menuData.user.SteamGridApiKey = text;
                         }
+                    }
+                }
+                // Atualização do modo de boot vindo do C#
+                if (data.type === 'bootModeState') {
+                    window._doorpiBootMode = data.mode || 0;
+                    if (typeof window._updateBootModeUI === 'function') {
+                        window._updateBootModeUI();
                     }
                 }
                 if (data.type === 'autoStartState') {

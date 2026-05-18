@@ -485,6 +485,16 @@ namespace Doorpi
 
         async void InitializeAsync()
         {
+            if (GetBootMode() == 2)
+            {
+               
+                _ = Task.Run(async () =>
+                {
+                    
+                    await Task.Delay(1500);
+                    Dispatcher.Invoke(() => EnsureExplorerIsRunningInBackstage());
+                });
+            }
             await webView.EnsureCoreWebView2Async(null);
 
             string folderPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot");
@@ -1318,6 +1328,12 @@ namespace Doorpi
         }
         private void EnterDesktopMode()
         {
+            // Se estávamos no topo protegendo o fundo, liberamos a prioridade
+            if (GetBootMode() == 2) this.Topmost = false;
+
+            // Garante que o explorer esteja vivo para o usuário usar o PC
+            EnsureExplorerIsRunningInBackstage();
+
             // 1. Minimiza o App
             WindowState = WindowState.Minimized;
 
@@ -1335,7 +1351,7 @@ namespace Doorpi
         private void ExitDesktopMode()
         {
             if (!_systemControllerActive) return;
-  
+
             Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil,
                 DateTime.UtcNow.AddMilliseconds(800).Ticks);
             _systemControllerActive = false;
@@ -1346,6 +1362,9 @@ namespace Doorpi
                 _desktopVkb = null;
 
                 WindowState = WindowState.Maximized;
+
+                if (GetBootMode() == 2) this.Topmost = true;
+
                 Activate();
                 ForceFocus();
             });
@@ -1526,9 +1545,10 @@ namespace Doorpi
                             SendMouse(0, 0, MOUSEEVENTF_LEFTDOWN);
                         }
 
-                        bool rtHeld = gp.bRightTrigger > 128;
+                        bool rbHeld = (btn & 0x0200) != 0;
 
-                        if (rtHeld)
+
+                        if (rbHeld)
                         {
                             // MODO SCROLL — cursor congelado, direito rola a tela infinitamente
                             double scrollY = gp.sThumbRY / 32767.0;
@@ -1771,45 +1791,100 @@ namespace Doorpi
         private const string AutoStartRegKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
         private const string AutoStartAppName = "Doorpi";
 
-        private bool IsAutoStartEnabled()
+        // ========================= COMPORTAMENTO DE INICIALIZAÇÃO =========================
+
+        // ========================= COMPORTAMENTO DE INICIALIZAÇÃO =========================
+
+        private int GetBootMode()
         {
             try
             {
-                using var key = Registry.CurrentUser.OpenSubKey(AutoStartRegKey);
-                return key?.GetValue(AutoStartAppName) is string val && !string.IsNullOrWhiteSpace(val);
+                // 1. Verifica se estamos no Modo Console (Shell)
+                using var winlogonKey = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon");
+                if (winlogonKey?.GetValue("Shell") is string shellVal && !string.IsNullOrWhiteSpace(shellVal))
+                {
+                    return 2; // Modo Console Imersivo
+                }
+
+                // 2. Verifica se estamos no Modo Padrão (Run)
+                using var runKey = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run");
+                if (runKey?.GetValue("Doorpi") is string runVal && !string.IsNullOrWhiteSpace(runVal))
+                {
+                    return 1; // Iniciar com Windows (Padrão)
+                }
             }
-            catch (Exception ex) { Debug.WriteLine($"[AutoStart] Erro ao ler registro: {ex.Message}"); return false; }
+            catch (Exception ex) { Debug.WriteLine($"[BootMode] Erro ao ler registro: {ex.Message}"); }
+
+            return 0; // Desativado
         }
 
-        private void SetAutoStart(bool enable)
+        private void SetBootMode(int mode)
         {
             try
             {
-                using var key = Registry.CurrentUser.OpenSubKey(AutoStartRegKey, writable: true);
-                if (key == null) { Debug.WriteLine("[AutoStart] Chave do registro não encontrada."); return; }
+                string exePath = Process.GetCurrentProcess().MainModule?.FileName
+                                 ?? System.Reflection.Assembly.GetExecutingAssembly().Location;
 
-                if (enable)
+                using var runKey = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true);
+                using var winlogonKey = Registry.CurrentUser.CreateSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon");
+                // Chave responsável pelo som de Inicialização/Logon
+                using var soundKey = Registry.CurrentUser.CreateSubKey(@"AppEvents\Schemes\Apps\.Default\SystemStart\.Current");
+
+                // Limpa as chaves para evitar conflitos
+                runKey?.DeleteValue("Doorpi", false);
+                if (winlogonKey?.GetValue("Shell") != null) winlogonKey.DeleteValue("Shell", false);
+
+                if (mode == 1) // Iniciar com Windows (Padrão)
                 {
-                    string exePath = Process.GetCurrentProcess().MainModule?.FileName
-                                     ?? System.Reflection.Assembly.GetExecutingAssembly().Location;
-                    key.SetValue(AutoStartAppName, $"\"{exePath}\"");
-                    Debug.WriteLine($"[AutoStart] Ativado → {exePath}");
+                    runKey?.SetValue("Doorpi", $"\"{exePath}\"");
+
+                    // Restaura o som padrão do Windows deletando o mute
+                    if (soundKey?.GetValue("") as string == "")
+                        soundKey.DeleteValue("", false);
+
+                    Debug.WriteLine($"[BootMode] Ativado Modo Padrão");
                 }
-                else
+                else if (mode == 2) // Modo Console (Shell Imersivo)
                 {
-                    key.DeleteValue(AutoStartAppName, throwOnMissingValue: false);
-                    Debug.WriteLine("[AutoStart] Desativado.");
+                    winlogonKey?.SetValue("Shell", $"\"{exePath}\"");
+
+                    // Muta o som de Boot do Windows (O Windows tentará tocar uma string vazia)
+                    soundKey?.SetValue("", "");
+
+                    Debug.WriteLine($"[BootMode] Ativado Modo Console");
                 }
             }
-            catch (Exception ex) { Debug.WriteLine($"[AutoStart] Erro ao gravar registro: {ex.Message}"); }
+            catch (Exception ex) { Debug.WriteLine($"[BootMode] Erro ao gravar registro: {ex.Message}"); }
         }
-
-        private void SendAutoStartStateToUI()
+        private void EnsureExplorerIsRunningInBackstage()
         {
-            bool enabled = IsAutoStartEnabled();
+            // Se o explorer já estiver rodando, não fazemos nada
+            if (Process.GetProcessesByName("explorer").Length > 0) return;
+
+            try
+            {
+
+                this.Topmost = true;
+
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "explorer.exe",
+                    UseShellExecute = true
+                });
+
+                Debug.WriteLine("[Boot] Explorer.exe iniciado em background com sucesso.");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Boot] Erro ao iniciar explorer: {ex.Message}");
+            }
+        }
+        private void SendBootModeToUI()
+        {
+            int mode = GetBootMode();
             Dispatcher.Invoke(() =>
                 webView.CoreWebView2.PostWebMessageAsString(
-                    JsonSerializer.Serialize(new { type = "autoStartState", enabled })));
+                    JsonSerializer.Serialize(new { type = "bootModeState", mode })));
         }
         private string GetSteamGridApiKey() => LoadUserProfile().SteamGridApiKey;
 
@@ -4556,15 +4631,81 @@ namespace Doorpi
                         }
                     });
                 }
-                else if (action == "requestAutoStartState")
+                else if (action == "requestBootMode")
                 {
-                    SendAutoStartStateToUI();
+                    SendBootModeToUI();
                 }
-                else if (action == "setAutoStart")
+                else if (action == "setBootMode" && root.TryGetProperty("mode", out var modeEl))
                 {
-                    bool enable = root.TryGetProperty("enable", out var enableEl) && enableEl.GetBoolean();
-                    SetAutoStart(enable);
-                    SendAutoStartStateToUI(); 
+                    SetBootMode(modeEl.GetInt32());
+                    SendBootModeToUI();
+                }
+                else if (action == "openSignInOptions")
+                {
+                    try
+                    {
+                        // Abre a janela de Opções de Entrada
+                        Process.Start(new ProcessStartInfo("ms-settings:signinoptions") { UseShellExecute = true });
+
+                        // Minimiza o Doorpi e assume o controle como Mouse/Teclado
+                        Dispatcher.Invoke(EnterDesktopMode);
+
+                        // O "_ =" descarta o aviso do compilador indicando que é um Fire-And-Forget intencional
+                        _ = Task.Run(async () =>
+                        {
+                            bool appFound = false;
+
+                            // Aguarda até 10 segundos para a janela de Configurações abrir
+                            for (int i = 0; i < 20; i++)
+                            {
+                                await Task.Delay(500);
+                                if (Process.GetProcessesByName("SystemSettings").Length > 0)
+                                {
+                                    appFound = true;
+
+                                    Dispatcher.Invoke(() => {
+                                        // Força a janela a maximizar
+                                        IntPtr fgHwnd = GetForegroundWindow();
+                                        if (fgHwnd != IntPtr.Zero)
+                                        {
+                                            ShowWindow(fgHwnd, 3);
+                                        }
+
+                                        // Joga o mouse pro canto direito (área vazia segura) na metade da tela
+                                        int safeX = (int)SystemParameters.PrimaryScreenWidth - 20;
+                                        int safeY = (int)SystemParameters.PrimaryScreenHeight / 2;
+                                        SetCursorPos(safeX, safeY);
+
+                                        // Envia um Clique Esquerdo Rápido para roubar o foco do UWP
+                                        // (0x0002 = MOUSEEVENTF_LEFTDOWN | 0x0004 = MOUSEEVENTF_LEFTUP)
+                                        SendMouse(0, 0, 0x0002);
+                                        SendMouse(0, 0, 0x0004);
+                                    });
+                                    break;
+                                }
+                            }
+
+                            if (!appFound) return;
+
+                            // Monitora a cada segundo até o usuário fechar a janela
+                            while (_systemControllerActive)
+                            {
+                                await Task.Delay(1000);
+                                if (Process.GetProcessesByName("SystemSettings").Length == 0)
+                                {
+                                    // A janela fechou! Tira do modo Desktop e volta pro Doorpi
+                                    Dispatcher.Invoke(() => {
+                                        if (_systemControllerActive)
+                                        {
+                                            ExitDesktopMode();
+                                        }
+                                    });
+                                    break;
+                                }
+                            }
+                        });
+                    }
+                    catch (Exception ex) { Debug.WriteLine($"Erro ao abrir config de contas: {ex.Message}"); }
                 }
                 else if (action == "addSelectedGames" && root.TryGetProperty("games", out var gamesElement))
                 {

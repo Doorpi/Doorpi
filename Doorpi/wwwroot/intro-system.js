@@ -38,7 +38,15 @@
     function getIntroConfig() {
         try {
             const saved = localStorage.getItem('doorpi:intro_config');
-            if (saved) return { ...DEFAULT_CONFIG, ...JSON.parse(saved) };
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                return {
+                    ...DEFAULT_CONFIG,
+                    ...parsed,
+                    // Garante que o merge do objeto handoff não apague os arrays padrão de cores
+                    handoff: { ...DEFAULT_CONFIG.handoff, ...(parsed.handoff || {}) }
+                };
+            }
         } catch (e) { }
         return DEFAULT_CONFIG;
     }
@@ -48,7 +56,7 @@
     }
 
     function injectStyles() {
-        if (document.getElementById('doorpiIntroSystemStyles')) return;
+        if (!document.head || document.getElementById('doorpiIntroSystemStyles')) return;
         const style = document.createElement('style');
         style.id = 'doorpiIntroSystemStyles';
         style.textContent = `
@@ -72,14 +80,13 @@
         document.head.appendChild(style);
     }
 
-    // 🚀 AQUI ESTÁ A MÁGICA: ESSA FUNÇÃO "LIGA" A INTERFACE DO SISTEMA
     function revealMainSystemUI() {
         const ui = document.getElementById('doorpi-app-ui');
         if (ui && ui.style.display === 'none') {
             ui.style.display = 'block';
-            void ui.offsetWidth; // Força o navegador a recalcular o layout instantaneamente
+            void ui.offsetWidth;
             ui.style.opacity = '1';
-            document.body.style.background = '#07071a'; // Volta a cor de fundo padrão do app
+            document.body.style.background = '#07071a';
         }
     }
 
@@ -93,7 +100,6 @@
         state.completed = true;
         window.clearTimeout(state.completeTimer);
 
-        // Se não existir tela de Seleção de Usuário (handoff desativado), liga o sistema agora
         if (!state.handoffActive) {
             revealMainSystemUI();
         }
@@ -236,14 +242,12 @@
         state.ambientRaf = requestAnimationFrame(runAmbientPhysics);
     }
 
-    // Chamada quando o usuário efetivamente faz o login / escolhe o perfil!
     function finishHandoff() {
         if (!state.handoffActive) return;
         state.handoffActive = false;
         document.body.classList.remove('doorpi-intro-handoff-active');
         clearHandoffAssets();
 
-        // Liga o Sistema de vez!
         revealMainSystemUI();
 
         if (state.ambientRaf) cancelAnimationFrame(state.ambientRaf);
@@ -275,23 +279,23 @@
         if (state.started) return;
         state.started = true;
 
+        injectStyles(); // Garante que foi injetado, caso o documento estivesse muito vazio no parse inicial
+
         state.config = getIntroConfig();
 
-        // Se a intro estiver desativada, liga o sistema direto.
         if (!state.config.enabled) {
             state.completed = true;
             revealMainSystemUI();
             return;
         }
 
-        injectStyles();
         installInputGuards();
         window.addEventListener('message', handleIntroMessage);
 
-        // Cria o iframe de forma NATIVA (sem a div preta por trás, ele mesmo É a tela inteira preta)
         const iframe = document.createElement('iframe');
         iframe.id = 'doorpiIntroFrame';
         iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+        iframe.setAttribute('loading', 'eager'); // Pede máxima prioridade no download ao browser
         iframe.title = state.config.name || 'Doorpi Intro';
         iframe.src = state.config.entryUrl;
 
@@ -306,10 +310,7 @@
     }
 
     window.DoorpiIntro = {
-        start,
-        runAfterIntro,
-        finishHandoff,
-        skip: skipIntro,
+        start, runAfterIntro, finishHandoff, skip: skipIntro,
         isRunning: () => state.started && !state.completed,
         isComplete: () => state.completed,
         isHandoffActive: () => state.handoffActive,
@@ -325,9 +326,25 @@
         shouldDeferUserPicker: () => state.started && !state.completed
     };
 
+    // INJEÇÃO ULTRA-RÁPIDA (Não espera o resto da página carregar)
+    injectStyles();
     if (document.body) {
         start();
     } else {
-        document.addEventListener('DOMContentLoaded', start, { once: true });
+        const observer = new MutationObserver(() => {
+            if (document.body) {
+                observer.disconnect();
+                start();
+            }
+        });
+        observer.observe(document.documentElement, { childList: true });
+
+        // Fallback de segurança garantida
+        document.addEventListener('DOMContentLoaded', () => {
+            if (!state.started) {
+                observer.disconnect();
+                start();
+            }
+        });
     }
 })();

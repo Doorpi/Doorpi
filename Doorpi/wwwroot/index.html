@@ -6,7 +6,10 @@
     <title>Doorpi</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="stylesheet" href="style.css">
+    <link rel="preload" href="style.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link rel="stylesheet" href="style.css"></noscript>
+
+    <link rel="preload" href="intros/doorpi-neon/index.html" as="document">
 </head>
 <!-- O body nasce 100% preto, sem margens e sem barra de rolagem -->
 <body style="background: #020309; margin: 0; overflow: hidden;">
