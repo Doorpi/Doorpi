@@ -166,6 +166,8 @@ namespace Doorpi
         private System.Threading.Timer? _mousePollTimer;
         private const int MOUSE_IDLE_MS = 3000;
 
+
+
         [DllImport("Powrprof.dll", CharSet = CharSet.Auto, ExactSpelling = true)]
         private static extern bool SetSuspendState(bool hiberate, bool forceCritical, bool disableWakeEvent);
 
@@ -1186,6 +1188,9 @@ namespace Doorpi
                 () => _mediaExeModeActive,
                 () =>
                 {
+                    // SUPRESSÃO PRIMEIRO
+                    Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil,
+                        DateTime.UtcNow.AddMilliseconds(800).Ticks);
                     _mediaExeModeActive = false;
                     _mediaExeProcess = null;
                     SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
@@ -1319,9 +1324,11 @@ namespace Doorpi
         private void ExitDesktopMode()
         {
             if (!_systemControllerActive) return;
-
-            _systemControllerActive = false; 
-            SendMouse(0, 0, MOUSEEVENTF_LEFTUP); 
+  
+            Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil,
+                DateTime.UtcNow.AddMilliseconds(800).Ticks);
+            _systemControllerActive = false;
+            SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
 
             Dispatcher.Invoke(() => {
                 _desktopVkb?.Close();
@@ -2550,6 +2557,7 @@ namespace Doorpi
         private long _focusRestoredAtTicks = 0;
         public void ForceFocus()
         {
+            CommitActiveSession();
             _gameSessionActive = false;
             if (_mediaExeModeActive) ExitMediaExeMode();
             _mainUiGamepadSuspendedForGame = false;
@@ -2766,6 +2774,39 @@ namespace Doorpi
             catch (OperationCanceledException) { }
             catch (Exception ex) { Debug.WriteLine($"[GameLaunchMonitor] {ex.Message}"); }
         }
+
+        // ── Session tracking ──────────────────────────────────────────────────────
+        private DateTime _sessionStartUtc = DateTime.MinValue;
+        private string _activeSessionGameId = "";
+
+        private void CommitActiveSession()
+        {
+            if (_sessionStartUtc == DateTime.MinValue || string.IsNullOrEmpty(_activeSessionGameId))
+                return;
+
+            int sessionMinutes = (int)(DateTime.UtcNow - _sessionStartUtc).TotalMinutes;
+            _sessionStartUtc = DateTime.MinValue;
+            string gameId = _activeSessionGameId;
+            _activeSessionGameId = "";
+
+            if (sessionMinutes < 1) return; // ignora sessões abaixo de 1 minuto
+
+            _ = Task.Run(() =>
+            {
+                var games = LoadGames();
+                var game = games.FirstOrDefault(g =>
+                    string.Equals(g.LaunchUrl, gameId, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(g.Path, gameId, StringComparison.OrdinalIgnoreCase));
+
+                if (game == null) return;
+
+                game.TotalPlaytimeMinutes += sessionMinutes;
+                game.LastSessionMinutes = sessionMinutes;
+                SaveGames(games);
+                Debug.WriteLine($"[Session] {game.Name}: +{sessionMinutes}min (total: {game.TotalPlaytimeMinutes}min)");
+            });
+        }
+
         private void SendGameLaunchStatus(string type,
     string gameName = "",
     string heroImage = "",
@@ -5971,6 +6012,8 @@ namespace Doorpi
                     {
                         StartGameLaunchMonitor(game, launched, processSnapshot);
 
+                        _sessionStartUtc = DateTime.UtcNow;
+                        _activeSessionGameId = identifier;
                         SendGameLaunchStatus("gameLaunching",
                             game.Name,
                             game.HeroImage ?? "",
@@ -6298,7 +6341,7 @@ namespace Doorpi
             _mainUiGamepadThread = new Thread(MainUiGamepadLoop) { IsBackground = true };
             _mainUiGamepadThread.Start();
         }
-
+        private long _returnFromExternalModeSuppressUntil = 0;
         private void MainUiGamepadLoop()
         {
             const int INITIAL_DELAY_MS = 400;
@@ -6317,31 +6360,40 @@ namespace Doorpi
                     bool foregroundOk = IsDoorpiMainWindowForeground() ||
                         (DateTime.UtcNow.Ticks - Interlocked.Read(ref _focusRestoredAtTicks))
                         < TimeSpan.FromSeconds(2).Ticks;
-
                     if (_systemControllerActive || _mediaExeModeActive || _dialogModeActive ||
                         _ytWebView != null || !foregroundOk || IsMainUiGamepadSuspendedForGame())
                     {
                         moveState = 0; currentDir = null;
+                        if (XInputGetStateSecret(0, out var snap) == 0)
+                            prevButtons = snap.Gamepad.wButtons;
                         Thread.Sleep(50); continue;
                     }
-
                     if (XInputGetStateSecret(0, out var state) != 0) { Thread.Sleep(10); continue; }
 
                     var gp = state.Gamepad;
                     double ax = gp.sThumbLX / 32767.0;
                     double ay = gp.sThumbLY / 32767.0;
                     ushort btn = gp.wButtons;
-
+                    if (DateTime.UtcNow.Ticks < Interlocked.Read(ref _returnFromExternalModeSuppressUntil))
+                    {
+                        prevButtons = btn;
+                        Thread.Sleep(10);
+                        continue;
+                    }
                     bool BtnPressed(ushort m) => (btn & m) != 0 && (prevButtons & m) == 0;
 
+
                     // ── Xbox (0x0400) ou SELECT (0x0020) → abre seletor de usuário ──
-                    if (BtnPressed(0x0400) || BtnPressed(0x0020))
+                    if (DateTime.UtcNow.Ticks > Interlocked.Read(ref _returnFromExternalModeSuppressUntil))
                     {
-                        Dispatcher.BeginInvoke(() =>
+                        if (BtnPressed(0x0400) || BtnPressed(0x0020))
                         {
-                            if (webView?.CoreWebView2 != null)
-                                webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"openUserPicker\"}");
-                        });
+                            Dispatcher.BeginInvoke(() =>
+                            {
+                                if (webView?.CoreWebView2 != null)
+                                    webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"openUserPicker\"}");
+                            });
+                        }
                     }
 
                     string? dir = null;

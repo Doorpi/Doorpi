@@ -17,8 +17,8 @@ namespace Doorpi
         public string GridHorizontalImage { get; set; } = "";
         public string HeroImage { get; set; } = "";
         public string LogoImage { get; set; } = "";
-
-       
+        public long TotalPlaytimeMinutes { get; set; } = 0;
+        public int LastSessionMinutes { get; set; } = 0;
         public string GridStaticImage { get; set; } = "";
         public string GridHorizontalStaticImage { get; set; } = "";
         public string HeroStaticImage { get; set; } = "";

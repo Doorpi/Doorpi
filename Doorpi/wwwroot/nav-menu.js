@@ -836,46 +836,83 @@ window.isNavMenuOpen = false;
         const prof = _menuData.user || {};
         const name = prof.Name || '—';
         const photo = prof.PhotoBase64 || '';
-        const totalGames = _menuData.games ? _menuData.games.length : 0;
+        const games = _menuData.games || [];
 
-        const recentGames = (_menuData.games || [])
-            .filter(g => g.LastPlayed && !g.LastPlayed.startsWith("0001-01-01"))
+        const totalGames = games.length;
+
+        const totalMinutes = games.reduce((sum, g) => sum + (g.TotalPlaytimeMinutes || 0), 0);
+
+        const mostPlayed = [...games]
+            .filter(g => (g.TotalPlaytimeMinutes || 0) > 0)
+            .sort((a, b) => b.TotalPlaytimeMinutes - a.TotalPlaytimeMinutes)[0];
+
+        const recentGames = games
+            .filter(g => g.LastPlayed && !g.LastPlayed.startsWith('0001-01-01'))
             .sort((a, b) => new Date(b.LastPlayed) - new Date(a.LastPlayed))
-            .slice(0, 5);
+            .slice(0, 6);
+
+        const fmtTime = (minutes) => {
+            if (!minutes || minutes < 1) return null;
+            const h = Math.floor(minutes / 60);
+            const m = minutes % 60;
+            if (h === 0) return `${m}min`;
+            if (m === 0) return `${h}h`;
+            return `${h}h ${m}min`;
+        };
+
+        const relDate = (dateStr) => {
+            if (!dateStr || dateStr.startsWith('0001')) return '';
+            const diffDays = Math.floor((Date.now() - new Date(dateStr)) / 86400000);
+            if (diffDays === 0) return _t('today', 'hoje');
+            if (diffDays === 1) return _t('yesterday', 'ontem');
+            if (diffDays < 7) return `há ${diffDays}d`;
+            if (diffDays < 30) return `há ${Math.floor(diffDays / 7)}sem`;
+            return new Date(dateStr).toLocaleDateString();
+        };
+
+        const totalFmt = fmtTime(totalMinutes) || '--';
+        const mostPlayedName = mostPlayed ? mostPlayed.Name : '--';
+        const mostPlayedFmt = mostPlayed ? (fmtTime(mostPlayed.TotalPlaytimeMinutes) || '') : '';
 
         body.innerHTML = `
-            <div class="nav-profile-showcase">
-                <div class="nav-profile-header">
-                    <div class="nav-profile-avatar-large">
-                        ${photo ? `<img src="data:image/png;base64,${photo}" />` : '◉'}
-                    </div>
-                    <div class="nav-profile-info">
-                        <h2 class="nav-profile-name">${name}</h2>
-                    </div>
-                    <button class="nav-profile-edit-btn" id="btnEditProfileHub" tabindex="-1">
-                        ${_t('navEditProfileBtn', 'Editar Perfil')}
-                    </button>
+        <div class="nav-profile-showcase">
+            <div class="nav-profile-header">
+                <div class="nav-profile-avatar-large">
+                    ${photo ? `<img src="data:image/png;base64,${photo}" />` : '◉'}
                 </div>
-
-                <div class="nav-profile-stats-row">
-                    <div class="nav-profile-stat-box active">
-                        <span class="stat-value">${totalGames}</span>
-                        <span class="stat-label">${_t('navStatGames', 'Jogos na Biblioteca')}</span>
-                    </div>
-                    <div class="nav-profile-stat-box future-placeholder">
-                        <span class="stat-value">--</span>
-                        <span class="stat-label">${_t('navStatTrophies', 'Troféus Conquistados')}</span>
-                    </div>
-                    <div class="nav-profile-stat-box future-placeholder">
-                        <span class="stat-value">--</span>
-                        <span class="stat-label">${_t('navStatTime', 'Horas Jogadas')}</span>
-                    </div>
+                <div class="nav-profile-info">
+                    <h2 class="nav-profile-name">${name}</h2>
                 </div>
-
-                <div class="nav-profile-section-title">${_t('navRecentGames', 'Jogados Recentemente')}</div>
-                <div class="nav-profile-recent-grid" id="profileRecentGrid"></div>
+                <button class="nav-profile-edit-btn" id="btnEditProfileHub" tabindex="-1">
+                    ${_t('navEditProfileBtn', 'Editar Perfil')}
+                </button>
             </div>
-        `;
+
+            <div class="nav-profile-stats-row">
+                <div class="nav-profile-stat-box">
+                    <span class="stat-value">${totalGames}</span>
+                    <span class="stat-label">${_t('navStatGames', 'Jogos na Biblioteca')}</span>
+                </div>
+                <div class="nav-profile-stat-box ${totalMinutes === 0 ? 'future-placeholder' : ''}">
+                    <span class="stat-value">${totalFmt}</span>
+                    <span class="stat-label">${_t('navStatTime', 'Horas Jogadas')}</span>
+                </div>
+                <div class="nav-profile-stat-box ${!mostPlayed ? 'future-placeholder' : ''}">
+                    <span class="stat-value" style="font-size:clamp(0.85rem,1.3vw,1.6rem); line-height:1.2; text-align:center;">
+                        ${mostPlayedName}
+                    </span>
+                    <span class="stat-label">
+                        ${mostPlayed
+                ? `${_t('navStatMostPlayed', 'Mais Jogado')} · ${mostPlayedFmt}`
+                : _t('navStatMostPlayed', 'Mais Jogado')}
+                    </span>
+                </div>
+            </div>
+
+            <div class="nav-profile-section-title">${_t('navRecentGames', 'Jogados Recentemente')}</div>
+            <div class="nav-profile-recent-grid" id="profileRecentGrid"></div>
+        </div>
+    `;
 
         _contentItems = [];
 
@@ -883,57 +920,64 @@ window.isNavMenuOpen = false;
         if (btnEdit) {
             _contentItems.push(btnEdit);
             btnEdit.addEventListener('click', () => {
-                _catIdx = 2; // Configurações
+                _catIdx = 2;
                 _settingsSubView = 'accountHub';
                 document.querySelectorAll('.nav-cat-item').forEach((el, i) => el.classList.toggle('active', i === _catIdx));
                 _updateTopbarFocusVisual();
                 _contentIdx = 0;
-
-                const titleEl = document.getElementById('navContentTitle');
-                const subEl = document.getElementById('navContentSub');
                 const headerWrap = document.getElementById('navHeaderWrap');
                 if (headerWrap) headerWrap.style.display = 'block';
-                if (titleEl) titleEl.textContent = CATS[_catIdx].label;
-                if (subEl) subEl.textContent = _subtitle(CATS[_catIdx].id);
-
+                document.getElementById('navContentTitle').textContent = CATS[_catIdx].label;
+                document.getElementById('navContentSub').textContent = _subtitle(CATS[_catIdx].id);
                 _renderContent('settings');
                 _setTopbarFocus(false);
             });
         }
 
         const grid = body.querySelector('#profileRecentGrid');
-        if (recentGames.length === 0) {
-            grid.innerHTML = `<div style="color:rgba(255,255,255,0.3); grid-column: 1/-1;">${_t('navNoRecentGames', 'Nenhum jogo recente')}</div>`;
-        } else {
-            recentGames.forEach((item, i) => {
-                const gameName = item.Name || '';
-                const staticSrc = item.GridStaticImage || item.GridImage || item.GridHorizontalStaticImage || '';
 
-                const dateObj = new Date(item.LastPlayed);
-                const dateStr = dateObj.toLocaleDateString();
+        if (recentGames.length === 0) {
+            grid.innerHTML = `<div style="color:rgba(255,255,255,0.3); grid-column:1/-1;">
+            ${_t('navNoRecentGames', 'Nenhum jogo recente')}
+        </div>`;
+        } else {
+            recentGames.forEach((item) => {
+                const staticSrc = item.GridStaticImage || item.GridImage || '';
+                const totalFmtItem = fmtTime(item.TotalPlaytimeMinutes);
+                const lastFmt = fmtTime(item.LastSessionMinutes);
+                const dateStr = relDate(item.LastPlayed);
                 const pData = _getPlatformData(item.LaunchUrl);
 
                 const card = document.createElement('div');
                 card.className = 'nav-profile-recent-card';
+
                 card.innerHTML = staticSrc
-                    ? `<img src="${staticSrc}" alt="${gameName}" />`
+                    ? `<img src="${staticSrc}" alt="${item.Name}" />`
                     : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:rgba(255,255,255,0.1);font-size:2rem;">⊞</div>`;
 
                 card.innerHTML += `
-                    <div class="nav-card-gradient"></div>
-                    <div class="nav-profile-recent-info">
-                        <div class="nav-profile-recent-platform-icon">${pData.svg}</div>
-                        <div class="nav-profile-recent-text">
-                            <span class="nav-profile-recent-title">${gameName}</span>
-                            <span class="nav-profile-recent-date">${_t('playedOn', `Jogado em ${dateStr}`, dateStr)}</span>
+                <div class="nav-card-gradient"></div>
+                <div class="nav-profile-recent-info">
+                    <div class="nav-profile-recent-platform-icon">${pData.svg}</div>
+                    <div class="nav-profile-recent-text">
+                        <span class="nav-profile-recent-title">${item.Name}</span>
+                        <div style="display:flex;flex-direction:column;gap:2px;margin-top:4px;">
+                            ${totalFmtItem
+                        ? `<span class="nav-profile-recent-date">${totalFmtItem} no total</span>`
+                        : ''}
+                            ${lastFmt
+                        ? `<span class="nav-profile-recent-date" style="color:rgba(255,255,255,0.45);">última: ${lastFmt}</span>`
+                        : ''}
+                            ${dateStr
+                        ? `<span class="nav-profile-recent-date" style="color:rgba(255,255,255,0.35);">${dateStr}</span>`
+                        : ''}
                         </div>
                     </div>
-                `;
+                </div>
+            `;
 
                 grid.appendChild(card);
                 _contentItems.push(card);
-
-                card.addEventListener('click', () => { });
 
                 card.addEventListener('mouseenter', () => {
                     _topbarFocus = false;
