@@ -191,7 +191,7 @@ namespace Doorpi
                                 this.WindowState = WindowState.Maximized;
                                 this.Activate();
                                 this.ForceFocus();
-                                StartMainScreenMouseWatch();
+                             
                             }
                             else
                             {
@@ -1068,7 +1068,9 @@ function _vkbClose() {{
 
                         this.WindowState = WindowState.Minimized;
                         StartMediaControllerMode();
-                        StopMainScreenMouseWatch();
+
+                        if (!isYouTube)
+                            EnsureCursorVisible();
 
                         SendGameLaunchStatus("gameLaunchDone");
                         return;
@@ -1196,7 +1198,7 @@ function _vkbClose() {{
                     await InjectInstalledExtensionsAsync(_ytWebView.CoreWebView2);
             };
 
-            StopMainScreenMouseWatch();
+           
             if (_mainScreenMouseVisible)
             {
                 EnsureCursorHidden();
@@ -1287,7 +1289,7 @@ function _vkbClose() {{
             this.WindowState = WindowState.Maximized;
             ForceFocus();
             webView.CoreWebView2?.PostWebMessageAsString("{\"type\":\"mediaAppClosed\"}");
-            StartMainScreenMouseWatch();
+          
         }
 
         // ── Handlers ─────────────────────────────────────────────────────────

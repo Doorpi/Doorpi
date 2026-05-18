@@ -158,6 +158,8 @@ namespace Doorpi
         private readonly List<FileSystemWatcher> _folderWatchers = new();
         private volatile bool _windowsCacheInvalid = false;
         private volatile bool _pollingActive = false;
+        private volatile int _mediaExeSessionId = 0;
+
         private readonly SemaphoreSlim _cacheLock = new SemaphoreSlim(1, 1);
         private DateTime _lastCacheBuilt = DateTime.MinValue;
 
@@ -269,12 +271,17 @@ namespace Doorpi
         private string _mediaExeCurrentUrl = "";
 
         // ========================= CONSTRUTOR =========================
-
+        private void ResetCursorForMainScreen()
+        {
+            EnsureCursorVisible();  // normaliza o contador do ShowCursor para 0
+            EnsureCursorHidden();   // leva para -1 (escondido)
+            _mainScreenMouseVisible = false;
+        }
         public MainWindow()
         {
             InitializeComponent();
 
-      
+
             this.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#020309"));
             webView.DefaultBackgroundColor = System.Drawing.Color.Transparent;
             SourceInitialized += (_, _) =>
@@ -283,15 +290,19 @@ namespace Doorpi
             };
             this.Activated += (s, e) =>
             {
+                // CRÍTICO: sem isso, ativações espúrias corrompem o estado ao trocar tabs rápido
+                if (DateTime.UtcNow.Ticks < Interlocked.Read(ref _returnFromExternalModeSuppressUntil))
+                    return;
+
                 if (_mediaExeModeActive)
                 {
-                    // Alt-Tab inesperado de volta pro Doorpi — cancela tudo
                     _mediaExeWatcherCts?.Cancel();
                     _mediaExeWatcherPaused = true;
                     _mediaExeModeActive = false;
                     _mediaExeProcess = null;
                     _mediaExeCurrentUrl = "";
                     SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
+                    SendGameLaunchStatus("gameLaunchDone");
                     Dispatcher.InvokeAsync(() =>
                     {
                         _desktopVkb?.Close();
@@ -299,13 +310,12 @@ namespace Doorpi
                         WindowState = WindowState.Maximized;
                         webView?.Focus();
                     });
+                    return;
                 }
+
                 if (_gameSessionActive)
                 {
-                    lock (_gameLaunchMonitorLock)
-                    {
-                        _gameLaunchMonitorCts?.Cancel();
-                    }
+                    lock (_gameLaunchMonitorLock) { _gameLaunchMonitorCts?.Cancel(); }
                     ForceFocus();
                     return;
                 }
@@ -492,10 +502,10 @@ namespace Doorpi
         {
             if (GetBootMode() == 2)
             {
-               
+
                 _ = Task.Run(async () =>
                 {
-                    
+
                     await Task.Delay(1500);
                     Dispatcher.Invoke(() => EnsureExplorerIsRunningInBackstage());
                 });
@@ -530,11 +540,11 @@ namespace Doorpi
             };
             // Configurações de Produção / Kiosk Mode
             webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
-            webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false; 
+            webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
             webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
             webView.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = false;
             webView.CoreWebView2.Settings.IsZoomControlEnabled = false;
-            webView.CoreWebView2.Settings.IsBuiltInErrorPageEnabled = false; 
+            webView.CoreWebView2.Settings.IsBuiltInErrorPageEnabled = false;
 
             StartWatchers();
             _ = Task.Run(WatchWindowsRegistry);
@@ -971,13 +981,13 @@ namespace Doorpi
             user.LastUsed = DateTime.Now;
             SaveUserProfiles(users);
 
- 
+
             Dispatcher.Invoke(() =>
                 webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"userSwitchStart\"}"));
 
             _ = Task.Run(async () =>
             {
-                await Task.Delay(150); 
+                await Task.Delay(150);
 
                 SetActiveUser(user, migrateLegacyFiles: false);
                 RestartWatchers();
@@ -1131,7 +1141,7 @@ namespace Doorpi
                             // No SharedGamepadControllerLoop...
                             if (Pressed(0x1000)) // Botão A pressionado
                             {
-               
+
                                 IntPtr foregroundHwnd = GetForegroundWindow();
                                 if (foregroundHwnd != IntPtr.Zero)
                                 {
@@ -1217,25 +1227,28 @@ namespace Doorpi
             }
         }
 
-        private void MediaExeControllerLoop()
+        private void MediaExeControllerLoop(int sessionId)
         {
             SharedGamepadControllerLoop(
                 () => _mediaExeModeActive,
                 () =>
                 {
-                    // PAUSA o watcher (mantém o processo rastreado para possível restore)
-                    _mediaExeWatcherPaused = true;
+                    if (_mediaExeSessionId != sessionId) return;
 
+                    _mediaExeWatcherCts?.Cancel(); // ← ADICIONADO: mata o maximize task e o watcher
+                    _mediaExeWatcherPaused = true;
                     Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil,
                         DateTime.UtcNow.AddMilliseconds(800).Ticks);
                     _mediaExeModeActive = false;
-                    // _mediaExeProcess e _mediaExeCurrentUrl intencionalmente preservados
 
                     SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
+                    SendGameLaunchStatus("gameLaunchDone");
                     Dispatcher.Invoke(() =>
                     {
                         _desktopVkb?.Close();
                         _desktopVkb = null;
+                        EnsureCursorHidden();
+                        _mainScreenMouseVisible = false;
                         WindowState = WindowState.Maximized;
                         Activate();
                         webView?.Focus();
@@ -1354,16 +1367,17 @@ namespace Doorpi
             catch { }
             return null;
         }
-        private async Task TryMaximizeExternalWindowAsync(Process proc, string mediaUrl)
+        private async Task TryMaximizeExternalWindowAsync(Process proc, string mediaUrl, CancellationToken token = default)
         {
-            // Aumentado de 50 para 600 loops (2 minutos de tolerância máxima para o app abrir)
             for (int i = 0; i < 600; i++)
             {
+                // CRÍTICO: Para imediatamente se saímos do modo (botão Xbox)
+                if (token.IsCancellationRequested || !_mediaExeModeActive) return;
+
                 await Task.Delay(200);
                 try
                 {
                     Process? targetProc = proc;
-                    // Se o processo inicial (Launcher) já morreu, tenta buscar o app real
                     if (SafeHasExited(targetProc))
                     {
                         targetProc = FindRunningProcessForExe(mediaUrl);
@@ -1375,8 +1389,10 @@ namespace Doorpi
 
                     if (hwnd != IntPtr.Zero)
                     {
-                        if (IsIconic(hwnd)) ShowWindow(hwnd, 9);       // SW_RESTORE
-                        ShowWindow(hwnd, 3);                           // SW_MAXIMIZE
+                        // Double-check antes de focar — pode ter mudado enquanto aguardava
+                        if (token.IsCancellationRequested || !_mediaExeModeActive) return;
+                        if (IsIconic(hwnd)) ShowWindow(hwnd, 9);
+                        ShowWindow(hwnd, 3);
                         FocusExternalWindow(hwnd);
                         return;
                     }
@@ -1480,23 +1496,32 @@ namespace Doorpi
 
         private void ReturnToDoorpiFromMedia()
         {
+            int capturedSession = _mediaExeSessionId;
+
             _mediaExeModeActive = false;
             _mediaExeProcess = null;
             _mediaExeCurrentUrl = "";
 
-            Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil, DateTime.UtcNow.AddMilliseconds(500).Ticks);
+            Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil,
+                DateTime.UtcNow.AddMilliseconds(500).Ticks);
             SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
-
-            SendGameLaunchStatus("gameLaunchDone"); // Garante a remoção de overlays de carregamento
+            SendGameLaunchStatus("gameLaunchDone");
 
             Dispatcher.BeginInvoke(() =>
             {
+                // Se uma nova sessão foi iniciada entre a detecção de fechamento e este callback,
+                // não interfira com ela
+                if (_mediaExeSessionId != capturedSession) return;
+
                 _desktopVkb?.Close();
                 _desktopVkb = null;
+                EnsureCursorHidden();
+                _mainScreenMouseVisible = false;
                 WindowState = WindowState.Maximized;
                 Activate();
-                ForceFocus(); // Usa sua função de foco ultra-agressiva
-                webView?.CoreWebView2?.ExecuteScriptAsync("window.isMediaAppActive = false; window.focusFeaturedCard?.();");
+                ForceFocus();
+                webView?.CoreWebView2?.ExecuteScriptAsync(
+                    "window.isMediaAppActive = false; window.focusFeaturedCard?.();");
             });
         }
         private void MinimizeAllWindowsExcept(IntPtr excludeHwnd)
@@ -1526,9 +1551,10 @@ namespace Doorpi
         {
             if (_mediaExeModeActive) return;
 
-            // Cancela watcher anterior antes de criar um novo
             _mediaExeWatcherCts?.Cancel();
             _mediaExeWatcherCts = new CancellationTokenSource();
+
+            int sessionId = Interlocked.Increment(ref _mediaExeSessionId);
 
             _mediaExeProcess = proc;
             _mediaExeCurrentUrl = url;
@@ -1537,34 +1563,33 @@ namespace Doorpi
 
             Dispatcher.Invoke(() =>
             {
-
-                EnsureCursorVisible();
+                while (ShowCursor(true) < 0) { }
+                _mainScreenMouseVisible = true;
             });
 
-            // Invoca a mesma tela de Loading dos Jogos
             SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg);
-
-            // Tenta maximizar/fullscreen o app de forma assíncrona
-            _ = TryMaximizeExternalWindowAsync(proc, url);
-
-            // Inicia o watcher de encerramento
+            _ = TryMaximizeExternalWindowAsync(proc, url, _mediaExeWatcherCts.Token); // ← token passado
             StartMediaExeWatcher(proc, url, appName, _mediaExeWatcherCts.Token);
 
-            _mediaExeThread = new Thread(MediaExeControllerLoop) { IsBackground = true };
+            _mediaExeThread = new Thread(() => MediaExeControllerLoop(sessionId)) { IsBackground = true };
             _mediaExeThread.Start();
         }
-
         private void ExitMediaExeMode()
         {
             if (!_mediaExeModeActive) return;
-            _mediaExeWatcherCts?.Cancel(); // Cancela por completo (chamado via ForceFocus etc.)
+            _mediaExeWatcherCts?.Cancel();
             _mediaExeWatcherPaused = true;
             _mediaExeModeActive = false;
             _mediaExeProcess = null;
             _mediaExeCurrentUrl = "";
 
             SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
-            Dispatcher.Invoke(() => { _desktopVkb?.Close(); _desktopVkb = null; });
+            Dispatcher.Invoke(() =>
+            {
+                _desktopVkb?.Close();
+                _desktopVkb = null;
+                ResetCursorForMainScreen();
+            });
         }
         private void SendUnicodeString(string text)
         {
@@ -1644,7 +1669,7 @@ namespace Doorpi
             var sw = Stopwatch.StartNew();
             ushort prevButtons = 0;
 
-            if (XInputGetStateSecret(0, out var initialState) == 0) 
+            if (XInputGetStateSecret(0, out var initialState) == 0)
             {
                 prevButtons = initialState.Gamepad.wButtons;
             }
@@ -1740,7 +1765,7 @@ namespace Doorpi
                             {
                                 Dispatcher.Invoke(() =>
                                 {
-                                    _desktopVkb?.Close(); 
+                                    _desktopVkb?.Close();
                                     _desktopVkb = null;
                                 });
                                 ignoreNextBRelease = true;
@@ -1935,7 +1960,7 @@ namespace Doorpi
                         if (isStartSelect || isXboxButton)
                         {
                             ExitDesktopMode();
-                            break; 
+                            break;
                         }
 
                         if (Pressed(0x4000)) SendMouse(0, 0, MOUSEEVENTF_RIGHTDOWN);
@@ -2006,7 +2031,7 @@ namespace Doorpi
             }
         }
 
-    
+
         private static int AxisToCursorDelta(short rawValue, int maxPixels, bool invert = false)
         {
             const int deadZone = 8000;
@@ -2394,7 +2419,7 @@ namespace Doorpi
         }
         private void PostProgress(string appId, string state)
         {
-   
+
             Dispatcher.BeginInvoke(() =>
                 webView.CoreWebView2.PostWebMessageAsString(
                     JsonSerializer.Serialize(new { type = "nativeAppProgress", appId, state })));
@@ -3060,20 +3085,16 @@ namespace Doorpi
                     ? _mainWindowHandle
                     : new System.Windows.Interop.WindowInteropHelper(this).Handle;
 
-                // Usa o mesmo método robusto usado para focar janelas de jogos
-                // (AttachThreadInput + BringWindowToTop + SetForegroundWindow)
-                // em vez de SetWindowPos(SWP_NOACTIVATE) + SetForegroundWindow simples,
-                // que falha silenciosamente quando o processo não tem direito de foreground.
                 FocusExternalWindow(hwnd);
                 Activate();
+                EnsureCursorHidden();
+                _mainScreenMouseVisible = false;
                 webView?.Focus();
                 Keyboard.Focus(webView);
 
-                // Foca o card imediatamente — sem delay artificial
                 webView?.CoreWebView2?.ExecuteScriptAsync(
                     "window.isMediaAppActive = false; window.focusFeaturedCard?.();");
             });
-            // Task.Delay(200) removido — não é mais necessário
         }
 
         private void WatchAndRefocus(Process process)
@@ -6128,8 +6149,9 @@ namespace Doorpi
                                             if (media?.DisableGamepadControl != true && !_mediaExeModeActive)
                                             {
                                                 _mediaExeModeActive = true;
-                                                EnsureCursorVisible(); // Sem minimizar aqui!
-                                                _mediaExeThread = new Thread(MediaExeControllerLoop) { IsBackground = true };
+                                                EnsureCursorVisible();
+                                                int sessionId = Interlocked.Increment(ref _mediaExeSessionId);
+                                                _mediaExeThread = new Thread(() => MediaExeControllerLoop(sessionId)) { IsBackground = true };
                                                 _mediaExeThread.Start();
                                             }
                                             return;
@@ -6287,10 +6309,10 @@ namespace Doorpi
                 if (!string.IsNullOrEmpty(app.LaunchUrl) && app.LaunchUrl.StartsWith("steam://run/"))
                     steamAppId = app.LaunchUrl.Replace("steam://run/", "").Trim();
 
-               
+
                 var (gridUrl, gridHorizontalUrl, heroUrl, logoUrl) = await FetchSteamGridAssetsAsync(app.Name, steamAppId).ConfigureAwait(false);
 
-                await Task.Delay(150).ConfigureAwait(false); 
+                await Task.Delay(150).ConfigureAwait(false);
 
                 string safeName = app.Path.GetHashCode().ToString();
                 string? localGrid = null, localGridHorizontal = null, localHero = null, localLogo = null;
@@ -6306,7 +6328,7 @@ namespace Doorpi
                     Path = app.Path,
                     LaunchUrl = app.LaunchUrl,
                     GridImage = localGrid != null ? $"https://data.local/images/grid/{Path.GetFileName(localGrid)}" : "",
-                   
+
                     GridHorizontalImage = localGridHorizontal != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(localGridHorizontal)}" : "",
                     HeroImage = localHero != null ? $"https://data.local/images/hero/{Path.GetFileName(localHero)}" : "",
                     LogoImage = localLogo != null ? $"https://data.local/images/logo/{Path.GetFileName(localLogo)}" : "",
@@ -6320,7 +6342,7 @@ namespace Doorpi
 
             if (dbChanged)
             {
-               
+
                 SaveGames(existingGames);
 
                 Dispatcher.BeginInvoke(() => LoadGamesIntoUI());
@@ -6844,7 +6866,7 @@ namespace Doorpi
 
         // ========================= HELPERS =========================
 
-    
+
 
         private string? GetGameNameFromFile(string exePath)
         {
@@ -6931,6 +6953,7 @@ namespace Doorpi
         private long _mainUiGamepadSuppressUntilUtcTicks = 0;
         private IntPtr _mainWindowHandle = IntPtr.Zero;
         private volatile bool _gameSessionActive = false;
+
         private bool IsDoorpiMainWindowForeground()
         {
             var hwnd = _mainWindowHandle;
