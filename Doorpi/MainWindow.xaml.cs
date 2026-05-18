@@ -15,6 +15,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Xml.Linq;
 
 namespace Doorpi
@@ -270,6 +271,9 @@ namespace Doorpi
         public MainWindow()
         {
             InitializeComponent();
+
+      
+            this.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#020309"));
             SourceInitialized += (_, _) =>
             {
                 _mainWindowHandle = new System.Windows.Interop.WindowInteropHelper(this).Handle;

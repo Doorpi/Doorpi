@@ -5,14 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Doorpi Intro</title>
     <style>
-        *,
-        *::before,
-        *::after {
+        *, *::before, *::after {
             box-sizing: border-box;
         }
 
-        html,
-        body {
+        html, body {
             width: 100vw;
             height: 100vh;
             margin: 0;
@@ -33,9 +30,9 @@
             transition: opacity 0.5s ease;
         }
 
-        #appBlobWrap.bang-active {
-            opacity: 1;
-        }
+            #appBlobWrap.bang-active {
+                opacity: 1;
+            }
 
         .app-blob {
             position: absolute;
@@ -61,18 +58,16 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            opacity: 0;
-            animation: sceneIn 1.2s ease-out 0s forwards;
+    
+            animation: sceneIn 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
         }
 
         @keyframes sceneIn {
             from {
-                opacity: 0;
                 transform: scale(0.96);
             }
 
             to {
-                opacity: 1;
                 transform: scale(1);
             }
         }
@@ -111,8 +106,13 @@
         }
 
         @keyframes traceLine {
-            from { stroke-dashoffset: var(--path-len); }
-            to { stroke-dashoffset: 0; }
+            from {
+                stroke-dashoffset: var(--path-len);
+            }
+
+            to {
+                stroke-dashoffset: 0;
+            }
         }
 
         .boot-step-charge #door-path-stroke {
@@ -237,43 +237,14 @@
     </style>
 </head>
 <body>
-    <div id="appBlobWrap">
-        <div id="appBlobVig"></div>
-    </div>
+    <div id="appBlobWrap"><div id="appBlobVig"></div></div>
 
     <div id="boot-sequence">
         <div id="logo-wrap">
             <svg viewBox="357 366 357 302" id="door-logo" xmlns="http://www.w3.org/2000/svg">
-                <path id="door-path-stroke" d="M491.466248,448.851471
-                       C491.608276,430.705597 491.779083,413.042450 491.876709,395.378906
-                       C491.981354,376.446472 508.188202,366.194916 525.097473,374.768524
-                       C545.386963,385.055969 565.459961,395.770844 585.616089,406.320831
-                       C594.313293,410.873047 602.936646,415.568481 611.678162,420.033142
-                       C623.370544,426.004913 629.275146,435.542358 629.111328,448.569122
-                       C628.545471,493.556702 627.830200,538.542419 627.159241,583.528687
-                       C626.903259,600.689453 626.754395,617.853821 626.241333,635.007141
-                       C626.110962,639.366943 627.244263,641.305237 631.672974,642.608398
-                       C657.675049,650.259399 683.562744,658.299133 709.485840,666.218262
-                       C710.266846,666.456848 711.013245,666.808777 713.093750,667.624756
-                       C675.661926,667.624756 639.601135,667.624756 602.966492,667.624756
-                       C602.966492,665.443115 602.941467,663.498840 602.970093,661.555298
-                       C603.971924,593.576843 604.936218,525.597778 606.029602,457.620758
-                       C606.198303,447.128326 601.579468,439.620483 592.603638,434.901001
-                       C578.896790,427.694000 565.018494,420.808441 551.135925,413.942352
-                       C543.803528,410.315796 539.581421,412.998871 539.488892,421.233521
-                       C538.822205,480.550201 538.205566,539.867432 537.564026,599.184387
-                       C537.333740,620.477661 536.995544,641.770325 536.914490,663.064087
-                       C536.900513,666.735291 535.945618,667.921204 532.135193,667.910828
-                       C475.811768,667.757141 419.487885,667.758850 363.164154,667.699768
-                       C361.375824,667.697876 359.587738,667.440491 357.704132,666.710815
-                       C365.264282,664.606689 372.823639,662.499756 380.384735,660.398987
-                       C415.153320,650.738831 449.908630,641.030273 484.712067,631.497314
-                       C488.290710,630.517151 489.743225,629.202698 489.761627,625.199585
-                       C489.976105,578.551147 490.385681,531.903442 490.805603,485.256104
-                       C490.913391,473.281097 491.237885,461.308014 491.466248,448.851471 z" />
+                <path id="door-path-stroke" d="M491.466248,448.851471 C491.608276,430.705597 491.779083,413.042450 491.876709,395.378906 C491.981354,376.446472 508.188202,366.194916 525.097473,374.768524 C545.386963,385.055969 565.459961,395.770844 585.616089,406.320831 C594.313293,410.873047 602.936646,415.568481 611.678162,420.033142 C623.370544,426.004913 629.275146,435.542358 629.111328,448.569122 C628.545471,493.556702 627.830200,538.542419 627.159241,583.528687 C626.903259,600.689453 626.754395,617.853821 626.241333,635.007141 C626.110962,639.366943 627.244263,641.305237 631.672974,642.608398 C657.675049,650.259399 683.562744,658.299133 709.485840,666.218262 C710.266846,666.456848 711.013245,666.808777 713.093750,667.624756 C675.661926,667.624756 639.601135,667.624756 602.966492,667.624756 C602.966492,665.443115 602.941467,663.498840 602.970093,661.555298 C603.971924,593.576843 604.936218,525.597778 606.029602,457.620758 C606.198303,447.128326 601.579468,439.620483 592.603638,434.901001 C578.896790,427.694000 565.018494,420.808441 551.135925,413.942352 C543.803528,410.315796 539.581421,412.998871 539.488892,421.233521 C538.822205,480.550201 538.205566,539.867432 537.564026,599.184387 C537.333740,620.477661 536.995544,641.770325 536.914490,663.064087 C536.900513,666.735291 535.945618,667.921204 532.135193,667.910828 C475.811768,667.757141 419.487885,667.758850 363.164154,667.699768 C361.375824,667.697876 359.587738,667.440491 357.704132,666.710815 C365.264282,664.606689 372.823639,662.499756 380.384735,660.398987 C415.153320,650.738831 449.908630,641.030273 484.712067,631.497314 C488.290710,630.517151 489.743225,629.202698 489.761627,625.199585 C489.976105,578.551147 490.385681,531.903442 490.805603,485.256104 C490.913391,473.281097 491.237885,461.308014 491.466248,448.851471 z" />
             </svg>
         </div>
-
         <div id="boot-message">
             <span id="boot-sysname">Doorpi</span>
             <div id="boot-divider"></div>
@@ -287,12 +258,7 @@
             const strokePath = document.getElementById('door-path-stroke');
             const logoSvg = document.getElementById('door-logo');
             const blobWrap = document.getElementById('appBlobWrap');
-            const colors = [
-                'rgba(15,25,85,0.7)', 'rgba(10,30,85,0.7)',
-                'rgba(25,15,70,0.7)', 'rgba(5,40,75,0.7)',
-                'rgba(20,20,90,0.6)', 'rgba(15,35,70,0.6)',
-                'rgba(10,15,60,0.7)', 'rgba(30,20,80,0.6)'
-            ];
+            const colors = ['rgba(15,25,85,0.7)', 'rgba(10,30,85,0.7)', 'rgba(25,15,70,0.7)', 'rgba(5,40,75,0.7)', 'rgba(20,20,90,0.6)', 'rgba(15,35,70,0.6)', 'rgba(10,15,60,0.7)', 'rgba(30,20,80,0.6)'];
 
             const len = strokePath.getTotalLength();
             strokePath.style.setProperty('--path-len', `${len}px`);
@@ -301,52 +267,31 @@
 
             const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
             const blobs = [];
+            function post(type, payload = {}) { try { window.parent?.postMessage({ type, ...payload }, '*'); } catch { } }
 
-            function post(type, payload = {}) {
-                try { window.parent?.postMessage({ type, ...payload }, '*'); } catch { }
-            }
+            // 👇 Começa o desenho da linha instantaneamente no frame 0
+            body.classList.add('boot-step-draw');
 
-            function createBigBang() {
-                const cx = window.innerWidth / 2;
-                const cy = window.innerHeight / 2;
+            function createBigBang() { /* ... Seu codigo BigBang igual ao anterior ... */
+                const cx = window.innerWidth / 2; const cy = window.innerHeight / 2;
                 const ratio = Math.max(1, window.innerWidth / Math.max(1, window.innerHeight));
-
                 for (let i = 0; i < 8; i++) {
-                    const el = document.createElement('div');
-                    el.className = 'app-blob';
+                    const el = document.createElement('div'); el.className = 'app-blob';
                     const size = Math.min(window.innerWidth, window.innerHeight) * (0.5 + Math.random() * 0.4);
-                    el.style.width = `${size}px`;
-                    el.style.height = `${size}px`;
+                    el.style.width = `${size}px`; el.style.height = `${size}px`;
                     el.style.background = `radial-gradient(circle, ${colors[i]} 0%, transparent 70%)`;
                     blobWrap.insertBefore(el, document.getElementById('appBlobVig'));
-
-                    const angle = Math.random() * Math.PI * 2;
-                    const speed = 12 + Math.random() * 12;
-                    blobs.push({
-                        el,
-                        x: cx,
-                        y: cy,
-                        size,
-                        vx: Math.cos(angle) * speed * (ratio * 0.8),
-                        vy: Math.sin(angle) * speed,
-                        phase: 'burst',
-                        wanderAngle: angle
-                    });
+                    const angle = Math.random() * Math.PI * 2; const speed = 12 + Math.random() * 12;
+                    blobs.push({ el, x: cx, y: cy, size, vx: Math.cos(angle) * speed * (ratio * 0.8), vy: Math.sin(angle) * speed, phase: 'burst', wanderAngle: angle });
                 }
-
                 requestAnimationFrame(physicsLoop);
             }
 
             function physicsLoop() {
-                const w = window.innerWidth;
-                const h = window.innerHeight;
-
+                const w = window.innerWidth; const h = window.innerHeight;
                 for (const blob of blobs) {
                     if (blob.phase === 'burst') {
-                        blob.vx *= 0.985;
-                        blob.vy *= 0.985;
-                        blob.x += blob.vx;
-                        blob.y += blob.vy;
+                        blob.vx *= 0.985; blob.vy *= 0.985; blob.x += blob.vx; blob.y += blob.vy;
                         const margin = blob.size * 0.4;
                         if (blob.x < -margin) { blob.x = -margin; blob.vx *= -1; }
                         if (blob.x > w + margin) { blob.x = w + margin; blob.vx *= -1; }
@@ -355,71 +300,45 @@
                         if (Math.hypot(blob.vx, blob.vy) < 0.8) blob.phase = 'wander';
                     } else {
                         blob.wanderAngle += (Math.random() - 0.5) * 0.02;
-                        blob.vx = Math.cos(blob.wanderAngle) * 1.5;
-                        blob.vy = Math.sin(blob.wanderAngle) * 1.5;
-                        blob.x += blob.vx;
-                        blob.y += blob.vy;
+                        blob.vx = Math.cos(blob.wanderAngle) * 1.5; blob.vy = Math.sin(blob.wanderAngle) * 1.5;
+                        blob.x += blob.vx; blob.y += blob.vy;
                         if (blob.x > w + blob.size / 2) blob.x = -blob.size / 2;
                         if (blob.x < -blob.size / 2) blob.x = w + blob.size / 2;
                         if (blob.y > h + blob.size / 2) blob.y = -blob.size / 2;
                         if (blob.y < -blob.size / 2) blob.y = h + blob.size / 2;
                     }
-
                     blob.el.style.transform = `translate3d(${blob.x - blob.size / 2}px, ${blob.y - blob.size / 2}px, 0)`;
                 }
-
                 requestAnimationFrame(physicsLoop);
             }
 
             function spawnSparks(isBurst = false) {
                 const rect = logoSvg.getBoundingClientRect();
                 const count = isBurst ? 15 : 1;
-
                 for (let i = 0; i < count; i++) {
-                    const spark = document.createElement('div');
-                    spark.className = 'subtle-spark';
+                    const spark = document.createElement('div'); spark.className = 'subtle-spark';
                     document.body.appendChild(spark);
-
-                    let x;
-                    let y;
-                    let distance;
-                    let duration;
-
+                    let x, y, distance, duration;
                     if (isBurst) {
-                        x = window.innerWidth / 2;
-                        y = window.innerHeight / 2;
-                        distance = 40 + Math.random() * 60;
-                        duration = 1200 + Math.random() * 800;
+                        x = window.innerWidth / 2; y = window.innerHeight / 2;
+                        distance = 40 + Math.random() * 60; duration = 1200 + Math.random() * 800;
                     } else {
-                        x = rect.left + Math.random() * rect.width;
-                        y = rect.top + Math.random() * rect.height;
-                        distance = 15 + Math.random() * 25;
-                        duration = 800 + Math.random() * 600;
+                        x = rect.left + Math.random() * rect.width; y = rect.top + Math.random() * rect.height;
+                        distance = 15 + Math.random() * 25; duration = 800 + Math.random() * 600;
                     }
-
                     const angle = Math.random() * Math.PI * 2;
-                    spark.style.left = `${x}px`;
-                    spark.style.top = `${y}px`;
+                    spark.style.left = `${x}px`; spark.style.top = `${y}px`;
                     spark.animate([
                         { transform: 'translate(-50%, -50%) scale(1)', opacity: isBurst ? 1 : 0.6 },
-                        {
-                            transform: `translate(calc(-50% + ${Math.cos(angle) * distance}px), calc(-50% + ${Math.sin(angle) * distance}px)) scale(0)`,
-                            opacity: 0
-                        }
-                    ], {
-                        duration,
-                        easing: 'cubic-bezier(0.25, 1, 0.5, 1)',
-                        fill: 'forwards'
-                    });
-
+                        { transform: `translate(calc(-50% + ${Math.cos(angle) * distance}px), calc(-50% + ${Math.sin(angle) * distance}px)) scale(0)`, opacity: 0 }
+                    ], { duration, easing: 'cubic-bezier(0.25, 1, 0.5, 1)', fill: 'forwards' });
                     setTimeout(() => spark.remove(), duration);
                 }
             }
 
             async function runBootSequence() {
-                await wait(0);
-                body.classList.add('boot-step-draw');
-                await wait(2300);
+                // Diminuido para combinar com a ausência do fade opacity
+                await wait(2200);
 
                 strokePath.style.strokeDashoffset = '0';
                 void strokePath.getBoundingClientRect();
@@ -435,11 +354,7 @@
                 createBigBang();
                 spawnSparks(true);
                 post('doorpi:intro:handoff', {
-                    handoff: {
-                        background: '#07071a',
-                        vignette: 'radial-gradient(circle at 50% 50%, transparent 25%, rgba(0, 0, 18, 0.85) 95%)',
-                        colors
-                    }
+                    handoff: { background: '#07071a', vignette: 'radial-gradient(circle at 50% 50%, transparent 25%, rgba(0, 0, 18, 0.85) 95%)', colors }
                 });
 
                 await wait(1200);
