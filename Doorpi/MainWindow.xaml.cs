@@ -1354,11 +1354,10 @@ namespace Doorpi
             catch { }
             return null;
         }
-        // Aguarda a janela do app aparecer (até ~10s) e a maximiza
-        // Aguarda a janela do app aparecer e a maximiza
         private async Task TryMaximizeExternalWindowAsync(Process proc, string mediaUrl)
         {
-            for (int i = 0; i < 50; i++)
+            // Aumentado de 50 para 600 loops (2 minutos de tolerância máxima para o app abrir)
+            for (int i = 0; i < 600; i++)
             {
                 await Task.Delay(200);
                 try
@@ -1386,21 +1385,30 @@ namespace Doorpi
             }
         }
 
-        private void StartMediaExeWatcher(Process proc, string mediaUrl, CancellationToken token)
+        private void StartMediaExeWatcher(Process proc, string mediaUrl, string appName, CancellationToken token)
         {
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    Process? currentProc = proc;
-                    int windowNotFoundCount = 0;
                     string exeName = Path.GetFileNameWithoutExtension(mediaUrl);
+                    bool hasStarted = false;
+                    DateTime startTime = DateTime.UtcNow;
 
-                    while (!token.IsCancellationRequested)
+                    // ==============================================================
+                    // FASE 1: AGUARDANDO O APP ABRIR (Alta Tolerância - Até 3 Minutos)
+                    // ==============================================================
+                    while (!hasStarted && !token.IsCancellationRequested)
                     {
                         if (_mediaExeWatcherPaused) { await Task.Delay(500, token); continue; }
 
-                        // 1. Tenta achar a janela principal de qualquer processo com esse nome
+                        if ((DateTime.UtcNow - startTime).TotalMinutes > 3)
+                        {
+                            SendGameLaunchStatus("gameLaunchFailed", appName, "", "", "timeout");
+                            ReturnToDoorpiFromMedia();
+                            return;
+                        }
+
                         IntPtr activeHwnd = IntPtr.Zero;
                         var processes = Process.GetProcessesByName(exeName);
 
@@ -1410,12 +1418,47 @@ namespace Doorpi
                             if (h != IntPtr.Zero) { activeHwnd = h; break; }
                         }
 
-                        // 2. Lógica de detecção de fechamento
+                        if (activeHwnd != IntPtr.Zero)
+                        {
+                            hasStarted = true;
+                            SendGameLaunchStatus("gameLaunchReady"); // Atualiza o texto na UI
+                            await Task.Delay(800, token);            // Dá tempo pro app renderizar na tela
+
+                            // A MÁGICA ACONTECE AQUI: Minimiza o Doorpi só depois que o app carregou
+                            Dispatcher.Invoke(() =>
+                            {
+                                WindowState = WindowState.Minimized;
+                            });
+
+                            SendGameLaunchStatus("gameLaunchDone");  // Remove a tela de carregamento
+                            break; // Avança para a Fase 2
+                        }
+
+                        await Task.Delay(500, token);
+                    }
+
+                    // ==============================================================
+                    // FASE 2: APP EM EXECUÇÃO (Retorno Imediato ao Fechar)
+                    // ==============================================================
+                    int missingCount = 0;
+                    while (!token.IsCancellationRequested)
+                    {
+                        if (_mediaExeWatcherPaused) { await Task.Delay(500, token); continue; }
+
+                        IntPtr activeHwnd = IntPtr.Zero;
+                        var processes = Process.GetProcessesByName(exeName);
+
+                        foreach (var p in processes)
+                        {
+                            IntPtr h = FindVisibleWindowForProcess(p.Id);
+                            if (h != IntPtr.Zero) { activeHwnd = h; break; }
+                        }
+
                         if (activeHwnd == IntPtr.Zero)
                         {
-                            windowNotFoundCount++;
-                            // Se por 4 ciclos (2 segundos) não houver janela nenhuma, o app fechou
-                            if (windowNotFoundCount >= 4)
+                            missingCount++;
+                            // 3 verificações de 300ms = 900ms para perceber que fechou (Retorno quase instantâneo)
+                            if (missingCount >= 3)
                             {
                                 ReturnToDoorpiFromMedia();
                                 return;
@@ -1423,10 +1466,10 @@ namespace Doorpi
                         }
                         else
                         {
-                            windowNotFoundCount = 0;
+                            missingCount = 0;
                         }
 
-                        await Task.Delay(500, token);
+                        await Task.Delay(300, token);
                     }
                 }
                 catch (Exception ex) { Debug.WriteLine($"[Watcher] {ex.Message}"); }
@@ -1434,6 +1477,7 @@ namespace Doorpi
         }
 
         // Helper para centralizar a volta ao Doorpi
+
         private void ReturnToDoorpiFromMedia()
         {
             _mediaExeModeActive = false;
@@ -1442,6 +1486,8 @@ namespace Doorpi
 
             Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil, DateTime.UtcNow.AddMilliseconds(500).Ticks);
             SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
+
+            SendGameLaunchStatus("gameLaunchDone"); // Garante a remoção de overlays de carregamento
 
             Dispatcher.BeginInvoke(() =>
             {
@@ -1453,7 +1499,30 @@ namespace Doorpi
                 webView?.CoreWebView2?.ExecuteScriptAsync("window.isMediaAppActive = false; window.focusFeaturedCard?.();");
             });
         }
-        private void EnterMediaExeMode(Process proc, string url = "")
+        private void MinimizeAllWindowsExcept(IntPtr excludeHwnd)
+        {
+            IntPtr doorpiHwnd = _mainWindowHandle;
+            IntPtr shellWindow = GetShellWindow(); // Desktop/Barra de tarefas
+
+            EnumWindows((hWnd, _) =>
+            {
+                // Não minimiza: o próprio Doorpi, o novo App, ou a área de trabalho/barra de tarefas
+                if (hWnd == excludeHwnd || hWnd == doorpiHwnd || hWnd == shellWindow)
+                    return true;
+
+                if (IsWindowVisible(hWnd))
+                {
+                    // Verifica se a janela tem título (evita minimizar processos invisíveis do sistema)
+                    if (GetWindowTextLength(hWnd) > 0)
+                    {
+                        // SW_MINIMIZE = 6
+                        ShowWindow(hWnd, 6);
+                    }
+                }
+                return true;
+            }, IntPtr.Zero);
+        }
+        private void EnterMediaExeMode(Process proc, string url, string appName, string heroImg, string gridImg)
         {
             if (_mediaExeModeActive) return;
 
@@ -1468,15 +1537,18 @@ namespace Doorpi
 
             Dispatcher.Invoke(() =>
             {
-                WindowState = WindowState.Minimized;
+
                 EnsureCursorVisible();
             });
 
-            // Tenta maximizar/fullscreen o app de forma assíncrona (AGORA PASSANDO A URL)
+            // Invoca a mesma tela de Loading dos Jogos
+            SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg);
+
+            // Tenta maximizar/fullscreen o app de forma assíncrona
             _ = TryMaximizeExternalWindowAsync(proc, url);
 
-            // Inicia o watcher de encerramento (AGORA PASSANDO A URL)
-            StartMediaExeWatcher(proc, url, _mediaExeWatcherCts.Token);
+            // Inicia o watcher de encerramento
+            StartMediaExeWatcher(proc, url, appName, _mediaExeWatcherCts.Token);
 
             _mediaExeThread = new Thread(MediaExeControllerLoop) { IsBackground = true };
             _mediaExeThread.Start();
@@ -6011,54 +6083,56 @@ namespace Doorpi
                             {
                                 try
                                 {
+                                    string mediaName = media?.Name ?? "App";
+                                    string heroImg = media?.HeroImage ?? "";
+                                    string gridImg = media?.GridImage ?? "";
+
                                     // ── Já está rodando? Restaura em vez de relançar ─────────────
                                     Process? existingProc = null;
 
                                     if (_mediaExeProcess != null && !SafeHasExited(_mediaExeProcess) &&
                                         string.Equals(_mediaExeCurrentUrl, mediaUrl, StringComparison.OrdinalIgnoreCase))
                                     {
-                                        // Mesmo app que estava rastreado
                                         existingProc = _mediaExeProcess;
                                     }
                                     else if (File.Exists(mediaUrl))
                                     {
-                                        // Busca nos processos em execução (cobre o caso de voltar pro app A depois do B)
                                         existingProc = FindRunningProcessForExe(mediaUrl);
                                     }
 
                                     if (existingProc != null)
                                     {
-                                        // NOVIDADE: Verifica se o processo que já existe tem uma JANELA REAL na tela
                                         IntPtr hwnd = FindVisibleWindowForProcess(existingProc.Id);
 
                                         if (hwnd != IntPtr.Zero)
                                         {
-                                            // CASO 1: O app está aberto e visível. Apenas damos foco.
                                             _mediaExeWatcherCts?.Cancel();
                                             _mediaExeWatcherCts = new CancellationTokenSource();
                                             _mediaExeProcess = existingProc;
                                             _mediaExeCurrentUrl = mediaUrl;
                                             _mediaExeWatcherPaused = false;
 
+                                            SendGameLaunchStatus("gameLaunching", mediaName, heroImg, gridImg);
+
                                             if (IsIconic(hwnd)) ShowWindow(hwnd, 9);
                                             ShowWindow(hwnd, 3);
                                             FocusExternalWindow(hwnd);
 
-                                            StartMediaExeWatcher(existingProc, mediaUrl, _mediaExeWatcherCts.Token);
+                                            StartMediaExeWatcher(existingProc, mediaUrl, mediaName, _mediaExeWatcherCts.Token);
 
                                             if (media?.DisableGamepadControl != true && !_mediaExeModeActive)
                                             {
                                                 _mediaExeModeActive = true;
-                                                WindowState = WindowState.Minimized;
-                                                EnsureCursorVisible();
+                                                EnsureCursorVisible(); // Sem minimizar aqui!
                                                 _mediaExeThread = new Thread(MediaExeControllerLoop) { IsBackground = true };
                                                 _mediaExeThread.Start();
                                             }
                                             return;
                                         }
                                     }
-                                        // ── Lança um processo novo ────────────────────────────────────
-                                        _mediaExeWatcherCts?.Cancel();
+
+                                    // ── Lança um processo novo ────────────────────────────────────
+                                    _mediaExeWatcherCts?.Cancel();
                                     _mediaExeWatcherPaused = true;
 
                                     Process? proc = null;
@@ -6081,21 +6155,19 @@ namespace Doorpi
                                     {
                                         if (media?.DisableGamepadControl != true)
                                         {
-                                            EnterMediaExeMode(proc, mediaUrl);
+                                            EnterMediaExeMode(proc, mediaUrl, mediaName, heroImg, gridImg);
                                         }
                                         else
                                         {
-                                            // Gamepad desativado, mas ainda vigia o encerramento do app
+                                            SendGameLaunchStatus("gameLaunching", mediaName, heroImg, gridImg);
                                             _mediaExeWatcherCts = new CancellationTokenSource();
                                             _mediaExeProcess = proc;
                                             _mediaExeCurrentUrl = mediaUrl;
                                             _mediaExeWatcherPaused = false;
 
-                                            // Retoma a vigilância (CORRIGIDO AQUI: mediaUrl adicionado)
-                                            StartMediaExeWatcher(proc, mediaUrl, _mediaExeWatcherCts.Token);
+                                            StartMediaExeWatcher(proc, mediaUrl, mediaName, _mediaExeWatcherCts.Token);
 
-                                            WindowState = WindowState.Minimized;
-                                            EnsureCursorVisible();
+                                            EnsureCursorVisible(); // Sem minimizar aqui, quem faz é o Watcher!
                                         }
                                     }
                                 }
