@@ -193,7 +193,7 @@ window.chrome.webview.addEventListener('message', event => {
             if (logoKey && !item[logoKey]) item[logoKey] = window.generateFallbackSvg(name, 'logo');
 
             // 4. Banner (Transparente para o Blob)
-            const bannerKey = item.heroImage !== undefined ? 'heroImage' : (item.HeroImage !== undefined ? 'HeroImage' : null);
+            const bannerKey = item.hero !== undefined ? 'hero' : (item.HeroImage !== undefined ? 'HeroImage' : null);
             if (bannerKey && !item[bannerKey]) item[bannerKey] = window.generateFallbackSvg(name, 'banner');
         };
 
