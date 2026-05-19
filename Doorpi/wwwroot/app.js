@@ -144,10 +144,65 @@ setInterval(() => {
 }, 1000);
 
 /* Seção: Ponte com o host */
+// ── GERADOR DE FALLBACKS SVG ──────────────────────────────────────────
+window.generateFallbackSvg = function (name, type) {
+    const initial = (name || "App").charAt(0).toUpperCase();
+    const safeName = (name || "App").replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const makeSvg = (svg) => "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
+
+    if (type === 'grid') {
+        // GRID VERTICAL: Fundo Escuro + Inicial
+        return makeSvg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900"><rect width="600" height="900" fill="#1a1a2e"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#ffffff" font-family="sans-serif" font-size="350" font-weight="bold">${initial}</text></svg>`);
+
+    } else if (type === 'horizontal') {
+        // GRID HORIZONTAL: Fundo Escuro + Inicial
+        return makeSvg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 430"><rect width="920" height="430" fill="#1a1a2e"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#ffffff" font-family="sans-serif" font-size="200" font-weight="bold">${initial}</text></svg>`);
+
+    } else if (type === 'logo') {
+        // LOGO: Alinhado à esquerda (x="0") e mais para baixo (y="80%") para casar com a posição real
+        return makeSvg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 150"><text x="0%" y="80%" fill="#ffffff" font-family="sans-serif" font-size="75" font-weight="bold">${safeName}</text></svg>`);
+
+    } else if (type === 'banner') {
+        // BANNER: 100% TRANSPARENTE (Deixa o Blob brilhar!)
+        return makeSvg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080"><rect width="1920" height="1080" fill="transparent"/></svg>`);
+    }
+
+    return '';
+};
+
+/* Seção: Ponte com o host */
 window.chrome.webview.addEventListener('message', event => {
     try {
         const data = JSON.parse(event.data);
         console.log("Mensagem recebida no JS:", data);
+
+        // ── INJEÇÃO DE FALLBACKS (SEM ARTE) ──────────────────────────────────
+        const applyFallbacks = (item) => {
+            const name = item.name || item.Name || "App";
+
+            // 1. Grid Vertical (Inicial)
+            const gridKey = item.imageData !== undefined ? 'imageData' : (item.GridImage !== undefined ? 'GridImage' : null);
+            if (gridKey && !item[gridKey]) item[gridKey] = window.generateFallbackSvg(name, 'grid');
+
+            // 2. Grid Horizontal (Inicial)
+            const horizKey = item.horizontalImage !== undefined ? 'horizontalImage' : (item.GridHorizontalImage !== undefined ? 'GridHorizontalImage' : null);
+            if (horizKey && !item[horizKey]) item[horizKey] = window.generateFallbackSvg(name, 'horizontal');
+
+            // 3. Logo (Nome)
+            const logoKey = item.logo !== undefined ? 'logo' : (item.LogoImage !== undefined ? 'LogoImage' : null);
+            if (logoKey && !item[logoKey]) item[logoKey] = window.generateFallbackSvg(name, 'logo');
+
+            // 4. Banner (Transparente para o Blob)
+            const bannerKey = item.heroImage !== undefined ? 'heroImage' : (item.HeroImage !== undefined ? 'HeroImage' : null);
+            if (bannerKey && !item[bannerKey]) item[bannerKey] = window.generateFallbackSvg(name, 'banner');
+        };
+
+        if (data.type === 'renderGames' && data.games) data.games.forEach(applyFallbacks);
+        else if (data.type === 'newGame') applyFallbacks(data);
+        else if (data.type === 'nativeAppsLoaded' && data.apps) data.apps.forEach(applyFallbacks);
+        // ─────────────────────────────────────────────────────────────────────
+        // ─────────────────────────────────────────────────────────────────────
+
         if (data.updates) {
             window._pendingExtensionUpdates = data.updates;
         }
@@ -1645,6 +1700,13 @@ function switchHeroBackground(bgSrc, logoSrc, heroSrc) {
         return;
     }
 
+    // ── CORREÇÃO: SE NÃO TEM HERO, LIMPA O FUNDO PRO BLOB ASSUMIR ──
+    if (!bgSrc) {
+        if (typeof clearHero === 'function') clearHero();
+        return;
+    }
+    // ───────────────────────────────────────────────────────────────
+
     if (window._heroCleanupTimer) {
         clearTimeout(window._heroCleanupTimer);
         window._heroCleanupTimer = null;
@@ -2650,16 +2712,57 @@ function openEditGameModal(card) {
         const disableCheckbox = overlay.querySelector('#editDisableGamepadControl');
         const newDisable = disableCheckbox ? disableCheckbox.checked : disableGamepadControl;
         const disableChanged = isExeApp && newDisable !== disableGamepadControl;
-
         if (nameChanged) {
             const gameId = card.dataset.gameId || card.dataset.appId;
             const allCards = Array.from(document.querySelectorAll('.card, .nav-vertical-card')).filter(c =>
                 c.dataset.gameId === gameId || c.dataset.appId === gameId
             );
+
+            // Gera as novas artes com o nome atualizado
+            const newLogoSvg = window.generateFallbackSvg(newName, 'logo');
+            const newGridSvg = window.generateFallbackSvg(newName, 'grid');
+            const newHorizSvg = window.generateFallbackSvg(newName, 'horizontal');
+
             allCards.forEach(c => {
+                // Atualiza o texto normal da UI
                 const titleEl = c.querySelector('.title, .nav-vertical-card-title');
                 if (titleEl) titleEl.innerText = newName;
+
+                // 1. Atualiza a LOGO
+                if (c.dataset.logo && c.dataset.logo.startsWith('data:image/svg+xml')) {
+                    c.dataset.logo = newLogoSvg;
+                    if (c.dataset.staticLogo) c.dataset.staticLogo = newLogoSvg;
+
+                    if (c.classList.contains('featured')) {
+                        const gameLogoEl = document.getElementById('gameLogo');
+                        if (gameLogoEl) gameLogoEl.src = newLogoSvg;
+                    }
+                }
+
+                // 2. Atualiza a Capa Vertical (Grid em pé)
+                if (c.dataset.vertical && c.dataset.vertical.startsWith('data:image/svg+xml')) {
+                    c.dataset.vertical = newGridSvg;
+                    if (c.dataset.staticVertical) c.dataset.staticVertical = newGridSvg;
+
+                    if (!c.classList.contains('featured')) {
+                        const img = c.querySelector('img');
+                        if (img) img.src = newGridSvg;
+                    }
+                }
+
+                // 3. Atualiza a Capa Horizontal (Grid deitado, do Featured)
+                if (c.dataset.horizontal && c.dataset.horizontal.startsWith('data:image/svg+xml')) {
+                    c.dataset.horizontal = newHorizSvg;
+                    if (c.dataset.staticHorizontal) c.dataset.staticHorizontal = newHorizSvg;
+
+                    // Se estiver em destaque, a imagem visível no src do <img> é a horizontal
+                    if (c.classList.contains('featured')) {
+                        const img = c.querySelector('img');
+                        if (img) img.src = newHorizSvg;
+                    }
+                }
             });
+
             if (typeof _menuData !== 'undefined') {
                 ['games', 'media'].forEach(cat => {
                     if (!_menuData[cat]) return;
