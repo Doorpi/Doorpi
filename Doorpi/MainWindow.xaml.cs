@@ -281,6 +281,7 @@ namespace Doorpi
             EnsureCursorVisible();  // normaliza o contador do ShowCursor para 0
             EnsureCursorHidden();   // leva para -1 (escondido)
             _mainScreenMouseVisible = false;
+            UpdateHoverStateInWebView(); // Mata o hover visual
         }
         public MainWindow()
         {
@@ -460,6 +461,8 @@ namespace Doorpi
                     if (!_mainScreenMouseVisible) return;
                     EnsureCursorHidden();
                     _mainScreenMouseVisible = false;
+                    UpdateHoverStateInWebView();
+                    SetCursorPos(-1, -1);
                 });
             }, null, Timeout.Infinite, Timeout.Infinite);
 
@@ -476,6 +479,7 @@ namespace Doorpi
                     {
                         EnsureCursorVisible();
                         _mainScreenMouseVisible = true;
+                        UpdateHoverStateInWebView(); // Devolve o hover visual
                     }
                 });
                 _mouseIdleTimer?.Change(MOUSE_IDLE_MS, Timeout.Infinite);
@@ -517,7 +521,9 @@ namespace Doorpi
             webView.CoreWebView2.Navigate("https://app.local/index.html");
             webView.CoreWebView2.WebMessageReceived += WebView_WebMessageReceived;
             webView.CoreWebView2.NavigationCompleted += (s, e) =>
+
             {
+                UpdateHoverStateInWebView();
                 if (NeedsSetup())
                 {
                     Dispatcher.InvokeAsync(() =>
@@ -1039,6 +1045,11 @@ namespace Doorpi
             bool dragBrokeThreshold = false;
             bool ignoreNextBRelease = false;
 
+            // ===== ESTADO DO DUPLO CLIQUE INTELIGENTE =====
+            bool aDoubleClickPending = false;
+            DateTime lastAReleaseTime = DateTime.MinValue;
+            // ==============================================
+
             bool isHoldingX = false;
             DateTime xPressTime = DateTime.MinValue, lastBackspaceFired = DateTime.MinValue;
 
@@ -1051,6 +1062,16 @@ namespace Doorpi
 
             while (isActive())
             {
+                // Verifica se o tempo de tolerância do duplo clique expirou (Single Click confirmado)
+                if (aDoubleClickPending && (DateTime.Now - lastAReleaseTime).TotalMilliseconds > 300)
+                {
+                    aDoubleClickPending = false;
+
+                    // Como já garantimos que o clique original foi num campo de texto,
+                    // abrimos o teclado independentemente de onde o mouse está agora.
+                    OpenMediaExeVkb(autoPositioned: true);
+                }
+
                 try
                 {
                     double dt = sw.Elapsed.TotalSeconds;
@@ -1154,16 +1175,13 @@ namespace Doorpi
                             }
 
                             // A pressionado = botão esquerdo do mouse down
-                            // No SharedGamepadControllerLoop...
-                            if (Pressed(0x1000)) // Botão A pressionado
+                            if (Pressed(0x1000))
                             {
-
                                 IntPtr foregroundHwnd = GetForegroundWindow();
                                 if (foregroundHwnd != IntPtr.Zero)
                                 {
-                                    FocusExternalWindow(foregroundHwnd); // Re-garante que o Windows sabe que você quer interagir com ESSA janela
+                                    FocusExternalWindow(foregroundHwnd);
                                 }
-                                // ----------------------------------
 
                                 aWasOnTextField = IsCursorOnTextField();
                                 aDragOccurred = false; isClicking = true;
@@ -1202,14 +1220,33 @@ namespace Doorpi
                             }
                             else { remainderX = 0; remainderY = 0; }
 
-                            // A solto = botão esquerdo up + auto-VKB se campo de texto
+                            // A solto = botão esquerdo up + tratamento Inteligente de IBEAM
                             if (Released(0x1000))
                             {
                                 isClicking = false;
-                                SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
+                                SendMouse(0, 0, 0x0004); // MOUSEEVENTF_LEFTUP
 
                                 if (aWasOnTextField && !aDragOccurred && IsCursorOnTextField())
-                                    OpenMediaExeVkb(autoPositioned: true);
+                                {
+                                    if (aDoubleClickPending && (DateTime.Now - lastAReleaseTime).TotalMilliseconds <= 300)
+                                    {
+                                        // DUPLO CLIQUE CONFIRMADO!
+                                        aDoubleClickPending = false;
+
+                                        // Aguarda o Windows terminar de processar o duplo clique nativo (selecionar palavra) e abre o Menu de Contexto
+                                        Task.Run(async () => {
+                                            await Task.Delay(100);
+                                            SendMouse(0, 0, 0x0008); // MOUSEEVENTF_RIGHTDOWN
+                                            SendMouse(0, 0, 0x0010); // MOUSEEVENTF_RIGHTUP
+                                        });
+                                    }
+                                    else
+                                    {
+                                        // PRIMEIRO CLIQUE: Aciona a contagem para abrir o VKB
+                                        aDoubleClickPending = true;
+                                        lastAReleaseTime = DateTime.Now;
+                                    }
+                                }
 
                                 aWasOnTextField = false; aDragOccurred = false;
                             }
@@ -1230,7 +1267,6 @@ namespace Doorpi
                             if (Pressed(0x8000)) OpenMediaExeVkb(autoPositioned: false);
 
                             // LB/RB = navegar cursor em campos de texto
-                            // LB/RB = navegar cursor em campos de texto
                             if (Pressed(0x0100)) SendVirtualKey(0x25); // cursor ←
                             if (Pressed(0x0200)) SendVirtualKey(0x27); // cursor →
                         }
@@ -1243,8 +1279,7 @@ namespace Doorpi
                 Thread.Sleep(10);
             }
 
-            // GARANTIA ANTI-TRAVAMENTO DE MOUSE VIRTUAL:
-            // Se o loop for encerrado e o botão do mouse do Gamepad estiver pressionado, solta imediatamente.
+            // GARANTIA ANTI-TRAVAMENTO DE MOUSE VIRTUAL
             if (isClicking)
             {
                 SendMouse(0, 0, 0x0004); // MOUSEEVENTF_LEFTUP
@@ -1597,10 +1632,11 @@ namespace Doorpi
             {
                 while (ShowCursor(true) < 0) { }
                 _mainScreenMouseVisible = true;
+                UpdateHoverStateInWebView(); // Devolve controle do hover se for Mídia
             });
 
             SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg);
-            _ = TryMaximizeExternalWindowAsync(proc, url, _mediaExeWatcherCts.Token); // ← token passado
+            _ = TryMaximizeExternalWindowAsync(proc, url, _mediaExeWatcherCts.Token);
             StartMediaExeWatcher(proc, url, appName, _mediaExeWatcherCts.Token);
 
             _mediaExeThread = new Thread(() => MediaExeControllerLoop(sessionId)) { IsBackground = true };
@@ -1710,26 +1746,30 @@ namespace Doorpi
                 prevButtons = initialState.Gamepad.wButtons;
             }
 
-
             double speedMult = 1.0;
             double remainderX = 0, remainderY = 0;
 
             bool aWasOnTextField = false;
             bool aDragOccurred = false;
 
+            // ===== ESTADO DO DUPLO CLIQUE INTELIGENTE =====
+            bool aDoubleClickPending = false;
+            DateTime lastAReleaseTime = DateTime.MinValue;
+            // ==============================================
+
             bool isHoldingX = false;
             DateTime xPressTime = DateTime.MinValue;
             DateTime lastBackspaceFired = DateTime.MinValue;
 
             var prevAnalogActive = new Dictionary<VkbHoldAction, bool> {
-            { VkbHoldAction.MoveUp, false },
-            { VkbHoldAction.MoveDown, false },
-            { VkbHoldAction.MoveLeft, false },
-            { VkbHoldAction.MoveRight, false },
-            { VkbHoldAction.CursorLeft, false },
-            { VkbHoldAction.CursorRight, false },
-            { VkbHoldAction.ToggleLayer, false } // <-- ADICIONADO AQUI
-        };
+                { VkbHoldAction.MoveUp, false },
+                { VkbHoldAction.MoveDown, false },
+                { VkbHoldAction.MoveLeft, false },
+                { VkbHoldAction.MoveRight, false },
+                { VkbHoldAction.CursorLeft, false },
+                { VkbHoldAction.CursorRight, false },
+                { VkbHoldAction.ToggleLayer, false }
+            };
 
             bool ignoreNextBRelease = false;
             bool isClicking = false;
@@ -1739,6 +1779,47 @@ namespace Doorpi
 
             while (_systemControllerActive)
             {
+                // Verifica se o tempo de tolerância do duplo clique expirou (Single Click confirmado)
+                if (aDoubleClickPending && (DateTime.Now - lastAReleaseTime).TotalMilliseconds > 300)
+                {
+                    aDoubleClickPending = false;
+
+                    // Sem re-checar se ainda é um IBEAM. Se passou de 300ms, aciona o teclado.
+                    if (IsForegroundWindowNativeWindows())
+                    {
+                        OpenNativeTouchKeyboard();
+                    }
+                    else
+                    {
+                        Dispatcher.Invoke(() =>
+                        {
+                            if (_desktopVkb == null)
+                            {
+                                _desktopVkb = new DesktopVkbWindow();
+                                _desktopVkb.SetLocalization(_vkbStrBackspace, _vkbStrEnter, _vkbStrClose, _vkbStrShift, _vkbStrSpace, _vkbStrSym, _vkbStrAbc);
+
+                                _desktopVkb.OnKeyPressed += (txt) =>
+                                {
+                                    if (txt == "BKSP") SendVirtualKey(0x08);
+                                    else if (txt == "ENTER") SendVirtualKey(0x0D);
+                                    else if (txt == "CURSOR_LEFT") SendVirtualKey(0x25);
+                                    else if (txt == "CURSOR_RIGHT") SendVirtualKey(0x27);
+                                    else SendUnicodeString(txt);
+                                };
+                                _desktopVkb.OnCloseRequested += () =>
+                                {
+                                    _desktopVkb?.Close();
+                                    _desktopVkb = null;
+                                };
+
+                                GetCursorPos(out var pt);
+                                _desktopVkb.AutoPosition(pt.Y);
+                                _desktopVkb.Show();
+                            }
+                        });
+                    }
+                }
+
                 try
                 {
                     double dt = sw.Elapsed.TotalSeconds;
@@ -1746,7 +1827,6 @@ namespace Doorpi
                     if (dt > 0.05) dt = 0.016;
 
                     if (XInputGetStateSecret(0, out var state) == 0)
-
                     {
                         var gp = state.Gamepad;
                         ushort btn = gp.wButtons;
@@ -1767,8 +1847,6 @@ namespace Doorpi
                             bool downAnalog = ly < -DEAD;
                             bool leftAnalog = lx < -DEAD;
                             bool rightAnalog = lx > DEAD;
-
-                            // LÊ O GATILHO ESQUERDO (LT) COMO ANALÓGICO:
                             bool ltAnalog = gp.bLeftTrigger > 128;
 
                             void HandleHold(ushort btnMask, bool isAnalogActive, VkbHoldAction action)
@@ -1787,12 +1865,9 @@ namespace Doorpi
                             HandleHold(0x0004, leftAnalog, VkbHoldAction.MoveLeft);
                             HandleHold(0x0008, rightAnalog, VkbHoldAction.MoveRight);
 
-                            HandleHold(0x0100, false, VkbHoldAction.CursorLeft);  // LB
-                            HandleHold(0x0200, false, VkbHoldAction.CursorRight); // RB
-
-                            // ENVIA O COMANDO DO LT PRO TECLADO:
+                            HandleHold(0x0100, false, VkbHoldAction.CursorLeft);
+                            HandleHold(0x0200, false, VkbHoldAction.CursorRight);
                             HandleHold(0, ltAnalog, VkbHoldAction.ToggleLayer);
-
 
                             if (Pressed(0x1000)) Dispatcher.Invoke(() => _desktopVkb.BeginHold(VkbHoldAction.Press));
                             if (Released(0x1000)) Dispatcher.Invoke(() => _desktopVkb.EndHold(VkbHoldAction.Press));
@@ -1811,13 +1886,12 @@ namespace Doorpi
                             if (Pressed(0x0010)) SendVirtualKey(0x0D);
                             if (Pressed(0x0040)) Dispatcher.Invoke(() => _desktopVkb.ToggleShift());
                             if (Pressed(0x0080)) Dispatcher.Invoke(() => _desktopVkb.TogglePosition());
+
                             bool currentX = (btn & 0x4000) != 0;
                             if (currentX && (prevButtons & 0x4000) == 0)
                             {
-                                isHoldingX = true;
-                                xPressTime = DateTime.Now;
-                                SendVirtualKey(0x08);
-                                lastBackspaceFired = DateTime.Now;
+                                isHoldingX = true; xPressTime = DateTime.Now;
+                                SendVirtualKey(0x08); lastBackspaceFired = DateTime.Now;
                             }
                             else if (currentX && isHoldingX)
                             {
@@ -1825,8 +1899,7 @@ namespace Doorpi
                                 {
                                     if ((DateTime.Now - lastBackspaceFired).TotalMilliseconds > 40)
                                     {
-                                        SendVirtualKey(0x08);
-                                        lastBackspaceFired = DateTime.Now;
+                                        SendVirtualKey(0x08); lastBackspaceFired = DateTime.Now;
                                     }
                                 }
                             }
@@ -1856,35 +1929,26 @@ namespace Doorpi
                             aDragOccurred = false;
 
                             isClicking = true;
-                            clickAccumX = 0;
-                            clickAccumY = 0;
-                            dragBrokeThreshold = false;
+                            clickAccumX = 0; clickAccumY = 0; dragBrokeThreshold = false;
 
                             SendMouse(0, 0, MOUSEEVENTF_LEFTDOWN);
                         }
 
                         bool rbHeld = (btn & 0x0200) != 0;
 
-
                         if (rbHeld)
                         {
-                            // MODO SCROLL — cursor congelado, direito rola a tela infinitamente
                             double scrollY = gp.sThumbRY / 32767.0;
                             if (Math.Abs(scrollY) > MDEAD)
                             {
                                 int scroll = (int)(scrollY * 3000 * dt);
                                 if (scroll != 0) SendMouse(0, 0, MOUSEEVENTF_WHEEL, (uint)scroll);
                             }
-                            remainderX = 0;
-                            remainderY = 0;
-                            mlx = 0;
-                            mly = 0;
+                            remainderX = 0; remainderY = 0; mlx = 0; mly = 0;
                         }
                         else
                         {
-                            // MODO MOUSE — direito move o cursor
-                            mlx = gp.sThumbRX / 32767.0;
-                            mly = gp.sThumbRY / 32767.0;
+                            mlx = gp.sThumbRX / 32767.0; mly = gp.sThumbRY / 32767.0;
                             if (Math.Abs(mlx) < MDEAD) mlx = 0;
                             if (Math.Abs(mly) < MDEAD) mly = 0;
 
@@ -1895,21 +1959,17 @@ namespace Doorpi
                                 double curveY = Math.Sign(mly) * Math.Pow(Math.Abs(mly), 2.2);
                                 double moveX = curveX * BASE_SENSITIVITY * dt + remainderX;
                                 double moveY = -curveY * BASE_SENSITIVITY * dt + remainderY;
-                                deltaX = (int)moveX;
-                                deltaY = (int)moveY;
-                                remainderX = moveX - deltaX;
-                                remainderY = moveY - deltaY;
+                                deltaX = (int)moveX; deltaY = (int)moveY;
+                                remainderX = moveX - deltaX; remainderY = moveY - deltaY;
 
                                 if (deltaX != 0 || deltaY != 0)
                                 {
                                     if (isClicking && !dragBrokeThreshold)
                                     {
-                                        clickAccumX += deltaX;
-                                        clickAccumY += deltaY;
+                                        clickAccumX += deltaX; clickAccumY += deltaY;
                                         if (Math.Abs(clickAccumX) > 5 || Math.Abs(clickAccumY) > 5)
                                         {
-                                            dragBrokeThreshold = true;
-                                            aDragOccurred = true;
+                                            dragBrokeThreshold = true; aDragOccurred = true;
                                             SendMouse((int)clickAccumX, (int)clickAccumY, MOUSEEVENTF_MOVE);
                                         }
                                     }
@@ -1920,61 +1980,38 @@ namespace Doorpi
                                     }
                                 }
                             }
-                            else
-                            {
-                                remainderX = 0;
-                                remainderY = 0;
-                            }
+                            else { remainderX = 0; remainderY = 0; }
                         }
 
-
                         // GATILHO (A) - SOLTOU
-
                         if (Released(0x1000))
                         {
                             isClicking = false;
-                            SendMouse(0, 0, MOUSEEVENTF_LEFTUP);
+                            SendMouse(0, 0, 0x0004); // MOUSEEVENTF_LEFTUP
 
                             if (aWasOnTextField && !aDragOccurred && IsCursorOnTextField())
                             {
-                                if (IsForegroundWindowNativeWindows())
+                                if (aDoubleClickPending && (DateTime.Now - lastAReleaseTime).TotalMilliseconds <= 300)
                                 {
-                                    // Janela nativa do Windows: usa o TipTab do sistema
-                                    OpenNativeTouchKeyboard();
+                                    // DUPLO CLIQUE CONFIRMADO!
+                                    aDoubleClickPending = false;
+
+                                    // Aguarda o Windows terminar de processar o duplo clique nativo e abre o Menu de Contexto
+                                    Task.Run(async () => {
+                                        await Task.Delay(100);
+                                        SendMouse(0, 0, 0x0008); // MOUSEEVENTF_RIGHTDOWN
+                                        SendMouse(0, 0, 0x0010); // MOUSEEVENTF_RIGHTUP
+                                    });
                                 }
                                 else
                                 {
-                                    // Qualquer outro programa: abre o teclado do Doorpi normalmente
-                                    Dispatcher.Invoke(() =>
-                                    {
-                                        if (_desktopVkb == null)
-                                        {
-                                            _desktopVkb = new DesktopVkbWindow();
-                                            _desktopVkb.SetLocalization(_vkbStrBackspace, _vkbStrEnter, _vkbStrClose, _vkbStrShift, _vkbStrSpace, _vkbStrSym, _vkbStrAbc);
-
-                                            _desktopVkb.OnKeyPressed += (txt) =>
-                                            {
-                                                if (txt == "BKSP") SendVirtualKey(0x08);
-                                                else if (txt == "ENTER") SendVirtualKey(0x0D);
-                                                else if (txt == "CURSOR_LEFT") SendVirtualKey(0x25);
-                                                else if (txt == "CURSOR_RIGHT") SendVirtualKey(0x27);
-                                                else SendUnicodeString(txt);
-                                            };
-                                            _desktopVkb.OnCloseRequested += () =>
-                                            {
-                                                _desktopVkb?.Close();
-                                                _desktopVkb = null;
-                                            };
-
-                                            GetCursorPos(out var pt);
-                                            _desktopVkb.AutoPosition(pt.Y);
-                                            _desktopVkb.Show();
-                                        }
-                                    });
+                                    // PRIMEIRO CLIQUE: Aciona a contagem para abrir o VKB
+                                    aDoubleClickPending = true;
+                                    lastAReleaseTime = DateTime.Now;
                                 }
                             }
-                            aWasOnTextField = false;
-                            aDragOccurred = false;
+
+                            aWasOnTextField = false; aDragOccurred = false;
                         }
 
                         // GATILHOS DE VOLTAR (B)
@@ -1989,7 +2026,6 @@ namespace Doorpi
                         }
 
                         // Fechar Modo Desktop
-
                         bool isStartSelect = (btn & 0x0010) != 0 && (btn & 0x0020) != 0;
                         bool isXboxButton = (btn & 0x0400) != 0;
 
@@ -2001,6 +2037,7 @@ namespace Doorpi
 
                         if (Pressed(0x4000)) SendMouse(0, 0, MOUSEEVENTF_RIGHTDOWN);
                         if (Released(0x4000)) SendMouse(0, 0, MOUSEEVENTF_RIGHTUP);
+
                         // Botão Y (Abre teclado avulso)
                         if (Pressed(0x8000))
                         {
@@ -2024,9 +2061,7 @@ namespace Doorpi
                                         _desktopVkb = null;
                                     };
 
-                                    // Fixa o teclado na parte inferior
                                     _desktopVkb.SetFixedPosition();
-
                                     _desktopVkb.Show();
                                 }
                             });
@@ -2049,7 +2084,22 @@ namespace Doorpi
                 SendMouse(0, 0, 0x0004); // MOUSEEVENTF_LEFTUP
             }
         }
-
+        private void UpdateHoverStateInWebView()
+        {
+            if (webView?.CoreWebView2 != null)
+            {
+                if (_mainScreenMouseVisible)
+                {
+                    // Mouse Visível: Remove a trava e devolve o Hover
+                    webView.CoreWebView2.ExecuteScriptAsync("let s=document.getElementById('doorpi-mouse-hider');if(s)s.remove();");
+                }
+                else
+                {
+                    // Mouse Oculto: Injeta pointer-events nulo para matar o Hover visualmente
+                    webView.CoreWebView2.ExecuteScriptAsync("if(!document.getElementById('doorpi-mouse-hider')){let s=document.createElement('style');s.id='doorpi-mouse-hider';s.innerHTML='* { pointer-events: none !important; }';document.head.appendChild(s);}");
+                }
+            }
+        }
         private void SendMouse(int dx, int dy, uint flags, uint data = 0)
         {
             var input = new INPUT { type = INPUT_MOUSE };
@@ -3122,7 +3172,6 @@ namespace Doorpi
 
             SendGameLaunchStatus("gameLaunchDone");
             ReleaseAllStuckKeys();
-           
 
             Dispatcher.BeginInvoke(() =>
             {
@@ -3134,6 +3183,8 @@ namespace Doorpi
                 Activate();
                 EnsureCursorHidden();
                 _mainScreenMouseVisible = false;
+                UpdateHoverStateInWebView(); // Garante a remoção do hover
+
                 webView?.Focus();
                 Keyboard.Focus(webView);
 
@@ -3141,7 +3192,6 @@ namespace Doorpi
                     "window.isMediaAppActive = false; window.focusFeaturedCard?.();");
             });
         }
-
         private void WatchAndRefocus(Process process)
         {
             if (process == null) return;
@@ -3316,11 +3366,6 @@ namespace Doorpi
                         }
                         else
                         {
-                            // ATENDENDO AO FEEDBACK: 
-                            // Não vamos mais calcular gap de 2.5s se o processo de fundo do PPSSPP continuar rodando.
-                            // Se o jogo já tinha aparecido e agora o candidate (a janela) sumiu da varredura, 
-                            // damos só uma margem pequena (2 ciclos rápidos ~300ms) para ter certeza de que a janela 
-                            // não "piscou" durante uma mudança de resolução. Se continuar sem janela, restaura tudo!
                             ghostChecks++;
                             if (ghostChecks >= 2)
                             {
@@ -3448,6 +3493,7 @@ namespace Doorpi
                                         Dispatcher.Invoke(() => {
                                             EnsureCursorVisible();
                                             _mainScreenMouseVisible = true;
+                                            UpdateHoverStateInWebView();
                                             // Bloqueia a navegação UI do JS
                                             webView?.CoreWebView2?.ExecuteScriptAsync("window.isMediaAppActive = true;");
                                         });

@@ -30,12 +30,12 @@ namespace Doorpi
         Press,
         CursorLeft,
         CursorRight,
-        ToggleLayer // Acione pelo Host com _vkb.BeginHold(VkbHoldAction.ToggleLayer) ao apertar LT!
+        ToggleLayer
     }
 
     public class DesktopVkbWindow : Window
     {
-        // ── Strings de Localização (Padrão pt-BR caso o JS não envie) ──
+        // ── Strings de Localização ──
         public string StrBackspace { get; private set; } = "Apagar";
         public string StrEnter { get; private set; } = "Enter";
         public string StrClose { get; private set; } = "Fechar";
@@ -44,7 +44,7 @@ namespace Doorpi
         public string StrSym { get; private set; } = "&123";
         public string StrAbc { get; private set; } = "ABC";
 
-        // ── Win32 & Ocultação do Teclado Nativo ────────────────────────
+        // ── Win32 & Ocultação do Teclado Nativo ──
         private const int GWL_EXSTYLE = -20;
         private const int WS_EX_NOACTIVATE = 0x08000000;
         private const int WS_EX_TOOLWINDOW = 0x00000080;
@@ -110,6 +110,9 @@ namespace Doorpi
         private int _col = 0;
         private bool _shifted = false;
 
+        // ── Variável de estado para a Acentuação (Dead Keys) ──
+        private string _pendingAccent = null;
+
         private Grid _grid;
         private Border[][] _uiKeys;
 
@@ -145,9 +148,6 @@ namespace Doorpi
             RefreshVisuals();
         }
 
-        // ─────────────────────────────────────────────────────────────────────────
-        //  PONTO DE ENTRADA DA LOCALIZAÇÃO (Invocável via Host do WebView2)
-        // ─────────────────────────────────────────────────────────────────────────
         public void SetLocalization(string bksp, string enter, string close, string shift, string space, string sym, string abc)
         {
             StrBackspace = bksp ?? StrBackspace;
@@ -158,12 +158,12 @@ namespace Doorpi
             StrSym = sym ?? StrSym;
             StrAbc = abc ?? StrAbc;
 
-            BuildKeyLayouts(); // Refaz os Layouts com as variáveis novas
-            if (_grid != null) RebuildUI(); // Redesenha a tela
+            BuildKeyLayouts();
+            if (_grid != null) RebuildUI();
         }
 
         // ─────────────────────────────────────────────────────────────────────────
-        //  LAYOUT COM VARIÁVEIS DE TRADUÇÃO I18N
+        //  LAYOUT: Acentos inseridos mantendo o cálculo de matriz/distância
         // ─────────────────────────────────────────────────────────────────────────
         private void BuildKeyLayouts()
         {
@@ -177,18 +177,23 @@ namespace Doorpi
             _alphaKeys = new[]
             {
                 new[] { K("1"), K("2"), K("3"), K("4"), K("5"), K("6"), K("7"), K("8"), K("9"), K("0"), K("-"), K("BKSP", StrBackspace, U2, true, "X") },
-                new[] { K("Q"), K("W"), K("E"), K("R"), K("T"), K("Y"), K("U"), K("I"), K("O"), K("P"), K("@"), K("ENTER", StrEnter, U2, true, "START") },
+                // Adicionado ´ (Agudo)
+                new[] { K("Q"), K("W"), K("E"), K("R"), K("T"), K("Y"), K("U"), K("I"), K("O"), K("P"), K("´"), K("ENTER", StrEnter, U2, true, "START") },
+                // Adicionado ~ (Til)
                 new[] { K("A"), K("S"), K("D"), K("F"), K("G"), K("H"), K("J"), K("K"), K("L"), K("Ç"), K("~"), K("CANCEL", StrClose, U2, true, "B") },
-                new[] { K("SHIFT", StrShift, U2, true, "L3"), K("Z"), K("X"), K("C"), K("V"), K("B"), K("N"), K("M"), K(","), K("."), K("?"), K("/") },
+                // Adicionado ^ (Circunflexo)
+                new[] { K("SHIFT", StrShift, U2, true, "L3"), K("Z"), K("X"), K("C"), K("V"), K("B"), K("N"), K("M"), K(","), K("."), K("^"), K("?") },
                 new[] { K("SYM", StrSym, U2, true, "LT"), K("CURSOR_LEFT", "←", U1, true, "LB"), K("SPACE", StrSpace, U7, true, "Y"), K("CURSOR_RIGHT", "→", U1, true, "RB"), K(".com", ".com", U2, true) }
             };
 
             _specialKeys = new[]
             {
-                new[] { K("!"), K("@"), K("#"), K("$"), K("%"), K("^"), K("&"), K("*"), K("("), K(")"), K("_"), K("BKSP", StrBackspace, U2, true, "X") },
-                new[] { K("+"), K("-"), K("×"), K("÷"), K("="), K("±"), K("{"), K("}"), K("["), K("]"), K("\\"), K("ENTER", StrEnter, U2, true, "START") },
-                new[] { K(":"), K(";"), K("\""), K("'"), K("€"), K("£"), K("¥"), K("©"), K("®"), K("°"), K("|"), K("CANCEL", StrClose, U2, true, "B") },
-                new[] { K("SHIFT", StrShift, U2, true, "L3"), K("<"), K(">"), K("¿"), K("¡"), K("~"), K("´"), K("`"), K(","), K("."), K("?"), K("/") },
+                new[] { K("!"), K("@"), K("#"), K("$"), K("%"), K("&"), K("*"), K("("), K(")"), K("_"), K("+"), K("BKSP", StrBackspace, U2, true, "X") },
+                // Adicionado ` (Crase)
+                new[] { K("/"), K("\\"), K("|"), K("="), K("÷"), K("×"), K("{"), K("}"), K("["), K("]"), K("`"), K("ENTER", StrEnter, U2, true, "START") },
+                // Adicionado ¨ (Trema)
+                new[] { K(":"), K(";"), K("\""), K("'"), K("€"), K("£"), K("¥"), K("©"), K("®"), K("°"), K("¨"), K("CANCEL", StrClose, U2, true, "B") },
+                new[] { K("SHIFT", StrShift, U2, true, "L3"), K("<"), K(">"), K("¿"), K("¡"), K("~"), K("´"), K("^"), K(","), K("."), K("?"), K("-") },
                 new[] { K("ABC", StrAbc, U2, true, "LT"), K("CURSOR_LEFT", "←", U1, true, "LB"), K("SPACE", StrSpace, U7, true, "Y"), K("CURSOR_RIGHT", "→", U1, true, "RB"), K(".com", ".com", U2, true) }
             };
         }
@@ -264,8 +269,8 @@ namespace Doorpi
                 case VkbHoldAction.MoveLeft: return () => MoveSelection(0, -1);
                 case VkbHoldAction.MoveRight: return () => MoveSelection(0, 1);
                 case VkbHoldAction.Press: return PressCurrentKey;
-                case VkbHoldAction.CursorLeft: return () => OnKeyPressed?.Invoke("CURSOR_LEFT");
-                case VkbHoldAction.CursorRight: return () => OnKeyPressed?.Invoke("CURSOR_RIGHT");
+                case VkbHoldAction.CursorLeft: return () => { FlushPendingAccent(); OnKeyPressed?.Invoke("CURSOR_LEFT"); };
+                case VkbHoldAction.CursorRight: return () => { FlushPendingAccent(); OnKeyPressed?.Invoke("CURSOR_RIGHT"); };
                 case VkbHoldAction.ToggleLayer: return ToggleAlphaSpecialLayer;
                 default: return null;
             }
@@ -340,26 +345,184 @@ namespace Doorpi
             RebuildUI();
         }
 
+        // ─────────────────────────────────────────────────────────────────────────
+        // LÓGICA DE PROCESSAMENTO DO ACENTO (Dead Keys)
+        // ─────────────────────────────────────────────────────────────────────────
+        private string GetAccentedCharacter(string accent, string letter)
+        {
+            bool isUpper = char.IsUpper(letter[0]);
+            letter = letter.ToLower();
+            string result = letter;
+
+            switch (accent)
+            {
+                case "´":
+                    if (letter == "a") result = "á";
+                    else if (letter == "e") result = "é";
+                    else if (letter == "i") result = "í";
+                    else if (letter == "o") result = "ó";
+                    else if (letter == "u") result = "ú";
+                    else if (letter == "c") result = "ç";
+                    break;
+                case "~":
+                    if (letter == "a") result = "ã";
+                    else if (letter == "o") result = "õ";
+                    else if (letter == "n") result = "ñ";
+                    break;
+                case "^":
+                    if (letter == "a") result = "â";
+                    else if (letter == "e") result = "ê";
+                    else if (letter == "i") result = "î";
+                    else if (letter == "o") result = "ô";
+                    else if (letter == "u") result = "û";
+                    break;
+                case "`":
+                    if (letter == "a") result = "à";
+                    else if (letter == "e") result = "è";
+                    else if (letter == "i") result = "ì";
+                    else if (letter == "o") result = "ò";
+                    else if (letter == "u") result = "ù";
+                    break;
+                case "¨":
+                    if (letter == "a") result = "ä";
+                    else if (letter == "e") result = "ë";
+                    else if (letter == "i") result = "ï";
+                    else if (letter == "o") result = "ö";
+                    else if (letter == "u") result = "ü";
+                    else if (letter == "y") result = "ÿ";
+                    break;
+            }
+
+            return (result != letter) ? (isUpper ? result.ToUpper() : result) : null;
+        }
+
+        private void FlushPendingAccent()
+        {
+            if (_pendingAccent != null)
+            {
+                OnKeyPressed?.Invoke(_pendingAccent);
+                _pendingAccent = null;
+                RefreshVisuals();
+            }
+        }
+
         public void PressCurrentKey()
         {
             var key = CurrentKeys[_row][_col].Value;
 
             switch (key)
             {
-                case "SHIFT": StopHold(); ToggleShift(); break;
+                case "SHIFT":
+                    StopHold();
+                    ToggleShift();
+                    break;
                 case "SYM":
-                case "ABC": ToggleAlphaSpecialLayer(); break;
-                case "CANCEL": StopHold(); OnCloseRequested?.Invoke(); break;
-                case "BKSP": OnKeyPressed?.Invoke("BKSP"); break;
-                case "ENTER": OnKeyPressed?.Invoke("ENTER"); break;
-                case "SPACE": OnKeyPressed?.Invoke(" "); break;
-                case "CURSOR_LEFT": OnKeyPressed?.Invoke("CURSOR_LEFT"); break;
-                case "CURSOR_RIGHT": OnKeyPressed?.Invoke("CURSOR_RIGHT"); break;
+                case "ABC":
+                    ToggleAlphaSpecialLayer();
+                    break;
+                case "CANCEL":
+                    StopHold();
+                    _pendingAccent = null;
+                    OnCloseRequested?.Invoke();
+                    break;
+                case "BKSP":
+                    if (_pendingAccent != null)
+                    {
+                        // Se tinha um acento pendente, apenas cancela o acento.
+                        _pendingAccent = null;
+                        RefreshVisuals();
+                    }
+                    else
+                    {
+                        OnKeyPressed?.Invoke("BKSP");
+                    }
+                    break;
+                case "ENTER":
+                    FlushPendingAccent();
+                    OnKeyPressed?.Invoke("ENTER");
+                    break;
+                case "SPACE":
+                    if (_pendingAccent != null)
+                    {
+                        // Se apertar espaço depois do acento, digita o acento sozinho
+                        OnKeyPressed?.Invoke(_pendingAccent);
+                        _pendingAccent = null;
+                        RefreshVisuals();
+                    }
+                    else
+                    {
+                        OnKeyPressed?.Invoke(" ");
+                    }
+                    break;
+                case "CURSOR_LEFT":
+                    FlushPendingAccent();
+                    OnKeyPressed?.Invoke("CURSOR_LEFT");
+                    break;
+                case "CURSOR_RIGHT":
+                    FlushPendingAccent();
+                    OnKeyPressed?.Invoke("CURSOR_RIGHT");
+                    break;
+
+                // Se for um acento (Agudo, Til, Circunflexo, Crase, Trema)
+                case "´":
+                case "~":
+                case "^":
+                case "`":
+                case "¨":
+                    if (_pendingAccent == key)
+                    {
+                        // Apertou o mesmo acento 2x, digita o acento na tela.
+                        OnKeyPressed?.Invoke(key);
+                        _pendingAccent = null;
+                    }
+                    else
+                    {
+                        // Entra em modo de espera aguardando a vogal.
+                        _pendingAccent = key;
+                    }
+                    RefreshVisuals();
+                    break;
+
                 default:
                     string toSend = key;
+
+                    // Tratamento de maiúsculas e minúsculas
                     if (_layer == VkbLayer.Alpha && key.Length == 1 && char.IsLetter(key[0]))
                         toSend = _shifted ? key.ToUpper() : key.ToLower();
-                    OnKeyPressed?.Invoke(toSend);
+
+                    // Se temos um acento aguardando
+                    if (_pendingAccent != null)
+                    {
+                        if (toSend.Length == 1 && char.IsLetter(toSend[0]))
+                        {
+                            string accented = GetAccentedCharacter(_pendingAccent, toSend);
+                            if (accented != null)
+                            {
+                                // Combinação funcionou (ex: ´ + A = Á)
+                                OnKeyPressed?.Invoke(accented);
+                            }
+                            else
+                            {
+                                // Combinação inválida (ex: ´ + Z), digita os dois separados.
+                                OnKeyPressed?.Invoke(_pendingAccent);
+                                OnKeyPressed?.Invoke(toSend);
+                            }
+                        }
+                        else
+                        {
+                            // Apertou um símbolo junto com o acento.
+                            OnKeyPressed?.Invoke(_pendingAccent);
+                            OnKeyPressed?.Invoke(toSend);
+                        }
+
+                        _pendingAccent = null; // Reseta após o uso
+                        RefreshVisuals();
+                    }
+                    else
+                    {
+                        // Teclagem normal
+                        OnKeyPressed?.Invoke(toSend);
+                    }
                     break;
             }
         }
@@ -420,6 +583,7 @@ namespace Doorpi
         private static readonly SolidColorBrush BrushKeyNormal = new SolidColorBrush(Color.FromRgb(25, 28, 38));
         private static readonly SolidColorBrush BrushKeyAction = new SolidColorBrush(Color.FromRgb(40, 44, 55));
         private static readonly SolidColorBrush BrushKeySpecial = new SolidColorBrush(Color.FromRgb(28, 38, 55));
+        private static readonly SolidColorBrush BrushAccentPending = new SolidColorBrush(Color.FromRgb(220, 100, 0)); // Laranja Escuro
 
         private void RefreshVisuals()
         {
@@ -433,19 +597,30 @@ namespace Doorpi
 
                     var innerGrid = (Grid)border.Child;
                     var tb = (TextBlock)innerGrid.Children[0];
+
                     bool focus = (r == _row && c == _col);
+                    bool isPendingAccentKey = (def.Value == _pendingAccent); // Tecla de acento em modo espera
 
                     if (focus)
                     {
-                        // Tecla Focada: Fundo branco, letra preta (Sem inchar)
-                        border.Background = Brushes.White;
+                        // Foco (Realçado Laranja se for acento, ou Branco)
+                        border.Background = isPendingAccentKey ? Brushes.Orange : Brushes.White;
                         tb.Foreground = Brushes.Black;
                     }
                     else
                     {
-                        // Tecla sem Foco
-                        border.Background = def.IsAction ? BrushKeyAction : (_layer == VkbLayer.Special ? BrushKeySpecial : BrushKeyNormal);
-                        tb.Foreground = Brushes.White;
+                        // Sem Foco
+                        if (isPendingAccentKey)
+                        {
+                            // Fica laranja escuro pra indicar que acento está ativo, mesmo se o usuário mover o cursor
+                            border.Background = BrushAccentPending;
+                            tb.Foreground = Brushes.White;
+                        }
+                        else
+                        {
+                            border.Background = def.IsAction ? BrushKeyAction : (_layer == VkbLayer.Special ? BrushKeySpecial : BrushKeyNormal);
+                            tb.Foreground = Brushes.White;
+                        }
                     }
 
                     if (_layer == VkbLayer.Alpha && !def.IsAction && def.Value.Length == 1 && char.IsLetter(def.Value[0]))
