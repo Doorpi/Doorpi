@@ -509,8 +509,12 @@ namespace Doorpi
                     Dispatcher.Invoke(() => EnsureExplorerIsRunningInBackstage());
                 });
             }
-            await webView.EnsureCoreWebView2Async(null);
+            // Configura o navegador para permitir áudio automático (autoplay) sem interação do usuário
+            var options = new CoreWebView2EnvironmentOptions("--autoplay-policy=no-user-gesture-required");
+            var environment = await CoreWebView2Environment.CreateAsync(null, null, options);
 
+            // Inicializa o WebView2 usando essas opções
+            await webView.EnsureCoreWebView2Async(environment);
             string folderPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot");
 
             webView.CoreWebView2.SetVirtualHostNameToFolderMapping(
@@ -539,13 +543,9 @@ namespace Doorpi
                     Topmost = true; Activate(); Topmost = false; webView.Focus();
                 });
             };
-            // Configurações de Produção / Kiosk Mode
-            webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
-            webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
-            webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
-            webView.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = false;
-            webView.CoreWebView2.Settings.IsZoomControlEnabled = false;
-            webView.CoreWebView2.Settings.IsBuiltInErrorPageEnabled = false;
+
+            // Configurações de Produção 
+
 
             StartWatchers();
             _ = Task.Run(WatchWindowsRegistry);
@@ -2977,7 +2977,7 @@ namespace Doorpi
             })));
         }
 
-        private string IntroDataFolder => Path.Combine(dataFolder, "intros");
+        private string IntroDataFolder => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot", "intros");
         private string ActiveIntroFile => Path.Combine(IntroDataFolder, "active.json");
 
         private object? ReadIntroManifestPayload(string manifestPath, string source)
@@ -3033,22 +3033,25 @@ namespace Doorpi
             Directory.CreateDirectory(IntroDataFolder);
             var intros = new List<object>();
 
-            var builtinRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot", "intros");
-            if (Directory.Exists(builtinRoot))
+            foreach (var manifest in Directory.GetFiles(IntroDataFolder, "manifest.json", SearchOption.AllDirectories))
             {
-                foreach (var manifest in Directory.GetFiles(builtinRoot, "manifest.json", SearchOption.AllDirectories))
+                var folderId = SafeIntroId(Path.GetFileName(Path.GetDirectoryName(manifest)) ?? "");
+                try
                 {
-                    var payload = ReadIntroManifestPayload(manifest, "builtin");
-                    if (payload != null) intros.Add(payload);
-                }
-            }
+                    using var doc = JsonDocument.Parse(File.ReadAllText(manifest));
+                    var root = doc.RootElement;
+                    var id = SafeIntroId(GetStr(root, "id", folderId));
 
-            foreach (var manifest in Directory.Exists(IntroDataFolder)
-                ? Directory.GetFiles(IntroDataFolder, "manifest.json", SearchOption.AllDirectories)
-                : Array.Empty<string>())
-            {
-                var payload = ReadIntroManifestPayload(manifest, "installed");
-                if (payload != null) intros.Add(payload);
+                    intros.Add(new
+                    {
+                        id,
+                        name = GetStr(root, "name", id),
+                        version = GetStr(root, "version", ""),
+                        author = GetStr(root, "author", ""),
+                        manifest = $"{id}/manifest.json"
+                    });
+                }
+                catch { }
             }
 
             Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
@@ -3059,7 +3062,7 @@ namespace Doorpi
             })));
         }
 
-        private void SetActiveIntro(string id, string source)
+        private void SetActiveIntro(string id)
         {
             Directory.CreateDirectory(IntroDataFolder);
             id = SafeIntroId(id);
@@ -3070,16 +3073,10 @@ namespace Doorpi
                 return;
             }
 
-            var manifest = string.Equals(source, "builtin", StringComparison.OrdinalIgnoreCase)
-                ? $"https://app.local/intros/{id}/manifest.json"
-                : $"{id}/manifest.json";
-
             File.WriteAllText(ActiveIntroFile, JsonSerializer.Serialize(new
             {
                 enabled = true,
-                id,
-                source = string.Equals(source, "builtin", StringComparison.OrdinalIgnoreCase) ? "builtin" : "installed",
-                manifest
+                manifest = $"{id}/manifest.json"
             }, new JsonSerializerOptions { WriteIndented = true }));
         }
 
@@ -6183,7 +6180,7 @@ namespace Doorpi
                 }
                 else if (action == "setActiveIntro")
                 {
-                    SetActiveIntro(GetStr(root, "id"), GetStr(root, "source", "installed"));
+                    SetActiveIntro(GetStr(root, "id"));
                     SendIntrosToUI();
                 }
                 else if (action == "requestExtensionUpdates")

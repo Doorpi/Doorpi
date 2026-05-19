@@ -1,31 +1,37 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Doorpi Intro</title>
+    <title>Doorpi OS</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@100;200;300;400;500&display=swap" rel="stylesheet">
     <style>
-        *, *::before, *::after {
+        *,
+        *::before,
+        *::after {
             box-sizing: border-box;
         }
 
-        html, body {
-            width: 100vw;
-            height: 100vh;
+        body,
+        html {
             margin: 0;
             padding: 0;
-            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
             background: #020309;
-            font-family: "Outfit", "Segoe UI", Arial, sans-serif;
+            font-family: 'Outfit', sans-serif;
+            overflow: hidden;
         }
 
+        /* ── BLOB BACKGROUND (persiste após o boot) ─────────── */
         #appBlobWrap {
             position: fixed;
             inset: 0;
             z-index: 1;
-            overflow: hidden;
             pointer-events: none;
             background: #07071a;
+            overflow: hidden;
             opacity: 0;
             transition: opacity 0.5s ease;
         }
@@ -46,27 +52,48 @@
             position: absolute;
             inset: 0;
             z-index: 2;
-            pointer-events: none;
             background: radial-gradient(circle at 50% 50%, transparent 25%, rgba(0, 0, 18, 0.85) 95%);
+            pointer-events: none;
+        }
+
+        /* ── BOOT OVERLAY ────────────────────────────────────── */
+        #boot-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 9000;
+            background: #020309;
+        }
+
+            #boot-overlay.boot-exiting {
+                animation: bootOverlayOut 0.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+                pointer-events: none;
+            }
+
+        @keyframes bootOverlayOut {
+            to {
+                opacity: 0;
+            }
         }
 
         #boot-sequence {
             position: absolute;
             inset: 0;
-            z-index: 3;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            animation: sceneIn 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+            opacity: 0;
+            animation: sceneIn 1.2s ease-out 0.2s forwards;
         }
 
         @keyframes sceneIn {
             from {
+                opacity: 0;
                 transform: scale(0.96);
             }
 
             to {
+                opacity: 1;
                 transform: scale(1);
             }
         }
@@ -75,29 +102,94 @@
             perspective: 900px;
             perspective-origin: 50% 45%;
             transform: translateX(-5%);
+            position: relative;
         }
 
         #door-logo {
             width: clamp(420px, 45vw, 680px);
             display: block;
             overflow: visible;
-            transform: rotateX(14deg) rotateY(-10deg) scale(0.94);
+            transform: rotateX(25deg) rotateY(-15deg) scale(0.9);
             transform-style: preserve-3d;
-            transition: transform 2.2s cubic-bezier(0.16, 1, 0.3, 1), filter 0.6s ease;
+            transition: transform 3.5s cubic-bezier(0.16, 1, 0.3, 1), filter 0.6s ease;
             filter: brightness(0.7);
+            position: relative;
+            z-index: 2;
+        }
+
+        #door-inner-light {
+            position: absolute;
+            top: 28%;
+            left: 71%;
+            width: 3.5%;
+            height: 70%;
+            z-index: 1;
+            filter: blur(2px);
+            box-shadow: -25px 0 50px 30px rgb(156, 196, 252);
+            opacity: 0;
+            transform: translateZ(-50px) scaleY(0.8);
+            transition: opacity 3.5s ease-in, transform 4s cubic-bezier(0.2, 0, 0.1, 1);
+        }
+
+        #door-top-light {
+            position: absolute;
+            top: 17%;
+            left: 50%;
+            width: 23%;
+            height: 2%;
+            z-index: 99;
+            filter: blur(9px);
+            transform: translateZ(-50px) rotate(28deg) scaleX(0.8);
+            box-shadow: 0 0 30px 15px rgb(160, 200, 255);
+            opacity: 0;
+            transition: opacity 3.5s ease-in, transform 4s cubic-bezier(0.2, 0, 0.1, 1);
+        }
+
+        .boot-step-charge #door-inner-light {
+            opacity: 1;
+            transform: translateZ(-10px) scaleY(1.05);
         }
 
         .boot-step-draw #door-logo {
-            transform: rotateX(0deg) rotateY(0deg) scale(1);
+            transform: rotateX(8deg) rotateY(-6deg) scale(1);
             filter: brightness(1);
         }
 
+        .boot-step-charge #door-logo {
+            transform: rotateX(3deg) rotateY(-2deg) scale(1.02);
+            transition: transform 3.2s cubic-bezier(0.2, 0, 0.1, 1);
+            /* Chamada da animação ajustada */
+            animation: myopicFocus 3.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+        }
+
+        /* --- NOVO: Animação do efeito Míope (Blur) e explosão de brilho --- */
+        @keyframes myopicFocus {
+            0% {
+                filter: blur(8px) brightness(0.8);
+                opacity: 0.8;
+            }
+
+            35% {
+                /* Fica nítido bem antes do meio da animação */
+                filter: blur(0px) brightness(1.1);
+                opacity: 1;
+            }
+
+            100% {
+                /* Termina com brilho intenso para a explosão */
+                filter: blur(0px) brightness(2.2);
+                opacity: 1;
+            }
+        }
+
+
         #door-path-stroke {
-            fill: none;
+            fill: transparent;
             stroke: rgba(110, 150, 210, 0.45);
             stroke-width: 1.5;
             stroke-linecap: round;
             stroke-linejoin: round;
+            transition: fill 2.5s cubic-bezier(0.2, 0.8, 0.2, 1);
         }
 
         .boot-step-draw #door-path-stroke {
@@ -115,44 +207,29 @@
         }
 
         .boot-step-charge #door-path-stroke {
-            animation: neonCharge 3.2s cubic-bezier(0.2, 0, 0.1, 1) forwards;
+            animation: elegantCharge 3.5s cubic-bezier(0.2, 0, 0.1, 1) forwards;
         }
 
-        @keyframes neonCharge {
+        /* --- ATUALIZADO: Cor entra aos poucos para não ser "seco" --- */
+        @keyframes elegantCharge {
             0% {
-                stroke: rgba(110, 150, 210, 0.50);
-                stroke-width: 1.5;
-                filter: none;
+                stroke: rgba(110, 150, 210, 0.3);
+                fill: rgba(240, 248, 255, 0);
             }
 
-            20% {
-                stroke: rgba(138, 178, 240, 0.68);
-                stroke-width: 1.6;
-                filter: drop-shadow(0 0 3px rgba(90, 150, 255, 0.55));
+            35% {
+                /* Acompanha o tempo do foco para já estar visível */
+                fill: rgba(240, 248, 255, 0.6);
             }
 
-            42% {
-                stroke: rgba(163, 202, 253, 0.82);
-                stroke-width: 1.72;
-                filter: drop-shadow(0 0 4px rgba(105, 168, 255, 0.74)) drop-shadow(0 0 12px rgba(62, 118, 238, 0.30));
-            }
-
-            66% {
-                stroke: rgba(192, 220, 255, 0.93);
-                stroke-width: 1.88;
-                filter: drop-shadow(0 0 5px rgba(118, 180, 255, 0.88)) drop-shadow(0 0 16px rgba(70, 130, 244, 0.46)) drop-shadow(0 0 30px rgba(42, 96, 218, 0.22));
-            }
-
-            88% {
-                stroke: rgba(215, 234, 255, 0.98);
-                stroke-width: 2.02;
-                filter: drop-shadow(0 0 6px rgba(138, 196, 255, 0.96)) drop-shadow(0 0 19px rgba(84, 148, 255, 0.60)) drop-shadow(0 0 34px rgba(50, 108, 230, 0.32));
+            80% {
+                fill: rgba(240, 248, 255, 1);
+                stroke: rgba(110, 150, 210, 0);
             }
 
             100% {
-                stroke: rgba(232, 244, 255, 1);
-                stroke-width: 2.1;
-                filter: drop-shadow(0 0 7px rgba(158, 210, 255, 1)) drop-shadow(0 0 22px rgba(92, 158, 255, 0.72)) drop-shadow(0 0 38px rgba(54, 112, 234, 0.40)) drop-shadow(0 0 58px rgba(34, 82, 212, 0.18));
+                stroke: rgba(255, 255, 255, 0);
+                fill: rgba(231, 241, 250, 1);
             }
         }
 
@@ -165,7 +242,7 @@
         }
 
         #boot-sysname {
-            font-size: clamp(0.85rem, 1.2vw, 1.1rem);
+            font-size: clamp(1.4rem, 2.5vw, 2.5rem);
             font-weight: 200;
             letter-spacing: 0.68em;
             text-transform: uppercase;
@@ -195,7 +272,7 @@
         }
 
         #boot-greeting {
-            font-size: clamp(1.6rem, 2.8vw, 2.2rem);
+            font-size: clamp(2rem, 3vw, 3rem);
             font-weight: 200;
             letter-spacing: 0.05em;
             color: rgba(255, 255, 255, 0.95);
@@ -211,7 +288,7 @@
         }
 
         .boot-step-detonate #boot-sequence {
-            animation: bootFadeOut 0.15s ease-out forwards;
+            animation: bootFadeOut 0.15s ease-out forwards !important;
         }
 
         @keyframes bootFadeOut {
@@ -224,130 +301,212 @@
 
         .subtle-spark {
             position: fixed;
-            z-index: 4;
-            width: 2px;
+            width: 4px;
             height: 2px;
-            border-radius: 50%;
             background: #e6f2ff;
+            border-radius: 50%;
             box-shadow: 0 0 6px 1px rgba(160, 200, 255, 0.8);
             pointer-events: none;
+            z-index: 9001;
             will-change: transform, opacity;
+        }
+
+        .boot-step-charge #door-inner-light,
+        .boot-step-charge #door-top-light {
+            opacity: 1;
+            transform: translateZ(0) rotate(28deg) scaleX(1);
+        }
+
+        .boot-step-charge #door-inner-light {
+            transform: translateZ(0) scaleY(1.05);
         }
     </style>
 </head>
-<!-- Já iniciamos com a classe boot-step-draw direto na tag body para o frame 0 atuar -->
-<body class="boot-step-draw">
-    <div id="appBlobWrap"><div id="appBlobVig"></div></div>
+
+<body>
+
+    <div id="appBlobWrap">
+        <div id="appBlobVig"></div>
+    </div>
 
     <div id="boot-sequence">
         <div id="logo-wrap">
+            <div id="door-inner-light"></div>
+            <div id="door-top-light"></div>
             <svg viewBox="357 366 357 302" id="door-logo" xmlns="http://www.w3.org/2000/svg">
-                <path id="door-path-stroke" d="M491.466248,448.851471 C491.608276,430.705597 491.779083,413.042450 491.876709,395.378906 C491.981354,376.446472 508.188202,366.194916 525.097473,374.768524 C545.386963,385.055969 565.459961,395.770844 585.616089,406.320831 C594.313293,410.873047 602.936646,415.568481 611.678162,420.033142 C623.370544,426.004913 629.275146,435.542358 629.111328,448.569122 C628.545471,493.556702 627.830200,538.542419 627.159241,583.528687 C626.903259,600.689453 626.754395,617.853821 626.241333,635.007141 C626.110962,639.366943 627.244263,641.305237 631.672974,642.608398 C657.675049,650.259399 683.562744,658.299133 709.485840,666.218262 C710.266846,666.456848 711.013245,666.808777 713.093750,667.624756 C675.661926,667.624756 639.601135,667.624756 602.966492,667.624756 C602.966492,665.443115 602.941467,663.498840 602.970093,661.555298 C603.971924,593.576843 604.936218,525.597778 606.029602,457.620758 C606.198303,447.128326 601.579468,439.620483 592.603638,434.901001 C578.896790,427.694000 565.018494,420.808441 551.135925,413.942352 C543.803528,410.315796 539.581421,412.998871 539.488892,421.233521 C538.822205,480.550201 538.205566,539.867432 537.564026,599.184387 C537.333740,620.477661 536.995544,641.770325 536.914490,663.064087 C536.900513,666.735291 535.945618,667.921204 532.135193,667.910828 C475.811768,667.757141 419.487885,667.758850 363.164154,667.699768 C361.375824,667.697876 359.587738,667.440491 357.704132,666.710815 C365.264282,664.606689 372.823639,662.499756 380.384735,660.398987 C415.153320,650.738831 449.908630,641.030273 484.712067,631.497314 C488.290710,630.517151 489.743225,629.202698 489.761627,625.199585 C489.976105,578.551147 490.385681,531.903442 490.805603,485.256104 C490.913391,473.281097 491.237885,461.308014 491.466248,448.851471 z" />
+                <path id="door-path-stroke" d="M491.466248,448.851471
+                       C491.608276,430.705597 491.779083,413.042450 491.876709,395.378906
+                       C491.981354,376.446472 508.188202,366.194916 525.097473,374.768524
+                       C545.386963,385.055969 565.459961,395.770844 585.616089,406.320831
+                       C594.313293,410.873047 602.936646,415.568481 611.678162,420.033142
+                       C623.370544,426.004913 629.275146,435.542358 629.111328,448.569122
+                       C628.545471,493.556702 627.830200,538.542419 627.159241,583.528687
+                       C626.903259,600.689453 626.754395,617.853821 626.241333,635.007141
+                       C626.110962,639.366943 627.244263,641.305237 631.672974,642.608398
+                       C657.675049,650.259399 683.562744,658.299133 709.485840,666.218262
+                       C710.266846,666.456848 711.013245,666.808777 713.093750,667.624756
+                       C675.661926,667.624756 639.601135,667.624756 602.966492,667.624756
+                       C602.966492,665.443115 602.941467,663.498840 602.970093,661.555298
+                       C603.971924,593.576843 604.936218,525.597778 606.029602,457.620758
+                       C606.198303,447.128326 601.579468,439.620483 592.603638,434.901001
+                       C578.896790,427.694000 565.018494,420.808441 551.135925,413.942352
+                       C543.803528,410.315796 539.581421,412.998871 539.488892,421.233521
+                       C538.822205,480.550201 538.205566,539.867432 537.564026,599.184387
+                       C537.333740,620.477661 536.995544,641.770325 536.914490,663.064087
+                       C536.900513,666.735291 535.945618,667.921204 532.135193,667.910828
+                       C475.811768,667.757141 419.487885,667.758850 363.164154,667.699768
+                       C361.375824,667.697876 359.587738,667.440491 357.704132,666.710815
+                       C365.264282,664.606689 372.823639,662.499756 380.384735,660.398987
+                       C415.153320,650.738831 449.908630,641.030273 484.712067,631.497314
+                       C488.290710,630.517151 489.743225,629.202698 489.761627,625.199585
+                       C489.976105,578.551147 490.385681,531.903442 490.805603,485.256104
+                       C490.913391,473.281097 491.237885,461.308014 491.466248,448.851471 z" />
             </svg>
-            <!-- Script inline bloqueante minúsculo para calcular o tamanho da linha e definir pro CSS antes da tela piscar -->
-            <script>
-                (function () {
-                    const p = document.getElementById('door-path-stroke');
-                    const len = p.getTotalLength();
-                    p.style.setProperty('--path-len', len + 'px');
-                    p.style.strokeDasharray = len;
-                    p.style.strokeDashoffset = len;
-                })();
-            </script>
         </div>
+
         <div id="boot-message">
             <span id="boot-sysname">Doorpi</span>
             <div id="boot-divider"></div>
-            <span id="boot-greeting">Bem-vindo.</span>
         </div>
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener("DOMContentLoaded", () => {
             const body = document.body;
             const strokePath = document.getElementById('door-path-stroke');
             const logoSvg = document.getElementById('door-logo');
             const blobWrap = document.getElementById('appBlobWrap');
-            const colors = ['rgba(15,25,85,0.7)', 'rgba(10,30,85,0.7)', 'rgba(25,15,70,0.7)', 'rgba(5,40,75,0.7)', 'rgba(20,20,90,0.6)', 'rgba(15,35,70,0.6)', 'rgba(10,15,60,0.7)', 'rgba(30,20,80,0.6)'];
 
-            const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+            /* Calcula comprimento real do path para a animação do traçado */
+            const len = strokePath.getTotalLength();
+            strokePath.style.setProperty('--path-len', len + 'px');
+            strokePath.style.strokeDasharray = len;
+            strokePath.style.strokeDashoffset = len;
+
+            const wait = ms => new Promise(r => setTimeout(r, ms));
+            function post(type, payload = {}) {
+                try { window.parent?.postMessage({ type, ...payload }, '*'); } catch (_) { }
+                window.dispatchEvent(new CustomEvent(type, { detail: payload }));
+            }
+
+            /* =========================================
+               BLOB PHYSICS
+               ========================================= */
             const blobs = [];
-            function post(type, payload = {}) { try { window.parent?.postMessage({ type, ...payload }, '*'); } catch { } }
+            const colors = [
+                'rgba(15,25,85,0.7)', 'rgba(10,30,85,0.7)', 'rgba(25,15,70,0.7)', 'rgba(5,40,75,0.7)',
+                'rgba(20,20,90,0.6)', 'rgba(15,35,70,0.6)', 'rgba(10,15,60,0.7)', 'rgba(30,20,80,0.6)'
+            ];
 
             function createBigBang() {
-                const cx = window.innerWidth / 2; const cy = window.innerHeight / 2;
-                const ratio = Math.max(1, window.innerWidth / Math.max(1, window.innerHeight));
+                const cx = window.innerWidth / 2;
+                const cy = window.innerHeight / 2;
+                const r = Math.max(1, window.innerWidth / window.innerHeight);
                 for (let i = 0; i < 8; i++) {
-                    const el = document.createElement('div'); el.className = 'app-blob';
+                    const el = document.createElement('div');
+                    el.className = 'app-blob';
                     const size = Math.min(window.innerWidth, window.innerHeight) * (0.5 + Math.random() * 0.4);
-                    el.style.width = `${size}px`; el.style.height = `${size}px`;
+                    el.style.width = size + 'px';
+                    el.style.height = size + 'px';
                     el.style.background = `radial-gradient(circle, ${colors[i]} 0%, transparent 70%)`;
                     blobWrap.insertBefore(el, document.getElementById('appBlobVig'));
-                    const angle = Math.random() * Math.PI * 2; const speed = 12 + Math.random() * 12;
-                    blobs.push({ el, x: cx, y: cy, size, vx: Math.cos(angle) * speed * (ratio * 0.8), vy: Math.sin(angle) * speed, phase: 'burst', wanderAngle: angle });
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = 12 + Math.random() * 12;
+                    blobs.push({
+                        el, x: cx, y: cy, size,
+                        vx: Math.cos(angle) * speed * (r * 0.8),
+                        vy: Math.sin(angle) * speed,
+                        phase: 'burst', wanderAngle: angle
+                    });
                 }
                 requestAnimationFrame(physicsLoop);
             }
 
             function physicsLoop() {
-                const w = window.innerWidth; const h = window.innerHeight;
-                for (const blob of blobs) {
-                    if (blob.phase === 'burst') {
-                        blob.vx *= 0.985; blob.vy *= 0.985; blob.x += blob.vx; blob.y += blob.vy;
-                        const margin = blob.size * 0.4;
-                        if (blob.x < -margin) { blob.x = -margin; blob.vx *= -1; }
-                        if (blob.x > w + margin) { blob.x = w + margin; blob.vx *= -1; }
-                        if (blob.y < -margin) { blob.y = -margin; blob.vy *= -1; }
-                        if (blob.y > h + margin) { blob.y = h + margin; blob.vy *= -1; }
-                        if (Math.hypot(blob.vx, blob.vy) < 0.8) blob.phase = 'wander';
+                const w = window.innerWidth, h = window.innerHeight;
+                blobs.forEach(b => {
+                    if (b.phase === 'burst') {
+                        b.vx *= 0.985; b.vy *= 0.985;
+                        b.x += b.vx; b.y += b.vy;
+                        const m = b.size * 0.4;
+                        if (b.x < -m) { b.x = -m; b.vx *= -1; }
+                        if (b.x > w + m) { b.x = w + m; b.vx *= -1; }
+                        if (b.y < -m) { b.y = -m; b.vy *= -1; }
+                        if (b.y > h + m) { b.y = h + m; b.vy *= -1; }
+                        if (Math.hypot(b.vx, b.vy) < 0.8) b.phase = 'wander';
                     } else {
-                        blob.wanderAngle += (Math.random() - 0.5) * 0.02;
-                        blob.vx = Math.cos(blob.wanderAngle) * 1.5; blob.vy = Math.sin(blob.wanderAngle) * 1.5;
-                        blob.x += blob.vx; blob.y += blob.vy;
-                        if (blob.x > w + blob.size / 2) blob.x = -blob.size / 2;
-                        if (blob.x < -blob.size / 2) blob.x = w + blob.size / 2;
-                        if (blob.y > h + blob.size / 2) blob.y = -blob.size / 2;
-                        if (blob.y < -blob.size / 2) blob.y = h + blob.size / 2;
+                        b.wanderAngle += (Math.random() - 0.5) * 0.02;
+                        b.vx = Math.cos(b.wanderAngle) * 1.5;
+                        b.vy = Math.sin(b.wanderAngle) * 1.5;
+                        b.x += b.vx; b.y += b.vy;
+                        if (b.x > w + b.size / 2) b.x = -b.size / 2;
+                        if (b.x < -b.size / 2) b.x = w + b.size / 2;
+                        if (b.y > h + b.size / 2) b.y = -b.size / 2;
+                        if (b.y < -b.size / 2) b.y = h + b.size / 2;
                     }
-                    blob.el.style.transform = `translate3d(${blob.x - blob.size / 2}px, ${blob.y - blob.size / 2}px, 0)`;
-                }
+                    b.el.style.transform = `translate3d(${b.x - b.size / 2}px,${b.y - b.size / 2}px,0)`;
+                });
                 requestAnimationFrame(physicsLoop);
             }
 
+            /* =========================================
+               SUBTLE SPARKS
+               ========================================= */
             function spawnSparks(isBurst = false) {
                 const rect = logoSvg.getBoundingClientRect();
                 const count = isBurst ? 15 : 1;
+
                 for (let i = 0; i < count; i++) {
-                    const spark = document.createElement('div'); spark.className = 'subtle-spark';
+                    const spark = document.createElement('div');
+                    spark.className = 'subtle-spark';
                     document.body.appendChild(spark);
+
                     let x, y, distance, duration;
                     if (isBurst) {
-                        x = window.innerWidth / 2; y = window.innerHeight / 2;
-                        distance = 40 + Math.random() * 60; duration = 1200 + Math.random() * 800;
+                        x = window.innerWidth / 2;
+                        y = window.innerHeight / 2;
+                        distance = 40 + Math.random() * 60;
+                        duration = 1200 + Math.random() * 800;
                     } else {
-                        x = rect.left + Math.random() * rect.width; y = rect.top + Math.random() * rect.height;
-                        distance = 15 + Math.random() * 25; duration = 800 + Math.random() * 600;
+                        x = rect.left + Math.random() * rect.width;
+                        y = rect.top + Math.random() * rect.height;
+                        distance = 15 + Math.random() * 25;
+                        duration = 800 + Math.random() * 600;
                     }
+
                     const angle = Math.random() * Math.PI * 2;
-                    spark.style.left = `${x}px`; spark.style.top = `${y}px`;
+                    spark.style.left = x + 'px';
+                    spark.style.top = y + 'px';
+
                     spark.animate([
                         { transform: 'translate(-50%, -50%) scale(1)', opacity: isBurst ? 1 : 0.6 },
                         { transform: `translate(calc(-50% + ${Math.cos(angle) * distance}px), calc(-50% + ${Math.sin(angle) * distance}px)) scale(0)`, opacity: 0 }
-                    ], { duration, easing: 'cubic-bezier(0.25, 1, 0.5, 1)', fill: 'forwards' });
+                    ], {
+                        duration: duration,
+                        easing: 'cubic-bezier(0.25, 1, 0.5, 1)',
+                        fill: 'forwards'
+                    });
+
                     setTimeout(() => spark.remove(), duration);
                 }
             }
 
+            /* =========================================
+               BOOT SEQUENCE
+               ========================================= */
             async function runBootSequence() {
-                // A animação do traçado começou exatamente no Frame 0 pois hardcodamos a class no body.
-                // Apenas esperamos os 2.2s de duração da animação para iniciar a próxima fase!
-                await wait(2200);
+                await wait(500);
+
+                body.classList.add('boot-step-draw');
+                await wait(2300);
 
                 strokePath.style.strokeDashoffset = '0';
-                void strokePath.getBoundingClientRect(); // Força reflow (boa prática)
+                void strokePath.getBoundingClientRect();
+
                 body.classList.add('boot-step-charge');
 
                 const sparkInterval = setInterval(() => spawnSparks(false), 300);
+
                 await wait(3200);
 
                 clearInterval(sparkInterval);
@@ -356,11 +515,15 @@
 
                 createBigBang();
                 spawnSparks(true);
+
                 post('doorpi:intro:handoff', {
-                    handoff: { background: '#07071a', vignette: 'radial-gradient(circle at 50% 50%, transparent 25%, rgba(0, 0, 18, 0.85) 95%)', colors }
+                    handoff: {
+                        background: '#07071a',
+                        vignette: 'radial-gradient(circle at 50% 50%, transparent 25%, rgba(0, 0, 18, 0.85) 95%)',
+                        colors
+                    }
                 });
 
-                await wait(1200);
                 post('doorpi:intro:complete');
             }
 
@@ -368,4 +531,5 @@
         });
     </script>
 </body>
+
 </html>

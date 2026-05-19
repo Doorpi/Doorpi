@@ -35,20 +35,50 @@
         handoffBodyClasses: []
     };
 
-    function getIntroConfig() {
+    async function fetchIntroConfig() {
         try {
-            const saved = localStorage.getItem('doorpi:intro_config');
-            if (saved) {
-                const parsed = JSON.parse(saved);
-                return {
-                    ...DEFAULT_CONFIG,
-                    ...parsed,
-                    // Garante que o merge do objeto handoff não apague os arrays padrão de cores
-                    handoff: { ...DEFAULT_CONFIG.handoff, ...(parsed.handoff || {}) }
-                };
+            // 1. Lê o active.json direto da wwwroot via app.local
+            const activeRes = await fetch('https://app.local/intros/active-intro.json', { cache: 'no-store' });
+            if (!activeRes.ok) return DEFAULT_CONFIG;
+
+            const activeData = await activeRes.json();
+
+            // 2. Se a intro foi desligada
+            if (activeData.enabled === false) {
+                return { enabled: false };
             }
-        } catch (e) { }
-        return DEFAULT_CONFIG;
+
+            if (!activeData.manifest) return DEFAULT_CONFIG;
+
+            // 3. Monta a URL do manifest.json sempre apontando para app.local
+            let manifestUrl = activeData.manifest;
+            if (!manifestUrl.startsWith('http')) {
+                manifestUrl = `https://app.local/intros/${manifestUrl}`;
+            }
+
+            // 4. Lê o manifest da intro escolhida
+            const manifestRes = await fetch(manifestUrl, { cache: 'no-store' });
+            if (!manifestRes.ok) return DEFAULT_CONFIG;
+
+            const manifest = await manifestRes.json();
+
+            // 5. Calcula o caminho final
+            const baseUrl = manifestUrl.substring(0, manifestUrl.lastIndexOf('/'));
+            const entryUrl = `${baseUrl}/${manifest.entry || 'index.html'}`;
+
+            return {
+                ...DEFAULT_CONFIG,
+                ...manifest,
+                entryUrl: entryUrl,
+                handoff: {
+                    ...DEFAULT_CONFIG.handoff,
+                    ...(manifest.handoff || {})
+                }
+            };
+        } catch (e) {
+            console.warn("[Doorpi Intro] Falha ao ler active.json. Acionando Fallback (Neon).", e);
+            return DEFAULT_CONFIG;
+        }
     }
 
     function classListFrom(value) {
@@ -73,9 +103,33 @@
             #doorpiIntroAmbient.is-ending { opacity: 0; }
             .doorpi-intro-ambient-blob { position: absolute; border-radius: 50%; filter: blur(45px); will-change: transform; transform: translate3d(0, 0, 0); }
             .doorpi-intro-ambient-vig { position: absolute; inset: 0; z-index: 2; background: var(--doorpi-intro-vignette, radial-gradient(circle at 50% 50%, transparent 25%, rgba(0, 0, 18, 0.85) 95%)); }
-            body.doorpi-intro-handoff-active .doorpi-user-overlay.doorpi-intro-handoff { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
-            body.doorpi-intro-handoff-active .doorpi-user-overlay.doorpi-intro-handoff .doorpi-user-panel { animation: doorpiIntroUserPanelIn 1.45s cubic-bezier(0.16, 1, 0.3, 1) both; }
-            @keyframes doorpiIntroUserPanelIn { from { opacity: 0; transform: translateY(18px) scale(0.985); } to { opacity: 1; transform: none; } }
+            
+            body.doorpi-intro-handoff-active .doorpi-user-overlay.doorpi-intro-handoff { 
+                background: transparent; 
+                backdrop-filter: none; 
+                -webkit-backdrop-filter: none; 
+            }
+
+            /* Animação de Surgimento do Fundo Estática */
+            body.doorpi-intro-handoff-active .doorpi-user-overlay.doorpi-intro-handoff .doorpi-user-panel { 
+                /* Garante que a escala parta do centro exato */
+                transform-origin: center center !important;
+                /* 1.2s para uma entrada suave */
+                animation: doorpiIntroUserPanelIn 1.2s cubic-bezier(0.16, 1, 0.3, 1) both; 
+            }
+
+            @keyframes doorpiIntroUserPanelIn { 
+                from { 
+                    opacity: 0; 
+                    /* Forçamos o Y em 0 para anular qualquer estilo do sistema base que cause movimento */
+           
+                    filter: blur(8px) brightness(0.6);
+                } 
+                to { 
+                    opacity: 1; 
+                    filter: blur(0) brightness(1);
+                } 
+            }
         `;
         document.head.appendChild(style);
     }
@@ -275,13 +329,15 @@
         else if (type === 'doorpi:intro:error') { state.failed = true; completeIntro('error'); }
     }
 
-    function start() {
+    // Adicione 'async' aqui na frente
+    async function start() {
         if (state.started) return;
         state.started = true;
 
-        injectStyles(); // Garante que foi injetado, caso o documento estivesse muito vazio no parse inicial
+        injectStyles();
 
-        state.config = getIntroConfig();
+        // Use o await para esperar a leitura do JSON que criamos acima
+        state.config = await fetchIntroConfig();
 
         if (!state.config.enabled) {
             state.completed = true;

@@ -1,0 +1,15 @@
+﻿{
+  "schemaVersion": 1,
+  "id": "video-test",
+  "name": "Intro de Video",
+  "version": "1.0.0",
+  "author": "Teste",
+  "entry": "index.html",
+  "fallbackTimeoutMs": 30000,
+  "exitFadeMs": 500,
+  "handoff": {
+    "enabled": true,
+    "ambient": "blob",
+    "background": "#000000"
+  }
+}

@@ -1,0 +1,63 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Intro Test</title>
+    <style>
+        /* Remove margens e faz o fundo ficar preto */
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            overflow: hidden;
+        }
+
+        /* Faz o vídeo cobrir a tela toda sem distorcer (cortando bordas se necessário) */
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain; /* Se preferir não cortar, mude para 'contain' */
+        }
+    </style>
+</head>
+<body>
+
+    <!-- O vídeo começa automaticamente. playsinline é bom para compatibilidade -->
+    <video id="meu-video" src="video.mp4" autoplay playsinline></video>
+
+    <script>
+        const video = document.getElementById('meu-video');
+
+        // Quando o vídeo terminar de tocar naturalmente
+        video.addEventListener('ended', () => {
+            // (Opcional) Configura a transição antes de fechar
+            window.parent.postMessage({
+                type: 'doorpi:intro:handoff',
+                handoff: { ambient: 'blob' }
+            }, '*');
+
+            // Avisa o sistema Doorpi que a intro terminou
+            window.parent.postMessage({ type: 'doorpi:intro:complete' }, '*');
+        });
+
+        // Caso dê algum erro ao carregar o vídeo (ex: arquivo não encontrado)
+        video.addEventListener('error', () => {
+            window.parent.postMessage({ type: 'doorpi:intro:error' }, '*');
+        });
+
+        // Tratamento para bloqueio de Autoplay dos navegadores
+        let playPromise = video.play();
+        if (playPromise !== undefined) {
+            playPromise.catch(error => {
+                console.warn("Autoplay foi bloqueado pelo navegador.", error);
+                // Se o navegador bloquear o vídeo (geralmente por causa do áudio),
+                // pulamos a intro para não deixar o usuário numa tela preta.
+                window.parent.postMessage({ type: 'doorpi:intro:complete' }, '*');
+            });
+        }
+    </script>
+</body>
+</html>
