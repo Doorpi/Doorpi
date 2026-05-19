@@ -7232,7 +7232,7 @@ namespace Doorpi
                     bool isXboxHeld = (btn & 0x0400) != 0;   // Botão Xbox
 
                     // 2. Prioridade Máxima: Se for o Combo de Emergência, ignore o resto do loop
-                    if ((isStartHeld && isSelectHeld) || isXboxHeld)
+                    if ((isStartHeld && isSelectHeld))
                     {
                         // Se estiver segurando o combo, não processamos comandos de navegação ou menu individual
                         prevButtons = btn;
@@ -7245,7 +7245,8 @@ namespace Doorpi
                     if (DateTime.UtcNow.Ticks > Interlocked.Read(ref _returnFromExternalModeSuppressUntil))
                     {
                         // Só abre se apertar Select (sem Start) ou o botão Xbox (que já checamos no pânico acima)
-                        if (BtnPressed(0x0020) && !isStartHeld)
+                        if ((BtnPressed(0x0020) && !isStartHeld) || BtnPressed(0x0400))
+
                         {
                             Dispatcher.BeginInvoke(() =>
                             {
