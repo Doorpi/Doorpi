@@ -6084,9 +6084,6 @@ namespace Doorpi
                     }
                     else
                     {
-                        // O SEGREDO DO BACKEND ESTÁ AQUI:
-                        // Mesmo salvando "silenciosamente" (pelas configurações), 
-                        // obrigamos a interface a receber o JSON atualizado e sobrescrever os caches!
                         Dispatcher.Invoke(() =>
                         {
                             webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
@@ -6107,10 +6104,9 @@ namespace Doorpi
                         users.Remove(userToRemove);
                         SaveUserProfiles(users);
 
-                        // Usa a nova deleção forçada/Renomeia na pasta principal
                         ForceDeleteDirectory(Path.Combine(dataFolder, "users", userToRemove.Id));
 
-                        // Usa a deleção forçada nos Caches Webviews dessa conta
+                      
                         try
                         {
                             string safeName = string.IsNullOrWhiteSpace(userToRemove.Name) ? "default" : string.Concat(userToRemove.Name.Where(c => !Path.GetInvalidFileNameChars().Contains(c)));
