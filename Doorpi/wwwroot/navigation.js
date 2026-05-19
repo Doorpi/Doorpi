@@ -649,7 +649,11 @@ document.addEventListener('keydown', e => {
         if (e.key === 'Enter') {
             e.preventDefault();
             const el = document.activeElement;
-            if (el && el.tagName === 'INPUT') window._vkbOpen = () => { };
+
+            if (el && el.tagName === 'INPUT') {
+                window._vkbOpen(el);
+            }
+            // ---------------------
 
             else if (el && el.tagName === 'SELECT') {
                 if (typeof el.showPicker === 'function') el.showPicker();
@@ -658,7 +662,9 @@ document.addEventListener('keydown', e => {
                     el.dispatchEvent(new Event('change'));
                 }
             }
-            else el?.click();
+            else {
+                el?.click();
+            }
             return;
         }
         if (e.key === 'Escape') {
@@ -893,7 +899,7 @@ window.addEventListener('gamepaddisconnected', e => {
         // Botões de ação globais
         if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
             const el = document.activeElement;
-            if (el && el.tagName === 'INPUT') window._vkbOpen = () => { };
+            if (el && el.tagName === 'INPUT')window._vkbOpen(el); 
 
             else if (el && el.tagName === 'SELECT') {
                 if (typeof el.showPicker === 'function') el.showPicker();
