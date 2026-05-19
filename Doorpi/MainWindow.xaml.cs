@@ -4969,10 +4969,7 @@ namespace Doorpi
                         System.Security.Cryptography.MD5.HashData(
                             System.Text.Encoding.UTF8.GetBytes(key)))[..10].ToLower();
 
-                    string? gridUrl = null;
-                    string? horizontalUrl = null;
-                    string? heroUrl = null;
-                    string? logoUrl = null;
+                    string? gridUrl = null, horizontalUrl = null, heroUrl = null, logoUrl = null;
 
                     try
                     {
@@ -4984,36 +4981,28 @@ namespace Doorpi
                     }
 
                     string safeName = id;
-                    string? localGrid = null;
-                    string? localHorizontal = null;
-                    string? localHero = null;
-                    string? localLogo = null;
 
-                    try
-                    {
-                        localGrid = gridUrl != null ? await DownloadImageAsync(gridUrl, gridFolder, safeName) : null;
-                        localHorizontal = horizontalUrl != null ? await DownloadImageAsync(horizontalUrl, gridHorizontalFolder, safeName + "_h") : null;
-                        localHero = heroUrl != null ? await DownloadImageAsync(heroUrl, heroFolder, safeName) : null;
-                        localLogo = logoUrl != null ? await DownloadImageAsync(logoUrl, logoFolder, safeName + "_logo") : null;
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"[MediaExe] Download de arte falhou para {app.Name}: {ex.Message}");
-                    }
+                    // DOWNLOAD EM PARALELO DOS 4 ASSETS
+                    var tGrid = gridUrl != null ? DownloadImageAsync(gridUrl, gridFolder, safeName) : Task.FromResult<string?>(null);
+                    var tHoriz = horizontalUrl != null ? DownloadImageAsync(horizontalUrl, gridHorizontalFolder, safeName + "_h") : Task.FromResult<string?>(null);
+                    var tHero = heroUrl != null ? DownloadImageAsync(heroUrl, heroFolder, safeName) : Task.FromResult<string?>(null);
+                    var tLogo = logoUrl != null ? DownloadImageAsync(logoUrl, logoFolder, safeName + "_logo") : Task.FromResult<string?>(null);
+
+                    await Task.WhenAll(tGrid, tHoriz, tHero, tLogo);
 
                     existing.Add(new MediaAppModel
                     {
                         Id = id,
                         Name = app.Name,
-                        Url = key,         // path do exe — usado no launch
+                        Url = key,
                         Type = "exe",
                         MultiUser = false,
                         OwnerUserId = currentUserId,
                         ShareMode = "private",
-                        GridImage = localGrid != null ? $"https://data.local/images/grid/{Path.GetFileName(localGrid)}" : "",
-                        GridHorizontalImage = localHorizontal != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(localHorizontal)}" : "",
-                        HeroImage = localHero != null ? $"https://data.local/images/hero/{Path.GetFileName(localHero)}" : "",
-                        LogoImage = localLogo != null ? $"https://data.local/images/logo/{Path.GetFileName(localLogo)}" : "",
+                        GridImage = tGrid.Result != null ? $"https://data.local/images/grid/{Path.GetFileName(tGrid.Result)}" : "",
+                        GridHorizontalImage = tHoriz.Result != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(tHoriz.Result)}" : "",
+                        HeroImage = tHero.Result != null ? $"https://data.local/images/hero/{Path.GetFileName(tHero.Result)}" : "",
+                        LogoImage = tLogo.Result != null ? $"https://data.local/images/logo/{Path.GetFileName(tLogo.Result)}" : "",
                         DateAdded = DateTime.Now
                     });
 
@@ -5028,7 +5017,6 @@ namespace Doorpi
                     webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}"));
             }
         }
-
         private async void WebView_WebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
         {
             var jsonMessage = e.TryGetWebMessageAsString();
@@ -5788,7 +5776,6 @@ namespace Doorpi
                                 if (wasEmpty)
                                 {
                                     await UpdateAppCacheAsync().ConfigureAwait(false);
-                                    await AutoAddPlatformGamesAsync().ConfigureAwait(false); // Setup limpo chama essa de forma não bloqueante
                                 }
 
                                 Dispatcher.BeginInvoke(() =>
@@ -6500,23 +6487,24 @@ namespace Doorpi
                 await Task.Delay(150).ConfigureAwait(false);
 
                 string safeName = app.Path.GetHashCode().ToString();
-                string? localGrid = null, localGridHorizontal = null, localHero = null, localLogo = null;
 
-                if (!string.IsNullOrEmpty(gridHorizontalUrl)) localGridHorizontal = await DownloadImageAsync(gridHorizontalUrl, gridHorizontalFolder, safeName + "_h").ConfigureAwait(false);
-                if (!string.IsNullOrEmpty(gridUrl)) localGrid = await DownloadImageAsync(gridUrl, gridFolder, safeName).ConfigureAwait(false);
-                if (!string.IsNullOrEmpty(heroUrl)) localHero = await DownloadImageAsync(heroUrl, heroFolder, safeName).ConfigureAwait(false);
-                if (!string.IsNullOrEmpty(logoUrl)) localLogo = await DownloadImageAsync(logoUrl, logoFolder, safeName + "_logo").ConfigureAwait(false);
+                // DOWNLOAD EM PARALELO DOS 4 ASSETS
+                var tGrid = gridUrl != null ? DownloadImageAsync(gridUrl, gridFolder, safeName) : Task.FromResult<string?>(null);
+                var tHoriz = gridHorizontalUrl != null ? DownloadImageAsync(gridHorizontalUrl, gridHorizontalFolder, safeName + "_h") : Task.FromResult<string?>(null);
+                var tHero = heroUrl != null ? DownloadImageAsync(heroUrl, heroFolder, safeName) : Task.FromResult<string?>(null);
+                var tLogo = logoUrl != null ? DownloadImageAsync(logoUrl, logoFolder, safeName + "_logo") : Task.FromResult<string?>(null);
+
+                await Task.WhenAll(tGrid, tHoriz, tHero, tLogo).ConfigureAwait(false);
 
                 var game = new GameModel
                 {
                     Name = app.Name,
                     Path = app.Path,
                     LaunchUrl = app.LaunchUrl,
-                    GridImage = localGrid != null ? $"https://data.local/images/grid/{Path.GetFileName(localGrid)}" : "",
-
-                    GridHorizontalImage = localGridHorizontal != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(localGridHorizontal)}" : "",
-                    HeroImage = localHero != null ? $"https://data.local/images/hero/{Path.GetFileName(localHero)}" : "",
-                    LogoImage = localLogo != null ? $"https://data.local/images/logo/{Path.GetFileName(localLogo)}" : "",
+                    GridImage = tGrid.Result != null ? $"https://data.local/images/grid/{Path.GetFileName(tGrid.Result)}" : "",
+                    GridHorizontalImage = tHoriz.Result != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(tHoriz.Result)}" : "",
+                    HeroImage = tHero.Result != null ? $"https://data.local/images/hero/{Path.GetFileName(tHero.Result)}" : "",
+                    LogoImage = tLogo.Result != null ? $"https://data.local/images/logo/{Path.GetFileName(tLogo.Result)}" : "",
                     LastPlayed = DateTime.MinValue,
                     DateAdded = DateTime.Now
                 };
@@ -6527,16 +6515,13 @@ namespace Doorpi
 
             if (dbChanged)
             {
-
                 SaveGames(existingGames);
-
                 Dispatcher.BeginInvoke(() => LoadGamesIntoUI());
             }
 
             Dispatcher.BeginInvoke(() =>
                 webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"clearLoadingCards\"}"));
         }
-
         // ========================= STEAMGRID =========================
 
         private string PrepareSearchName(string name)
@@ -6615,7 +6600,8 @@ namespace Doorpi
                 var results = doc.RootElement.GetProperty("data");
                 if (results.GetArrayLength() == 0) return (null, null, null, null);
 
-                foreach (var game in results.EnumerateArray().Take(10))
+                // REDUZIDO DE 10 PARA 3: Se não achar nos 3 primeiros resultados, desiste mais rápido para não travar a fila
+                foreach (var game in results.EnumerateArray().Take(3))
                 {
                     int id = game.GetProperty("id").GetInt32();
                     var assets = await FetchAssetsByGameId(id);

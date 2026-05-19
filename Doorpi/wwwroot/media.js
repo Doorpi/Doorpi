@@ -120,7 +120,7 @@ function showSystemLoading(title, subtitle, folders = []) {
 
     overlay.classList.remove('hiding');
     const stepRows = NATIVE_APPS.map(app => `<div class="sys-app-row" id="sysRow_${app.id}"><div class="sys-app-dot"></div><span>${app.name}</span></div>`).join('');
-    const folderRows = folders.length > 0 ? `<div class="sys-section-sep" style="height:10px;"></div><div class="sys-section-label" style="font-size: 0.75rem; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 2px;">${t('sysMediaFolders')}</div>${folders.map(f => { const name = f.replace(/\\/g, '/').split('/').filter(Boolean).pop() || f; return `<div class="sys-app-row" id="sysFolderRow_${CSS.escape(f)}" data-folder-path="${f.replace(/"/g, '&quot;')}"><div class="sys-app-dot"></div><span>${name}</span><span class="sys-folder-count">...</span></div>`; }).join('')}` : '';
+    const folderRows = folders.length > 0 ? `<div class="sys-section-sep" style="height:10px;margin-left:5%;"></div><div class="sys-section-label" style="font-size: 0.75rem; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 2px;">${t('sysMediaFolders')}</div>${folders.map(f => { const name = f.replace(/\\/g, '/').split('/').filter(Boolean).pop() || f; return `<div class="sys-app-row" id="sysFolderRow_${CSS.escape(f)}" data-folder-path="${f.replace(/"/g, '&quot;')}"><div class="sys-app-dot"></div><span>${name}</span><span class="sys-folder-count">...</span></div>`; }).join('')}` : '';
     const syncRow = `<div class="sys-section-sep" style="height:10px;"></div><div class="sys-app-row active" id="sysRow_artSync"><div class="sys-app-dot"></div><span>${t('sysMediaDownloadingCovers')}</span></div>`;
 
     overlay.innerHTML = `
@@ -134,7 +134,7 @@ function showSystemLoading(title, subtitle, folders = []) {
                     <div class="vb-dots"><span></span><span></span><span></span></div>
                 </div>
             </div>
-            <div class="sys-apps-progress" id="sysAppsProgress">${stepRows}${folderRows}${syncRow}</div>
+            <div class="sys-apps-progress" id="sysAppsProgress">${stepRows}${folderRows}</div>
         </div>`;
     overlay.style.display = 'flex';
 }

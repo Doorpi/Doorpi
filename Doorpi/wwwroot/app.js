@@ -420,9 +420,9 @@ function recoverGlobalFocus() {
     const gridId = currentTab === 'media' ? 'mediaGrid' : 'gameGrid';
     const grid = document.getElementById(gridId);
 
-    // Tenta focar no Card Featured ou no primeiro card da lista
     if (grid) {
-        const target = grid.querySelector('.card.featured') || grid.querySelector('.card:not(.add-card)');
+        // Agora o alvo INCLUI o botão add-card como fallback principal
+        const target = grid.querySelector('.card.featured') || grid.querySelector('.card:not(.add-card)') || grid.querySelector('.card.add-card');
         if (target) {
             target.focus();
             return;
@@ -1093,6 +1093,18 @@ function hideGlobalLoading() {
         if (overlay._iv) clearInterval(overlay._iv);
     }
     window.updateNavHint?.();
+
+    setTimeout(() => {
+        if (!window.isModalOpen && !window.isSetupOpen && !window._vkbIsOpen && !window.isDoorpiOverlayOpen?.()) {
+            const currentTab = (typeof window.getCurrentHomeTab === 'function') ? window.getCurrentHomeTab() : 'games';
+            const grid = document.getElementById(currentTab === 'media' ? 'mediaGrid' : 'gameGrid');
+            if (grid) {
+
+                const target = grid.querySelector('.card.featured') || grid.querySelector('.card:not(.add-card)') || grid.querySelector('.card.add-card');
+                if (target) target.focus();
+            }
+        }
+    }, 80);
 }
 
 /* Seção: Utilitários de atualização de imagens */
@@ -1622,6 +1634,17 @@ async function crossfadeBanner(el, newSrc) {
 
 function switchHeroBackground(bgSrc, logoSrc, heroSrc) {
     if (window._userSwitching) return;
+
+
+    const currentTab = (typeof window.getCurrentHomeTab === 'function') ? window.getCurrentHomeTab() : 'games';
+    const gridId = currentTab === 'media' ? 'mediaGrid' : 'gameGrid';
+    const grid = document.getElementById(gridId);
+
+    if (grid && !grid.querySelector('.card:not(.add-card)')) {
+        if (typeof clearHero === 'function') clearHero(true);
+        return;
+    }
+
     if (window._heroCleanupTimer) {
         clearTimeout(window._heroCleanupTimer);
         window._heroCleanupTimer = null;

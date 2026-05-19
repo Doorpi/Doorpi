@@ -216,7 +216,7 @@ let _isAddingUserMode = false;
                         <div class="setup-section-divider"></div>
                         <p class="setup-section-desc" data-i18n="setupFoldersDesc"></p>
                         <div class="setup-folder-list" id="setupFolderList"></div>
-                        <button class="setup-icon-btn setup-focusable" id="btnSetupAddFolder" tabindex="-1" style="align-self:flex-start">
+                        <button class="setup-icon-btn setup-focusable" id="btnSetupAddFolder" tabindex="-1" style="width: 100%; justify-content: center; padding-top: clamp(12px, 1.2vw, 16px); padding-bottom: clamp(12px, 1.2vw, 16px); margin-top: 4px;">
                             + <span data-i18n="setupStep4AddFolder"></span>
                         </button>
                     </div>
@@ -688,7 +688,46 @@ function _bindSetupEvents() {
     });
 
     document.getElementById('btnSetupFinish').addEventListener('click', _validateAndFinish);
+
+    // CORREÇÕES DE NAVEGAÇÃO PRO RODAPÉ (Forçar botão Concluir primeiro)
+
+    // 1. Ao descer pelo botão de Adicionar Pasta
+    document.getElementById('btnSetupAddFolder').addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            e.stopPropagation();
+            document.getElementById('btnSetupFinish')?.focus();
+        }
+    });
+
+    // 2. Ao descer pela barra do Passo 03 (quando fechada)
+    const folderHeader = document.querySelector('[data-section="folders"]');
+    if (folderHeader) {
+        folderHeader.addEventListener('keydown', (e) => {
+            const section = document.getElementById('setupSectionFolders');
+            if (e.key === 'ArrowDown' && !section.classList.contains('expanded')) {
+                e.preventDefault();
+                e.stopPropagation();
+                document.getElementById('btnSetupFinish')?.focus();
+            }
+        });
+    }
+
+    // 3. Ao subir pelo botão Concluir (para garantir que a volta funcione perfeita)
+    document.getElementById('btnSetupFinish').addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            e.stopPropagation();
+            const section = document.getElementById('setupSectionFolders');
+            if (section && section.classList.contains('expanded')) {
+                document.getElementById('btnSetupAddFolder')?.focus();
+            } else {
+                folderHeader?.focus();
+            }
+        }
+    });
 }
+
 
 function _renderSetupFolders() {
     const list = document.getElementById('setupFolderList');
@@ -704,15 +743,31 @@ function _renderSetupFolders() {
             </button>
         </div>`).join('');
 
-    list.querySelectorAll('.setup-btn-delete').forEach(btn =>
+    list.querySelectorAll('.setup-btn-delete').forEach((btn, idx, allBtns) => {
+        // CORREÇÃO: Força o foco correto nas pastas e impede que o sistema intercepte
+        btn.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                e.stopPropagation(); // Trava a navegação global
+                // Se houver mais pastas abaixo, desce pro próximo X, senão vai pro Adicionar
+                if (idx < allBtns.length - 1) {
+                    allBtns[idx + 1].focus();
+                } else {
+                    document.getElementById('btnSetupAddFolder')?.focus();
+                }
+            } else if (e.key === 'ArrowUp' && idx > 0) {
+                e.preventDefault();
+                e.stopPropagation();
+                allBtns[idx - 1].focus(); // Volta pro X da pasta acima
+            }
+        });
+
         btn.addEventListener('click', () => {
             const idx = parseInt(btn.dataset.idx);
             _currUser.folders.splice(idx, 1);
             _renderSetupFolders();
             _updateStatus();
 
-            // Lógica essencial para GAMEPAD: redireciona o foco para o botão anterior 
-            // ou para o botão "Adicionar Pasta", evitando "foco morto".
             setTimeout(() => {
                 const newBtns = document.getElementById('setupFolderList').querySelectorAll('.setup-btn-delete');
                 if (newBtns.length > 0) {
@@ -722,15 +777,14 @@ function _renderSetupFolders() {
                     document.getElementById('btnSetupAddFolder')?.focus();
                 }
             }, 50);
-        })
-    );
+        });
+    });
 
     const folderSec = document.getElementById('setupSectionFolders');
     if (folderSec && folderSec.classList.contains('expanded')) {
         list.querySelectorAll('.setup-focusable').forEach(el => el.tabIndex = 0);
     }
 }
-
 window._setupHandlePhotoSelected = (base64) => {
     if (_currUser) _currUser.photoBase64 = base64;
     _loadCurrentUserIntoForm();
