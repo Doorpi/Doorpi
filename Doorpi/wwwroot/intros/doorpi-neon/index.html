@@ -370,6 +370,11 @@
     </div>
 
     <script>
+        const introAudio = new Audio('./intro.wav');
+
+        introAudio.preload = 'auto';
+        introAudio.volume = 0.7;
+
         document.addEventListener("DOMContentLoaded", () => {
             const body = document.body;
             const strokePath = document.getElementById('door-path-stroke');
@@ -495,6 +500,9 @@
                ========================================= */
             async function runBootSequence() {
                 await wait(500);
+                introAudio.currentTime = 0;
+                introAudio.play();
+                await wait(450);
 
                 body.classList.add('boot-step-draw');
                 await wait(2300);

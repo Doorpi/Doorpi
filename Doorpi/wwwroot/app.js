@@ -8,8 +8,275 @@ window.isGlobalLoading = false;
 window._doorpiUsers = [];
 window._doorpiCurrentUserId = '';
 window._pendingExtensionUpdates = {};
-window._isBatchRendering = false;
 
+
+// ── SEAMLESS WEB AUDIO PLAYER (WAKE + LOOP COMBINADOS) ────────────────
+class SeamlessPlayer {
+    constructor(maxVolume) {
+        this.ctx = null;
+        this.wakeBuffer = null;
+        this.ambienceBuffer = null;
+        this.wakeNode = null;
+        this.ambienceNode = null;
+        this.gainNode = null;
+        this.startTime = 0;
+        this.pauseTime = 0;
+        this.isPlaying = false;
+        this.isFirstBoot = true;
+        this.isLoaded = false;
+        this.volume = maxVolume;
+    }
+
+    async init() {
+        try {
+            // Inicializa o contexto de áudio profissional
+            this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+            this.gainNode = this.ctx.createGain();
+            this.gainNode.gain.value = this.volume;
+            this.gainNode.connect(this.ctx.destination);
+
+            // Carrega os arquivos brutos via Fetch simultâneo
+            const [wakeRes, ambienceRes] = await Promise.all([
+                fetch('./wake.wav'),
+                fetch('./ambience.wav')
+            ]);
+            const [wakeArray, ambienceArray] = await Promise.all([
+                wakeRes.arrayBuffer(),
+                ambienceRes.arrayBuffer()
+            ]);
+
+            // Decodifica os áudios diretamente para buffers de memória
+            this.wakeBuffer = await this.ctx.decodeAudioData(wakeArray);
+            this.ambienceBuffer = await this.ctx.decodeAudioData(ambienceArray);
+            this.isLoaded = true;
+        } catch (e) {
+            console.warn("Falha ao inicializar buffers da Web Audio API:", e);
+        }
+    }
+
+    play() {
+        if (!this.isLoaded) return;
+        if (this.isPlaying) return;
+
+        // Desbloqueia o contexto de áudio (exigência de segurança dos navegadores)
+        if (this.ctx.state === 'suspended') {
+            this.ctx.resume();
+        }
+
+        this.isPlaying = true;
+        const now = this.ctx.currentTime;
+
+        if (this.isFirstBoot) {
+            this.isFirstBoot = false;
+
+            this.wakeNode = this.ctx.createBufferSource();
+            this.wakeNode.buffer = this.wakeBuffer;
+            this.wakeNode.connect(this.gainNode);
+
+            this.ambienceNode = this.ctx.createBufferSource();
+            this.ambienceNode.buffer = this.ambienceBuffer;
+            this.ambienceNode.loop = true;
+            this.ambienceNode.connect(this.gainNode);
+
+            this.startTime = now;
+
+            // EMENDA MATEMÁTICA PERFEITA: O loop inicia exatamente no milissegundo em que o wake termina
+            this.wakeNode.start(now);
+            this.ambienceNode.start(now + this.wakeBuffer.duration);
+        } else {
+            // Retorno suave (Apenas o Ambience em loop)
+            this.ambienceNode = this.ctx.createBufferSource();
+            this.ambienceNode.buffer = this.ambienceBuffer;
+            this.ambienceNode.loop = true;
+            this.ambienceNode.connect(this.gainNode);
+
+            // Retoma do ponto exato de onde foi pausado (módulo da duração do loop)
+            const offset = this.pauseTime % this.ambienceBuffer.duration;
+            this.startTime = now - offset;
+            this.ambienceNode.start(now, offset);
+        }
+    }
+
+    pause(durationMs = 0) {
+        if (!this.isPlaying) return;
+
+        const now = this.ctx.currentTime;
+        this.pauseTime = now - this.startTime;
+
+        const stopNodes = () => {
+            this.isPlaying = false;
+            if (this.wakeNode) {
+                try { this.wakeNode.stop(); } catch (e) { }
+                this.wakeNode = null;
+            }
+            if (this.ambienceNode) {
+                try { this.ambienceNode.stop(); } catch (e) { }
+                this.ambienceNode = null;
+            }
+        };
+
+        if (durationMs > 0) {
+            // Executa o fadeout nativo antes de desligar os canais fisicamente
+            this.fadeTo(0, durationMs, stopNodes);
+        } else {
+            stopNodes();
+        }
+    }
+
+    fadeTo(targetVolume, durationMs, onComplete) {
+        if (!this.gainNode || !this.ctx) return;
+        const now = this.ctx.currentTime;
+
+        // Curva de volume linear processada diretamente na thread de hardware (super suave)
+        this.gainNode.gain.cancelScheduledValues(now);
+        this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, now);
+        this.gainNode.gain.linearRampToValueAtTime(targetVolume, now + (durationMs / 1000));
+
+        if (onComplete) {
+            setTimeout(onComplete, durationMs);
+        }
+    }
+}
+
+const MAX_AMBIENCE_VOLUME = 0.07; // Defina o volume geral aqui
+window._audioPlayer = new SeamlessPlayer(MAX_AMBIENCE_VOLUME);
+window._audioPlayer.init(); // Carrega e prepara os buffers em background
+
+window._isIntroComplete = false; // TRAVA DE SEGURANÇA: Impede áudio antes da intro acabar
+
+// Rastreamento de áudios secundários tocando fora do DOM principal
+window._activeMediaElements = new Set();
+
+// Verifica se há qualquer outro áudio ou vídeo tocando na página no momento
+window._isAnyOtherAudioPlaying = function () {
+    const domElements = Array.from(document.querySelectorAll('audio, video'));
+    const allElements = new Set([...domElements, ...window._activeMediaElements]);
+
+    for (let el of allElements) {
+        if (!el.paused && !el.muted && el.volume > 0) {
+            return true;
+        }
+    }
+    return false;
+};
+
+// Intercepta nativamente qualquer play de áudio/vídeo da página (como trailers de cartas)
+const originalPlay = HTMLMediaElement.prototype.play;
+HTMLMediaElement.prototype.play = function () {
+    if (this !== window._wakeAudio && this !== window._ambienceAudio) {
+        if (!this.muted && this.volume > 0) {
+            window._stopSystemAudio();
+        }
+
+        window._activeMediaElements.add(this);
+
+        if (!this._hasAmbienceListeners) {
+            this._hasAmbienceListeners = true;
+
+            const checkAndResume = () => {
+                window._activeMediaElements.delete(this);
+                setTimeout(() => {
+                    if (!window._isAnyOtherAudioPlaying()) {
+                        window._startSystemAudio();
+                    }
+                }, 150);
+            };
+
+            this.addEventListener('pause', checkAndResume);
+            this.addEventListener('ended', checkAndResume);
+            this.addEventListener('volumechange', () => {
+                if (this.muted || this.volume === 0) {
+                    checkAndResume();
+                } else if (!this.paused) {
+                    window._stopSystemAudio();
+                    window._activeMediaElements.add(this);
+                }
+            });
+        }
+    }
+    return originalPlay.apply(this, arguments);
+};
+
+// Função Principal: Inicia o áudio do sistema
+window._startSystemAudio = function () {
+    if (!window._isIntroComplete) return;
+
+    if (window._isAnyOtherAudioPlaying()) return;
+
+    if (window._audioPlayer.isFirstBoot) {
+        window._audioPlayer.play();
+    } else {
+        // Volta do app/jogo aplicando fadein
+        window._audioPlayer.fadeTo(0, 0);
+        window._audioPlayer.play();
+        window._audioPlayer.fadeTo(MAX_AMBIENCE_VOLUME, 1000); // 1s de Fade In
+    }
+};
+
+// Função para pausar tudo - COM FADE OUT
+window._stopSystemAudio = function () {
+    window._audioPlayer.pause(800); // 800ms de Fade Out
+};
+
+window._pauseAmbience = window._stopSystemAudio;
+
+// ── GATILHOS DE RETORNO DO ÁUDIO (Automático e Alt+Tab) ────────────────────────
+
+// 1. Ouve o foco da janela
+window.addEventListener('focus', () => {
+    window._startSystemAudio();
+});
+
+// 2. Intercepta a variável do C#
+let _internalMediaActive = window.isMediaAppActive || false;
+Object.defineProperty(window, 'isMediaAppActive', {
+    get: () => _internalMediaActive,
+    set: (value) => {
+        _internalMediaActive = value;
+        if (value === false) {
+            window._startSystemAudio();
+        }
+    }
+});
+
+// 3. Trava de segurança contra o "Skip" / Corte manual da Intro
+function setupIntroCompleteHook() {
+    const onIntroComplete = () => {
+        if (!window._isIntroComplete) {
+            window._isIntroComplete = true; // Desbloqueia o sistema de áudio
+            window._startSystemAudio(); // Inicia o player integrado (Wake + Loop)
+        }
+    };
+
+    if (window.DoorpiIntro && typeof window.DoorpiIntro.runAfterIntro === 'function') {
+        window.DoorpiIntro.runAfterIntro(onIntroComplete);
+    } else {
+        let _intro = window.DoorpiIntro;
+        Object.defineProperty(window, 'DoorpiIntro', {
+            get: () => _intro,
+            set: (val) => {
+                _intro = val;
+                if (val && typeof val.runAfterIntro === 'function') {
+                    val.runAfterIntro(onIntroComplete);
+                }
+            },
+            configurable: true
+        });
+    }
+}
+setupIntroCompleteHook();
+
+// Ouvinte para o término natural da intro via mensagem do iframe
+window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'doorpi:intro:complete') {
+        if (!window._isIntroComplete) {
+            window._isIntroComplete = true; // Desbloqueia o sistema de áudio
+            window._startSystemAudio(); // Inicia o player integrado
+        }
+    }
+});
+// ──────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────
 const PLATFORMS = {
     Steam: {
         type: 'svg',
@@ -221,6 +488,8 @@ window.chrome.webview.addEventListener('message', event => {
             window.isMediaAppActive = false;
             window.isGameLaunchActive = false;
             window._doorpiGameInputSuppressedUntil = 0;
+            window._startSystemAudio();
+
 
             if (typeof GameLaunchOverlay !== 'undefined') {
                 GameLaunchOverlay.hide();
@@ -406,6 +675,7 @@ window.chrome.webview.addEventListener('message', event => {
             }
         }
         else if (data.type === 'gameLaunching') {
+            window._pauseAmbience();
             GameLaunchOverlay.show(data.gameName, data.heroImage, data.gridImage);
         }
         else if (data.type === 'userSwitchStart') {
@@ -420,12 +690,15 @@ window.chrome.webview.addEventListener('message', event => {
         else if (data.type === 'gameLaunchFailed') {
             window.isGameLaunchActive = false;
             window._doorpiGameInputSuppressedUntil = 0;
+
+            window._startSystemAudio(); 
+
+
             GameLaunchOverlay.setError(data.gameName, data.reason);
         }
         else if (data.type === 'gameLaunchDone') {
             window.isGameLaunchActive = false;
             window._doorpiGameInputSuppressedUntil = 0;
-
             GameLaunchOverlay.hide();
             if (!window._vkbIsOpen) {
                 recoverGlobalFocus();
@@ -489,6 +762,22 @@ function recoverGlobalFocus() {
     if (fallback) fallback.focus();
 }
 function postToHost(payload) {
+    
+    const muteActions = [
+        'launch',            
+        'launchMediaApp',     
+        'enterDesktopMode',
+        'openTaskbarSettings',
+        'openSignInOptions',
+        'suspendSystem',
+        'shutdownSystem',
+        'restartSystem'
+    ];
+
+    if (payload && muteActions.includes(payload.action)) {
+        window._stopSystemAudio();
+    }
+
     window.chrome?.webview?.postMessage(JSON.stringify(payload));
 }
 
