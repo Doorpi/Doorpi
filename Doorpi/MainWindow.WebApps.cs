@@ -2,11 +2,9 @@
 // MainWindow.WebApps.cs — Apps de mídia integrados na janela principal
 // =============================================================================
 // MUDANÇAS vs versão anterior:
-//   • Botão emergência: Guide (XBOX) ou START+BACK → fecha app incondicionalmente
-//   • Mouse 100% Win32 via C# — zero dependência de mensagens JS
-//   • VKB bidirecional: JS envia vkb_opened/vkb_closed, C# chama __doorpiVkb*
-//   • Removidas declarações duplicadas (structs/P-Invokes estão em MainWindow.xaml.cs)
-//   • Lógica do botão da Chrome Web Store totalmente aprimorada (Posição fixa na 1ª abertura)
+//   • Popup seguro: O mouse nativo é forçado a funcionar dentro de popups independentemente da flag do YouTube.
+//   • Restauração de foco: A janela popup agora devolve o foco garantidamente ao app pai ao ser fechada.
+//   • Segurança de Encerramento: O popup é destruído corretamente em caso de saída de emergência (Start + Back).
 // =============================================================================
 
 using Microsoft.Web.WebView2.Core;
@@ -119,12 +117,6 @@ namespace Doorpi
 
         // ─────────────────────────────────────────────────────────────────────
         // LOOP DO CONTROLLER
-        //
-        // • Mouse controlado 100% via Win32 — nunca via JS.
-        //   Página travada / popup aberto = cursor AINDA funciona.
-        // • Botão emergência (Guide ou START+BACK) fecha o app incondicionalmente,
-        //   mesmo que o JS esteja morto.
-        // • Quando _vkbIsOpen == true, C# envia comandos ao JS em vez de mover cursor.
         // ─────────────────────────────────────────────────────────────────────
         private void MediaControllerLoop()
         {
@@ -146,9 +138,7 @@ namespace Doorpi
             long xLastRepeat = 0;
 
             while (_mediaMouseActive)
-
             {
-
                 double dt = sw.Elapsed.TotalSeconds;
                 sw.Restart();
                 if (dt > 0.08) dt = 0.016;
@@ -174,7 +164,6 @@ namespace Doorpi
                     // ════════════════════════════════════════════════════════
                     if (Held(XI_GUIDE) || (Held(XI_START) && Held(XI_BACK)))
                     {
-                        // Evita o vazamento do botão XBOX para a UI principal (abre seletor de usuário)
                         Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil,
                             DateTime.UtcNow.AddMilliseconds(800).Ticks);
 
@@ -184,6 +173,11 @@ namespace Doorpi
                             _vkbOwnerView = null;
                             _vkbHasFocus = false;
 
+                            // GARANTE O FECHAMENTO DO POPUP NA SAÍDA DE EMERGÊNCIA
+                            try { _popupWindow?.Close(); } catch { }
+                            _popupWindow = null;
+                            _popupWebView = null;
+
                             if (_webAppWindow != null)
                             {
                                 StopMediaControllerMode();
@@ -191,11 +185,9 @@ namespace Doorpi
                                 this.WindowState = WindowState.Maximized;
                                 this.Activate();
                                 this.ForceFocus();
-                             
                             }
                             else
                             {
-                                // Se for utilitário interno (SteamGrid/Chrome Store), fecha de vez
                                 CloseYouTubeInline();
                             }
                         });
@@ -204,8 +196,11 @@ namespace Doorpi
                         continue;
                     }
 
+                    // Define se deve usar o mouse físico C# (SEMPRE VERDADEIRO SE HOUVER UM POPUP ABERTO)
+                    bool useNativeMouse = !_isCurrentSiteYouTube || _popupWindow != null;
+
                     // ════════════════════════════════════════════════════════
-                    if (!_isCurrentSiteYouTube && !_vkbIsOpen)
+                    if (useNativeMouse && !_vkbIsOpen)
                     {
                         double lx = gp.sThumbLX / 32767.0;
                         double ly = gp.sThumbLY / 32767.0;
@@ -242,7 +237,6 @@ namespace Doorpi
                     // ════════════════════════════════════════════════════════
                     if (_vkbIsOpen)
                     {
-                        // D-pad e Analógico Esquerdo → navega no VKB
                         ushort dirBtn = 0;
                         string dirName = "";
 
@@ -250,7 +244,6 @@ namespace Doorpi
                         double aly = gp.sThumbLY / 32767.0;
                         const double ANA_DEAD = 0.5;
 
-                        // Mapeia Analógico para os mesmos inputs virtuais do D-pad para aproveitar o debounce
                         if (Held(XI_DPAD_UP) || aly > ANA_DEAD) { dirBtn = XI_DPAD_UP; dirName = "UP"; }
                         else if (Held(XI_DPAD_DOWN) || aly < -ANA_DEAD) { dirBtn = XI_DPAD_DOWN; dirName = "DOWN"; }
                         else if (Held(XI_DPAD_LEFT) || alx < -ANA_DEAD) { dirBtn = XI_DPAD_LEFT; dirName = "LEFT"; }
@@ -263,15 +256,13 @@ namespace Doorpi
                             if (dirBtn != vkbLastDir)
                             {
                                 vkbLastDir = dirBtn; vkbDirStartMs = nowMs; vkbDirLastRepeat = nowMs;
-                                var d = dirName;
-                                SendVkbCommand($"window.__doorpiVkbMove?.('{d}')");
+                                SendVkbCommand($"window.__doorpiVkbMove?.('{dirName}')");
                             }
                             else if ((nowMs - vkbDirStartMs) > VKB_INITIAL_MS &&
                                      (nowMs - vkbDirLastRepeat) > VKB_REPEAT_MS)
                             {
                                 vkbDirLastRepeat = nowMs;
-                                var d = dirName;
-                                SendVkbCommand($"window.__doorpiVkbMove?.('{d}')");
+                                SendVkbCommand($"window.__doorpiVkbMove?.('{dirName}')");
                             }
                         }
                         else { vkbLastDir = 0; }
@@ -288,10 +279,9 @@ namespace Doorpi
                             }
                         }
 
-                        // B fecha o VKB independentemente do foco
+                        // B fecha o VKB
                         if (Pressed(XI_B)) SendVkbCommand("window.__doorpiVkbClose?.()");
 
-                        // Atalhos só quando as teclas estão focadas
                         if (_vkbHasFocus)
                         {
                             if (Pressed(XI_Y)) SendVkbCommand("window.__doorpiVkbSpace?.()");
@@ -311,8 +301,8 @@ namespace Doorpi
                     }
                     else
                     {
-                        // Sem VKB: só age se NÃO for YouTube (YouTube usa JS polling)
-                        if (!_isCurrentSiteYouTube)
+                        // Sem VKB: só age se usar mouse nativo
+                        if (useNativeMouse)
                         {
                             if (Pressed(XI_A))
                             {
@@ -330,10 +320,6 @@ namespace Doorpi
             }
         }
 
-        /// <summary>
-        /// Envia um comando JS para o WebView dono do VKB.
-        /// Thread-safe: pode ser chamado da thread do controller.
-        /// </summary>
         private void SendVkbCommand(string script)
         {
             var view = _vkbOwnerView;
@@ -372,13 +358,15 @@ namespace Doorpi
                 _popupWindow = null;
                 _popupWebView = null;
 
+                // Definimos o Owner para que o Windows saiba para quem deve devolver o foco após fecharmos.
                 _popupWindow = new Window
                 {
                     Title = "Login",
                     Width = 600,
                     Height = 800,
                     WindowStartupLocation = WindowStartupLocation.CenterScreen,
-                    Topmost = true
+                    Topmost = true,
+                    Owner = _webAppWindow ?? this
                 };
 
                 _popupWebView = new WebView2();
@@ -386,9 +374,28 @@ namespace Doorpi
 
                 _popupWindow.Closed += (s, _) =>
                 {
-                    if (_vkbOwnerView == _popupWebView) { _vkbIsOpen = false; _vkbOwnerView = null; }
+                    if (_vkbOwnerView == _popupWebView)
+                    {
+                        _vkbIsOpen = false;
+                        _vkbOwnerView = null;
+                        _vkbHasFocus = false;
+                    }
                     _popupWebView = null;
                     _popupWindow = null;
+
+                    // Restaura o foco explicitamente para religar a engine de gamepad no app nativo (se necessário)
+                    Dispatcher.InvokeAsync(() => {
+                        if (_webAppWindow != null && _webAppWindow.WindowState != WindowState.Minimized)
+                        {
+                            _webAppWindow.Activate();
+                            _ytWebView?.Focus();
+                        }
+                        else
+                        {
+                            this.Activate();
+                            this.ForceFocus();
+                        }
+                    });
                 };
 
                 _popupWindow.Show();
@@ -465,16 +472,6 @@ namespace Doorpi
             }
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        // INJEÇÃO JS — SITES GENÉRICOS
-        //
-        // MUDANÇAS vs versão anterior:
-        //   • Todo o bloco de gamepad polling REMOVIDO do JS.
-        //   • gp_move:x:y e gp_click REMOVIDOS — mouse é Win32 agora.
-        //   • VKB expõe funções globais __doorpiVkb* chamadas pelo C#.
-        //   • VKB envia vkb_opened / vkb_closed para C# trocar de modo.
-        //   • VKB abre via focusin real (disparado pelo clique Win32 no input).
-        // ─────────────────────────────────────────────────────────────────────
         private async Task YtInjectGenericSiteAsync(CoreWebView2 cw)
         {
             string script = $@"
@@ -494,7 +491,7 @@ namespace Doorpi
     }});
 
     // ── 2. AUTO-COPY NO CLIQUE (Chave API) ───────────────────────────────────
-document.addEventListener('click', function(e) {{
+    document.addEventListener('click', function(e) {{
         const el = e.target.closest('code') || (e.target.tagName === 'CODE' ? e.target : null);
         if (!el) return;
         const apiText = el.innerText.trim();
@@ -513,7 +510,6 @@ document.addEventListener('click', function(e) {{
     }});
 
     // ── 3. TOAST ──────────────────────────────────────────────────────────────
-// ── 3. TOAST ──────────────────────────────────────────────────────────────
     function showConsoleToast(title, sub) {{
         if (!document.getElementById('doorpi-toast-style')) {{
             const s = document.createElement('style');
@@ -558,7 +554,6 @@ document.addEventListener('click', function(e) {{
     }}, true);
 
     // ── 5. BOTÃO CHROME WEB STORE ────────────────────────────────────────────
-// ── 5. BOTÃO CHROME WEB STORE ────────────────────────────────────────────
     function injectChromeWebStoreBtn() {{
         let btn = document.getElementById('doorpi-ext-btn');
         let positionAnchored = false;
@@ -568,7 +563,7 @@ document.addEventListener('click', function(e) {{
         function isDetailPage() {{ return location.href.includes('chromewebstore.google.com/detail/'); }}
         function getExtId() {{ return (location.href.match(/\/detail\/[^/]+\/([a-z]{{32}})/) || [])[1] || null; }}
 
-function findInstallButton() {{
+        function findInstallButton() {{
             for (const b of document.querySelectorAll('button')) {{
                 if (b.id === 'doorpi-ext-btn') continue;
                 const t = (b.textContent||'').trim().toLowerCase();
@@ -636,7 +631,7 @@ function findInstallButton() {{
             }}
         }}
 
-function checkState(forceUpdate = false) {{
+        function checkState(forceUpdate = false) {{
             if (!isDetailPage()) {{
                 if (btn && btn.style.display !== 'none') btn.style.display = 'none';
                 detailPageEnteredAt = 0;
@@ -685,7 +680,7 @@ function checkState(forceUpdate = false) {{
         const obs = new MutationObserver(() => {{ checkState(false); }});
         obs.observe(document.body, {{ childList:true, subtree:true }});
 
-const origPush = history.pushState.bind(history);
+        const origPush = history.pushState.bind(history);
         history.pushState = function() {{
             origPush.apply(this, arguments);
             positionAnchored = false;
@@ -702,13 +697,9 @@ const origPush = history.pushState.bind(history);
 
         window.__doorpiUpdateExtBtn = (force) => checkState(force);
     }}
+
     // ─────────────────────────────────────────────────────────────────────────
     // 6. VKB — VIRTUAL KEYBOARD
-    //
-    // • Abre via focusin real (clique Win32 num <input> → DOM dispara focusin).
-    // • C# chama window.__doorpiVkb* via ExecuteScriptAsync.
-    // • Envia vkb_opened / vkb_closed para C# sincronizar o modo do loop.
-    // • Zero polling de gamepad aqui.
     // ─────────────────────────────────────────────────────────────────────────
     window._vkbIsOpen = false;
     let _installedExtIds = new Set();
@@ -863,7 +854,6 @@ const origPush = history.pushState.bind(history);
             for (let c = 0; c < KEY_ROWS[r].length && !found; c++)
                 if (KEY_ROWS[r][c] === _vkbFocusKey) {{ rIdx = r; cIdx = c; found = true; }}
 
-        // Linha de baixo (space/cancel/ok) tem navegação própria
         if (BOTTOM_KEYS.includes(_vkbFocusKey) && (dir === 'LEFT' || dir === 'RIGHT')) {{
             const order =['space','cancel','ok'];
             const next  = order.indexOf(_vkbFocusKey) + (dir === 'RIGHT' ? 1 : -1);
@@ -972,12 +962,11 @@ const origPush = history.pushState.bind(history);
             _vkbEl.classList.add('visible');
             window._vkbIsOpen = true;
             _vkbSetFocus('q');
-            // Sincroniza com o loop C# → troca para modo VKB
             try {{ window.chrome.webview.postMessage('vkb_opened'); }} catch(_) {{}}
         }});
     }}
 
-function _vkbClose() {{
+    function _vkbClose() {{
         if (!_vkbEl || !window._vkbIsOpen) return;
         _vkbClosing = true;
         window._vkbIsOpen = false;
@@ -986,8 +975,6 @@ function _vkbClose() {{
 
         if (_vkbInputEl) {{
             _vkbInputEl.removeEventListener('input', _vkbRenderPreview);
-            // REMOVIDO: const blur = _vkbInputEl; e o requestAnimationFrame(blur.blur())
-            // Mantemos a variável nula para limpar o VKB, mas deixamos o foco nativo no elemento intacto!
             _vkbInputEl = null; 
         }}
         setTimeout(() => {{
@@ -996,7 +983,6 @@ function _vkbClose() {{
         }}, 400);
     }}
 
-    // ── API pública — chamada pelo C# via ExecuteScriptAsync ──────────────────
     window.__doorpiSetInstalledExtensions = (exts) => {{
         _installedExtIds = new Set((exts || []).map(e => e.id));
         window.__doorpiUpdateExtBtn?.(true);
@@ -1010,7 +996,6 @@ function _vkbClose() {{
     window.__doorpiVkbCursorRight = ()    => _vkbMoveCursorInField(1);
     window.__doorpiVkbToggleShift = ()    => _vkbSetShift(!_vkbShifted);
 
-    // ── Auto-abertura: clique Win32 num input dispara focusin normalmente ─────
     document.addEventListener('focusin', e => {{
         if (_vkbClosing) return;
         const el = e.target;
@@ -1028,7 +1013,6 @@ function _vkbClose() {{
             _vkbClose();
     }}, true);
 
-    // ── Init ──────────────────────────────────────────────────────────────────
     (function init() {{
         if (!document.body) {{ setTimeout(init, 16); return; }}
         injectChromeWebStoreBtn();
@@ -1055,7 +1039,6 @@ function _vkbClose() {{
                 {
                     if (_currentWebAppUrl == url)
                     {
-                        // Restaura o app se for a MESMA url
                         SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg);
 
                         _webAppWindow.WindowState = WindowState.Maximized;
@@ -1159,9 +1142,7 @@ function _vkbClose() {{
 
             if (isYouTube)
             {
-
                 await YtInjectAdBlockerAsync(_ytWebView.CoreWebView2);
-
                 await YtInjectGamepadAsync(_ytWebView.CoreWebView2);
                 await YtInjectZoomHackAsync(_ytWebView.CoreWebView2);
                 await YtInjectForceUserSelectionAsync(_ytWebView.CoreWebView2);
@@ -1180,7 +1161,11 @@ function _vkbClose() {{
                 {
                     SendGameLaunchStatus("gameLaunchReady");
                     await Task.Delay(800);
-                    this.WindowState = WindowState.Minimized;
+
+                    if (_mediaMouseActive && _webAppWindow != null && _webAppWindow.WindowState != WindowState.Minimized)
+                    {
+                        this.WindowState = WindowState.Minimized;
+                    }
                     SendGameLaunchStatus("gameLaunchDone");
                 }
             };
@@ -1198,16 +1183,14 @@ function _vkbClose() {{
                     await InjectInstalledExtensionsAsync(_ytWebView.CoreWebView2);
             };
 
-           
             if (_mainScreenMouseVisible)
             {
                 EnsureCursorHidden();
                 _mainScreenMouseVisible = false;
             }
             if (!isYouTube)
-                EnsureCursorVisible(); // browser apps precisam do cursor visível
+                EnsureCursorVisible();
 
-            // Inicia o controller — mouse Win32 ativo a partir daqui
             StartMediaControllerMode();
         }
 
@@ -1255,9 +1238,8 @@ function _vkbClose() {{
             StopMediaControllerMode();
             _vkbIsOpen = false;
             _vkbOwnerView = null;
-            EnsureCursorHidden();        // garante estado limpo ao voltar
+            EnsureCursorHidden();
             _mainScreenMouseVisible = false;
-
 
             try { _popupWindow?.Close(); } catch { }
             _popupWindow = null;
@@ -1278,7 +1260,6 @@ function _vkbClose() {{
             try { _webAppWindow?.Close(); } catch { }
             _webAppWindow = null;
 
-           
             RootGrid.Children.Remove(_ytWebView);
 
             try { _ytWebView.Dispose(); } catch { }
@@ -1289,7 +1270,6 @@ function _vkbClose() {{
             this.WindowState = WindowState.Maximized;
             ForceFocus();
             webView.CoreWebView2?.PostWebMessageAsString("{\"type\":\"mediaAppClosed\"}");
-          
         }
 
         // ── Handlers ─────────────────────────────────────────────────────────
@@ -1300,14 +1280,12 @@ function _vkbClose() {{
                 e.Handled = true;
                 if (_ytWebView?.CoreWebView2 != null)
                 {
-                    // Tenta voltar a página
                     if (_ytWebView.CoreWebView2.CanGoBack)
                     {
                         _ytWebView.CoreWebView2.GoBack();
                     }
                     else
                     {
-                        // Se não dá para voltar, fecha o app
                         Dispatcher.Invoke(CloseYouTubeInline);
                     }
                 }
@@ -1322,7 +1300,6 @@ function _vkbClose() {{
             bool isPopup = (_popupWebView != null && sender == _popupWebView.CoreWebView2);
             WebView2 senderView = isPopup ? _popupWebView! : _ytWebView!;
 
-            // ── VKB sync ──────────────────────────────────────────────────────
             if (msg == "vkb_opened")
             {
                 _vkbIsOpen = true;
@@ -1338,7 +1315,6 @@ function _vkbClose() {{
                 return;
             }
 
-            // ── Demais mensagens ──────────────────────────────────────────────
             if (msg == "player_loaded")
             {
                 Dispatcher.Invoke(() => { if (_ytWebView != null) _ytWebView.ZoomFactor = 1.0; });
@@ -1376,16 +1352,12 @@ function _vkbClose() {{
                 });
             }
             else if (msg == "doorpi_profile_hacked_done") { /* ack */ }
-
-            // NOTA: gp_move: e gp_click: foram REMOVIDOS intencionalmente.
-            // O mouse agora é controlado 100% pelo loop C# via Win32.
         }
 
         private void YtOnWebResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
         {
             try
             {
-
                 if (!_isCurrentSiteYouTube) return;
 
                 var uriStr = e.Request.Uri;
@@ -1427,14 +1399,8 @@ function _vkbClose() {{
         private void YtBlockRequest(CoreWebView2WebResourceRequestedEventArgs e)
         {
             if (_ytWebView?.CoreWebView2?.Environment == null) return;
-
-            // Adicionado cabeçalhos para evitar que o bloqueio nativo dispare falsos erros de CORS no console
-            string headers = "Access-Control-Allow-Origin: *\n" +
-                             "Access-Control-Allow-Methods: GET, POST, OPTIONS\n" +
-                             "Access-Control-Allow-Headers: *";
-
-            e.Response = _ytWebView.CoreWebView2.Environment
-                .CreateWebResourceResponse(null, 204, "No Content", headers);
+            string headers = "Access-Control-Allow-Origin: *\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\nAccess-Control-Allow-Headers: *";
+            e.Response = _ytWebView.CoreWebView2.Environment.CreateWebResourceResponse(null, 204, "No Content", headers);
         }
 
         private static async Task YtEnsureBlocklistAsync()
@@ -1464,10 +1430,6 @@ function _vkbClose() {{
             }
             lock (_ytBlockLock) { _ytBlockedDomains = domains; }
         }
-
-        // ══════════════════════════════════════════════════════════════════════
-        // SCRIPTS DE INJEÇÃO — INALTERADOS do original
-        // ══════════════════════════════════════════════════════════════════════
 
         private static async Task YtInjectAdBlockerAsync(CoreWebView2 cw)
         {

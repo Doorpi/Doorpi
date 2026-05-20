@@ -3428,40 +3428,34 @@ namespace Doorpi
                         bool isDesktopOrShell = IsForegroundDesktopOrShell();
 
                         // O SEGREDO DO CONTROLE DO USUÁRIO E ALT+TAB:
-                        // Verifica se o usuário apertou Win, Alt, Tab
                         bool isUserSwitching = (GetAsyncKeyState(0x12) & 0x8000) != 0 || // Alt
                                                (GetAsyncKeyState(0x5B) & 0x8000) != 0 || // Win L
                                                (GetAsyncKeyState(0x5C) & 0x8000) != 0 || // Win R
                                                (GetAsyncKeyState(0x09) & 0x8000) != 0;   // Tab
 
-                        // Se estiver clicando com o mouse físico sobre a barra de tarefas ou menus do sistema
                         bool isClickingShell = isDesktopOrShell && (GetAsyncKeyState(0x01) & 0x8000) != 0;
 
                         if (isUserSwitching || isClickingShell)
                         {
-                            // Dá ao usuário 4 segundos de "paz" para usar o PC sem interrupção do Doorpi
                             Interlocked.Exchange(ref _userShellInteractionUntil, DateTime.UtcNow.AddMilliseconds(4000).Ticks);
                         }
 
                         bool inGracePeriod = DateTime.UtcNow.Ticks < Interlocked.Read(ref _userShellInteractionUntil);
-                        bool hasMediaSession = !string.IsNullOrEmpty(_mediaExeCurrentUrl);
+
+                        bool hasMediaExeSession = !string.IsNullOrEmpty(_mediaExeCurrentUrl);
+                        bool hasExternalWebAppSession = _mediaMouseActive && _webAppWindow != null;
 
                         // ============================================
                         // 1. MODO MEDIA EXE (Sessão Rastreamento Contínuo)
                         // ============================================
-                        if (hasMediaSession)
+                        if (hasMediaExeSession)
                         {
                             if (isDoorpiFg)
                             {
-                                // FOCO NO DOORPI: Suspende o mouse do gamepad, Libera navegação JS D-Pad
                                 if (_doorpiSuspendedForMedia)
                                 {
                                     _doorpiSuspendedForMedia = false;
-
-                                    if (_mediaExeModeActive)
-                                    {
-                                        _mediaExeModeActive = false;
-                                    }
+                                    if (_mediaExeModeActive) _mediaExeModeActive = false;
 
                                     Dispatcher.Invoke(() => {
                                         _desktopVkb?.Close();
@@ -3471,27 +3465,22 @@ namespace Doorpi
                                         Activate();
                                         webView?.Focus();
                                         Keyboard.Focus(webView);
-                                        // Libera o Javascript
                                         webView?.CoreWebView2?.ExecuteScriptAsync("window.isMediaAppActive = false; window.focusFeaturedCard?.();");
                                     });
                                 }
                             }
                             else
                             {
-                                // FOCO EXTERNO: Retoma mouse do gamepad, Bloqueia navegação JS
                                 if (!_doorpiSuspendedForMedia)
                                 {
                                     _doorpiSuspendedForMedia = true;
-
                                     if (!_mediaExeGamepadDisabled)
                                     {
                                         _mediaExeModeActive = true;
-
                                         Dispatcher.Invoke(() => {
                                             EnsureCursorVisible();
                                             _mainScreenMouseVisible = true;
                                             UpdateHoverStateInWebView();
-                                            // Bloqueia a navegação UI do JS
                                             webView?.CoreWebView2?.ExecuteScriptAsync("window.isMediaAppActive = true;");
                                         });
 
@@ -3504,7 +3493,46 @@ namespace Doorpi
                                     }
                                 }
                             }
-                            continue; // Fim exclusivo para Modo Mídia (não roda a rotina abaixo)
+                            continue;
+                        }
+
+                        // ============================================
+                        // 1.5 MODO WEB APP EXTERNO (Janela Dedicada)
+                        // ============================================
+                        if (hasExternalWebAppSession)
+                        {
+                            if (isDoorpiFg)
+                            {
+                                // O usuário voltou para a interface do Doorpi (Alt-tab ou clicou) enquanto o WebApp estava aberto.
+                                // Isso finaliza a sessão web para liberar os controles reais ao Doorpi.
+                                Dispatcher.Invoke(() => {
+                                    StopMediaControllerMode();
+                                    if (_webAppWindow != null && _webAppWindow.WindowState != WindowState.Minimized)
+                                    {
+                                        _webAppWindow.WindowState = WindowState.Minimized;
+                                    }
+                                    ForceFocus();
+                                });
+                            }
+                            else if (isDesktopOrShell && !inGracePeriod)
+                            {
+                                // O WebApp perdeu foco para o Desktop. 
+                                // O Watchdog força a janela do WebApp a voltar, prendendo o usuário nela de forma segura.
+                                Dispatcher.Invoke(() => {
+                                    if (_webAppWindow != null)
+                                    {
+                                        if (_webAppWindow.WindowState == WindowState.Minimized)
+                                        {
+                                            _webAppWindow.WindowState = WindowState.Maximized;
+                                        }
+                                        _webAppWindow.Activate();
+
+                                        var webHwnd = new System.Windows.Interop.WindowInteropHelper(_webAppWindow).Handle;
+                                        if (webHwnd != IntPtr.Zero) FocusExternalWindow(webHwnd);
+                                    }
+                                });
+                            }
+                            continue; // IMPORTANTE: Impede o watchdog de cair no Modo Global.
                         }
 
                         // ============================================
@@ -3512,7 +3540,6 @@ namespace Doorpi
                         // ============================================
                         if (!_gameSessionActive && !_dialogModeActive)
                         {
-                            // Traz o Doorpi de volta SOMENTE se não houver um período de graça rodando
                             if (isDesktopOrShell && !isDoorpiFg && !inGracePeriod)
                             {
                                 Dispatcher.Invoke(() => RestoreWindowFocusSilent());
