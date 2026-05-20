@@ -5236,6 +5236,64 @@ namespace Doorpi
                     SetBootMode(modeEl.GetInt32());
                     SendBootModeToUI();
                 }
+                else if (action == "openTaskbarSettings")
+                {
+                    try
+                    {
+                        // Abre as configurações da Barra de Tarefas
+                        Process.Start(new ProcessStartInfo("ms-settings:taskbar") { UseShellExecute = true });
+
+                        // Minimiza o Doorpi e assume o controle como Mouse/Teclado
+                        Dispatcher.Invoke(EnterDesktopMode);
+
+                        _ = Task.Run(async () =>
+                        {
+                            bool appFound = false;
+
+                            // Aguarda até 10 segundos para a janela de Configurações abrir
+                            for (int i = 0; i < 20; i++)
+                            {
+                                await Task.Delay(500);
+                                if (Process.GetProcessesByName("SystemSettings").Length > 0)
+                                {
+                                    appFound = true;
+                                    Dispatcher.Invoke(() =>
+                                    {
+                                        IntPtr fgHwnd = GetForegroundWindow();
+                                        if (fgHwnd != IntPtr.Zero) ShowWindow(fgHwnd, 3); // Maximiza a janela de Configurações
+
+                                        // Move o mouse para uma área segura
+                                        int safeX = (int)SystemParameters.PrimaryScreenWidth - 20;
+                                        int safeY = (int)SystemParameters.PrimaryScreenHeight / 2;
+                                        SetCursorPos(safeX, safeY);
+
+                                        // Envia Clique Esquerdo para roubar foco UWP
+                                        SendMouse(0, 0, 0x0002);
+                                        SendMouse(0, 0, 0x0004);
+                                    });
+                                    break;
+                                }
+                            }
+
+                            if (!appFound) return;
+
+                            // Monitora a cada segundo até o usuário fechar a janela
+                            while (_systemControllerActive)
+                            {
+                                await Task.Delay(1000);
+                                if (Process.GetProcessesByName("SystemSettings").Length == 0)
+                                {
+                                    Dispatcher.Invoke(() =>
+                                    {
+                                        if (_systemControllerActive) ExitDesktopMode();
+                                    });
+                                    break;
+                                }
+                            }
+                        });
+                    }
+                    catch (Exception ex) { Debug.WriteLine($"Erro ao abrir config de Barra de Tarefas: {ex.Message}"); }
+                }
                 else if (action == "openSignInOptions")
                 {
                     try

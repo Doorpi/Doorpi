@@ -625,7 +625,16 @@ function smoothHorizontalScroll(element, onDone) {
 });
 
 document.addEventListener('keydown', e => {
+    if (window.isDesktopWarningOpen) {
+        e.preventDefault(); e.stopImmediatePropagation();
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') window._dwMoveFocus?.(-1);
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') window._dwMoveFocus?.(1);
+        if (e.key === 'Enter') window._dwAction?.('CONFIRM');
+        if (e.key === 'Escape' || e.key === 'Backspace') window._dwAction?.('CANCEL');
+        return;
+    }
     if (window.DoorpiIntro?.isRunning?.()) {
+
         e.preventDefault();
         e.stopImmediatePropagation();
         window.DoorpiIntro.skip?.();
@@ -638,6 +647,7 @@ document.addEventListener('keydown', e => {
             e.preventDefault();
             e.stopImmediatePropagation();
         }
+
         return;
     }
 
@@ -811,9 +821,12 @@ window.addEventListener('gamepaddisconnected', e => {
                 window._gpNavigating = false;
             }, NAV.GAMEPAD.REPEAT_DELAY + 50);
         }
-
-        // 🚫 TODO O CÓDIGO DIRECIONAL DAQUI FOI REMOVIDO!
-        // O controle manda a tecla pelo C#, que é pega pelo Listener ali de cima.
+        if (window.isDesktopWarningOpen) {
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) window._dwAction?.('CONFIRM');
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) window._dwAction?.('CANCEL');
+            return;
+        }
+        // -------------------------------
 
         if (window.isDoorpiOverlayOpen?.() && !window._vkbIsOpen) {
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
@@ -829,7 +842,7 @@ window.addEventListener('gamepaddisconnected', e => {
                 else el?.click();
             }
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
-                // 🔒 TRAVA GLOBAL AQUI TAMBÉM
+
                 if (!canCloseProfileSelection()) return;
                 window.closeDoorpiTopOverlay?.();
             }

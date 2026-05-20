@@ -25,6 +25,205 @@ window.isNavMenuOpen = false;
         if (url.startsWith('riot:')) return { name: 'Riot Games', svg: PLATFORM_ICONS.Riot };
         return { name: 'Windows / Pasta', svg: PLATFORM_ICONS.Windows };
     }
+    // ── Função Exclusiva para o Modal de Aviso de Modo Desktop ──────────────
+    // ── Função Exclusiva para o Modal de Aviso de Modo Desktop ──────────────
+    window.isDesktopWarningOpen = false;
+
+    function _showDesktopWarning(context, onConfirm) {
+        // Verifica se o usuário já marcou para não exibir novamente
+        if (localStorage.getItem('doorpi_skip_desktop_warning') === 'true') {
+            if (onConfirm) onConfirm();
+            return;
+        }
+
+        let overlay = document.getElementById('desktopWarningOverlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'desktopWarningOverlay';
+            overlay.className = 'desktop-warning-overlay';
+
+            const s = document.createElement('style');
+            s.textContent = `
+                .desktop-warning-overlay { position: fixed; inset: 0; background: rgba(0,0,10,0.85); backdrop-filter: blur(15px); z-index: 10000; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.3s ease; pointer-events: none; font-family: inherit; }
+                .desktop-warning-overlay.visible { opacity: 1; pointer-events: auto; }
+                .dw-modal { background: rgba(20,20,35,0.95); border: 1px solid rgba(255,255,255,0.15); border-radius: 20px; padding: 32px 40px; width: 90%; max-width: 760px; box-shadow: 0 30px 60px rgba(0,0,0,0.7); transform: scale(0.95); transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1); display: flex; flex-direction: column; gap: 24px; }
+                .desktop-warning-overlay.visible .dw-modal { transform: scale(1); }
+                .dw-header h2 { margin: 0; font-size: 1.8rem; font-weight: 300; color: #fff; letter-spacing: -0.01em; }
+                .dw-header p { margin: 8px 0 0; color: rgba(255,255,255,0.6); font-size: 1rem; line-height: 1.4; }
+                .dw-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 24px; background: rgba(0,0,0,0.3); padding: 24px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.05); }
+                .dw-item { display: flex; align-items: center; gap: 14px; font-size: 0.95rem; color: rgba(255,255,255,0.8); }
+                .dw-badge { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); padding: 4px 10px; border-radius: 8px; font-weight: 700; color: #fff; min-width: 48px; text-align: center; font-size: 0.85rem; letter-spacing: 0.05em; }
+                .dw-badge.a { color: #6ee696; border-color: rgba(110,230,150,0.4); background: rgba(110,230,150,0.1); }
+                .dw-badge.b { color: #ff6b6b; border-color: rgba(255,107,107,0.4); background: rgba(255,107,107,0.1); }
+                .dw-badge.x { color: #78beff; border-color: rgba(120,190,255,0.4); background: rgba(120,190,255,0.1); }
+                .dw-badge.y { color: #ffd166; border-color: rgba(255,209,102,0.4); background: rgba(255,209,102,0.1); }
+                
+                /* ESTILO DO ANALÓGICO 3D */
+                .dw-badge.rs { 
+                    color: #e0e0e0; 
+                    border: 2px solid #3a3a3a; 
+                    background: radial-gradient(circle at center, #2a2a2a 0%, #111 100%); 
+                    border-radius: 50%; 
+                    min-width: 34px; 
+                    height: 34px; 
+                    padding: 0; 
+                    display: inline-flex; 
+                    align-items: center; 
+                    justify-content: center; 
+                    box-shadow: inset 0 2px 4px rgba(255,255,255,0.1), 0 3px 6px rgba(0,0,0,0.6); 
+                    font-size: 0.85rem; 
+                    text-shadow: 0 -1px 1px rgba(0,0,0,0.8);
+                }
+                
+                .dw-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+                .dw-checkbox { display: flex; align-items: center; gap: 10px; background: transparent; border: 1px solid transparent; color: rgba(255,255,255,0.6); font-family: inherit; font-size: 0.95rem; cursor: pointer; outline: none; padding: 8px 12px; border-radius: 10px; transition: all 0.2s; }
+                .dw-checkbox.nav-focused-el { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.2); color: #fff; transform: scale(1.05); }
+                .dw-box { width: 20px; height: 20px; border: 2px solid rgba(255,255,255,0.4); border-radius: 4px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+                .dw-checkbox.checked .dw-box { background: #6ee696; border-color: #6ee696; }
+                .dw-checkbox.checked .dw-box::after { content: ''; width: 5px; height: 10px; border-right: 2px solid #000; border-bottom: 2px solid #000; transform: rotate(45deg) translateY(-2px); }
+                .dw-checkbox.checked span { color: #fff; }
+                
+                .dw-actions { display: flex; gap: 16px; }
+                .dw-btn { padding: 12px 24px; border-radius: 10px; font-weight: 600; font-size: 1rem; cursor: pointer; transition: all 0.2s; outline: none; border: 1px solid transparent; }
+                .dw-btn-cancel { background: rgba(255,255,255,0.08); color: #fff; border-color: rgba(255,255,255,0.15); }
+                .dw-btn-confirm { background: #fff; color: #000; }
+                
+                .dw-btn.nav-focused-el { transform: scale(1.05); box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+                .dw-btn-cancel.nav-focused-el { border-color: #fff; background: rgba(255,255,255,0.2); }
+                .dw-btn-confirm.nav-focused-el { box-shadow: 0 0 0 4px rgba(255,255,255,0.2), 0 10px 25px rgba(0,0,0,0.5); }
+            `;
+            document.head.appendChild(s);
+            document.body.appendChild(overlay);
+        }
+
+        // Lógica para diferenciar a mensagem de "Sair" dependendo do Contexto e adicionar os novos Layouts (Scroll e Xbox)
+        const exitContentHtml = context === 'settings'
+            ? `<div class="dw-item" style="grid-column: 1 / -1; margin-top: 8px; justify-content: center; background: rgba(255,255,255,0.05); padding: 12px; border-radius: 10px; text-align: center;">
+                    <span id="dwSettingsExit" style="font-weight: 500; color:#ffd166;"></span>
+               </div>`
+            : `<div class="dw-item" style="grid-column: 1 / -1; margin-top: 8px; justify-content: center; background: rgba(255,255,255,0.05); padding: 12px; border-radius: 10px; display: flex; align-items: center; gap: 12px;">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <div class="dw-badge" style="background:transparent; border-color:rgba(255,255,255,0.4); color:#fff; font-size: 0.75rem;">START + SELECT</div> 
+                        <span style="color: rgba(255,255,255,0.4); font-size: 0.8rem;">/</span>
+                        <div class="dw-badge" style="background:transparent; border-color:rgba(255,255,255,0.4); color:#fff; font-size: 0.75rem;">XBOX</div>
+                    </div>
+                    <span id="dwExit" style="font-weight: 500; color:#fff;"></span>
+               </div>`;
+
+        overlay.innerHTML = `
+            <div class="dw-modal">
+                <div class="dw-header">
+                    <h2 id="dwTitle"></h2>
+                    <p id="dwSubtitle"></p>
+                </div>
+                
+                <div class="dw-grid">
+                    <div class="dw-item"><div class="dw-badge rs">R</div> <span id="dwMouse"></span></div>
+                    <div class="dw-item">
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <div class="dw-badge" style="min-width: auto; padding: 4px 8px;">RB</div>
+                            <span style="font-size:1.1rem; font-weight:bold; color:rgba(255,255,255,0.6);">+</span>
+                            <div class="dw-badge rs">R</div>
+                        </div>
+                        <span id="dwScroll"></span>
+                    </div>
+                    <div class="dw-item"><div class="dw-badge a">A</div> <span id="dwLClick"></span></div>
+                    <div class="dw-item"><div class="dw-badge x">X</div> <span id="dwRClick"></span></div>
+                    <div class="dw-item"><div class="dw-badge y">Y</div> <span id="dwVkb"></span></div>
+                    <div class="dw-item"><div class="dw-badge b">B</div> <span id="dwBack"></span></div>
+                    ${exitContentHtml}
+                </div>
+
+                <div class="dw-footer">
+                    <button class="dw-checkbox" id="btnDwCheckbox" tabindex="-1">
+                        <div class="dw-box"></div> <span id="dwDontShowAgain"></span>
+                    </button>
+                    <div class="dw-actions">
+                        <button class="dw-btn dw-btn-cancel" id="btnDesktopWarningCancel" tabindex="-1"></button>
+                        <button class="dw-btn dw-btn-confirm" id="btnDesktopWarningConfirm" tabindex="-1"></button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Preenchimento dos textos usando o _t()
+        document.getElementById('dwTitle').textContent = _t('dwTitle', 'Modo Área de Trabalho');
+        document.getElementById('dwSubtitle').textContent = _t('dwSubtitle', 'Seu controle assumirá temporariamente a função de mouse e teclado. Conheça os comandos:');
+        document.getElementById('dwMouse').textContent = _t('dwBtnMouse', 'Mover Mouse');
+        document.getElementById('dwScroll').textContent = _t('dwBtnScroll', 'Rolar a Tela (Scroll)');
+        document.getElementById('dwLClick').textContent = _t('dwBtnLClick', 'Clique Esquerdo');
+        document.getElementById('dwRClick').textContent = _t('dwBtnRClick', 'Clique Direito');
+        document.getElementById('dwVkb').textContent = _t('dwBtnVkb', 'Teclado Virtual (Avulso)');
+        document.getElementById('dwBack').textContent = _t('dwBtnBack', 'Voltar');
+
+        if (context === 'settings') {
+            document.getElementById('dwSettingsExit').textContent = _t('dwSettingsExit', 'Feche a janela de configuração ao finalizar para retornar ao Doorpi');
+        } else {
+            document.getElementById('dwExit').textContent = _t('dwBtnExit', 'Sair e retornar ao Doorpi');
+        }
+
+        document.getElementById('btnDesktopWarningCancel').textContent = _t('dwBtnCancel', 'Cancelar');
+        document.getElementById('btnDesktopWarningConfirm').textContent = _t('dwBtnConfirm', 'Entendi e Continuar');
+        document.getElementById('dwDontShowAgain').textContent = _t('dwDontShowAgain', 'Não mostrar novamente');
+
+        const btnCheckbox = document.getElementById('btnDwCheckbox');
+        const btnCancel = document.getElementById('btnDesktopWarningCancel');
+        const btnConfirm = document.getElementById('btnDesktopWarningConfirm');
+
+        let focusIdx = 2; // 0 = Checkbox, 1 = Cancelar, 2 = Confirmar
+        let dontShowAgain = false;
+
+        btnCheckbox.classList.remove('checked');
+
+        const updateFocus = () => {
+            btnCheckbox.classList.toggle('nav-focused-el', focusIdx === 0);
+            btnCancel.classList.toggle('nav-focused-el', focusIdx === 1);
+            btnConfirm.classList.toggle('nav-focused-el', focusIdx === 2);
+        };
+        updateFocus();
+
+        const cleanup = () => {
+            overlay.classList.remove('visible');
+            window.isDesktopWarningOpen = false;
+            window._dwMoveFocus = null;
+            window._dwAction = null;
+        };
+
+        window._dwMoveFocus = (delta) => {
+            focusIdx += delta;
+            if (focusIdx < 0) focusIdx = 0;
+            if (focusIdx > 2) focusIdx = 2;
+            updateFocus();
+        };
+
+        window._dwAction = (action) => {
+            if (action === 'CONFIRM') {
+                if (focusIdx === 0) {
+                    dontShowAgain = !dontShowAgain;
+                    btnCheckbox.classList.toggle('checked', dontShowAgain);
+                } else if (focusIdx === 1) {
+                    cleanup();
+                } else if (focusIdx === 2) {
+                    if (dontShowAgain) localStorage.setItem('doorpi_skip_desktop_warning', 'true');
+                    cleanup();
+                    if (onConfirm) onConfirm();
+                }
+            } else if (action === 'CANCEL') {
+                cleanup();
+            }
+        };
+
+        btnCheckbox.onclick = () => { focusIdx = 0; updateFocus(); window._dwAction('CONFIRM'); };
+        btnCancel.onclick = () => { focusIdx = 1; updateFocus(); window._dwAction('CONFIRM'); };
+        btnConfirm.onclick = () => { focusIdx = 2; updateFocus(); window._dwAction('CONFIRM'); };
+
+        btnCheckbox.onmouseenter = () => { focusIdx = 0; updateFocus(); };
+        btnCancel.onmouseenter = () => { focusIdx = 1; updateFocus(); };
+        btnConfirm.onmouseenter = () => { focusIdx = 2; updateFocus(); };
+
+        window.isDesktopWarningOpen = true;
+        requestAnimationFrame(() => overlay.classList.add('visible'));
+    }
     function _renderSettingsSystem(body) {
         // Solicita o estado real do C# assim que a tela abre
         if (typeof postToHost === 'function') postToHost({ action: 'requestBootMode' });
@@ -66,11 +265,20 @@ window.isNavMenuOpen = false;
                     </button>
                 </div>
 
-                <div class="nav-netplwiz-box" id="navNetplwizNotice">
-                    <div class="nav-netplwiz-text">
-                         <strong>${_t('sysSuggestion', 'Sugestão')}:</strong> ${_t('sysBootNoticeText', 'Para uma experiência autêntica de console, recomendamos desativar a opção "Exigir o Windows Hello" e remover seu PIN ou senha nas opções do Windows. Assim, o sistema fará login automático ligando direto no aplicativo.')}
+                <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px;">
+                    <div class="nav-netplwiz-box" id="navNetplwizNotice" style="margin-bottom: 0;">
+                        <div class="nav-netplwiz-text">
+                             <strong>${_t('sysSuggestion', 'Sugestão')}:</strong> ${_t('sysBootNoticeText', 'Para uma experiência autêntica de console, recomendamos desativar a opção "Exigir o Windows Hello" e remover seu PIN ou senha nas opções do Windows. Assim, o sistema fará login automático ligando direto no aplicativo.')}
+                        </div>
+                        <button class="nav-icon-btn nav-btn-primary" id="btnSignInOptions" tabindex="-1" style="flex-shrink: 0;">${_t('sysBootNoticeBtn', 'Opções de Entrada')}</button>
                     </div>
-                    <button class="nav-icon-btn nav-btn-primary" id="btnSignInOptions" tabindex="-1" style="flex-shrink: 0;">${_t('sysBootNoticeBtn', 'Opções de Entrada')}</button>
+
+                    <div class="nav-netplwiz-box" id="navTaskbarNotice" style="margin-bottom: 0;">
+                        <div class="nav-netplwiz-text">
+                             <strong>${_t('sysSuggestion', 'Sugestão')}:</strong> ${_t('sysTaskbarNoticeText', 'Para maior imersão, recomendamos configurar a Barra de Tarefas do Windows para "Ocultar automaticamente".')}
+                        </div>
+                        <button class="nav-icon-btn nav-btn-primary" id="btnTaskbarSettings" tabindex="-1" style="flex-shrink: 0;">${_t('sysTaskbarNoticeBtn', 'Barra de Tarefas')}</button>
+                    </div>
                 </div>
 
                 <h3 style="font-size: 1.1rem; font-weight: 500; color: #fff; margin-bottom: 12px; margin-top: 32px;">${_t('sysActionsHeader', 'Ações do Sistema')}</h3>
@@ -93,15 +301,20 @@ window.isNavMenuOpen = false;
             const radios = body.querySelectorAll('.nav-radio-btn');
             radios.forEach(r => r.classList.toggle('active', parseInt(r.dataset.mode) === currentMode));
 
-            // Banner visível apenas no Modo Console (2)
+            // Banner Netplwiz visível apenas no Modo Console (2)
             const notice = body.querySelector('#navNetplwizNotice');
             if (notice) notice.classList.toggle('visible', currentMode === 2);
+
+            // Banner Barra de Tarefas visível no Padrão (1) e Console (2)
+            const taskbarNotice = body.querySelector('#navTaskbarNotice');
+            if (taskbarNotice) taskbarNotice.classList.toggle('visible', currentMode === 1 || currentMode === 2);
 
             // CORREÇÃO DO FOCO FANTASMA: Filtra apenas os botões que estão fisicamente renderizados!
             _contentItems = [
                 body.querySelector('#setBackSystem'),
                 ...Array.from(body.querySelectorAll('.nav-radio-btn')),
                 body.querySelector('#btnSignInOptions'),
+                body.querySelector('#btnTaskbarSettings'),
                 body.querySelector('#btnEnterDesktop')
             ].filter(el => el && el.offsetParent !== null);
 
@@ -138,13 +351,22 @@ window.isNavMenuOpen = false;
                 _updateContentFocus();
             });
         });
-
         body.querySelector('#btnSignInOptions')?.addEventListener('click', () => {
-            if (typeof postToHost === 'function') postToHost({ action: 'openSignInOptions' });
+            _showDesktopWarning('settings', () => {
+                if (typeof postToHost === 'function') postToHost({ action: 'openSignInOptions' });
+            });
+        });
+
+        body.querySelector('#btnTaskbarSettings')?.addEventListener('click', () => {
+            _showDesktopWarning('settings', () => {
+                if (typeof postToHost === 'function') postToHost({ action: 'openTaskbarSettings' });
+            });
         });
 
         body.querySelector('#btnEnterDesktop')?.addEventListener('click', () => {
-            if (typeof postToHost === 'function') postToHost({ action: 'enterDesktopMode' });
+            _showDesktopWarning('desktop', () => {
+                if (typeof postToHost === 'function') postToHost({ action: 'enterDesktopMode' });
+            });
         });
     }
     async function _loadJSONs() {
@@ -2110,6 +2332,17 @@ window.isNavMenuOpen = false;
     };
 
     document.addEventListener('keydown', e => {
+        // 0. TRAVA ABSOLUTA PARA O POPUP DO MODO DESKTOP (Roda antes de tudo)
+        if (window.isDesktopWarningOpen) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') window._dwMoveFocus?.(-1);
+            if (e.key === 'ArrowRight' || e.key === 'ArrowDown') window._dwMoveFocus?.(1);
+            if (e.key === 'Enter') window._dwAction?.('CONFIRM');
+            if (e.key === 'Escape' || e.key === 'Backspace') window._dwAction?.('CANCEL');
+            return;
+        }
+
         // 1. Se nada estiver aberto, deixa o sistema fluir
         if (!window.isNavMenuOpen && !isSetupOpen && !window._vkbIsOpen && !isCtxMenuOpen && !isEditModalOpen) {
             return;
@@ -2135,7 +2368,7 @@ window.isNavMenuOpen = false;
         // 3. Se NavMenu estiver aberto
         if (window.isNavMenuOpen) {
             if (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) return;
-            if (typeof isEditModalOpen !== 'undefined' && isEditModalOpen) return; 
+            if (typeof isEditModalOpen !== 'undefined' && isEditModalOpen) return;
 
             e.preventDefault();
             e.stopImmediatePropagation();
