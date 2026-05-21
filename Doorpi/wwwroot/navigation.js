@@ -953,9 +953,19 @@ window.addEventListener('gamepaddisconnected', e => {
             if (isEditModalOpen) window._editModalClose?.();
             else triggerContextMenu();
         }
-        if (!isModalOpen && !isSetupOpen && !isCtxMenuOpen && !isEditModalOpen) {
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_R1], GAMEPAD.BTN_R1)) window.cycleHomeTab?.(1);
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_L1], GAMEPAD.BTN_L1)) window.cycleHomeTab?.(-1);
+        // DEPOIS
+        if (!isSetupOpen && !isCtxMenuOpen && !isEditModalOpen) {
+            if (isModalOpen) {
+                // L1/R1 troca aba Web App ↔ Executável quando o modal de adicionar está aberto
+                const mediaView = document.getElementById('view-media-apps');
+                if (mediaView?.classList.contains('active')) {
+                    if (buttonJustPressed(buttons[GAMEPAD.BTN_R1], GAMEPAD.BTN_R1)) window._cycleMediaSubtab?.(1);
+                    if (buttonJustPressed(buttons[GAMEPAD.BTN_L1], GAMEPAD.BTN_L1)) window._cycleMediaSubtab?.(-1);
+                }
+            } else {
+                if (buttonJustPressed(buttons[GAMEPAD.BTN_R1], GAMEPAD.BTN_R1)) window.cycleHomeTab?.(1);
+                if (buttonJustPressed(buttons[GAMEPAD.BTN_L1], GAMEPAD.BTN_L1)) window.cycleHomeTab?.(-1);
+            }
         }
     } catch (e) {
         console.error('Gamepad Error:', e);

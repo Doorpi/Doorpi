@@ -2343,8 +2343,14 @@ window.isNavMenuOpen = false;
             return;
         }
 
+        // Verifica se o modal de adicionar está visível diretamente no DOM
+        const _addModalVisible = () => {
+            const el = document.getElementById('addGameContainer');
+            return !!(el && el.style.display !== 'none');
+        };
+
         // 1. Se nada estiver aberto, deixa o sistema fluir
-        if (!window.isNavMenuOpen && !isSetupOpen && !window._vkbIsOpen && !isCtxMenuOpen && !isEditModalOpen) {
+        if (!window.isNavMenuOpen && !isSetupOpen && !window._vkbIsOpen && !isCtxMenuOpen && !isEditModalOpen && !_addModalVisible()) {
             return;
         }
 
@@ -2365,7 +2371,18 @@ window.isNavMenuOpen = false;
             return;
         }
 
-        // 3. Se NavMenu estiver aberto
+        // 3. Modal de adicionar aberto — L1/R1 troca aba Web App ↔ Executável
+        if (_addModalVisible() && !window.isNavMenuOpen) {
+            const mediaView = document.getElementById('view-media-apps');
+            if (mediaView?.classList.contains('active') && (e.key === 'L1' || e.key === 'R1')) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                window._cycleMediaSubtab?.(e.key === 'R1' ? 1 : -1);
+                return;
+            }
+        }
+
+        // 4. Se NavMenu estiver aberto
         if (window.isNavMenuOpen) {
             if (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) return;
             if (typeof isEditModalOpen !== 'undefined' && isEditModalOpen) return;

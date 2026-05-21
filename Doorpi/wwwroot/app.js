@@ -647,6 +647,14 @@ window.chrome.webview.addEventListener('message', event => {
                     }
                 }
                 // Intercepta a colagem no Nav Menu de Extensões
+                else if (window._isPastingWebAppUrl) {
+                    window._isPastingWebAppUrl = false;
+                    const input = document.getElementById('webAppUrlInput');
+                    if (input) {
+                        input.value = data.text.trim();
+                        setTimeout(() => document.getElementById('btnAddWebApp')?.focus(), 80);
+                    }
+                }
                 else if (window._isPastingExtensionUrl || (document.getElementById('navExtUrlInput') && data.text.includes('chromewebstore'))) {
                     window._isPastingExtensionUrl = false;
                     const input = document.getElementById('navExtUrlInput');
@@ -3701,6 +3709,14 @@ function _switchMediaSubtab(subtab) {
     }
 }
 
+// ← ADICIONAR AQUI, logo após o } acima
+window._cycleMediaSubtab = function (delta) {
+    const tabs = ['web', 'exe'];
+    const currentIdx = tabs.indexOf(_activeMediaSubtab || 'web');
+    const nextIdx = (currentIdx + delta + tabs.length) % tabs.length;
+    _switchMediaSubtab(tabs[nextIdx]);
+};
+
 function _renderWebAppActions() {
     const bar = document.getElementById('mediaAppActions');
     bar.innerHTML = `
@@ -3720,7 +3736,9 @@ function _renderWebAppActions() {
     if (btnPaste) {
         const freshBtn = btnPaste.cloneNode(true);
         btnPaste.replaceWith(freshBtn);
+
         freshBtn.addEventListener('click', () => {
+            window._isPastingWebAppUrl = true;
             postToHost({ action: 'readClipboard' });
         });
     }
