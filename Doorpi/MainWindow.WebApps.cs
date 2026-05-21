@@ -479,6 +479,27 @@ namespace Doorpi
     if (window.__doorpiGenericInjected) return;
     window.__doorpiGenericInjected = true;
 
+    // ── FIX: ANTI-CRASH PARA PRIME VIDEO ─────────────────────────────────────
+    // Oculta a ponte síncrona nativa do WebView2 falsificando o objeto.
+    // Assim o Prime Video encontra a estrutura que ele procura, 
+    // mas não dispara chamadas pro C# nem dá TypeError no JS.
+    try {{
+        if (window.chrome && window.chrome.webview) {{
+            // Deleta o getter nativo problemático
+            delete window.chrome.webview.hostObjects;
+            
+            // Recria a estrutura como um objeto Javascript comum e vazio
+            Object.defineProperty(window.chrome.webview, 'hostObjects', {{
+                value: {{ 
+                    sync: new Proxy({{}}, {{ get: () => undefined }}), 
+                    async: new Proxy({{}}, {{ get: () => undefined }})
+                }},
+                configurable: true,
+                writable: true
+            }});
+        }}
+    }} catch(e) {{}}
+
     // ── 1. REDIRECIONAMENTO STEAMGRIDDB ──────────────────────────────────────
     (function checkRedirect() {{
         const isRoot = location.href === 'https://www.steamgriddb.com/' ||

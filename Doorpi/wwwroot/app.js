@@ -29,13 +29,12 @@ class SeamlessPlayer {
 
     async init() {
         try {
-            // Inicializa o contexto de áudio profissional
+        
             this.ctx = new (window.AudioContext || window.webkitAudioContext)();
             this.gainNode = this.ctx.createGain();
             this.gainNode.gain.value = this.volume;
             this.gainNode.connect(this.ctx.destination);
 
-            // Carrega os arquivos brutos via Fetch simultâneo
             const [wakeRes, ambienceRes] = await Promise.all([
                 fetch('./wake.wav'),
                 fetch('./ambience.wav')
@@ -45,7 +44,7 @@ class SeamlessPlayer {
                 ambienceRes.arrayBuffer()
             ]);
 
-            // Decodifica os áudios diretamente para buffers de memória
+       
             this.wakeBuffer = await this.ctx.decodeAudioData(wakeArray);
             this.ambienceBuffer = await this.ctx.decodeAudioData(ambienceArray);
             this.isLoaded = true;
@@ -58,7 +57,7 @@ class SeamlessPlayer {
         if (!this.isLoaded) return;
         if (this.isPlaying) return;
 
-        // Desbloqueia o contexto de áudio (exigência de segurança dos navegadores)
+
         if (this.ctx.state === 'suspended') {
             this.ctx.resume();
         }
@@ -80,17 +79,17 @@ class SeamlessPlayer {
 
             this.startTime = now;
 
-            // EMENDA MATEMÁTICA PERFEITA: O loop inicia exatamente no milissegundo em que o wake termina
+    
             this.wakeNode.start(now);
             this.ambienceNode.start(now + this.wakeBuffer.duration);
         } else {
-            // Retorno suave (Apenas o Ambience em loop)
+     
             this.ambienceNode = this.ctx.createBufferSource();
             this.ambienceNode.buffer = this.ambienceBuffer;
             this.ambienceNode.loop = true;
             this.ambienceNode.connect(this.gainNode);
 
-            // Retoma do ponto exato de onde foi pausado (módulo da duração do loop)
+           
             const offset = this.pauseTime % this.ambienceBuffer.duration;
             this.startTime = now - offset;
             this.ambienceNode.start(now, offset);
@@ -116,7 +115,7 @@ class SeamlessPlayer {
         };
 
         if (durationMs > 0) {
-            // Executa o fadeout nativo antes de desligar os canais fisicamente
+           
             this.fadeTo(0, durationMs, stopNodes);
         } else {
             stopNodes();
@@ -127,7 +126,7 @@ class SeamlessPlayer {
         if (!this.gainNode || !this.ctx) return;
         const now = this.ctx.currentTime;
 
-        // Curva de volume linear processada diretamente na thread de hardware (super suave)
+       
         this.gainNode.gain.cancelScheduledValues(now);
         this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, now);
         this.gainNode.gain.linearRampToValueAtTime(targetVolume, now + (durationMs / 1000));
@@ -138,16 +137,16 @@ class SeamlessPlayer {
     }
 }
 
-const MAX_AMBIENCE_VOLUME = 0.07; // Defina o volume geral aqui
+const MAX_AMBIENCE_VOLUME = 0.4; 
 window._audioPlayer = new SeamlessPlayer(MAX_AMBIENCE_VOLUME);
-window._audioPlayer.init(); // Carrega e prepara os buffers em background
+window._audioPlayer.init(); 
 
-window._isIntroComplete = false; // TRAVA DE SEGURANÇA: Impede áudio antes da intro acabar
+window._isIntroComplete = false; 
 
-// Rastreamento de áudios secundários tocando fora do DOM principal
+
 window._activeMediaElements = new Set();
 
-// Verifica se há qualquer outro áudio ou vídeo tocando na página no momento
+
 window._isAnyOtherAudioPlaying = function () {
     const domElements = Array.from(document.querySelectorAll('audio, video'));
     const allElements = new Set([...domElements, ...window._activeMediaElements]);
@@ -160,7 +159,6 @@ window._isAnyOtherAudioPlaying = function () {
     return false;
 };
 
-// Intercepta nativamente qualquer play de áudio/vídeo da página (como trailers de cartas)
 const originalPlay = HTMLMediaElement.prototype.play;
 HTMLMediaElement.prototype.play = function () {
     if (this !== window._wakeAudio && this !== window._ambienceAudio) {
@@ -206,16 +204,16 @@ window._startSystemAudio = function () {
     if (window._audioPlayer.isFirstBoot) {
         window._audioPlayer.play();
     } else {
-        // Volta do app/jogo aplicando fadein
+      
         window._audioPlayer.fadeTo(0, 0);
         window._audioPlayer.play();
-        window._audioPlayer.fadeTo(MAX_AMBIENCE_VOLUME, 1000); // 1s de Fade In
+        window._audioPlayer.fadeTo(MAX_AMBIENCE_VOLUME,2000); 
     }
 };
 
-// Função para pausar tudo - COM FADE OUT
+
 window._stopSystemAudio = function () {
-    window._audioPlayer.pause(800); // 800ms de Fade Out
+    window._audioPlayer.pause(800); 
 };
 
 window._pauseAmbience = window._stopSystemAudio;
@@ -275,7 +273,7 @@ window.addEventListener('message', (e) => {
         }
     }
 });
-// ──────────────────────────────────────────────────────────────────────
+
 // ──────────────────────────────────────────────────────────────────────
 const PLATFORMS = {
     Steam: {
