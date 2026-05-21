@@ -3285,7 +3285,7 @@ namespace Doorpi
         }
 
         private async Task MonitorGameLaunchAsync(
-           GameLaunchMonitorContext context, CancellationToken token)
+            GameLaunchMonitorContext context, CancellationToken token)
         {
             try
             {
@@ -3295,6 +3295,7 @@ namespace Doorpi
                 DateTime? desktopForegroundSince = null;
                 DateTime? launcherForegroundSince = null;
                 int ghostChecks = 0;
+                int lastRealGamePid = 0; // NOVO: Grava o Processo exato do jogo
 
                 while (!token.IsCancellationRequested)
                 {
@@ -3320,6 +3321,7 @@ namespace Doorpi
                         if (!isLauncher || candidate.Score >= 85)
                         {
                             candidateIsRealGame = true;
+                            lastRealGamePid = candidate.ProcessId; // Salva quem é o jogo verdadeiro
                         }
                     }
 
@@ -3415,8 +3417,7 @@ namespace Doorpi
                         }
                         else
                         {
-                            // A DEFESA CONTRA OVERLAYS (EPIC/STEAM)
-                            // Se a overlay roubar o foco nos primeiros 15 segundos do jogo, pegamos de volta na marra!
+                            // Defesa contra Overlays
                             if (!gameHasFocus && (now - gameFirstSeenUtc).TotalSeconds < 15)
                             {
                                 if (!IsDoorpiMainWindowForeground())
@@ -3438,7 +3439,6 @@ namespace Doorpi
                                 if (IsForegroundDesktopOrShell() || IsDoorpiMainWindowForeground())
                                 {
                                     if (desktopForegroundSince == null) desktopForegroundSince = now;
-                                    // TEMPO DE TOLERÂNCIA AUMENTADO PARA 15 SEGUNDOS (Perfeito para o The Witcher 3 carregar)
                                     else if ((now - desktopForegroundSince.Value).TotalSeconds > 15)
                                     {
                                         Dispatcher.Invoke(() => ForceFocus());
@@ -3449,7 +3449,6 @@ namespace Doorpi
                             }
                             else
                             {
-                                // Removemos os erros customizados para garantir que o Loading sempre saia da tela
                                 if (procExited && elapsed.TotalSeconds > 4 && (IsForegroundDesktopOrShell() || IsDoorpiMainWindowForeground()))
                                 {
                                     Dispatcher.Invoke(() => ForceFocus());
@@ -3466,6 +3465,28 @@ namespace Doorpi
                         else
                         {
                             ghostChecks++;
+
+                            // --- A MÁGICA DO FAST-PATH: VOLTA INSTANTÂNEA ---
+                            bool realGameExited = false;
+                            if (lastRealGamePid > 0)
+                            {
+                                try
+                                {
+                                    var p = Process.GetProcessById(lastRealGamePid);
+                                    if (p.HasExited) realGameExited = true;
+                                }
+                                catch { realGameExited = true; } // Se o processo sumiu do Windows, ele fechou.
+                            }
+
+                            // Se o jogo de fato fechou, não precisa esperar a tolerância, volta na hora!
+                            if (realGameExited)
+                            {
+                                Dispatcher.Invoke(() => ForceFocus());
+                                return;
+                            }
+
+                            // Se o processo ainda existe (Epic Overlay piscando, mudança de resolução, Alt-Tab), 
+                            // a tolerância de 2.25s atua como escudo.
                             if (ghostChecks >= 15)
                             {
                                 Dispatcher.Invoke(() => ForceFocus());
