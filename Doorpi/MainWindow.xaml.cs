@@ -278,10 +278,11 @@ namespace Doorpi
         // ========================= CONSTRUTOR =========================
         private void ResetCursorForMainScreen()
         {
-            EnsureCursorVisible();  // normaliza o contador do ShowCursor para 0
-            EnsureCursorHidden();   // leva para -1 (escondido)
+            EnsureCursorVisible();  // Normaliza o contador do Windows
+            EnsureCursorHidden();   // Oculta o cursor visualmente
             _mainScreenMouseVisible = false;
-            UpdateHoverStateInWebView(); // Mata o hover visual
+            _lastKnownCursorPos = new POINT { X = 0, Y = 0 };
+            SetCursorPos(0, 0);     // Estaciona no topo
         }
         public MainWindow()
         {
@@ -467,10 +468,15 @@ namespace Doorpi
                 Dispatcher.Invoke(() =>
                 {
                     if (!_mainScreenMouseVisible) return;
-                    EnsureCursorHidden();
                     _mainScreenMouseVisible = false;
-                    UpdateHoverStateInWebView();
-                    SetCursorPos(-1, -1);
+
+                    // 1. Oculta o cursor visualmente no Windows
+                    EnsureCursorHidden();
+
+                    // 2. Estaciona o ponteiro invisível no canto (0, 0) para não acionar botões por engano
+                    // Atualizamos o _lastKnownCursorPos antes para o sensor de movimento ignorar essa alteração
+                    _lastKnownCursorPos = new POINT { X = 0, Y = 0 };
+                    SetCursorPos(0, 0);
                 });
             }, null, Timeout.Infinite, Timeout.Infinite);
 
@@ -478,6 +484,8 @@ namespace Doorpi
             {
                 if (_mediaMouseActive) return;
                 if (!GetCursorPos(out var pt)) return;
+
+                // Compara se o usuário mexeu o mouse fisicamente
                 if (pt.X == _lastKnownCursorPos.X && pt.Y == _lastKnownCursorPos.Y) return;
 
                 _lastKnownCursorPos = pt;
@@ -485,15 +493,14 @@ namespace Doorpi
                 {
                     if (!_mainScreenMouseVisible)
                     {
+                        // Exibe o cursor novamente quando movido físico
                         EnsureCursorVisible();
                         _mainScreenMouseVisible = true;
-                        UpdateHoverStateInWebView(); // Devolve o hover visual
                     }
                 });
                 _mouseIdleTimer?.Change(MOUSE_IDLE_MS, Timeout.Infinite);
             }, null, 0, 100);
         }
-
         private void StopMainScreenMouseWatch()
         {
             _mousePollTimer?.Change(Timeout.Infinite, Timeout.Infinite);
@@ -2094,19 +2101,7 @@ namespace Doorpi
         }
         private void UpdateHoverStateInWebView()
         {
-            if (webView?.CoreWebView2 != null)
-            {
-                if (_mainScreenMouseVisible)
-                {
-                    // Mouse Visível: Remove a trava e devolve o Hover
-                    webView.CoreWebView2.ExecuteScriptAsync("let s=document.getElementById('doorpi-mouse-hider');if(s)s.remove();");
-                }
-                else
-                {
-                    // Mouse Oculto: Injeta pointer-events nulo para matar o Hover visualmente
-                    webView.CoreWebView2.ExecuteScriptAsync("if(!document.getElementById('doorpi-mouse-hider')){let s=document.createElement('style');s.id='doorpi-mouse-hider';s.innerHTML='* { pointer-events: none !important; }';document.head.appendChild(s);}");
-                }
-            }
+
         }
         private void SendMouse(int dx, int dy, uint flags, uint data = 0)
         {
@@ -3174,7 +3169,7 @@ namespace Doorpi
             if (_mediaExeModeActive) ExitMediaExeMode();
 
             if (_systemControllerActive) StopSystemControllerMode();
-            _launcherMouseActive = false; // Garante o desligamento do mouse do Launcher
+            _launcherMouseActive = false;
 
             _mainUiGamepadSuspendedForGame = false;
             Interlocked.Exchange(ref _mainUiGamepadSuppressUntilUtcTicks, 0);
@@ -3189,11 +3184,17 @@ namespace Doorpi
                     ? _mainWindowHandle
                     : new System.Windows.Interop.WindowInteropHelper(this).Handle;
 
+                this.Show();
+                WindowState = WindowState.Maximized;
                 FocusExternalWindow(hwnd);
                 Activate();
+
+                // Garante que o cursor fique invisível nativamente e estacione no topo (0, 0)
+                EnsureCursorVisible();
                 EnsureCursorHidden();
                 _mainScreenMouseVisible = false;
-                UpdateHoverStateInWebView();
+                _lastKnownCursorPos = new POINT { X = 0, Y = 0 };
+                SetCursorPos(0, 0);
 
                 webView?.Focus();
                 Keyboard.Focus(webView);
@@ -3285,7 +3286,7 @@ namespace Doorpi
         }
 
         private async Task MonitorGameLaunchAsync(
-            GameLaunchMonitorContext context, CancellationToken token)
+           GameLaunchMonitorContext context, CancellationToken token)
         {
             try
             {
@@ -3381,7 +3382,6 @@ namespace Doorpi
 
                     if (candidateIsRealGame)
                     {
-                        // SALVA SE O LAUNCHER TENTOU ATROPELAR, PARA A GENTE FORÇAR O FOCO PRO JOGO!
                         bool wasLauncherMouseActive = _launcherMouseActive;
 
                         if (!gameSeen)
@@ -3391,7 +3391,7 @@ namespace Doorpi
 
                             if (_launcherMouseActive)
                             {
-                                _launcherMouseActive = false; // Desliga o mouse instantaneamente
+                                _launcherMouseActive = false;
                             }
                         }
 
@@ -3400,7 +3400,6 @@ namespace Doorpi
 
                         bool gameHasFocus = IsForegroundOwnedByProcess(candidate.ProcessId);
 
-                        // TRANSIÇÃO PERFEITA: Se o Doorpi não estava oculto, OU se ele estava no modo Launcher, ele foca no jogo!
                         if (!doorpiHidden || wasLauncherMouseActive)
                         {
                             bool graceExpired = (now - gameFirstSeenUtc).TotalSeconds >= 3;
@@ -3420,12 +3419,17 @@ namespace Doorpi
                         }
                         else
                         {
-                            // Defesa contra Overlays da Epic (Devolve o foco à força se for roubado nos primeiros 15s)
+                            // FILTRAGEM INTELIGENTE DE ALT+TAB
+                            // Se o foco foi perdido para um "Stealer" (Overlay ou Desktop), recupera o foco.
+                            // Se o foco foi para um aplicativo comum (Chrome, Discord, etc.), respeita a ação do usuário.
                             if (!gameHasFocus && (now - gameFirstSeenUtc).TotalSeconds < 15)
                             {
-                                if (!IsDoorpiMainWindowForeground())
+                                if (IsForegroundStealer(candidate.ProcessId))
                                 {
-                                    Dispatcher.Invoke(() => FocusExternalWindow(candidate.Hwnd));
+                                    if (!IsDoorpiMainWindowForeground())
+                                    {
+                                        Dispatcher.Invoke(() => FocusExternalWindow(candidate.Hwnd));
+                                    }
                                 }
                             }
                         }
@@ -3469,7 +3473,6 @@ namespace Doorpi
                         {
                             ghostChecks++;
 
-                            // FAST-PATH DE SAÍDA: O JOGO REAL FECHOU?
                             bool realGameExited = false;
                             if (lastRealGamePid > 0)
                             {
@@ -3487,7 +3490,6 @@ namespace Doorpi
                                 return;
                             }
 
-                            // Jogo ainda vive, aguarda 15 ciclos como escudo de sobreposição de Overlays
                             if (ghostChecks >= 15)
                             {
                                 Dispatcher.Invoke(() => ForceFocus());
@@ -3780,16 +3782,51 @@ namespace Doorpi
             }
             catch { }
         }
+        private bool IsForegroundStealer(int gamePid)
+        {
+            try
+            {
+                var foreground = GetForegroundWindow();
+                if (foreground == IntPtr.Zero) return true; // Sem janela focada, recupera o foco pro jogo
 
-private void SendDoorpiToBackground()
+                if (foreground == GetShellWindow()) return true;
+
+                var doorpi = _mainWindowHandle;
+                if (doorpi != IntPtr.Zero && foreground == doorpi) return false;
+
+                GetWindowThreadProcessId(foreground, out var pidRaw);
+                if (pidRaw == 0) return true;
+                if (pidRaw == gamePid) return false; // O próprio jogo está focado
+
+                var process = Process.GetProcessById((int)pidRaw);
+                string name = SafeProcessName(process).ToLowerInvariant();
+
+                // 1. Desktop / Barra de tarefas / Explorador de arquivos
+                if (_shellProcessNames.Contains(name)) return true;
+
+                // 2. Processos conhecidos de Overlays e Launchers que costumam roubar foco no boot
+                var knownStealers = new HashSet<string>
+                {
+                    "steam", "steamwebhelper", "epicgameslauncher", "epicwebhelper",
+                    "eosoverlayrenderer", "gameoverlayui", "uplayoverlay", "igoproxy64",
+                    "origin", "galaxyclient", "goggalaxy", "redprelauncher", "2klauncher", "t2gp"
+                };
+
+                if (knownStealers.Contains(name)) return true;
+
+                // Qualquer outro processo (Discord, Chrome, etc.) assume-se Alt+Tab intencional do usuário
+                return false;
+            }
+            catch { return false; }
+        }
+        private void SendDoorpiToBackground()
         {
             Dispatcher.BeginInvoke(() =>
             {
                 if (!_gameSessionActive) return;
-                
-                // Minimizar de verdade entrega o controle total ao Jogo/Desktop.
-                // Evita conflitos com Overlays que minimizariam o jogo se o Doorpi estivesse aberto no fundo.
-                WindowState = WindowState.Minimized;
+
+
+                this.Hide();
             });
         }
 
