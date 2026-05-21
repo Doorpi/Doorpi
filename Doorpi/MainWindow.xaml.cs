@@ -302,7 +302,6 @@ namespace Doorpi
             };
             this.Activated += (s, e) =>
             {
-
                 if (DateTime.UtcNow.Ticks < Interlocked.Read(ref _returnFromExternalModeSuppressUntil))
                     return;
 
@@ -310,6 +309,12 @@ namespace Doorpi
                 {
                     lock (_gameLaunchMonitorLock) { _gameLaunchMonitorCts?.Cancel(); }
                     ForceFocus();
+                    return;
+                }
+
+
+                if (_ytWebView != null && _ytWebView.Visibility == Visibility.Visible)
+                {
                     return;
                 }
 

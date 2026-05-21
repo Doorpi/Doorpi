@@ -375,15 +375,24 @@ namespace Doorpi
                     _popupWebView = null;
                     _popupWindow = null;
 
-                    // Restaura o foco explicitamente para religar a engine de gamepad no app nativo (se necessário)
+                    // Restaura o foco explicitamente sem matar a sessão ativa
                     Dispatcher.InvokeAsync(() => {
                         if (_webAppWindow != null && _webAppWindow.WindowState != WindowState.Minimized)
                         {
+                            // Cenário 1: App de mídia em janela própria
                             _webAppWindow.Activate();
                             _ytWebView?.Focus();
                         }
+                        else if (_ytWebView != null && _ytWebView.Visibility == Visibility.Visible)
+                        {
+                            // Cenário 2: Utilitário Inline (SteamGridDB, Chrome Store, etc) ainda aberto.
+                            // Apenas focamos nele. NÃO chamamos o ForceFocus() para não esconder o mouse nem voltar a música.
+                            this.Activate();
+                            _ytWebView.Focus();
+                        }
                         else
                         {
+                            // Cenário 3: Nenhum WebApp ativo
                             this.Activate();
                             this.ForceFocus();
                         }
