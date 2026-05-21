@@ -86,14 +86,6 @@ namespace Doorpi
 
         private Thread? _mediaControllerThread;
 
-        private static HashSet<string>? _ytBlockedDomains;
-        private static readonly object _ytBlockLock = new();
-        private static readonly string[] _ytBlocklistUrls =
-        {
-            "https://easylist.to/easylist/easylist.txt",
-            "https://easylist.to/easylist/easyprivacy.txt",
-        };
-
         private const string YT_UA = "Mozilla/5.0 (PS4; Leanback Shell) Cobalt/26.lts.0-qa; compatible; Doorpi/1.6.1";
         private const string YT_TV_URL = "https://www.youtube.com/tv";
         private static readonly HttpClient _ytHttp = new();
@@ -480,43 +472,42 @@ namespace Doorpi
     window.__doorpiGenericInjected = true;
 
     // ── FIX: ANTI-CRASH PARA PRIME VIDEO ─────────────────────────────────────
-    // Oculta a ponte síncrona nativa do WebView2 falsificando o objeto.
-    // Assim o Prime Video encontra a estrutura que ele procura, 
-    // mas não dispara chamadas pro C# nem dá TypeError no JS.
     try {{
         if (window.chrome && window.chrome.webview) {{
-            // Deleta o getter nativo problemático
             delete window.chrome.webview.hostObjects;
-            
-            // Recria a estrutura como um objeto Javascript comum e vazio
             Object.defineProperty(window.chrome.webview, 'hostObjects', {{
                 value: {{ 
                     sync: new Proxy({{}}, {{ get: () => undefined }}), 
                     async: new Proxy({{}}, {{ get: () => undefined }})
                 }},
-                configurable: true,
-                writable: true
+                configurable: true, writable: true
             }});
         }}
     }} catch(e) {{}}
-
+    try {{
+        const _safeQue = [];
+        _safeQue.push = function(fn) {{
+            try {{ if (typeof fn === 'function') fn(); }} catch(_) {{}}
+        }};
+        if (!window.ramp) {{
+            window.ramp = {{ que: _safeQue, addTag: function(){{}} }};
+        }} else {{
+            window.ramp.que = _safeQue;
+        }}
+    }} catch(e) {{}}
     // ── 1. REDIRECIONAMENTO STEAMGRIDDB ──────────────────────────────────────
-    (function checkRedirect() {{
-        const isRoot = location.href === 'https://www.steamgriddb.com/' ||
-                       location.href === 'https://www.steamgriddb.com';
-        if (isRoot) location.href = 'https://www.steamgriddb.com/profile/preferences/api';
-    }})();
-    window.addEventListener('popstate', () => {{
-        if (location.href.replace(/\/$/, '') === 'https://www.steamgriddb.com')
-            location.href = 'https://www.steamgriddb.com/profile/preferences/api';
-    }});
+    // Removido do JavaScript para evitar conflito/crash com o React do SteamGridDB.
+    // Agora o redirecionamento é controlado 100% pelo C# via NavigationStarting.
 
     // ── 2. AUTO-COPY NO CLIQUE (Chave API) ───────────────────────────────────
     document.addEventListener('click', function(e) {{
+        if (location.hostname !== 'www.steamgriddb.com') return;
+        
         const el = e.target.closest('code') || (e.target.tagName === 'CODE' ? e.target : null);
         if (!el) return;
+        
         const apiText = el.innerText.trim();
-        if (apiText.length > 10) {{
+        if (apiText.length > 20) {{ // Chave da API tem 32 chars
             const range = document.createRange();
             range.selectNodeContents(el);
             window.getSelection().removeAllRanges();
@@ -1045,6 +1036,10 @@ namespace Doorpi
 
         private async Task OpenWebViewInlineAsync(string url, bool isYouTube = false, string appName = "", string heroImg = "", string gridImg = "")
         {
+            // Corrige a URL logo de cara se a abertura já for apontando para a home
+            if (url.TrimEnd('/') == "https://www.steamgriddb.com")
+                url = "https://www.steamgriddb.com/profile/preferences/api";
+
             bool isUtility = url.Contains("steamgriddb.com") || url.Contains("chromewebstore.google.com");
 
             if (_ytWebView != null)
@@ -1101,7 +1096,6 @@ namespace Doorpi
             _vkbIsOpen = false;
             _vkbOwnerView = null;
 
-            await YtEnsureBlocklistAsync();
 
             _ytWebView = new WebView2
             {
@@ -1160,9 +1154,22 @@ namespace Doorpi
             _ytWebView.CoreWebView2.WebMessageReceived += YtOnWebMessageReceived;
             _ytWebView.CoreWebView2.NewWindowRequested += OnNewWindowRequested;
 
+            // =========================================================================
+            // INTERCEPTAÇÃO LIMPA: Previne carregar o React e a tela do SteamGridDB,
+            // forçando a navegação de forma segura antes da rede processar a página.
+            // =========================================================================
+            _ytWebView.CoreWebView2.NavigationStarting += (s, e) =>
+            {
+                string currentUri = e.Uri?.TrimEnd('/');
+                if (currentUri == "https://www.steamgriddb.com")
+                {
+                    e.Cancel = true;
+                    _ytWebView.CoreWebView2.Navigate("https://www.steamgriddb.com/profile/preferences/api");
+                }
+            };
+
             if (isYouTube)
             {
-                await YtInjectAdBlockerAsync(_ytWebView.CoreWebView2);
                 await YtInjectGamepadAsync(_ytWebView.CoreWebView2);
                 await YtInjectZoomHackAsync(_ytWebView.CoreWebView2);
                 await YtInjectForceUserSelectionAsync(_ytWebView.CoreWebView2);
@@ -1177,7 +1184,14 @@ namespace Doorpi
 
             _ytWebView.CoreWebView2.NavigationCompleted += async (s, e) =>
             {
-                if (!isUtility && !_ytClosing && this.WindowState != WindowState.Minimized)
+                // Utilitários (SteamGridDB, Chrome Web Store): garante cursor visível após qualquer navegação
+                if (isUtility)
+                {
+                    Dispatcher.Invoke(EnsureCursorVisible);
+                    return;
+                }
+
+                if (!_ytClosing && this.WindowState != WindowState.Minimized)
                 {
                     SendGameLaunchStatus("gameLaunchReady");
                     await Task.Delay(800);
@@ -1193,11 +1207,10 @@ namespace Doorpi
             _ytWebView.CoreWebView2.Navigate(url);
             _ytWebView.Focus();
             _ytWebView.KeyDown += YtOnKeyDown;
+
             _ytWebView.CoreWebView2.SourceChanged += async (s, args) =>
             {
                 string newUrl = _ytWebView.CoreWebView2.Source;
-                if (newUrl.TrimEnd('/') == "https://www.steamgriddb.com")
-                    _ytWebView.CoreWebView2.Navigate("https://www.steamgriddb.com/profile/preferences/api");
 
                 if (newUrl.Contains("chromewebstore.google.com/detail/"))
                     await InjectInstalledExtensionsAsync(_ytWebView.CoreWebView2);
@@ -1378,39 +1391,29 @@ namespace Doorpi
         {
             try
             {
-                if (!_isCurrentSiteYouTube) return;
-
                 var uriStr = e.Request.Uri;
                 if (string.IsNullOrEmpty(uriStr)) return;
 
-                if (uriStr.Contains("youtube.com") || uriStr.Contains("ytimg.com") ||
-                    uriStr.Contains("googlevideo.com") || uriStr.Contains("yt3.ggpht.com"))
-                    e.Request.Headers.SetHeader("User-Agent", YT_UA);
-
-                var uri = new Uri(uriStr);
-                var host = uri.Host.ToLowerInvariant();
-                var pathQuery = uri.PathAndQuery.ToLowerInvariant();
-
-                if (host.Contains("googlevideo.com") && pathQuery.Contains("/videoplayback"))
+                // ── Bloqueia trackers/ads que crasham o React do SteamGridDB ──────────
+                if (uriStr.Contains("crwdcntrl.net") ||
+                    uriStr.Contains("eyeota.") ||
+                    uriStr.Contains("freestar.") ||
+                    uriStr.Contains("ramp.js") ||
+                    uriStr.Contains("playwire.com") ||
+                    uriStr.Contains("confiant.") ||
+                    uriStr.Contains("adsafeprotected"))
                 {
-                    if (pathQuery.Contains("adformat=") || pathQuery.Contains("vmap=") ||
-                        pathQuery.Contains("oad=") || pathQuery.Contains("adext=") ||
-                        pathQuery.Contains("ad_type="))
-                    { YtBlockRequest(e); return; }
+                    YtBlockRequest(e);
+                    return;
                 }
 
-                if (host.Contains("googlesyndication.com") || host.Contains("doubleclick.net") ||
-                    host.Contains("googleadservices.com") || host.Contains("csp.withgoogle.com") ||
-                    pathQuery.Contains("/pagead/") || pathQuery.Contains("/ptracking") ||
-                    pathQuery.Contains("/api/stats/ads") || pathQuery.Contains("/get_midroll_info"))
-                { YtBlockRequest(e); return; }
+                if (!_isCurrentSiteYouTube) return;
 
-                if (_ytBlockedDomains is { Count: > 0 })
+                // Apenas injeta o User-Agent do PS4 para manter a interface de TV ...
+                if (uriStr.Contains("youtube.com") || uriStr.Contains("ytimg.com") ||
+                    uriStr.Contains("googlevideo.com") || uriStr.Contains("yt3.ggpht.com"))
                 {
-                    var parts = host.Split('.');
-                    for (int i = 0; i < parts.Length - 1; i++)
-                        if (_ytBlockedDomains.Contains(string.Join('.', parts[i..])))
-                        { YtBlockRequest(e); return; }
+                    e.Request.Headers.SetHeader("User-Agent", YT_UA);
                 }
             }
             catch { }
@@ -1421,34 +1424,6 @@ namespace Doorpi
             if (_ytWebView?.CoreWebView2?.Environment == null) return;
             string headers = "Access-Control-Allow-Origin: *\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\nAccess-Control-Allow-Headers: *";
             e.Response = _ytWebView.CoreWebView2.Environment.CreateWebResourceResponse(null, 204, "No Content", headers);
-        }
-
-        private static async Task YtEnsureBlocklistAsync()
-        {
-            lock (_ytBlockLock)
-            {
-                if (_ytBlockedDomains != null) return;
-                _ytBlockedDomains = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            }
-            var domains = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var url in _ytBlocklistUrls)
-            {
-                try
-                {
-                    var text = await _ytHttp.GetStringAsync(url);
-                    foreach (var line in text.Split('\n'))
-                    {
-                        var t = line.Trim();
-                        if (!t.StartsWith("||")) continue;
-                        int end = t.IndexOf('^');
-                        if (end <= 2) continue;
-                        var d = t.Substring(2, end - 2);
-                        if (!d.Contains('/') && d.Length > 0) domains.Add(d);
-                    }
-                }
-                catch { }
-            }
-            lock (_ytBlockLock) { _ytBlockedDomains = domains; }
         }
 
         private static async Task YtInjectAdBlockerAsync(CoreWebView2 cw)

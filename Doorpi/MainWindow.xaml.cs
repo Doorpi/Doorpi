@@ -3444,7 +3444,16 @@ namespace Doorpi
 
                         bool hasMediaExeSession = !string.IsNullOrEmpty(_mediaExeCurrentUrl);
                         bool hasExternalWebAppSession = _mediaMouseActive && _webAppWindow != null;
-
+                        bool isUtilityViewActive = _mediaMouseActive && _ytWebView != null && _webAppWindow == null;
+                        if (isUtilityViewActive)
+                        {
+                            // Garante cursor visível a cada ciclo sem deixar o watchdog interferir
+                            if (!_mainScreenMouseVisible)
+                            {
+                                Dispatcher.Invoke(EnsureCursorVisible);
+                            }
+                            continue;
+                        }
                         // ============================================
                         // 1. MODO MEDIA EXE (Sessão Rastreamento Contínuo)
                         // ============================================
