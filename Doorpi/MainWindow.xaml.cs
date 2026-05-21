@@ -3295,7 +3295,7 @@ namespace Doorpi
                 DateTime? desktopForegroundSince = null;
                 DateTime? launcherForegroundSince = null;
                 int ghostChecks = 0;
-                int lastRealGamePid = 0; // NOVO: Grava o Processo exato do jogo
+                int lastRealGamePid = 0;
 
                 while (!token.IsCancellationRequested)
                 {
@@ -3304,7 +3304,6 @@ namespace Doorpi
 
                     if (gameSeen && doorpiHidden && IsDoorpiMainWindowForeground())
                     {
-                        // Tolerância de 5 segundos contra transições malucas
                         if ((now - gameFirstSeenUtc).TotalSeconds > 5)
                         {
                             Dispatcher.Invoke(() => ForceFocus());
@@ -3321,7 +3320,7 @@ namespace Doorpi
                         if (!isLauncher || candidate.Score >= 85)
                         {
                             candidateIsRealGame = true;
-                            lastRealGamePid = candidate.ProcessId; // Salva quem é o jogo verdadeiro
+                            lastRealGamePid = candidate.ProcessId;
                         }
                     }
 
@@ -3354,7 +3353,7 @@ namespace Doorpi
 
                                     Dispatcher.Invoke(() => {
                                         if (IsIconic(fgHwnd)) ShowWindow(fgHwnd, 9);
-                                        ShowWindow(fgHwnd, 3); // Maximiza Launcher
+                                        ShowWindow(fgHwnd, 3);
                                         FocusExternalWindow(fgHwnd);
                                     });
 
@@ -3382,6 +3381,9 @@ namespace Doorpi
 
                     if (candidateIsRealGame)
                     {
+                        // SALVA SE O LAUNCHER TENTOU ATROPELAR, PARA A GENTE FORÇAR O FOCO PRO JOGO!
+                        bool wasLauncherMouseActive = _launcherMouseActive;
+
                         if (!gameSeen)
                         {
                             gameSeen = true;
@@ -3389,7 +3391,7 @@ namespace Doorpi
 
                             if (_launcherMouseActive)
                             {
-                                _launcherMouseActive = false;
+                                _launcherMouseActive = false; // Desliga o mouse instantaneamente
                             }
                         }
 
@@ -3398,7 +3400,8 @@ namespace Doorpi
 
                         bool gameHasFocus = IsForegroundOwnedByProcess(candidate.ProcessId);
 
-                        if (!doorpiHidden || _launcherMouseActive)
+                        // TRANSIÇÃO PERFEITA: Se o Doorpi não estava oculto, OU se ele estava no modo Launcher, ele foca no jogo!
+                        if (!doorpiHidden || wasLauncherMouseActive)
                         {
                             bool graceExpired = (now - gameFirstSeenUtc).TotalSeconds >= 3;
 
@@ -3417,7 +3420,7 @@ namespace Doorpi
                         }
                         else
                         {
-                            // Defesa contra Overlays
+                            // Defesa contra Overlays da Epic (Devolve o foco à força se for roubado nos primeiros 15s)
                             if (!gameHasFocus && (now - gameFirstSeenUtc).TotalSeconds < 15)
                             {
                                 if (!IsDoorpiMainWindowForeground())
@@ -3466,7 +3469,7 @@ namespace Doorpi
                         {
                             ghostChecks++;
 
-                            // --- A MÁGICA DO FAST-PATH: VOLTA INSTANTÂNEA ---
+                            // FAST-PATH DE SAÍDA: O JOGO REAL FECHOU?
                             bool realGameExited = false;
                             if (lastRealGamePid > 0)
                             {
@@ -3475,18 +3478,16 @@ namespace Doorpi
                                     var p = Process.GetProcessById(lastRealGamePid);
                                     if (p.HasExited) realGameExited = true;
                                 }
-                                catch { realGameExited = true; } // Se o processo sumiu do Windows, ele fechou.
+                                catch { realGameExited = true; }
                             }
 
-                            // Se o jogo de fato fechou, não precisa esperar a tolerância, volta na hora!
                             if (realGameExited)
                             {
                                 Dispatcher.Invoke(() => ForceFocus());
                                 return;
                             }
 
-                            // Se o processo ainda existe (Epic Overlay piscando, mudança de resolução, Alt-Tab), 
-                            // a tolerância de 2.25s atua como escudo.
+                            // Jogo ainda vive, aguarda 15 ciclos como escudo de sobreposição de Overlays
                             if (ghostChecks >= 15)
                             {
                                 Dispatcher.Invoke(() => ForceFocus());
@@ -3918,37 +3919,59 @@ private void SendDoorpiToBackground()
             var haystack = $"{processName} {exeName} {title} {exePath}".ToLowerInvariant();
             var isLauncher = _knownLauncherProcessNames.Contains(processName);
 
-            if (pid == context.LaunchedProcessId) score += 30;
-            if (!context.BaselineProcessIds.Contains(pid)) score += 28;
-            if (context.SeenCandidatePids.Contains(pid)) score += 18;
-            if (!string.IsNullOrWhiteSpace(title)) score += 8;
+            // 1. Origem do Processo (O Jogo ser um processo NOVO é a maior pista de todas)
+            if (pid == context.LaunchedProcessId) score += 50;
+            if (!context.BaselineProcessIds.Contains(pid)) score += 40;
+            if (context.SeenCandidatePids.Contains(pid)) score += 15;
 
-            if (!string.IsNullOrWhiteSpace(context.DirectExePath) &&
-                !string.IsNullOrWhiteSpace(exePath))
+            // 2. Caminho Direto
+            if (!string.IsNullOrWhiteSpace(context.DirectExePath) && !string.IsNullOrWhiteSpace(exePath))
             {
-                if (PathsEqual(context.DirectExePath, exePath)) score += 120;
+                if (PathsEqual(context.DirectExePath, exePath)) score += 150;
                 else
                 {
                     var gameDir = Path.GetDirectoryName(context.DirectExePath) ?? "";
-                    if (!string.IsNullOrWhiteSpace(gameDir) &&
-                        exePath.StartsWith(gameDir, StringComparison.OrdinalIgnoreCase))
-                        score += 45;
+                    if (!string.IsNullOrWhiteSpace(gameDir) && exePath.StartsWith(gameDir, StringComparison.OrdinalIgnoreCase))
+                        score += 60;
                 }
             }
 
-            var tokenMatches = context.NameTokens.Count(t => haystack.Contains(t, StringComparison.OrdinalIgnoreCase));
-            score += tokenMatches * 18;
-            if (tokenMatches >= Math.Min(2, Math.Max(1, context.NameTokens.Length))) score += 22;
+            // 3. HEURÍSTICA INTELIGENTE (Resolve o problema do "Dandara" e do "Witcher")
+            string firstToken = context.NameTokens.FirstOrDefault() ?? "";
+            if (!string.IsNullOrEmpty(firstToken))
+            {
+                // O nome do executável COMEÇA com a primeira palavra do jogo? Bônus GIGANTE!
+                if (exeName.StartsWith(firstToken, StringComparison.OrdinalIgnoreCase)) score += 45;
+
+                // O título da janela tem a primeira palavra do jogo?
+                if (title.Contains(firstToken, StringComparison.OrdinalIgnoreCase)) score += 25;
+            }
+
+            // Título Exato 100%
+            if (!string.IsNullOrWhiteSpace(title) && string.Equals(title, context.Game.Name, StringComparison.OrdinalIgnoreCase))
+            {
+                score += 60;
+            }
+
+            // Tokens Normais (Procurando outras palavras soltas)
+            int tokenMatches = context.NameTokens.Count(t => haystack.Contains(t, StringComparison.OrdinalIgnoreCase));
+            score += tokenMatches * 20;
+            if (tokenMatches >= Math.Min(2, Math.Max(1, context.NameTokens.Length))) score += 25;
+
+            // 4. Bônus por Ser uma Janela Real e Pesada
+            if (!string.IsNullOrWhiteSpace(title)) score += 10;
 
             try
             {
                 var mb = process.WorkingSet64 / 1024 / 1024;
-                if (mb > 450) score += 12;
-                if (mb > 1400) score += 12;
+                if (mb > 200) score += 15;
+                if (mb > 800) score += 20; // Jogos pesados consomem RAM
             }
             catch { }
 
-            if (isLauncher) score -= 30;
+            // Penalidade SEVERA para evitar que os Launchers finjam ser o jogo
+            if (isLauncher) score -= 60;
+
             return Math.Max(0, score);
         }
 

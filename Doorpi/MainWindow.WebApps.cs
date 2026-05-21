@@ -417,6 +417,14 @@ namespace Doorpi
 
                 _popupWebView.CoreWebView2.NavigationCompleted += async (s, args) =>
                 {
+                    // Mesma proteção para o popup: reseta VKB se a página navegou com ele aberto
+                    if (_vkbOwnerView == _popupWebView)
+                    {
+                        _vkbIsOpen = false;
+                        _vkbOwnerView = null;
+                        _vkbHasFocus = false;
+                    }
+
                     var popup = _popupWebView;
                     var yt = _ytWebView;
                     if (popup == null) return;
@@ -1017,11 +1025,17 @@ namespace Doorpi
     window.__doorpiVkbCursorRight = ()    => _vkbMoveCursorInField(1);
     window.__doorpiVkbToggleShift = ()    => _vkbSetShift(!_vkbShifted);
 
+// DEPOIS
     document.addEventListener('focusin', e => {{
         if (_vkbClosing) return;
         const el = e.target;
-        if (isInput(el) && !window._vkbIsOpen)
+        if (!isInput(el)) return;
+        if (!window._vkbIsOpen) {{
             setTimeout(() => {{ if (!_vkbClosing && document.activeElement === el) _vkbOpen(el); }}, 50);
+        }} else if (el !== _vkbInputEl) {{
+            // Segue o foco quando pula entre inputs (ex: campos OTP que avançam sozinhos)
+            _vkbOpen(el);
+        }}
     }}, true);
 
     document.addEventListener('mousedown', e => {{
@@ -1169,6 +1183,14 @@ namespace Doorpi
             // =========================================================================
             _ytWebView.CoreWebView2.NavigationStarting += (s, e) =>
             {
+
+                if (_vkbOwnerView == _ytWebView)
+                {
+                    _vkbIsOpen = false;
+                    _vkbOwnerView = null;
+                    _vkbHasFocus = false;
+                }
+
                 string currentUri = e.Uri?.TrimEnd('/');
                 if (currentUri == "https://www.steamgriddb.com")
                 {
