@@ -1142,7 +1142,6 @@ namespace Doorpi
 
             var options = new CoreWebView2EnvironmentOptions { AreBrowserExtensionsEnabled = true };
 
-            options.AdditionalBrowserArguments = "--disable-web-security --disable-features=IsolateOrigins,site-per-process";
 
             var env = await CoreWebView2Environment.CreateAsync(null, userDataPath, options);
             await _ytWebView.EnsureCoreWebView2Async(env);
