@@ -307,11 +307,14 @@ namespace Doorpi
 
                 if (_gameSessionActive)
                 {
+
+                    if (!_gameIsRunningAndDoorpiHidden)
+                        return;
+
                     lock (_gameLaunchMonitorLock) { _gameLaunchMonitorCts?.Cancel(); }
                     ForceFocus();
                     return;
                 }
-
 
                 if (_ytWebView != null && _ytWebView.Visibility == Visibility.Visible)
                 {
@@ -3167,7 +3170,12 @@ namespace Doorpi
         {
             CommitActiveSession();
             _gameSessionActive = false;
+            _gameIsRunningAndDoorpiHidden = false;
             if (_mediaExeModeActive) ExitMediaExeMode();
+
+            if (_systemControllerActive) StopSystemControllerMode();
+            _launcherMouseActive = false; // Garante o desligamento do mouse do Launcher
+
             _mainUiGamepadSuspendedForGame = false;
             Interlocked.Exchange(ref _mainUiGamepadSuppressUntilUtcTicks, 0);
             Interlocked.Exchange(ref _focusRestoredAtTicks, DateTime.UtcNow.Ticks);
@@ -3185,7 +3193,7 @@ namespace Doorpi
                 Activate();
                 EnsureCursorHidden();
                 _mainScreenMouseVisible = false;
-                UpdateHoverStateInWebView(); // Garante a remoção do hover
+                UpdateHoverStateInWebView();
 
                 webView?.Focus();
                 Keyboard.Focus(webView);
@@ -3228,13 +3236,14 @@ namespace Doorpi
         }
 
         private static readonly HashSet<string> _knownLauncherProcessNames = new(StringComparer.OrdinalIgnoreCase)
-{
-    "steam", "steamwebhelper", "epicgameslauncher", "epicwebhelper", "galaxyclient",
-    "goggalaxy", "riotclientservices", "riotclientux", "riotclientuxrender",
-    "leagueclient", "leagueclientux", "leagueclientuxrender",          // ← NOVO
-    "eadesktop", "eabackgroundservice", "origin", "battle.net", "battle.net helper",
-    "ubisoftconnect", "upc", "rockstarservice", "rockstarlauncher"
-};
+        {
+            "steam", "steamwebhelper", "epicgameslauncher", "epicwebhelper", "galaxyclient",
+            "goggalaxy", "riotclientservices", "riotclientux", "riotclientuxrender",
+            "leagueclient", "leagueclientux", "leagueclientuxrender",
+            "eadesktop", "eabackgroundservice", "origin", "battle.net", "battle.net helper",
+            "ubisoftconnect", "upc", "rockstarservice", "rockstarlauncher",
+            "redprelauncher", "2klauncher", "t2gp" 
+        };
 
         private static readonly HashSet<string> _shellProcessNames = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -3270,79 +3279,150 @@ namespace Doorpi
                 StartedUtc = DateTime.UtcNow
             };
 
-            _gameSessionActive = true; // ← arma o guard antes de qualquer BeginInvoke
+            _gameIsRunningAndDoorpiHidden = false; 
+            _gameSessionActive = true;
             _ = Task.Run(() => MonitorGameLaunchAsync(context, cts.Token));
         }
 
         private async Task MonitorGameLaunchAsync(
-          GameLaunchMonitorContext context, CancellationToken token)
+           GameLaunchMonitorContext context, CancellationToken token)
         {
             try
             {
                 bool gameSeen = false;
                 bool doorpiHidden = false;
                 DateTime gameFirstSeenUtc = DateTime.MinValue;
+                DateTime? desktopForegroundSince = null;
+                DateTime? launcherForegroundSince = null;
                 int ghostChecks = 0;
-
-                // Para processos diretos que disparam o evento de encerramento
-                if (context.LaunchedProcess != null)
-                {
-                    try
-                    {
-                        if (!context.LaunchedProcess.HasExited)
-                        {
-                            context.LaunchedProcess.EnableRaisingEvents = true;
-                            context.LaunchedProcess.Exited += (_, _) =>
-                            {
-                                if (!token.IsCancellationRequested)
-                                    Dispatcher.BeginInvoke(() => ForceFocus());
-                            };
-                        }
-                    }
-                    catch { }
-                }
 
                 while (!token.IsCancellationRequested)
                 {
                     var now = DateTime.UtcNow;
                     var elapsed = now - context.StartedUtc;
 
-                    // O usuário pediu explicitamente: se o Doorpi recuperou o foco visual (Alt+Tab ou fechamento real),
-                    // não perca tempo processando mais nada, assuma que o controle precisa ser restaurado imediatamente.
-                    if (gameSeen && IsDoorpiMainWindowForeground())
+                    if (gameSeen && doorpiHidden && IsDoorpiMainWindowForeground())
                     {
-                        ForceFocus();
-                        return;
+                        // Tolerância de 5 segundos contra transições malucas
+                        if ((now - gameFirstSeenUtc).TotalSeconds > 5)
+                        {
+                            Dispatcher.Invoke(() => ForceFocus());
+                            return;
+                        }
                     }
 
                     var candidate = FindBestGameWindowCandidate(context);
+                    bool candidateIsRealGame = false;
 
                     if (candidate != null && candidate.Score >= 55)
                     {
-                        if (!gameSeen) { gameSeen = true; gameFirstSeenUtc = now; }
-                        context.SeenCandidatePids.Add(candidate.ProcessId);
-                        ghostChecks = 0; // A janela está na tela, zera o contador de "fantasma"
-
-                        if (!doorpiHidden)
+                        bool isLauncher = _knownLauncherProcessNames.Contains(candidate.ProcessName);
+                        if (!isLauncher || candidate.Score >= 85)
                         {
-                            bool gameHasFocus = IsForegroundOwnedByProcess(candidate.ProcessId);
+                            candidateIsRealGame = true;
+                        }
+                    }
+
+                    IntPtr fgHwnd = GetForegroundWindow();
+                    GetWindowThreadProcessId(fgHwnd, out uint fgPid);
+                    bool fgIsLauncher = false;
+
+                    if (fgPid > 0)
+                    {
+                        try
+                        {
+                            var fgProc = Process.GetProcessById((int)fgPid);
+                            fgIsLauncher = _knownLauncherProcessNames.Contains(SafeProcessName(fgProc));
+                        }
+                        catch { }
+                    }
+
+                    if (!gameSeen && !candidateIsRealGame)
+                    {
+                        if (fgIsLauncher)
+                        {
+                            if (launcherForegroundSince == null)
+                                launcherForegroundSince = now;
+
+                            else if ((now - launcherForegroundSince.Value).TotalSeconds > 2.5)
+                            {
+                                if (!_launcherMouseActive)
+                                {
+                                    _launcherMouseActive = true;
+
+                                    Dispatcher.Invoke(() => {
+                                        if (IsIconic(fgHwnd)) ShowWindow(fgHwnd, 9);
+                                        ShowWindow(fgHwnd, 3); // Maximiza Launcher
+                                        FocusExternalWindow(fgHwnd);
+                                    });
+
+                                    new Thread(() => {
+                                        SharedGamepadControllerLoop(
+                                            () => _launcherMouseActive,
+                                            () => {
+                                                Dispatcher.Invoke(() => ForceFocus());
+                                            }
+                                        );
+                                    })
+                                    { IsBackground = true }.Start();
+
+                                    SendGameLaunchStatus("gameLaunchReady");
+                                    SendDoorpiToBackground();
+                                    doorpiHidden = true;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            if (!_launcherMouseActive) launcherForegroundSince = null;
+                        }
+                    }
+
+                    if (candidateIsRealGame)
+                    {
+                        if (!gameSeen)
+                        {
+                            gameSeen = true;
+                            gameFirstSeenUtc = now;
+
+                            if (_launcherMouseActive)
+                            {
+                                _launcherMouseActive = false;
+                            }
+                        }
+
+                        context.SeenCandidatePids.Add(candidate!.ProcessId);
+                        ghostChecks = 0;
+
+                        bool gameHasFocus = IsForegroundOwnedByProcess(candidate.ProcessId);
+
+                        if (!doorpiHidden || _launcherMouseActive)
+                        {
                             bool graceExpired = (now - gameFirstSeenUtc).TotalSeconds >= 3;
 
-                            // DEPOIS:
                             if (gameHasFocus || graceExpired)
                             {
-                                if (!gameHasFocus) FocusExternalWindow(candidate.Hwnd);
-
-                                // Garante o tempo mínimo de animação ANTES de esconder o Doorpi.
-                                // O guard continua ativo durante essa espera, impedindo o desktop de roubar o foco.
                                 await EnsureMinimumAnimationTimeAsync(token);
                                 if (token.IsCancellationRequested) return;
 
-                                // O jogo assumiu — o guard não é mais necessário, o próprio jogo mantém o foco.
-                           
+                                Dispatcher.Invoke(() => FocusExternalWindow(candidate.Hwnd));
+
                                 doorpiHidden = true;
+                                _gameIsRunningAndDoorpiHidden = true;
                                 SendDoorpiToBackground();
                                 SendGameLaunchStatus("gameLaunchReady");
+                            }
+                        }
+                        else
+                        {
+                            // A DEFESA CONTRA OVERLAYS (EPIC/STEAM)
+                            // Se a overlay roubar o foco nos primeiros 15 segundos do jogo, pegamos de volta na marra!
+                            if (!gameHasFocus && (now - gameFirstSeenUtc).TotalSeconds < 15)
+                            {
+                                if (!IsDoorpiMainWindowForeground())
+                                {
+                                    Dispatcher.Invoke(() => FocusExternalWindow(candidate.Hwnd));
+                                }
                             }
                         }
                     }
@@ -3350,28 +3430,45 @@ namespace Doorpi
                     {
                         if (!gameSeen)
                         {
-                            bool procExited = context.LaunchedProcess != null && SafeHasExited(context.LaunchedProcess);
+                            bool isDirectExe = string.IsNullOrWhiteSpace(context.Game.LaunchUrl);
+                            bool procExited = isDirectExe && context.LaunchedProcess != null && SafeHasExited(context.LaunchedProcess);
 
-                            if (procExited && elapsed.TotalSeconds > 4 && IsForegroundDesktopOrShell())
+                            if (_launcherMouseActive)
                             {
-                                SendGameLaunchStatus("gameLaunchFailed", context.Game.Name, context.Game.HeroImage, context.Game.GridImage, "crash");
-                                ForceFocus();
-                                return;
+                                if (IsForegroundDesktopOrShell() || IsDoorpiMainWindowForeground())
+                                {
+                                    if (desktopForegroundSince == null) desktopForegroundSince = now;
+                                    // TEMPO DE TOLERÂNCIA AUMENTADO PARA 15 SEGUNDOS (Perfeito para o The Witcher 3 carregar)
+                                    else if ((now - desktopForegroundSince.Value).TotalSeconds > 15)
+                                    {
+                                        Dispatcher.Invoke(() => ForceFocus());
+                                        return;
+                                    }
+                                }
+                                else desktopForegroundSince = null;
                             }
-
-                            if (elapsed.TotalMinutes > 4)
+                            else
                             {
-                                SendGameLaunchStatus("gameLaunchFailed", context.Game.Name, context.Game.HeroImage, context.Game.GridImage, "timeout");
-                                ForceFocus();
-                                return;
+                                // Removemos os erros customizados para garantir que o Loading sempre saia da tela
+                                if (procExited && elapsed.TotalSeconds > 4 && (IsForegroundDesktopOrShell() || IsDoorpiMainWindowForeground()))
+                                {
+                                    Dispatcher.Invoke(() => ForceFocus());
+                                    return;
+                                }
+
+                                if (elapsed.TotalMinutes > 4)
+                                {
+                                    Dispatcher.Invoke(() => ForceFocus());
+                                    return;
+                                }
                             }
                         }
                         else
                         {
                             ghostChecks++;
-                            if (ghostChecks >= 2)
+                            if (ghostChecks >= 15)
                             {
-                                ForceFocus();
+                                Dispatcher.Invoke(() => ForceFocus());
                                 return;
                             }
                         }
@@ -3383,7 +3480,6 @@ namespace Doorpi
             catch (OperationCanceledException) { }
             catch (Exception ex) { Debug.WriteLine($"[GameLaunchMonitor] {ex.Message}"); }
         }
-
         // ── Session tracking ──────────────────────────────────────────────────────
         private DateTime _sessionStartUtc = DateTime.MinValue;
         private string _activeSessionGameId = "";
@@ -3646,14 +3742,12 @@ namespace Doorpi
             {
                 byte[] keys =
                 {
-                    0x10, 0x11, 0x12,       // Shift, Ctrl, Alt
-                    0x5B, 0x5C,             // Win L / Win R
+                    0x10, 0x11,             // Shift, Ctrl
                     0x1B, 0x0D, 0x08, 0x09  // Esc, Enter, Backspace, Tab
                 };
 
                 foreach (var vk in keys)
                 {
-                    // O bit 0x8000 verifica se a tecla está ATUALMENTE pressionada para o Windows
                     if ((GetAsyncKeyState(vk) & 0x8000) != 0)
                     {
                         var input = new INPUT { type = INPUT_KEYBOARD };
@@ -3665,16 +3759,15 @@ namespace Doorpi
             catch { }
         }
 
-        private void SendDoorpiToBackground()
+private void SendDoorpiToBackground()
         {
             Dispatcher.BeginInvoke(() =>
             {
-                // Se ForceFocus já foi chamado (ex: saiu do jogo antes do BeginInvoke executar),
-                // _gameSessionActive já é false — descarta este push para não sobrepor o HWND_TOP.
                 if (!_gameSessionActive) return;
-                var hwnd = _mainWindowHandle;
-                if (hwnd == IntPtr.Zero) return;
-                SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                
+                // Minimizar de verdade entrega o controle total ao Jogo/Desktop.
+                // Evita conflitos com Overlays que minimizariam o jogo se o Doorpi estivesse aberto no fundo.
+                WindowState = WindowState.Minimized;
             });
         }
 
@@ -3902,7 +3995,6 @@ namespace Doorpi
             }
             catch { return true; }
         }
-
         private void FocusExternalWindow(IntPtr hWnd)
         {
             if (hWnd == IntPtr.Zero) return;
@@ -3911,14 +4003,22 @@ namespace Doorpi
                 if (IsIconic(hWnd)) ShowWindow(hWnd, 9); // SW_RESTORE
                 else ShowWindow(hWnd, 5); // SW_SHOW
 
-                // O Truque do TopMost: Eleva a janela acima de TUDO no Windows, 
-                // rouba o foco naturalmente, e depois remove o status TopMost.
-                // Sem simular teclado, sem travar inputs!
-                SetWindowPos(hWnd, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002); // HWND_TOPMOST, SWP_NOSIZE | SWP_NOMOVE
-                SetWindowPos(hWnd, new IntPtr(-2), 0, 0, 0, 0, 0x0001 | 0x0002); // HWND_NOTOPMOST
+                // Método Nativo e Seguro (Bypassa o bloqueio anti-roubo do Windows)
+                uint fgThread = GetWindowThreadProcessId(GetForegroundWindow(), out _);
+                uint appThread = GetCurrentThreadId();
 
-                SetForegroundWindow(hWnd);
-                BringWindowToTop(hWnd);
+                if (fgThread != appThread && fgThread != 0)
+                {
+                    AttachThreadInput(appThread, fgThread, true);
+                    SetForegroundWindow(hWnd);
+                    BringWindowToTop(hWnd);
+                    AttachThreadInput(appThread, fgThread, false);
+                }
+                else
+                {
+                    SetForegroundWindow(hWnd);
+                    BringWindowToTop(hWnd);
+                }
             }
             catch { }
         }
@@ -6917,6 +7017,7 @@ namespace Doorpi
         private void LaunchGame(string? identifier, string errorMsg)
         {
             if (string.IsNullOrEmpty(identifier)) return;
+
             try
             {
                 if (_mediaExeModeActive || _mediaExeProcess != null) ExitMediaExeMode();
@@ -6930,114 +7031,132 @@ namespace Doorpi
                     SaveGames(games);
                     LoadGamesIntoUI();
 
-                    Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                    webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
                     {
                         type = "updateFeaturedCard",
                         tab = "games",
                         id = identifier
-                    })));
+                    }));
 
-                    var processSnapshot = SnapshotProcessIds();
-                    Process? launched = null;
-                    bool launchAttempted = false;
+                    // 1. TRAVA A TELA DE "ABRINDO" IMEDIATAMENTE NA UI
+                    SendGameLaunchStatus("gameLaunching", game.Name, game.HeroImage ?? "", game.GridImage ?? "");
+
+                    // 2. AVISA O WATCHDOG PARA NÃO INTERFERIR ANTES MESMO DO JOGO ABRIR
+                    _gameSessionActive = true;
                     SuspendMainUiGamepadForGameLaunch();
 
-                    if (!string.IsNullOrWhiteSpace(game.LaunchUrl) &&
-                        game.LaunchUrl.StartsWith("goggalaxy://", StringComparison.OrdinalIgnoreCase))
+                    var processSnapshot = SnapshotProcessIds();
+
+                    // 3. JOGA A TENTATIVA DE ABRIR O LAUNCHER PARA SEGUNDO PLANO
+                    _ = Task.Run(() =>
                     {
-                        string gogClientPath = "";
-                        using (var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\GOG.com\GalaxyClient\paths"))
-                            gogClientPath = (key?.GetValue("client") as string ?? "").Replace("\"", "").Trim();
-
-                        string gameId = game.LaunchUrl.Replace("goggalaxy://launch/", "").Trim();
-
-                        if (File.Exists(gogClientPath))
+                        try
                         {
-                            launchAttempted = true;
-                            launched = Process.Start(new ProcessStartInfo
+                            Process? launched = null;
+                            bool launchAttempted = false;
+
+                            if (!string.IsNullOrWhiteSpace(game.LaunchUrl) &&
+                                game.LaunchUrl.StartsWith("goggalaxy://", StringComparison.OrdinalIgnoreCase))
                             {
-                                FileName = gogClientPath,
-                                Arguments = $"/command=launch /gameId={gameId}",
-                                UseShellExecute = true
-                            });
-                        }
-                        else
-                        {
-                            launchAttempted = true;
-                            launched = Process.Start(new ProcessStartInfo(game.LaunchUrl) { UseShellExecute = true });
-                        }
-                    }
-                    else if (!string.IsNullOrWhiteSpace(game.LaunchUrl) &&
-                                                 game.LaunchUrl.StartsWith("riot:", StringComparison.OrdinalIgnoreCase))
-                    {
-                        string cmd = game.LaunchUrl.Substring(5).Trim();
-                        string exePath = "";
-                        string args = "";
+                                string gogClientPath = "";
+                                using (var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\GOG.com\GalaxyClient\paths"))
+                                    gogClientPath = (key?.GetValue("client") as string ?? "").Replace("\"", "").Trim();
 
-                        // Separa o Path do Executável dos Argumentos (Com Aspas)
-                        if (cmd.StartsWith("\""))
-                        {
-                            int endQuote = cmd.IndexOf("\"", 1);
-                            if (endQuote > 0)
+                                string gameId = game.LaunchUrl.Replace("goggalaxy://launch/", "").Trim();
+
+                                if (File.Exists(gogClientPath))
+                                {
+                                    launchAttempted = true;
+                                    launched = Process.Start(new ProcessStartInfo
+                                    {
+                                        FileName = gogClientPath,
+                                        Arguments = $"/command=launch /gameId={gameId}",
+                                        UseShellExecute = true
+                                    });
+                                }
+                                else
+                                {
+                                    launchAttempted = true;
+                                    launched = Process.Start(new ProcessStartInfo(game.LaunchUrl) { UseShellExecute = true });
+                                }
+                            }
+                            else if (!string.IsNullOrWhiteSpace(game.LaunchUrl) &&
+                                                         game.LaunchUrl.StartsWith("riot:", StringComparison.OrdinalIgnoreCase))
                             {
-                                exePath = cmd.Substring(1, endQuote - 1);
-                                args = cmd.Substring(endQuote + 1).Trim();
+                                string cmd = game.LaunchUrl.Substring(5).Trim();
+                                string exePath = "";
+                                string args = "";
+
+                                if (cmd.StartsWith("\""))
+                                {
+                                    int endQuote = cmd.IndexOf("\"", 1);
+                                    if (endQuote > 0)
+                                    {
+                                        exePath = cmd.Substring(1, endQuote - 1);
+                                        args = cmd.Substring(endQuote + 1).Trim();
+                                    }
+                                }
+                                else
+                                {
+                                    int exeIndex = cmd.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
+                                    if (exeIndex > 0)
+                                    {
+                                        exePath = cmd.Substring(0, exeIndex + 4).Trim();
+                                        args = cmd.Substring(exeIndex + 4).Trim();
+                                    }
+                                }
+
+                                if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath))
+                                {
+                                    launchAttempted = true;
+                                    launched = Process.Start(new ProcessStartInfo
+                                    {
+                                        FileName = exePath,
+                                        Arguments = args,
+                                        UseShellExecute = true,
+                                        WorkingDirectory = Path.GetDirectoryName(exePath)
+                                    });
+                                }
+                            }
+                            else if (!string.IsNullOrWhiteSpace(game.LaunchUrl))
+                            {
+                                EnsureLauncherRunning(game.LaunchUrl);
+                                launchAttempted = true;
+                                launched = Process.Start(new ProcessStartInfo(game.LaunchUrl) { UseShellExecute = true });
+                            }
+                            else if (File.Exists(game.Path))
+                            {
+                                launchAttempted = true;
+                                launched = Process.Start(new ProcessStartInfo
+                                {
+                                    FileName = game.Path,
+                                    UseShellExecute = true,
+                                    WorkingDirectory = Path.GetDirectoryName(game.Path)
+                                });
+                            }
+
+                            if (launchAttempted)
+                            {
+                                StartGameLaunchMonitor(game, launched, processSnapshot);
+                                _sessionStartUtc = DateTime.UtcNow;
+                                _activeSessionGameId = identifier;
+                            }
+                            else
+                            {
+                                Dispatcher.Invoke(() => ForceFocus());
                             }
                         }
-                        // Separa o Path (Sem Aspas)
-                        else
+                        catch (Exception ex)
                         {
-                            int exeIndex = cmd.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
-                            if (exeIndex > 0)
-                            {
-                                exePath = cmd.Substring(0, exeIndex + 4).Trim();
-                                args = cmd.Substring(exeIndex + 4).Trim();
-                            }
-                        }
-
-                        if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath))
-                        {
-                            launchAttempted = true;
-                            launched = Process.Start(new ProcessStartInfo
-                            {
-                                FileName = exePath,
-                                Arguments = args,
-                                UseShellExecute = true,
-                                WorkingDirectory = Path.GetDirectoryName(exePath)
+                            Dispatcher.Invoke(() => {
+                                System.Windows.MessageBox.Show(errorMsg + ex.Message);
+                                ForceFocus();
                             });
                         }
-                    }
-                    else if (!string.IsNullOrWhiteSpace(game.LaunchUrl))
-                    {
-                        EnsureLauncherRunning(game.LaunchUrl);
-                        launchAttempted = true;
-                        launched = Process.Start(new ProcessStartInfo(game.LaunchUrl) { UseShellExecute = true });
-                    }
-                    else if (File.Exists(game.Path))
-                    {
-                        launchAttempted = true;
-                        launched = Process.Start(new ProcessStartInfo
-                        {
-                            FileName = game.Path,
-                            UseShellExecute = true,
-                            WorkingDirectory = Path.GetDirectoryName(game.Path)
-                        });
-                    }
-
-                    if (launchAttempted)
-                    {
-                        StartGameLaunchMonitor(game, launched, processSnapshot);
-
-                        _sessionStartUtc = DateTime.UtcNow;
-                        _activeSessionGameId = identifier;
-                        SendGameLaunchStatus("gameLaunching",
-                            game.Name,
-                            game.HeroImage ?? "",
-                            game.GridImage ?? "");
-                    }
+                    });
                 }
             }
-            catch (Exception ex) { System.Windows.MessageBox.Show(errorMsg + ex.Message); }
+            catch (Exception ex) { System.Windows.MessageBox.Show(errorMsg + ex.Message); ForceFocus(); }
         }
 
         private void EnsureLauncherRunning(string launchUrl)
@@ -7311,7 +7430,8 @@ namespace Doorpi
         private long _mainUiGamepadSuppressUntilUtcTicks = 0;
         private IntPtr _mainWindowHandle = IntPtr.Zero;
         private volatile bool _gameSessionActive = false;
-
+        private volatile bool _gameIsRunningAndDoorpiHidden = false;
+        private volatile bool _launcherMouseActive = false;
         private bool IsDoorpiMainWindowForeground()
         {
             var hwnd = _mainWindowHandle;

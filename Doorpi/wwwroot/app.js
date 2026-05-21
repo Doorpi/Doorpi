@@ -222,7 +222,10 @@ window._pauseAmbience = window._stopSystemAudio;
 
 // 1. Ouve o foco da janela
 window.addEventListener('focus', () => {
-    window._startSystemAudio();
+ 
+    if (!window.isMediaAppActive) {
+        window._startSystemAudio();
+    }
 });
 
 // 2. Intercepta a variável do C#
@@ -673,7 +676,7 @@ window.chrome.webview.addEventListener('message', event => {
             }
         }
         else if (data.type === 'gameLaunching') {
-            window._pauseAmbience();
+            window.isMediaAppActive = true; 
             GameLaunchOverlay.show(data.gameName, data.heroImage, data.gridImage);
         }
         else if (data.type === 'userSwitchStart') {
@@ -683,21 +686,24 @@ window.chrome.webview.addEventListener('message', event => {
             _userSwitchFadeIn();
         }
         else if (data.type === 'gameLaunchReady') {
+           
+            window._pauseAmbience();
+            window.isMediaAppActive = true; 
             GameLaunchOverlay.setRunning();
         }
         else if (data.type === 'gameLaunchFailed') {
             window.isGameLaunchActive = false;
             window._doorpiGameInputSuppressedUntil = 0;
-
-            window._startSystemAudio(); 
-
-
+            window.isMediaAppActive = false; // Destrava e volta a música
             GameLaunchOverlay.setError(data.gameName, data.reason);
         }
         else if (data.type === 'gameLaunchDone') {
             window.isGameLaunchActive = false;
             window._doorpiGameInputSuppressedUntil = 0;
             GameLaunchOverlay.hide();
+
+            // Aqui ele devolve o foco para a grade de jogos, mas como isMediaAppActive=true,
+            // o evento focus (alterado no Passo 1) vai ignorar e manter a música silenciada.
             if (!window._vkbIsOpen) {
                 recoverGlobalFocus();
             }
@@ -760,10 +766,9 @@ function recoverGlobalFocus() {
     if (fallback) fallback.focus();
 }
 function postToHost(payload) {
-    
+
+    // Lista de ações que cortam o som na hora (excluídos 'launch' e 'launchMediaApp')
     const muteActions = [
-        'launch',            
-        'launchMediaApp',     
         'enterDesktopMode',
         'openTaskbarSettings',
         'openSignInOptions',
@@ -3953,8 +3958,11 @@ const GameLaunchOverlay = (() => {
         if (bg) bg.style.backgroundImage = heroImage ? `url('${heroImage}')` : 'none';
         setArt(gridImage);
         setState('loading');
+
+        overlay.style.pointerEvents = 'all'; 
         overlay.classList.add('visible');
     }
+
 
     function setRunning() {
         const el = document.getElementById('overlayRunningText');
@@ -3972,17 +3980,14 @@ const GameLaunchOverlay = (() => {
     }
 
     function hide() {
-        // Remove blur e eventos imediatamente — o usuário vê/interage com a grade
-        // enquanto o overlay ainda faz o fade de opacidade no background.
+        overlay.style.pointerEvents = 'none'; // <--- LIBERA A TELA NOVAMENTE
         overlay.style.backdropFilter = 'none';
         overlay.style.webkitBackdropFilter = 'none';
-        overlay.style.pointerEvents = 'none';
         overlay.classList.remove('visible');
 
         setTimeout(() => {
             overlay.style.backdropFilter = '';
             overlay.style.webkitBackdropFilter = '';
-            overlay.style.pointerEvents = '';
             setState('loading');
             nameEl.textContent = '';
             setArtFallback();
