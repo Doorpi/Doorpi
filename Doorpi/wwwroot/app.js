@@ -65,11 +65,8 @@ class SeamlessPlayer {
             await this.ctx.suspend();
 
             this.isLoaded = true;
+            window._startSystemAudio();
 
-            // Se o sistema já estiver focado durante a carga, inicia o áudio
-            if (window._isDoorpiFocused) {
-                this.play();
-            }
         } catch (e) {
             console.warn("Falha ao inicializar buffers da Web Audio API:", e);
         }
@@ -128,9 +125,7 @@ window._isDoorpiFocused = document.hasFocus(); // Lê o estado inicial
 
 // ── SISTEMA DE DISPARO POR ESTADO ───────────────────────────────────
 window._startSystemAudio = function (force = false) {
-    if (!window._isIntroComplete) return;
-
-    // Se o foco for forçado pelo C#, pulamos a verificação do document.hasFocus()
+    if (!window._isIntroComplete) return; 
     if (window._isDoorpiFocused || force) {
         window._audioPlayer.play();
     }
