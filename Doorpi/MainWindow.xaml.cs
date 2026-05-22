@@ -1324,16 +1324,21 @@ namespace Doorpi
                 {
                     if (_mediaExeSessionId != sessionId) return;
 
-                    // 1. APENAS Desliga o controle e o watcher para o modo Doorpi. 
-                    // NÃO anulamos o _mediaExeProcess (ele continua vivo em background).
+                    // Para o loop imediatamente
                     _mediaExeModeActive = false;
+
+                    // Esconde cursor ANTES do dispatch, igual ao ReturnToDoorpiFromMedia
+                    EnsureCursorHidden();
+                    _mainScreenMouseVisible = false;
+                    _lastKnownCursorPos = new POINT { X = 0, Y = 0 };
+                    try { SetCursorPos(0, 0); } catch { }
+
                     Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil, DateTime.UtcNow.AddMilliseconds(800).Ticks);
 
-                    // 2. Minimiza a janela do App
                     if (_mediaExeProcess != null && !_mediaExeProcess.HasExited)
                     {
                         IntPtr hwnd = FindVisibleWindowForProcess(_mediaExeProcess.Id);
-                        if (hwnd != IntPtr.Zero) ShowWindow(hwnd, 6); // 6 = SW_MINIMIZE
+                        if (hwnd != IntPtr.Zero) ShowWindow(hwnd, 6);
                     }
 
                     SendGameLaunchStatus("gameLaunchDone");
@@ -1342,8 +1347,14 @@ namespace Doorpi
                     {
                         _desktopVkb?.Close();
                         _desktopVkb = null;
-                        ResetCursorForMainScreen();
-                        ForceFocus(); 
+
+                        EnsureCursorVisible();
+                        EnsureCursorHidden();
+                        _mainScreenMouseVisible = false;
+                        _lastKnownCursorPos = new POINT { X = 0, Y = 0 };
+                        SetCursorPos(0, 0);
+
+                        ForceFocus();
                     });
                 }
             );
@@ -1571,11 +1582,11 @@ namespace Doorpi
                             }
                         }
 
+                        // DEPOIS — 2 checks × 200ms = 400ms máximo, mais tolerante que 1 check
                         if (!hasActiveWindow)
                         {
                             missingCount++;
-                            // 3 verificações de 500ms = 1.5s pra ter certeza que minimizou ou fechou
-                            if (missingCount >= 3)
+                            if (missingCount >= 2)
                             {
                                 ReturnToDoorpiFromMedia();
                                 return;
@@ -1586,7 +1597,7 @@ namespace Doorpi
                             missingCount = 0;
                         }
 
-                        await Task.Delay(500, token);
+                        await Task.Delay(200, token);
                     }
                 }
                 catch (Exception ex) { Debug.WriteLine($"[Watcher] {ex.Message}"); }
@@ -1595,39 +1606,54 @@ namespace Doorpi
 
         // Helper para centralizar a volta ao Doorpi
 
+        // DEPOIS
         private void ReturnToDoorpiFromMedia()
         {
             int capturedSession = _mediaExeSessionId;
 
+            // ── PASSO 1: Para tudo imediatamente, ANTES de qualquer dispatch ──────────
+            // Esses flags param o MediaExeControllerLoop e o StartMediaScreenMouseWatch
+            // na mesma iteração, sem esperar a fila do Dispatcher.
             _mediaExeModeActive = false;
             _mediaExeProcess = null;
             _mediaExeCurrentUrl = "";
             _mediaExeGamepadDisabled = false;
             _doorpiSuspendedForMedia = false;
 
+            // ── PASSO 2: Esconde o cursor AGORA, de qualquer thread ──────────────────
+            // ShowCursor/SetCursorPos são Win32 thread-safe; não precisam do UI thread.
+            // Isso garante que não haja nenhum frame com cursor visível durante a transição.
+            EnsureCursorHidden();
+            _mainScreenMouseVisible = false;
+            _lastKnownCursorPos = new POINT { X = 0, Y = 0 };
+            try { SetCursorPos(0, 0); } catch { }
+
             Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil,
                 DateTime.UtcNow.AddMilliseconds(500).Ticks);
-           
+
             SendGameLaunchStatus("gameLaunchDone");
 
-            // No método ReturnToDoorpiFromMedia, substitua o bloco Dispatcher.BeginInvoke por este:
-            Dispatcher.BeginInvoke(() =>
+            // ── PASSO 3: Usa Invoke (síncrono) para o foco — sem fila, sem delay ─────
+            // BeginInvoke deixava frames em que a janela ainda não tinha foco
+            // e o cursor ficava visível. Invoke bloqueia até a UI estar pronta.
+            Dispatcher.Invoke(() =>
             {
                 if (_mediaExeSessionId != capturedSession) return;
 
                 _desktopVkb?.Close();
                 _desktopVkb = null;
-                ResetCursorForMainScreen();
 
-                // Garante que o estado continue maximizado
+                // Reaplica o hide após mudança de janela (foco pode revelar cursor)
+                EnsureCursorVisible();   // zera o contador interno do Windows
+                EnsureCursorHidden();    // esconde de verdade
+                _mainScreenMouseVisible = false;
+                _lastKnownCursorPos = new POINT { X = 0, Y = 0 };
+                SetCursorPos(0, 0);
+
                 if (WindowState != WindowState.Maximized) WindowState = WindowState.Maximized;
-
-                // Se estiver no modo console, ativa o topmost novamente
                 if (GetBootMode() == 2) this.Topmost = true;
 
-                // Traz o Doorpi de volta para o topo absoluto das janelas
                 SetWindowPos(_mainWindowHandle, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
-
                 Activate();
                 ForceFocus();
                 webView?.CoreWebView2?.ExecuteScriptAsync(
