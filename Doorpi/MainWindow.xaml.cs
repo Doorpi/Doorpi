@@ -1211,11 +1211,7 @@ namespace Doorpi
                             // A pressionado = botão esquerdo do mouse down
                             if (Pressed(0x1000))
                             {
-                                IntPtr foregroundHwnd = GetForegroundWindow();
-                                if (foregroundHwnd != IntPtr.Zero)
-                                {
-                                    FocusExternalWindow(foregroundHwnd);
-                                }
+          
 
                                 aWasOnTextField = IsCursorOnTextField();
                                 aDragOccurred = false; isClicking = true;
@@ -3820,9 +3816,9 @@ namespace Doorpi
             if (hWnd == IntPtr.Zero) return;
             try
             {
-                if (IsIconic(hWnd)) ShowWindow(hWnd, 9); // SW_RESTORE
+                if (IsIconic(hWnd)) ShowWindow(hWnd, 9); // SW_RESTORE (Restaura se estiver minimizado)
 
-                // Se o pedido de foco for para o próprio Doorpi (Retornando do jogo)
+                // Se o pedido de foco for para o próprio Doorpi
                 if (hWnd == _mainWindowHandle || hWnd == new System.Windows.Interop.WindowInteropHelper(this).Handle)
                 {
                     SetForegroundWindow(hWnd);
@@ -3830,27 +3826,10 @@ namespace Doorpi
                     return;
                 }
 
-                // SE FOR UM JOGO EXTERNO:
-                // Anti-cheats e DirectX não gostam de SetForegroundWindow.
-                // Solução nativa: Mover o mouse para o centro da janela do jogo e dar um clique físico.
-                if (GetWindowRect(hWnd, out RECT rect))
-                {
-                    int centerX = rect.Left + (rect.Width / 2);
-                    int centerY = rect.Top + (rect.Height / 2);
-
-                    // Traz a janela pra frente antes de clicar
-                    SetWindowPos(hWnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
-
-                    // Estaciona o ponteiro no meio do jogo
-                    SetCursorPos(centerX, centerY);
-
-                    // Dispara Clique Esquerdo (0x0002 = MOUSEEVENTF_LEFTDOWN, 0x0004 = MOUSEEVENTF_LEFTUP)
-                    SendMouse(0, 0, 0x0002);
-                    SendMouse(0, 0, 0x0004);
-
-                    // Imediatamente tira o mouse da visão do usuário estacionando no topo esquerdo
-                    SetCursorPos(0, 0);
-                }
+                // Traz o aplicativo externo para frente de forma nativa e limpa pelo Windows
+                SetWindowPos(hWnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+                SetForegroundWindow(hWnd);
+                BringWindowToTop(hWnd);
             }
             catch { }
         }
