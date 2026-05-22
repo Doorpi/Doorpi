@@ -196,9 +196,9 @@ HTMLMediaElement.prototype.play = function () {
 };
 
 // Função Principal: Inicia o áudio do sistema
+
 window._startSystemAudio = function () {
     if (!window._isIntroComplete) return;
-
     if (window._isAnyOtherAudioPlaying()) return;
 
     if (window._audioPlayer.isFirstBoot) {
@@ -207,7 +207,7 @@ window._startSystemAudio = function () {
       
         window._audioPlayer.fadeTo(0, 0);
         window._audioPlayer.play();
-        window._audioPlayer.fadeTo(MAX_AMBIENCE_VOLUME,2000); 
+        window._audioPlayer.fadeTo(MAX_AMBIENCE_VOLUME, 1500); 
     }
 };
 
@@ -222,20 +222,47 @@ window._pauseAmbience = window._stopSystemAudio;
 
 // 1. Ouve o foco da janela
 window.addEventListener('focus', () => {
- 
+    window.isDoorpiFocused = true;
+
     if (!window.isMediaAppActive) {
         window._startSystemAudio();
     }
+
+    // Devolve o foco para o botão de cancelar apenas se voltarmos de fato para o Doorpi
+    const launchOverlay = document.getElementById('gameLaunchOverlay');
+    if (launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('state-loading')) {
+        const btn = document.getElementById('overlayCancelLaunchBtn');
+        if (btn && btn.style.display !== 'none') {
+            btn.focus();
+        }
+    }
+});
+window.addEventListener('blur', () => {
+    window.isDoorpiFocused = false;
+
+    // Tira o foco do botão imediatamente para que o 'A' não clique nele em segundo plano
+    const btn = document.getElementById('overlayCancelLaunchBtn');
+    if (btn) {
+        btn.blur();
+    }
+
+    window._stopSystemAudio();
 });
 
-// 2. Intercepta a variável do C#
+
 let _internalMediaActive = window.isMediaAppActive || false;
 Object.defineProperty(window, 'isMediaAppActive', {
     get: () => _internalMediaActive,
     set: (value) => {
         _internalMediaActive = value;
         if (value === false) {
-            window._startSystemAudio();
+            // Se o app de mídia foi fechado, força o início do som (se estiver focado)
+            if (document.hasFocus()) {
+                window._startSystemAudio();
+            }
+        } else {
+            // Se o app de mídia foi aberto, silencia o fundo imediatamente
+            window._stopSystemAudio();
         }
     }
 });
@@ -245,7 +272,9 @@ function setupIntroCompleteHook() {
     const onIntroComplete = () => {
         if (!window._isIntroComplete) {
             window._isIntroComplete = true; // Desbloqueia o sistema de áudio
-            window._startSystemAudio(); // Inicia o player integrado (Wake + Loop)
+            if (document.hasFocus()) {
+                window._startSystemAudio(); // Só toca se a janela estiver de fato focada
+            }
         }
     };
 
@@ -3928,15 +3957,79 @@ const GameLaunchOverlay = (() => {
     const errTitle = document.getElementById('overlayErrorTitle');
     const errSub = document.getElementById('overlayErrorSub');
 
-    const i18n = {
-        opening: 'Abrindo',
-        running: 'Em execução',
-        errTitle: 'Não foi possível abrir',
-        errCrash: 'O jogo fechou inesperadamente. Verifique se o executável está correto.',
-        errTimeout: 'O jogo demorou demais para iniciar. Tente novamente.',
-        errGeneric: 'Verifique se o jogo está instalado corretamente.',
-        dismiss: 'OK',
-    };
+    // --- Injeção do Estilo Visual do Botão de Cancelar ---
+    (function injectLaunchOverlayStyles() {
+        const s = document.createElement('style');
+        s.textContent = `
+            #overlayCancelLaunchBtn {
+                background: rgba(255, 255, 255, 0.05);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-bottom: 3px solid rgba(0,0,0,0.3);
+                border-radius: 12px;
+                color: rgba(255, 255, 255, 0.65);
+                font-family: inherit;
+                font-size: clamp(0.85rem, 1vw, 1.05rem);
+                font-weight: 600;
+                padding: 12px 28px;
+                cursor: pointer;
+                outline: none;
+                transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 12px;
+                margin-top: 28px;
+                pointer-events: all;
+            }
+            #overlayCancelLaunchBtn:focus,
+            #overlayCancelLaunchBtn:hover {
+                background: #ffffff;
+                color: #07071a;
+                border-color: #ffffff;
+                transform: scale(1.05) translateY(-2px);
+                box-shadow: 0 10px 24px rgba(255, 255, 255, 0.2), 0 0 0 2px rgba(255, 255, 255, 0.1);
+            }
+            #overlayCancelLaunchBtn:active {
+                transform: scale(0.98) translateY(0);
+                box-shadow: none;
+            }
+        `;
+        document.head.appendChild(s);
+    })();
+
+    // --- Criação Dinâmica do botão de Cancelar ---
+    let cancelBtn = document.getElementById('overlayCancelLaunchBtn');
+    if (!cancelBtn) {
+        cancelBtn = document.createElement('button');
+        cancelBtn.id = 'overlayCancelLaunchBtn';
+        cancelBtn.className = 'cancel-btn';
+        cancelBtn.dataset.gamepadHint = 'confirm'; // Mapeia o ícone "Confirmar (A / Cross)" automaticamente
+        cancelBtn.style.opacity = '0';
+        cancelBtn.style.transition = 'opacity 0.4s ease';
+        cancelBtn.style.display = 'none';
+        cancelBtn.tabIndex = 0;
+
+        cancelBtn.addEventListener('click', () => {
+            postToHost({ action: 'cancelGameLaunch' });
+        });
+
+        const statusContainer = statusEl?.parentElement;
+        if (statusContainer) {
+            statusContainer.appendChild(cancelBtn);
+        }
+    }
+
+    // Resolvido a partir de strings.js
+    const getI18n = () => ({
+        opening: t('launchOpening'),
+        waiting: t('launchWaiting'),
+        running: t('launchRunning'),
+        errTitle: t('launchErrTitle'),
+        errCrash: t('launchErrCrash'),
+        errTimeout: t('launchErrTimeout'),
+        errGeneric: t('launchErrGeneric'),
+        cancel: t('launchCancelBtn'),
+    });
 
     function setState(state) {
         overlay.classList.remove('state-loading', 'state-running', 'state-error');
@@ -3971,34 +4064,81 @@ const GameLaunchOverlay = (() => {
     }
 
     function show(gameName, heroImage, gridImage) {
+        const text = getI18n();
         nameEl.textContent = gameName || '';
-        statusEl.textContent = i18n.opening;
+        statusEl.textContent = text.opening;
+        cancelBtn.innerHTML = `<span>${text.cancel}</span>`;
+        cancelBtn.style.display = 'none';
+        cancelBtn.style.opacity = '0';
+
         if (bg) bg.style.backgroundImage = heroImage ? `url('${heroImage}')` : 'none';
         setArt(gridImage);
         setState('loading');
 
-        overlay.style.pointerEvents = 'all'; 
+        overlay.style.pointerEvents = 'all';
         overlay.classList.add('visible');
+
+        if (overlay._waitTimer) clearTimeout(overlay._waitTimer);
+        overlay._waitTimer = setTimeout(() => {
+            if (overlay.classList.contains('state-loading')) {
+                statusEl.textContent = text.waiting;
+
+                // Exibe o botão de cancelar SOMENTE se o Doorpi ainda for a janela ativa
+                if (window.isDoorpiFocused) {
+                    cancelBtn.style.display = 'inline-flex';
+
+                    setTimeout(() => {
+                        cancelBtn.style.opacity = '1';
+                        if (typeof updateGamepadUI === 'function') {
+                            updateGamepadUI(isGamepadConnected, _controllerType);
+                        }
+
+                        // Verifica o foco de novo no milissegundo de aplicar o focus nativo
+                        if (window.isDoorpiFocused && cancelBtn.style.display !== 'none') {
+                            cancelBtn.focus();
+                        } else {
+                            cancelBtn.style.display = 'none';
+                            cancelBtn.style.opacity = '0';
+                        }
+                    }, 50);
+                }
+            }
+        }, 3500);
     }
 
-
     function setRunning() {
+        const text = getI18n();
         const el = document.getElementById('overlayRunningText');
-        if (el) el.textContent = i18n.running;
+        if (el) el.textContent = text.running;
         setState('running');
     }
 
     function setError(gameName, reason) {
-        errTitle.textContent = i18n.errTitle + (gameName ? ` "${gameName}"` : '');
-        errSub.textContent = reason === 'crash' ? i18n.errCrash
-            : reason === 'timeout' ? i18n.errTimeout
-                : i18n.errGeneric;
+        const text = getI18n();
+        if (overlay._waitTimer) clearTimeout(overlay._waitTimer);
+        cancelBtn.style.display = 'none';
+
+        errTitle.textContent = text.errTitle + (gameName ? ` "${gameName}"` : '');
+        errSub.textContent = reason === 'crash' ? text.errCrash
+            : reason === 'timeout' ? text.errTimeout
+                : text.errGeneric;
         setState('error');
         setTimeout(() => document.getElementById('overlayDismissBtn')?.focus(), 50);
     }
 
     function hide() {
-        overlay.style.pointerEvents = 'none'; // <--- LIBERA A TELA NOVAMENTE
+        if (overlay._waitTimer) clearTimeout(overlay._waitTimer);
+        cancelBtn.style.opacity = '0';
+
+
+        setTimeout(() => {
+            cancelBtn.style.display = 'none';
+            if (document.activeElement === cancelBtn) {
+                cancelBtn.blur();
+            }
+        }, 300);
+
+        overlay.style.pointerEvents = 'none';
         overlay.style.backdropFilter = 'none';
         overlay.style.webkitBackdropFilter = 'none';
         overlay.classList.remove('visible');

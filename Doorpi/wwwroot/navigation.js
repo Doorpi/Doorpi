@@ -147,6 +147,12 @@ function getNavigableItems() {
         return Array.from(document.querySelectorAll('.edit-modal-input, .doorpi-choice-trigger, .doorpi-choice-option, #editSharingBtn, #editExtensionsBtn, .edit-toggle-row, .edit-modal-actions button'))
             .filter(el => el.offsetWidth > 0 && !el.disabled && !el.closest('.doorpi-choice-wrap.is-disabled'));
     }
+
+    const launchOverlay = document.getElementById('gameLaunchOverlay');
+    if (launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('state-loading')) {
+        const btn = document.getElementById('overlayCancelLaunchBtn');
+        return btn && btn.style.display !== 'none' ? [btn] : [];
+    }
     if (!isModalOpen) {
         const tabs = Array.from(document.querySelectorAll('.home-tab'));
         const activeGrid = window.getCurrentHomeTab?.() === 'media' ? document.getElementById('mediaGrid') : document.getElementById('gameGrid');
@@ -625,6 +631,22 @@ function smoothHorizontalScroll(element, onDone) {
 });
 
 document.addEventListener('keydown', e => {
+    // ── NOVO: Cancelar launch via teclado (Esc ou Backspace) ──
+    const launchOverlay = document.getElementById('gameLaunchOverlay');
+    const isWaitingLaunch = launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('state-loading');
+    if (isWaitingLaunch) {
+        if (e.key === 'Escape' || e.key === 'Backspace') {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            const btn = document.getElementById('overlayCancelLaunchBtn');
+            if (btn && btn.style.display !== 'none') {
+                btn.click();
+            }
+            return;
+        }
+    }
+
+  
     if (window.isDesktopWarningOpen) {
         e.preventDefault(); e.stopImmediatePropagation();
         if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') window._dwMoveFocus?.(-1);
@@ -634,7 +656,6 @@ document.addEventListener('keydown', e => {
         return;
     }
     if (window.DoorpiIntro?.isRunning?.()) {
-
         e.preventDefault();
         e.stopImmediatePropagation();
         window.DoorpiIntro.skip?.();
@@ -788,14 +809,36 @@ window.addEventListener('gamepaddisconnected', e => {
     for (const pad of pads) if (pad) { _gamepadIndex = pad.index; _controllerType = detectControllerType(pad); isGamepadConnected = true; updateGamepadUI(true, _controllerType); break; }
 });
 
+
+window.isDoorpiFocused = document.hasFocus();
+
+
+window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
 (function gamepadLoop() {
     try {
+        // ── NOVO: Se o Doorpi não for a janela ativa no Windows, ignora o controle 100% ──
+        if (!window.isDoorpiFocused) return;
+
         const gamepad = _gamepadIndex !== null ? navigator.getGamepads()[_gamepadIndex] : null;
         if (!gamepad) return;
-        if (window.isGlobalLoading || window.isMediaAppActive || isDoorpiGameInputSuppressed() || !document.hasFocus()) return;
+
+        const launchOverlay = document.getElementById('gameLaunchOverlay');
+        const isWaitingLaunch = launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('state-loading');
+
+        if (window.isGlobalLoading || (!isWaitingLaunch && (window.isMediaAppActive || isDoorpiGameInputSuppressed())) || !document.hasFocus()) return;
 
         const { GAMEPAD } = NAV, buttons = gamepad.buttons;
         const ax = gamepad.axes[0], ay = gamepad.axes[1], thr = GAMEPAD.AXIS_THRESHOLD, now = performance.now();
+
+        if (isWaitingLaunch) {
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
+                const btn = document.getElementById('overlayCancelLaunchBtn');
+                if (btn && document.activeElement === btn) {
+                    btn.click();
+                }
+            }
+            return;
+        }
 
         if (window.DoorpiIntro?.isRunning?.()) {
             for (let i = 0; i < buttons.length; i++) {

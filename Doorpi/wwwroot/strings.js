@@ -336,9 +336,29 @@ const STRINGS = {
         dwBtnConfirm: 'Entendi e Continuar',
         dwBtnCancel: 'Cancelar',
         dwDontShowAgain: 'Não mostrar novamente',
+
+        // ---- Launch Overlay ----
+        launchOpening: 'Iniciando',
+        launchWaiting: 'Aguardando a janela do jogo...',
+        launchRunning: 'Em execução',
+        launchErrTitle: 'Não foi possível abrir',
+        launchErrCrash: 'O jogo fechou inesperadamente. Verifique se o executável está correto.',
+        launchErrTimeout: 'O jogo demorou demais para iniciar. Tente novamente.',
+        launchErrGeneric: 'Verifique se o jogo está instalado corretamente.',
+        launchCancelBtn: 'Cancelar Inicialização',
     },
 
     'en-US': {
+
+        // ---- Launch Overlay ----
+        launchOpening: 'Starting',
+        launchWaiting: 'Waiting for the game window...',
+        launchRunning: 'Running',
+        launchErrTitle: 'Could not launch',
+        launchErrCrash: 'The game closed unexpectedly. Check if the executable is correct.',
+        launchErrTimeout: 'The game took too long to start. Try again.',
+        launchErrGeneric: 'Check if the game is installed correctly.',
+        launchCancelBtn: 'Cancel Launch',
         // ---- Popup Aviso Modo Desktop ----
         dwTitle: 'Desktop Mode',
         dwSubtitle: 'Your controller will temporarily act as a mouse and keyboard. Learn the controls:',
