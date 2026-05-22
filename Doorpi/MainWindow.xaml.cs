@@ -5185,20 +5185,26 @@ namespace Doorpi
             if (!IsCurrentUserSystemOwner()) return;
             if (Interlocked.CompareExchange(ref _libraryBootstrapRunning, 1, 0) != 0) return;
 
+      
+            var existingCount = LoadGames().Count;
+            if (existingCount == 0)
+            {
+                var cache = LoadAppCache();
+                int estimate = Math.Clamp(
+                    (cache?.SteamApps?.Count ?? 0) +
+                    (cache?.EpicApps?.Count ?? 0) +
+                    (cache?.GogApps?.Count ?? 0), 4, 12);
+
+                Dispatcher.Invoke(() =>
+                    webView.CoreWebView2.PostWebMessageAsString(
+                        JsonSerializer.Serialize(new { type = "bootstrapStarted", count = estimate })));
+            }
+
             _ = Task.Run(async () =>
             {
-                try
-                {
-                    await RunLibraryBootstrapAsync().ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine("[Bootstrap] Erro: " + ex.Message);
-                }
-                finally
-                {
-                    Interlocked.Exchange(ref _libraryBootstrapRunning, 0);
-                }
+                try { await RunLibraryBootstrapAsync().ConfigureAwait(false); }
+                catch (Exception ex) { Debug.WriteLine("[Bootstrap] Erro: " + ex.Message); }
+                finally { Interlocked.Exchange(ref _libraryBootstrapRunning, 0); }
             });
         }
 

@@ -453,7 +453,26 @@ window.chrome.webview.addEventListener('message', event => {
             if (bannerKey && !item[bannerKey]) item[bannerKey] = window.generateFallbackSvg(name, 'banner');
         };
 
-        if (data.type === 'renderGames' && data.games) data.games.forEach(applyFallbacks);
+        // Substitui o bloco renderGames existente
+        if (data.type === 'renderGames' && data.games) {
+            data.games.forEach(applyFallbacks);
+
+            const wasOnMedia = typeof window.getCurrentHomeTab === 'function'
+                && window.getCurrentHomeTab() === 'media';
+
+            // Snapshot do hero atual antes do setBatch trocar tudo
+            const heroSnapSrc = document.getElementById('bgBlur')?.src || '';
+            const heroSnapLogo = document.getElementById('gameLogo')?.src || '';
+            const heroSnapHoriz = document.getElementById('heroImage')?.src || '';
+
+            if (window.AppStore) window.AppStore.mutations.setBatch('games', data.games || []);
+
+            // Se estava na mídia, devolve o hero que estava ativo
+            if (wasOnMedia && heroSnapSrc) {
+                requestAnimationFrame(() =>
+                    switchHeroBackground(heroSnapSrc, heroSnapLogo, heroSnapHoriz));
+            }
+        }
         else if (data.type === 'newGame') applyFallbacks(data);
         else if (data.type === 'nativeAppsLoaded' && data.apps) data.apps.forEach(applyFallbacks);
         // ─────────────────────────────────────────────────────────────────────
@@ -568,7 +587,12 @@ window.chrome.webview.addEventListener('message', event => {
         else if (data.type === 'clearGamesGrid') {
             if (window.AppStore) window.AppStore.mutations.setBatch('games', []);
         }
-
+        else if (data.type === 'bootstrapStarted') {
+            // showLoadingCards já existe no codebase (usada ao adicionar jogos manualmente)
+            if (typeof showLoadingCards === 'function') {
+                showLoadingCards(data.count || 6, 'games');
+            }
+        }
         // 2. Quando o C# avisa que salvou a imagem estática localmente
         else if (data.type === 'staticSaved') {
             const patch = {};
