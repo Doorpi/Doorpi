@@ -165,18 +165,15 @@ namespace Doorpi
                             _vkbOwnerView = null;
                             _vkbHasFocus = false;
 
-                            // GARANTE O FECHAMENTO DO POPUP NA SAÍDA DE EMERGÊNCIA
                             try { _popupWindow?.Close(); } catch { }
                             _popupWindow = null;
                             _popupWebView = null;
 
                             if (_webAppWindow != null)
                             {
-                                StopMediaControllerMode();
+                                // Apenas minimizamos a janela! O evento StateChanged que 
+                                // criamos no Passo 3 vai assumir daqui e chamar o ForceFocus().
                                 _webAppWindow.WindowState = WindowState.Minimized;
-                                this.WindowState = WindowState.Maximized;
-                                this.Activate();
-                                this.ForceFocus();
                             }
                             else
                             {
@@ -1148,6 +1145,15 @@ namespace Doorpi
                 _webAppWindow.Closed += (s, e) =>
                 {
                     if (!_ytClosing) Dispatcher.Invoke(CloseYouTubeInline);
+                };
+                _webAppWindow.StateChanged += (s, e) =>
+                {
+                    // Se a janela de Web App foi minimizada, devolvemos o foco pro Doorpi!
+                    if (_webAppWindow.WindowState == WindowState.Minimized && !_ytClosing)
+                    {
+                        StopMediaControllerMode();
+                        Dispatcher.Invoke(() => ForceFocus());
+                    }
                 };
 
                 _webAppWindow.Show();

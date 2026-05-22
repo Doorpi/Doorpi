@@ -11,6 +11,8 @@ window._pendingExtensionUpdates = {};
 
 
 // ── SEAMLESS WEB AUDIO PLAYER (WAKE + LOOP COMBINADOS) ────────────────
+// ── SEAMLESS WEB AUDIO PLAYER (WAKE + LOOP COMBINADOS) ────────────────
+// ── SEAMLESS WEB AUDIO PLAYER (WAKE + LOOP COMBINADOS) ────────────────
 class SeamlessPlayer {
     constructor(maxVolume) {
         this.ctx = null;
@@ -19,20 +21,17 @@ class SeamlessPlayer {
         this.wakeNode = null;
         this.ambienceNode = null;
         this.gainNode = null;
-        this.startTime = 0;
-        this.pauseTime = 0;
-        this.isPlaying = false;
-        this.isFirstBoot = true;
         this.isLoaded = false;
+        this.isPlaying = false;
         this.volume = maxVolume;
+        this.suspendTimeout = null;
     }
 
     async init() {
         try {
-        
             this.ctx = new (window.AudioContext || window.webkitAudioContext)();
             this.gainNode = this.ctx.createGain();
-            this.gainNode.gain.value = this.volume;
+            this.gainNode.gain.value = 0; // Começa totalmente mutado
             this.gainNode.connect(this.ctx.destination);
 
             const [wakeRes, ambienceRes] = await Promise.all([
@@ -44,30 +43,10 @@ class SeamlessPlayer {
                 ambienceRes.arrayBuffer()
             ]);
 
-       
             this.wakeBuffer = await this.ctx.decodeAudioData(wakeArray);
             this.ambienceBuffer = await this.ctx.decodeAudioData(ambienceArray);
-            this.isLoaded = true;
-        } catch (e) {
-            console.warn("Falha ao inicializar buffers da Web Audio API:", e);
-        }
-    }
 
-    play() {
-        if (!this.isLoaded) return;
-        if (this.isPlaying) return;
-
-
-        if (this.ctx.state === 'suspended') {
-            this.ctx.resume();
-        }
-
-        this.isPlaying = true;
-        const now = this.ctx.currentTime;
-
-        if (this.isFirstBoot) {
-            this.isFirstBoot = false;
-
+            // Cria e conecta as fontes de áudio uma única vez
             this.wakeNode = this.ctx.createBufferSource();
             this.wakeNode.buffer = this.wakeBuffer;
             this.wakeNode.connect(this.gainNode);
@@ -77,158 +56,97 @@ class SeamlessPlayer {
             this.ambienceNode.loop = true;
             this.ambienceNode.connect(this.gainNode);
 
-            this.startTime = now;
-
-    
+            // Inicia a execução imediatamente em background
+            const now = this.ctx.currentTime;
             this.wakeNode.start(now);
             this.ambienceNode.start(now + this.wakeBuffer.duration);
-        } else {
-     
-            this.ambienceNode = this.ctx.createBufferSource();
-            this.ambienceNode.buffer = this.ambienceBuffer;
-            this.ambienceNode.loop = true;
-            this.ambienceNode.connect(this.gainNode);
 
-           
-            const offset = this.pauseTime % this.ambienceBuffer.duration;
-            this.startTime = now - offset;
-            this.ambienceNode.start(now, offset);
+            // Suspende o contexto inicialmente para não consumir recursos
+            await this.ctx.suspend();
+
+            this.isLoaded = true;
+
+            // Se o sistema já estiver focado durante a carga, inicia o áudio
+            if (window._isDoorpiFocused) {
+                this.play();
+            }
+        } catch (e) {
+            console.warn("Falha ao inicializar buffers da Web Audio API:", e);
         }
     }
 
-    pause(durationMs = 0) {
-        if (!this.isPlaying) return;
+    async play() {
+        if (!this.isLoaded) return;
+        this.isPlaying = true;
 
-        const now = this.ctx.currentTime;
-        this.pauseTime = now - this.startTime;
-
-        const stopNodes = () => {
-            this.isPlaying = false;
-            if (this.wakeNode) {
-                try { this.wakeNode.stop(); } catch (e) { }
-                this.wakeNode = null;
-            }
-            if (this.ambienceNode) {
-                try { this.ambienceNode.stop(); } catch (e) { }
-                this.ambienceNode = null;
-            }
-        };
-
-        if (durationMs > 0) {
-           
-            this.fadeTo(0, durationMs, stopNodes);
-        } else {
-            stopNodes();
+        if (this.suspendTimeout) {
+            clearTimeout(this.suspendTimeout);
+            this.suspendTimeout = null;
         }
-    }
 
-    fadeTo(targetVolume, durationMs, onComplete) {
-        if (!this.gainNode || !this.ctx) return;
+        // Retoma o contexto de áudio nativo do navegador
+        if (this.ctx.state === 'suspended') {
+            await this.ctx.resume();
+        }
+
         const now = this.ctx.currentTime;
-
-       
         this.gainNode.gain.cancelScheduledValues(now);
         this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, now);
-        this.gainNode.gain.linearRampToValueAtTime(targetVolume, now + (durationMs / 1000));
+        // Fade-in de 1.2 segundos para entrada suave
+        this.gainNode.gain.linearRampToValueAtTime(this.volume, now + 1.2);
+    }
 
-        if (onComplete) {
-            setTimeout(onComplete, durationMs);
+    pause(durationMs = 800) {
+        if (!this.isLoaded) return;
+        this.isPlaying = false;
+
+        if (this.suspendTimeout) {
+            clearTimeout(this.suspendTimeout);
         }
+
+        const now = this.ctx.currentTime;
+        this.gainNode.gain.cancelScheduledValues(now);
+        this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, now);
+        // Fade-out suave
+        this.gainNode.gain.linearRampToValueAtTime(0, now + (durationMs / 1000));
+
+        // Suspende a execução de hardware após terminar o fade-out
+        this.suspendTimeout = setTimeout(async () => {
+            if (!this.isPlaying && this.ctx.state === 'running') {
+                await this.ctx.suspend();
+            }
+        }, durationMs + 50);
     }
 }
 
-const MAX_AMBIENCE_VOLUME = 0.6; 
+const MAX_AMBIENCE_VOLUME = 0.6;
 window._audioPlayer = new SeamlessPlayer(MAX_AMBIENCE_VOLUME);
-window._audioPlayer.init(); 
+window._audioPlayer.init();
 
-window._isIntroComplete = false; 
+window._isIntroComplete = false;
+window._isDoorpiFocused = document.hasFocus(); // Lê o estado inicial
 
-
-window._activeMediaElements = new Set();
-
-
-window._isAnyOtherAudioPlaying = function () {
-    const domElements = Array.from(document.querySelectorAll('audio, video'));
-    const allElements = new Set([...domElements, ...window._activeMediaElements]);
-
-    for (let el of allElements) {
-        if (!el.paused && !el.muted && el.volume > 0) {
-            return true;
-        }
-    }
-    return false;
-};
-
-const originalPlay = HTMLMediaElement.prototype.play;
-HTMLMediaElement.prototype.play = function () {
-    if (this !== window._wakeAudio && this !== window._ambienceAudio) {
-        if (!this.muted && this.volume > 0) {
-            window._stopSystemAudio();
-        }
-
-        window._activeMediaElements.add(this);
-
-        if (!this._hasAmbienceListeners) {
-            this._hasAmbienceListeners = true;
-
-            const checkAndResume = () => {
-                window._activeMediaElements.delete(this);
-                setTimeout(() => {
-                    if (!window._isAnyOtherAudioPlaying()) {
-                        window._startSystemAudio();
-                    }
-                }, 150);
-            };
-
-            this.addEventListener('pause', checkAndResume);
-            this.addEventListener('ended', checkAndResume);
-            this.addEventListener('volumechange', () => {
-                if (this.muted || this.volume === 0) {
-                    checkAndResume();
-                } else if (!this.paused) {
-                    window._stopSystemAudio();
-                    window._activeMediaElements.add(this);
-                }
-            });
-        }
-    }
-    return originalPlay.apply(this, arguments);
-};
-
-// Função Principal: Inicia o áudio do sistema
-
-window._startSystemAudio = function () {
+// ── SISTEMA DE DISPARO POR ESTADO ───────────────────────────────────
+window._startSystemAudio = function (force = false) {
     if (!window._isIntroComplete) return;
-    if (window._isAnyOtherAudioPlaying()) return;
 
-    if (window._audioPlayer.isFirstBoot) {
+    // Se o foco for forçado pelo C#, pulamos a verificação do document.hasFocus()
+    if (window._isDoorpiFocused || force) {
         window._audioPlayer.play();
-    } else {
-      
-        window._audioPlayer.fadeTo(0, 0);
-        window._audioPlayer.play();
-        window._audioPlayer.fadeTo(MAX_AMBIENCE_VOLUME, 1500); 
     }
 };
-
 
 window._stopSystemAudio = function () {
-    window._audioPlayer.pause(800); 
+    window._audioPlayer.pause(800);
 };
 
 window._pauseAmbience = window._stopSystemAudio;
 
-// ── GATILHOS DE RETORNO DO ÁUDIO (Automático e Alt+Tab) ────────────────────────
-
-// 1. Ouve o foco da janela
+// ── GATILHOS DE RETORNO DO ÁUDIO (Navegador) ────────────────────────
 window.addEventListener('focus', () => {
-    window.isDoorpiFocused = true;
+    window._isDoorpiFocused = true;
+    window._startSystemAudio();
 
-    if (!window.isMediaAppActive) {
-        window._startSystemAudio();
-    }
-
-    // Devolve o foco para o botão de cancelar apenas se voltarmos de fato para o Doorpi
     const launchOverlay = document.getElementById('gameLaunchOverlay');
     if (launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('state-loading')) {
         const btn = document.getElementById('overlayCancelLaunchBtn');
@@ -237,44 +155,22 @@ window.addEventListener('focus', () => {
         }
     }
 });
-window.addEventListener('blur', () => {
-    window.isDoorpiFocused = false;
 
-    // Tira o foco do botão imediatamente para que o 'A' não clique nele em segundo plano
+window.addEventListener('blur', () => {
+    window._isDoorpiFocused = false;
     const btn = document.getElementById('overlayCancelLaunchBtn');
     if (btn) {
         btn.blur();
     }
-
     window._stopSystemAudio();
 });
 
-
-let _internalMediaActive = window.isMediaAppActive || false;
-Object.defineProperty(window, 'isMediaAppActive', {
-    get: () => _internalMediaActive,
-    set: (value) => {
-        _internalMediaActive = value;
-        if (value === false) {
-            // Se o app de mídia foi fechado, força o início do som (se estiver focado)
-            if (document.hasFocus()) {
-                window._startSystemAudio();
-            }
-        } else {
-            // Se o app de mídia foi aberto, silencia o fundo imediatamente
-            window._stopSystemAudio();
-        }
-    }
-});
-
-// 3. Trava de segurança contra o "Skip" / Corte manual da Intro
+// Trava da Intro
 function setupIntroCompleteHook() {
     const onIntroComplete = () => {
         if (!window._isIntroComplete) {
-            window._isIntroComplete = true; // Desbloqueia o sistema de áudio
-            if (document.hasFocus()) {
-                window._startSystemAudio(); // Só toca se a janela estiver de fato focada
-            }
+            window._isIntroComplete = true;
+            window._startSystemAudio();
         }
     };
 
@@ -296,16 +192,84 @@ function setupIntroCompleteHook() {
 }
 setupIntroCompleteHook();
 
-// Ouvinte para o término natural da intro via mensagem do iframe
 window.addEventListener('message', (e) => {
     if (e.data && e.data.type === 'doorpi:intro:complete') {
         if (!window._isIntroComplete) {
-            window._isIntroComplete = true; // Desbloqueia o sistema de áudio
-            window._startSystemAudio(); // Inicia o player integrado
+            window._isIntroComplete = true;
+            window._startSystemAudio();
         }
     }
 });
 
+
+window._stopSystemAudio = function () {
+    window._audioPlayer.pause(800);
+};
+
+window._pauseAmbience = window._stopSystemAudio;
+
+// ── OUVINTES DE FOCO DO NAVEGADOR ─────────────────────────────────────
+window.addEventListener('focus', () => {
+    window.isDoorpiFocused = true;
+    window._startSystemAudio();
+
+    // Devolve o foco para o botão de cancelar se estiver na tela de loading do overlay
+    const launchOverlay = document.getElementById('gameLaunchOverlay');
+    if (launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('state-loading')) {
+        const btn = document.getElementById('overlayCancelLaunchBtn');
+        if (btn && btn.style.display !== 'none') {
+            btn.focus();
+        }
+    }
+});
+
+window.addEventListener('blur', () => {
+    window.isDoorpiFocused = false;
+    const btn = document.getElementById('overlayCancelLaunchBtn');
+    if (btn) {
+        btn.blur();
+    }
+    window._stopSystemAudio();
+});
+
+// Remove as propriedades complexas antigas (isMediaAppActive anterior)
+window.isMediaAppActive = false;
+
+// ── TRAVA DE SEGURANÇA DA INTRO ────────────────────────────────────────
+function setupIntroCompleteHook() {
+    const onIntroComplete = () => {
+        if (!window._isIntroComplete) {
+            window._isIntroComplete = true;
+            window._startSystemAudio();
+        }
+    };
+
+    if (window.DoorpiIntro && typeof window.DoorpiIntro.runAfterIntro === 'function') {
+        window.DoorpiIntro.runAfterIntro(onIntroComplete);
+    } else {
+        let _intro = window.DoorpiIntro;
+        Object.defineProperty(window, 'DoorpiIntro', {
+            get: () => _intro,
+            set: (val) => {
+                _intro = val;
+                if (val && typeof val.runAfterIntro === 'function') {
+                    val.runAfterIntro(onIntroComplete);
+                }
+            },
+            configurable: true
+        });
+    }
+}
+setupIntroCompleteHook();
+
+window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'doorpi:intro:complete') {
+        if (!window._isIntroComplete) {
+            window._isIntroComplete = true;
+            window._startSystemAudio();
+        }
+    }
+});
 // ──────────────────────────────────────────────────────────────────────
 const PLATFORMS = {
     Steam: {
@@ -514,12 +478,14 @@ window.chrome.webview.addEventListener('message', event => {
             if (window.AppStore) window.AppStore.mutations.setBatch('games', data.games || []);
         }
         // app.js — handler de mensagens do C#
+        // No switch de tratamento de dados vindo do host (webview.addEventListener):
         else if (data.type === 'windowFocused') {
-            window.isMediaAppActive = false;
             window.isGameLaunchActive = false;
             window._doorpiGameInputSuppressedUntil = 0;
-            window._startSystemAudio();
 
+            // Força o estado de foco e dispara o áudio imediatamente
+            window._isDoorpiFocused = true;
+            window._startSystemAudio(true);
 
             if (typeof GameLaunchOverlay !== 'undefined') {
                 GameLaunchOverlay.hide();
@@ -527,6 +493,14 @@ window.chrome.webview.addEventListener('message', event => {
             if (!window._vkbIsOpen) {
                 recoverGlobalFocus();
             }
+        }
+        else if (data.type === 'windowLostFocus') {
+            window._isDoorpiFocused = false;
+            window._stopSystemAudio();
+        }
+        else if (data.type === 'windowLostFocus') {
+            // Garante o encerramento imediato do áudio ao sinalizar perda de foco pelo WPF
+            window._stopSystemAudio();
         }
         else if (data.type === 'openUserPicker') {
             const picker = document.getElementById('doorpiUserPicker');
