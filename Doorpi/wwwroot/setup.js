@@ -590,18 +590,7 @@ function _validateAndFinish() {
         }
     }
 
-    // 1. Fecha o Setup e limpa a memória (fundo animado, etc)
     closeSetup();
-
-    // 2. Aciona a interface de Loading
-    const title = typeof t === 'function' ? t('preparingSystem', 'Preparando...') : 'Preparando...';
-    if (typeof showSystemLoading === 'function') {
-        showSystemLoading(title, 'Configurando pastas e baixando mídias...');
-    } else if (typeof showGlobalLoading === 'function') {
-        showGlobalLoading(title, 'Configurando pastas e baixando mídias...');
-    } else {
-        window.postMessage({ type: 'showSystemLoading', title: title, subtitle: 'Configurando pastas e baixando mídias...' }, '*');
-    }
 
     setTimeout(() => {
         postToHost({
