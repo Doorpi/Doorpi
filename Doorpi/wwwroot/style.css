@@ -986,6 +986,19 @@ body {
     white-space: nowrap;
 }
 
+.app-item .app-state {
+    width: fit-content;
+    max-width: 100%;
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 999px;
+    padding: 3px 8px;
+    color: rgba(255,255,255,0.72);
+    background: rgba(255,255,255,0.08);
+    font-size: clamp(0.66rem, 0.62vw, 0.82rem);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
 .app-item:focus,
 .app-item:hover {
     border-color: white;
@@ -1040,6 +1053,53 @@ body {
     opacity: 0.22;
     pointer-events: none;
     filter: grayscale(1);
+}
+
+.app-item.already-added.preparing-artwork {
+    opacity: 0.46;
+    filter: grayscale(0.55);
+}
+
+.app-scan-empty {
+    min-height: clamp(90px, 7vw, 130px);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: clamp(18px, 1.6vw, 28px);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.06);
+    color: rgba(255,255,255,0.84);
+}
+
+.app-scan-empty strong,
+.app-scan-empty span {
+    display: block;
+}
+
+.app-scan-empty strong {
+    font-size: clamp(0.9rem, 0.9vw, 1.16rem);
+    font-weight: 700;
+}
+
+.app-scan-empty span {
+    margin-top: 4px;
+    color: rgba(255,255,255,0.48);
+    font-size: clamp(0.76rem, 0.72vw, 0.92rem);
+}
+
+.app-scan-pulse {
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: rgba(120,180,255,0.9);
+    box-shadow: 0 0 0 0 rgba(120,180,255,0.35);
+    animation: appScanPulse 1.3s ease-out infinite;
+    flex-shrink: 0;
+}
+
+@keyframes appScanPulse {
+    to { box-shadow: 0 0 0 18px rgba(120,180,255,0); }
 }
 
 

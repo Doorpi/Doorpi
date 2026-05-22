@@ -12,6 +12,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Data\images\grid-horizontal\**" />
+    <EmbeddedResource Remove="Data\images\grid-horizontal\**" />
+    <None Remove="Data\images\grid-horizontal\**" />
+    <Page Remove="Data\images\grid-horizontal\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3800.47" />
     <PackageReference Include="System.Drawing.Common" Version="10.0.3" />
   </ItemGroup>
@@ -27,6 +34,9 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="wwwroot\intros\**\*.*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="wwwroot\native-assets\**\*.*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="wwwroot\media.js">
@@ -86,8 +96,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Data\images\grid\" />
-    <Folder Include="Data\images\hero\" />
+    <Folder Include="Data\images\" />
   </ItemGroup>
 
 </Project>

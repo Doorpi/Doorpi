@@ -60,6 +60,7 @@ namespace Doorpi
         public string IconBase64 { get; set; } = "";
         public bool IsAdded { get; set; }
         public string AddedTo { get; set; } = "";
+        public string AddState { get; set; } = "";
         public string Source { get; set; } = "";
     }
 
@@ -107,6 +108,13 @@ namespace Doorpi
         public int ExeCount { get; set; }
     }
 
+    public class LibraryBootstrapState
+    {
+        public bool PlatformAutoAddCompleted { get; set; }
+        public DateTime LastRun { get; set; } = DateTime.MinValue;
+        public DateTime CompletedAt { get; set; } = DateTime.MinValue;
+    }
+
     // ========================= MAIN WINDOW =========================
 
     public partial class MainWindow : Window
@@ -126,6 +134,7 @@ namespace Doorpi
         private string currentUserDataFolder = "";
         private string userFile;
         private string mediaFile;
+        private readonly object _gamesFileLock = new();
 
         private string _currentToastTitle = "";
         private string _currentToastSub = "";
@@ -154,11 +163,13 @@ namespace Doorpi
         private string gamesFile;
         private string foldersFile;
         private string appCacheFile;
+        private string libraryBootstrapFile;
 
         private readonly List<FileSystemWatcher> _folderWatchers = new();
         private volatile bool _windowsCacheInvalid = false;
         private volatile bool _pollingActive = false;
         private volatile int _mediaExeSessionId = 0;
+        private int _libraryBootstrapRunning = 0;
 
         private readonly SemaphoreSlim _cacheLock = new SemaphoreSlim(1, 1);
         private DateTime _lastCacheBuilt = DateTime.MinValue;
@@ -358,6 +369,7 @@ namespace Doorpi
             foldersFile = Path.Combine(dataFolder, "folders.json");
             appCacheFile = Path.Combine(dataFolder, "appcache.json");
             mediaFile = Path.Combine(dataFolder, "media.json");
+            libraryBootstrapFile = Path.Combine(dataFolder, "library-bootstrap.json");
 
             Directory.CreateDirectory(Path.Combine(dataFolder, "extensions"));
             Directory.CreateDirectory(Path.Combine(dataFolder, "intros"));
@@ -908,6 +920,7 @@ namespace Doorpi
             foldersFile = Path.Combine(currentUserDataFolder, "folders.json");
             appCacheFile = Path.Combine(currentUserDataFolder, "appcache.json");
             mediaFile = Path.Combine(currentUserDataFolder, "media.json");
+            libraryBootstrapFile = Path.Combine(currentUserDataFolder, "library-bootstrap.json");
 
             if (migrateLegacyFiles)
             {
@@ -1004,6 +1017,7 @@ namespace Doorpi
             LoadGamesIntoUI();
             var apps = LoadMediaApps();
             if (apps.Any()) SendMediaAppsToUI(apps);
+            StartLibraryBootstrapIfNeeded();
             _ = Task.Run(() => UpdateAppCacheAsync());
         }
 
@@ -2451,6 +2465,59 @@ namespace Doorpi
             ("crunchyroll", "Crunchyroll",  "Crunchyroll (Website)",     "https://www.crunchyroll.com",  "browser", true ),
         };
 
+        private string FindNativeAssetUrl(string appId, string assetName)
+        {
+            var nativeAssetsRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot", "native-assets", appId);
+            foreach (var ext in new[] { ".webp", ".png", ".jpg", ".jpeg", ".gif" })
+            {
+                var path = Path.Combine(nativeAssetsRoot, assetName + ext);
+                if (File.Exists(path))
+                    return $"https://app.local/native-assets/{appId}/{assetName}{ext}";
+            }
+            return "";
+        }
+
+        private MediaAppModel BuildNativeMediaApp(
+            string id,
+            string name,
+            string url,
+            string type,
+            bool multiUser,
+            string targetUserId,
+            MediaAppModel existingEntry)
+        {
+            string localGrid = FindNativeAssetUrl(id, "grid");
+            string localHorizontal = FindNativeAssetUrl(id, "grid-horizontal");
+            string localHero = FindNativeAssetUrl(id, "hero");
+            string localLogo = FindNativeAssetUrl(id, "logo");
+
+            return new MediaAppModel
+            {
+                Id = id,
+                Name = name,
+                Url = url,
+                Type = type,
+                MultiUser = multiUser,
+                OwnerUserId = targetUserId,
+                ShareMode = existingEntry.ShareMode,
+                SharedWithUserId = existingEntry.SharedWithUserId,
+                SharedWithUserIds = existingEntry.SharedWithUserIds,
+                SharedWithUserName = existingEntry.SharedWithUserName,
+                SharedWithUserNames = existingEntry.SharedWithUserNames,
+                DisableGamepadControl = existingEntry.DisableGamepadControl,
+                GridImage = !string.IsNullOrEmpty(localGrid) ? localGrid : existingEntry.GridImage,
+                GridHorizontalImage = !string.IsNullOrEmpty(localHorizontal) ? localHorizontal : existingEntry.GridHorizontalImage,
+                HeroImage = !string.IsNullOrEmpty(localHero) ? localHero : existingEntry.HeroImage,
+                LogoImage = !string.IsNullOrEmpty(localLogo) ? localLogo : existingEntry.LogoImage,
+                GridStaticImage = existingEntry.GridStaticImage,
+                GridHorizontalStaticImage = existingEntry.GridHorizontalStaticImage,
+                HeroStaticImage = existingEntry.HeroStaticImage,
+                LogoStaticImage = existingEntry.LogoStaticImage,
+                LastPlayed = existingEntry.LastPlayed,
+                DateAdded = existingEntry.DateAdded == DateTime.MinValue ? DateTime.Now : existingEntry.DateAdded
+            };
+        }
+
 
         // ========================= MEDIA APPS =========================
 
@@ -2492,72 +2559,9 @@ namespace Doorpi
                 if (targetUserId == currentUserId) PostProgress(id, "active");
 
                 var existingEntry = existingById.TryGetValue(id, out var prev) ? prev : new MediaAppModel();
-
-                if (!string.IsNullOrEmpty(existingEntry.GridImage) && !string.IsNullOrEmpty(existingEntry.HeroImage))
-                {
-                    if (targetUserId == currentUserId) PostProgress(id, "done");
-                    apps.Add(existingEntry);
-                    continue;
-                }
-
-                // Troca GetFiles (Lento e aloca array inteiro na memória) por EnumerateFiles (Preguiçoso e rápido)
-                string? localGrid = Directory.EnumerateFiles(gridFolder, id + ".*").FirstOrDefault();
-                string? localHorizontal = Directory.EnumerateFiles(gridHorizontalFolder, id + "_h.*").FirstOrDefault();
-                string? localHero = Directory.EnumerateFiles(heroFolder, id + ".*").FirstOrDefault();
-                string? localLogo = Directory.EnumerateFiles(logoFolder, id + "_logo.*").FirstOrDefault();
-
-                if (localGrid != null && localHero != null)
-                {
-                    apps.Add(new MediaAppModel
-                    {
-                        Id = id,
-                        Name = name,
-                        Url = url,
-                        Type = type,
-                        MultiUser = multiUser,
-                        OwnerUserId = targetUserId,
-                        ShareMode = existingEntry.ShareMode,
-                        SharedWithUserId = existingEntry.SharedWithUserId,
-                        SharedWithUserName = existingEntry.SharedWithUserName,
-                        GridImage = $"https://data.local/images/grid/{Path.GetFileName(localGrid)}",
-                        GridHorizontalImage = localHorizontal != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(localHorizontal)}" : "",
-                        HeroImage = $"https://data.local/images/hero/{Path.GetFileName(localHero)}",
-                        LogoImage = localLogo != null ? $"https://data.local/images/logo/{Path.GetFileName(localLogo)}" : "",
-                        DateAdded = existingEntry.DateAdded == DateTime.MinValue ? DateTime.Now : existingEntry.DateAdded
-                    });
-                    if (targetUserId == currentUserId) PostProgress(id, "done");
-                    continue;
-                }
-
-                var (gridUrl, horizontalUrl, heroUrl, logoUrl) = await FetchMediaAppAssetsAsync(name, query).ConfigureAwait(false);
-
-                var gridDlTask = !string.IsNullOrEmpty(gridUrl) ? DownloadImageAsync(gridUrl, gridFolder, id) : Task.FromResult<string?>(null);
-                var hDlTask = !string.IsNullOrEmpty(horizontalUrl) ? DownloadImageAsync(horizontalUrl, gridHorizontalFolder, id + "_h") : Task.FromResult<string?>(null);
-                var heroDlTask = !string.IsNullOrEmpty(heroUrl) ? DownloadImageAsync(heroUrl, heroFolder, id) : Task.FromResult<string?>(null);
-                var logoDlTask = !string.IsNullOrEmpty(logoUrl) ? DownloadImageAsync(logoUrl, logoFolder, id + "_logo") : Task.FromResult<string?>(null);
-
-                await Task.WhenAll(gridDlTask, hDlTask, heroDlTask, logoDlTask).ConfigureAwait(false);
-
-                apps.Add(new MediaAppModel
-                {
-                    Id = id,
-                    Name = name,
-                    Url = url,
-                    Type = type,
-                    MultiUser = multiUser,
-                    OwnerUserId = targetUserId,
-                    ShareMode = existingEntry.ShareMode,
-                    SharedWithUserId = existingEntry.SharedWithUserId,
-                    SharedWithUserName = existingEntry.SharedWithUserName,
-                    GridImage = gridDlTask.Result != null ? $"https://data.local/images/grid/{Path.GetFileName(gridDlTask.Result)}" : existingEntry.GridImage,
-                    GridHorizontalImage = hDlTask.Result != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(hDlTask.Result)}" : existingEntry.GridHorizontalImage,
-                    HeroImage = heroDlTask.Result != null ? $"https://data.local/images/hero/{Path.GetFileName(heroDlTask.Result)}" : existingEntry.HeroImage,
-                    LogoImage = logoDlTask.Result != null ? $"https://data.local/images/logo/{Path.GetFileName(logoDlTask.Result)}" : existingEntry.LogoImage,
-                    DateAdded = existingEntry.DateAdded == DateTime.MinValue ? DateTime.Now : existingEntry.DateAdded
-                });
+                apps.Add(BuildNativeMediaApp(id, name, url, type, multiUser, targetUserId, existingEntry));
 
                 if (targetUserId == currentUserId) PostProgress(id, "done");
-                await Task.Delay(150).ConfigureAwait(false);
             }
 
             var nativeIds = _nativeApps.Select(a => a.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -2566,7 +2570,7 @@ namespace Doorpi
             await Task.Run(() => SaveMediaAppsForSpecificUser(apps, targetUserId, targetMediaFile)).ConfigureAwait(false);
 
             if (!silent && targetUserId == currentUserId)
-                Dispatcher.BeginInvoke(() => SendMediaAppsToUI(apps));
+                _ = Dispatcher.BeginInvoke(() => SendMediaAppsToUI(apps));
         }
         private void PostProgress(string appId, string state)
         {
@@ -3874,7 +3878,7 @@ namespace Doorpi
 
         // ========================= STEAM =========================
 
-        private List<InstalledApp> GetSteamGames()
+        private List<InstalledApp> GetSteamGames(bool includeIcons = true)
         {
             var list = new List<InstalledApp>();
             try
@@ -3908,13 +3912,13 @@ namespace Doorpi
                             string iconBase64 = "";
 
                             string iconHash = Regex.Match(acfContent, @"""(?:clienticon|icon)""\s+""([a-fA-F0-9]+)""").Groups[1].Value;
-                            if (!string.IsNullOrEmpty(iconHash))
+                            if (includeIcons && !string.IsNullOrEmpty(iconHash))
                             {
                                 string icoPath = Path.Combine(steamPath, "steam", "games", $"{iconHash}.ico");
                                 if (File.Exists(icoPath)) iconBase64 = GetCachedIcon(icoPath);
                             }
 
-                            if (string.IsNullOrEmpty(iconBase64) && !string.IsNullOrEmpty(installDir))
+                            if (includeIcons && string.IsNullOrEmpty(iconBase64) && !string.IsNullOrEmpty(installDir))
                             {
                                 string gameFolder = Path.Combine(libraryPath, "steamapps", "common", installDir);
                                 if (Directory.Exists(gameFolder))
@@ -3949,7 +3953,7 @@ namespace Doorpi
                                 }
                             }
 
-                            if (string.IsNullOrEmpty(iconBase64))
+                            if (includeIcons && string.IsNullOrEmpty(iconBase64))
                             {
                                 string libraryCachePath = Path.Combine(steamPath, "appcache", "librarycache", $"{appId}_icon.jpg");
                                 if (File.Exists(libraryCachePath))
@@ -4080,7 +4084,7 @@ namespace Doorpi
         }
         // ========================= EPIC =========================
 
-        private List<InstalledApp> GetEpicGames()
+        private List<InstalledApp> GetEpicGames(bool includeIcons = true)
         {
             var list = new List<InstalledApp>();
             try
@@ -4106,7 +4110,7 @@ namespace Doorpi
                                                 ? exeProp.GetString() ?? "" : "";
 
                     string iconBase64 = "";
-                    if (!string.IsNullOrEmpty(installLocation) && !string.IsNullOrEmpty(launchExe))
+                    if (includeIcons && !string.IsNullOrEmpty(installLocation) && !string.IsNullOrEmpty(launchExe))
                     {
                         string exePath = Path.Combine(installLocation, launchExe);
                         if (File.Exists(exePath)) iconBase64 = GetCachedIcon(exePath);
@@ -4128,7 +4132,7 @@ namespace Doorpi
 
         // ========================= GOG =========================
 
-        private List<InstalledApp> GetGOGGames()
+        private List<InstalledApp> GetGOGGames(bool includeIcons = true)
         {
             var list = new List<InstalledApp>();
             try
@@ -4196,7 +4200,7 @@ namespace Doorpi
                             Name = name,
                             Path = finalPath,
                             Source = "GOG",
-                            IconBase64 = GetCachedIcon(finalPath)
+                            IconBase64 = includeIcons ? GetCachedIcon(finalPath) : ""
                         });
                     }
                 }
@@ -4701,8 +4705,9 @@ namespace Doorpi
             // Lê os Jogos
             foreach (var g in LoadGames())
             {
-                if (!string.IsNullOrEmpty(g.LaunchUrl)) map[g.LaunchUrl] = "game";
-                else if (!string.IsNullOrEmpty(g.Path)) map[Path.GetFullPath(g.Path)] = "game";
+                string state = g.IsPendingArtwork ? "preparing-game" : "game";
+                if (!string.IsNullOrEmpty(g.LaunchUrl)) map[g.LaunchUrl] = state;
+                else if (!string.IsNullOrEmpty(g.Path)) map[Path.GetFullPath(g.Path)] = state;
             }
 
             // Lê as Mídias
@@ -4743,11 +4748,13 @@ namespace Doorpi
                 {
                     app.IsAdded = true;
                     app.AddedTo = addedToType;
+                    app.AddState = addedToType == "preparing-game" ? "preparing" : "added";
                 }
                 else
                 {
                     app.IsAdded = false;
                     app.AddedTo = "";
+                    app.AddState = "";
                 }
             }
 
@@ -4939,28 +4946,298 @@ namespace Doorpi
 
         // ========================= AUTO-ADD PLATAFORMAS =========================
 
-        private async Task AutoAddPlatformGamesAsync()
+        private LibraryBootstrapState LoadLibraryBootstrapState()
         {
-            if (LoadGames().Any()) return;
+            if (!File.Exists(libraryBootstrapFile)) return new LibraryBootstrapState();
+            try
+            {
+                return JsonSerializer.Deserialize<LibraryBootstrapState>(File.ReadAllText(libraryBootstrapFile)) ?? new LibraryBootstrapState();
+            }
+            catch { return new LibraryBootstrapState(); }
+        }
+
+        private void SaveLibraryBootstrapState(LibraryBootstrapState state)
+        {
+            try
+            {
+                File.WriteAllText(libraryBootstrapFile, JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true }));
+            }
+            catch (Exception ex) { Debug.WriteLine("[Bootstrap] Falha ao salvar estado: " + ex.Message); }
+        }
+
+        private bool IsCurrentUserSystemOwner()
+        {
+            var firstUser = LoadUserProfiles()
+                .Where(u => !string.IsNullOrWhiteSpace(u.Id))
+                .OrderBy(u => u.DateCreated)
+                .FirstOrDefault();
+            return firstUser != null && string.Equals(firstUser.Id, currentUserId, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string StableAssetName(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) value = Guid.NewGuid().ToString("N");
+            return Convert.ToHexString(
+                System.Security.Cryptography.MD5.HashData(
+                    System.Text.Encoding.UTF8.GetBytes(value))).ToLowerInvariant()[..16];
+        }
+
+        private static string? ExtractSteamAppId(InstalledApp app)
+        {
+            if (!string.IsNullOrEmpty(app.LaunchUrl) && app.LaunchUrl.StartsWith("steam://run/", StringComparison.OrdinalIgnoreCase))
+                return app.LaunchUrl.Replace("steam://run/", "").Trim();
+
+            return app.Source.Equals("Steam", StringComparison.OrdinalIgnoreCase) && Regex.IsMatch(app.Path ?? "", @"^\d+$")
+                ? app.Path
+                : null;
+        }
+
+        private static (string Grid, string Horizontal, string Hero, string Logo) BuildSteamCdnAssets(string appId)
+        {
+            return (
+                $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appId}/library_600x900.jpg",
+                $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appId}/header.jpg",
+                $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appId}/library_hero.jpg",
+                $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appId}/logo.png"
+            );
+        }
+
+        private async Task<bool> RemoteImageExistsAsync(string url)
+        {
+            try
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                using var request = new HttpRequestMessage(HttpMethod.Head, url);
+                using var response = await httpClient.SendAsync(request, cts.Token).ConfigureAwait(false);
+                return response.IsSuccessStatusCode;
+            }
+            catch { return false; }
+        }
+
+        private async Task<bool> SteamCdnHasRequiredArtworkAsync(string appId)
+        {
+            var assets = BuildSteamCdnAssets(appId);
+            var gridTask = RemoteImageExistsAsync(assets.Grid);
+            var heroTask = RemoteImageExistsAsync(assets.Hero);
+            await Task.WhenAll(gridTask, heroTask).ConfigureAwait(false);
+            return gridTask.Result && heroTask.Result;
+        }
+
+        private async Task WaitForGameSessionIdleAsync()
+        {
+            while (_gameSessionActive || _gameIsRunningAndDoorpiHidden)
+                await Task.Delay(1500).ConfigureAwait(false);
+        }
+
+        private async Task UpdatePlatformCacheFastAsync()
+        {
+            await _cacheLock.WaitAsync();
+            try
+            {
+                var cache = LoadAppCache() ?? new AppCacheModel();
+                cache.SteamApps = GetSteamGames(includeIcons: false).Select(a => { a.Source = "Steam"; return a; }).ToList();
+                cache.EpicApps = GetEpicGames(includeIcons: false).Select(a => { a.Source = "Epic"; return a; }).ToList();
+                cache.GogApps = GetGOGGames(includeIcons: false).Select(a => { a.Source = "GOG"; return a; }).ToList();
+                cache.SteamFingerprint = GetSteamFingerprint();
+                cache.EpicFingerprint = GetEpicFingerprint();
+                cache.GogFingerprint = GetGogFingerprint();
+                SaveAppCache(cache);
+                _lastCacheBuilt = DateTime.Now;
+            }
+            finally
+            {
+                _cacheLock.Release();
+            }
+        }
+
+        private async Task<bool> UpsertAutoAddedPlatformGamesAsync(List<InstalledApp> platformGames)
+        {
+            var games = LoadGames();
+            bool changed = false;
+
+            foreach (var app in platformGames)
+            {
+                string key = !string.IsNullOrEmpty(app.LaunchUrl) ? app.LaunchUrl : app.Path;
+                if (string.IsNullOrWhiteSpace(key)) continue;
+                if (games.Any(g => string.Equals(g.LaunchUrl, app.LaunchUrl, StringComparison.OrdinalIgnoreCase) ||
+                                   string.Equals(g.Path, app.Path, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                string? steamAppId = ExtractSteamAppId(app);
+                bool steamReady = !string.IsNullOrEmpty(steamAppId)
+                                  && await SteamCdnHasRequiredArtworkAsync(steamAppId).ConfigureAwait(false);
+                var steamAssets = steamReady ? BuildSteamCdnAssets(steamAppId!) : ("", "", "", "");
+
+                games.Add(new GameModel
+                {
+                    Name = app.Name,
+                    Path = app.Path,
+                    LaunchUrl = app.LaunchUrl,
+                    GridImage = steamAssets.Item1,
+                    GridHorizontalImage = steamAssets.Item2,
+                    HeroImage = steamAssets.Item3,
+                    LogoImage = steamAssets.Item4,
+                    LastPlayed = DateTime.MinValue,
+                    DateAdded = DateTime.Now,
+                    IsPendingArtwork = !steamReady,
+                    AutoAddedByBootstrap = true,
+                    ArtworkSource = steamReady ? "steam-cdn" : "pending"
+                });
+                changed = true;
+            }
+
+            if (changed) SaveGames(games);
+            return changed;
+        }
+
+        private async Task CacheSteamCdnImagesForExistingGamesAsync()
+        {
+            var games = LoadGames();
+            bool changed = false;
+
+            foreach (var game in games.Where(g => g.AutoAddedByBootstrap && g.ArtworkSource == "steam-cdn" && !g.IsPendingArtwork).ToList())
+            {
+                await WaitForGameSessionIdleAsync().ConfigureAwait(false);
+
+                if (!string.IsNullOrEmpty(game.GridImage) && game.GridImage.StartsWith("https://data.local/", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                string? appId = !string.IsNullOrEmpty(game.LaunchUrl) && game.LaunchUrl.StartsWith("steam://run/", StringComparison.OrdinalIgnoreCase)
+                    ? game.LaunchUrl.Replace("steam://run/", "").Trim()
+                    : null;
+                if (string.IsNullOrWhiteSpace(appId)) continue;
+
+                var safeName = "steam_" + StableAssetName(appId);
+                var assets = BuildSteamCdnAssets(appId);
+
+                var gridTask = DownloadImageAsync(assets.Grid, gridFolder, safeName);
+                var horizontalTask = DownloadImageAsync(assets.Horizontal, gridHorizontalFolder, safeName + "_h");
+                var heroTask = DownloadImageAsync(assets.Hero, heroFolder, safeName);
+                var logoTask = DownloadImageAsync(assets.Logo, logoFolder, safeName + "_logo");
+
+                await Task.WhenAll(gridTask, horizontalTask, heroTask, logoTask).ConfigureAwait(false);
+
+                if (gridTask.Result == null || heroTask.Result == null)
+                {
+                    game.GridImage = "";
+                    game.GridHorizontalImage = "";
+                    game.HeroImage = "";
+                    game.LogoImage = "";
+                    game.IsPendingArtwork = true;
+                    game.ArtworkSource = "pending";
+                    changed = true;
+                    SaveGames(games);
+                    continue;
+                }
+
+                game.GridImage = $"https://data.local/images/grid/{Path.GetFileName(gridTask.Result)}";
+                if (horizontalTask.Result != null) game.GridHorizontalImage = $"https://data.local/images/grid-horizontal/{Path.GetFileName(horizontalTask.Result)}";
+                game.HeroImage = $"https://data.local/images/hero/{Path.GetFileName(heroTask.Result)}";
+                if (logoTask.Result != null) game.LogoImage = $"https://data.local/images/logo/{Path.GetFileName(logoTask.Result)}";
+                game.ArtworkSource = "steam-cdn-local";
+                changed = true;
+                SaveGames(games);
+                _ = Dispatcher.BeginInvoke(() => LoadGamesIntoUI());
+            }
+
+            if (changed) SaveGames(games);
+        }
+
+        private async Task EnrichPendingPlatformArtworkAsync()
+        {
+            var games = LoadGames();
+            bool changed = false;
+
+            foreach (var game in games.Where(g => g.AutoAddedByBootstrap && g.IsPendingArtwork).ToList())
+            {
+                await WaitForGameSessionIdleAsync().ConfigureAwait(false);
+
+                var (gridUrl, horizontalUrl, heroUrl, logoUrl) = await FetchSteamGridAssetsAsync(game.Name).ConfigureAwait(false);
+                if (string.IsNullOrEmpty(gridUrl) || string.IsNullOrEmpty(heroUrl)) continue;
+
+                string safeName = "auto_" + StableAssetName(game.LaunchUrl + game.Path + game.Name);
+                var gridTask = DownloadImageAsync(gridUrl, gridFolder, safeName);
+                var hTask = !string.IsNullOrEmpty(horizontalUrl) ? DownloadImageAsync(horizontalUrl, gridHorizontalFolder, safeName + "_h") : Task.FromResult<string?>(null);
+                var heroTask = DownloadImageAsync(heroUrl, heroFolder, safeName);
+                var logoTask = !string.IsNullOrEmpty(logoUrl) ? DownloadImageAsync(logoUrl, logoFolder, safeName + "_logo") : Task.FromResult<string?>(null);
+
+                await Task.WhenAll(gridTask, hTask, heroTask, logoTask).ConfigureAwait(false);
+
+                if (gridTask.Result == null || heroTask.Result == null) continue;
+
+                game.GridImage = $"https://data.local/images/grid/{Path.GetFileName(gridTask.Result)}";
+                game.GridHorizontalImage = hTask.Result != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(hTask.Result)}" : game.GridImage;
+                game.HeroImage = $"https://data.local/images/hero/{Path.GetFileName(heroTask.Result)}";
+                game.LogoImage = logoTask.Result != null ? $"https://data.local/images/logo/{Path.GetFileName(logoTask.Result)}" : "";
+                game.IsPendingArtwork = false;
+                game.ArtworkSource = "steamgrid-local";
+                changed = true;
+
+                SaveGames(games);
+                _ = Dispatcher.BeginInvoke(() => LoadGamesIntoUI());
+            }
+
+            if (changed) SaveGames(games);
+        }
+
+        private void StartLibraryBootstrapIfNeeded()
+        {
+            if (!IsCurrentUserSystemOwner()) return;
+            if (Interlocked.CompareExchange(ref _libraryBootstrapRunning, 1, 0) != 0) return;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await RunLibraryBootstrapAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[Bootstrap] Erro: " + ex.Message);
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _libraryBootstrapRunning, 0);
+                }
+            });
+        }
+
+        private async Task RunLibraryBootstrapAsync()
+        {
+            var state = LoadLibraryBootstrapState();
+            state.LastRun = DateTime.Now;
+            SaveLibraryBootstrapState(state);
+
+            await UpdatePlatformCacheFastAsync().ConfigureAwait(false);
 
             var cache = LoadAppCache() ?? new AppCacheModel();
-
             var platformGames = cache.SteamApps
                 .Concat(cache.EpicApps)
                 .Concat(cache.GogApps)
-                .Where(a => !string.IsNullOrEmpty(a.Name)
-                            && !a.Name.Contains("Steamworks", StringComparison.OrdinalIgnoreCase)
-                            && !a.Name.Contains("Unreal Engine", StringComparison.OrdinalIgnoreCase))
-                .Take(12)
+                .Where(a => !string.IsNullOrWhiteSpace(a.Name))
+                .Where(a => !a.Name.Contains("Steamworks", StringComparison.OrdinalIgnoreCase))
+                .Where(a => !a.Name.Contains("Unreal Engine", StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
-            if (!platformGames.Any()) return;
+            if (!state.PlatformAutoAddCompleted)
+            {
+                if (await UpsertAutoAddedPlatformGamesAsync(platformGames).ConfigureAwait(false))
+                    _ = Dispatcher.BeginInvoke(() => LoadGamesIntoUI());
 
-            Dispatcher.BeginInvoke(() =>
-                webView.CoreWebView2.PostWebMessageAsString(
-                    JsonSerializer.Serialize(new { type = "showLoadingCards", count = platformGames.Count, tab = "games" })));
+                state.PlatformAutoAddCompleted = true;
+                state.CompletedAt = DateTime.Now;
+                SaveLibraryBootstrapState(state);
+                SendInstalledAppsToUI();
+            }
 
-            await AddMultipleGamesAsync(platformGames).ConfigureAwait(false);
+            await CacheSteamCdnImagesForExistingGamesAsync().ConfigureAwait(false);
+            await EnrichPendingPlatformArtworkAsync().ConfigureAwait(false);
+            SendInstalledAppsToUI();
+        }
+
+        private async Task AutoAddPlatformGamesAsync()
+        {
+            await RunLibraryBootstrapAsync().ConfigureAwait(false);
         }
         private async Task AddWebMediaAppAsync(string name, string url)
         {
@@ -5096,11 +5373,22 @@ namespace Doorpi
                     {
                         try
                         {
-
-                            if ((DateTime.Now - _lastCacheBuilt).TotalSeconds > 60)
-                                await UpdateAppCacheAsync();
-
                             SendInstalledAppsToUI();
+                            if ((DateTime.Now - _lastCacheBuilt).TotalSeconds > 60)
+                            {
+                                _ = Task.Run(async () =>
+                                {
+                                    try
+                                    {
+                                        await UpdateAppCacheAsync().ConfigureAwait(false);
+                                        SendInstalledAppsToUI();
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Debug.WriteLine("[InstalledApps] Falha ao atualizar cache em background: " + ex.Message);
+                                    }
+                                });
+                            }
                         }
                         finally
                         {
@@ -5910,11 +6198,6 @@ namespace Doorpi
 
                                 await Task.WhenAll(initTasks).ConfigureAwait(false);
 
-                                if (wasEmpty)
-                                {
-                                    await UpdateAppCacheAsync().ConfigureAwait(false);
-                                }
-
                                 Dispatcher.BeginInvoke(() =>
                                 {
                                     LoadCurrentUserIntoUI();
@@ -6123,7 +6406,6 @@ namespace Doorpi
                             try
                             {
                                 await InitializeNativeAppsAsync(taskUserId, taskMediaFile);
-                                if (isPrimary) { await UpdateAppCacheAsync(); await AutoAddPlatformGamesAsync(); }
                                 if (isLast)
                                 {
                                     Dispatcher.Invoke(() =>
@@ -7141,17 +7423,22 @@ namespace Doorpi
 
         private void SaveGames(List<GameModel> games)
         {
-            File.WriteAllText(gamesFile, JsonSerializer.Serialize(games,
-                new JsonSerializerOptions { WriteIndented = true }));
-            File.WriteAllText(Path.Combine(dataFolder, "games.json"), JsonSerializer.Serialize(games,
-                new JsonSerializerOptions { WriteIndented = true }));
+            lock (_gamesFileLock)
+            {
+                string json = JsonSerializer.Serialize(games, new JsonSerializerOptions { WriteIndented = true });
+                SafeWriteAllText(gamesFile, json);
+                SafeWriteAllText(Path.Combine(dataFolder, "games.json"), json);
+            }
         }
 
         private List<GameModel> LoadGames()
         {
-            if (!File.Exists(gamesFile)) return new List<GameModel>();
-            string json = File.ReadAllText(gamesFile);
-            return JsonSerializer.Deserialize<List<GameModel>>(json) ?? new List<GameModel>();
+            lock (_gamesFileLock)
+            {
+                if (!File.Exists(gamesFile)) return new List<GameModel>();
+                string json = SafeReadAllText(gamesFile);
+                return JsonSerializer.Deserialize<List<GameModel>>(json) ?? new List<GameModel>();
+            }
         }
 
         // 1. NOVA FUNÇÃO AUXILIAR: Detecta se o jogo é realmente novo ou se é um falso-positivo de migração
@@ -7199,7 +7486,9 @@ namespace Doorpi
 
         private void LoadGamesIntoUI()
         {
-            var allGames = LoadGames();
+            var allGames = LoadGames()
+                .Where(g => !g.IsPendingArtwork)
+                .ToList();
             if (allGames.Count == 0) return;
 
             var featured = allGames

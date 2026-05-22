@@ -25,5 +25,8 @@ namespace Doorpi
         public string LogoStaticImage { get; set; } = "";
 
         public DateTime LastPlayed { get; set; }
+        public bool IsPendingArtwork { get; set; } = false;
+        public bool AutoAddedByBootstrap { get; set; } = false;
+        public string ArtworkSource { get; set; } = "";
     }
 }

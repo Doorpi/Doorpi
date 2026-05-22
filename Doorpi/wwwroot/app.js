@@ -1695,6 +1695,29 @@ function populateAppModal(apps) {
     buildFilterBar(allInstalledApps);
 
     const appList = document.getElementById('appList');
+    if (!apps || apps.length === 0) {
+        appList.innerHTML = `
+        <div class="app-scan-empty">
+            <div class="app-scan-pulse"></div>
+            <div>
+                <strong>Procurando jogos e aplicativos</strong>
+                <span>Os primeiros resultados aparecem aqui assim que forem encontrados.</span>
+            </div>
+        </div>`;
+        document.getElementById('modalActions').style.display = 'flex';
+        document.getElementById('selectionCounter')?.classList.remove('visible');
+        rebindActionButtons();
+        if (!isFolderOperationInProgress) {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    hideGlobalLoading();
+                    _modalReady = true;
+                });
+            });
+        }
+        return;
+    }
+
     appList.innerHTML = apps.map(app => {
         const isAdded = app.IsAdded === true || app.isAdded === true;
         const icon = app.IconBase64 || app.iconBase64;
@@ -1703,15 +1726,19 @@ function populateAppModal(apps) {
         const size = app.Size ?? app.size;
         const launch = app.LaunchUrl || app.launchUrl || '';
         const source = app.Source || app.source;
+        const addState = app.AddState || app.addState || '';
+        const isPreparing = addState === 'preparing' || (app.AddedTo || app.addedTo) === 'preparing-game';
+        const stateLabel = isPreparing ? 'Preparando capa' : (isAdded ? 'Já adicionado' : '');
 
         return `
-        <div class="app-item ${isAdded ? 'already-added' : ''}" ${isAdded ? '' : 'tabindex="0"'}
+        <div class="app-item ${isAdded ? 'already-added' : ''} ${isPreparing ? 'preparing-artwork' : ''}" ${isAdded ? '' : 'tabindex="0"'}
              data-path="${path.replace(/\\/g, '\\\\')}" data-launch="${launch}"
              data-name="${name.replace(/"/g, '&quot;')}">
             ${icon ? `<img class="app-icon" src="data:image/png;base64,${icon}" />` : ''}
             <div class="app-item-info">
                 <span class="app-name">${name}</span>
                 ${size ? `<span class="size">${formatBytes(size)}</span>` : ''}
+                ${stateLabel ? `<span class="app-state">${stateLabel}</span>` : ''}
             </div>
             ${getPlatformBadge(source)}
         </div>`;
@@ -1731,14 +1758,15 @@ function populateAppModal(apps) {
         })
     );
 
-    const rebindAction = (id, fn) => {
+    function rebindAction(id, fn) {
         const btn = document.getElementById(id);
         if (!btn) return;
         const fresh = btn.cloneNode(true);
         btn.replaceWith(fresh);
         fresh.addEventListener('click', fn);
-    };
+    }
 
+    function rebindActionButtons() {
     rebindAction('btnCancelAdd', closeModal);
     rebindAction('btnConfirmAdd', () => {
         // Verifica se a ABA PRINCIPAL DE MÍDIA é a que está visível na tela no momento
@@ -1768,6 +1796,9 @@ function populateAppModal(apps) {
             closeModal();
         }
     });
+    }
+
+    rebindActionButtons();
 
     if (!isFolderOperationInProgress) {
         requestAnimationFrame(() => {
@@ -3874,6 +3905,18 @@ function _renderExeAppModal() {
 function _populateExeList(apps) {
     const appList = document.getElementById('appListMedia');
     if (!appList) return;
+
+    if (!apps || apps.length === 0) {
+        appList.innerHTML = `
+        <div class="app-scan-empty">
+            <div class="app-scan-pulse"></div>
+            <div>
+                <strong>Procurando aplicativos executáveis</strong>
+                <span>Os resultados aparecem aqui assim que a leitura terminar.</span>
+            </div>
+        </div>`;
+        return;
+    }
 
     appList.innerHTML = apps.map(app => {
         const icon = app.IconBase64 || app.iconBase64;

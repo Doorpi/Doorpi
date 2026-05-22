@@ -403,7 +403,12 @@ window.isNavMenuOpen = false;
             ]);
 
             if (uRes.status === 'fulfilled' && uRes.value.ok) _menuData.user = await uRes.value.json();
-            if (gRes.status === 'fulfilled' && gRes.value.ok) _menuData.games = await gRes.value.json();
+            if (gRes.status === 'fulfilled' && gRes.value.ok) {
+                const games = await gRes.value.json();
+                _menuData.games = Array.isArray(games)
+                    ? games.filter(g => !(g.IsPendingArtwork || g.isPendingArtwork))
+                    : games;
+            }
             if (mRes.status === 'fulfilled' && mRes.value.ok) _menuData.media = await mRes.value.json();
         } catch (e) {
             console.warn("Fetch bloqueado pelo WebView (CORS). Usando fallback local...", e);
@@ -1045,7 +1050,7 @@ window.isNavMenuOpen = false;
                 .then(r => r.json())
                 .then(games => {
                     if (!Array.isArray(games)) return;
-                    _menuData.games = games;
+                    _menuData.games = games.filter(g => !(g.IsPendingArtwork || g.isPendingArtwork));
                     if (CATS[_catIdx]?.id === 'profile') {
                         _renderProfile(document.getElementById('navContentBody'));
                         _updateContentFocus();
