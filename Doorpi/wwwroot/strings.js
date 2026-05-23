@@ -345,7 +345,7 @@ const STRINGS = {
         launchErrCrash: 'O jogo fechou inesperadamente. Verifique se o executável está correto.',
         launchErrTimeout: 'O jogo demorou demais para iniciar. Tente novamente.',
         launchErrGeneric: 'Verifique se o jogo está instalado corretamente.',
-        launchCancelBtn: 'Cancelar Inicialização',
+        launchCancelBtn: 'Retornar',
     },
 
     'en-US': {

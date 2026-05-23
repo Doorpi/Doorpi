@@ -333,6 +333,15 @@ namespace Doorpi
                 if (DateTime.UtcNow.Ticks < Interlocked.Read(ref _returnFromExternalModeSuppressUntil))
                     return;
 
+                // Verifica processos externos e o WebApp interno
+                bool isAppAlive = false;
+                try { if (_pendingLaunchProcess != null && !_pendingLaunchProcess.HasExited) isAppAlive = true; } catch { }
+                try { if (_mediaExeProcess != null && !_mediaExeProcess.HasExited) isAppAlive = true; } catch { }
+
+                // CONSIDERAR WEBAPP INTERNO COMO APP VIVO
+                if (_ytWebView != null && _ytWebView.Visibility == Visibility.Visible)
+                    isAppAlive = true;
+
                 if (_gameSessionActive)
                 {
                     if (!_gameIsRunningAndDoorpiHidden)
@@ -343,15 +352,9 @@ namespace Doorpi
                     return;
                 }
 
-                if (_ytWebView != null && _ytWebView.Visibility == Visibility.Visible)
-                {
-                    return;
-                }
-
                 if (webView?.CoreWebView2 != null)
-                    webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"windowFocused\"}");
+                    webView.CoreWebView2.PostWebMessageAsString($"{{\"type\":\"windowFocused\", \"appAlive\": {isAppAlive.ToString().ToLower()}}}");
             };
-
             this.Deactivated += (s, e) =>
             {
                 // Envia sinal para pausar o som assim que a janela do Doorpi for desativada
@@ -3233,8 +3236,6 @@ namespace Doorpi
             _gameSessionActive = false;
             _gameIsRunningAndDoorpiHidden = false;
 
-            // ATENÇÃO: NÃO chamamos ExitMediaExeMode() aqui, pois queremos manter 
-            // os apps rodando em segundo plano. Apenas desligamos o modo controle.
             if (_mediaExeModeActive) _mediaExeModeActive = false;
             if (_systemControllerActive) StopSystemControllerMode();
             _launcherMouseActive = false;
@@ -3246,9 +3247,18 @@ namespace Doorpi
             SendGameLaunchStatus("gameLaunchDone");
             ReleaseAllStuckKeys();
 
-            // Dentro do método ForceFocus(), substitua o bloco Dispatcher.BeginInvoke por este:
+            // Verifica processos externos primeiro
+            bool isExternalAlive = false;
+            try { if (_pendingLaunchProcess != null && !_pendingLaunchProcess.HasExited) isExternalAlive = true; } catch { }
+            try { if (_mediaExeProcess != null && !_mediaExeProcess.HasExited) isExternalAlive = true; } catch { }
+
             Dispatcher.BeginInvoke(() =>
             {
+                // Verifica a WebApp na thread correta
+                bool isAppAlive = isExternalAlive;
+                if (_ytWebView != null && _ytWebView.Visibility == Visibility.Visible)
+                    isAppAlive = true;
+
                 var hwnd = _mainWindowHandle != IntPtr.Zero
                     ? _mainWindowHandle
                     : new System.Windows.Interop.WindowInteropHelper(this).Handle;
@@ -3257,7 +3267,6 @@ namespace Doorpi
 
                 if (GetBootMode() == 2) this.Topmost = true;
 
-                // Restaura o Doorpi para o topo das janelas
                 SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 
                 this.Show();
@@ -3274,7 +3283,9 @@ namespace Doorpi
                 Keyboard.Focus(webView);
 
                 webView?.CoreWebView2?.ExecuteScriptAsync("window.isMediaAppActive = false; window.focusFeaturedCard?.();");
-                webView?.CoreWebView2?.PostWebMessageAsString("{\"type\":\"windowFocused\"}");
+
+                // Manda o status real para o JavaScript (Muta ou Desmuta a música com precisão)
+                webView?.CoreWebView2?.PostWebMessageAsString($"{{\"type\":\"windowFocused\", \"appAlive\": {isAppAlive.ToString().ToLower()}}}");
             });
         }
         private void WatchAndRefocus(Process process)
@@ -3438,8 +3449,39 @@ namespace Doorpi
 
                             SendDoorpiToBackground();
                             IntPtr gameHwnd = candidates[0];
+
+                            // --- NOVO: ATTACH WATCHDOG AO PROCESSO REAL DO JOGO ---
+                            try
+                            {
+                                GetWindowThreadProcessId(gameHwnd, out uint realPid);
+                                if (realPid > 0)
+                                {
+                                    Process realGameProcess = Process.GetProcessById((int)realPid);
+
+                                    // Substitui a referência do Launcher pelo Game Real
+                                    _pendingLaunchProcess = realGameProcess;
+
+                                    Task.Run(() => {
+                                        try
+                                        {
+                                            realGameProcess.WaitForExit();
+                                            Dispatcher.Invoke(() => {
+                                                if (webView?.CoreWebView2 != null)
+                                                {
+                                                    webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"appProcessDied\"}");
+                                                }
+                                            });
+                                        }
+                                        catch { }
+                                    });
+                                }
+                            }
+                            catch { }
+                            // ------------------------------------------------------
+
                             Dispatcher.Invoke(() => FocusExternalWindow(gameHwnd));
                             SendGameLaunchStatus("gameLaunchDone");
+
                         }
                     }
                     else if (doorpiHidden)
@@ -6719,10 +6761,11 @@ namespace Doorpi
                             string mediaName = media?.Name ?? "App";
                             string heroImg = media?.HeroImage ?? "";
                             string gridImg = media?.GridImage ?? "";
-                            _ = Dispatcher.InvokeAsync(async () => await OpenWebViewInlineAsync(mediaUrl, mediaUrl.Contains("youtube.com"), mediaName, heroImg, gridImg));
 
-                            // TESTE: mesmo modo gamepad dos apps exe (mouse nativo + VKB C#, sem watcher de processo)
-       
+                       
+                            SendGameLaunchStatus("gameLaunching", mediaName, heroImg, gridImg);
+
+                            _ = Dispatcher.InvokeAsync(async () => await OpenWebViewInlineAsync(mediaUrl, mediaUrl.Contains("youtube.com"), mediaName, heroImg, gridImg));
                         }
                         else if (appType == "exe")
                         {

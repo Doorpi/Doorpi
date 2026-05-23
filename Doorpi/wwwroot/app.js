@@ -124,8 +124,11 @@ window._isIntroComplete = false;
 window._isDoorpiFocused = document.hasFocus(); // Lê o estado inicial
 
 // ── SISTEMA DE DISPARO POR ESTADO ───────────────────────────────────
+window._isExternalAppRunning = false; // Flag global de estado do App
+
 window._startSystemAudio = function (force = false) {
-    if (!window._isIntroComplete) return; 
+    if (!window._isIntroComplete) return;
+    if (window._isExternalAppRunning) return; // Impede que toque se o app estiver aberto em 2º plano
     if (window._isDoorpiFocused || force) {
         window._audioPlayer.play();
     }
@@ -497,15 +500,32 @@ window.chrome.webview.addEventListener('message', event => {
             window.isGameLaunchActive = false;
             window._doorpiGameInputSuppressedUntil = 0;
 
-            // Força o estado de foco e dispara o áudio imediatamente
+            // Sincroniza o estado de vida do processo vindo do C#
+            if (data.appAlive !== undefined) {
+                window._isExternalAppRunning = data.appAlive;
+            }
+
             window._isDoorpiFocused = true;
-            window._startSystemAudio(true);
+
+            // Controle definitivo de música no Alt+Tab
+            if (window._isExternalAppRunning) {
+                window._stopSystemAudio();
+            } else {
+                window._startSystemAudio(true);
+            }
 
             if (typeof GameLaunchOverlay !== 'undefined') {
                 GameLaunchOverlay.hide();
             }
             if (!window._vkbIsOpen) {
                 recoverGlobalFocus();
+            }
+        }
+        else if (data.type === 'appProcessDied') {
+            window._isExternalAppRunning = false;
+            // Se o processo morreu e o Doorpi estiver focado na tela, retoma a música!
+            if (window._isDoorpiFocused) {
+                window._startSystemAudio(true);
             }
         }
         else if (data.type === 'windowLostFocus') {
@@ -706,7 +726,9 @@ window.chrome.webview.addEventListener('message', event => {
             }
         }
         else if (data.type === 'gameLaunching') {
-            window.isMediaAppActive = true; 
+            window._isExternalAppRunning = true;
+            window._stopSystemAudio();
+            window.isMediaAppActive = true;
             GameLaunchOverlay.show(data.gameName, data.heroImage, data.gridImage);
         }
         else if (data.type === 'userSwitchStart') {
@@ -716,24 +738,26 @@ window.chrome.webview.addEventListener('message', event => {
             _userSwitchFadeIn();
         }
         else if (data.type === 'gameLaunchReady') {
-           
-            window._pauseAmbience();
+            window._isExternalAppRunning = true;
+            window._stopSystemAudio();
             window.isMediaAppActive = true; 
             GameLaunchOverlay.setRunning();
+        GameLaunchOverlay.setRunning();
         }
         else if (data.type === 'gameLaunchFailed') {
+            window._isExternalAppRunning = false; // Falhou, pode desmutar
             window.isGameLaunchActive = false;
             window._doorpiGameInputSuppressedUntil = 0;
-            window.isMediaAppActive = false; // Destrava e volta a música
+            window.isMediaAppActive = false;
             GameLaunchOverlay.setError(data.gameName, data.reason);
+            if (window._isDoorpiFocused) {
+                window._startSystemAudio(true);
+            }
         }
         else if (data.type === 'gameLaunchDone') {
             window.isGameLaunchActive = false;
             window._doorpiGameInputSuppressedUntil = 0;
             GameLaunchOverlay.hide();
-
-            // Aqui ele devolve o foco para a grade de jogos, mas como isMediaAppActive=true,
-            // o evento focus (alterado no Passo 1) vai ignorar e manter a música silenciada.
             if (!window._vkbIsOpen) {
                 recoverGlobalFocus();
             }
