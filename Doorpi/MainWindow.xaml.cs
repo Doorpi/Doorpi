@@ -319,10 +319,10 @@ namespace Doorpi
         public MainWindow()
         {
             this.Closing += (s, e) =>
-            {       
-                StopMainScreenMouseWatch(); // Desliga os verificadores de mouse de segundo plano
-                ReleaseAllStuckKeys();
-                timeEndPeriod(1);
+            {
+                CleanupAndExit();
+                Application.Current.Shutdown();
+                Environment.Exit(0);
             };
             InitializeComponent();
 
@@ -1359,7 +1359,7 @@ namespace Doorpi
                     _lastKnownCursorPos = new POINT { X = 0, Y = 0 };
                     try { SetCursorPos(0, 0); } catch { }
 
-                    Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil, DateTime.UtcNow.AddMilliseconds(800).Ticks);
+                    Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil, DateTime.UtcNow.AddMilliseconds(350).Ticks);
 
                     if (_mediaExeProcess != null && !_mediaExeProcess.HasExited)
                     {
@@ -1659,9 +1659,10 @@ namespace Doorpi
             try { SetCursorPos(0, 0); } catch { }
 
             Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil,
-                DateTime.UtcNow.AddMilliseconds(500).Ticks);
+                DateTime.UtcNow.AddMilliseconds(350).Ticks);
 
             SendGameLaunchStatus("gameLaunchDone");
+
 
             // ── PASSO 3: Usa Invoke (síncrono) para o foco — sem fila, sem delay ─────
             // BeginInvoke deixava frames em que a janela ainda não tinha foco
@@ -1804,7 +1805,7 @@ namespace Doorpi
             if (!_systemControllerActive) return;
 
             Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil,
-                DateTime.UtcNow.AddMilliseconds(800).Ticks);
+                DateTime.UtcNow.AddMilliseconds(350).Ticks);
             _systemControllerActive = false;
            
 
@@ -5573,9 +5574,12 @@ namespace Doorpi
                 }
                 if (action == "exitApp")
                 {
-                    ReleaseAllStuckKeys();
-                    
-                    Dispatcher.Invoke(() => Application.Current.Shutdown());
+                    Dispatcher.Invoke(() =>
+                    {
+                        CleanupAndExit();
+                        Application.Current.Shutdown();
+                        Environment.Exit(0);
+                    });
                 }
                 else if (action == "shutdownSystem")
                 {
@@ -7983,6 +7987,30 @@ namespace Doorpi
                 catch (Exception ex) { Debug.WriteLine($"[MainUiGamepad] {ex.Message}"); }
                 Thread.Sleep(10);
             }
+        }
+        private void CleanupAndExit()
+        {
+            // 1. Força o fechamento de todas as janelas secundárias
+            try { _webAppWindow?.Close(); } catch { }
+            try { _popupWindow?.Close(); } catch { }
+            try { _desktopVkb?.Close(); } catch { }
+
+            // 2. Destrói as instâncias do WebView2 (Mata os processos filhos no Windows)
+            try { _ytWebView?.Dispose(); } catch { }
+            try { _popupWebView?.Dispose(); } catch { }
+            try { webView?.Dispose(); } catch { }
+
+            // 3. Cancela as threads de monitoramento ativas
+            try { _mediaExeWatcherCts?.Cancel(); } catch { }
+            try { lock (_gameLaunchMonitorLock) { _gameLaunchMonitorCts?.Cancel(); } } catch { }
+
+            // 4. Limpa recursos de hardware (seu código original)
+            StopMainScreenMouseWatch();
+            ReleaseAllStuckKeys();
+            timeEndPeriod(1);
+
+            // (Opcional) Se quiser garantir que processos executáveis de mídia morram junto:
+            // try { if (_mediaExeProcess != null && !_mediaExeProcess.HasExited) _mediaExeProcess.Kill(true); } catch { }
         }
         private int GetSourcePriority(string source) => source switch
         {

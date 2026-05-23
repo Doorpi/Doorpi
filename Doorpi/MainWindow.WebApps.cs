@@ -157,7 +157,7 @@ namespace Doorpi
                     if (Held(XI_GUIDE) || (Held(XI_START) && Held(XI_BACK)))
                     {
                         Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil,
-                            DateTime.UtcNow.AddMilliseconds(800).Ticks);
+                            DateTime.UtcNow.AddMilliseconds(350).Ticks);
 
                         Dispatcher.Invoke(() =>
                         {
@@ -171,8 +171,6 @@ namespace Doorpi
 
                             if (_webAppWindow != null)
                             {
-                                // Apenas minimizamos a janela! O evento StateChanged que 
-                                // criamos no Passo 3 vai assumir daqui e chamar o ForceFocus().
                                 _webAppWindow.WindowState = WindowState.Minimized;
                             }
                             else
@@ -181,7 +179,7 @@ namespace Doorpi
                             }
                         });
                         prevButtons = btn;
-                        Thread.Sleep(300);
+                        Thread.Sleep(100); 
                         continue;
                     }
 
