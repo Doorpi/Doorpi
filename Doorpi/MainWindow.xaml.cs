@@ -1378,15 +1378,16 @@ namespace Doorpi
         {
             if (_dialogModeActive) return;
             _dialogModeActive = true;
+
+            // Garante que o cursor apareça para o usuário interagir com o dialog
+            EnsureCursorVisible();
+            _mainScreenMouseVisible = true;
+
             new Thread(() =>
             {
                 SharedGamepadControllerLoop(
                     () => _dialogModeActive,
-                    () =>
-                    {
-                        // Se pressionar o combo de sair durante o Dialog, enviamos ESC para fechá-lo
-                        SendVirtualKey(0x1B); // VK_ESCAPE
-                    }
+                    () => SendVirtualKey(0x1B)
                 );
             })
             { IsBackground = true }.Start();
@@ -1396,11 +1397,14 @@ namespace Doorpi
         {
             if (!_dialogModeActive) return;
             _dialogModeActive = false;
-            
+
             Dispatcher.Invoke(() => {
                 _desktopVkb?.Close();
                 _desktopVkb = null;
             });
+
+            // Reesconde o cursor ao voltar pro Doorpi
+            ResetCursorForMainScreen();
         }
 
         // Helper para abrir o VKB sem duplicar código
