@@ -190,7 +190,12 @@ namespace Doorpi
             public int Width => Right - Left;
             public int Height => Bottom - Top;
         }
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
+        private const int GWL_STYLE = -16;
+        private const int WS_THICKFRAME = 0x00040000;
+        private const int WS_MAXIMIZEBOX = 0x00010000;
         [DllImport("Powrprof.dll", CharSet = CharSet.Auto, ExactSpelling = true)]
         private static extern bool SetSuspendState(bool hiberate, bool forceCritical, bool disableWakeEvent);
 
@@ -3356,13 +3361,25 @@ namespace Doorpi
         {
             var result = new List<IntPtr>();
             var shell = GetShellWindow();
-            var doorpi = _mainWindowHandle;
 
             EnumWindows((hWnd, _) =>
             {
-                if (hWnd == doorpi || hWnd == shell) return true;   // sempre ignora
-                if (snapshot.Contains(hWnd)) return true;   // existia antes do launch
-                if (IsGameplayWindow(hWnd)) result.Add(hWnd);
+                if (hWnd == _mainWindowHandle || hWnd == shell) return true;
+                if (snapshot.Contains(hWnd)) return true;
+                if (!IsGameplayWindow(hWnd)) return true;
+
+                // Ignora processos com "Launcher" no nome
+                try
+                {
+                    GetWindowThreadProcessId(hWnd, out uint pid);
+                    var proc = Process.GetProcessById((int)pid);
+                    if (SafeProcessName(proc).Contains("Launcher", StringComparison.OrdinalIgnoreCase) ||
+                        SafeProcessPath(proc).Contains("Launcher", StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+                catch { }
+
+                result.Add(hWnd);
                 return true;
             }, IntPtr.Zero);
 
@@ -3390,7 +3407,7 @@ namespace Doorpi
         private void StartGameLaunchMonitor(
     GameModel game,
     Process? launched,
-    HashSet<int> baselineProcessIds)       // mantido só para não quebrar LaunchGame()
+    HashSet<int> baselineProcessIds)      
         {
             CancellationTokenSource cts;
             lock (_gameLaunchMonitorLock)
@@ -3409,16 +3426,89 @@ namespace Doorpi
 
             _ = Task.Run(() => MonitorGameLaunchAsync(game, windowSnapshot, cts.Token));
         }
+        private void TryFocusAndMaximizeNewWindow(HashSet<IntPtr> snapshot, HashSet<IntPtr> alreadyProcessed)
+        {
+            var shell = GetShellWindow();
+            int screenW = (int)SystemParameters.PrimaryScreenWidth;
+            int screenH = (int)SystemParameters.PrimaryScreenHeight;
+
+            EnumWindows((hWnd, _) =>
+            {
+                if (hWnd == _mainWindowHandle || hWnd == shell) return true;
+                if (snapshot.Contains(hWnd) || alreadyProcessed.Contains(hWnd)) return true;
+                if (!IsWindowVisible(hWnd) || IsIconic(hWnd)) return true;
+
+                // Ignora janelinhas minúsculas de background
+                if (!GetWindowRect(hWnd, out RECT r) || r.Width < 300 || r.Height < 300) return true;
+
+                // 1. TRAVA GLOBAL DE LAUNCHER
+                try
+                {
+                    GetWindowThreadProcessId(hWnd, out uint pid);
+                    var proc = Process.GetProcessById((int)pid);
+                    string procName = SafeProcessName(proc);
+                    string procPath = SafeProcessPath(proc);
+
+                    if (procName.Contains("Launcher", StringComparison.OrdinalIgnoreCase) ||
+                        procPath.Contains("Launcher", StringComparison.OrdinalIgnoreCase) ||
+                        procName.Contains("Splash", StringComparison.OrdinalIgnoreCase))
+                    {
+                        alreadyProcessed.Add(hWnd);
+                        return true; // É launcher assumido! Pula pro próximo sem fazer nada.
+                    }
+                }
+                catch { }
+
+                // 2. VERIFICA COBERTURA DA TELA (Hands Off para jogos já grandes/fullscreen)
+                double coverage = (double)(r.Width * r.Height) / (double)(screenW * screenH);
+
+                if (coverage >= 0.80)
+                {
+                    alreadyProcessed.Add(hWnd);
+                    return false; // Achou a janela principal, para de procurar.
+                }
+
+                // 3. Dá pra redimensionar?
+                int style = GetWindowLong(hWnd, GWL_STYLE);
+                bool canResize = (style & WS_THICKFRAME) != 0 || (style & WS_MAXIMIZEBOX) != 0;
+
+                if (!canResize)
+                {
+                    // Se é menor que 80% da tela e NÃO tem botão de maximizar...
+                    // É um Launcher de janela fixa ou caixa de diálogo
+                    alreadyProcessed.Add(hWnd);
+                    return true; 
+                }
+
+                // 4. MAXIMIZAÇÃO SEGURA (É janela de jogo, dá pra esticar)
+                alreadyProcessed.Add(hWnd);
+
+                // Doorpi vai pra trás
+                SetWindowPos(_mainWindowHandle, HWND_NOTOPMOST, 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+
+                FocusExternalWindow(hWnd);
+
+                // Pede com educação pro Windows maximizar a janela
+                SetWindowPos(hWnd, HWND_TOP, 0, 0, screenW, screenH, 0);
+                ShowWindow(hWnd, 3); 
+
+                return false; // Achou a janela e maximizou, fim!
+            }, IntPtr.Zero);
+        }
         private async Task MonitorGameLaunchAsync(
-     GameModel game,
-     HashSet<IntPtr> windowSnapshot,
-     CancellationToken token)
+      GameModel game,
+      HashSet<IntPtr> windowSnapshot,
+      CancellationToken token)
         {
             try
             {
                 bool doorpiHidden = false;
+                var alreadyProcessed = new HashSet<IntPtr>();
                 int missingChecks = 0;
                 var startedUtc = DateTime.UtcNow;
+
+                string lockedProcessName = ""; // Variável para o "Lock-on" no executável
 
                 while (!token.IsCancellationRequested && !_launchCancelled)
                 {
@@ -3434,12 +3524,23 @@ namespace Doorpi
                     {
                         missingChecks = 0;
 
+                        // LOCK-ON: Salva o nome do processo da tela de jogo quando ela aparece
+                        if (string.IsNullOrEmpty(lockedProcessName))
+                        {
+                            try
+                            {
+                                GetWindowThreadProcessId(candidates[0], out uint pidRaw);
+                                var proc = Process.GetProcessById((int)pidRaw);
+                                lockedProcessName = SafeProcessName(proc);
+                            }
+                            catch { }
+                        }
+
                         if (!doorpiHidden)
                         {
-                            if (_launchCancelled) return; // usuário cancelou enquanto janela aparecia
+                            if (_launchCancelled) return;
 
-                            SendGameLaunchStatus("gameLaunchReady",
-                                game.Name, game.HeroImage ?? "", game.GridImage ?? "");
+                            SendGameLaunchStatus("gameLaunchReady", game.Name, game.HeroImage ?? "", game.GridImage ?? "");
 
                             await EnsureMinimumAnimationTimeAsync(token).ConfigureAwait(false);
                             if (token.IsCancellationRequested || _launchCancelled) return;
@@ -3448,49 +3549,68 @@ namespace Doorpi
                             _gameIsRunningAndDoorpiHidden = true;
 
                             SendDoorpiToBackground();
-                            IntPtr gameHwnd = candidates[0];
 
-                            // --- NOVO: ATTACH WATCHDOG AO PROCESSO REAL DO JOGO ---
-                            try
+                            Dispatcher.Invoke(() =>
                             {
-                                GetWindowThreadProcessId(gameHwnd, out uint realPid);
-                                if (realPid > 0)
+                                // VERIFICAÇÃO DO SUSPEITO 1: A janela já está do tamanho certo?
+                                if (GetWindowRect(candidates[0], out RECT r))
                                 {
-                                    Process realGameProcess = Process.GetProcessById((int)realPid);
+                                    int screenW = (int)SystemParameters.PrimaryScreenWidth;
+                                    int screenH = (int)SystemParameters.PrimaryScreenHeight;
+                                    double coverage = (double)(r.Width * r.Height) / (double)(screenW * screenH);
 
-                                    // Substitui a referência do Launcher pelo Game Real
-                                    _pendingLaunchProcess = realGameProcess;
-
-                                    Task.Run(() => {
-                                        try
-                                        {
-                                            realGameProcess.WaitForExit();
-                                            Dispatcher.Invoke(() => {
-                                                if (webView?.CoreWebView2 != null)
-                                                {
-                                                    webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"appProcessDied\"}");
-                                                }
-                                            });
-                                        }
-                                        catch { }
-                                    });
+                                    // Se for menor que 80% da tela, nós tentamos focar/trazer pra frente
+                                    if (coverage < 0.80)
+                                    {
+                                        FocusExternalWindow(candidates[0]);
+                                    }
+                                    // Se for >= 0.80 (Fullscreen ou Janela Maximizada), NÃO FAZEMOS NADA
+                                    // Deixamos a engine do DirectX assumir o controle em paz.
                                 }
-                            }
-                            catch { }
-                            // ------------------------------------------------------
+                                else
+                                {
+                                    // Fallback caso GetWindowRect falhe
+                                    FocusExternalWindow(candidates[0]);
+                                }
+                            });
 
-                            Dispatcher.Invoke(() => FocusExternalWindow(gameHwnd));
                             SendGameLaunchStatus("gameLaunchDone");
-
                         }
+                    }
+                    else if (!doorpiHidden)
+                    {
+                        // Qualquer janela nova: tenta foco + fullscreen/maximize
+                        Dispatcher.Invoke(() => TryFocusAndMaximizeNewWindow(windowSnapshot, alreadyProcessed));
                     }
                     else if (doorpiHidden)
                     {
-                        missingChecks++;
-                        if (missingChecks >= 4)
+                        // A TELA DE JOGO SUMIU: Verifica se o processo travado ainda está vivo
+                        bool isProcessStillAlive = false;
+
+                        if (!string.IsNullOrEmpty(lockedProcessName))
                         {
-                            Dispatcher.Invoke(() => ForceFocus());
-                            return;
+                            // Busca se existe QUALQUER processo com esse nome rodando (The witcher troca de um pro outro)
+                            if (Process.GetProcessesByName(lockedProcessName).Length > 0)
+                            {
+                                isProcessStillAlive = true;
+                            }
+                        }
+
+                        if (isProcessStillAlive)
+                        {
+                            // O executável está vivo (trocando de tela, piscando DirectX, etc). 
+                            // Reseta os checks e aguarda a nova janela aparecer!
+                            missingChecks = 0;
+                        }
+                        else
+                        {
+                            // O executável REALMENTE fechou. Começa a contagem original super rápida.
+                            missingChecks++;
+                            if (missingChecks >= 4)
+                            {
+                                Dispatcher.Invoke(() => ForceFocus());
+                                return;
+                            }
                         }
                     }
 
@@ -3500,7 +3620,6 @@ namespace Doorpi
             catch (OperationCanceledException) { }
             catch (Exception ex) { Debug.WriteLine($"[GameLaunchMonitor] {ex.Message}"); }
         }
-
         // ── Session tracking ──────────────────────────────────────────────────────
         private DateTime _sessionStartUtc = DateTime.MinValue;
         private string _activeSessionGameId = "";

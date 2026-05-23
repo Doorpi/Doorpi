@@ -157,9 +157,10 @@ window.addEventListener('focus', () => {
 window.addEventListener('blur', () => {
     window._isDoorpiFocused = false;
     const btn = document.getElementById('overlayCancelLaunchBtn');
-    if (btn) {
+    if (btn && document.activeElement === btn) {
         btn.blur();
     }
+
     window._stopSystemAudio();
 });
 
@@ -495,30 +496,27 @@ window.chrome.webview.addEventListener('message', event => {
             if (window.AppStore) window.AppStore.mutations.setBatch('games', data.games || []);
         }
         // app.js — handler de mensagens do C#
-        // No switch de tratamento de dados vindo do host (webview.addEventListener):
         else if (data.type === 'windowFocused') {
             window.isGameLaunchActive = false;
             window._doorpiGameInputSuppressedUntil = 0;
 
-            // Sincroniza o estado de vida do processo vindo do C#
             if (data.appAlive !== undefined) {
                 window._isExternalAppRunning = data.appAlive;
             }
 
             window._isDoorpiFocused = true;
 
-            // Controle definitivo de música no Alt+Tab
             if (window._isExternalAppRunning) {
                 window._stopSystemAudio();
+
             } else {
                 window._startSystemAudio(true);
-            }
-
-            if (typeof GameLaunchOverlay !== 'undefined') {
-                GameLaunchOverlay.hide();
-            }
-            if (!window._vkbIsOpen) {
-                recoverGlobalFocus();
+                if (typeof GameLaunchOverlay !== 'undefined') {
+                    GameLaunchOverlay.hide();
+                }
+                if (!window._vkbIsOpen) {
+                    recoverGlobalFocus();
+                }
             }
         }
         else if (data.type === 'appProcessDied') {
@@ -737,13 +735,7 @@ window.chrome.webview.addEventListener('message', event => {
         else if (data.type === 'userSwitchComplete') {
             _userSwitchFadeIn();
         }
-        else if (data.type === 'gameLaunchReady') {
-            window._isExternalAppRunning = true;
-            window._stopSystemAudio();
-            window.isMediaAppActive = true; 
-            GameLaunchOverlay.setRunning();
-        GameLaunchOverlay.setRunning();
-        }
+
         else if (data.type === 'gameLaunchFailed') {
             window._isExternalAppRunning = false; // Falhou, pode desmutar
             window.isGameLaunchActive = false;
@@ -4143,25 +4135,16 @@ const GameLaunchOverlay = (() => {
             if (overlay.classList.contains('state-loading')) {
                 statusEl.textContent = text.waiting;
 
-                // Exibe o botão de cancelar SOMENTE se o Doorpi ainda for a janela ativa
-                if (window.isDoorpiFocused) {
-                    cancelBtn.style.display = 'inline-flex';
-
-                    setTimeout(() => {
-                        cancelBtn.style.opacity = '1';
-                        if (typeof updateGamepadUI === 'function') {
-                            updateGamepadUI(isGamepadConnected, _controllerType);
-                        }
-
-                        // Verifica o foco de novo no milissegundo de aplicar o focus nativo
-                        if (window.isDoorpiFocused && cancelBtn.style.display !== 'none') {
-                            cancelBtn.focus();
-                        } else {
-                            cancelBtn.style.display = 'none';
-                            cancelBtn.style.opacity = '0';
-                        }
-                    }, 50);
-                }
+               
+                cancelBtn.style.display = 'inline-flex';
+                setTimeout(() => {
+                    cancelBtn.style.opacity = '1';
+                    if (typeof updateGamepadUI === 'function') {
+                        updateGamepadUI(isGamepadConnected, _controllerType);
+                    }
+                    
+                    cancelBtn.focus();
+                }, 50);
             }
         }, 3500);
     }
@@ -4170,6 +4153,14 @@ const GameLaunchOverlay = (() => {
         const text = getI18n();
         const el = document.getElementById('overlayRunningText');
         if (el) el.textContent = text.running;
+
+
+        const cancelBtn = document.getElementById('overlayCancelLaunchBtn');
+        if (cancelBtn) {
+            cancelBtn.style.opacity = '0';
+            setTimeout(() => { cancelBtn.style.display = 'none'; }, 300);
+        }
+
         setState('running');
     }
 
