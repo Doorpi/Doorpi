@@ -1745,6 +1745,7 @@ namespace Doorpi
             {
                 while (ShowCursor(true) < 0) { }
                 _mainScreenMouseVisible = true;
+                CenterCursorOnScreen();
                 UpdateHoverStateInWebView(); // Devolve controle do hover se for Mídia
             });
 
@@ -7073,7 +7074,12 @@ namespace Doorpi
 
                        
                             SendGameLaunchStatus("gameLaunching", mediaName, heroImg, gridImg);
-
+                            Dispatcher.Invoke(() =>
+                            {
+                                EnsureCursorVisible();
+                                _mainScreenMouseVisible = true;
+                                CenterCursorOnScreen(); 
+                            });
                             _ = Dispatcher.InvokeAsync(async () => await OpenWebViewInlineAsync(mediaUrl, mediaUrl.Contains("youtube.com"), mediaName, heroImg, gridImg));
                         }
                         else if (appType == "exe")
@@ -7115,7 +7121,9 @@ namespace Doorpi
                                             if (IsIconic(hwnd)) ShowWindow(hwnd, 9);
                                             ShowWindow(hwnd, 3);
                                             FocusExternalWindow(hwnd);
-
+                                            EnsureCursorVisible();
+                                            _mainScreenMouseVisible = true;
+                                            CenterCursorOnScreen();
                                             // Cria um novo watcher apenas se for um processo achado de fora
                                             if (_mediaExeProcess?.Id != existingProc.Id)
                                             {
@@ -7595,6 +7603,11 @@ namespace Doorpi
                             {
                                 ReleaseAllStuckKeys();
 
+                                // LIBERA O MOUSE PARA O JOGO/LAUNCHER IMEDIATAMENTE
+                                EnsureCursorVisible();
+                                _mainScreenMouseVisible = true;
+                                CenterCursorOnScreen();
+
                                 // CENÁRIO 1: O Jogo Real já havia sido detectado antes de minimizar.
                                 if (_currentGameHwnd != IntPtr.Zero && IsWindowVisible(_currentGameHwnd))
                                 {
@@ -7612,10 +7625,9 @@ namespace Doorpi
                                 {
                                     Debug.WriteLine("[DEBUG RESTORE] Jogo real ainda não detectado. Restaurando launcher e reativando modal de busca.");
 
-                                    // AQUI ESTÁ A MÁGICA: Manda exibir o Overlay dizendo pro JS que é um Restore!
                                     SendGameLaunchStatus("gameLaunching", game.Name, game.HeroImage ?? "", game.GridImage ?? "", "restore");
 
-                                    _gameIsRunningAndDoorpiHidden = false; // Doorpi continua rodando o MonitorGameLaunchAsync (heurísticas)
+                                    _gameIsRunningAndDoorpiHidden = false;
 
                                     IntPtr hwndToRestore = IntPtr.Zero;
 
@@ -7784,6 +7796,7 @@ namespace Doorpi
                                 {
                                     EnsureCursorVisible();
                                     _mainScreenMouseVisible = true;
+                                    CenterCursorOnScreen(); 
                                 });
                             }
                             else
@@ -8167,6 +8180,11 @@ namespace Doorpi
             string? currentDir = null;
             DateTime lastMoveTime = DateTime.MinValue;
             ushort prevButtons = 0;
+
+            // Variáveis de controle para o Combo (L1 + R1 + Select)
+            bool isHoldingMinimizeCombo = false;
+            DateTime minimizeComboStartTime = DateTime.MinValue;
+
             while (_mainUiGamepadActive)
             {
                 try
@@ -8175,21 +8193,43 @@ namespace Doorpi
                                             (DateTime.UtcNow.Ticks - Interlocked.Read(ref _focusRestoredAtTicks))
                                             < TimeSpan.FromSeconds(2).Ticks;
 
-                  
-                    bool isLaunchingOrRunning = (_gameSessionActive && !_gameIsMinimized) || _mediaExeModeActive || _mediaMouseActive || _systemControllerActive || IsMainUiGamepadSuspendedForGame();
+                    bool isLaunchingOrRunning = (_gameSessionActive && !_gameIsMinimized) || _mediaExeModeActive || _launcherMouseActive || _systemControllerActive || IsMainUiGamepadSuspendedForGame();
 
-                    if (_systemControllerActive || _dialogModeActive || _mediaMouseActive || !foregroundOk || isLaunchingOrRunning)
+                    if (_systemControllerActive || _dialogModeActive || _launcherMouseActive || !foregroundOk || isLaunchingOrRunning)
                     {
-    
+                        // QUANDO O JOGO ESTÁ RODANDO
                         if (_gameSessionActive && !_gameIsMinimized)
                         {
                             if (XInputGetStateSecret(0, out var snap) == 0)
                             {
                                 ushort snapBtn = snap.Gamepad.wButtons;
+
+                                // 1. Botão Xbox (Minimiza instantâneo)
                                 if ((snapBtn & 0x0400) != 0 && (prevButtons & 0x0400) == 0)
                                 {
                                     Dispatcher.Invoke(() => MinimizeCurrentGameAndRestoreDoorpi());
                                 }
+
+                                // 2. Combo: L1 (0x0100) + R1 (0x0200) + Select (0x0020) = 0x0320
+                                if ((snapBtn & 0x0320) == 0x0320)
+                                {
+                                    if (!isHoldingMinimizeCombo)
+                                    {
+                                        isHoldingMinimizeCombo = true;
+                                        minimizeComboStartTime = DateTime.UtcNow;
+                                    }
+                                    // Se segurou por 1 segundo (1000ms)
+                                    else if ((DateTime.UtcNow - minimizeComboStartTime).TotalMilliseconds >= 1000)
+                                    {
+                                        isHoldingMinimizeCombo = false; // Reseta para não disparar múltiplas vezes
+                                        Dispatcher.Invoke(() => MinimizeCurrentGameAndRestoreDoorpi());
+                                    }
+                                }
+                                else
+                                {
+                                    isHoldingMinimizeCombo = false; // Soltou algum botão, cancela a contagem
+                                }
+
                                 prevButtons = snapBtn;
                             }
                         }
@@ -8258,6 +8298,12 @@ namespace Doorpi
                 catch (Exception ex) { Debug.WriteLine($"[MainUiGamepad] {ex.Message}"); }
                 Thread.Sleep(10);
             }
+        }
+        private void CenterCursorOnScreen()
+        {
+            int centerX = (int)(System.Windows.SystemParameters.PrimaryScreenWidth / 2);
+            int centerY = (int)(System.Windows.SystemParameters.PrimaryScreenHeight / 2);
+            SetCursorPos(centerX, centerY);
         }
         private void CleanupAndExit()
         {
