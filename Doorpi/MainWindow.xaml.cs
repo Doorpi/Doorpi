@@ -203,7 +203,11 @@ namespace Doorpi
         private const uint SWP_NOMOVE = 0x0002;
         private const uint SWP_NOSIZE = 0x0001;
         private const uint SWP_NOACTIVATE = 0x0010;
+        [DllImport("winmm.dll")]
+        private static extern uint timeBeginPeriod(uint uPeriod);
 
+        [DllImport("winmm.dll")]
+        private static extern uint timeEndPeriod(uint uPeriod);
         [DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
 
@@ -310,10 +314,10 @@ namespace Doorpi
         public MainWindow()
         {
             this.Closing += (s, e) =>
-            {
+            {       
                 StopMainScreenMouseWatch(); // Desliga os verificadores de mouse de segundo plano
                 ReleaseAllStuckKeys();
-                
+                timeEndPeriod(1);
             };
             InitializeComponent();
 
@@ -592,7 +596,7 @@ namespace Doorpi
 
             // Configurações de Produção 
 
-
+            timeBeginPeriod(1);
             StartWatchers();
             _ = Task.Run(WatchWindowsRegistry);
         }
@@ -1320,7 +1324,7 @@ namespace Doorpi
                 }
                 catch (Exception ex) { Debug.WriteLine($"[SharedGamepadLoop] {ex.Message}"); }
 
-                Thread.Sleep(10);
+                Thread.Sleep(1);
             }
 
             // GARANTIA ANTI-TRAVAMENTO DE MOUSE VIRTUAL
@@ -1510,8 +1514,7 @@ namespace Doorpi
                     {
                         if (token.IsCancellationRequested || !_mediaExeModeActive) return;
 
-                        // APENAS FOQUE E RESTAURE! Removido o "ShowWindow(hwnd, 3)" que quebrava o Discord.
-                        // Deixe o app lidar com o próprio tamanho de janela.
+                        ShowWindow(hwnd, 3); // SW_MAXIMIZE
                         FocusExternalWindow(hwnd);
                         return;
                     }
@@ -6802,7 +6805,8 @@ namespace Doorpi
                                         {
                                             FileName = mediaUrl,
                                             UseShellExecute = true,
-                                            WorkingDirectory = Path.GetDirectoryName(mediaUrl)
+                                            WorkingDirectory = Path.GetDirectoryName(mediaUrl),
+                                            WindowStyle = ProcessWindowStyle.Maximized  
                                         });
                                     }
                                     else if (!string.IsNullOrWhiteSpace(mediaUrl))
