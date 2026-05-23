@@ -179,7 +179,7 @@ namespace Doorpi
         private System.Threading.Timer? _mouseIdleTimer;
         private System.Threading.Timer? _mousePollTimer;
         private const int MOUSE_IDLE_MS = 3000;
-
+        private static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2); 
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
@@ -1567,7 +1567,8 @@ namespace Doorpi
                             {
                                 if (this.Topmost) this.Topmost = false;
                                 // Empurra o Doorpi para o fundo da pilha Z-order, atrás de todos os apps
-                                SetWindowPos(_mainWindowHandle, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                                SetWindowPos(_mainWindowHandle, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+
                             });
 
                             SendGameLaunchStatus("gameLaunchDone");
@@ -3578,11 +3579,10 @@ namespace Doorpi
             Dispatcher.BeginInvoke(() =>
             {
                 if (!_gameSessionActive) return;
-
                 if (this.Topmost) this.Topmost = false;
 
-                // Joga o Doorpi para trás do jogo sem precisar minimizar
-                SetWindowPos(_mainWindowHandle, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                SetWindowPos(_mainWindowHandle, HWND_NOTOPMOST, 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             });
         }
         private static int SafeProcessId(Process? process)
