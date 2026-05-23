@@ -154,7 +154,7 @@ namespace Doorpi
                     bool Held(ushort m) => (btn & m) != 0;
 
                     // ════════════════════════════════════════════════════════
-                    if (Held(XI_GUIDE) || (Held(XI_START) && Held(XI_BACK)))
+                    if (Held(XI_GUIDE))
                     {
                         Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil,
                             DateTime.UtcNow.AddMilliseconds(350).Ticks);
@@ -173,13 +173,10 @@ namespace Doorpi
                             {
                                 _webAppWindow.WindowState = WindowState.Minimized;
                             }
-                            else
-                            {
-                                CloseYouTubeInline();
-                            }
+                            ForceFocus();
                         });
                         prevButtons = btn;
-                        Thread.Sleep(100); 
+                        Thread.Sleep(100);
                         continue;
                     }
 

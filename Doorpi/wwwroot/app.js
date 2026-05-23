@@ -727,7 +727,8 @@ window.chrome.webview.addEventListener('message', event => {
             window._isExternalAppRunning = true;
             window._stopSystemAudio();
             window.isMediaAppActive = true;
-            GameLaunchOverlay.show(data.gameName, data.heroImage, data.gridImage);
+
+            GameLaunchOverlay.show(data.gameName, data.heroImage, data.gridImage, data.reason === 'restore');
         }
         else if (data.type === 'userSwitchStart') {
             _userSwitchFadeOut();
@@ -4115,13 +4116,10 @@ const GameLaunchOverlay = (() => {
       </svg>`;
     }
 
-    function show(gameName, heroImage, gridImage) {
+    function show(gameName, heroImage, gridImage, isRestore = false) {
         const text = getI18n();
         nameEl.textContent = gameName || '';
-        statusEl.textContent = text.opening;
         cancelBtn.innerHTML = `<span>${text.cancel}</span>`;
-        cancelBtn.style.display = 'none';
-        cancelBtn.style.opacity = '0';
 
         if (bg) bg.style.backgroundImage = heroImage ? `url('${heroImage}')` : 'none';
         setArt(gridImage);
@@ -4129,24 +4127,35 @@ const GameLaunchOverlay = (() => {
 
         overlay.style.pointerEvents = 'all';
         overlay.classList.add('visible');
-
         if (overlay._waitTimer) clearTimeout(overlay._waitTimer);
-        overlay._waitTimer = setTimeout(() => {
-            if (overlay.classList.contains('state-loading')) {
-                statusEl.textContent = text.waiting;
 
-               
-                cancelBtn.style.display = 'inline-flex';
-                setTimeout(() => {
-                    cancelBtn.style.opacity = '1';
-                    if (typeof updateGamepadUI === 'function') {
-                        updateGamepadUI(isGamepadConnected, _controllerType);
-                    }
-                    
-                    cancelBtn.focus();
-                }, 50);
-            }
-        }, 3500);
+        if (isRestore) {
+            statusEl.textContent = text.waiting;
+            cancelBtn.style.display = 'inline-flex';
+            cancelBtn.style.opacity = '1';
+
+            setTimeout(() => {
+                if (typeof updateGamepadUI === 'function') updateGamepadUI(isGamepadConnected, _controllerType);
+                cancelBtn.focus();
+            }, 50);
+        } else {
+            // Fluxo normal (novo lançamento)
+            statusEl.textContent = text.opening;
+            cancelBtn.style.display = 'none';
+            cancelBtn.style.opacity = '0';
+
+            overlay._waitTimer = setTimeout(() => {
+                if (overlay.classList.contains('state-loading')) {
+                    statusEl.textContent = text.waiting;
+                    cancelBtn.style.display = 'inline-flex';
+                    setTimeout(() => {
+                        cancelBtn.style.opacity = '1';
+                        if (typeof updateGamepadUI === 'function') updateGamepadUI(isGamepadConnected, _controllerType);
+                        cancelBtn.focus();
+                    }, 50);
+                }
+            }, 3500);
+        }
     }
 
     function setRunning() {
