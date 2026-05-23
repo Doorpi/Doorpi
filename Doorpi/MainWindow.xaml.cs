@@ -7513,6 +7513,11 @@ namespace Doorpi
                                 StartGameLaunchMonitor(game, launched, processSnapshot);
                                 _sessionStartUtc = DateTime.UtcNow;
                                 _activeSessionGameId = identifier;
+                                Dispatcher.Invoke(() =>
+                                {
+                                    EnsureCursorVisible();
+                                    _mainScreenMouseVisible = true;
+                                });
                             }
                             else
                             {
