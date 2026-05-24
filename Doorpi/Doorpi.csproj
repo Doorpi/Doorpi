@@ -72,6 +72,9 @@
     <None Update="wwwroot\navigation.js">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="wwwroot\sounds\nav.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="wwwroot\store.js">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

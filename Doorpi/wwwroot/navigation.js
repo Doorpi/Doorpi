@@ -1094,3 +1094,37 @@ document.getElementById('btnAddMedia')?.addEventListener('click', () => {
         }
     }, 50);
 });
+// =============================================================================
+// SISTEMA DE ÁUDIO SIMPLES (UI SOUNDS)
+// =============================================================================
+const DoorpiAudio = {
+    // Caminho do som (adicione seus sons na pasta wwwroot/sounds)
+    // Para testar, basta trocar o nome do arquivo aqui.
+    navSoundSrc: '/sounds/nav.wav', // Pode ser .wav, .mp3 ou .ogg
+    volume: 0.6, // Volume de 0.0 a 1.0 (recomendo baixo para não irritar)
+
+    playNav: function () {
+        if (!this.navSoundSrc) return;
+
+        try {
+            // Criamos uma nova instância a cada play. 
+            // Isso permite a "sobreposição" de sons se o usuário rolar muito rápido.
+            const snd = new Audio(this.navSoundSrc);
+            snd.volume = this.volume;
+            snd.play().catch(() => { });
+        } catch (e) {
+            console.error("Erro ao tocar som de navegação:", e);
+        }
+    }
+};
+
+// Atrela o som a QUALQUER mudança de foco na interface
+document.addEventListener('focusin', (e) => {
+    // Evita tocar som na primeira vez que a tela carrega (opcional)
+    if (window.isGlobalLoading) return;
+
+    // Toca o som apenas se o elemento focado for navegável (botões, inputs, cards)
+    if (e.target && (e.target.tabIndex >= 0 || e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT')) {
+        DoorpiAudio.playNav();
+    }
+});
