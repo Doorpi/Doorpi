@@ -355,11 +355,10 @@ namespace Doorpi
                     }
                 }
                 catch { }
-
                 // USA A FUNÇÃO INTELIGENTE DE MÍDIA
                 if (!isAppAlive) isAppAlive = IsMediaAppAlive();
 
-            
+                // NOVO: Liga o radar
                 if (isAppAlive)
                 {
                     MonitorBackgroundAppDeath();
@@ -371,14 +370,13 @@ namespace Doorpi
 
                 if (_ytWebView != null && _ytWebView.Visibility == Visibility.Visible)
                     isAppAlive = true;
-
                 if (_gameSessionActive)
                 {
                     if (!_gameIsRunningAndDoorpiHidden)
                         return;
 
                     lock (_gameLaunchMonitorLock) { _gameLaunchMonitorCts?.Cancel(); }
-                    ForceFocus();
+                    ForceFocus(); 
                     return;
                 }
 
@@ -3321,7 +3319,8 @@ namespace Doorpi
 
             try
             {
-
+                // Busca APENAS pelo nome do processo. Se ele existir na memória 
+                // (mesmo sem janela, na bandeja do Windows), consideramos que está vivo!
                 string exeName = Path.GetFileNameWithoutExtension(_mediaExeCurrentUrl);
                 if (!string.IsNullOrEmpty(exeName))
                 {
@@ -3372,23 +3371,12 @@ namespace Doorpi
             // USA A FUNÇÃO INTELIGENTE DE MÍDIA
             if (!isExternalAlive) isExternalAlive = IsMediaAppAlive();
 
-           
-            if (isExternalAlive)
-            {
-                MonitorBackgroundAppDeath();
-            }
-            else
-            {
-                _backgroundAppMonitorCts?.Cancel();
-            }
-
             Dispatcher.BeginInvoke(() =>
             {
                 // Continua normal daqui pra baixo...
                 bool isAppAlive = isExternalAlive;
                 if (_ytWebView != null && _ytWebView.Visibility == Visibility.Visible)
                     isAppAlive = true;
-    
 
                 var hwnd = _mainWindowHandle != IntPtr.Zero
                     ? _mainWindowHandle
