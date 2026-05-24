@@ -290,7 +290,8 @@ window.applyRuntimeStateToCard = function applyRuntimeStateToCard(card) {
 };
 
 function refreshRuntimeCards() {
-    document.querySelectorAll('.card:not(.add-card)').forEach(card => window.applyRuntimeStateToCard(card));
+
+    document.querySelectorAll('.card:not(.add-card), .nav-vertical-card').forEach(card => window.applyRuntimeStateToCard(card));
 }
 
 // ── TRAVA DE SEGURANÇA DA INTRO ────────────────────────────────────────

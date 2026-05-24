@@ -1155,12 +1155,10 @@ window.isNavMenuOpen = false;
             });
 
             grid.appendChild(card);
-
-            // <-- CORREÇÃO: Adicionamos o elemento visual (card) à lista focável
             _contentItems.push(card);
         });
 
-
+        if (typeof refreshRuntimeCards === 'function') refreshRuntimeCards();
     }
 
     // ── Launch ────────────────────────────────────────────────────────────────

@@ -26,26 +26,185 @@ let _currentHomeTab = 'games';
     s.textContent = `
 
     /* Badge de NOVO fixo e visível */
-.card.new-game {
-    position: relative;
-    /* Garante que o container tenha contexto para o ::before */
+/* ==========================================================================
+   RUNTIME BADGES - CONFIGURAÇÃO GERAL (TVS & RESPONSIVO)
+   ========================================================================= */
+
+/* 1. Evita que os cantos arredondados do card principal e nav menu quebrem ao usar overflow: visible */
+.card.is-running img,
+.card.is-running::after,
+.nav-vertical-card.is-running img,
+.nav-vertical-card.is-running::after {
+    border-radius: inherit !important;
 }
 
-.card.new-game::before {
-    content: attr(data-badge-new);
+/* 2. Permite que os badges flutuem para fora da borda (Inicial e Nav Menu) */
+.card.is-running,
+.nav-vertical-card.is-running {
+    overflow: visible !important;
+}
+
+/* ── BADGE TOPO: "Em Execução" ── */
+.runtime-badge-top {
     position: absolute;
-    top: 10px;
-    left: 10px;
-    z-index: 100; /* Prioridade máxima */
-    background: #fff;
-    color: #06060e;
-    font-size: 10px;
-    font-weight: 800;
-    letter-spacing: 0.1em;
-    padding: 3px 6px;
-    border-radius: 3px;
+    top: clamp(-36px, -3.5vh, -26px);
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    width: fit-content;
+    z-index: 15;
     pointer-events: none;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+
+    /* Pílula escura de alto contraste para leitura de sofá */
+    background: rgba(8, 8, 16, 0.65);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-radius: 4px;
+    padding: 4px 10px;
+
+    /* Tipografia para TVs */
+    font-size: clamp(11px, 0.75vw, 15px);
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.95);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+
+    animation: rt-top 0.22s ease both;
+}
+.runtime-badge-top::before { display: none !important; }
+
+@keyframes rt-top {
+    from { opacity: 0; transform: translateX(-50%) translateY(4px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* Alinhamento para o Card de Destaque (Featured - Horizontal) */
+.card.featured .runtime-badge-top {
+    left: clamp(10px, 0.94vw, 18px);
+    transform: none;
+    animation: rt-top-l 0.22s ease both;
+}
+@keyframes rt-top-l {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Evita colisão se houver o badge "NOVO" */
+.card:not(.featured).new-game.is-running .runtime-badge-top {
+    left: auto;
+    right: clamp(7px, 0.6vw, 10px);
+    transform: none;
+    animation: rt-top-r 0.22s ease both;
+}
+@keyframes rt-top-r {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── BADGE BOTTOM: "Retomar" ── */
+.runtime-badge-bottom {
+    position: absolute;
+    bottom: clamp(-29px, -3.5vh, -20px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 15;
+    pointer-events: none;
+    width: fit-content;
+    white-space: nowrap;
+
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+
+    font-size: clamp(11px, 0.8vw, 16px);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.5);
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+    background: transparent !important;
+
+    transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
+    animation: rt-bot 0.22s ease 0.06s both;
+}
+.runtime-badge-bottom::before {
+    content: '▶';
+    font-size: 0.8em;
+    opacity: 0.7;
+    line-height: 1;
+}
+@keyframes rt-bot {
+    from { opacity: 0; transform: translateY(3px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Foco do Retomar (Card Destaque - Horizontal) */
+.card.featured.is-running:focus .runtime-badge-bottom {
+    color: #fff;
+    text-shadow: 0 0 12px rgba(255, 255, 255, 0.35), 0 2px 6px rgba(0, 0, 0, 0.9);
+    transform: translateX(4px);
+}
+
+/* Ajusta Alinhamento Base do Card Destaque (Featured) */
+.card.featured .runtime-badge-bottom {
+    left: clamp(10px, 0.94vw, 18px);
+    transform: none;
+}
+
+/* Foco do Retomar (Card Vertical Grid Normal) - Zoom e acendimento */
+.card:not(.featured).is-running:focus .runtime-badge-bottom,
+.card:not(.featured).is-running.nav-focused .runtime-badge-bottom {
+    color: #fff;
+    text-shadow: 0 0 12px rgba(255, 255, 255, 0.35), 0 2px 6px rgba(0, 0, 0, 0.9);
+    transform: translateX(-50%) scale(1.1);
+}
+
+/* Card Vertical Grid: Centraliza e joga acima do título */
+.card:not(.featured) .runtime-badge-bottom {
+    left: 50%;
+    bottom: clamp(-38px, -3.5vh, -24px);
+    transform: translateX(-50%);
+    animation: rt-bot-c 0.22s ease 0.06s both;
+}
+@keyframes rt-bot-c {
+    from { opacity: 0; transform: translateX(-50%) translateY(3px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+
+/* ==========================================================================
+   AJUSTES ESPECÍFICOS PARA O NAV MENU (CARDS MENORES)
+   ========================================================================== */
+
+/* Top Badge no Nav Menu: DENTRO do card (2% do topo) e com proporções menores */
+.nav-vertical-card .runtime-badge-top {
+    top: 2% !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+
+    font-size: clamp(8px, 0.55vw, 11px) !important;
+    padding: 3px 7px !important;
+    border-radius: 3px !important;
+    background: rgba(8, 8, 16, 0.8) !important;
+}
+
+/* Bottom Badge no Nav Menu: FORA do card (embaixo), alinhado à esquerda no 0 */
+.nav-vertical-card .runtime-badge-bottom {
+    left: 0 !important;
+    bottom: clamp(-26px, -3.5vh, -17px) !important;
+    transform: none !important;
+
+    font-size: clamp(8px, 0.55vw, 11px) !important;
+}
+
+/* Foco do Retomar no Nav Menu: Apenas escala leve para o grid menor, sem deslizar lateralmente */
+.nav-vertical-card.is-running.nav-focused .runtime-badge-bottom,
+.nav-vertical-card.is-running:focus .runtime-badge-bottom {
+    color: #fff !important;
+    text-shadow: 0 0 8px rgba(255, 255, 255, 0.35), 0 1px 4px rgba(0, 0, 0, 0.9) !important;
+    transform: scale(1.05) !important;
 }
     .media-card-fallback {
         position: absolute;
@@ -90,7 +249,7 @@ let _currentHomeTab = 'games';
     .sys-app-row.active .sys-app-dot { width: 7px; height: 7px; box-shadow: 0 0 8px rgba(255,255,255,0.5); }
 
     /* ── Home Tabs ── */
-    .home-tabs { display: flex; align-items: center; gap: clamp(4px, 0.5vw, 8px); padding: 0 clamp(24px, 3.2vw, 64px); position: relative; z-index: 2; user-select: none; }
+    .home-tabs { display: flex; align-items: center; gap: clamp(4px, 0.5vw, 8px); padding: 0 clamp(24px, 3.2vw, 64px); position: relative; z-index: 2; user-select: none;margin-bottom:12px; }
     .home-tab { background: none; border: none; font-family: 'Outfit', sans-serif; font-size: clamp(0.82rem, 1.05vw, 1.3rem); font-weight: 700; text-transform: uppercase; letter-spacing: 0.11em; color: rgba(255,255,255,0.25); cursor: pointer; outline: none; padding: clamp(5px, 0.6vw, 9px) clamp(7px, 0.9vw, 14px); border-radius: 8px; transition: color 0.2s, background 0.2s; position: relative; }
     .home-tab::after { content: ''; position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%) scaleX(0); width: 65%; height: 2px; background: rgba(255,255,255,0.9); border-radius: 2px; transition: transform 0.28s cubic-bezier(0.22,1,0.36,1); }
     .home-tab.active { color: rgba(255,255,255,1); }

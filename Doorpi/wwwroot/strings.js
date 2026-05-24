@@ -346,10 +346,18 @@ const STRINGS = {
         launchErrTimeout: 'O jogo demorou demais para iniciar. Tente novamente.',
         launchErrGeneric: 'Verifique se o jogo está instalado corretamente.',
         launchCancelBtn: 'Retornar',
+
+        runningLabel: 'Em execução',
+        resumeLabel: 'Retomar',
+        ctxStart: 'Iniciar',
+        ctxCloseRunning: 'Fechar',
     },
 
     'en-US': {
-
+        runningLabel: 'Running',
+        resumeLabel: 'Resume',
+        ctxStart: 'Launch',
+        ctxCloseRunning: 'Close',
         // ---- Launch Overlay ----
         launchOpening: 'Starting',
         launchWaiting: 'Waiting for the game window...',

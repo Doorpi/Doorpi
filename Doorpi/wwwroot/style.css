@@ -57,46 +57,7 @@ body:not(.nav-menu-active) #heroImage {
     cursor: pointer !important;
 }
 
-.card.is-running::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border: 1px solid rgba(115, 210, 255, 0.56);
-    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08), 0 16px 42px rgba(58, 180, 255, 0.18);
-    pointer-events: none;
-    z-index: 6;
-}
 
-.runtime-badge-top,
-.runtime-badge-bottom {
-    position: absolute;
-    left: 10px;
-    right: 10px;
-    z-index: 8;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 24px;
-    padding: 4px 8px;
-    border-radius: 6px;
-    background: rgba(5, 12, 18, 0.76);
-    color: #eafaff;
-    font-size: 11px;
-    font-weight: 800;
-    text-transform: uppercase;
-    line-height: 1;
-    text-align: center;
-    backdrop-filter: blur(10px);
-}
-
-.runtime-badge-top {
-    top: 10px;
-    color: #9ce7ff;
-}
-
-.runtime-badge-bottom {
-    bottom: 10px;
-}
 /* ── Seção de pastas no system loading ── */
 .sys-section-sep {
     height: 1px;
@@ -135,11 +96,11 @@ body:not(.nav-menu-active) #heroImage {
     --card-featured-w: clamp(360px, min(34vw, 60.5vh), 920px);
     --card-radius: clamp(6px, min(0.63vw, 1.12vh), 20px);
     --card-gap: clamp(15px, min(1.78vw, 1.39vh), 30px);
-    --grid-pad-top: clamp(16px, min(2.3vw, 4.1vh), 36px);
+    --grid-pad-top: clamp(32px, min(4vw, 4.2vh), 43px);
     --grid-pad-side: clamp(24px, min(3.1vw, 5.5vh), 56px);
     --grid-pad-bottom: clamp(20px, min(3.03vw, 4.6vh), 120px);
     --logo-left: clamp(28px, min(2.81vw, 5vh), 88px);
-    --logo-bottom: clamp(220px, min(25vw, 42.9vh), 760px);
+    --logo-bottom: clamp(335px, min(26vw, 45.9vh), 821px);
     --logo-width: min(28%, 44vh);
     --topbar-pad-v: clamp(16px, min(1.72vw, 3.06vh), 54px);
     --topbar-pad-h: clamp(28px, min(2.81vw, 5vh), 88px);
@@ -407,6 +368,8 @@ body {
     z-index: 2;
     align-items: flex-end;
     pointer-events: auto;
+    box-shadow: inset -5px -15px 74px -37px black;
+    background: #00000017;
 }
 
     .game-grid::before,
