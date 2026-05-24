@@ -11,8 +11,6 @@ window._pendingExtensionUpdates = {};
 
 
 // ── SEAMLESS WEB AUDIO PLAYER (WAKE + LOOP COMBINADOS) ────────────────
-// ── SEAMLESS WEB AUDIO PLAYER (WAKE + LOOP COMBINADOS) ────────────────
-// ── SEAMLESS WEB AUDIO PLAYER (WAKE + LOOP COMBINADOS) ────────────────
 class SeamlessPlayer {
     constructor(maxVolume) {
         this.ctx = null;
@@ -116,7 +114,7 @@ class SeamlessPlayer {
     }
 }
 
-const MAX_AMBIENCE_VOLUME = 0.3;
+const MAX_AMBIENCE_VOLUME = 0.6;
 window._audioPlayer = new SeamlessPlayer(MAX_AMBIENCE_VOLUME);
 window._audioPlayer.init();
 
