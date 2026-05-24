@@ -249,6 +249,7 @@ const CardRenderer = (() => {
         const fallbackEl = card.querySelector('.media-card-fallback');
 
         titleEl.textContent = item.name;
+        window.applyRuntimeStateToCard?.(card);
 
         const staticSrc = isFeatured
             ? (item.staticHorizontal || item.horizontal || item.staticVertical || item.vertical)

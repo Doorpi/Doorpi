@@ -56,6 +56,47 @@ body:not(.nav-menu-active) #heroImage {
     pointer-events: auto !important;
     cursor: pointer !important;
 }
+
+.card.is-running::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border: 1px solid rgba(115, 210, 255, 0.56);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08), 0 16px 42px rgba(58, 180, 255, 0.18);
+    pointer-events: none;
+    z-index: 6;
+}
+
+.runtime-badge-top,
+.runtime-badge-bottom {
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    z-index: 8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 24px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: rgba(5, 12, 18, 0.76);
+    color: #eafaff;
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    line-height: 1;
+    text-align: center;
+    backdrop-filter: blur(10px);
+}
+
+.runtime-badge-top {
+    top: 10px;
+    color: #9ce7ff;
+}
+
+.runtime-badge-bottom {
+    bottom: 10px;
+}
 /* ── Seção de pastas no system loading ── */
 .sys-section-sep {
     height: 1px;

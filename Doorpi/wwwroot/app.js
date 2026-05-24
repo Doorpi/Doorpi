@@ -232,6 +232,67 @@ window.addEventListener('blur', () => {
 // Remove as propriedades complexas antigas (isMediaAppActive anterior)
 window.isMediaAppActive = false;
 
+window.DoorpiRuntimeState = {
+    running: []
+};
+
+function _runtimeCardKey(card) {
+    if (!card) return '';
+    return card.dataset.gameId || card.dataset.appUrl || card.dataset.appId || card.dataset.id || '';
+}
+
+function _runtimeEntryMatchesCard(entry, card) {
+    if (!entry || !card) return false;
+    const gameId = card.dataset.gameId || '';
+    const appId = card.dataset.appId || '';
+    const appUrl = card.dataset.appUrl || '';
+    return (!!entry.id && (entry.id === gameId || entry.id === appId || entry.id === card.dataset.id)) ||
+        (!!entry.url && entry.url === appUrl);
+}
+
+function _runtimeEntryForCard(card) {
+    return (window.DoorpiRuntimeState?.running || []).find(entry => _runtimeEntryMatchesCard(entry, card));
+}
+
+window.isCardRuntimeRunning = function isCardRuntimeRunning(card) {
+    return !!_runtimeEntryForCard(card);
+};
+
+window.applyRuntimeStateToCard = function applyRuntimeStateToCard(card) {
+    if (!card || card.classList.contains('add-card')) return;
+
+    const entry = _runtimeEntryForCard(card);
+    const isRunning = !!entry;
+    card.classList.toggle('is-running', isRunning);
+    card.dataset.runtimeStatus = isRunning ? (entry.status || 'running') : '';
+
+    let top = card.querySelector('.runtime-badge-top');
+    let bottom = card.querySelector('.runtime-badge-bottom');
+
+    if (isRunning) {
+        if (!top) {
+            top = document.createElement('div');
+            top.className = 'runtime-badge-top';
+            card.appendChild(top);
+        }
+        if (!bottom) {
+            bottom = document.createElement('div');
+            bottom.className = 'runtime-badge-bottom';
+            card.appendChild(bottom);
+        }
+
+        top.textContent = typeof t === 'function' ? t('runningLabel') : 'Em execução';
+        bottom.textContent = typeof t === 'function' ? t('resumeLabel') : 'Retomar';
+    } else {
+        top?.remove();
+        bottom?.remove();
+    }
+};
+
+function refreshRuntimeCards() {
+    document.querySelectorAll('.card:not(.add-card)').forEach(card => window.applyRuntimeStateToCard(card));
+}
+
 // ── TRAVA DE SEGURANÇA DA INTRO ────────────────────────────────────────
 function setupIntroCompleteHook() {
     const onIntroComplete = () => {
@@ -497,12 +558,18 @@ window.chrome.webview.addEventListener('message', event => {
         else if (data.type === 'windowFocused') {
             window.isGameLaunchActive = false;
             window._doorpiGameInputSuppressedUntil = 0;
+            window.isMediaAppActive = false;
 
             if (data.appAlive !== undefined) {
                 window._isExternalAppRunning = data.appAlive;
             }
 
             window._isDoorpiFocused = true;
+            window.isDoorpiFocused = true;
+
+            if (!window._vkbIsOpen) {
+                recoverGlobalFocus();
+            }
 
             if (window._isExternalAppRunning) {
                 window._stopSystemAudio();
@@ -512,17 +579,22 @@ window.chrome.webview.addEventListener('message', event => {
                 if (typeof GameLaunchOverlay !== 'undefined') {
                     GameLaunchOverlay.hide();
                 }
-                if (!window._vkbIsOpen) {
-                    recoverGlobalFocus();
-                }
             }
         }
         else if (data.type === 'appProcessDied') {
             window._isExternalAppRunning = false;
+            if (Array.isArray(data.running)) {
+                window.DoorpiRuntimeState.running = data.running;
+                refreshRuntimeCards();
+            }
             // Se o processo morreu e o Doorpi estiver focado na tela, retoma a música!
             if (window._isDoorpiFocused) {
                 window._startSystemAudio(true);
             }
+        }
+        else if (data.type === 'runtimeSessionsChanged') {
+            window.DoorpiRuntimeState.running = Array.isArray(data.running) ? data.running : [];
+            refreshRuntimeCards();
         }
         else if (data.type === 'windowLostFocus') {
             window._isDoorpiFocused = false;
@@ -2734,6 +2806,10 @@ const _ctxMenu = (() => {
     el.setAttribute('role', 'menu');
     el.innerHTML = `
         <div class="ctx-game-name" id="ctxGameName"></div>
+        <button class="ctx-item ctx-primary-action" id="ctxRuntimeAction" role="menuitem">
+            <span class="ctx-icon">▶</span> <span id="ctxRuntimeActionText">Iniciar</span>
+        </button>
+        <div class="ctx-separator"></div>
         <button class="ctx-item" id="ctxExtensions" role="menuitem">
             <span class="ctx-icon">+</span> <span data-i18n="manageExtensions">${t('manageExtensions')}</span>
         </button>
@@ -2769,6 +2845,16 @@ function _openCtxMenu(card, x, y) {
     const ctxEditBtn = _ctxMenu.querySelector('#ctxEdit');
     const ctxDeleteBtn = _ctxMenu.querySelector('#ctxDelete');
     const ctxSharingBtn = _ctxMenu.querySelector('#ctxSharing');
+    const ctxRuntimeBtn = _ctxMenu.querySelector('#ctxRuntimeAction');
+    const ctxRuntimeText = _ctxMenu.querySelector('#ctxRuntimeActionText');
+    const isRunning = window.isCardRuntimeRunning?.(card) === true;
+    if (ctxRuntimeBtn && ctxRuntimeText) {
+        ctxRuntimeBtn.classList.toggle('ctx-danger', isRunning);
+        ctxRuntimeText.textContent = isRunning
+            ? (typeof t === 'function' ? t('ctxCloseRunning') : 'Fechar')
+            : (typeof t === 'function' ? t('ctxStart') : 'Iniciar');
+        ctxRuntimeBtn.querySelector('.ctx-icon').textContent = isRunning ? '×' : '▶';
+    }
     const isBrowserMedia = (card.hasAttribute('data-app-id') || card.closest('#mediaGrid')) &&
         ['browser', 'webview'].includes((card.dataset.appType || 'browser').toLowerCase());
 
@@ -2822,8 +2908,7 @@ function _openCtxMenu(card, x, y) {
         _ctxMenu.classList.add('visible');
         isCtxMenuOpen = true;
 
-        if (isYoutube) (isBrowserMedia ? ctxSharingBtn : ctxCloseBtn)?.focus();
-        else ctxEditBtn?.focus();
+        ctxRuntimeBtn?.focus();
     });
 }
 function _closeCtxMenu() {
@@ -2858,6 +2943,25 @@ document.getElementById('ctxSharing').addEventListener('click', () => {
     const appId = card?.dataset.appId || card?.dataset.gameId || '';
     _closeCtxMenu();
     if (appId) window._navMenuOpenAccountSharing?.(appId);
+});
+
+document.getElementById('ctxRuntimeAction').addEventListener('click', () => {
+    const card = _ctxCard;
+    const isRunning = window.isCardRuntimeRunning?.(card) === true;
+    _closeCtxMenu();
+    if (!card) return;
+
+    if (isRunning) {
+        postToHost({
+            action: 'closeRunningItem',
+            id: card.dataset.gameId || card.dataset.appId || card.dataset.id || '',
+            url: card.dataset.appUrl || '',
+            channel: card.dataset.channel || '',
+            appType: card.dataset.appType || ''
+        });
+    } else {
+        card.click();
+    }
 });
 
 document.getElementById('ctxDelete').addEventListener('click', () => {

@@ -67,31 +67,15 @@ namespace Doorpi
         private const ushort XI_Y = 0x8000;
 
         // ── Campos ────────────────────────────────────────────────────────────
-        private Window? _webAppWindow;
-        private WebView2? _ytWebView;
-        private string _currentWebAppUrl = "";
-
-        private bool _ytClosing = false;
-        private bool _isCurrentSiteYouTube = false;
-        private bool _canUseXInputEx = true;
-        private bool _mediaMouseActive = false;
 
 
         // Estado VKB — sincronizado entre thread do controller e mensagens web
-        private volatile bool _vkbIsOpen = false;
-        private volatile WebView2? _vkbOwnerView = null;
-
-        private Window? _popupWindow;
-        private WebView2? _popupWebView;
-
-        private Thread? _mediaControllerThread;
 
         private const string YT_UA = "Mozilla/5.0 (PS4; Leanback Shell) Cobalt/26.lts.0-qa; compatible; Doorpi/1.6.1";
         private const string YT_TV_URL = "https://www.youtube.com/tv";
         private static readonly HttpClient _ytHttp = new();
         private Grid RootGrid => (Grid)this.Content;
 
-        private volatile bool _vkbHasFocus = false;
         // ── Controller thread ─────────────────────────────────────────────────
 
         private void StartMediaControllerMode()
@@ -1257,6 +1241,7 @@ namespace Doorpi
                 EnsureCursorVisible();
 
             StartMediaControllerMode();
+            SendRuntimeSessionsToUI();
         }
 
         private string GetBrowserProfileNameForUrl(string url, bool isYouTube)
@@ -1329,12 +1314,13 @@ namespace Doorpi
 
             try { _ytWebView.Dispose(); } catch { }
             _ytWebView = null;
-            _ytClosing = false;
+            ClearWebAppSession();
 
             webView.Visibility = Visibility.Visible;
             this.WindowState = WindowState.Maximized;
             ForceFocus();
             webView.CoreWebView2?.PostWebMessageAsString("{\"type\":\"mediaAppClosed\"}");
+            SendRuntimeSessionsToUI();
         }
 
         // ── Handlers ─────────────────────────────────────────────────────────
