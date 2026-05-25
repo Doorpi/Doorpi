@@ -4311,33 +4311,21 @@ namespace Doorpi
         {
             if (hwnd == IntPtr.Zero) return;
 
-            // Doorpi vai ao fundo sem ativar
+            // 1. Tira o Doorpi do modo "Sempre no topo"
+            if (this.Topmost) this.Topmost = false;
+
+            // 2. Doorpi vai pra trás sem roubar o foco (HWND_NOTOPMOST)
             SetWindowPos(_mainWindowHandle, HWND_NOTOPMOST, 0, 0, 0, 0,
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 
-            const byte VK_MENU = 0x12;
-
-            // ALT acorda DX9 exclusive fullscreen (Witcher 1, jogos antigos)
-            keybd_event(VK_MENU, 0, 0, UIntPtr.Zero);
-            keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-
+            // 3. Restaura o jogo de forma limpa e padrão do Windows
             if (IsIconic(hwnd)) ShowWindow(hwnd, 9); // SW_RESTORE
             else ShowWindow(hwnd, 5);                // SW_SHOW
 
+            // 4. Puxa o foco
             SwitchToThisWindow(hwnd, true);
             SetForegroundWindow(hwnd);
             BringWindowToTop(hwnd);
-
-            // Segunda tentativa assíncrona — cobre DX9 que só responde depois de processar
-            _ = Task.Run(async () =>
-            {
-                await Task.Delay(250);
-                keybd_event(VK_MENU, 0, 0, UIntPtr.Zero);
-                keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-                await Task.Delay(80);
-                SwitchToThisWindow(hwnd, true);
-                SetForegroundWindow(hwnd);
-            });
         }
 
         private void FocusExternalWindow(IntPtr hWnd)
