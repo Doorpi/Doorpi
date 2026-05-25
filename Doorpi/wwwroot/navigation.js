@@ -989,7 +989,6 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             else gamepadStart();
         }
         if (buttonJustPressed(buttons[GAMEPAD.BTN_TRIANGLE], GAMEPAD.BTN_TRIANGLE)) {
-            if (isModalOpen) gamepadAddFolder();
             gamepadTriangle();
         }
         if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) {

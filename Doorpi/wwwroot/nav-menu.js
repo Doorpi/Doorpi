@@ -225,100 +225,89 @@ window.isNavMenuOpen = false;
         requestAnimationFrame(() => overlay.classList.add('visible'));
     }
     function _renderSettingsSystem(body) {
-        // Solicita o estado real do C# assim que a tela abre
         if (typeof postToHost === 'function') postToHost({ action: 'requestBootMode' });
 
         const svgDesktop = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:20px;height:20px;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`;
 
         body.innerHTML = `
-            <div class="nav-settings-subheader">
-                <button class="nav-back-btn" id="setBackSystem" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
-                <h2>${_t('navSetSystem', 'Sistema')}</h2>
-            </div>
-            
-            <div style="max-width: 900px;">
-                <h3 style="font-size: 1.1rem; font-weight: 500; color: #fff; margin-bottom: 12px;">${_t('sysBootBehavior', 'Comportamento de Inicialização')}</h3>
-                
-                <div class="nav-radio-group">
-                    <button class="nav-radio-btn" data-mode="0" tabindex="-1">
-                        <div class="nav-radio-circle"></div>
-                        <div class="nav-radio-text">
-                            <strong>${_t('sysBootNoneTitle', 'Não Iniciar Automaticamente')}</strong>
-                            <span>${_t('sysBootNoneDesc', 'O aplicativo deve ser aberto manualmente pelo usuário.')}</span>
-                        </div>
-                    </button>
-                    
-                    <button class="nav-radio-btn" data-mode="1" tabindex="-1">
-                        <div class="nav-radio-circle"></div>
-                        <div class="nav-radio-text">
-                            <strong>${_t('sysBootRunTitle', 'Iniciar com Windows (Padrão)')}</strong>
-                            <span>${_t('sysBootRunDesc', 'Inicia junto com o sistema operacional, mantendo a Área de Trabalho acessível ao fundo.')}</span>
-                        </div>
-                    </button>
-                    
-                    <button class="nav-radio-btn" data-mode="2" tabindex="-1">
-                        <div class="nav-radio-circle"></div>
-                        <div class="nav-radio-text">
-                            <strong>${_t('sysBootShellTitle', 'Modo Console (Imersivo)')}</strong>
-                            <span>${_t('sysBootShellDesc', 'Substitui a Área de Trabalho e silencia o boot do Windows, criando uma experiência contínua e dedicada para a sua sala.')}</span>
-                        </div>
-                    </button>
-                </div>
+        <div class="nav-settings-subheader">
+            <button class="nav-back-btn" id="setBackSystem" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
+            <h2>${_t('navSetSystem', 'Sistema')}</h2>
+        </div>
 
-                <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px;">
-                    <div class="nav-netplwiz-box" id="navNetplwizNotice" style="margin-bottom: 0;">
-                        <div class="nav-netplwiz-text">
-                             <strong>${_t('sysSuggestion', 'Sugestão')}:</strong> ${_t('sysBootNoticeText', 'Para uma experiência autêntica de console, recomendamos desativar a opção "Exigir o Windows Hello" e remover seu PIN ou senha nas opções do Windows. Assim, o sistema fará login automático ligando direto no aplicativo.')}
-                        </div>
-                        <button class="nav-icon-btn nav-btn-primary" id="btnSignInOptions" tabindex="-1" style="flex-shrink: 0;">${_t('sysBootNoticeBtn', 'Opções de Entrada')}</button>
+        <div style="max-width: 900px;">
+            <h3 style="font-size:1.1rem;font-weight:500;color:#fff;margin-bottom:12px;">${_t('sysBootBehavior', 'Comportamento de Inicialização')}</h3>
+
+            <div class="nav-radio-group">
+                <button class="nav-radio-btn" data-mode="0" tabindex="-1">
+                    <div class="nav-radio-circle"></div>
+                    <div class="nav-radio-text">
+                        <strong>${_t('sysBootNoneTitle', 'Não Iniciar Automaticamente')}</strong>
+                        <span>${_t('sysBootNoneDesc', 'O aplicativo deve ser aberto manualmente pelo usuário.')}</span>
                     </div>
-
-                    <div class="nav-netplwiz-box" id="navTaskbarNotice" style="margin-bottom: 0;">
-                        <div class="nav-netplwiz-text">
-                             <strong>${_t('sysSuggestion', 'Sugestão')}:</strong> ${_t('sysTaskbarNoticeText', 'Para maior imersão, recomendamos configurar a Barra de Tarefas do Windows para "Ocultar automaticamente".')}
-                        </div>
-                        <button class="nav-icon-btn nav-btn-primary" id="btnTaskbarSettings" tabindex="-1" style="flex-shrink: 0;">${_t('sysTaskbarNoticeBtn', 'Barra de Tarefas')}</button>
+                </button>
+                <button class="nav-radio-btn" data-mode="1" tabindex="-1">
+                    <div class="nav-radio-circle"></div>
+                    <div class="nav-radio-text">
+                        <strong>${_t('sysBootRunTitle', 'Iniciar com Windows (Padrão)')}</strong>
+                        <span>${_t('sysBootRunDesc', 'Inicia junto com o sistema operacional, mantendo a Área de Trabalho acessível ao fundo.')}</span>
                     </div>
-                </div>
-
-                <h3 style="font-size: 1.1rem; font-weight: 500; color: #fff; margin-bottom: 12px; margin-top: 32px;">${_t('sysActionsHeader', 'Ações do Sistema')}</h3>
-                
-                <button class="nav-settings-card" id="btnEnterDesktop" tabindex="-1" style="width: 100%;">
-                    <div class="settings-card-icon" style="width:36px;height:36px;">${svgDesktop}</div>
-                    <div class="settings-card-info">
-                        <h3>${_t('sysActionDesktopTitle', 'Acessar Área de Trabalho')}</h3>
-                        <p>${_t('sysActionDesktopDesc', 'Minimiza o aplicativo temporariamente para que você possa atualizar o sistema ou gerenciar arquivos importantes. O seu controle funcionará como mouse e teclado neste modo.')}</p>
+                </button>
+                <button class="nav-radio-btn" data-mode="2" tabindex="-1">
+                    <div class="nav-radio-circle"></div>
+                    <div class="nav-radio-text">
+                        <strong>${_t('sysBootShellTitle', 'Modo Console (Imersivo)')}</strong>
+                        <span>${_t('sysBootShellDesc', 'Substitui a Área de Trabalho e silencia o boot do Windows, criando uma experiência contínua e dedicada para a sua sala.')}</span>
                     </div>
                 </button>
             </div>
-        `;
 
-        // Função global para ser chamada pelo WebMessageReceived
+            <div class="nav-suggestions-grid" id="navSuggestionsGrid">
+                <button class="nav-suggestion-card" id="navCardSignIn" tabindex="-1">
+                    <div class="nav-suggestion-card-btn">${_t('sysBootNoticeBtn', 'Opções de Entrada')}</div>
+                    <span class="nav-suggestion-card-text">${_t('sysBootNoticeText', 'Desative a senha de login para iniciar direto no Doorpi sem teclado.')}</span>
+                </button>
+                <button class="nav-suggestion-card" id="navCardTaskbar" tabindex="-1">
+                    <div class="nav-suggestion-card-btn">${_t('sysTaskbarNoticeBtn', 'Barra de Tarefas')}</div>
+                    <span class="nav-suggestion-card-text">${_t('sysTaskbarNoticeText', 'Configure a Barra de Tarefas para ocultar automaticamente — sem distrações visuais no Modo Console.')}</span>
+                </button>
+                <button class="nav-suggestion-card" id="navCardGameBar" tabindex="-1">
+                    <div class="nav-suggestion-card-btn">${_t('sysGameBarNoticeBtn', 'Xbox Game Bar')}</div>
+                    <span class="nav-suggestion-card-text">${_t('sysGameBarNoticeText', 'Desative o atalho do botão Xbox para não abrir a overlay durante o uso do Doorpi.')}</span>
+                </button>
+            </div>
+
+            <h3 style="font-size:1.1rem;font-weight:500;color:#fff;margin-bottom:12px;">${_t('sysActionsHeader', 'Ações do Sistema')}</h3>
+
+            <button class="nav-settings-card" id="btnEnterDesktop" tabindex="-1" style="width:100%;">
+                <div class="settings-card-icon" style="width:36px;height:36px;">${svgDesktop}</div>
+                <div class="settings-card-info">
+                    <h3>${_t('sysActionDesktopTitle', 'Acessar Área de Trabalho')}</h3>
+                    <p>${_t('sysActionDesktopDesc', 'O controle assume a função de mouse e teclado com uma disposição de botões específica para este modo. Acesse a interface padrão do Windows para gerenciamento do sistema.')}</p>
+                </div>
+            </button>
+        </div>
+    `;
+
         window._updateBootModeUI = () => {
             const currentMode = window._doorpiBootMode || 0;
 
-            // Atualiza Rádios
-            const radios = body.querySelectorAll('.nav-radio-btn');
-            radios.forEach(r => r.classList.toggle('active', parseInt(r.dataset.mode) === currentMode));
+            body.querySelectorAll('.nav-radio-btn').forEach(r =>
+                r.classList.toggle('active', parseInt(r.dataset.mode) === currentMode));
 
-            // Banner Netplwiz visível apenas no Modo Console (2)
-            const notice = body.querySelector('#navNetplwizNotice');
-            if (notice) notice.classList.toggle('visible', currentMode === 2);
+            body.querySelector('#navCardSignIn')?.classList.toggle('visible', currentMode === 2);
+            body.querySelector('#navCardTaskbar')?.classList.toggle('visible', currentMode === 1 || currentMode === 2);
+            body.querySelector('#navCardGameBar')?.classList.toggle('visible', currentMode === 1 || currentMode === 2);
 
-            // Banner Barra de Tarefas visível no Padrão (1) e Console (2)
-            const taskbarNotice = body.querySelector('#navTaskbarNotice');
-            if (taskbarNotice) taskbarNotice.classList.toggle('visible', currentMode === 1 || currentMode === 2);
-
-            // CORREÇÃO DO FOCO FANTASMA: Filtra apenas os botões que estão fisicamente renderizados!
             _contentItems = [
                 body.querySelector('#setBackSystem'),
                 ...Array.from(body.querySelectorAll('.nav-radio-btn')),
-                body.querySelector('#btnSignInOptions'),
-                body.querySelector('#btnTaskbarSettings'),
+                body.querySelector('#navCardSignIn'),
+                body.querySelector('#navCardTaskbar'),
+                body.querySelector('#navCardGameBar'),
                 body.querySelector('#btnEnterDesktop')
             ].filter(el => el && el.offsetParent !== null);
 
-            // Re-aplica eventos de mouse na nova lista higienizada
             _contentItems.forEach((el, idx) => {
                 el.onmouseenter = () => {
                     _topbarFocus = false;
@@ -328,10 +317,8 @@ window.isNavMenuOpen = false;
             });
         };
 
-        // Aplica estado inicial visual
         window._updateBootModeUI();
 
-        // Listeners de Clique
         body.querySelector('#setBackSystem')?.addEventListener('click', () => {
             _settingsSubView = null;
             _contentIdx = 0;
@@ -342,24 +329,35 @@ window.isNavMenuOpen = false;
         body.querySelectorAll('.nav-radio-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 const mode = parseInt(btn.dataset.mode);
-                if (typeof postToHost === 'function') postToHost({ action: 'setBootMode', mode: mode });
+                if (typeof postToHost === 'function') postToHost({ action: 'setBootMode', mode });
                 window._doorpiBootMode = mode;
                 window._updateBootModeUI();
 
-                // Reseta o foco para evitar cair em "buracos"
-                _contentIdx = 1;
+                // CORREÇÃO AQUI: Encontra o índice dinamicamente e preserva no lugar
+                const newIdx = _contentItems.indexOf(btn);
+                if (newIdx !== -1) {
+                    _contentIdx = newIdx;
+                }
+
                 _updateContentFocus();
             });
         });
-        body.querySelector('#btnSignInOptions')?.addEventListener('click', () => {
+
+        body.querySelector('#navCardSignIn')?.addEventListener('click', () => {
             _showDesktopWarning('settings', () => {
                 if (typeof postToHost === 'function') postToHost({ action: 'openSignInOptions' });
             });
         });
 
-        body.querySelector('#btnTaskbarSettings')?.addEventListener('click', () => {
+        body.querySelector('#navCardTaskbar')?.addEventListener('click', () => {
             _showDesktopWarning('settings', () => {
                 if (typeof postToHost === 'function') postToHost({ action: 'openTaskbarSettings' });
+            });
+        });
+
+        body.querySelector('#navCardGameBar')?.addEventListener('click', () => {
+            _showDesktopWarning('settings', () => {
+                if (typeof postToHost === 'function') postToHost({ action: 'openXboxGameBarSettings' });
             });
         });
 
@@ -930,8 +928,7 @@ window.isNavMenuOpen = false;
     .nav-settings-subheader { margin-bottom: clamp(12px, 2vh, 30px); gap: 16px; }
     .nav-settings-subheader h2 { font-size: clamp(1.2rem, 2.5vh, 1.8rem); }
 }
-
-        /* ── Configurações de Sistema (Modos de Boot) ── */
+/* ── Configurações de Sistema (Modos de Boot) ── */
 .nav-radio-group { display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px; animation: fadeInTop 0.3s ease;}
 .nav-radio-btn {
     display: flex; align-items: center; gap: 16px; padding: 16px 20px;
@@ -949,15 +946,134 @@ window.isNavMenuOpen = false;
 .nav-radio-btn.active .nav-radio-circle::after { content: ''; width: 10px; height: 10px; border-radius: 50%; background: #78beff; }
 .nav-radio-text { display: flex; flex-direction: column; gap: 4px; flex: 1; }
 .nav-radio-text strong { font-weight: 500; font-size: 1.05rem; }
-.nav-radio-text span { font-size: 0.85rem; color: rgba(255,255,255,0.45); line-height: 1.4;}
+/* Corrigido apenas o contraste (opacidade) para TVs, preservando seu tamanho original */
+.nav-radio-text span { font-size: 0.85rem; color: rgba(255,255,255,0.75); line-height: 1.4;}
+.nav-radio-btn.nav-focused-el .nav-radio-text span { color: rgba(255,255,255,0.95); }
 
-.nav-netplwiz-box {
-    background: rgba(255,180,50,0.1); border: 1px solid rgba(255,180,50,0.3); border-radius: 10px;
-    padding: 16px; margin-bottom: 24px; display: flex; align-items: center; gap: 16px;
-    animation: fadeInTop 0.4s ease; display: none;
+/* ── Cards de Sugestão (Sistema) ── */
+.nav-suggestions-grid {
+    display: grid;
+    /* Substituído repeat(3, 1fr) por auto-fit: em 2K ficam os 3 lado a lado, em 720p eles quebram a linha sem espremer */
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    margin-bottom: 28px;
 }
-.nav-netplwiz-box.visible { display: flex; }
-.nav-netplwiz-text { flex: 1; font-size: 0.85rem; color: rgba(255,255,255,0.8); line-height: 1.4;}
+.nav-suggestion-card {
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 12px;
+    padding: 16px;
+    cursor: pointer;
+    outline: none;
+    text-align: left;
+    transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1);
+    color: inherit;
+    font-family: inherit;
+    min-height: 110px;
+}
+.nav-suggestion-card.visible { display: flex; }
+.nav-suggestion-card.nav-focused-el {
+    transform: translateY(-3px) scale(1.02);
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(255,255,255,0.4);
+    box-shadow: 0 15px 35px rgba(0,0,0,0.4);
+}
+.nav-suggestion-card-btn {
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 8px;
+    padding: 7px 12px;
+    color: #fff;
+    font-size: 0.85rem;
+    font-weight: 600;
+    align-self: flex-start;
+    pointer-events: none;
+    transition: background 0.15s;
+}
+.nav-suggestion-card.nav-focused-el .nav-suggestion-card-btn {
+    background: rgba(255,255,255,0.2);
+    border-color: rgba(255,255,255,0.5);
+}
+/* Corrigido apenas o contraste (opacidade) para TVs, preservando seu tamanho original */
+.nav-suggestion-card-text {
+    font-size: 0.78rem;
+    color: rgba(255,255,255,0.75);
+    line-height: 1.45;
+}
+.nav-suggestion-card.nav-focused-el .nav-suggestion-card-text { color: #fff; }
+/* ── Redução Matemática Agressiva (~45%) para Telas <= 720p / Laptops ── */
+@media (max-width: 1366px), (max-height: 780px) {
+    /* Estrutura Principal e Cabeçalho */
+    .nav-topbar { padding-top: 1.8rem; gap: 12px; }
+    .nav-cat-item { padding: 6px; }
+    .nav-cat-label { font-size: 0.82rem; }
+
+    .nav-content { padding: 12px 32px; }
+    .nav-content-header { margin-bottom: 8px; }
+    .nav-content-title { font-size: 1.5rem; }
+    .nav-content-subtitle { font-size: 0.78rem; }
+    .nav-content-body { padding: 10px; margin: 0; }
+
+    /* Grid de Configurações Principal (Main Hub) */
+    .nav-settings-grid { gap: 10px; }
+    .nav-settings-card { padding: 12px 16px; gap: 12px; border-radius: 10px; }
+    .settings-card-icon { width: 28px; height: 28px; }
+    .settings-card-info h3 { font-size: 1rem; margin-bottom: 2px; }
+    .settings-card-info p { font-size: 0.78rem; line-height: 1.35; }
+
+    /* Subheaders de Configurações (Voltar / Título) */
+    .nav-settings-subheader { margin-bottom: 12px; gap: 12px; }
+    .nav-settings-subheader h2 { font-size: 1.15rem; }
+    .nav-back-btn { padding: 6px 12px; font-size: 0.78rem; border-radius: 20px; }
+
+    /* Conta e Perfil */
+    .nav-profile-dashboard { gap: 16px; }
+    .nav-profile-photo { width: 72px; height: 72px; font-size: 1.6rem; }
+    .nav-profile-fields { padding: 14px 18px; gap: 8px; border-radius: 10px; }
+    .nav-profile-field { gap: 4px; }
+    .nav-profile-field-label { font-size: 0.7rem; }
+    .nav-profile-field-input { padding: 8px 12px; font-size: 0.85rem; border-radius: 6px; }
+    .nav-icon-btn { padding: 0 10px; font-size: 0.78rem; min-height: 32px; height: 34px; border-radius: 6px; }
+    .nav-btn-danger { padding: 8px; margin-top: 4px; font-size: 0.82rem; }
+
+    /* Sistema (Radios e Sugestões) */
+    .nav-radio-group { gap: 6px; margin-bottom: 12px; }
+    .nav-radio-btn { padding: 10px 14px; gap: 10px; border-radius: 8px; }
+    .nav-radio-circle { width: 14px; height: 14px; }
+    .nav-radio-btn.active .nav-radio-circle::after { width: 6px; height: 6px; }
+    .nav-radio-text { gap: 2px; }
+    .nav-radio-text strong { font-size: 0.88rem; }
+    .nav-radio-text span { font-size: 0.75rem; line-height: 1.3; }
+
+    .nav-suggestions-grid { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 12px; }
+    .nav-suggestion-card { padding: 10px; gap: 6px; min-height: auto; border-radius: 8px; }
+    .nav-suggestion-card-btn { padding: 4px 8px; font-size: 0.72rem; border-radius: 6px; }
+    .nav-suggestion-card-text { font-size: 0.7rem; line-height: 1.3; }
+
+    /* Gerenciador de Extensões */
+    .nav-ext-row { padding: 8px 12px; gap: 10px; border-radius: 8px; }
+    .nav-ext-info strong { font-size: 0.85rem; }
+    .nav-ext-info span { font-size: 0.75rem; }
+    .nav-ext-btn { padding: 4px 8px; font-size: 0.72rem; border-radius: 6px; }
+
+    /* Compartilhamento de Contas (Web Sharing) */
+    .nav-sharing-layout { grid-template-columns: minmax(150px, 1fr) minmax(240px, 1.4fr); gap: 10px; }
+    .nav-sharing-apps { max-height: 45vh; gap: 6px; padding: 8px; }
+    .nav-sharing-app { min-height: 36px; font-size: 0.8rem; padding: 0 8px; border-radius: 6px; }
+    .nav-sharing-panel { padding: 10px 14px; min-height: 200px; gap: 10px; border-radius: 8px; }
+    .nav-sharing-title { font-size: 1rem; }
+    .nav-sharing-sub { font-size: 0.78rem; line-height: 1.35; margin-top: -2px; }
+    .nav-sharing-modes { gap: 6px; }
+    .nav-sharing-mode { min-height: 32px; font-size: 0.78rem; border-radius: 6px; }
+    .nav-sharing-users { gap: 6px; }
+    .nav-sharing-user { min-height: 72px; gap: 4px; border-radius: 6px; font-size: 0.75rem; }
+    .nav-sharing-avatar { width: 28px; height: 28px; font-size: 0.8rem; }
+    .nav-sharing-save { min-height: 32px; font-size: 0.8rem; padding: 0 12px; border-radius: 6px; }
+    .nav-sharing-note { font-size: 0.8rem; min-height: auto; }
+}
 
         `;
         document.head.appendChild(s);
@@ -1450,8 +1566,8 @@ window.isNavMenuOpen = false;
 
         body.innerHTML = `
             <div class="nav-settings-subheader">
-                <button class="nav-back-btn" id="setBackSystem" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
-                <h2>${_t('navSetSystem', 'Sistema e Inicialização')}</h2>
+                <button class="nav-back-btn" id="setBackAccountHub" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
+                <h2>${_t('navSetAccount', 'Conta e Perfil')}</h2>
             </div>
             <div class="nav-settings-grid">
                 <button class="nav-settings-card" id="setProfileData" tabindex="-1">
@@ -1503,7 +1619,6 @@ window.isNavMenuOpen = false;
             });
         });
     }
-
     function _renderSettingsAccount(body) {
         if (!document.getElementById('nav-account-styles')) {
             const s = document.createElement('style');
@@ -2442,15 +2557,12 @@ window.isNavMenuOpen = false;
                 if (map[_contentIdx] && map[_contentIdx][key] !== undefined) {
                     _contentIdx = map[_contentIdx][key];
                     _updateContentFocus();
-                } else if (key === 'ArrowUp' && _contentIdx <= 1) {
+                } else if (key === 'ArrowUp' && _contentIdx === 0) { 
                     _setTopbarFocus(true);
                 }
                 return;
             }
         }
-        // ── Malha de navegação da tela de Extensões ───────────
-        // A lista possui cabeçalho (0 a 4) e depois itens gerados dinamicamente.
-        // 0=Voltar, 1=Input, 2=Colar, 3=Loja, 4=Instalar.
         if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'accountHub') {
             const map = {
                 0: { ArrowUp: 'top', ArrowDown: 1, ArrowRight: 1 },
@@ -2552,7 +2664,7 @@ window.isNavMenuOpen = false;
                         if (next >= _contentItems.length) next = _contentItems.length - 1; // Previne erro se a lista estiver vazia
                         _contentIdx = next;
                         _updateContentFocus();
-                    } else if (key === 'ArrowUp' && _contentIdx <= 1) {
+                    } else if (key === 'ArrowUp' && _contentIdx === 0) { 
                         _setTopbarFocus(true);
                     }
                 }
@@ -2560,13 +2672,12 @@ window.isNavMenuOpen = false;
                 else {
                     if (key === 'ArrowUp') {
                         _contentIdx--;
-                        if (_contentIdx < 4) _contentIdx = 1; // Pula de volta pro Input
+                        if (_contentIdx < 4) _contentIdx = 1; 
                     }
                     else if (key === 'ArrowDown') {
                         if (_contentIdx < _contentItems.length - 1) _contentIdx++;
                     }
                     else if (key === 'ArrowLeft') {
-                        // Navega pra esquerda se houver 2 botões na mesma linha, caso contrário age como UP
                         if (_contentIdx > 4) _contentIdx--;
                     }
                     else if (key === 'ArrowRight') {
@@ -2574,6 +2685,60 @@ window.isNavMenuOpen = false;
                     }
                     _updateContentFocus();
                 }
+                return;
+            }
+        }
+        if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'system') {
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
+                const items = _contentItems;
+                const radios = items.filter(el => el.classList.contains('nav-radio-btn'));
+                const cards = items.filter(el => el.classList.contains('nav-suggestion-card'));
+                const btnDesktop = items.find(el => el.id === 'btnEnterDesktop');
+
+                const backIdx = 0;
+                const firstRadioIdx = items.indexOf(radios[0]);
+                const lastRadioIdx = items.indexOf(radios[radios.length - 1]);
+                const firstCardIdx = cards.length > 0 ? items.indexOf(cards[0]) : -1;
+                const lastCardIdx = cards.length > 0 ? items.indexOf(cards[cards.length - 1]) : -1;
+                const desktopIdx = items.indexOf(btnDesktop);
+
+                const inCards = firstCardIdx !== -1 && _contentIdx >= firstCardIdx && _contentIdx <= lastCardIdx;
+
+                if (key === 'ArrowUp') {
+                    if (_contentIdx === backIdx) {
+                        _setTopbarFocus(true);
+                        return;
+                    } else if (_contentIdx === firstRadioIdx) {
+                        _contentIdx = backIdx; // Sobe para o Voltar
+                    } else if (_contentIdx > firstRadioIdx && _contentIdx <= lastRadioIdx) {
+                        _contentIdx--; // Navega subindo a lista de rádio
+                    } else if (inCards) {
+                        _contentIdx = lastRadioIdx; // Sobe para o rádio ativo
+                    } else if (_contentIdx === desktopIdx) {
+                        _contentIdx = firstCardIdx !== -1 ? firstCardIdx : lastRadioIdx;
+                    }
+                } else if (key === 'ArrowDown') {
+                    if (_contentIdx === backIdx) {
+                        _contentIdx = firstRadioIdx;
+                    } else if (_contentIdx >= firstRadioIdx && _contentIdx < lastRadioIdx) {
+                        _contentIdx++;
+                    } else if (_contentIdx === lastRadioIdx) {
+                        _contentIdx = firstCardIdx !== -1 ? firstCardIdx : desktopIdx;
+                    } else if (inCards) {
+                        _contentIdx = desktopIdx;
+                    }
+                } else if (key === 'ArrowLeft') {
+                    if (inCards && _contentIdx > firstCardIdx) {
+                        _contentIdx--; // Move entre os cards de recomendação para a esquerda
+                    }
+                } else if (key === 'ArrowRight') {
+                    if (inCards && _contentIdx < lastCardIdx) {
+                        _contentIdx++; // Move entre os cards de recomendação para a direita
+                    }
+                }
+
+                _contentIdx = Math.max(0, Math.min(items.length - 1, _contentIdx));
+                _updateContentFocus();
                 return;
             }
         }

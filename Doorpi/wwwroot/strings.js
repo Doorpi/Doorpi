@@ -71,7 +71,7 @@ const STRINGS = {
         sysBootRunDesc: 'Inicia junto com o sistema operacional, mantendo a Área de Trabalho acessível ao fundo.',
         sysBootShellTitle: 'Modo Console (Imersivo)',
         sysBootShellDesc: 'Inicializa diretamente na interface do Doorpi, ocultando elementos padrão do Windows.',
-        sysBootNoticeText: 'Para o acesso direto à interface principal, você pode desativar a opção "Exigir o Windows Hello" e remover a senha de acesso nas configurações do sistema.',
+        sysBootNoticeText: 'Você pode desativar a senha nas configurações para acesso direto ao sistema.',
         sysSuggestion: 'Sugestão',
         sysBootNoticeBtn: 'Opções de Entrada',
         sysActionsHeader: 'Ações do Sistema',
@@ -319,7 +319,7 @@ const STRINGS = {
         autoStartOn: 'Ativo — o app inicia automaticamente com o Windows',
         autoStartOff: 'Desativado — não inicia automaticamente',
 
-        sysTaskbarNoticeText: 'Para uma experiência visual contínua, configure a Barra de Tarefas do Windows para "Ocultar automaticamente".',
+        sysTaskbarNoticeText: 'Configure a Barra de Tarefas do Windows para "Ocultar automaticamente" para uma experiência visual contínua.',
         sysTaskbarNoticeBtn: 'Barra de Tarefas',
 
         // ---- Popup Aviso Modo Desktop ----
@@ -351,9 +351,15 @@ const STRINGS = {
         resumeLabel: 'Retomar',
         ctxStart: 'Iniciar',
         ctxCloseRunning: 'Fechar',
+
+        sysGameBarNoticeText: 'Desative o atalho Xbox do Game Bar para não abrir a overlay durante o uso do Doorpi.',
+        sysGameBarNoticeBtn: 'Xbox Game Bar',
     },
 
     'en-US': {
+        sysGameBarNoticeText: 'Disable the Xbox Game Bar shortcut to prevent the overlay from opening while using Doorpi.',
+        sysGameBarNoticeBtn: 'Xbox Game Bar',
+
         runningLabel: 'Running',
         resumeLabel: 'Resume',
         ctxStart: 'Launch',
@@ -382,7 +388,7 @@ const STRINGS = {
         dwBtnCancel: 'Cancel',
         dwDontShowAgain: 'Do not show again',
 
-        sysTaskbarNoticeText: 'For a cleaner visual experience, set the Windows Taskbar to "Automatically hide".',
+        sysTaskbarNoticeText: 'Set the Windows Taskbar to "Automatically hide" for a cleaner visual experience.',
         sysTaskbarNoticeBtn: 'Taskbar Settings',
 
         powerExit: 'Exit',

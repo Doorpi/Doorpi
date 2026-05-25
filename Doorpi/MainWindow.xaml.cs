@@ -106,6 +106,7 @@ namespace Doorpi
         public string Path { get; set; } = "";
         public int SubfolderCount { get; set; }
         public int ExeCount { get; set; }
+        public long EstimatedMs { get; set; } = -1; 
     }
 
     public class LibraryBootstrapState
@@ -1034,11 +1035,9 @@ namespace Doorpi
                 webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"nativeAppsLoaded\",\"apps\":[]}");
             });
         }
-
         private void LoadCurrentUserIntoUI()
         {
             ClearHomeUi();
-
 
             var user = LoadUserProfile();
             Dispatcher.Invoke(() =>
@@ -1053,6 +1052,27 @@ namespace Doorpi
             if (apps.Any()) SendMediaAppsToUI(apps);
             StartLibraryBootstrapIfNeeded();
             _ = Task.Run(() => UpdateAppCacheAsync());
+
+
+            _ = Task.Run(async () =>
+            {
+                var folders = LoadFoldersData();
+                bool changed = false;
+                foreach (var f in folders.Where(x => x.EstimatedMs == -1))
+                {
+                    var newStats = GetFolderStats(f.Path);
+                    f.SubfolderCount = newStats.SubfolderCount;
+                    f.ExeCount = newStats.ExeCount;
+                    f.EstimatedMs = newStats.EstimatedMs;
+                    changed = true;
+                }
+                if (changed)
+                {
+                    SaveFoldersData(folders);
+                    SendFoldersToUI();
+                }
+            });
+            // ------------------------
         }
 
         private void SwitchToUser(string userId)
@@ -4719,20 +4739,26 @@ namespace Doorpi
 
         private FolderStats GetFolderStats(string path)
         {
-            var stats = new FolderStats { Path = path };
-            if (!Directory.Exists(path)) return stats;
 
-            try
+            return new FolderStats
             {
-                var options = new EnumerationOptions { IgnoreInaccessible = true, RecurseSubdirectories = true };
-                stats.SubfolderCount = Directory.EnumerateDirectories(path, "*", options).Count();
-                stats.ExeCount = Directory.EnumerateFiles(path, "*.exe", options).Count();
-            }
-            catch (Exception ex)
+                Path = path,
+                SubfolderCount = 0,
+                ExeCount = 0,
+                EstimatedMs = 0
+            };
+        }
+        private async Task RecalculateFolderStatsAsync(string path)
+        {
+            var stats = await Task.Run(() => GetFolderStats(path)).ConfigureAwait(false);
+            var folders = LoadFoldersData();
+            var index = folders.FindIndex(f => string.Equals(f.Path, path, StringComparison.OrdinalIgnoreCase));
+            if (index >= 0)
             {
-                Debug.WriteLine($"[FolderStats] Erro ao varrer {path}: {ex.Message}");
+                folders[index] = stats;
+                SaveFoldersData(folders);
+                SendFoldersToUI();
             }
-            return stats;
         }
 
         private void SendFoldersToUI()
@@ -5846,30 +5872,31 @@ namespace Doorpi
                     {
                         try
                         {
+                          
                             SendInstalledAppsToUI();
+
+ 
                             if ((DateTime.Now - _lastCacheBuilt).TotalSeconds > 60)
                             {
-                                _ = Task.Run(async () =>
-                                {
-                                    try
-                                    {
-                                        await UpdateAppCacheAsync().ConfigureAwait(false);
-                                        SendInstalledAppsToUI();
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        Debug.WriteLine("[InstalledApps] Falha ao atualizar cache em background: " + ex.Message);
-                                    }
-                                });
+                                await UpdateAppCacheAsync().ConfigureAwait(false);
+
+                               
+                                SendInstalledAppsToUI();
                             }
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine("[InstalledApps] Falha ao atualizar lista: " + ex.Message);
                         }
                         finally
                         {
+                            
                             Dispatcher.Invoke(() =>
                                 webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}"));
                         }
                     });
                 }
+
                 if (action == "exitApp")
                 {
                     Dispatcher.Invoke(() =>
@@ -6008,6 +6035,47 @@ namespace Doorpi
                         });
                     }
                     catch (Exception ex) { Debug.WriteLine($"Erro ao abrir config de Barra de Tarefas: {ex.Message}"); }
+                }
+                else if (action == "openXboxGameBarSettings")
+                {
+                    try
+                    {
+                        Process.Start(new ProcessStartInfo("ms-settings:gaming-gamebar") { UseShellExecute = true });
+                        Dispatcher.Invoke(EnterDesktopMode);
+
+                        _ = Task.Run(async () =>
+                        {
+                            for (int i = 0; i < 20; i++)
+                            {
+                                await Task.Delay(500);
+                                if (Process.GetProcessesByName("SystemSettings").Length > 0)
+                                {
+                                    Dispatcher.Invoke(() =>
+                                    {
+                                        IntPtr fgHwnd = GetForegroundWindow();
+                                        if (fgHwnd != IntPtr.Zero) ShowWindow(fgHwnd, 3);
+                                        int safeX = (int)SystemParameters.PrimaryScreenWidth - 20;
+                                        int safeY = (int)SystemParameters.PrimaryScreenHeight / 2;
+                                        SetCursorPos(safeX, safeY);
+                                        SendMouse(0, 0, 0x0002);
+                                        SendMouse(0, 0, 0x0004);
+                                    });
+                                    break;
+                                }
+                            }
+
+                            while (_systemControllerActive)
+                            {
+                                await Task.Delay(1000);
+                                if (Process.GetProcessesByName("SystemSettings").Length == 0)
+                                {
+                                    Dispatcher.Invoke(() => { if (_systemControllerActive) ExitDesktopMode(); });
+                                    break;
+                                }
+                            }
+                        });
+                    }
+                    catch (Exception ex) { Debug.WriteLine($"Erro ao abrir Xbox Game Bar settings: {ex.Message}"); }
                 }
                 else if (action == "openSignInOptions")
                 {
@@ -6244,19 +6312,13 @@ namespace Doorpi
                     string dialogTitle = GetStr(root, "dialogTitle");
                     string forbiddenMsg = GetStr(root, "forbiddenMsg");
                     string forbiddenTitle = GetStr(root, "forbiddenTitle");
-                    string loadTitle = GetStr(root, "loadingTitle");
-                    string loadSub = GetStr(root, "loadingSub");
                     string errMsg = GetStr(root, "errorMsg");
 
                     await Dispatcher.InvokeAsync(() =>
                     {
                         try
                         {
-                            var dlg = new Microsoft.Win32.OpenFolderDialog
-                            {
-                                Title = dialogTitle,
-                                Multiselect = false
-                            };
+                            var dlg = new Microsoft.Win32.OpenFolderDialog { Title = dialogTitle, Multiselect = false };
 
                             StartDialogControllerMode();
                             bool? dialogResult = dlg.ShowDialog();
@@ -6272,32 +6334,31 @@ namespace Doorpi
                                     return;
                                 }
 
-                                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
-                                {
-                                    type = "updateLoadingText",
-                                    title = loadTitle,
-                                    subtitle = loadSub
-                                }));
-
                                 var folders = LoadFoldersData();
                                 if (!folders.Any(f => string.Equals(f.Path, selectedPath, StringComparison.OrdinalIgnoreCase)))
                                 {
-                                    var placeholder = new FolderStats { Path = selectedPath };
+                                    var placeholder = new FolderStats { Path = selectedPath, EstimatedMs = -1 };
                                     folders.Add(placeholder);
                                     SaveFoldersData(folders);
                                     AddFolderWatcher(selectedPath);
                                 }
 
+                                SendFoldersToUI();
+                                PostScanProgress(selectedPath, 0); // Texto atualiza na hora
+
+                                // Escaneamento em Background
                                 _ = Task.Run(async () =>
                                 {
                                     try
                                     {
+                                        await RecalculateFolderStatsAsync(selectedPath);
                                         await UpdateAppCacheAsync();
-                                        SendFoldersToUI();
                                         SendInstalledAppsToUI();
                                     }
+                                    catch (Exception ex) { Debug.WriteLine("[pickFolder] Erro: " + ex.Message); }
                                     finally
                                     {
+
                                         Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}"));
                                     }
                                 });
@@ -6320,19 +6381,13 @@ namespace Doorpi
                     string dialogTitle = GetStr(root, "dialogTitle");
                     string forbiddenMsg = GetStr(root, "forbiddenMsg");
                     string forbiddenTitle = GetStr(root, "forbiddenTitle");
-                    string loadTitle = GetStr(root, "loadingTitle");
-                    string loadSub = GetStr(root, "loadingSub");
                     string errMsg = GetStr(root, "errorMsg");
 
                     await Dispatcher.InvokeAsync(() =>
                     {
                         try
                         {
-                            var dlg = new Microsoft.Win32.OpenFolderDialog
-                            {
-                                Title = dialogTitle,
-                                Multiselect = false
-                            };
+                            var dlg = new Microsoft.Win32.OpenFolderDialog { Title = dialogTitle, Multiselect = false };
 
                             StartDialogControllerMode();
                             bool? dialogResult = dlg.ShowDialog();
@@ -6341,7 +6396,6 @@ namespace Doorpi
                             if (dialogResult == true)
                             {
                                 string newPath = dlg.FolderName;
-
                                 if (IsFolderForbidden(newPath))
                                 {
                                     System.Windows.MessageBox.Show(forbiddenMsg, forbiddenTitle, MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -6349,16 +6403,9 @@ namespace Doorpi
                                     return;
                                 }
 
-                                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
-                                {
-                                    type = "updateLoadingText",
-                                    title = loadTitle,
-                                    subtitle = loadSub
-                                }));
-
                                 var folders = LoadFoldersData();
                                 int idx = folders.FindIndex(f => string.Equals(f.Path, oldPath, StringComparison.OrdinalIgnoreCase));
-                                var placeholder = new FolderStats { Path = newPath };
+                                var placeholder = new FolderStats { Path = newPath, EstimatedMs = -1 };
 
                                 if (idx >= 0) folders[idx] = placeholder;
                                 else folders.Add(placeholder);
@@ -6369,16 +6416,22 @@ namespace Doorpi
                                 foreach (var w in dead) { w.EnableRaisingEvents = false; w.Dispose(); }
                                 foreach (var w in dead) _folderWatchers.Remove(w);
                                 AddFolderWatcher(newPath);
+
+                                SendFoldersToUI();
+                                PostScanProgress(newPath, 0); // Texto atualiza na hora
+
                                 _ = Task.Run(async () =>
                                 {
                                     try
                                     {
+                                        await RecalculateFolderStatsAsync(newPath);
                                         await UpdateAppCacheAsync();
-                                        SendFoldersToUI();
                                         SendInstalledAppsToUI();
                                     }
+                                    catch (Exception ex) { Debug.WriteLine("[editFolder] Erro: " + ex.Message); }
                                     finally
                                     {
+                                       
                                         Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}"));
                                     }
                                 });
@@ -6401,26 +6454,25 @@ namespace Doorpi
                     if (!string.IsNullOrEmpty(delPath))
                     {
                         DeleteWatchedFolder(delPath);
+                        SendFoldersToUI(); // Atualiza a tela instantaneamente
 
                         _ = Task.Run(async () =>
                         {
                             try
                             {
                                 await UpdateAppCacheAsync();
-                                SendFoldersToUI();
                                 SendInstalledAppsToUI();
                             }
+                            catch (Exception ex) { Debug.WriteLine("[deleteFolder] Erro: " + ex.Message); }
                             finally
                             {
+                              
                                 Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}"));
                             }
                         });
                     }
-                    else
-                    {
-                        webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}");
-                    }
                 }
+
                 else if (action == "saveStaticFrame")
                 {
                     string gameId = root.GetProperty("gameId").GetString() ?? "";
