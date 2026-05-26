@@ -1,20 +1,16 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Doorpi OS</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@100;200;300;400;500&display=swap" rel="stylesheet">
     <style>
-        *,
-        *::before,
-        *::after {
+        *, *::before, *::after {
             box-sizing: border-box;
         }
 
-        body,
-        html {
+        body, html {
             margin: 0;
             padding: 0;
             width: 100vw;
@@ -24,7 +20,6 @@
             overflow: hidden;
         }
 
-        /* ── BLOB BACKGROUND (persiste após o boot) ─────────── */
         #appBlobWrap {
             position: fixed;
             inset: 0;
@@ -52,11 +47,10 @@
             position: absolute;
             inset: 0;
             z-index: 2;
-            background: radial-gradient(circle at 50% 50%, transparent 25%, rgba(0, 0, 18, 0.85) 95%);
+            background: radial-gradient(circle at 50% 50%, transparent 25%, rgba(0,0,18,0.85) 95%);
             pointer-events: none;
         }
 
-        /* ── BOOT OVERLAY ────────────────────────────────────── */
         #boot-overlay {
             position: fixed;
             inset: 0;
@@ -65,7 +59,7 @@
         }
 
             #boot-overlay.boot-exiting {
-                animation: bootOverlayOut 0.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+                animation: bootOverlayOut 0.8s cubic-bezier(0.4,0,0.2,1) forwards;
                 pointer-events: none;
             }
 
@@ -111,43 +105,10 @@
             overflow: visible;
             transform: rotateX(25deg) rotateY(-15deg) scale(0.9);
             transform-style: preserve-3d;
-            transition: transform 3.5s cubic-bezier(0.16, 1, 0.3, 1), filter 0.6s ease;
+            transition: transform 3.5s cubic-bezier(0.16,1,0.3,1), filter 0.6s ease;
             filter: brightness(0.7);
             position: relative;
             z-index: 2;
-        }
-
-        #door-inner-light {
-            position: absolute;
-            top: 28%;
-            left: 71%;
-            width: 3.5%;
-            height: 70%;
-            z-index: 1;
-            filter: blur(2px);
-            box-shadow: -25px 0 50px 30px rgb(156, 196, 252);
-            opacity: 0;
-            transform: translateZ(-50px) scaleY(0.8);
-            transition: opacity 3.5s ease-in, transform 4s cubic-bezier(0.2, 0, 0.1, 1);
-        }
-
-        #door-top-light {
-            position: absolute;
-            top: 17%;
-            left: 50%;
-            width: 23%;
-            height: 2%;
-            z-index: 99;
-            filter: blur(9px);
-            transform: translateZ(-50px) rotate(28deg) scaleX(0.8);
-            box-shadow: 0 0 30px 15px rgb(160, 200, 255);
-            opacity: 0;
-            transition: opacity 3.5s ease-in, transform 4s cubic-bezier(0.2, 0, 0.1, 1);
-        }
-
-        .boot-step-charge #door-inner-light {
-            opacity: 1;
-            transform: translateZ(-10px) scaleY(1.05);
         }
 
         .boot-step-draw #door-logo {
@@ -155,44 +116,8 @@
             filter: brightness(1);
         }
 
-        .boot-step-charge #door-logo {
-            transform: rotateX(3deg) rotateY(-2deg) scale(1.02);
-            transition: transform 3.2s cubic-bezier(0.2, 0, 0.1, 1);
-    
-            animation: myopicFocus 3.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
-        }
-
-        @keyframes myopicFocus {
-            0% {
-                filter: blur(8px) brightness(0.8);
-                opacity: 0.8;
-            }
-
-            35% {
-
-                filter: blur(0px) brightness(1.1);
-                opacity: 1;
-            }
-
-            100% {
-         
-                filter: blur(0px) brightness(2.2);
-                opacity: 1;
-            }
-        }
-
-
-        #door-path-stroke {
-            fill: transparent;
-            stroke: rgba(110, 150, 210, 0.45);
-            stroke-width: 1.5;
-            stroke-linecap: round;
-            stroke-linejoin: round;
-            transition: fill 2.5s cubic-bezier(0.2, 0.8, 0.2, 1);
-        }
-
         .boot-step-draw #door-path-stroke {
-            animation: traceLine 2.2s cubic-bezier(0.35, 0, 0.2, 1) forwards;
+            animation: traceLine 2.2s cubic-bezier(0.35,0,0.2,1) forwards;
         }
 
         @keyframes traceLine {
@@ -205,85 +130,52 @@
             }
         }
 
-        .boot-step-charge #door-path-stroke {
-            animation: elegantCharge 3.5s cubic-bezier(0.2, 0, 0.1, 1) forwards;
+        .boot-step-charge #door-logo {
+            transform: rotateX(3deg) rotateY(-2deg) scale(1.02);
+            transition: transform 3.2s cubic-bezier(0.2,0,0.1,1);
+            animation: myopicFocus 3.5s cubic-bezier(0.25,0.46,0.45,0.94) forwards;
         }
 
-
-        @keyframes elegantCharge {
+        @keyframes myopicFocus {
             0% {
-                stroke: rgba(110, 150, 210, 0.3);
-                fill: rgba(240, 248, 255, 0);
+                filter: blur(8px) brightness(0.8);
+                opacity: 0.8;
             }
 
             35% {
-              
-                fill: rgba(240, 248, 255, 0.6);
-            }
-
-            80% {
-                fill: rgba(240, 248, 255, 1);
-                stroke: rgba(110, 150, 210, 0);
+                filter: blur(0px) brightness(1.1);
+                opacity: 1;
             }
 
             100% {
-                stroke: rgba(255, 255, 255, 0);
-                fill: rgba(231, 241, 250, 1);
+                filter: blur(0px) brightness(2.2);
+                opacity: 1;
             }
         }
 
-        #boot-message {
-            margin-top: clamp(30px, 5vh, 60px);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 12px;
+        .boot-step-charge #door-path-stroke {
+            animation: elegantCharge 3.5s cubic-bezier(0.2,0,0.1,1) forwards;
         }
 
-        #boot-sysname {
-            font-size: clamp(1.4rem, 2.5vw, 2.5rem);
-            font-weight: 200;
-            letter-spacing: 0.68em;
-            text-transform: uppercase;
-            color: rgba(255, 255, 255, 0.40);
-            text-indent: 0.68em;
-            opacity: 0;
-            transform: translateY(10px);
-            transition: opacity 1s ease-out, transform 1s cubic-bezier(0.16, 1, 0.3, 1);
-        }
+        @keyframes elegantCharge {
+            0% {
+                stroke: rgba(110,150,210,0.3);
+                fill: rgba(240,248,255,0);
+            }
 
-        .boot-step-charge #boot-sysname {
-            opacity: 1;
-            transform: translateY(0);
-        }
+            35% {
+                fill: rgba(240,248,255,0.6);
+            }
 
-        #boot-divider {
-            width: 40px;
-            height: 1px;
-            background: rgba(255, 255, 255, 0.25);
-            transform: scaleX(0);
-            transform-origin: center;
-            transition: transform 1.2s cubic-bezier(0.16, 1, 0.3, 1) 0.3s;
-        }
+            80% {
+                fill: rgba(240,248,255,1);
+                stroke: rgba(110,150,210,0);
+            }
 
-        .boot-step-charge #boot-divider {
-            transform: scaleX(1);
-        }
-
-        #boot-greeting {
-            font-size: clamp(2rem, 3vw, 3rem);
-            font-weight: 200;
-            letter-spacing: 0.05em;
-            color: rgba(255, 255, 255, 0.95);
-            text-shadow: 0 0 15px rgba(160, 200, 255, 0.3);
-            opacity: 0;
-            transform: translateY(10px);
-            transition: opacity 1.3s ease-out 0.4s, transform 1.3s cubic-bezier(0.16, 1, 0.3, 1) 0.4s;
-        }
-
-        .boot-step-charge #boot-greeting {
-            opacity: 1;
-            transform: translateY(0);
+            100% {
+                stroke: rgba(255,255,255,0);
+                fill: rgba(231,241,250,1);
+            }
         }
 
         .boot-step-detonate #boot-sequence {
@@ -298,30 +190,66 @@
             }
         }
 
+        #door-path-stroke {
+            fill: transparent;
+            stroke: rgba(110,150,210,0.45);
+            stroke-width: 1.5;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            transition: fill 2.5s cubic-bezier(0.2,0.8,0.2,1);
+        }
+
+        #boot-message {
+            margin-top: clamp(30px,5vh,60px);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }
+
+        #boot-sysname {
+            font-size: clamp(1.4rem,2.5vw,2.5rem);
+            font-weight: 200;
+            letter-spacing: 0.68em;
+            text-transform: uppercase;
+            color: rgba(255,255,255,0.40);
+            text-indent: 0.68em;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: opacity 1s ease-out, transform 1s cubic-bezier(0.16,1,0.3,1);
+        }
+
+        .boot-step-charge #boot-sysname {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        #boot-divider {
+            width: 40px;
+            height: 1px;
+            background: rgba(255,255,255,0.25);
+            transform: scaleX(0);
+            transform-origin: center;
+            transition: transform 1.2s cubic-bezier(0.16,1,0.3,1) 0.3s;
+        }
+
+        .boot-step-charge #boot-divider {
+            transform: scaleX(1);
+        }
+
         .subtle-spark {
             position: fixed;
             width: 4px;
             height: 2px;
             background: #e6f2ff;
             border-radius: 50%;
-            box-shadow: 0 0 6px 1px rgba(160, 200, 255, 0.8);
+            box-shadow: 0 0 6px 1px rgba(160,200,255,0.8);
             pointer-events: none;
             z-index: 9001;
             will-change: transform, opacity;
         }
-
-        .boot-step-charge #door-inner-light,
-        .boot-step-charge #door-top-light {
-            opacity: 1;
-            transform: translateZ(0) rotate(28deg) scaleX(1);
-        }
-
-        .boot-step-charge #door-inner-light {
-            transform: translateZ(0) scaleY(1.05);
-        }
     </style>
 </head>
-
 <body>
 
     <div id="appBlobWrap">
@@ -330,39 +258,46 @@
 
     <div id="boot-sequence">
         <div id="logo-wrap">
-            <div id="door-inner-light"></div>
-            <div id="door-top-light"></div>
             <svg viewBox="357 366 357 302" id="door-logo" xmlns="http://www.w3.org/2000/svg">
-                <path id="door-path-stroke" d="M491.466248,448.851471
-                       C491.608276,430.705597 491.779083,413.042450 491.876709,395.378906
-                       C491.981354,376.446472 508.188202,366.194916 525.097473,374.768524
-                       C545.386963,385.055969 565.459961,395.770844 585.616089,406.320831
-                       C594.313293,410.873047 602.936646,415.568481 611.678162,420.033142
-                       C623.370544,426.004913 629.275146,435.542358 629.111328,448.569122
-                       C628.545471,493.556702 627.830200,538.542419 627.159241,583.528687
-                       C626.903259,600.689453 626.754395,617.853821 626.241333,635.007141
-                       C626.110962,639.366943 627.244263,641.305237 631.672974,642.608398
-                       C657.675049,650.259399 683.562744,658.299133 709.485840,666.218262
-                       C710.266846,666.456848 711.013245,666.808777 713.093750,667.624756
-                       C675.661926,667.624756 639.601135,667.624756 602.966492,667.624756
-                       C602.966492,665.443115 602.941467,663.498840 602.970093,661.555298
-                       C603.971924,593.576843 604.936218,525.597778 606.029602,457.620758
-                       C606.198303,447.128326 601.579468,439.620483 592.603638,434.901001
-                       C578.896790,427.694000 565.018494,420.808441 551.135925,413.942352
-                       C543.803528,410.315796 539.581421,412.998871 539.488892,421.233521
-                       C538.822205,480.550201 538.205566,539.867432 537.564026,599.184387
-                       C537.333740,620.477661 536.995544,641.770325 536.914490,663.064087
-                       C536.900513,666.735291 535.945618,667.921204 532.135193,667.910828
-                       C475.811768,667.757141 419.487885,667.758850 363.164154,667.699768
-                       C361.375824,667.697876 359.587738,667.440491 357.704132,666.710815
-                       C365.264282,664.606689 372.823639,662.499756 380.384735,660.398987
-                       C415.153320,650.738831 449.908630,641.030273 484.712067,631.497314
-                       C488.290710,630.517151 489.743225,629.202698 489.761627,625.199585
-                       C489.976105,578.551147 490.385681,531.903442 490.805603,485.256104
-                       C490.913391,473.281097 491.237885,461.308014 491.466248,448.851471 z" />
+                <defs>
+                    <clipPath id="portal-interior-clip">
+                        <polygon points="538,421 550,413 566,410 580,416 593,428 605,450 604,662 537,662" />
+                    </clipPath>
+                </defs>
+                <foreignObject id="portal-fo" x="537" y="410" width="70" height="253" clip-path="url(#portal-interior-clip)">
+                    <canvas id="portal-canvas" xmlns="http://www.w3.org/1999/xhtml" width="70" height="253" style="display:block;width:70px;height:253px;"></canvas>
+                </foreignObject>
+                <path id="door-path-stroke"
+                      fill-rule="evenodd"
+                      d="M491.466248,448.851471
+                   C491.608276,430.705597 491.779083,413.042450 491.876709,395.378906
+                   C491.981354,376.446472 508.188202,366.194916 525.097473,374.768524
+                   C545.386963,385.055969 565.459961,395.770844 585.616089,406.320831
+                   C594.313293,410.873047 602.936646,415.568481 611.678162,420.033142
+                   C623.370544,426.004913 629.275146,435.542358 629.111328,448.569122
+                   C628.545471,493.556702 627.830200,538.542419 627.159241,583.528687
+                   C626.903259,600.689453 626.754395,617.853821 626.241333,635.007141
+                   C626.110962,639.366943 627.244263,641.305237 631.672974,642.608398
+                   C657.675049,650.259399 683.562744,658.299133 709.485840,666.218262
+                   C710.266846,666.456848 711.013245,666.808777 713.093750,667.624756
+                   C675.661926,667.624756 639.601135,667.624756 602.966492,667.624756
+                   C602.966492,665.443115 602.941467,663.498840 602.970093,661.555298
+                   C603.971924,593.576843 604.936218,525.597778 606.029602,457.620758
+                   C606.198303,447.128326 601.579468,439.620483 592.603638,434.901001
+                   C578.896790,427.694000 565.018494,420.808441 551.135925,413.942352
+                   C543.803528,410.315796 539.581421,412.998871 539.488892,421.233521
+                   C538.822205,480.550201 538.205566,539.867432 537.564026,599.184387
+                   C537.333740,620.477661 536.995544,641.770325 536.914490,663.064087
+                   C536.900513,666.735291 535.945618,667.921204 532.135193,667.910828
+                   C475.811768,667.757141 419.487885,667.758850 363.164154,667.699768
+                   C361.375824,667.697876 359.587738,667.440491 357.704132,666.710815
+                   C365.264282,664.606689 372.823639,662.499756 380.384735,660.398987
+                   C415.153320,650.738831 449.908630,641.030273 484.712067,631.497314
+                   C488.290710,630.517151 489.743225,629.202698 489.761627,625.199585
+                   C489.976105,578.551147 490.385681,531.903442 490.805603,485.256104
+                   C490.913391,473.281097 491.237885,461.308014 491.466248,448.851471 z" />
             </svg>
         </div>
-
         <div id="boot-message">
             <span id="boot-sysname">Doorpi</span>
             <div id="boot-divider"></div>
@@ -371,7 +306,6 @@
 
     <script>
         const introAudio = new Audio('./intro.wav');
-
         introAudio.preload = 'auto';
         introAudio.volume = 0.8;
 
@@ -381,7 +315,6 @@
             const logoSvg = document.getElementById('door-logo');
             const blobWrap = document.getElementById('appBlobWrap');
 
-            /* Calcula comprimento real do path para a animação do traçado */
             const len = strokePath.getTotalLength();
             strokePath.style.setProperty('--path-len', len + 'px');
             strokePath.style.strokeDasharray = len;
@@ -393,9 +326,117 @@
                 window.dispatchEvent(new CustomEvent(type, { detail: payload }));
             }
 
-            /* =========================================
-               BLOB PHYSICS
-               ========================================= */
+            /* ── PORTAL CANVAS ─────────────────────────────────────────
+               Canvas stays transparent — no dark background painted.
+               Nebula is purely additive light so it blends with #020309
+               instead of looking like a cutout rectangle.
+            ─────────────────────────────────────────────────────────── */
+            const portalCanvas = document.getElementById('portal-canvas');
+            const pCtx = portalCanvas.getContext('2d');
+            const PW = portalCanvas.width;
+            const PH = portalCanvas.height;
+
+            const portalStars = Array.from({ length: 48 }, (_, i) => ({
+                x: 2 + Math.random() * (PW - 4),
+                y: 10 + Math.random() * (PH - 15),
+                r: 0.28 + Math.random() * 0.85,
+                base: 0.25 + Math.random() * 0.75,
+                speed: 0.4 + Math.random() * 2.2,
+                phase: Math.random() * Math.PI * 2,
+                delay: 1600 + i * 90
+            }));
+
+            let portalState = 'dormant';
+            let portalChargeT = 0;
+
+            function renderPortal(ts) {
+                pCtx.clearRect(0, 0, PW, PH);
+
+                if (portalState === 'dormant') {
+                    requestAnimationFrame(renderPortal);
+                    return;
+                }
+
+                const chargeAge = ts - portalChargeT;
+                const masterAlpha = Math.min(1, chargeAge / 4000);
+
+                if (masterAlpha < 0.005) {
+                    requestAnimationFrame(renderPortal);
+                    return;
+                }
+
+                if (chargeAge > 400) {
+                    const nAge = chargeAge - 400;
+                    const nAlpha = Math.min(0.55, nAge / 4000) * masterAlpha;
+
+                    const cx = PW * 0.44, cy = PH * 0.48;
+                    const neb1 = pCtx.createRadialGradient(cx, cy * 0.9, 0, cx, cy, PW * 1.1);
+                    neb1.addColorStop(0, `rgba(40,80,200,${nAlpha * 0.7})`);
+                    neb1.addColorStop(0.4, `rgba(18,45,130,${nAlpha * 0.4})`);
+                    neb1.addColorStop(0.75, `rgba(6,15,55,${nAlpha * 0.15})`);
+                    neb1.addColorStop(1, 'rgba(0,0,0,0)');
+                    pCtx.fillStyle = neb1;
+                    pCtx.fillRect(0, 0, PW, PH);
+
+                    const wt = ts * 0.00014;
+                    const wx = PW * (0.52 + Math.sin(wt) * 0.09);
+                    const wy = PH * (0.36 + Math.cos(wt * 0.65) * 0.06);
+                    const neb2 = pCtx.createRadialGradient(wx, wy, 0, wx, wy, PW * 0.55);
+                    neb2.addColorStop(0, `rgba(60,110,240,${nAlpha * 0.3})`);
+                    neb2.addColorStop(1, 'rgba(0,0,0,0)');
+                    pCtx.fillStyle = neb2;
+                    pCtx.fillRect(0, 0, PW, PH);
+
+                    const edgeFade = pCtx.createLinearGradient(0, 0, PW, 0);
+                    edgeFade.addColorStop(0, `rgba(2,3,9,${nAlpha * 0.65})`);
+                    edgeFade.addColorStop(0.14, 'rgba(0,0,0,0)');
+                    edgeFade.addColorStop(0.86, 'rgba(0,0,0,0)');
+                    edgeFade.addColorStop(1, `rgba(2,3,9,${nAlpha * 0.65})`);
+                    pCtx.fillStyle = edgeFade;
+                    pCtx.fillRect(0, 0, PW, PH);
+
+                    const topFade = pCtx.createLinearGradient(0, 0, 0, PH * 0.22);
+                    topFade.addColorStop(0, `rgba(2,3,9,${nAlpha * 0.55})`);
+                    topFade.addColorStop(1, 'rgba(0,0,0,0)');
+                    pCtx.fillStyle = topFade;
+                    pCtx.fillRect(0, 0, PW, PH * 0.22);
+
+                    const botFade = pCtx.createLinearGradient(0, PH * 0.78, 0, PH);
+                    botFade.addColorStop(0, 'rgba(0,0,0,0)');
+                    botFade.addColorStop(1, `rgba(2,3,9,${nAlpha * 0.55})`);
+                    pCtx.fillStyle = botFade;
+                    pCtx.fillRect(0, PH * 0.78, PW, PH * 0.22);
+                }
+
+                portalStars.forEach(star => {
+                    if (chargeAge < star.delay) return;
+                    const starAge = chargeAge - star.delay;
+                    const appeared = Math.min(1, starAge / 1000);
+                    const twinkle = 0.68 + 0.32 * Math.sin(ts * 0.001 * star.speed + star.phase);
+                    const alpha = star.base * appeared * twinkle * masterAlpha;
+                    if (alpha < 0.015) return;
+                    pCtx.beginPath();
+                    pCtx.arc(star.x, star.y, star.r, 0, Math.PI * 2);
+                    pCtx.fillStyle = `rgba(190,220,255,${alpha})`;
+                    pCtx.fill();
+                    if (star.base > 0.7 && appeared > 0.4) {
+                        const hr = star.r * 4.5;
+                        const halo = pCtx.createRadialGradient(star.x, star.y, 0, star.x, star.y, hr);
+                        halo.addColorStop(0, `rgba(155,200,255,${alpha * 0.28})`);
+                        halo.addColorStop(1, 'rgba(0,0,0,0)');
+                        pCtx.fillStyle = halo;
+                        pCtx.beginPath();
+                        pCtx.arc(star.x, star.y, hr, 0, Math.PI * 2);
+                        pCtx.fill();
+                    }
+                });
+
+                requestAnimationFrame(renderPortal);
+            }
+
+            requestAnimationFrame(renderPortal);
+
+            /* ── BLOB PHYSICS ────────────────────────────────────────── */
             const blobs = [];
             const colors = [
                 'rgba(15,25,85,0.7)', 'rgba(10,30,85,0.7)', 'rgba(25,15,70,0.7)', 'rgba(5,40,75,0.7)',
@@ -453,22 +494,17 @@
                 requestAnimationFrame(physicsLoop);
             }
 
-            /* =========================================
-               SUBTLE SPARKS
-               ========================================= */
+            /* ── SPARKS ──────────────────────────────────────────────── */
             function spawnSparks(isBurst = false) {
                 const rect = logoSvg.getBoundingClientRect();
                 const count = isBurst ? 15 : 1;
-
                 for (let i = 0; i < count; i++) {
                     const spark = document.createElement('div');
                     spark.className = 'subtle-spark';
                     document.body.appendChild(spark);
-
                     let x, y, distance, duration;
                     if (isBurst) {
-                        x = window.innerWidth / 2;
-                        y = window.innerHeight / 2;
+                        x = window.innerWidth / 2; y = window.innerHeight / 2;
                         distance = 40 + Math.random() * 60;
                         duration = 1200 + Math.random() * 800;
                     } else {
@@ -477,27 +513,18 @@
                         distance = 15 + Math.random() * 25;
                         duration = 800 + Math.random() * 600;
                     }
-
                     const angle = Math.random() * Math.PI * 2;
                     spark.style.left = x + 'px';
                     spark.style.top = y + 'px';
-
                     spark.animate([
-                        { transform: 'translate(-50%, -50%) scale(1)', opacity: isBurst ? 1 : 0.6 },
+                        { transform: 'translate(-50%,-50%) scale(1)', opacity: isBurst ? 1 : 0.6 },
                         { transform: `translate(calc(-50% + ${Math.cos(angle) * distance}px), calc(-50% + ${Math.sin(angle) * distance}px)) scale(0)`, opacity: 0 }
-                    ], {
-                        duration: duration,
-                        easing: 'cubic-bezier(0.25, 1, 0.5, 1)',
-                        fill: 'forwards'
-                    });
-
+                    ], { duration, easing: 'cubic-bezier(0.25,1,0.5,1)', fill: 'forwards' });
                     setTimeout(() => spark.remove(), duration);
                 }
             }
 
-            /* =========================================
-               BOOT SEQUENCE
-               ========================================= */
+            /* ── BOOT SEQUENCE ───────────────────────────────────────── */
             async function runBootSequence() {
                 await wait(500);
                 introAudio.currentTime = 0;
@@ -511,22 +538,22 @@
                 void strokePath.getBoundingClientRect();
 
                 body.classList.add('boot-step-charge');
+                portalState = 'charging';
+                portalChargeT = performance.now();
 
                 const sparkInterval = setInterval(() => spawnSparks(false), 300);
-
                 await wait(3200);
-
                 clearInterval(sparkInterval);
+
                 body.classList.add('boot-step-detonate');
                 blobWrap.classList.add('bang-active');
-
                 createBigBang();
                 spawnSparks(true);
 
                 post('doorpi:intro:handoff', {
                     handoff: {
                         background: '#07071a',
-                        vignette: 'radial-gradient(circle at 50% 50%, transparent 25%, rgba(0, 0, 18, 0.85) 95%)',
+                        vignette: 'radial-gradient(circle at 50% 50%, transparent 25%, rgba(0,0,18,0.85) 95%)',
                         colors
                     }
                 });
@@ -538,5 +565,4 @@
         });
     </script>
 </body>
-
 </html>

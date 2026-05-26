@@ -256,7 +256,20 @@ namespace Doorpi
 
             try
             {
-                var presence = new RichPresence();
+                var presence = new RichPresence()
+                {
+                   
+                    Assets = new Assets()
+                    {
+                       
+                        LargeImageKey = "doorpi_logo",
+
+                     
+                        LargeImageText = "Doorpi"
+
+
+                    }
+                };
 
                 switch (context.ToLowerInvariant())
                 {
