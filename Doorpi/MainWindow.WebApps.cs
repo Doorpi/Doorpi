@@ -1,12 +1,3 @@
-// =============================================================================
-// MainWindow.WebApps.cs — Apps de mídia integrados na janela principal
-// =============================================================================
-// MUDANÇAS vs versão anterior:
-//   • Popup seguro: O mouse nativo é forçado a funcionar dentro de popups independentemente da flag do YouTube.
-//   • Restauração de foco: A janela popup agora devolve o foco garantidamente ao app pai ao ser fechada.
-//   • Segurança de Encerramento: O popup é destruído corretamente em caso de saída de emergência (Start + Back).
-// =============================================================================
-
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 using System;
@@ -74,6 +65,10 @@ namespace Doorpi
         private const string YT_UA = "Mozilla/5.0 (PS4; Leanback Shell) Cobalt/26.lts.0-qa; compatible; Doorpi/1.6.1";
         private const string YT_TV_URL = "https://www.youtube.com/tv";
         private static readonly HttpClient _ytHttp = new();
+        // ── EasyList ──────────────────────────────────────────────────────────────
+        private static readonly HashSet<string> _easyListDomains = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly string EasyListCachePath = Path.Combine(
+            AppDomain.CurrentDomain.BaseDirectory, "Data", "easylist.txt");
         private Grid RootGrid => (Grid)this.Content;
 
         // ── Controller thread ─────────────────────────────────────────────────
@@ -382,8 +377,8 @@ namespace Doorpi
                 await _popupWebView.EnsureCoreWebView2Async(env);
 
                 await _popupWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync("window.name = 'doorpi_popup';");
-                _popupWebView.CoreWebView2.Settings.UserAgent =
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+                _popupWebView.CoreWebView2.Settings.UserAgent = await BuildBrandedUserAgentAsync(_popupWebView.CoreWebView2);
+
 
                 _popupWebView.CoreWebView2.DocumentTitleChanged += (s, _) =>
                 { if (_popupWindow != null) _popupWindow.Title = _popupWebView.CoreWebView2.DocumentTitle; };
@@ -456,7 +451,91 @@ namespace Doorpi
                 catch (Exception ex) { Debug.WriteLine($"[Extension] Falha: {Path.GetFileName(extFolder)} — {ex.Message}"); }
             }
         }
+        private static async Task LoadEasyListAsync()
+        {
+            try
+            {
+                bool needsFetch = !File.Exists(EasyListCachePath) ||
+                                  (DateTime.Now - File.GetLastWriteTime(EasyListCachePath)).TotalHours > 24;
 
+                string content;
+                if (needsFetch)
+                {
+                    using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+                    content = await http.GetStringAsync(
+                        "https://raw.githubusercontent.com/easylist/easylist/master/easylist.txt");
+                    Directory.CreateDirectory(Path.GetDirectoryName(EasyListCachePath)!);
+                    await File.WriteAllTextAsync(EasyListCachePath, content);
+                    Debug.WriteLine("[EasyList] Lista atualizada do GitHub.");
+                }
+                else
+                {
+                    content = await File.ReadAllTextAsync(EasyListCachePath);
+                    Debug.WriteLine("[EasyList] Carregada do cache local.");
+                }
+
+                ParseEasyList(content);
+                Debug.WriteLine($"[EasyList] {_easyListDomains.Count} domínios carregados.");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[EasyList] Falha ao carregar: {ex.Message}");
+                // Tenta o cache mesmo que esteja velho
+                if (File.Exists(EasyListCachePath))
+                {
+                    ParseEasyList(await File.ReadAllTextAsync(EasyListCachePath));
+                    Debug.WriteLine("[EasyList] Usando cache antigo como fallback.");
+                }
+            }
+        }
+
+        private static void ParseEasyList(string content)
+        {
+            _easyListDomains.Clear();
+            foreach (var rawLine in content.Split('\n'))
+            {
+                var line = rawLine.Trim();
+
+                // Ignora comentários, cabeçalhos, filtros cosméticos e exceções
+                if (line.Length == 0 || line[0] == '!' || line[0] == '[') continue;
+                if (line.Contains("##") || line.Contains("#@#") || line.Contains("#?#")) continue;
+                if (line.StartsWith("@@")) continue;
+
+                // Só regras de domínio simples: ||exemplo.com^
+                if (!line.StartsWith("||")) continue;
+
+                var domain = line[2..];
+
+                // Remove opções ($third-party, etc.)
+                int dollar = domain.IndexOf('$');
+                if (dollar >= 0) domain = domain[..dollar];
+
+                domain = domain.TrimEnd('^', '/', ' ');
+
+                // Só aceita domínios puros (sem wildcards ou caminhos)
+                if (domain.Length > 0 && !domain.Contains('/') && !domain.Contains('*'))
+                    _easyListDomains.Add(domain);
+            }
+        }
+
+        private static bool IsBlockedByEasyList(string url)
+        {
+            if (_easyListDomains.Count == 0) return false;
+            try
+            {
+                var host = new Uri(url).Host;
+                if (_easyListDomains.Contains(host)) return true;
+
+                // Checa domínios pai (sub.exemplo.com → exemplo.com)
+                var parts = host.Split('.');
+                for (int i = 1; i < parts.Length - 1; i++)
+                {
+                    if (_easyListDomains.Contains(string.Join('.', parts[i..]))) return true;
+                }
+                return false;
+            }
+            catch { return false; }
+        }
         private async Task YtInjectGenericSiteAsync(CoreWebView2 cw)
         {
             string script = $@"
@@ -1152,7 +1231,10 @@ namespace Doorpi
 
             await LoadExtensionsAsync(_ytWebView.CoreWebView2);
 
-            _ytWebView.CoreWebView2.Settings.UserAgent = isYouTube ? YT_UA : "";
+            if (isYouTube)
+                _ytWebView.CoreWebView2.Settings.UserAgent = YT_UA;
+            else
+                _ytWebView.CoreWebView2.Settings.UserAgent = await BuildBrandedUserAgentAsync(_ytWebView.CoreWebView2);
             _ytWebView.CoreWebView2.Settings.IsStatusBarEnabled = false;
             _ytWebView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
             _ytWebView.CoreWebView2.Settings.IsZoomControlEnabled = false;
@@ -1162,6 +1244,15 @@ namespace Doorpi
             _ytWebView.CoreWebView2.WebMessageReceived += YtOnWebMessageReceived;
             _ytWebView.CoreWebView2.NewWindowRequested += OnNewWindowRequested;
 
+            if (!isUtility)
+            {
+                _ytWebView.CoreWebView2.DocumentTitleChanged += (s, _) =>
+                {
+                    string title = _ytWebView?.CoreWebView2?.DocumentTitle ?? "";
+                    if (!string.IsNullOrWhiteSpace(title) && !string.IsNullOrWhiteSpace(_currentWebAppUrl))
+                        DiscordRpcManager.Instance.UpdateState("media", _currentWebAppUrl, title);
+                };
+            }
             // =========================================================================
             // INTERCEPTAÇÃO LIMPA: Previne carregar o React e a tela do SteamGridDB,
             // forçando a navegação de forma segura antes da rede processar a página.
@@ -1186,11 +1277,13 @@ namespace Doorpi
 
             if (isYouTube)
             {
+                await YtInjectAdBlockerAsync(_ytWebView.CoreWebView2);
                 await YtInjectGamepadAsync(_ytWebView.CoreWebView2);
                 await YtInjectZoomHackAsync(_ytWebView.CoreWebView2);
                 await YtInjectForceUserSelectionAsync(_ytWebView.CoreWebView2);
                 await YtInjectUltrawideFixAsync(_ytWebView.CoreWebView2);
                 await YtInjectPlayerBackgroundAsync(_ytWebView.CoreWebView2);
+                await YtInjectTitleTrackerAsync(_ytWebView.CoreWebView2);
                 _ytWebView.ZoomFactor = 0.3;
             }
             else
@@ -1243,7 +1336,36 @@ namespace Doorpi
             StartMediaControllerMode();
             SendRuntimeSessionsToUI();
         }
+        private static async Task YtInjectTitleTrackerAsync(CoreWebView2 cw)
+        {
+            const string script = @"
+(function() {
+    if (window.__doorpiYtTitle) return;
+    window.__doorpiYtTitle = true;
 
+    let _lastTitle = '';
+    let _lastArtist = '';
+
+    function postTitle(title, artist) {
+        if (!title || (title === _lastTitle && artist === _lastArtist)) return;
+        _lastTitle = title;
+        _lastArtist = artist || '';
+        try {
+            window.chrome.webview.postMessage(
+                'smtc:playing:' + encodeURIComponent(title) + ':' + encodeURIComponent(artist || '')
+            );
+        } catch(_) {}
+    }
+
+    setInterval(() => {
+        const metadata = navigator.mediaSession?.metadata;
+        const title  = metadata?.title  || '';
+        const artist = metadata?.artist || '';
+        if (title) postTitle(title, artist);
+    }, 1500);
+})();";
+            await cw.AddScriptToExecuteOnDocumentCreatedAsync(script);
+        }
         private string GetBrowserProfileNameForUrl(string url, bool isYouTube)
         {
             string appKey = isYouTube ? "youtube" : "";
@@ -1365,7 +1487,17 @@ namespace Doorpi
                 _vkbHasFocus = false;
                 return;
             }
+            else if (msg.StartsWith("smtc:"))
+            {
+                var parts = msg.Split(':', 4);
+                if (parts.Length < 2) return;
 
+                string smtcTitle = parts.Length > 2 ? Uri.UnescapeDataString(parts[2]) : "";
+                string smtcArtist = parts.Length > 3 ? Uri.UnescapeDataString(parts[3]) : "";
+
+                if (parts[1] == "playing" && !string.IsNullOrWhiteSpace(smtcTitle))
+                    DiscordRpcManager.Instance.UpdateState("media", _currentWebAppUrl ?? "", smtcTitle, smtcArtist);
+            }
             if (msg == "player_loaded")
             {
                 Dispatcher.Invoke(() => { if (_ytWebView != null) _ytWebView.ZoomFactor = 1.0; });
@@ -1424,8 +1556,15 @@ namespace Doorpi
                     YtBlockRequest(e);
                     return;
                 }
+                // ── EasyList — só bloqueia no YouTube TV ─────────────────────────────
+                if (_isCurrentSiteYouTube && IsBlockedByEasyList(uriStr))
+                {
+                    YtBlockRequest(e);
+                    return;
+                }
 
                 if (!_isCurrentSiteYouTube) return;
+
 
                 // Apenas injeta o User-Agent do PS4 para manter a interface de TV ...
                 if (uriStr.Contains("youtube.com") || uriStr.Contains("ytimg.com") ||

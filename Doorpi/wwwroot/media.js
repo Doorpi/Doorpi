@@ -249,7 +249,7 @@ let _currentHomeTab = 'games';
     .sys-app-row.active .sys-app-dot { width: 7px; height: 7px; box-shadow: 0 0 8px rgba(255,255,255,0.5); }
 
     /* ── Home Tabs ── */
-    .home-tabs { display: flex; align-items: center; gap: clamp(4px, 0.5vw, 8px); padding: 0 clamp(24px, 3.2vw, 64px); position: relative; z-index: 2; user-select: none;margin-bottom:12px; }
+    .home-tabs { display: flex; align-items: center; gap: clamp(4px, 0.5vw, 8px); padding: 0 clamp(24px, 3.2vw, 64px); position: relative; z-index: 2; user-select: none;margin-bottom:25px; }
     .home-tab { background: none; border: none; font-family: 'Outfit', sans-serif; font-size: clamp(0.82rem, 1.05vw, 1.3rem); font-weight: 700; text-transform: uppercase; letter-spacing: 0.11em; color: rgba(255,255,255,0.25); cursor: pointer; outline: none; padding: clamp(5px, 0.6vw, 9px) clamp(7px, 0.9vw, 14px); border-radius: 8px; transition: color 0.2s, background 0.2s; position: relative; }
     .home-tab::after { content: ''; position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%) scaleX(0); width: 65%; height: 2px; background: rgba(255,255,255,0.9); border-radius: 2px; transition: transform 0.28s cubic-bezier(0.22,1,0.36,1); }
     .home-tab.active { color: rgba(255,255,255,1); }

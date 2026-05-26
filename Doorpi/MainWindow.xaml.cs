@@ -328,6 +328,12 @@ namespace Doorpi
         }
         public MainWindow()
         {
+            RegisterProtocolAndAppId();
+            DiscordRpcManager.Instance.Initialize();
+            _ = LoadEasyListAsync();
+            DiscordRpcManager.Instance.RegisterNativeApps(
+    _nativeApps.Select(a => (a.Id, a.Name, a.Url)).ToList());
+
             this.Closing += (s, e) =>
             {
                 CleanupAndExit();
@@ -342,6 +348,7 @@ namespace Doorpi
             SourceInitialized += (_, _) =>
             {
                 _mainWindowHandle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                InitializeSmtc();
             };
             this.Activated += (s, e) =>
             {
@@ -1638,6 +1645,8 @@ namespace Doorpi
                             });
 
                             SendGameLaunchStatus("gameLaunchDone");
+                            DiscordRpcManager.Instance.UpdateState("media", mediaUrl, appName);
+
                             break;
                         }
 
@@ -3524,6 +3533,7 @@ namespace Doorpi
                 webView?.CoreWebView2?.PostWebMessageAsString(
                     $"{{\"type\":\"windowFocused\", \"appAlive\": {hasPendingSession.ToString().ToLower()}}}");
                 SendRuntimeSessionsToUI();
+                DiscordRpcManager.Instance.UpdateState("menu");
             });
         }
         private void FocusDoorpiKeepSession()
@@ -3557,6 +3567,8 @@ namespace Doorpi
                     "window.isDoorpiFocused = true; window.isMediaAppActive = false; window.isGameLaunchActive = false; window._doorpiGameInputSuppressedUntil = 0; window.focusFeaturedCard?.();");
                 webView?.CoreWebView2?.PostWebMessageAsString(
                     $"{{\"type\":\"windowFocused\", \"appAlive\": true}}");
+                DiscordRpcManager.Instance.UpdateState("menu");
+
             });
         }
 
@@ -3588,8 +3600,9 @@ namespace Doorpi
                     _lastVisibleWindowBeforeMinimize = fg;
             }
 
-            // 500 ms: DX9 exclusivo precisa de mais tempo para sair do fullscreen
-            // antes de o Doorpi aparecer por cima sem conflito visual.
+            DiscordRpcManager.Instance.UpdateState("menu");
+
+
             Task.Run(async () =>
             {
                 await Task.Delay(500);
@@ -3878,6 +3891,8 @@ namespace Doorpi
                             });
 
                             SendGameLaunchStatus("gameLaunchDone");
+                            DiscordRpcManager.Instance.UpdateState("game", game.Name);
+
                         }
                     }
                     else if (!doorpiHidden)
@@ -7226,6 +7241,7 @@ namespace Doorpi
                             string heroImg = media?.HeroImage ?? "";
                             string gridImg = media?.GridImage ?? "";
 
+                            DiscordRpcManager.Instance.UpdateState("media", mediaUrl, mediaName);
 
                             SendGameLaunchStatus("gameLaunching", mediaName, heroImg, gridImg);
                             Dispatcher.Invoke(() =>
@@ -7822,6 +7838,8 @@ namespace Doorpi
                                 {
                                     Debug.WriteLine($"[RESTORE] Janela encontrada: {hwndToRestore}");
                                     RestoreGameCleanly(hwndToRestore);
+                                    DiscordRpcManager.Instance.UpdateState("game", game.Name);
+
                                     _gameIsMinimized = false;          // ← permite monitor continuar rastreando
 
                                     if (string.IsNullOrWhiteSpace(_lockedGameProcessName))
@@ -8552,6 +8570,7 @@ namespace Doorpi
         }
         private void CleanupAndExit()
         {
+            DiscordRpcManager.Instance.Dispose();
             // 1. Força o fechamento de todas as janelas secundárias
             try { _webAppWindow?.Close(); } catch { }
             try { _popupWindow?.Close(); } catch { }
