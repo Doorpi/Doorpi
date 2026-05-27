@@ -941,18 +941,21 @@ window.isNavMenuOpen = false;
 .nav-content-body.dual-pane-active {
     padding: 0; margin: 0; overflow: hidden;
 }
-#navDualPane { position: relative; width: 100%; height: 100%; }
+#navDualPane {
+    position: relative; width: 100%; height: 100%;
+    container-type: size; container-name: pane;
+}
 #navPaneGames, #navPaneMedia {
     position: absolute; inset: 0;
     overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
-    padding: 25px; box-sizing: border-box;
+    padding: 24px; box-sizing: border-box;
     transition: opacity 0.22s ease;
 }
 #navPaneGames::-webkit-scrollbar,
 #navPaneMedia::-webkit-scrollbar { display: none; }
 /* ── Lazy Grid Skeleton & Shimmer ── */
 .nlg-wrapper { width: 100%; }
-.nlg-grid { padding-bottom: 40px; }
+.nlg-grid { padding-bottom: 80px; }
 
 .nav-vertical-card.nav-skeleton img,
 .nav-vertical-card.nav-skeleton .nav-vertical-card-no-img { display: none; }
@@ -1059,7 +1062,8 @@ window.isNavMenuOpen = false;
 .nav-content {
     flex: 1; display: flex; flex-direction: column;
     padding: clamp(10px, 2vh, 40px) clamp(20px, 3vw, 60px);
-    overflow: hidden; min-width: 0;
+    overflow: visible;
+    min-width: 0;
 }
 .nav-content-header {
     margin-bottom: clamp(20px, 3vh, 32px); flex-shrink: 0; text-align: left;
@@ -1069,24 +1073,55 @@ window.isNavMenuOpen = false;
 .nav-content-subtitle { font-size: clamp(0.85rem, 0.9vw, 1.1rem); color: rgba(255,255,255,0.4); margin: 0; font-weight: 400; }
 
 .nav-content-body {
-    flex: 1; overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
-    padding: 25px; margin: -10px; 
+    flex: 1; margin: 0; padding: 0;
+    overflow: visible;
+    position: relative;
 }
 .nav-content-body::-webkit-scrollbar { display: none; }
 
 @keyframes fadeInTop { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }
 
 /* ── Grid Premium Comum (Jogos/Apps) ── */
+
+/* SUBSTITUA O .nav-big-grid POR ISSO: */
 .nav-big-grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(95px, 8vw, 170px), 1fr));
-    gap: clamp(16px, 0.8vw, 24px); padding-bottom: 40px;
+    --gap-x: clamp(16px, 1.5vw, 24px);
+    --gap-y: clamp(40px, 4vw, 64px);
+
+    --rows: 2;
+
+    --padding-y: 48px;
+    --available-h: calc(100cqh - var(--padding-y));
+    --total-gap-h: calc(var(--gap-y) * (var(--rows) - 1));
+
+    /* 🔹 Subtrai 1px para evitar que dízimas infinitas do Windows quebrem o grid */
+    --card-h: calc(((var(--available-h) - var(--total-gap-h)) / var(--rows)) - 1px);
+    --card-w: calc(var(--card-h) * (2 / 3));
+
+    display: grid;
+    grid-template-columns: repeat(auto-fill, var(--card-w));
+    column-gap: var(--gap-x);
+    row-gap: var(--gap-y);
+    justify-content: center;
+    align-content: start;
+    margin: 0; padding-top: 0;
     animation: fadeInTop 0.4s ease;
 }
+
+/* 🔹 Escada Matemática: Adiciona +1 linha conforme a tela cresce para manter a capa no tamanho perfeito */
+@container pane (max-height: 480px) { .nav-big-grid { --rows: 1; } } /* Somente para janelas super amassadas */
+@container pane (min-height: 900px) { .nav-big-grid { --rows: 3; } } /* Telas 1080p "puras" (sem zoom do Windows) */
+@container pane (min-height: 1300px) { .nav-big-grid { --rows: 4; } } /* Telas 2K puras / 4K com scaling */
+@container pane (min-height: 1800px) { .nav-big-grid { --rows: 5; } } /* Telas 4K puras / 5K */
+@container pane (min-height: 2400px) { .nav-big-grid { --rows: 7; } } /* Telas 8K */
+
 .nav-vertical-card {
+    box-sizing: border-box; /* 🔹 Isso obriga a borda de 2px a nascer para DENTRO do card, não para fora */
     aspect-ratio: 2/3; border-radius: 8px; overflow: hidden;
     background: rgba(255,255,255,0.03); border: 2px solid transparent;
     cursor: pointer; outline: none; position: relative; display: flex; flex-direction: column;
     transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.2s ease, border-color 0.2s ease;
+
 }
 .nav-vertical-card img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .nav-vertical-card.new-game::before {
@@ -1106,7 +1141,7 @@ window.isNavMenuOpen = false;
     font-weight: 500; opacity: 0; transform: translateY(10px); transition: opacity 0.2s ease, transform 0.2s ease;
     text-shadow: 0 2px 4px rgba(0,0,0,0.8); text-align: end;
 }
-.nav-vertical-card.nav-focused { transform: scale(1.08); box-shadow: 0 15px 40px rgba(0,0,0,0.8); border-color: #fff; z-index: 10; }
+.nav-vertical-card.nav-focused { transform: scale(1.05);box-shadow: 0 15px 40px rgba(0,0,0,0.8); border-color: #fff; z-index: 10; }
 .nav-vertical-card.nav-focused .nav-card-gradient { opacity: 1; }
 .nav-vertical-card.nav-focused .nav-vertical-card-title { opacity: 1; transform: translateY(0); }
 
@@ -1249,6 +1284,7 @@ window.isNavMenuOpen = false;
 .nav-suggestion-card.nav-focused-el .nav-suggestion-card-text { color: #fff; }
 
 @media (max-width: 1366px), (max-height: 780px) {
+
     .nav-topbar { padding-top: 1.8rem; gap: 12px; }
     .nav-cat-item { padding: 6px; }
     .nav-cat-label { font-size: 0.82rem; }
@@ -1256,7 +1292,8 @@ window.isNavMenuOpen = false;
     .nav-content-header { margin-bottom: 8px; }
     .nav-content-title { font-size: 1.5rem; }
     .nav-content-subtitle { font-size: 0.78rem; }
-    .nav-content-body { padding: 10px; margin: 0; }
+    #navPaneGames, #navPaneMedia { padding: 16px; scroll-padding-top: 16px; scroll-padding-bottom: 16px; }
+    .nav-big-grid { --padding-y: 32px; }
     .nav-settings-grid { gap: 10px; }
     .nav-settings-card { padding: 12px 16px; gap: 12px; border-radius: 10px; }
     .settings-card-icon { width: 28px; height: 28px; }
@@ -2511,12 +2548,38 @@ window.isNavMenuOpen = false;
 
             const card = _contentItems[globalIdx];
             if (card) {
+         
+                const cols = _gridCols();
+                const container = card.closest('#navPaneGames, #navPaneMedia');
+
+    
+                if (globalIdx < cols && container) {
+                   
+                    if (container.scrollTop > 4) {
+                        container.scrollTo({ top: 0, behavior: 'smooth' });
+                    }
+                } else {
+                    
+                    const paneRect = container.getBoundingClientRect();
+                    const cardRect = card.getBoundingClientRect();
+                    const PADDING = 10; 
+
+                    if (cardRect.bottom > paneRect.bottom - PADDING) {
+                        
+                        container.scrollBy({ top: cardRect.bottom - paneRect.bottom + PADDING, behavior: 'smooth' });
+                    } else if (cardRect.top < paneRect.top + PADDING) {
+                        
+                        container.scrollBy({ top: cardRect.top - paneRect.top - PADDING, behavior: 'smooth' });
+                    }
+                }
+
+             
                 card.classList.add('nav-focused');
                 card._startInteraction?.();
-                card.scrollIntoView({ block: 'center', behavior: 'smooth' });
 
                 _lg._loadCard(card);
             }
+       
         } else {
             _contentItems.forEach((el, i) => {
                 if (!el) return;
