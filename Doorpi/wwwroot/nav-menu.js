@@ -1,4 +1,3 @@
-// =============================================================================
 'use strict';
 
 window.isNavMenuOpen = false;
@@ -25,7 +24,7 @@ window.isNavMenuOpen = false;
         if (url.startsWith('riot:')) return { name: 'Riot Games', svg: PLATFORM_ICONS.Riot };
         return { name: 'Windows / Pasta', svg: PLATFORM_ICONS.Windows };
     }
-    // ── Função Exclusiva para o Modal de Aviso de Modo Desktop ──────────────
+
     // ── Função Exclusiva para o Modal de Aviso de Modo Desktop ──────────────
     window.isDesktopWarningOpen = false;
 
@@ -96,7 +95,7 @@ window.isNavMenuOpen = false;
             document.body.appendChild(overlay);
         }
 
-        // Lógica para diferenciar a mensagem de "Sair" dependendo do Contexto e adicionar os novos Layouts (Scroll e Xbox)
+        // Lógica para diferenciar a mensagem de "Sair" dependendo do Contexto
         const exitContentHtml = context === 'settings'
             ? `<div class="dw-item" style="grid-column: 1 / -1; margin-top: 8px; justify-content: center; background: rgba(255,255,255,0.05); padding: 12px; border-radius: 10px; text-align: center;">
                     <span id="dwSettingsExit" style="font-weight: 500; color:#ffd166;"></span>
@@ -146,7 +145,6 @@ window.isNavMenuOpen = false;
             </div>
         `;
 
-        // Preenchimento dos textos usando o _t()
         document.getElementById('dwTitle').textContent = _t('dwTitle', 'Modo Área de Trabalho');
         document.getElementById('dwSubtitle').textContent = _t('dwSubtitle', 'Seu controle assumirá temporariamente a função de mouse e teclado. Conheça os comandos:');
         document.getElementById('dwMouse').textContent = _t('dwBtnMouse', 'Mover Mouse');
@@ -224,6 +222,271 @@ window.isNavMenuOpen = false;
         window.isDesktopWarningOpen = true;
         requestAnimationFrame(() => overlay.classList.add('visible'));
     }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // ██████████████████  LAZY GRID LOADER  ██████████████████████████████████
+    // ────────────────────────────────────────────────────────────────────────
+    class _NavLazyGrid {
+        constructor({ body, scrollRoot, items, catId, emptyIcon, onLaunchAction, onFocusUpdate }) {
+            this.items        = items;
+            this.catId        = catId;
+            this.emptyIcon    = emptyIcon;
+            this.onLaunchAction = onLaunchAction;
+            this.onFocusUpdate  = onFocusUpdate; 
+
+            // Margens para garantir que o skeleton nunca seja visto:
+            // Ele vai carregar as imagens muito antes de entrar e só descarregar muito depois de sair.
+            this.LOAD_MARGIN   = '1200px 0px 1200px 0px';
+            this.UNLOAD_MARGIN = '1600px 0px 1600px 0px';
+            this.BATCH_SIZE    = 40; // Inicial de quantos processar na tela logo de cara
+
+            this._cards      = [];           
+            this._loadObs    = null;         
+            this._unloadObs  = null;         
+            this._aborted    = false;
+            this._wrapper    = null;
+
+            this._build(body, scrollRoot);
+        }
+
+        _build(body, scrollRoot) {
+            this._wrapper = document.createElement('div');
+            this._wrapper.className = 'nlg-wrapper';
+            
+            this._grid = document.createElement('div');
+            this._grid.className = 'nav-big-grid nlg-grid';
+            this._grid.id = 'navDynGrid';
+            
+            this._wrapper.appendChild(this._grid);
+            body.appendChild(this._wrapper);
+
+            this._setupObservers(scrollRoot);
+
+            const firstBatch = Math.min(this.items.length, this.BATCH_SIZE);
+            for (let i = 0; i < firstBatch; i++) {
+                const card = this._createCard(i);
+                this._grid.appendChild(card);
+                this._cards.push(card);
+                this._loadObs.observe(card);
+                this._unloadObs.observe(card);
+            }
+
+            this.onFocusUpdate(this._cards, -1);
+            if (typeof refreshRuntimeCards === 'function') refreshRuntimeCards();
+
+            if (this.items.length > firstBatch) {
+                this._buildRemainder(firstBatch);
+            }
+        }
+
+        async _buildRemainder(startIdx) {
+            const BATCH = this.BATCH_SIZE;
+            let i = startIdx;
+
+            while (i < this.items.length && !this._aborted && this._grid) {
+                await new Promise(resolve => {
+                    if ('requestIdleCallback' in window) {
+                        requestIdleCallback(resolve, { timeout: 100 });
+                    } else {
+                        setTimeout(resolve, 10);
+                    }
+                });
+
+                if (this._aborted || !this._grid) break;
+
+                const end = Math.min(i + BATCH, this.items.length);
+                const fragment = document.createDocumentFragment();
+
+                for (let j = i; j < end; j++) {
+                    const card = this._createCard(j);
+                    fragment.appendChild(card);
+                    this._cards.push(card);
+                }
+
+                this._grid.appendChild(fragment);
+
+                const newCards = this._cards.slice(i, end);
+                for (const card of newCards) {
+                    this._loadObs?.observe(card);
+                    this._unloadObs?.observe(card);
+                }
+
+                this.onFocusUpdate(this._cards, -1);
+                if (typeof refreshRuntimeCards === 'function') refreshRuntimeCards();
+                i = end;
+            }
+        }
+
+        _setupObservers(scrollRoot) {
+            this._loadObs = new IntersectionObserver(
+                entries => {
+                    entries.forEach(e => {
+                        if (e.isIntersecting) this._loadCard(e.target);
+                    });
+                },
+                { root: scrollRoot, rootMargin: this.LOAD_MARGIN, threshold: 0 }
+            );
+
+            this._unloadObs = new IntersectionObserver(
+                entries => {
+                    entries.forEach(e => {
+                        if (!e.isIntersecting) this._unloadCard(e.target);
+                    });
+                },
+                { root: scrollRoot, rootMargin: this.UNLOAD_MARGIN, threshold: 0 }
+            );
+        }
+
+        _createCard(idx) {
+            const item = this.items[idx];
+            const name = item.Name || '';
+
+            const card = document.createElement('div');
+            card.className = 'nav-vertical-card nav-skeleton';
+            card.tabIndex = -1;
+            card.dataset.idx     = String(idx);
+            card.dataset.gameId  = item.LaunchUrl || item.Path || item.Url || '';
+            card._item           = item;
+            card._loaded         = false;
+
+            if (this.catId === 'media') {
+                card.dataset.appId   = item.Id  || item.Url || '';
+                card.dataset.appUrl  = item.Url || '';
+                card.dataset.appType = item.Type || 'browser';
+            }
+
+            const itemKey = item.LaunchUrl || item.Path || item.Url || item.Id || '';
+            if (item._isNew || window.newGameIdsThisSession?.has(itemKey)) {
+                card.classList.add('new-game');
+            }
+
+            card.innerHTML = `
+                <div class="nlg-skeleton-bg" aria-hidden="true"></div>
+                <div class="nav-card-gradient"></div>
+                <div class="nav-vertical-card-title">${_esc(name)}</div>`;
+
+            card.addEventListener('click', () => {
+                if (!this._aborted) this.onLaunchAction(idx);
+            });
+            card.addEventListener('mouseenter', () => {
+                if (!this._aborted) this.onFocusUpdate(this._cards, idx);
+            });
+
+            return card;
+        }
+
+        _loadCard(card) {
+            if (card._loaded || this._aborted) return;
+            card._loaded = true;
+            card.classList.remove('nav-skeleton');
+
+            const item      = card._item;
+            const staticSrc = item.GridStaticImage || item.GridImage || '';
+            const animSrc   = item.GridImage || '';
+
+            if (staticSrc) {
+                const img = document.createElement('img');
+                img.loading  = 'eager';
+                img.decoding = 'async';
+                img.alt      = item.Name || '';
+                img.src      = staticSrc;
+
+                const skeletonBg = card.querySelector('.nlg-skeleton-bg');
+                if (skeletonBg) skeletonBg.replaceWith(img);
+                else card.insertBefore(img, card.firstChild);
+
+                let _animTimer = null;
+                card._startInteraction = () => {
+                    if (_animTimer) clearTimeout(_animTimer);
+                    _animTimer = setTimeout(async () => {
+                        if (!card.classList.contains('nav-focused')) return;
+                        if (animSrc && animSrc !== staticSrc) {
+                            const tmp = new Image();
+                            tmp.src = animSrc;
+                            try { await tmp.decode(); } catch (_) {}
+                            if (card.classList.contains('nav-focused') && img.isConnected) {
+                                img.src = animSrc;
+                            }
+                        }
+                    }, 200);
+                };
+                card._stopInteraction = () => {
+                    if (_animTimer) clearTimeout(_animTimer);
+                    if (img.isConnected && staticSrc && img.src !== staticSrc) img.src = staticSrc;
+                };
+            } else {
+                const noImg = document.createElement('div');
+                noImg.className = 'nav-vertical-card-no-img';
+                noImg.textContent = this.emptyIcon;
+                const skeletonBg = card.querySelector('.nlg-skeleton-bg');
+                if (skeletonBg) skeletonBg.replaceWith(noImg);
+            }
+        }
+
+        _unloadCard(card) {
+            if (!card._loaded) return;
+            
+            // Nunca descarrega a imagem do item que está com foco no gamepad
+            if (card.classList.contains('nav-focused')) return;
+
+            card._loaded = false;
+            card.classList.add('nav-skeleton');
+            card._stopInteraction?.();
+            card._startInteraction = null;
+            card._stopInteraction  = null;
+
+            const content = card.querySelector('img, .nav-vertical-card-no-img');
+            if (content) {
+                const skeletonBg = document.createElement('div');
+                skeletonBg.className = 'nlg-skeleton-bg';
+                skeletonBg.setAttribute('aria-hidden', 'true');
+                content.replaceWith(skeletonBg);
+            }
+        }
+
+        destroy() {
+            this._aborted = true;
+            this._loadObs?.disconnect();
+            this._unloadObs?.disconnect();
+            this._loadObs = null;
+            this._unloadObs = null;
+
+            for (const card of this._cards) {
+                if (card) {
+                    card.classList.remove('nav-focused');
+                    card._item = null;
+                    card._startInteraction = null;
+                    card._stopInteraction  = null;
+                }
+            }
+            this._cards = [];
+            
+            const wrapper = this._wrapper;
+            this._wrapper = null;
+            this._grid = null;
+            
+            if (wrapper) {
+                requestAnimationFrame(() => {
+                    try { wrapper.remove(); } catch (_) {}
+                });
+            }
+        }
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
+    // ── Lazy Grid Variables ──
+    let _lazyGrid = null;
+    function _isLazyCat() { return _lazyGrid !== null; }
+
+    function _destroyLazyGrid() {
+        if (_lazyGrid) {
+            _lazyGrid.destroy();
+            _lazyGrid = null;
+        }
+        _contentItems = [];
+    }
+
+    // ── Funções de Inicialização / Componentes Settings ───────────────────────
     function _renderSettingsSystem(body) {
         if (typeof postToHost === 'function') postToHost({ action: 'requestBootMode' });
 
@@ -333,7 +596,6 @@ window.isNavMenuOpen = false;
                 window._doorpiBootMode = mode;
                 window._updateBootModeUI();
 
-                // CORREÇÃO AQUI: Encontra o índice dinamicamente e preserva no lugar
                 const newIdx = _contentItems.indexOf(btn);
                 if (newIdx !== -1) {
                     _contentIdx = newIdx;
@@ -367,6 +629,7 @@ window.isNavMenuOpen = false;
             });
         });
     }
+
     async function _loadJSONs() {
         const domCards = Array.from(document.querySelectorAll('#gameGrid .card:not(.add-card)'));
         if (domCards.length > 0 && _menuData.games.length > 0) {
@@ -504,7 +767,6 @@ window.isNavMenuOpen = false;
                 const res = t(key, ...args);
                 if (res) return res;
             }
-            // Fallback de segurança substituindo {0} ou %d pelo número
             if (args.length > 0 && fallback) {
                 return fallback.replace(/\{0\}|%d/g, args[0]);
             }
@@ -567,19 +829,57 @@ window.isNavMenuOpen = false;
     let _sharingFocusAppId = '';
     let _preserveSettingsSubViewOnce = false;
     let _autoStartEnabled = false;
+
     // ── Estilos ────────────────────────────────────────
     (function injectStyles() {
         if (document.getElementById('nav-menu-styles')) return;
         const s = document.createElement('style');
         s.id = 'nav-menu-styles';
         s.textContent = `
-        /* ── Toggle Iniciar com o Windows ── */
+/* ── Lazy Grid Skeleton & Shimmer ── */
+.nlg-wrapper { width: 100%; }
+.nlg-grid { padding-bottom: 40px; }
+
+.nav-vertical-card.nav-skeleton img,
+.nav-vertical-card.nav-skeleton .nav-vertical-card-no-img { display: none; }
+
+.nlg-skeleton-bg {
+    position: absolute; inset: 0;
+    border-radius: inherit;
+    background: rgba(255,255,255,0.04);
+    overflow: hidden;
+}
+.nlg-skeleton-bg::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(255,255,255,0.07) 40%,
+        rgba(255,255,255,0.12) 50%,
+        rgba(255,255,255,0.07) 60%,
+        transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: nlg-shimmer 2s ease-in-out infinite;
+}
+@keyframes nlg-shimmer {
+    0%   { background-position:  200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* Skeleton cards still show title and border on focus */
+.nav-vertical-card.nav-skeleton.nav-focused { border-color: rgba(255,255,255,0.6); }
+.nav-vertical-card.nav-skeleton.nav-focused .nav-card-gradient { opacity: 1; }
+.nav-vertical-card.nav-skeleton.nav-focused .nav-vertical-card-title { opacity: 1; transform: translateY(0); }
+
+/* ── Toggle Iniciar com o Windows ── */
 .nav-toggle {
     width: 52px; height: 28px; border-radius: 999px;
     background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14);
     position: relative; flex-shrink: 0; align-self: center;
     transition: background 0.25s ease, border-color 0.25s ease;
-    pointer-events: none; /* o clique é no card inteiro */
+    pointer-events: none;
 }
 .nav-toggle.on  { background: rgba(100,220,120,0.28); border-color: rgba(100,220,120,0.55); }
 .nav-toggle-thumb {
@@ -589,334 +889,216 @@ window.isNavMenuOpen = false;
     transition: transform 0.25s cubic-bezier(0.34,1.56,0.64,1), background 0.25s;
 }
 .nav-toggle.on .nav-toggle-thumb { transform: translateX(24px); background: #6ee696; }
-        /* ── Estilos dos Atalhos no Modal de Edição ── */
-.edit-shortcuts-grid {
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-        margin-top: 4px;
-    }
-    .edit-shortcut-card {
-        background: rgba(255,255,255,0.04);
-        border: 1px solid rgba(255,255,255,0.08);
-        border-radius: 12px;
-        padding: 12px 14px;
-        display: flex;
-        align-items: center;
-        gap: 14px;
-        cursor: pointer;
-        outline: none;
-        text-align: left;
-        transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1);
-        color: inherit;
-        font-family: inherit;
-    }
-    .edit-shortcut-icon {
-        width: 32px;
-        height: 32px;
-        flex-shrink: 0;
-        color: rgba(255,255,255,0.4);
-        transition: color 0.2s;
-    }
-    .edit-shortcut-icon svg { width: 100%; height: 100%; }
-    .edit-shortcut-info { flex: 1; display: flex; flex-direction: column; gap: 4px; }
-    .edit-shortcut-info h4 { margin: 0; font-size: 0.95rem; font-weight: 500; color: #fff; line-height: 1.1; letter-spacing: 0.01em;}
-    .edit-shortcut-info p { margin: 0; font-size: 0.75rem; color: rgba(255,255,255,0.45); line-height: 1.3; }
 
-    .edit-shortcut-card:hover, .edit-shortcut-card:focus {
-        transform: translateY(-2px) scale(1.02);
-        background: rgba(255,255,255,0.08);
-        border-color: rgba(255,255,255,0.4);
-        box-shadow: 0 8px 24px rgba(0,0,0,0.3);
-    }
-    .edit-shortcut-card:hover .edit-shortcut-icon, .edit-shortcut-card:focus .edit-shortcut-icon {
-        color: #fff;
-    }
-
-        /* ── Overlay Transição ── */
-        #navMenuOverlay {
-            content-visibility: visible;
-            contain: layout style;
-            position: fixed;
-            inset: 0;
-            z-index: 8000;
-            display: none;
-            opacity: 1;
-            font-family: 'Inter', 'Segoe UI', sans-serif;
-            transform: translateY(100%);
-            transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        #navMenuOverlay.visible { transform: translateY(0); }
-        #navMenuBg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
-
-        /* Esconder foto de perfil quando o menu abre */
-        .top-profile-btn.nav-menu-hidden {
-            opacity: 0 !important;
-            pointer-events: none !important;
-            transition: opacity 0.3s ease;
-        }
-
-        .nav-layout {
-            position: relative;
-            z-index: 1;
-            display: flex;
-            flex-direction: column;
-            width: 100%; height: 100%;
-        }
-        #navMenuOverlay.visible .nav-layout { transform: scale(1); }
-        .nav-topbar {
-            display: flex; align-items: center; padding-top: clamp(5rem, 5vh, 5rem); gap: clamp(12px, 2vw, 40px);
-            flex-shrink: 0; flex-direction: column;
-        }
-
-        .nav-cat-list { display: flex; gap: clamp(16px, 2.5vw, 40px); }
-
-        .nav-cat-item {
-            display: flex; align-items: center; gap: 10px; padding: 10px;
-            cursor: pointer; outline: none; border: none; background: none;
-            font-family: inherit; color: rgba(255,255,255,0.35);
-            position: relative; transition: color 0.2s ease;
-        }
-        .nav-cat-item::after {
-            content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
-            background: #fff; transform: scaleX(0); transform-origin: center;
-            transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1); box-shadow: 0 0 10px rgba(255,255,255,0.5);
-        }
-        .nav-cat-item.active { color: #fff; }
-        .nav-cat-item.active::after { transform: scaleX(1); }
-        
-        .nav-cat-item.nav-focused {
-            color: #fff; background: #f0f8ff1c; transform: scale(1.04);
-        }
-        .nav-cat-item.nav-focused::after { transform: scaleX(1); height: 3px; }
-        
-        .nav-cat-label { font-size: clamp(0.9rem, 1.1vw, 1.2rem); font-weight: 500; letter-spacing: 0.02em; }
-
-        .nav-content {
-            flex: 1; display: flex; flex-direction: column;
-            padding: clamp(10px, 2vh, 40px) clamp(20px, 3vw, 60px);
-            overflow: hidden; min-width: 0;
-        }
-
-        .nav-content-header {
-            margin-bottom: clamp(20px, 3vh, 32px); flex-shrink: 0; text-align: left;
-            animation: fadeInTop 0.4s cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
-        }
-       .nav-content-title { font-size: clamp(1.2rem, 2vw, 3.2rem); font-weight: 300; color: #fff; margin: 0 0 4px; letter-spacing: -0.01em; }
-
-        .nav-content-subtitle { font-size: clamp(0.85rem, 0.9vw, 1.1rem); color: rgba(255,255,255,0.4); margin: 0; font-weight: 400; }
-
-        .nav-content-body {
-            flex: 1; overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
-            padding: 25px; margin: -10px; 
-        }
-        .nav-content-body::-webkit-scrollbar { display: none; }
-
-        @keyframes fadeInTop { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }
-
-        /* ── Grid Premium Comum (Jogos/Apps) ── */
-        .nav-big-grid {
-            display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(95px, 8vw, 170px), 1fr));
-            gap: clamp(16px, 0.8vw, 24px); padding-bottom: 40px;
-            animation: fadeInTop 0.4s ease;
-        }
-        .nav-vertical-card {
-            aspect-ratio: 2/3; border-radius: 8px; overflow: hidden;
-            background: rgba(255,255,255,0.03); border: 2px solid transparent;
-            cursor: pointer; outline: none; position: relative; display: flex; flex-direction: column;
-            transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.2s ease, border-color 0.2s ease;
-        }
-        .nav-vertical-card img {
-            position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block;
-        }
-        .nav-vertical-card.new-game::before {
-            content: 'NOVO'; position: absolute; top: 7px; left: 7px; z-index: 20;
-            background: #fff; color: #06060e; font-size: clamp(7px, 0.6vmin, 10px); font-weight: 800;
-            letter-spacing: 0.18em; padding: 3px 7px 4px; border-radius: 3px; box-shadow: 0 2px 10px rgba(0,0,0,0.6);
-        }
-        .nav-vertical-card-no-img {
-            flex: 1; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.1); font-size: clamp(3rem, 4vw, 5rem); z-index: 1;
-        }
-        .nav-card-gradient {
-            position: absolute; bottom: 0; left: 0; right: 0; height: 60%;
-            background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.5) 40%, transparent 100%);
-            z-index: 2; opacity: 0; transition: opacity 0.2s ease;
-        }
-        .nav-vertical-card-title {
-            position: absolute; bottom: 0; left: 0; right: 0; font-size: clamp(0.75rem, 0.85vw, 1rem);
-            color: #fff; padding: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; z-index: 3;
-            font-weight: 500; opacity: 0; transform: translateY(10px); transition: opacity 0.2s ease, transform 0.2s ease;
-            text-shadow: 0 2px 4px rgba(0,0,0,0.8); text-align: end;
-        }
-        .nav-vertical-card.nav-focused {
-            transform: scale(1.08); box-shadow: 0 15px 40px rgba(0,0,0,0.8); border-color: #fff; z-index: 10;
-        }
-        .nav-vertical-card.nav-focused .nav-card-gradient { opacity: 1; }
-        .nav-vertical-card.nav-focused .nav-vertical-card-title { opacity: 1; transform: translateY(0); }
-
-        /* ── HUB de Perfil (Visual Cinemático) ── */
-.nav-profile-showcase {
-    display: flex; flex-direction: column; gap: clamp(12px, 2.5vh, 40px);
-    animation: fadeInTop 0.3s ease;
-    max-width: clamp(85%, 75vw, 1100px);
+/* ── Estilos dos Atalhos no Modal de Edição ── */
+.edit-shortcuts-grid { display: flex; flex-direction: column; gap: 12px; margin-top: 4px; }
+.edit-shortcut-card {
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px; padding: 12px 14px; display: flex; align-items: center; gap: 14px;
+    cursor: pointer; outline: none; text-align: left; transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1);
+    color: inherit; font-family: inherit;
 }
-.nav-profile-header {
-    display: flex; align-items: flex-start; gap: clamp(14px, 2.5vw, 40px); justify-content: flex-start;
-    margin-bottom: clamp(4px, 1vh, 2%);
-}   
-        .nav-profile-avatar-large { 
-            width: clamp(70px, 12vh, 120px); height: clamp(70px, 12vh, 120px); 
-            border-radius: 50%; border: 3px solid rgba(255,255,255,0.15); box-shadow: 0 15px 40px rgba(0,0,0,0.5); 
-            overflow: hidden; display:flex; align-items:center; justify-content:center; font-size: 2.5rem; 
-            background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.3); flex-shrink: 0;
-        }
-        .nav-profile-avatar-large img { width: 100%; height: 100%; object-fit: cover; }
-        
-        .nav-profile-info { 
-            flex: 1; display: flex; flex-direction: column; gap: 8px; justify-content: center;
-        }
-        .nav-profile-name { font-size: clamp(1.6rem, 2.8vw, 4rem); font-weight: 300; margin: 0; color: #fff; letter-spacing: -0.02em; line-height: 1.1; }
+.edit-shortcut-icon { width: 32px; height: 32px; flex-shrink: 0; color: rgba(255,255,255,0.4); transition: color 0.2s; }
+.edit-shortcut-icon svg { width: 100%; height: 100%; }
+.edit-shortcut-info { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.edit-shortcut-info h4 { margin: 0; font-size: 0.95rem; font-weight: 500; color: #fff; line-height: 1.1; letter-spacing: 0.01em;}
+.edit-shortcut-info p { margin: 0; font-size: 0.75rem; color: rgba(255,255,255,0.45); line-height: 1.3; }
 
+.edit-shortcut-card:hover, .edit-shortcut-card:focus {
+    transform: translateY(-2px) scale(1.02);
+    background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.4); box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+}
+.edit-shortcut-card:hover .edit-shortcut-icon, .edit-shortcut-card:focus .edit-shortcut-icon { color: #fff; }
 
-        .nav-profile-edit-btn {
-            background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 30px;
-            padding: 12px 24px; color: #fff; font-size: 1rem; font-family: inherit; cursor: pointer; outline: none;
-            transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1); font-weight: 500;
-        }
-        .nav-profile-edit-btn.nav-focused-el { background: #fff; color: #000; transform: scale(1.05); box-shadow: 0 10px 30px rgba(255,255,255,0.2); }
+/* ── Overlay Transição ── */
+#navMenuOverlay {
+    content-visibility: visible; contain: layout style; position: fixed; inset: 0; z-index: 8000;
+    display: none; opacity: 1; font-family: 'Inter', 'Segoe UI', sans-serif;
+    transform: translateY(100%); transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+#navMenuOverlay.visible { transform: translateY(0); }
+#navMenuBg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
 
-        .nav-profile-stats-row {
-            display: grid; grid-template-columns: repeat(3, 1fr); gap: clamp(10px, 1.5vw, 24px);
-        }
-        .nav-profile-stat-box {
-            background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;
-            padding: clamp(10px, 1.5vh, 24px) clamp(12px, 1.5vw, 24px); display: flex; flex-direction: column; gap: clamp(4px, 0.8vh, 8px); box-shadow: 0 10px 20px rgba(0,0,0,0.2);
-            align-items: center; text-align: center;
-        }
-        .nav-profile-stat-box.future-placeholder { opacity: 0.35; }
-        .stat-value { font-size: clamp(1.4rem, 2.2vw, 2.8rem); font-weight: 200; color: #fff; line-height: 1; }
+.top-profile-btn.nav-menu-hidden { opacity: 0 !important; pointer-events: none !important; transition: opacity 0.3s ease; }
 
-        .stat-label { font-size: clamp(0.7rem, 0.8vw, 0.85rem); color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+.nav-layout { position: relative; z-index: 1; display: flex; flex-direction: column; width: 100%; height: 100%; }
+#navMenuOverlay.visible .nav-layout { transform: scale(1); }
+.nav-topbar { display: flex; align-items: center; padding-top: clamp(5rem, 5vh, 5rem); gap: clamp(12px, 2vw, 40px); flex-shrink: 0; flex-direction: column; }
+.nav-cat-list { display: flex; gap: clamp(16px, 2.5vw, 40px); }
 
+.nav-cat-item {
+    display: flex; align-items: center; gap: 10px; padding: 10px;
+    cursor: pointer; outline: none; border: none; background: none;
+    font-family: inherit; color: rgba(255,255,255,0.35); position: relative; transition: color 0.2s ease;
+}
+.nav-cat-item::after {
+    content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
+    background: #fff; transform: scaleX(0); transform-origin: center;
+    transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1); box-shadow: 0 0 10px rgba(255,255,255,0.5);
+}
+.nav-cat-item.active { color: #fff; }
+.nav-cat-item.active::after { transform: scaleX(1); }
+.nav-cat-item.nav-focused { color: #fff; background: #f0f8ff1c; transform: scale(1.04); }
+.nav-cat-item.nav-focused::after { transform: scaleX(1); height: 3px; }
+.nav-cat-label { font-size: clamp(0.9rem, 1.1vw, 1.2rem); font-weight: 500; letter-spacing: 0.02em; }
 
-        .nav-profile-section-title { font-size: 1.3rem; font-weight: 400; color: #fff; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 12px; margin-top: 10px;}
+.nav-content {
+    flex: 1; display: flex; flex-direction: column;
+    padding: clamp(10px, 2vh, 40px) clamp(20px, 3vw, 60px);
+    overflow: hidden; min-width: 0;
+}
+.nav-content-header {
+    margin-bottom: clamp(20px, 3vh, 32px); flex-shrink: 0; text-align: left;
+    animation: fadeInTop 0.4s cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
+}
+.nav-content-title { font-size: clamp(1.2rem, 2vw, 3.2rem); font-weight: 300; color: #fff; margin: 0 0 4px; letter-spacing: -0.01em; }
+.nav-content-subtitle { font-size: clamp(0.85rem, 0.9vw, 1.1rem); color: rgba(255,255,255,0.4); margin: 0; font-weight: 400; }
 
-        /* ── Cards Recentes (Verticais Maiores - Vitrine de Dados) ── */
-        .nav-profile-recent-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(clamp(110px, 10vw, 205px), 1fr));
-            gap: clamp(10px, 1.2vw, 24px);
-            padding-bottom: 40px;
-        }
-        .nav-profile-recent-card {
-            aspect-ratio: 2/3; border-radius: 8px; overflow: hidden;
-            background: rgba(255,255,255,0.03); border: 2px solid transparent;
-            position: relative; display: flex; flex-direction: column;
-            transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.2s ease;
-        }
-        .nav-profile-recent-card img {
-            position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block;
-        }
-        .nav-profile-recent-card.nav-focused-el {
-            transform: scale(1.05); box-shadow: 0 15px 40px rgba(0,0,0,0.6); z-index: 10;
-        }
-        .nav-profile-recent-card .nav-card-gradient {
-            position: absolute; inset: 0; height: 100%;
-            background: linear-gradient(to top, rgba(0,0,0, 0.9) 0%, rgba(0,0,0, 0.4) 50%, rgba(0,0,0,0.1) 100%);
-            backdrop-filter: blur(3px);
-            z-index: 2; opacity: 0; transition: opacity 0.3s ease;
-        }
-        .nav-profile-recent-card.nav-focused-el .nav-card-gradient {
-            opacity: 1;
-        }
-        .nav-profile-recent-info {
-            position: absolute; inset: 0; padding: clamp(10px, 1.2vw, 16px);
-            display: flex; flex-direction: column; justify-content: space-between;
-            opacity: 0; transform: translateY(10px); transition: all 0.3s ease;
-            z-index: 3; color: #fff;
-        }
-        .nav-profile-recent-card.nav-focused-el .nav-profile-recent-info {
-            opacity: 1; transform: translateY(0);
-        }
-        .nav-profile-recent-platform-icon {
-            width: clamp(20px, 2vw, 28px); height: clamp(20px, 2vw, 28px); align-self: flex-end; opacity: 0.9;
-        }
-        .nav-profile-recent-text {
-            display: flex; flex-direction: column; gap: 4px; text-align: left;
-        }
-        .nav-profile-recent-title {
-            font-size: clamp(0.9rem, 1.1vw, 1.2rem); font-weight: 600; line-height: 1.2;
-            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-shadow: 0 2px 4px rgba(0,0,0,0.8);
-        }
-        .nav-profile-recent-date {
-            font-size: clamp(0.7rem, 0.8vw, 0.85rem); color: rgba(255,255,255,0.6); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;
-        }
+.nav-content-body {
+    flex: 1; overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
+    padding: 25px; margin: -10px; 
+}
+.nav-content-body::-webkit-scrollbar { display: none; }
 
-        /* ── Dashboard de Configurações (Grid de Categorias) ── */
-        .nav-settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(200px, 22vw, 320px), 1fr)); gap: clamp(12px, 1.5vh, 24px); animation: fadeInTop 0.4s ease; max-width: 1400px; }
-        .nav-settings-card {
-            background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 16px;
-            padding: clamp(16px, 2.5vh, 30px) clamp(16px, 1.8vw, 24px); display: flex; align-items: flex-start; gap: clamp(12px, 1.5vw, 20px); cursor: pointer; outline: none;
-            text-align: left; transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1); color: inherit; font-family: inherit;
-        }
-        .settings-card-icon { width: clamp(36px, 4.5vh, 54px); height: clamp(36px, 4.5vh, 54px); flex-shrink: 0; color: rgba(255,255,255,0.4); transition: color 0.2s; }
+@keyframes fadeInTop { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }
 
-        .settings-card-icon svg { width: 100%; height: 100%; }
-        .settings-card-info h3 { margin: 0 0 8px 0; font-size: 1.4rem; font-weight: 400; color: #fff; letter-spacing: -0.01em; }
-        .settings-card-info p { margin: 0; font-size: 0.95rem; color: rgba(255,255,255,0.4); line-height: 1.5; }
+/* ── Grid Premium Comum (Jogos/Apps) ── */
+.nav-big-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(95px, 8vw, 170px), 1fr));
+    gap: clamp(16px, 0.8vw, 24px); padding-bottom: 40px;
+    animation: fadeInTop 0.4s ease;
+}
+.nav-vertical-card {
+    aspect-ratio: 2/3; border-radius: 8px; overflow: hidden;
+    background: rgba(255,255,255,0.03); border: 2px solid transparent;
+    cursor: pointer; outline: none; position: relative; display: flex; flex-direction: column;
+    transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.nav-vertical-card img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.nav-vertical-card.new-game::before {
+    content: 'NOVO'; position: absolute; top: 7px; left: 7px; z-index: 20;
+    background: #fff; color: #06060e; font-size: clamp(7px, 0.6vmin, 10px); font-weight: 800;
+    letter-spacing: 0.18em; padding: 3px 7px 4px; border-radius: 3px; box-shadow: 0 2px 10px rgba(0,0,0,0.6);
+}
+.nav-vertical-card-no-img { flex: 1; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.1); font-size: clamp(3rem, 4vw, 5rem); z-index: 1; }
+.nav-card-gradient {
+    position: absolute; bottom: 0; left: 0; right: 0; height: 60%;
+    background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.5) 40%, transparent 100%);
+    z-index: 2; opacity: 0; transition: opacity 0.2s ease;
+}
+.nav-vertical-card-title {
+    position: absolute; bottom: 0; left: 0; right: 0; font-size: clamp(0.75rem, 0.85vw, 1rem);
+    color: #fff; padding: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; z-index: 3;
+    font-weight: 500; opacity: 0; transform: translateY(10px); transition: opacity 0.2s ease, transform 0.2s ease;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.8); text-align: end;
+}
+.nav-vertical-card.nav-focused { transform: scale(1.08); box-shadow: 0 15px 40px rgba(0,0,0,0.8); border-color: #fff; z-index: 10; }
+.nav-vertical-card.nav-focused .nav-card-gradient { opacity: 1; }
+.nav-vertical-card.nav-focused .nav-vertical-card-title { opacity: 1; transform: translateY(0); }
 
-        .nav-settings-card.nav-focused-el { 
-            transform: translateY(-4px) scale(1.03); background: rgba(255,255,255,0.08); 
-            border-color: rgba(255,255,255,0.4); box-shadow: 0 20px 50px rgba(0,0,0,0.5); 
-        }
-        .nav-settings-card.nav-focused-el .settings-card-icon { color: #fff; }
+/* ── HUB de Perfil (Visual Cinemático) ── */
+.nav-profile-showcase { display: flex; flex-direction: column; gap: clamp(12px, 2.5vh, 40px); animation: fadeInTop 0.3s ease; max-width: clamp(85%, 75vw, 1100px); }
+.nav-profile-header { display: flex; align-items: flex-start; gap: clamp(14px, 2.5vw, 40px); justify-content: flex-start; margin-bottom: clamp(4px, 1vh, 2%); }   
+.nav-profile-avatar-large { 
+    width: clamp(70px, 12vh, 120px); height: clamp(70px, 12vh, 120px); 
+    border-radius: 50%; border: 3px solid rgba(255,255,255,0.15); box-shadow: 0 15px 40px rgba(0,0,0,0.5); 
+    overflow: hidden; display:flex; align-items:center; justify-content:center; font-size: 2.5rem; 
+    background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.3); flex-shrink: 0;
+}
+.nav-profile-avatar-large img { width: 100%; height: 100%; object-fit: cover; }
+.nav-profile-info { flex: 1; display: flex; flex-direction: column; gap: 8px; justify-content: center; }
+.nav-profile-name { font-size: clamp(1.6rem, 2.8vw, 4rem); font-weight: 300; margin: 0; color: #fff; letter-spacing: -0.02em; line-height: 1.1; }
+.nav-profile-edit-btn {
+    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 30px;
+    padding: 12px 24px; color: #fff; font-size: 1rem; font-family: inherit; cursor: pointer; outline: none;
+    transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1); font-weight: 500;
+}
+.nav-profile-edit-btn.nav-focused-el { background: #fff; color: #000; transform: scale(1.05); box-shadow: 0 10px 30px rgba(255,255,255,0.2); }
 
-        /* Cabeçalho para Sub-views de Configuração */
-        .nav-settings-subheader { display: flex; align-items: center; gap: 24px; margin-bottom: 30px; animation: fadeInTop 0.3s ease; }
-        .nav-back-btn { 
-            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 30px; 
-            padding: 10px 24px; color: #fff; font-family: inherit; font-size: 1rem; cursor: pointer; outline: none; transition: all 0.2s; font-weight: 500;
-        }
-        .nav-back-btn.nav-focused-el { background: #fff; color: #000; transform: scale(1.05); }
-        .nav-settings-subheader h2 { margin: 0; font-size: 1.8rem; font-weight: 300; color: #fff; }
+.nav-profile-stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: clamp(10px, 1.5vw, 24px); }
+.nav-profile-stat-box {
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;
+    padding: clamp(10px, 1.5vh, 24px) clamp(12px, 1.5vw, 24px); display: flex; flex-direction: column; gap: clamp(4px, 0.8vh, 8px); box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+    align-items: center; text-align: center;
+}
+.nav-profile-stat-box.future-placeholder { opacity: 0.35; }
+.stat-value { font-size: clamp(1.4rem, 2.2vw, 2.8rem); font-weight: 200; color: #fff; line-height: 1; }
+.stat-label { font-size: clamp(0.7rem, 0.8vw, 0.85rem); color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+.nav-profile-section-title { font-size: 1.3rem; font-weight: 400; color: #fff; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 12px; margin-top: 10px;}
 
-        /* Edição de Conta */
-        .nav-profile-dashboard { display: flex; align-items: flex-start; gap: clamp(30px, 4vw, 60px); animation: fadeInTop 0.3s ease; max-width: 1000px; }
-        .nav-profile-avatar-sec { display: flex; flex-direction: column; align-items: center; gap: 16px; }
-        .nav-profile-photo {
-            width: clamp(120px, 14vw, 180px); height: clamp(120px, 14vw, 180px); border-radius: 50%;
-            background: rgba(255,255,255,0.05); border: 3px solid rgba(255,255,255,0.1); overflow: hidden; display: flex;
-            align-items: center; justify-content: center; font-size: 3.5rem; color: rgba(255,255,255,0.3); cursor: pointer; outline: none; transition: all 0.2s;
-            padding: 0;
-        }
-        .nav-profile-photo img { width: 100%; height: 100%; object-fit: cover; }
-        .nav-profile-photo.nav-focused-el { border-color: #fff; box-shadow: 0 0 20px rgba(255,255,255,0.2), 0 10px 40px rgba(0,0,0,0.8); transform: scale(1.05); }
+/* ── Cards Recentes ── */
+.nav-profile-recent-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(110px, 10vw, 205px), 1fr));
+    gap: clamp(10px, 1.2vw, 24px); padding-bottom: 40px;
+}
+.nav-profile-recent-card {
+    aspect-ratio: 2/3; border-radius: 8px; overflow: hidden; background: rgba(255,255,255,0.03); border: 2px solid transparent;
+    position: relative; display: flex; flex-direction: column; transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.2s ease;
+}
+.nav-profile-recent-card img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.nav-profile-recent-card.nav-focused-el { transform: scale(1.05); box-shadow: 0 15px 40px rgba(0,0,0,0.6); z-index: 10; }
+.nav-profile-recent-card .nav-card-gradient {
+    position: absolute; inset: 0; height: 100%; background: linear-gradient(to top, rgba(0,0,0, 0.9) 0%, rgba(0,0,0, 0.4) 50%, rgba(0,0,0,0.1) 100%);
+    backdrop-filter: blur(3px); z-index: 2; opacity: 0; transition: opacity 0.3s ease;
+}
+.nav-profile-recent-card.nav-focused-el .nav-card-gradient { opacity: 1; }
+.nav-profile-recent-info {
+    position: absolute; inset: 0; padding: clamp(10px, 1.2vw, 16px);
+    display: flex; flex-direction: column; justify-content: space-between;
+    opacity: 0; transform: translateY(10px); transition: all 0.3s ease; z-index: 3; color: #fff;
+}
+.nav-profile-recent-card.nav-focused-el .nav-profile-recent-info { opacity: 1; transform: translateY(0); }
+.nav-profile-recent-platform-icon { width: clamp(20px, 2vw, 28px); height: clamp(20px, 2vw, 28px); align-self: flex-end; opacity: 0.9; }
+.nav-profile-recent-text { display: flex; flex-direction: column; gap: 4px; text-align: left; }
+.nav-profile-recent-title {
+    font-size: clamp(0.9rem, 1.1vw, 1.2rem); font-weight: 600; line-height: 1.2;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+}
+.nav-profile-recent-date { font-size: clamp(0.7rem, 0.8vw, 0.85rem); color: rgba(255,255,255,0.6); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
 
-        .nav-profile-fields { flex: 1; display: flex; flex-direction: column; gap: clamp(16px, 2vh, 24px); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); padding: clamp(24px, 3vw, 40px); border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
-        .nav-profile-field { display: flex; flex-direction: column; gap: 8px; }
-        .nav-profile-field-label { font-size: clamp(0.75rem, 0.85vw, 0.95rem); color: rgba(255,255,255,0.4); font-weight: 500; }
-        .nav-profile-field-input { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: clamp(14px, 1.8vh, 18px) clamp(16px, 1.6vw, 20px); color: #fff; font-size: clamp(1rem, 1.1vw, 1.2rem); font-family: inherit; outline: none; width: 100%; box-sizing: border-box; cursor: pointer; transition: all 0.2s; }
-        .nav-profile-field-input.nav-focused-el { border-color: #fff; background: rgba(255,255,255,0.05); box-shadow: 0 0 15px rgba(255,255,255,0.1); transform: scale(1.02); }
-        .nav-profile-field-input.vkb-active { border-color: rgba(100,160,255,0.8); box-shadow: 0 0 0 2px rgba(100,160,255,0.3); }
+/* ── Dashboard de Configurações ── */
+.nav-settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(200px, 22vw, 320px), 1fr)); gap: clamp(12px, 1.5vh, 24px); animation: fadeInTop 0.4s ease; max-width: 1400px; }
+.nav-settings-card {
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 16px;
+    padding: clamp(16px, 2.5vh, 30px) clamp(16px, 1.8vw, 24px); display: flex; align-items: flex-start; gap: clamp(12px, 1.5vw, 20px); cursor: pointer; outline: none;
+    text-align: left; transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1); color: inherit; font-family: inherit;
+}
+.settings-card-icon { width: clamp(36px, 4.5vh, 54px); height: clamp(36px, 4.5vh, 54px); flex-shrink: 0; color: rgba(255,255,255,0.4); transition: color 0.2s; }
+.settings-card-icon svg { width: 100%; height: 100%; }
+.settings-card-info h3 { margin: 0 0 8px 0; font-size: 1.4rem; font-weight: 400; color: #fff; letter-spacing: -0.01em; }
+.settings-card-info p { margin: 0; font-size: 0.95rem; color: rgba(255,255,255,0.4); line-height: 1.5; }
+.nav-settings-card.nav-focused-el { transform: translateY(-4px) scale(1.03); background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.4); box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+.nav-settings-card.nav-focused-el .settings-card-icon { color: #fff; }
 
-        /* Novos botões de Ação na Conta */
-        .nav-api-row { display: flex; gap: 10px; width: 100%; }
-        .nav-icon-btn {
-            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 8px; padding: 0 clamp(10px, 1.2vw, 16px); color: rgba(255,255,255,0.8);
-            cursor: pointer; outline: none; transition: all 0.2s;
-            display: flex; align-items: center; justify-content: center; font-family: inherit; font-size: 0.9rem; font-weight: 500;
-        }
-        .nav-icon-btn.nav-focused-el { border-color: #fff; background: rgba(255,255,255,0.15); color: #fff; transform: scale(1.05); box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+.nav-settings-subheader { display: flex; align-items: center; gap: 24px; margin-bottom: 30px; animation: fadeInTop 0.3s ease; }
+.nav-back-btn { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 30px; padding: 10px 24px; color: #fff; font-family: inherit; font-size: 1rem; cursor: pointer; outline: none; transition: all 0.2s; font-weight: 500; }
+.nav-back-btn.nav-focused-el { background: #fff; color: #000; transform: scale(1.05); }
+.nav-settings-subheader h2 { margin: 0; font-size: 1.8rem; font-weight: 300; color: #fff; }
 
-        .nav-btn-danger { color: #ff6b6b; border-color: rgba(255,107,107,0.3); margin-top: 24px; width: 100%; }
-        .nav-btn-danger.nav-focused-el { background: rgba(255,107,107,0.15); border-color: #ff6b6b; color: #fff; }
+.nav-profile-dashboard { display: flex; align-items: flex-start; gap: clamp(30px, 4vw, 60px); animation: fadeInTop 0.3s ease; max-width: 1000px; }
+.nav-profile-avatar-sec { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.nav-profile-photo { width: clamp(120px, 14vw, 180px); height: clamp(120px, 14vw, 180px); border-radius: 50%; background: rgba(255,255,255,0.05); border: 3px solid rgba(255,255,255,0.1); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 3.5rem; color: rgba(255,255,255,0.3); cursor: pointer; outline: none; transition: all 0.2s; padding: 0; }
+.nav-profile-photo img { width: 100%; height: 100%; object-fit: cover; }
+.nav-profile-photo.nav-focused-el { border-color: #fff; box-shadow: 0 0 20px rgba(255,255,255,0.2), 0 10px 40px rgba(0,0,0,0.8); transform: scale(1.05); }
 
-        .nav-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 300px; gap: 20px; color: rgba(255,255,255,0.2); animation: fadeInTop 0.4s ease; }
-        .nav-placeholder-icon { font-size: clamp(3rem, 5vw, 6rem); opacity: 0.5; }
-        .nav-placeholder-text { font-size: clamp(1rem, 1.2vw, 1.4rem); font-weight: 400; letter-spacing: 0.02em; }
+.nav-profile-fields { flex: 1; display: flex; flex-direction: column; gap: clamp(16px, 2vh, 24px); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); padding: clamp(24px, 3vw, 40px); border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+.nav-profile-field { display: flex; flex-direction: column; gap: 8px; }
+.nav-profile-field-label { font-size: clamp(0.75rem, 0.85vw, 0.95rem); color: rgba(255,255,255,0.4); font-weight: 500; }
+.nav-profile-field-input { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: clamp(14px, 1.8vh, 18px) clamp(16px, 1.6vw, 20px); color: #fff; font-size: clamp(1rem, 1.1vw, 1.2rem); font-family: inherit; outline: none; width: 100%; box-sizing: border-box; cursor: pointer; transition: all 0.2s; }
+.nav-profile-field-input.nav-focused-el { border-color: #fff; background: rgba(255,255,255,0.05); box-shadow: 0 0 15px rgba(255,255,255,0.1); transform: scale(1.02); }
 
-        /* ── Responsividade 720p ── */
+.nav-api-row { display: flex; gap: 10px; width: 100%; }
+.nav-icon-btn { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 0 clamp(10px, 1.2vw, 16px); color: rgba(255,255,255,0.8); cursor: pointer; outline: none; transition: all 0.2s; display: flex; align-items: center; justify-content: center; font-family: inherit; font-size: 0.9rem; font-weight: 500; }
+.nav-icon-btn.nav-focused-el { border-color: #fff; background: rgba(255,255,255,0.15); color: #fff; transform: scale(1.05); box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+
+.nav-btn-danger { color: #ff6b6b; border-color: rgba(255,107,107,0.3); margin-top: 24px; width: 100%; }
+.nav-btn-danger.nav-focused-el { background: rgba(255,107,107,0.15); border-color: #ff6b6b; color: #fff; }
+
+.nav-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 300px; gap: 20px; color: rgba(255,255,255,0.2); animation: fadeInTop 0.4s ease; }
+.nav-placeholder-icon { font-size: clamp(3rem, 5vw, 6rem); opacity: 0.5; }
+.nav-placeholder-text { font-size: clamp(1rem, 1.2vw, 1.4rem); font-weight: 400; letter-spacing: 0.02em; }
+
+/* ── Responsividade ── */
 @media (max-height: 768px) {
     .nav-content-header { margin-bottom: clamp(8px, 1.5vh, 20px); }
     .nav-profile-section-title { font-size: 1rem; padding-bottom: 8px; margin-top: 4px; }
@@ -928,108 +1110,47 @@ window.isNavMenuOpen = false;
     .nav-settings-subheader { margin-bottom: clamp(12px, 2vh, 30px); gap: 16px; }
     .nav-settings-subheader h2 { font-size: clamp(1.2rem, 2.5vh, 1.8rem); }
 }
-/* ── Configurações de Sistema (Modos de Boot) ── */
+
+/* ── Sistema (Radios) ── */
 .nav-radio-group { display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px; animation: fadeInTop 0.3s ease;}
-.nav-radio-btn {
-    display: flex; align-items: center; gap: 16px; padding: 16px 20px;
-    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 12px; cursor: pointer; color: #fff; text-align: left;
-    transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1); font-family: inherit; outline: none;
-}
+.nav-radio-btn { display: flex; align-items: center; gap: 16px; padding: 16px 20px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; cursor: pointer; color: #fff; text-align: left; transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1); font-family: inherit; outline: none; }
 .nav-radio-btn.active { background: rgba(120,190,255,0.1); border-color: rgba(120,190,255,0.5); }
 .nav-radio-btn.nav-focused-el { border-color: #fff; background: rgba(255,255,255,0.15); transform: scale(1.02); box-shadow: 0 5px 20px rgba(0,0,0,0.3); }
-.nav-radio-circle {
-    width: 20px; height: 20px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.3);
-    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-}
+.nav-radio-circle { width: 20px; height: 20px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.3); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .nav-radio-btn.active .nav-radio-circle { border-color: #78beff; }
 .nav-radio-btn.active .nav-radio-circle::after { content: ''; width: 10px; height: 10px; border-radius: 50%; background: #78beff; }
 .nav-radio-text { display: flex; flex-direction: column; gap: 4px; flex: 1; }
 .nav-radio-text strong { font-weight: 500; font-size: 1.05rem; }
-/* Corrigido apenas o contraste (opacidade) para TVs, preservando seu tamanho original */
 .nav-radio-text span { font-size: 0.85rem; color: rgba(255,255,255,0.75); line-height: 1.4;}
 .nav-radio-btn.nav-focused-el .nav-radio-text span { color: rgba(255,255,255,0.95); }
 
-/* ── Cards de Sugestão (Sistema) ── */
-.nav-suggestions-grid {
-    display: grid;
-    /* Substituído repeat(3, 1fr) por auto-fit: em 2K ficam os 3 lado a lado, em 720p eles quebram a linha sem espremer */
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 12px;
-    margin-bottom: 28px;
-}
-.nav-suggestion-card {
-    display: none;
-    flex-direction: column;
-    gap: 10px;
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 12px;
-    padding: 16px;
-    cursor: pointer;
-    outline: none;
-    text-align: left;
-    transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1);
-    color: inherit;
-    font-family: inherit;
-    min-height: 110px;
-}
+/* ── Cards de Sugestão ── */
+.nav-suggestions-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 28px; }
+.nav-suggestion-card { display: none; flex-direction: column; gap: 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; padding: 16px; cursor: pointer; outline: none; text-align: left; transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1); color: inherit; font-family: inherit; min-height: 110px; }
 .nav-suggestion-card.visible { display: flex; }
-.nav-suggestion-card.nav-focused-el {
-    transform: translateY(-3px) scale(1.02);
-    background: rgba(255,255,255,0.08);
-    border-color: rgba(255,255,255,0.4);
-    box-shadow: 0 15px 35px rgba(0,0,0,0.4);
-}
-.nav-suggestion-card-btn {
-    background: rgba(255,255,255,0.1);
-    border: 1px solid rgba(255,255,255,0.2);
-    border-radius: 8px;
-    padding: 7px 12px;
-    color: #fff;
-    font-size: 0.85rem;
-    font-weight: 600;
-    align-self: flex-start;
-    pointer-events: none;
-    transition: background 0.15s;
-}
-.nav-suggestion-card.nav-focused-el .nav-suggestion-card-btn {
-    background: rgba(255,255,255,0.2);
-    border-color: rgba(255,255,255,0.5);
-}
-/* Corrigido apenas o contraste (opacidade) para TVs, preservando seu tamanho original */
-.nav-suggestion-card-text {
-    font-size: 0.78rem;
-    color: rgba(255,255,255,0.75);
-    line-height: 1.45;
-}
+.nav-suggestion-card.nav-focused-el { transform: translateY(-3px) scale(1.02); background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.4); box-shadow: 0 15px 35px rgba(0,0,0,0.4); }
+.nav-suggestion-card-btn { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; padding: 7px 12px; color: #fff; font-size: 0.85rem; font-weight: 600; align-self: flex-start; pointer-events: none; transition: background 0.15s; }
+.nav-suggestion-card.nav-focused-el .nav-suggestion-card-btn { background: rgba(255,255,255,0.2); border-color: rgba(255,255,255,0.5); }
+.nav-suggestion-card-text { font-size: 0.78rem; color: rgba(255,255,255,0.75); line-height: 1.45; }
 .nav-suggestion-card.nav-focused-el .nav-suggestion-card-text { color: #fff; }
-/* ── Redução Matemática Agressiva (~45%) para Telas <= 720p / Laptops ── */
+
 @media (max-width: 1366px), (max-height: 780px) {
-    /* Estrutura Principal e Cabeçalho */
     .nav-topbar { padding-top: 1.8rem; gap: 12px; }
     .nav-cat-item { padding: 6px; }
     .nav-cat-label { font-size: 0.82rem; }
-
     .nav-content { padding: 12px 32px; }
     .nav-content-header { margin-bottom: 8px; }
     .nav-content-title { font-size: 1.5rem; }
     .nav-content-subtitle { font-size: 0.78rem; }
     .nav-content-body { padding: 10px; margin: 0; }
-
-    /* Grid de Configurações Principal (Main Hub) */
     .nav-settings-grid { gap: 10px; }
     .nav-settings-card { padding: 12px 16px; gap: 12px; border-radius: 10px; }
     .settings-card-icon { width: 28px; height: 28px; }
     .settings-card-info h3 { font-size: 1rem; margin-bottom: 2px; }
     .settings-card-info p { font-size: 0.78rem; line-height: 1.35; }
-
-    /* Subheaders de Configurações (Voltar / Título) */
     .nav-settings-subheader { margin-bottom: 12px; gap: 12px; }
     .nav-settings-subheader h2 { font-size: 1.15rem; }
     .nav-back-btn { padding: 6px 12px; font-size: 0.78rem; border-radius: 20px; }
-
-    /* Conta e Perfil */
     .nav-profile-dashboard { gap: 16px; }
     .nav-profile-photo { width: 72px; height: 72px; font-size: 1.6rem; }
     .nav-profile-fields { padding: 14px 18px; gap: 8px; border-radius: 10px; }
@@ -1038,8 +1159,6 @@ window.isNavMenuOpen = false;
     .nav-profile-field-input { padding: 8px 12px; font-size: 0.85rem; border-radius: 6px; }
     .nav-icon-btn { padding: 0 10px; font-size: 0.78rem; min-height: 32px; height: 34px; border-radius: 6px; }
     .nav-btn-danger { padding: 8px; margin-top: 4px; font-size: 0.82rem; }
-
-    /* Sistema (Radios e Sugestões) */
     .nav-radio-group { gap: 6px; margin-bottom: 12px; }
     .nav-radio-btn { padding: 10px 14px; gap: 10px; border-radius: 8px; }
     .nav-radio-circle { width: 14px; height: 14px; }
@@ -1047,19 +1166,14 @@ window.isNavMenuOpen = false;
     .nav-radio-text { gap: 2px; }
     .nav-radio-text strong { font-size: 0.88rem; }
     .nav-radio-text span { font-size: 0.75rem; line-height: 1.3; }
-
     .nav-suggestions-grid { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 12px; }
     .nav-suggestion-card { padding: 10px; gap: 6px; min-height: auto; border-radius: 8px; }
     .nav-suggestion-card-btn { padding: 4px 8px; font-size: 0.72rem; border-radius: 6px; }
     .nav-suggestion-card-text { font-size: 0.7rem; line-height: 1.3; }
-
-    /* Gerenciador de Extensões */
     .nav-ext-row { padding: 8px 12px; gap: 10px; border-radius: 8px; }
     .nav-ext-info strong { font-size: 0.85rem; }
     .nav-ext-info span { font-size: 0.75rem; }
     .nav-ext-btn { padding: 4px 8px; font-size: 0.72rem; border-radius: 6px; }
-
-    /* Compartilhamento de Contas (Web Sharing) */
     .nav-sharing-layout { grid-template-columns: minmax(150px, 1fr) minmax(240px, 1.4fr); gap: 10px; }
     .nav-sharing-apps { max-height: 45vh; gap: 6px; padding: 8px; }
     .nav-sharing-app { min-height: 36px; font-size: 0.8rem; padding: 0 8px; border-radius: 6px; }
@@ -1074,7 +1188,6 @@ window.isNavMenuOpen = false;
     .nav-sharing-save { min-height: 32px; font-size: 0.8rem; padding: 0 12px; border-radius: 6px; }
     .nav-sharing-note { font-size: 0.8rem; min-height: auto; }
 }
-
         `;
         document.head.appendChild(s);
     })();
@@ -1127,6 +1240,10 @@ window.isNavMenuOpen = false;
     // ── Seleção de categoria ──────────────────────────────────────────────────
     function _selectCat(idx) {
         _catIdx = Number(idx);
+        
+        // Destrói totalmente o LazyGrid ao trocar de aba (libera a memória RAM)
+        _destroyLazyGrid();
+
         if (_preserveSettingsSubViewOnce) {
             _preserveSettingsSubViewOnce = false;
         } else {
@@ -1185,99 +1302,42 @@ window.isNavMenuOpen = false;
         return map[id] || '';
     }
 
-    // ── Renderização Genérica de Grid (Jogos/Multimidia) ──────────────────────
-    // ── Renderização Genérica de Grid (Jogos/Multimidia) ──────────────────────
+    // ── Renderização Genérica de Grid (Jogos/Multimidia) com Lazy Loading ──
     function _renderGrid(body, items, catId, emptyText, emptyIcon) {
+        _destroyLazyGrid();
+
         if (!items.length) {
             body.innerHTML = `<div class="nav-placeholder">
                 <div class="nav-placeholder-icon">${emptyIcon}</div>
                 <div class="nav-placeholder-text">${emptyText}</div>
             </div>`;
-            _contentItems = []; // <-- Garantir que zere a lista
+            _contentItems = [];
             return;
         }
 
-        body.innerHTML = '<div class="nav-big-grid" id="navDynamicGrid"></div>';
-        const grid = document.getElementById('navDynamicGrid');
+        body.innerHTML = '';
+        const scrollRoot = document.getElementById('navContentBody');
 
-        // Zera o array para receber os elementos DOM
-        _contentItems = [];
-
-        items.forEach((item, i) => {
-            const name = item.Name || '';
-            const animSrc = item.GridImage || '';
-            const staticSrc = item.GridStaticImage || animSrc;
-
-            const card = document.createElement('div');
-            card.className = 'nav-vertical-card';
-            card.tabIndex = -1;
-
-            card.dataset.idx = i;
-            card.dataset.gameId = item.LaunchUrl || item.Path || item.Url || '';
-            card.dataset.catId = catId;
-            if (catId === 'media') {
-                card.dataset.appId = item.Id || item.Url || '';
-                card.dataset.appUrl = item.Url || '';
-                card.dataset.appType = item.Type || 'browser';
-            }
-
-            const itemKey = item.LaunchUrl || item.Path || item.Url || item.Id || '';
-            const isNewSession = window.newGameIdsThisSession?.has(itemKey) ||
-                window.newGameIdsThisSession?.has(itemKey.replace(/\/$/, ''));
-
-            if (item._isNew || isNewSession) {
-                card.classList.add('new-game');
-            }
-
-            card.innerHTML = staticSrc
-                ? `<img src="${staticSrc}" alt="${name}" loading="eager" fetchpriority="high" decoding="sync" />`
-                : `<div class="nav-vertical-card-no-img">${emptyIcon}</div>`;
-
-            card.innerHTML += `
-                <div class="nav-card-gradient"></div>
-                <div class="nav-vertical-card-title">${name}</div>
-            `;
-
-            const img = card.querySelector('img');
-            let _animTimer = null;
-
-            card._startInteraction = () => {
-                if (_animTimer) clearTimeout(_animTimer);
-                _animTimer = setTimeout(async () => {
-                    if (!card.classList.contains('nav-focused')) return;
-                    if (img && animSrc && animSrc !== staticSrc) {
-                        const tmp = new Image();
-                        tmp.src = animSrc;
-                        try { await tmp.decode(); } catch (e) { }
-                        if (card.classList.contains('nav-focused')) {
-                            img.src = animSrc;
-                        }
-                    }
-                }, 200);
-            };
-
-            card._stopInteraction = () => {
-                if (_animTimer) clearTimeout(_animTimer);
-                if (img && staticSrc && img.src !== staticSrc && !img.src.endsWith(staticSrc)) {
-                    img.src = staticSrc;
+        _lazyGrid = new _NavLazyGrid({
+            body,
+            scrollRoot,
+            items,
+            catId,
+            emptyIcon,
+            onLaunchAction: (globalIdx) => _launchAction(catId, globalIdx),
+            onFocusUpdate: (cards, globalIdx) => {
+                _contentItems = cards;
+                if (globalIdx >= 0) {
+                    _topbarFocus = false;
+                    _contentIdx  = globalIdx;
+                    _updateContentFocus();
                 }
-            };
-
-            card.addEventListener('click', () => _launchAction(catId, i));
-            card.addEventListener('mouseenter', () => {
-                _topbarFocus = false;
-                _contentIdx = i;
-                _updateContentFocus();
-            });
-
-            grid.appendChild(card);
-            _contentItems.push(card);
+            }
         });
-
-        if (typeof refreshRuntimeCards === 'function') refreshRuntimeCards();
     }
 
     // ── Launch ────────────────────────────────────────────────────────────────
+
     function _launchAction(catId, idx) {
         const items = catId === 'games' ? _menuData.games : _menuData.media;
         const item = items[idx];
@@ -1295,6 +1355,13 @@ window.isNavMenuOpen = false;
                 postToHost({ action: 'launchMediaApp', url: targetUrl, appType: appType });
             }
         }
+
+        // Troca a aba enquanto o nav menu ainda cobre a tela — sem ninguém ver
+        const targetTab = catId === 'media' ? 'media' : 'games';
+        const tabBtn = document.querySelector(`.home-tab[data-tab="${targetTab}"]`)
+            ?? document.querySelector(`.home-tab:not(.active)`);
+        tabBtn?.click();
+
         close();
     }
 
@@ -1303,7 +1370,9 @@ window.isNavMenuOpen = false;
         const body = document.getElementById('navContentBody');
         if (!body) return;
 
+        _destroyLazyGrid();
         _contentItems = [];
+        body.innerHTML = '';
 
         switch (id) {
             case 'games':
@@ -1322,7 +1391,6 @@ window.isNavMenuOpen = false;
     }
 
     // ── Vitrine de Perfil ─────────────────────────────────────────────────────
-    // Botão "Editar Perfil" presente no hub — redireciona para Configurações > Conta e Perfil
     function _renderProfile(body) {
         const prof = _menuData.user || {};
         const name = prof.Name || '—';
@@ -1541,6 +1609,7 @@ window.isNavMenuOpen = false;
             });
         });
     }
+
     function _updateAutoStartUI() {
         const toggle = document.getElementById('autoStartToggle');
         const desc = document.getElementById('autoStartDesc');
@@ -1549,17 +1618,8 @@ window.isNavMenuOpen = false;
             ? _t('autoStartOn', 'Ativo — o app inicia automaticamente com o Windows')
             : _t('autoStartOff', 'Desativado — não inicia automaticamente');
     }
+
     // ── Conta e Perfil ────────────────────────────────────────────────────────
-    // Sem botão "Salvar Alterações": todas as mudanças salvam automaticamente.
-    // Nome e API → salvam ao confirmar OK (ou START) no VKB.
-    // Foto → salva imediatamente ao ser selecionada.
-    // API via Colar → salva imediatamente ao retornar do clipboard.
-    //
-    // Índice dos itens navegáveis:
-    //   0 → Voltar          1 → Avatar
-    //   2 → Nome            3 → Input API
-    //   4 → Colar API       5 → Ver Chave
-    //   6 → Trocar Usuário  7 → Excluir Perfil
     function _renderSettingsAccountHub(body) {
         const svgProfile = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
         const svgShare = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 10.6l6.8-4.2M8.6 13.4l6.8 4.2"/></svg>`;
@@ -1619,6 +1679,7 @@ window.isNavMenuOpen = false;
             });
         });
     }
+
     function _renderSettingsAccount(body) {
         if (!document.getElementById('nav-account-styles')) {
             const s = document.createElement('style');
@@ -1629,31 +1690,6 @@ window.isNavMenuOpen = false;
                 .nav-icon-btn.nav-focused-el { border-color: #fff; background: rgba(255,255,255,0.15); color: #fff; transform: scale(1.06); box-shadow: 0 8px 20px rgba(0,0,0,0.4); z-index: 10; position: relative;}
                 .nav-btn-danger { color: #ff6b6b; border-color: rgba(255,107,107,0.3); width: 100%; padding: 14px; font-size: 1rem; }
                 .nav-btn-danger.nav-focused-el { background: rgba(255,107,107,0.15); border-color: #ff6b6b; color: #fff; }
-                .nav-sharing-layout { display: grid; grid-template-columns: minmax(220px, 0.9fr) minmax(360px, 1.4fr); gap: 18px; align-items: start; max-width: 1180px; animation: fadeInTop 0.3s ease; }
-                .nav-sharing-apps, .nav-sharing-panel { background: rgba(255,255,255,0.035); border: 1px solid rgba(255,255,255,0.09); border-radius: 10px; padding: 14px; }
-                .nav-sharing-apps { display: flex; flex-direction: column; gap: 8px; max-height: 58vh; overflow: auto; }
-                .nav-sharing-app { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 52px; padding: 0 12px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #fff; font: inherit; text-align: left; outline: none; cursor: pointer; }
-                .nav-sharing-app.active { background: rgba(120,190,255,0.08); border-color: rgba(120,190,255,0.22); }
-                .nav-sharing-app.nav-focused-el { background: rgba(255,255,255,0.14); border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,0.22), 0 10px 24px rgba(0,0,0,0.35); }
-                .nav-sharing-app small { color: rgba(255,255,255,0.45); white-space: nowrap; }
-                .nav-sharing-panel { min-height: 360px; display: flex; flex-direction: column; gap: 16px; }
-                .nav-sharing-title { margin: 0; color: #fff; font-size: 1.35rem; font-weight: 500; }
-                .nav-sharing-sub { margin: -6px 0 0; color: rgba(255,255,255,0.55); line-height: 1.45; }
-                .nav-sharing-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-                .nav-sharing-mode, .nav-sharing-save { min-height: 48px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.05); color: #fff; font: inherit; outline: none; cursor: pointer; }
-                .nav-sharing-mode.active { border-color: rgba(120,190,255,0.55); background: rgba(120,190,255,0.12); }
-                .nav-sharing-mode.nav-focused-el { border-color: #fff; background: rgba(255,255,255,0.16); box-shadow: 0 0 0 2px rgba(255,255,255,0.2), 0 8px 20px rgba(0,0,0,0.32); }
-                .nav-sharing-users { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; }
-                .nav-sharing-user { min-height: 112px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04); color: #fff; font: inherit; outline: none; cursor: pointer; position: relative; }
-                .nav-sharing-user.selected { border-color: rgba(120,190,255,0.52); background: rgba(120,190,255,0.10); }
-                .nav-sharing-user.nav-focused-el { border-color: #fff; background: rgba(255,255,255,0.14); box-shadow: 0 0 0 2px rgba(255,255,255,0.2), 0 10px 24px rgba(0,0,0,0.35); }
-                .nav-sharing-user.selected::after { content: 'OK'; position: absolute; top: 8px; right: 8px; font-size: 0.62rem; color: #111; background: #fff; border-radius: 999px; padding: 2px 6px; font-weight: 800; }
-                .nav-sharing-avatar { width: 44px; height: 44px; border-radius: 50%; overflow: hidden; background: rgba(255,255,255,0.10); display:flex; align-items:center; justify-content:center; color: rgba(255,255,255,0.65); }
-                .nav-sharing-avatar img { width: 100%; height: 100%; object-fit: cover; }
-                .nav-sharing-save { align-self: flex-start; padding: 0 22px; font-weight: 700; background: #fff; color: #080812; border-color: transparent; }
-                .nav-sharing-save.nav-focused-el { background: #101018; color: #fff; border-color: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,0.26), 0 10px 26px rgba(0,0,0,0.45); transform: scale(1.04); }
-                .nav-sharing-save[disabled] { opacity: .45; pointer-events: none; }
-                .nav-sharing-note { min-height: 22px; color: rgba(130,210,255,0.95); font-size: 0.92rem; }
             `;
             document.head.appendChild(s);
         }
@@ -1664,7 +1700,6 @@ window.isNavMenuOpen = false;
 
         const maskApi = (key) => key ? key.slice(0, 6) + '••••••••' + key.slice(-4) : '—';
 
-        // ── Helper para salvar a API imediatamente ──────────────────────────
         const _saveApiNow = (apiKey) => {
             pendingApi = apiKey;
             _menuData.user.SteamGridApiKey = apiKey;
@@ -1700,7 +1735,7 @@ window.isNavMenuOpen = false;
                         <input class="nav-profile-field-input" id="navProfName" readonly value="${pendingName}" tabindex="-1" />
                     </div>
                     
-<div class="nav-profile-field" style="margin-top: 10px;">
+                    <div class="nav-profile-field" style="margin-top: 10px;">
                         <span class="nav-profile-field-label">${_t('navProfileApiLabel', 'Chave API SteamGridDB')}</span>
                         <div class="nav-api-row">
                             <input class="nav-profile-field-input" id="navProfApi" readonly value="${maskApi(pendingApi)}" tabindex="-1" style="flex:1;" />
@@ -1718,16 +1753,15 @@ window.isNavMenuOpen = false;
                 </div>
             </div>`;
 
-        // Índices: 0=Voltar, 1=Avatar, 2=Nome, 3=API input, 4=Colar, 5=Ver Chave, 6=Trocar Usuário, 7=Excluir
         _contentItems = [
-            body.querySelector('#setBack'),          // 0
-            body.querySelector('#navProfilePhoto'),  // 1
-            body.querySelector('#navProfName'),      // 2
-            body.querySelector('#navProfApi'),       // 3
-            body.querySelector('#navApiPaste'),      // 4
-            body.querySelector('#navApiLink'),       // 5
-            body.querySelector('#navAccountSharing'),// 6
-            body.querySelector('#navDeleteUser')     // 7
+            body.querySelector('#setBack'),
+            body.querySelector('#navProfilePhoto'),
+            body.querySelector('#navProfName'),
+            body.querySelector('#navProfApi'),
+            body.querySelector('#navApiPaste'),
+            body.querySelector('#navApiLink'),
+            body.querySelector('#navAccountSharing'),
+            body.querySelector('#navDeleteUser')
         ].filter(Boolean);
 
         body.querySelector('#setBack')?.addEventListener('click', () => {
@@ -1764,7 +1798,6 @@ window.isNavMenuOpen = false;
             if (typeof postToHost === 'function') postToHost({ action: 'launchMediaApp', url: 'https://www.steamgriddb.com/profile/preferences/api', appType: 'webview' });
         });
 
-        // Colar: lê o clipboard e salva automaticamente ao retornar
         sharingBtn?.addEventListener('click', () => {
             _settingsSubView = 'sharing';
             _contentIdx = 0;
@@ -1777,7 +1810,6 @@ window.isNavMenuOpen = false;
             if (typeof postToHost === 'function') postToHost({ action: 'readClipboard' });
         });
 
-        // Deleção com confirmação inline
         let _deleteConfirmStep = false;
         deleteBtn?.addEventListener('click', () => {
             if (!_deleteConfirmStep) {
@@ -1799,7 +1831,6 @@ window.isNavMenuOpen = false;
             }
         });
 
-        // Edição de Nome — salva imediatamente ao OK (ou START no VKB)
         nameInput?.addEventListener('click', () => {
             nameInput.value = pendingName;
             nameInput.removeAttribute('readonly');
@@ -1833,7 +1864,6 @@ window.isNavMenuOpen = false;
             });
         });
 
-        // Edição de API — salva imediatamente ao OK (ou START no VKB)
         apiInput?.addEventListener('click', () => {
             apiInput.value = pendingApi;
             apiInput.removeAttribute('readonly');
@@ -1854,8 +1884,6 @@ window.isNavMenuOpen = false;
             });
         });
 
-        // Gatilho global chamado quando "Colar" retorna sucesso do C#
-        // Salva a chave imediatamente sem precisar de nenhum botão extra
         window._updatePendingApiKey = (keyText) => {
             const trimmed = keyText.trim();
             if (apiInput) apiInput.value = maskApi(trimmed);
@@ -1871,7 +1899,7 @@ window.isNavMenuOpen = false;
             });
         });
     }
-    // ── Extensões ─────────────────────────────────────────────────────────────
+
     function _renderSettingsSharing(body) {
         if (!document.getElementById('nav-sharing-styles')) {
             const s = document.createElement('style');
@@ -1977,7 +2005,7 @@ window.isNavMenuOpen = false;
             const selectedNames = Array.from(draftUsers)
                 .map(id => _userName(users.find(u => _sameId(_userId(u), id))))
                 .filter(Boolean);
-            // Fica mais ou menos na linha onde tem: const currentText = locked ? ...
+            
             const currentText = locked
                 ? _t('sharedByInfo', `Compartilhado por ${sharedFrom || _t('defaultOtherUser', 'outro usuario')}.`, sharedFrom || _t('defaultOtherUser', 'outro usuario'))
                 : draftMode === 'all'
@@ -2143,7 +2171,6 @@ window.isNavMenuOpen = false;
                 .nav-ext-btn.primary.nav-focused-el { background: #fff; color: #000; box-shadow: 0 0 15px rgba(255,255,255,0.4); }
                 .nav-ext-btn.danger.nav-focused-el { background: #ff6b6b; color: #fff; border-color: #ff6b6b; }
 
-                /* Variante para o botão de Instalar ficar 100% visível no foco */
                 .nav-icon-btn.nav-btn-primary { background: #fff; color: #000; font-weight: 600; border-color: transparent; }
                 .nav-icon-btn.nav-btn-primary.nav-focused-el { 
                     background: #e0e0e0; color: #000; border-color: #fff; 
@@ -2172,13 +2199,10 @@ window.isNavMenuOpen = false;
                     
                     <div class="nav-ext-status" id="navExtensionStatus">${_t('loadingExtensions', 'Carregando extensões...')}</div>
                     
-                    <div class="nav-ext-list" id="navExtensionsList">
-                        <!-- Itens renderizados dinamicamente aqui -->
-                    </div>
+                    <div class="nav-ext-list" id="navExtensionsList"></div>
                 </div>
             </div>`;
 
-        // Itens base focáveis: Voltar (0), Input (1), Colar (2), Loja (3), Instalar (4)
         _contentItems = [
             body.querySelector('#setBackExt'),
             body.querySelector('#navExtUrlInput'),
@@ -2243,8 +2267,6 @@ window.isNavMenuOpen = false;
             if (typeof postToHost === 'function') postToHost({ action: 'installExtension', url, successMsg: _t('extInstallSuccess', 'Extensão Instalada') });
         });
 
-        // Função exportada globalmente para ser chamada pela Ponte (Event Listener do arquivo principal)
-        // Função exportada globalmente para ser chamada pela Ponte (Event Listener do arquivo principal)
         window._renderNavExtensionsList = function (extensions, statusClass, message, updates) {
             const listEl = document.getElementById('navExtensionsList');
             const statusEl = document.getElementById('navExtensionStatus');
@@ -2283,7 +2305,6 @@ window.isNavMenuOpen = false;
                 </div>`;
             }).join('');
 
-            // Recria a lista de focos dinamicamente
             _contentItems = [
                 document.getElementById('setBackExt'),
                 document.getElementById('navExtUrlInput'),
@@ -2292,7 +2313,6 @@ window.isNavMenuOpen = false;
                 document.getElementById('navExtInstallBtn')
             ];
 
-            // Atrela os eventos aos botões gerados e adiciona à matriz de foco
             listEl.querySelectorAll('.nav-ext-btn').forEach(btn => {
                 _contentItems.push(btn);
                 btn.addEventListener('click', () => {
@@ -2303,7 +2323,6 @@ window.isNavMenuOpen = false;
                 });
             });
 
-            // Re-atrela o mouseenter global de foco
             _contentItems.forEach((el, idx) => {
                 el?.addEventListener('mouseenter', () => {
                     _topbarFocus = false;
@@ -2312,11 +2331,9 @@ window.isNavMenuOpen = false;
                 });
             });
 
-            // Garantir visual em dia
             _updateContentFocus();
         };
 
-        // Dispara a requisição para preencher a lista ao abrir a tela
         if (typeof postToHost === 'function') postToHost({ action: 'requestExtensions' });
 
         _contentItems.forEach((el, idx) => {
@@ -2342,29 +2359,53 @@ window.isNavMenuOpen = false;
     }
 
     function _updateContentFocus() {
-        document.querySelectorAll('.nav-vertical-card').forEach((el, i) => {
-            const isFocused = !_topbarFocus && i === _contentIdx;
-            const wasFocused = el.classList.contains('nav-focused');
-            el.classList.toggle('nav-focused', isFocused);
+        if (_topbarFocus) {
+            // Remove o foco do Grid Premium
+            if (_isLazyCat() && _lazyGrid) {
+                for (const card of _lazyGrid._cards) {
+                    if (card && card.classList.contains('nav-focused')) {
+                        card.classList.remove('nav-focused');
+                        card._stopInteraction?.();
+                    }
+                }
+            }
+            // Remove o foco dos botões de settings e profile
+            _contentItems.forEach(el => el?.classList.remove('nav-focused-el'));
+            return;
+        }
 
-            if (isFocused && !wasFocused) el._startInteraction?.();
-            else if (!isFocused && wasFocused) el._stopInteraction?.();
-        });
+        if (_isLazyCat() && _lazyGrid) {
+            // Garante que o indice não passe dos limites
+            const globalIdx = Math.max(0, Math.min((_contentItems.length || 1) - 1, _contentIdx));
+            
+            // Remove dos anteriores
+            for (const card of _lazyGrid._cards) {
+                if (card && card.classList.contains('nav-focused')) {
+                    card.classList.remove('nav-focused');
+                    card._stopInteraction?.();
+                }
+            }
 
-        if (CATS[_catIdx]?.id === 'profile' || CATS[_catIdx]?.id === 'settings') {
+            const card = _contentItems[globalIdx];
+            if (card) {
+                card.classList.add('nav-focused');
+                card._startInteraction?.();
+                card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                // Força o carregamento da imagem imediatamente caso o LazyLoad ainda não tenha disparado
+                _lazyGrid._loadCard(card);
+            }
+        } else {
             _contentItems.forEach((el, i) => {
                 if (!el) return;
                 el.classList.toggle('nav-focused-el', !_topbarFocus && i === _contentIdx);
             });
-        }
 
-        if (_topbarFocus) return;
-
-        const focused = document.querySelector('.nav-vertical-card.nav-focused, .nav-focused-el');
-        if (focused && typeof focused.focus === 'function' && document.activeElement !== focused) {
-            focused.focus({ preventScroll: true });
+            const focused = _contentItems[_contentIdx];
+            if (focused && typeof focused.focus === 'function' && document.activeElement !== focused) {
+                focused.focus({ preventScroll: true });
+                focused.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            }
         }
-        focused?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     }
 
     function _gridCols() {
@@ -2404,7 +2445,9 @@ window.isNavMenuOpen = false;
         window.isNavMenuOpen = false;
 
         document.body.classList.remove('nav-menu-active');
-        document.querySelectorAll('.nav-vertical-card.nav-focused').forEach(el => el._stopInteraction?.());
+        
+        // Destrói totalmente o Virtual Grid do DOM sem travar o processador
+        _destroyLazyGrid();
 
         const topProf = document.getElementById('btnTopProfile');
         if (topProf) topProf.classList.remove('nav-menu-hidden');
@@ -2439,9 +2482,7 @@ window.isNavMenuOpen = false;
     };
 
     window._navMenuHandleKey = function (key) {
-        
         if (window._vkbIsOpen) return;
-
         if (key === 'L1') { window._navMenuCycleTab(-1); return; }
         if (key === 'R1') { window._navMenuCycleTab(1); return; }
 
@@ -2450,7 +2491,6 @@ window.isNavMenuOpen = false;
     };
 
     document.addEventListener('keydown', e => {
-        // 0. TRAVA ABSOLUTA PARA O POPUP DO MODO DESKTOP (Roda antes de tudo)
         if (window.isDesktopWarningOpen) {
             e.preventDefault();
             e.stopImmediatePropagation();
@@ -2461,18 +2501,15 @@ window.isNavMenuOpen = false;
             return;
         }
 
-        // Verifica se o modal de adicionar está visível diretamente no DOM
         const _addModalVisible = () => {
             const el = document.getElementById('addGameContainer');
             return !!(el && el.style.display !== 'none');
         };
 
-        // 1. Se nada estiver aberto, deixa o sistema fluir
         if (!window.isNavMenuOpen && !isSetupOpen && !window._vkbIsOpen && !isCtxMenuOpen && !isEditModalOpen && !_addModalVisible()) {
             return;
         }
 
-        // 2. Se o VKB está aberto, ele é o DONO ABSOLUTO do teclado
         if (window._vkbIsOpen) {
             e.preventDefault();
             e.stopImmediatePropagation();
@@ -2489,7 +2526,6 @@ window.isNavMenuOpen = false;
             return;
         }
 
-        // 3. Modal de adicionar aberto — L1/R1 troca aba Web App ↔ Executável
         if (_addModalVisible() && !window.isNavMenuOpen) {
             const mediaView = document.getElementById('view-media-apps');
             if (mediaView?.classList.contains('active') && (e.key === 'L1' || e.key === 'R1')) {
@@ -2500,7 +2536,6 @@ window.isNavMenuOpen = false;
             }
         }
 
-        // 4. Se NavMenu estiver aberto
         if (window.isNavMenuOpen) {
             if (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) return;
             if (typeof isEditModalOpen !== 'undefined' && isEditModalOpen) return;
@@ -2541,6 +2576,38 @@ window.isNavMenuOpen = false;
         const cols = _gridCols();
         const total = _contentItems.length;
 
+        // Comportamento focado no Grid com o LazyLoading ativo (O(1) sem travamentos)
+        if (_isLazyCat()) {
+            switch (key) {
+                case 'ArrowLeft':
+                    if (_contentIdx > 0) { _contentIdx--; _updateContentFocus(); }
+                    break;
+                case 'ArrowRight':
+                    if (_contentIdx < total - 1) { _contentIdx++; _updateContentFocus(); }
+                    break;
+                case 'ArrowUp':
+                    if (_contentIdx < cols) { _setTopbarFocus(true); }
+                    else { _contentIdx = Math.max(0, _contentIdx - cols); _updateContentFocus(); }
+                    break;
+                case 'ArrowDown':
+                    if (_contentIdx + cols < total) { _contentIdx += cols; _updateContentFocus(); }
+                    break;
+                case 'Enter': {
+                    const card = _contentItems[_contentIdx];
+                    if (card) card.click();
+                    break;
+                }
+                case 'Escape': case 'Backspace':
+                    _setTopbarFocus(true);
+                    break;
+                case ' ': case 'Square':
+                    window._navMenuTriggerCtxMenu();
+                    break;
+            }
+            return;
+        }
+
+        // Navegação Complexa nos menus de Settings da Conta
         if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'account') {
             const map = {
                 0: { ArrowDown: 1, ArrowRight: 1 },
@@ -2649,8 +2716,6 @@ window.isNavMenuOpen = false;
 
         if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'extensions') {
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
-
-                // Top row navigation manual mapping
                 if (_contentIdx <= 4) {
                     const topMap = {
                         0: { ArrowDown: 1, ArrowRight: 1 },
@@ -2661,14 +2726,13 @@ window.isNavMenuOpen = false;
                     };
                     if (topMap[_contentIdx] && topMap[_contentIdx][key] !== undefined) {
                         let next = topMap[_contentIdx][key];
-                        if (next >= _contentItems.length) next = _contentItems.length - 1; // Previne erro se a lista estiver vazia
+                        if (next >= _contentItems.length) next = _contentItems.length - 1; 
                         _contentIdx = next;
                         _updateContentFocus();
                     } else if (key === 'ArrowUp' && _contentIdx === 0) { 
                         _setTopbarFocus(true);
                     }
                 }
-                // Navegação nos itens da lista (índice 5 em diante)
                 else {
                     if (key === 'ArrowUp') {
                         _contentIdx--;
@@ -2688,6 +2752,7 @@ window.isNavMenuOpen = false;
                 return;
             }
         }
+
         if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'system') {
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
                 const items = _contentItems;
@@ -2709,11 +2774,11 @@ window.isNavMenuOpen = false;
                         _setTopbarFocus(true);
                         return;
                     } else if (_contentIdx === firstRadioIdx) {
-                        _contentIdx = backIdx; // Sobe para o Voltar
+                        _contentIdx = backIdx;
                     } else if (_contentIdx > firstRadioIdx && _contentIdx <= lastRadioIdx) {
-                        _contentIdx--; // Navega subindo a lista de rádio
+                        _contentIdx--; 
                     } else if (inCards) {
-                        _contentIdx = lastRadioIdx; // Sobe para o rádio ativo
+                        _contentIdx = lastRadioIdx; 
                     } else if (_contentIdx === desktopIdx) {
                         _contentIdx = firstCardIdx !== -1 ? firstCardIdx : lastRadioIdx;
                     }
@@ -2729,11 +2794,11 @@ window.isNavMenuOpen = false;
                     }
                 } else if (key === 'ArrowLeft') {
                     if (inCards && _contentIdx > firstCardIdx) {
-                        _contentIdx--; // Move entre os cards de recomendação para a esquerda
+                        _contentIdx--;
                     }
                 } else if (key === 'ArrowRight') {
                     if (inCards && _contentIdx < lastCardIdx) {
-                        _contentIdx++; // Move entre os cards de recomendação para a direita
+                        _contentIdx++;
                     }
                 }
 
@@ -2743,6 +2808,7 @@ window.isNavMenuOpen = false;
             }
         }
 
+        // Navegação Comum Padrão (Sem Lazy Load)
         switch (key) {
             case 'ArrowLeft':
                 if (_contentIdx > 0) { _contentIdx--; _updateContentFocus(); }
@@ -2790,57 +2856,49 @@ window.isNavMenuOpen = false;
             try {
                 const data = JSON.parse(e.data);
 
-                // Retorno do "Colar" da Chave API — salva automaticamente via _updatePendingApiKey
                 if (data.type === 'clipboardText' && window._isPastingApiKey) {
                     window._isPastingApiKey = false;
                     const text = data.text.trim();
                     if (text) {
-                        // _updatePendingApiKey cuida de salvar, mascarar e mostrar feedback
                         window._updatePendingApiKey?.(text);
-
                         if (text !== _menuData.user.SteamGridApiKey) {
                             _menuData.user.SteamGridApiKey = text;
                         }
                     }
                 }
-                // Atualização do modo de boot vindo do C#
+                
                 if (data.type === 'bootModeState') {
                     window._doorpiBootMode = data.mode || 0;
                     if (typeof window._updateBootModeUI === 'function') {
                         window._updateBootModeUI();
                     }
                 }
+                
                 if (data.type === 'autoStartState') {
                     _autoStartEnabled = !!data.enabled;
                     _updateAutoStartUI();
                 }
-                // Atualização da foto — salva imediatamente, sem botão extra
+                
                 if (data.type === 'profilePhotoSelected' && data.base64) {
                     if (typeof isSetupOpen !== 'undefined' && isSetupOpen) return;
 
-                    // 1. Sincroniza o estado em memória (incluindo _doorpiProfile, igual nome/API)
                     _menuData.user.PhotoBase64 = data.base64;
                     if (window._doorpiProfile) window._doorpiProfile.PhotoBase64 = data.base64;
 
-                    // 2. Envia para o host imediatamente (skipTasks: true igual nome/API)
                     const apiKey = _menuData.user.SteamGridApiKey || '';
                     const name = _menuData.user.Name || '';
                     postToHost({ action: 'saveUserProfile', name: name, apiKey: apiKey, photoBase64: data.base64, skipTasks: true });
 
                     if (!window.isNavMenuOpen) return;
 
-                    // 3. Atualiza o avatar in-place (sem re-render completo que reseta estado/foco)
                     const imgTag = `<img src="data:image/png;base64,${data.base64}" />`;
 
-                    //    Avatar na tela de Conta e Perfil (botão foto)
                     const photoBtn = document.getElementById('navProfilePhoto');
                     if (photoBtn) photoBtn.innerHTML = imgTag;
 
-                    //    Avatar no hub de Perfil (aba Perfil)
                     const hubAvatar = document.querySelector('.nav-profile-avatar-large');
                     if (hubAvatar) hubAvatar.innerHTML = imgTag;
 
-                    // 4. Mostra feedback "✓ Alterações Salvas" igual ao nome/API
                     const status = document.getElementById('navSaveStatus');
                     if (status) {
                         status.style.opacity = '1';
@@ -2849,7 +2907,6 @@ window.isNavMenuOpen = false;
                     }
                 }
 
-                // Forçar a reabertura do setup via nav menu se não restarem usuários
                 if (data.type === 'showSetup') {
                     const open = () => {
                         window.DoorpiIntro?.finishHandoff?.();
@@ -2859,7 +2916,6 @@ window.isNavMenuOpen = false;
                     if (window.DoorpiIntro?.isRunning?.()) window.DoorpiIntro.runAfterIntro(open);
                     else open();
                 }
-
             } catch { }
         });
     }
@@ -2870,8 +2926,14 @@ window.isNavMenuOpen = false;
         const catId = CATS[_catIdx]?.id;
         if (catId !== 'games' && catId !== 'media') return;
 
-        const cards = Array.from(document.querySelectorAll('.nav-vertical-card'));
-        const focused = cards[_contentIdx];
+        // Ao usar Virtual Rendering, a referencia O(1) correta no DOM é essa:
+        let focused = null;
+        if (_isLazyCat()) {
+            focused = _lazyGrid._prevFocusedCard || _contentItems[_contentIdx];
+        } else {
+            focused = _contentItems[_contentIdx];
+        }
+        
         if (!focused) return;
 
         const r = focused.getBoundingClientRect();
@@ -2881,6 +2943,7 @@ window.isNavMenuOpen = false;
     // ── Expose ────────────────────────────────────────────────────────────────
     window.openNavMenu = open;
     window.closeNavMenu = close;
+    
     window._navMenuOpenExtensions = function () {
         _catIdx = 2; // Categoria de Configurações
         _settingsSubView = 'extensions';
