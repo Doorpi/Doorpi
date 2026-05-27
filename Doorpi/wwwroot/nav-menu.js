@@ -474,18 +474,119 @@ window.isNavMenuOpen = false;
     }
     // ────────────────────────────────────────────────────────────────────────
 
-    // ── Lazy Grid Variables ──
-    let _lazyGrid = null;
-    function _isLazyCat() { return _lazyGrid !== null; }
 
-    function _destroyLazyGrid() {
-        if (_lazyGrid) {
-            _lazyGrid.destroy();
-            _lazyGrid = null;
-        }
-        _contentItems = [];
+    // ── Lazy Grid Variables ──
+    let _lazyGrid = null;   // grid de jogos (persistente)
+    let _lazyGridMedia = null;   // grid de mídia (persistente)
+    let _dualPaneContainer = null;
+    let _isTransitioning = false;
+
+    function _currentLazyGrid() {
+        const id = CATS[_catIdx]?.id;
+        if (id === 'games') return _lazyGrid;
+        if (id === 'media') return _lazyGridMedia;
+        return null;
     }
 
+    function _isLazyCat() {
+        const id = CATS[_catIdx]?.id;
+        return id === 'games' || id === 'media';
+    }
+
+    function _destroyLazyGrid() {
+        if (_lazyGrid) { _lazyGrid.destroy(); _lazyGrid = null; }
+        if (_lazyGridMedia) { _lazyGridMedia.destroy(); _lazyGridMedia = null; }
+        if (_dualPaneContainer) {
+            try { _dualPaneContainer.remove(); } catch (_) { }
+            _dualPaneContainer = null;
+        }
+        document.getElementById('navContentBody')?.classList.remove('dual-pane-active');
+        _contentItems = [];
+    }
+    // ── Dual Pane: constrói e gerencia os dois grids persistentes ─────────────
+    function _ensureDualPane(body) {
+        if (_dualPaneContainer) return; // já existe, só mudar visibilidade
+
+        body.innerHTML = '';
+        body.classList.add('dual-pane-active');
+
+        _dualPaneContainer = document.createElement('div');
+        _dualPaneContainer.id = 'navDualPane';
+        body.appendChild(_dualPaneContainer);
+
+        const gamesPane = document.createElement('div');
+        gamesPane.id = 'navPaneGames';
+        _dualPaneContainer.appendChild(gamesPane);
+
+        const mediaPane = document.createElement('div');
+        mediaPane.id = 'navPaneMedia';
+        _dualPaneContainer.appendChild(mediaPane);
+
+        const gamesItems = _menuData.games || [];
+        if (gamesItems.length) {
+            _lazyGrid = new _NavLazyGrid({
+                body: gamesPane, scrollRoot: gamesPane,
+                items: gamesItems, catId: 'games', emptyIcon: '⊞',
+                onLaunchAction: (idx) => _launchAction('games', idx),
+                onFocusUpdate: (cards, idx) => {
+                    if (CATS[_catIdx]?.id !== 'games') return;
+                    _contentItems = cards;
+                    if (idx >= 0) { _topbarFocus = false; _contentIdx = idx; _updateContentFocus(); }
+                }
+            });
+        } else {
+            gamesPane.innerHTML = `<div class="nav-placeholder"><div class="nav-placeholder-icon">⊞</div><div class="nav-placeholder-text">${_t('navNoGames', 'Nenhum jogo encontrado')}</div></div>`;
+        }
+
+        const mediaItems = _menuData.media || [];
+        if (mediaItems.length) {
+            _lazyGridMedia = new _NavLazyGrid({
+                body: mediaPane, scrollRoot: mediaPane,
+                items: mediaItems, catId: 'media', emptyIcon: '▶',
+                onLaunchAction: (idx) => _launchAction('media', idx),
+                onFocusUpdate: (cards, idx) => {
+                    if (CATS[_catIdx]?.id !== 'media') return;
+                    _contentItems = cards;
+                    if (idx >= 0) { _topbarFocus = false; _contentIdx = idx; _updateContentFocus(); }
+                }
+            });
+        } else {
+            mediaPane.innerHTML = `<div class="nav-placeholder"><div class="nav-placeholder-icon">▶</div><div class="nav-placeholder-text">${_t('navNoMedia', 'Nenhum aplicativo configurado')}</div></div>`;
+        }
+    }
+
+    function _applyPaneVisibility(catId) {
+        const gamesPane = document.getElementById('navPaneGames');
+        const mediaPane = document.getElementById('navPaneMedia');
+        if (!gamesPane || !mediaPane) return;
+
+        const showGames = catId === 'games';
+        const visPane = showGames ? gamesPane : mediaPane;
+        const hidPane = showGames ? mediaPane : gamesPane;
+
+        visPane.style.opacity = '1';
+        visPane.style.pointerEvents = 'auto';
+        visPane.style.zIndex = '1';
+
+        hidPane.style.opacity = '0';
+        hidPane.style.pointerEvents = 'none';
+        hidPane.style.zIndex = '0';
+
+        const grid = showGames ? _lazyGrid : _lazyGridMedia;
+        _contentItems = grid ? grid._cards : [];
+    }
+
+    function _switchDualPane(catId) {
+        if (_isTransitioning) return;
+        _isTransitioning = true;
+        _applyPaneVisibility(catId);
+        setTimeout(() => {
+            _isTransitioning = false;
+            _contentIdx = 0;
+            _updateContentFocus();
+        }, 250);
+    }
+    // ─────────────────────────────────────────────────────────────────────────
     // ── Funções de Inicialização / Componentes Settings ───────────────────────
     function _renderSettingsSystem(body) {
         if (typeof postToHost === 'function') postToHost({ action: 'requestBootMode' });
@@ -836,6 +937,19 @@ window.isNavMenuOpen = false;
         const s = document.createElement('style');
         s.id = 'nav-menu-styles';
         s.textContent = `
+        /* ── Dual Pane (Jogos + Mídia) ── */
+.nav-content-body.dual-pane-active {
+    padding: 0; margin: 0; overflow: hidden;
+}
+#navDualPane { position: relative; width: 100%; height: 100%; }
+#navPaneGames, #navPaneMedia {
+    position: absolute; inset: 0;
+    overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
+    padding: 25px; box-sizing: border-box;
+    transition: opacity 0.22s ease;
+}
+#navPaneGames::-webkit-scrollbar,
+#navPaneMedia::-webkit-scrollbar { display: none; }
 /* ── Lazy Grid Skeleton & Shimmer ── */
 .nlg-wrapper { width: 100%; }
 .nlg-grid { padding-bottom: 40px; }
@@ -1240,9 +1354,12 @@ window.isNavMenuOpen = false;
     // ── Seleção de categoria ──────────────────────────────────────────────────
     function _selectCat(idx) {
         _catIdx = Number(idx);
-        
-        // Destrói totalmente o LazyGrid ao trocar de aba (libera a memória RAM)
-        _destroyLazyGrid();
+
+        const _newCatId = CATS[_catIdx]?.id;
+        const _newIsGrid = _newCatId === 'games' || _newCatId === 'media';
+
+
+        if (!_newIsGrid) _destroyLazyGrid();
 
         if (_preserveSettingsSubViewOnce) {
             _preserveSettingsSubViewOnce = false;
@@ -1376,10 +1493,15 @@ window.isNavMenuOpen = false;
 
         switch (id) {
             case 'games':
-                _renderGrid(body, _menuData.games, id, _t('navNoGames', 'Nenhum jogo encontrado'), '⊞');
-                break;
             case 'media':
-                _renderGrid(body, _menuData.media, id, _t('navNoMedia', 'Nenhum aplicativo configurado'), '▶');
+                if (_dualPaneContainer) {
+                    _switchDualPane(id);
+                } else {
+                    _ensureDualPane(body);
+                    _applyPaneVisibility(id);
+                    _contentIdx = 0;
+                    _updateContentFocus();
+                }
                 break;
             case 'settings':
                 _renderSettings(body);
@@ -2360,9 +2482,10 @@ window.isNavMenuOpen = false;
 
     function _updateContentFocus() {
         if (_topbarFocus) {
-            // Remove o foco do Grid Premium
-            if (_isLazyCat() && _lazyGrid) {
-                for (const card of _lazyGrid._cards) {
+   
+            const _lg = _currentLazyGrid();
+            if (_isLazyCat() && _lg) {
+                for (const card of _lg._cards) {
                     if (card && card.classList.contains('nav-focused')) {
                         card.classList.remove('nav-focused');
                         card._stopInteraction?.();
@@ -2373,13 +2496,13 @@ window.isNavMenuOpen = false;
             _contentItems.forEach(el => el?.classList.remove('nav-focused-el'));
             return;
         }
-
-        if (_isLazyCat() && _lazyGrid) {
+        const _lg = _currentLazyGrid();
+        if (_isLazyCat() && _lg) {
             // Garante que o indice não passe dos limites
             const globalIdx = Math.max(0, Math.min((_contentItems.length || 1) - 1, _contentIdx));
-            
+
             // Remove dos anteriores
-            for (const card of _lazyGrid._cards) {
+            for (const card of _lg._cards) {
                 if (card && card.classList.contains('nav-focused')) {
                     card.classList.remove('nav-focused');
                     card._stopInteraction?.();
@@ -2391,8 +2514,8 @@ window.isNavMenuOpen = false;
                 card.classList.add('nav-focused');
                 card._startInteraction?.();
                 card.scrollIntoView({ block: 'center', behavior: 'smooth' });
-                // Força o carregamento da imagem imediatamente caso o LazyLoad ainda não tenha disparado
-                _lazyGrid._loadCard(card);
+
+                _lg._loadCard(card);
             }
         } else {
             _contentItems.forEach((el, i) => {
@@ -2483,6 +2606,7 @@ window.isNavMenuOpen = false;
 
     window._navMenuHandleKey = function (key) {
         if (window._vkbIsOpen) return;
+        if (_isTransitioning) return;
         if (key === 'L1') { window._navMenuCycleTab(-1); return; }
         if (key === 'R1') { window._navMenuCycleTab(1); return; }
 
@@ -2929,7 +3053,7 @@ window.isNavMenuOpen = false;
         // Ao usar Virtual Rendering, a referencia O(1) correta no DOM é essa:
         let focused = null;
         if (_isLazyCat()) {
-            focused = _lazyGrid._prevFocusedCard || _contentItems[_contentIdx];
+            focused = _contentItems[_contentIdx];
         } else {
             focused = _contentItems[_contentIdx];
         }
