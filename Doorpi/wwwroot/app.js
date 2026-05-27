@@ -3058,16 +3058,10 @@ function renderFolderList(folders) {
             setTimeout(() => c.remove(), 280);
         });
 
-        if (typeof _menuData !== 'undefined') {
-            ['games', 'media'].forEach(cat => {
-                if (!_menuData[cat]) return;
-                const idx = _menuData[cat].findIndex(i => {
-                    const key = i.LaunchUrl || i.Path || i.Url;
-                    return searchKeys.includes(key) || searchKeys.includes(i.Id);
-                });
-                if (idx >= 0) _menuData[cat].splice(idx, 1);
-            });
-        }
+        const _navCatId = isMedia ? 'media' : 'games';
+        [id1, id2, id3].filter(Boolean).forEach(key => {
+            window._navMenuRemoveItem?.(_navCatId, key);
+        });
 
         postToHost({
             action: 'deleteGame',

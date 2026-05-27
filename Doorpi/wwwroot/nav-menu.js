@@ -443,7 +443,30 @@ window.isNavMenuOpen = false;
                 content.replaceWith(skeletonBg);
             }
         }
+        removeItem(itemKey) {
+            // Remove do array de dados (mesma referência de _menuData)
+            const dataIdx = this.items.findIndex(item => {
+                const key = item.LaunchUrl || item.Path || item.Url || item.Id || '';
+                return key === itemKey;
+            });
+            if (dataIdx !== -1) this.items.splice(dataIdx, 1);
 
+            // Remove o card do DOM e do array interno
+            const cardIdx = this._cards.findIndex(c => c?.dataset?.gameId === itemKey);
+            if (cardIdx !== -1) {
+                const card = this._cards[cardIdx];
+                this._loadObs?.unobserve(card);
+                this._unloadObs?.unobserve(card);
+                card._item = null;
+                card._startInteraction = null;
+                card._stopInteraction = null;
+                card.remove();
+                this._cards.splice(cardIdx, 1);
+            }
+
+            // Reindexar data-idx para manter consistência
+            this._cards.forEach((c, i) => { if (c) c.dataset.idx = String(i); });
+        }
         destroy() {
             this._aborted = true;
             this._loadObs?.disconnect();
@@ -1113,7 +1136,7 @@ window.isNavMenuOpen = false;
 @container pane (min-height: 900px) { .nav-big-grid { --rows: 3; } } /* Telas 1080p "puras" (sem zoom do Windows) */
 @container pane (min-height: 1300px) { .nav-big-grid { --rows: 4; } } /* Telas 2K puras / 4K com scaling */
 @container pane (min-height: 1800px) { .nav-big-grid { --rows: 5; } } /* Telas 4K puras / 5K */
-@container pane (min-height: 2400px) { .nav-big-grid { --rows: 7; } } /* Telas 8K */
+@container pane (min-height: 2400px) { .nav-big-grid { --rows: 6; } } /* Telas 8K */
 
 .nav-vertical-card {
     box-sizing: border-box; /* 🔹 Isso obriga a borda de 2px a nascer para DENTRO do card, não para fora */
@@ -3130,7 +3153,26 @@ window.isNavMenuOpen = false;
     // ── Expose ────────────────────────────────────────────────────────────────
     window.openNavMenu = open;
     window.closeNavMenu = close;
-    
+    window._navMenuRemoveItem = function (catId, itemKey) {
+        const grid = catId === 'games' ? _lazyGrid : _lazyGridMedia;
+        if (!grid) return;
+
+        const removedIdx = grid._cards.findIndex(c => c?.dataset?.gameId === itemKey);
+        grid.removeItem(itemKey);
+
+        // Só atualiza navegação se a aba visível for a afetada
+        if (CATS[_catIdx]?.id !== catId) return;
+
+        _contentItems = grid._cards;
+
+        // Se o item removido estava antes ou no cursor atual, recua 1 para não pular item
+        if (removedIdx !== -1 && removedIdx <= _contentIdx) {
+            _contentIdx = Math.max(0, _contentIdx - 1);
+        }
+
+        _contentIdx = Math.max(0, Math.min(_contentItems.length - 1, _contentIdx));
+        _updateContentFocus();
+    };
     window._navMenuOpenExtensions = function () {
         _catIdx = 2; // Categoria de Configurações
         _settingsSubView = 'extensions';
