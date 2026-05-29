@@ -126,7 +126,7 @@ window.isNavMenuOpen = false;
                         </div>
                         <span id="dwScroll"></span>
                     </div>
-                    <div class="dw-item"><div class="dw-badge a">A</div> <span id="dwLClick"></span></div>
+                    <div class="dw-item"><div class="dw-badge" style="color:#c8c8c8;border-color:rgba(200,200,200,0.3);background:rgba(200,200,200,0.08);">RT</div> <span id="dwLClick"></span></div>
                     <div class="dw-item"><div class="dw-badge x">X</div> <span id="dwRClick"></span></div>
                     <div class="dw-item"><div class="dw-badge y">Y</div> <span id="dwVkb"></span></div>
                     <div class="dw-item"><div class="dw-badge b">B</div> <span id="dwBack"></span></div>

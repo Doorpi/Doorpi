@@ -1934,6 +1934,7 @@ namespace Doorpi
             double clickAccumX = 0;
             double clickAccumY = 0;
             bool dragBrokeThreshold = false;
+            bool prevR2 = false;
 
             while (_systemControllerActive)
             {
@@ -2085,8 +2086,16 @@ namespace Doorpi
 
                         int deltaX = 0, deltaY = 0;
 
-                        // GATILHO (A) - PRESSIONOU
-                        if (Pressed(0x1000))
+                  
+
+
+                        bool r2Down = gp.bRightTrigger > 128;
+                        bool r2Pressed = r2Down && !prevR2;
+                        bool r2Released = !r2Down && prevR2;
+                        prevR2 = r2Down;
+
+                        // GATILHO (R2) - PRESSIONOU
+                        if (r2Pressed)
                         {
                             aWasOnTextField = IsCursorOnTextField();
                             aDragOccurred = false;
@@ -2146,8 +2155,8 @@ namespace Doorpi
                             else { remainderX = 0; remainderY = 0; }
                         }
 
-                        // GATILHO (A) - SOLTOU
-                        if (Released(0x1000))
+                        // GATILHO (R2) - SOLTOU
+                        if (r2Released)
                         {
                             isClicking = false;
                             SendMouse(0, 0, 0x0004); // MOUSEEVENTF_LEFTUP
