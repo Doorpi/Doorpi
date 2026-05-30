@@ -71,6 +71,14 @@ namespace Doorpi
 
         private readonly object _gameLaunchMonitorLock = new();
 
+        private bool _executionLockActive;
+        private string _executionLockKind = "";
+        private string _executionLockChannel = "";
+        private string _executionLockId = "";
+        private string _executionLockUrl = "";
+        private string _executionLockAppType = "";
+        private CancellationTokenSource? _executionLockFocusCts;
+
         private GameWindowSession EnsureGameSession()
             => _gameSession ??= new GameWindowSession();
 
@@ -140,7 +148,9 @@ namespace Doorpi
                        _webAppSession is { WebView: not null } ||
                        _webAppSession is { MouseActive: true };
 
-            return game || exe || web;
+            bool store = _isStoreLauncherSession && IsActiveStoreLauncherProcessAlive();
+
+            return game || exe || web || store;
         }
 
         private void ClearGameWindowSession()

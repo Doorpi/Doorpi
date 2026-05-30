@@ -153,6 +153,10 @@ function getNavigableItems() {
     }
 
     const launchOverlay = document.getElementById('gameLaunchOverlay');
+    if (launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('execution-lock-visible')) {
+        return Array.from(document.querySelectorAll('#executionLockActions .lock-action'))
+            .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0 && !el.disabled);
+    }
     if (launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('state-loading')) {
         const btn = document.getElementById('overlayCancelLaunchBtn');
         return btn && btn.style.display !== 'none' ? [btn] : [];
@@ -477,6 +481,23 @@ function moveFocus(direction) {
     if (!items.length) return;
     const current = document.activeElement;
 
+    const executionOverlay = document.getElementById('gameLaunchOverlay');
+    if (executionOverlay?.classList.contains('execution-lock-visible')) {
+        if (!items.includes(current)) {
+            items[0]?.focus();
+            return;
+        }
+
+        if (direction === 'LEFT' || direction === 'RIGHT') {
+            const idx = items.indexOf(current);
+            const next = direction === 'RIGHT'
+                ? items[(idx + 1) % items.length]
+                : items[(idx - 1 + items.length) % items.length];
+            next?.focus();
+        }
+        return;
+    }
+
     if (!items.includes(current)) {
         if (current.classList.contains('filter-btn')) {
             const nf = Array.from(document.querySelectorAll('.filter-bar .filter-btn')).find(f => !f.classList.contains('active') && f.offsetWidth > 0);
@@ -645,6 +666,28 @@ function smoothHorizontalScroll(element, onDone) {
 document.addEventListener('keydown', e => {
     // ── NOVO: Cancelar launch via teclado (Esc ou Backspace) ──
     const launchOverlay = document.getElementById('gameLaunchOverlay');
+    const isExecutionLock = launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('execution-lock-visible');
+    if (isExecutionLock) {
+        const dirMapLock = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' };
+        if (dirMapLock[e.key]) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            moveFocus(dirMapLock[e.key]);
+            return;
+        }
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            document.activeElement?.click();
+            return;
+        }
+        if (e.key === 'Escape' || e.key === 'Backspace') {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            document.getElementById('executionLockRestore')?.focus();
+            return;
+        }
+    }
     const isWaitingLaunch = launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('state-loading');
     if (isWaitingLaunch) {
         if (e.key === 'Escape' || e.key === 'Backspace') {
@@ -835,9 +878,10 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         if (!gamepad) return;
 
         const launchOverlay = document.getElementById('gameLaunchOverlay');
+        const isExecutionLock = launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('execution-lock-visible');
         const isWaitingLaunch = launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('state-loading');
 
-        if (window.isGlobalLoading || (!isWaitingLaunch && (window.isMediaAppActive || isDoorpiGameInputSuppressed())) || !document.hasFocus()) return;
+        if (window.isGlobalLoading || (!isWaitingLaunch && !isExecutionLock && (window.isMediaAppActive || isDoorpiGameInputSuppressed())) || !document.hasFocus()) return;
 
         const { GAMEPAD } = NAV, buttons = gamepad.buttons;
         const ax = gamepad.axes[0], ay = gamepad.axes[1], thr = GAMEPAD.AXIS_THRESHOLD, now = performance.now();
@@ -849,6 +893,29 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
                     btn.click();
                 }
             }
+            return;
+        }
+
+        if (isExecutionLock) {
+            let lockDir = null;
+            if (ax > thr || buttons[GAMEPAD.BTN_RIGHT]?.pressed) lockDir = 'RIGHT';
+            else if (ax < -thr || buttons[GAMEPAD.BTN_LEFT]?.pressed) lockDir = 'LEFT';
+            else if (ay > thr || buttons[GAMEPAD.BTN_DOWN]?.pressed) lockDir = 'DOWN';
+            else if (ay < -thr || buttons[GAMEPAD.BTN_UP]?.pressed) lockDir = 'UP';
+
+            if (lockDir && (lockDir !== _currentDirection || now - _lastMoveTime > (_moveState ? NAV.GAMEPAD.REPEAT_DELAY : NAV.GAMEPAD.INITIAL_DELAY))) {
+                moveFocus(lockDir);
+                _currentDirection = lockDir;
+                _lastMoveTime = now;
+                _moveState = 1;
+            } else if (!lockDir) {
+                _currentDirection = null;
+                _moveState = 0;
+            }
+
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) document.getElementById('executionLockClose')?.click();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) document.getElementById('executionLockRestore')?.focus();
             return;
         }
 

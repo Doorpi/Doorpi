@@ -138,6 +138,17 @@
 
     window._pauseAmbience = window._stopSystemAudio;
 
+    window._syncSystemAudioFromRuntime = function (hasPendingSession) {
+        window._isExternalAppRunning = !!hasPendingSession;
+        if (!window._isDoorpiFocused) return;
+
+        if (window._isExternalAppRunning) {
+            window._stopSystemAudio();
+        } else {
+            window._startSystemAudio(true);
+        }
+    };
+
     // ── GATILHOS DE RETORNO DO ÁUDIO (Navegador) ────────────────────────
     window.addEventListener('focus', () => {
         window._isDoorpiFocused = true;
@@ -618,15 +629,14 @@
                 }
             }
             else if (data.type === 'appProcessDied') {
-                window._isExternalAppRunning = false;
                 if (Array.isArray(data.running)) {
                     window.DoorpiRuntimeState.running = data.running;
                     refreshRuntimeCards();
                 }
-                // Se o processo morreu e o Doorpi estiver focado na tela, retoma a música!
-                if (window._isDoorpiFocused) {
-                    window._startSystemAudio(true);
-                }
+                const hasPendingSession = data.hasPendingSession !== undefined
+                    ? !!data.hasPendingSession
+                    : window.DoorpiRuntimeState.running.length > 0;
+                window._syncSystemAudioFromRuntime(hasPendingSession);
             }
             else if (data.type === 'scanProgress') {
                 window.setInlineScanStatus?.(true, `Lendo: ${data.folderName}...`);
@@ -634,6 +644,10 @@
             else if (data.type === 'runtimeSessionsChanged') {
                 window.DoorpiRuntimeState.running = Array.isArray(data.running) ? data.running : [];
                 refreshRuntimeCards();
+                const hasPendingSession = data.hasPendingSession !== undefined
+                    ? !!data.hasPendingSession
+                    : window.DoorpiRuntimeState.running.length > 0;
+                window._syncSystemAudioFromRuntime(hasPendingSession);
             }
             else if (data.type === 'windowLostFocus') {
                 window._isDoorpiFocused = false;
@@ -842,6 +856,16 @@
 
                 GameLaunchOverlay.show(data.gameName, data.heroImage, data.gridImage, data.reason === 'restore');
             }
+            else if (data.type === 'executionLock') {
+                window._isExternalAppRunning = true;
+                window._stopSystemAudio();
+                window.isMediaAppActive = true;
+                GameLaunchOverlay.showExecutionLock(data);
+            }
+            else if (data.type === 'executionLockCleared') {
+                window.isMediaAppActive = false;
+                GameLaunchOverlay.hideExecutionLock();
+            }
             else if (data.type === 'userSwitchStart') {
                 _userSwitchFadeOut();
             }
@@ -862,7 +886,10 @@
             else if (data.type === 'gameLaunchDone') {
                 window.isGameLaunchActive = false;
                 window._doorpiGameInputSuppressedUntil = 0;
-                GameLaunchOverlay.hide();
+                const launchOverlay = document.getElementById('gameLaunchOverlay');
+                if (!launchOverlay?.classList.contains('execution-lock-visible')) {
+                    GameLaunchOverlay.hide();
+                }
                 if (!window._vkbIsOpen) {
                     recoverGlobalFocus();
                 }
@@ -4338,6 +4365,51 @@ function renderFolderList(folders) {
                     transform: scale(0.98) translateY(0);
                     box-shadow: none;
                 }
+                #gameLaunchOverlay.execution-lock-visible #overlayCancelLaunchBtn,
+                #gameLaunchOverlay.execution-lock-visible #overlayDismissBtn {
+                    display: none !important;
+                }
+                #executionLockActions {
+                    display: none;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 16px;
+                    margin-top: 28px;
+                    pointer-events: all;
+                }
+                #gameLaunchOverlay.execution-lock-visible #executionLockActions {
+                    display: flex;
+                }
+                #executionLockActions .lock-action {
+                    min-width: 210px;
+                    border: 1px solid rgba(255, 255, 255, 0.14);
+                    border-bottom: 3px solid rgba(0,0,0,0.32);
+                    border-radius: 12px;
+                    background: rgba(255,255,255,0.07);
+                    color: rgba(255,255,255,0.8);
+                    font-family: inherit;
+                    font-size: clamp(0.9rem, 1vw, 1.05rem);
+                    font-weight: 700;
+                    padding: 13px 24px;
+                    outline: none;
+                    cursor: pointer;
+                    transition: transform .18s ease, background .18s ease, color .18s ease, box-shadow .18s ease;
+                }
+                #executionLockActions .lock-action:focus,
+                #executionLockActions .lock-action:hover {
+                    background: #fff;
+                    color: #080817;
+                    border-color: #fff;
+                    transform: translateY(-2px) scale(1.04);
+                    box-shadow: 0 12px 30px rgba(255,255,255,.22), 0 0 0 2px rgba(255,255,255,.16);
+                }
+                #executionLockActions .lock-action.danger:focus,
+                #executionLockActions .lock-action.danger:hover {
+                    background: #ff4d5e;
+                    color: #fff;
+                    border-color: #ff4d5e;
+                    box-shadow: 0 12px 30px rgba(255,77,94,.26), 0 0 0 2px rgba(255,77,94,.16);
+                }
             `;
             document.head.appendChild(s);
         })();
@@ -4361,6 +4433,28 @@ function renderFolderList(folders) {
             const statusContainer = statusEl?.parentElement;
             if (statusContainer) {
                 statusContainer.appendChild(cancelBtn);
+            }
+        }
+
+        let lockActions = document.getElementById('executionLockActions');
+        if (!lockActions) {
+            lockActions = document.createElement('div');
+            lockActions.id = 'executionLockActions';
+            lockActions.innerHTML = `
+                <button id="executionLockRestore" class="lock-action" data-gamepad-hint="confirm" tabindex="0">Restaurar janela</button>
+                <button id="executionLockClose" class="lock-action danger" data-gamepad-hint="square" tabindex="0">Encerrar processo</button>
+            `;
+
+            lockActions.querySelector('#executionLockRestore')?.addEventListener('click', () => {
+                postToHost({ action: 'restoreExecutionLock' });
+            });
+            lockActions.querySelector('#executionLockClose')?.addEventListener('click', () => {
+                postToHost({ action: 'closeExecutionLock' });
+            });
+
+            const statusContainer = statusEl?.parentElement;
+            if (statusContainer) {
+                statusContainer.appendChild(lockActions);
             }
         }
 
@@ -4469,6 +4563,7 @@ function renderFolderList(folders) {
             const text = getI18n();
             if (overlay._waitTimer) clearTimeout(overlay._waitTimer);
             cancelBtn.style.display = 'none';
+            overlay.classList.remove('execution-lock-visible');
 
             errTitle.textContent = text.errTitle + (gameName ? ` "${gameName}"` : '');
             errSub.textContent = reason === 'crash' ? text.errCrash
@@ -4478,9 +4573,38 @@ function renderFolderList(folders) {
             setTimeout(() => document.getElementById('overlayDismissBtn')?.focus(), 50);
         }
 
+        function showExecutionLock(data = {}) {
+            if (overlay._waitTimer) clearTimeout(overlay._waitTimer);
+            const name = data.name || data.gameName || '';
+
+            nameEl.textContent = name;
+            statusEl.textContent = 'EM EXECUÇÃO';
+            if (bg) bg.style.backgroundImage = data.heroImage ? `url('${data.heroImage}')` : 'none';
+            setArt(data.gridImage);
+            setState('running');
+
+            cancelBtn.style.display = 'none';
+            cancelBtn.style.opacity = '0';
+            overlay.style.pointerEvents = 'all';
+            overlay.classList.add('visible', 'execution-lock-visible');
+
+            setTimeout(() => {
+                if (typeof updateGamepadUI === 'function') updateGamepadUI(isGamepadConnected, _controllerType);
+                document.getElementById('executionLockRestore')?.focus();
+            }, 50);
+        }
+
+        function hideExecutionLock() {
+            overlay.classList.remove('execution-lock-visible');
+            lockActions?.querySelectorAll('button').forEach(btn => {
+                if (document.activeElement === btn) btn.blur();
+            });
+        }
+
         function hide() {
             if (overlay._waitTimer) clearTimeout(overlay._waitTimer);
             cancelBtn.style.opacity = '0';
+            overlay.classList.remove('execution-lock-visible');
 
 
             setTimeout(() => {
@@ -4505,7 +4629,7 @@ function renderFolderList(folders) {
             }, 400);
         }
 
-        return { show, setRunning, setError, hide };
+        return { show, setRunning, setError, hide, showExecutionLock, hideExecutionLock };
     })();
 
 
