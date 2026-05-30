@@ -15,16 +15,21 @@ window.GridController = (() => {
                 el: document.getElementById('mediaGrid'),
                 anchor: document.getElementById('btnAddMedia'),
             },
+            stores: {
+                el: document.getElementById('storesGrid'),
+                anchor: null,
+            },
         };
 
         window.AppStore.subscribe('games', e => _onMutation('games', e));
         window.AppStore.subscribe('media', e => _onMutation('media', e));
+        window.AppStore.subscribe('stores', e => _onMutation('stores', e));
         window.AppStore.subscribe('featured', _onFeaturedChange);
 
         window.focusFeaturedCard = _focusFeatured;
         _patchExecuteDelete();
 
-        ['games', 'media'].forEach(channel => {
+        ['games', 'media', 'stores'].forEach(channel => {
             const initialItems = window.AppStore.queries.getItems(channel);
             if (initialItems.length > 0) {
                 _onMutation(channel, { type: 'reset', items: initialItems });
@@ -141,8 +146,6 @@ window.GridController = (() => {
         if (!grid) return;
 
         // Se já tiver skeleton, não adiciona mais para não espalhar o erro.
-        if (grid.querySelector('.loading-card')) return;
-
         // Descobre onde inserir (Logo APÓS o hero, que é a posição [1] se existir)
         const firstCard = grid.querySelector('.card:not(.add-card)');
         let insertAnchor = firstCard ? firstCard.nextSibling : grid.firstElementChild;

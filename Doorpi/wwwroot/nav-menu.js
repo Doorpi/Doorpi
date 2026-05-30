@@ -1736,8 +1736,10 @@ window.isNavMenuOpen = false;
         if (_settingsSubView === 'extensions') { _renderSettingsExtensions(body); return; }
         if (_settingsSubView === 'sharing') { _renderSettingsSharing(body); return; }
         if (_settingsSubView === 'system') { _renderSettingsSystem(body); return; }
+        if (_settingsSubView === 'stores') { _renderSettingsStores(body); return; }
 
         const svgUser = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
+        const svgStores = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 6h15l-1.5 9h-12z"/><path d="M6 6l-2-2H2"/><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/></svg>`;
         const svgSys = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`;
         const svgExt = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`;
 
@@ -1764,13 +1766,21 @@ window.isNavMenuOpen = false;
                     <p>${_t('navSetExtDesc', 'Gerenciar plugins e integrações')}</p>
                 </div>
             </button>
+            <button class="nav-settings-card" id="setStores" tabindex="-1">
+                <div class="settings-card-icon">${svgStores}</div>
+                <div class="settings-card-info">
+                    <h3>${_t('navSetStores', 'Lojas')}</h3>
+                    <p>${_t('navSetStoresDesc', 'Adicionar automaticamente jogos baixados de cada loja')}</p>
+                </div>
+            </button>
         </div>
     `;
 
         _contentItems = [
             body.querySelector('#setAccount'),
             body.querySelector('#setSystem'),
-            body.querySelector('#setExt')
+            body.querySelector('#setExt'),
+            body.querySelector('#setStores')
         ].filter(Boolean);
 
         body.querySelector('#setAccount')?.addEventListener('click', () => {
@@ -1783,6 +1793,14 @@ window.isNavMenuOpen = false;
 
         body.querySelector('#setExt')?.addEventListener('click', () => {
             window.openExtensionsManager?.();
+        });
+
+        body.querySelector('#setStores')?.addEventListener('click', () => {
+            _settingsSubView = 'stores';
+            _contentIdx = 0;
+            if (typeof postToHost === 'function') postToHost({ action: 'requestStoreAutoAddSettings' });
+            _renderContent('settings');
+            _updateContentFocus();
         });
 
         _contentItems.forEach((btn, idx) => {
@@ -1800,6 +1818,112 @@ window.isNavMenuOpen = false;
             ? _t('autoStartOn', 'Ativo — o app inicia automaticamente com o Windows')
             : _t('autoStartOff', 'Desativado — não inicia automaticamente');
     }
+
+    const STORE_AUTO_ADD_LABELS = {
+        Steam: 'Steam',
+        Epic: 'Epic Games',
+        GOG: 'GOG',
+        Ubisoft: 'Ubisoft Connect',
+        EA: 'EA App',
+        BattleNet: 'Battle.net',
+        Amazon: 'Amazon Games',
+        Xbox: 'Xbox / Microsoft Store'
+    };
+
+    function _renderSettingsStores(body) {
+        const settings = window._storeAutoAddSettings || {};
+        const rows = Object.keys(STORE_AUTO_ADD_LABELS).map(key => {
+            const on = Object.prototype.hasOwnProperty.call(settings, key)
+                ? !!settings[key]
+                : true;
+            return `
+            <div class="nav-store-row" data-store-key="${key}" tabindex="-1">
+                <div class="nav-store-row-info">
+                    <strong>${STORE_AUTO_ADD_LABELS[key]}</strong>
+                    <span>${_t('storeAutoAddRowHint', 'Adicionar jogos desta loja automaticamente')}</span>
+                </div>
+                <button type="button" class="nav-toggle store-auto-toggle ${on ? 'on' : ''}" data-store="${key}" aria-pressed="${on}" tabindex="-1">
+                    <span class="nav-toggle-thumb"></span>
+                </button>
+            </div>`;
+        }).join('');
+
+        body.innerHTML = `
+            <div class="nav-settings-subheader">
+                <button class="nav-back-btn" id="setBackStores" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
+                <h2>${_t('navSetStores', 'Lojas')}</h2>
+            </div>
+            <p class="nav-store-intro">${_t('storeAutoAddDesc', 'Ao fechar uma loja, novos jogos instalados podem ser adicionados à sua biblioteca.')}</p>
+            <div class="nav-store-list" id="storeAutoAddList">${rows}</div>
+        `;
+
+        if (!document.getElementById('nav-store-styles')) {
+            const s = document.createElement('style');
+            s.id = 'nav-store-styles';
+            s.textContent = `
+                .nav-store-intro { color: rgba(255,255,255,0.5); max-width: 720px; line-height: 1.5; margin: 0 0 20px; }
+                .nav-store-list { display: flex; flex-direction: column; gap: 10px; max-width: 720px; }
+                .nav-store-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 18px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.04); outline: none; }
+                .nav-store-row.nav-focused-el { border-color: rgba(255,255,255,0.35); background: rgba(255,255,255,0.08); }
+                .nav-store-row-info { display: flex; flex-direction: column; gap: 4px; }
+                .nav-store-row-info strong { color: #fff; font-weight: 500; font-size: 1.05rem; }
+                .nav-store-row-info span { color: rgba(255,255,255,0.45); font-size: 0.85rem; }
+            `;
+            document.head.appendChild(s);
+        }
+
+        _contentItems = [
+            body.querySelector('#setBackStores'),
+            ...Array.from(body.querySelectorAll('.nav-store-row'))
+        ].filter(Boolean);
+
+        body.querySelector('#setBackStores')?.addEventListener('click', () => {
+            _settingsSubView = null;
+            _contentIdx = 0;
+            _renderContent('settings');
+            _updateContentFocus();
+        });
+
+        body.querySelectorAll('.store-auto-toggle').forEach(toggle => {
+            toggle.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const store = toggle.dataset.store;
+                const next = !toggle.classList.contains('on');
+                toggle.classList.toggle('on', next);
+                toggle.setAttribute('aria-pressed', String(next));
+                window._storeAutoAddSettings = window._storeAutoAddSettings || {};
+                window._storeAutoAddSettings[store] = next;
+                if (typeof postToHost === 'function') {
+                    postToHost({ action: 'setStoreAutoAdd', store, enabled: next });
+                }
+            });
+        });
+
+        body.querySelectorAll('.nav-store-row').forEach(row => {
+            row.addEventListener('click', () => {
+                row.querySelector('.store-auto-toggle')?.click();
+            });
+            row.addEventListener('keydown', (e) => {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                e.preventDefault();
+                row.querySelector('.store-auto-toggle')?.click();
+            });
+        });
+
+        _contentItems.forEach((el, idx) => {
+            el.addEventListener('mouseenter', () => {
+                _topbarFocus = false;
+                _contentIdx = idx;
+                _updateContentFocus();
+            });
+        });
+    }
+
+    window._renderStoreAutoAddSettings = function () {
+        if (_settingsSubView !== 'stores') return;
+        const body = document.querySelector('.nav-content-body');
+        if (body) _renderSettingsStores(body);
+    };
 
     // ── Conta e Perfil ────────────────────────────────────────────────────────
     function _renderSettingsAccountHub(body) {
@@ -3154,6 +3278,13 @@ window.isNavMenuOpen = false;
     window.openNavMenu = open;
     window.closeNavMenu = close;
     window._navMenuRemoveItem = function (catId, itemKey) {
+        if (catId === 'games' && Array.isArray(_menuData.games)) {
+            _menuData.games = _menuData.games.filter(item => {
+                const key = item.LaunchUrl || item.launchUrl || item.Path || item.path || '';
+                return key !== itemKey;
+            });
+        }
+
         const grid = catId === 'games' ? _lazyGrid : _lazyGridMedia;
         if (!grid) return;
 

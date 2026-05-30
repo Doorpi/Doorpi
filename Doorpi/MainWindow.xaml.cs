@@ -11,6 +11,7 @@ using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows;
@@ -45,6 +46,7 @@ namespace Doorpi
         public string HeroStaticImage { get; set; } = "";
         public string LogoImage { get; set; } = "";
         public string LogoStaticImage { get; set; } = "";
+        public bool DisableGamepadControlConfigured { get; set; } = false;
 
         public DateTime LastPlayed { get; set; } = DateTime.MinValue;
         public DateTime DateAdded { get; set; } = DateTime.Now;
@@ -72,6 +74,9 @@ namespace Doorpi
         public string SteamGridApiKey { get; set; } = "";
         public DateTime DateCreated { get; set; } = DateTime.Now;
         public DateTime LastUsed { get; set; } = DateTime.MinValue;
+
+        [JsonPropertyName("storeAutoAdd")]
+        public Dictionary<string, bool>? StoreAutoAdd { get; set; }
     }
 
     public class BrowserExtensionModel
@@ -93,12 +98,33 @@ namespace Doorpi
         public HashSet<string> EpicFingerprint { get; set; } = new();
         public HashSet<string> GogFingerprint { get; set; } = new();
         public HashSet<string> RiotFingerprint { get; set; } = new();
+        public HashSet<string> UbisoftFingerprint { get; set; } = new();
+        public HashSet<string> EaFingerprint { get; set; } = new();
+        public HashSet<string> BattleNetFingerprint { get; set; } = new();
+        public HashSet<string> AmazonFingerprint { get; set; } = new();
+        public HashSet<string> XboxFingerprint { get; set; } = new();
+        public int XboxFilterVersion { get; set; }
+        public List<AutoAddSuppression> AutoAddSuppressions { get; set; } = new();
         public List<InstalledApp> WindowsApps { get; set; } = new();
         public List<InstalledApp> FolderApps { get; set; } = new();
         public List<InstalledApp> SteamApps { get; set; } = new();
         public List<InstalledApp> EpicApps { get; set; } = new();
         public List<InstalledApp> GogApps { get; set; } = new();
         public List<InstalledApp> RiotApps { get; set; } = new();
+        public List<InstalledApp> UbisoftApps { get; set; } = new();
+        public List<InstalledApp> EaApps { get; set; } = new();
+        public List<InstalledApp> BattleNetApps { get; set; } = new();
+        public List<InstalledApp> AmazonApps { get; set; } = new();
+        public List<InstalledApp> XboxApps { get; set; } = new();
+    }
+
+    public class AutoAddSuppression
+    {
+        public string Key { get; set; } = "";
+        public string Source { get; set; } = "";
+        public string Name { get; set; } = "";
+        public bool MissingSinceDeletion { get; set; }
+        public DateTime DeletedAt { get; set; } = DateTime.Now;
     }
 
     public class FolderStats
@@ -963,6 +989,7 @@ namespace Doorpi
             appCacheFile = Path.Combine(currentUserDataFolder, "appcache.json");
             mediaFile = Path.Combine(currentUserDataFolder, "media.json");
             libraryBootstrapFile = Path.Combine(currentUserDataFolder, "library-bootstrap.json");
+            storesFile = Path.Combine(currentUserDataFolder, "stores.json");
 
             if (migrateLegacyFiles)
             {
@@ -975,6 +1002,7 @@ namespace Doorpi
             if (!File.Exists(gamesFile)) File.WriteAllText(gamesFile, "[]");
             if (!File.Exists(foldersFile)) File.WriteAllText(foldersFile, "[]");
             if (!File.Exists(mediaFile)) File.WriteAllText(mediaFile, "[]");
+            if (!File.Exists(storesFile)) File.WriteAllText(storesFile, "[]");
 
             SaveUserProfile(profile);
             MirrorCurrentUserDataFiles();
@@ -1057,8 +1085,17 @@ namespace Doorpi
             LoadGamesIntoUI();
             var apps = LoadMediaApps();
             if (apps.Any()) SendMediaAppsToUI(apps);
-            StartLibraryBootstrapIfNeeded();
-            _ = Task.Run(() => UpdateAppCacheAsync());
+            _ = Task.Run(InitializeStoreLaunchersAsync);
+            ResumePendingPlatformArtworkIfNeeded();
+            bool bootstrapStarted = StartLibraryBootstrapIfNeeded();
+            if (!bootstrapStarted)
+            {
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(1800).ConfigureAwait(false);
+                    await UpdatePlatformCacheFastAsync().ConfigureAwait(false);
+                });
+            }
 
 
             _ = Task.Run(async () =>
@@ -1395,8 +1432,6 @@ namespace Doorpi
                 {
                     if (_mediaExeSessionId != sessionId) return;
 
-                    // NOVO: Se o VKB estiver aberto, fecha ele primeiro.
-                    // Uma segunda pressão do Xbox vai minimizar o app.
                     bool vkbWasOpen = false;
                     Dispatcher.Invoke(() =>
                     {
@@ -1407,13 +1442,15 @@ namespace Doorpi
                             _desktopVkb = null;
                         }
                     });
-                    if (vkbWasOpen) return; // Não minimiza agora, só fechou o teclado
+                    if (vkbWasOpen) return;
 
-                    // Para o loop imediatamente
+                    if (_isStoreLauncherSession)
+                    {
+                        Dispatcher.Invoke(MinimizeStoreSessionAndShowMenu);
+                        return;
+                    }
+
                     _mediaExeModeActive = false;
-
-                    // NOVO: Cancela o watcher para evitar que ReturnToDoorpiFromMedia
-                    // entre em conflito com ForceFocus (causava double-call e race condition)
                     _mediaExeWatcherCts?.Cancel();
 
                     EnsureCursorHidden();
@@ -1435,17 +1472,41 @@ namespace Doorpi
                     {
                         _desktopVkb?.Close();
                         _desktopVkb = null;
-
                         EnsureCursorVisible();
                         EnsureCursorHidden();
                         _mainScreenMouseVisible = false;
                         _lastKnownCursorPos = new POINT { X = 0, Y = 0 };
                         SetCursorPos(0, 0);
-
                         ForceFocus();
                     });
                 }
             );
+        }
+
+        private void StoreLauncherShortcutLoop(int sessionId)
+        {
+            ushort prevButtons = 0;
+            while (_isStoreLauncherSession && !_storePausedByDoorpi && _mediaExeSessionId == sessionId)
+            {
+                try
+                {
+                    if (XInputGetStateSecret(0, out var state) == 0)
+                    {
+                        ushort btn = state.Gamepad.wButtons;
+                        bool xboxPressed = (btn & 0x0400) != 0 && (prevButtons & 0x0400) == 0;
+                        if (xboxPressed)
+                        {
+                            Dispatcher.Invoke(MinimizeStoreSessionAndShowMenu);
+                            break;
+                        }
+
+                        prevButtons = btn;
+                    }
+                }
+                catch (Exception ex) { Debug.WriteLine($"[StoreShortcutLoop] {ex.Message}"); }
+
+                Thread.Sleep(10);
+            }
         }
 
         private void StartDialogControllerMode()
@@ -1659,7 +1720,12 @@ namespace Doorpi
                     int missingCount = 0;
                     while (!token.IsCancellationRequested)
                     {
-                        // Removido o _mediaExeWatcherPaused aqui para ele continuar vigiando sempre
+                        if (_storePausedByDoorpi)
+                        {
+                            missingCount = 0;
+                            await Task.Delay(200, token);
+                            continue;
+                        }
 
                         var processes = Process.GetProcessesByName(exeName);
                         bool hasActiveWindow = false;
@@ -1749,6 +1815,9 @@ namespace Doorpi
                 webView?.CoreWebView2?.ExecuteScriptAsync(
                     "window.isMediaAppActive = false; window.focusFeaturedCard?.();");
                 SendRuntimeSessionsToUI();
+
+                if (_isStoreLauncherSession && !_storePausedByDoorpi)
+                    CloseStoreSessionCompletely();
             });
         }
         private void MinimizeAllWindowsExcept(IntPtr excludeHwnd)
@@ -3405,6 +3474,18 @@ namespace Doorpi
                     });
                 }
 
+                if (_isStoreLauncherSession && !string.IsNullOrWhiteSpace(_activeStoreId))
+                {
+                    running.Add(new
+                    {
+                        channel = "stores",
+                        id = _activeStoreId,
+                        url = _activeStoreId,
+                        kind = "store",
+                        status = _storePausedByDoorpi ? "minimized" : "running"
+                    });
+                }
+
                 webView?.CoreWebView2?.PostWebMessageAsString(JsonSerializer.Serialize(new
                 {
                     type = "runtimeSessionsChanged",
@@ -3441,6 +3522,13 @@ namespace Doorpi
                     ForceFocus();
                     SendRuntimeSessionsToUI();
                 }
+                return;
+            }
+
+            if (string.Equals(channel, "stores", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(appType, "store", StringComparison.OrdinalIgnoreCase))
+            {
+                CloseStoreSessionCompletely();
                 return;
             }
 
@@ -4645,6 +4733,8 @@ namespace Doorpi
                     if (gameKey == null) continue;
 
                     string name = gameKey.GetValue("gameName") as string ?? "";
+                    if (string.IsNullOrWhiteSpace(name))
+                        name = gameKey.GetValue("name") as string ?? subKeyName;
                     string folderPath = (gameKey.GetValue("path") as string ?? "").Replace("\"", "").Trim();
                     string finalPath = "";
 
@@ -4697,6 +4787,7 @@ namespace Doorpi
                         list.Add(new InstalledApp
                         {
                             Name = name,
+                            LaunchUrl = $"goggalaxy://launch/{subKeyName}",
                             Path = finalPath,
                             Source = "GOG",
                             IconBase64 = includeIcons ? GetCachedIcon(finalPath) : ""
@@ -5115,12 +5206,22 @@ namespace Doorpi
                 var epicPrint = GetEpicFingerprint();
                 var gogPrint = GetGogFingerprint();
                 var riotPrint = GetRiotFingerprint();
+                var ubisoftPrint = GetUbisoftFingerprint();
+                var eaPrint = GetEaFingerprint();
+                var battleNetPrint = GetBattleNetFingerprint();
+                var amazonPrint = GetAmazonFingerprint();
+                var xboxPrint = GetXboxFingerprint();
                 var winPrint = GetWindowsRegistryFingerprint();
 
                 bool steamStale = !steamPrint.SetEquals(cache.SteamFingerprint) || !cache.SteamApps.Any();
                 bool epicStale = !epicPrint.SetEquals(cache.EpicFingerprint) || !cache.EpicApps.Any();
                 bool gogStale = !gogPrint.SetEquals(cache.GogFingerprint) || !cache.GogApps.Any();
                 bool riotStale = !riotPrint.SetEquals(cache.RiotFingerprint) || !cache.RiotApps.Any();
+                bool ubisoftStale = !ubisoftPrint.SetEquals(cache.UbisoftFingerprint) || !cache.UbisoftApps.Any();
+                bool eaStale = !eaPrint.SetEquals(cache.EaFingerprint) || !cache.EaApps.Any();
+                bool battleNetStale = !battleNetPrint.SetEquals(cache.BattleNetFingerprint) || !cache.BattleNetApps.Any();
+                bool amazonStale = !amazonPrint.SetEquals(cache.AmazonFingerprint) || !cache.AmazonApps.Any();
+                bool xboxStale = !xboxPrint.SetEquals(cache.XboxFingerprint) || !cache.XboxApps.Any();
                 bool windowsStale = _windowsCacheInvalid
                                  || !winPrint.SetEquals(cache.WindowsFingerprint)
                                  || !cache.WindowsApps.Any();
@@ -5144,6 +5245,31 @@ namespace Doorpi
                         ? (GetGOGGames().Select(a => { a.Source = "GOG"; return a; }).ToList(), true)
                         : (cache.GogApps, false));
 
+                var ubisoftTask = Task.Run(() =>
+                    ubisoftStale
+                        ? (GetUbisoftGames().Select(a => { a.Source = "Ubisoft"; return a; }).ToList(), true)
+                        : (cache.UbisoftApps, false));
+
+                var eaTask = Task.Run(() =>
+                    eaStale
+                        ? (GetEaGames().Select(a => { a.Source = "EA"; return a; }).ToList(), true)
+                        : (cache.EaApps, false));
+
+                var battleNetTask = Task.Run(() =>
+                    battleNetStale
+                        ? (GetBattleNetGames().Select(a => { a.Source = "Battle.net"; return a; }).ToList(), true)
+                        : (cache.BattleNetApps, false));
+
+                var amazonTask = Task.Run(() =>
+                    amazonStale
+                        ? (GetAmazonGames().Select(a => { a.Source = "Amazon"; return a; }).ToList(), true)
+                        : (cache.AmazonApps, false));
+
+                var xboxTask = Task.Run(() =>
+                    xboxStale
+                        ? (GetXboxGames().Select(a => { a.Source = "Xbox"; return a; }).ToList(), true)
+                        : (cache.XboxApps, false));
+
                 var winTask = Task.Run(() =>
                     windowsStale
                         ? (ScanWindowsApps(), true)
@@ -5156,16 +5282,29 @@ namespace Doorpi
                     return result;
                 });
 
-                await Task.WhenAll(steamTask, epicTask, gogTask, riotTask, winTask, folderTask);
+                await Task.WhenAll(steamTask, epicTask, gogTask, riotTask, ubisoftTask, eaTask, battleNetTask, amazonTask, xboxTask, winTask, folderTask);
 
                 var (steamApps, steamChanged) = steamTask.Result;
                 var (epicApps, epicChanged) = epicTask.Result;
                 var (gogApps, gogChanged) = gogTask.Result;
                 var (riotApps, riotChanged) = riotTask.Result;
+                var (ubisoftApps, ubisoftChanged) = ubisoftTask.Result;
+                var (eaApps, eaChanged) = eaTask.Result;
+                var (battleNetApps, battleNetChanged) = battleNetTask.Result;
+                var (amazonApps, amazonChanged) = amazonTask.Result;
+                var (xboxApps, xboxChanged) = xboxTask.Result;
                 var (windowsApps, windowsChanged) = winTask.Result;
                 (List<InstalledApp> folderApps, Dictionary<string, long> folderTimestamps, bool folderChanged) = folderTask.Result;
 
-                bool anythingChanged = steamChanged || epicChanged || gogChanged || riotChanged || windowsChanged || folderChanged;
+                if (cache.XboxFilterVersion < 2)
+                {
+                    cache.XboxFilterVersion = 2;
+                    xboxChanged = true;
+                }
+
+                bool anythingChanged = steamChanged || epicChanged || gogChanged || riotChanged
+                    || ubisoftChanged || eaChanged || battleNetChanged || amazonChanged || xboxChanged
+                    || windowsChanged || folderChanged;
 
 
                 if (anythingChanged)
@@ -5174,6 +5313,11 @@ namespace Doorpi
                     if (epicChanged) { cache.EpicApps = epicApps; cache.EpicFingerprint = epicPrint; }
                     if (gogChanged) { cache.GogApps = gogApps; cache.GogFingerprint = gogPrint; }
                     if (riotChanged) { cache.RiotApps = riotApps; cache.RiotFingerprint = riotPrint; }
+                    if (ubisoftChanged) { cache.UbisoftApps = ubisoftApps; cache.UbisoftFingerprint = ubisoftPrint; }
+                    if (eaChanged) { cache.EaApps = eaApps; cache.EaFingerprint = eaPrint; }
+                    if (battleNetChanged) { cache.BattleNetApps = battleNetApps; cache.BattleNetFingerprint = battleNetPrint; }
+                    if (amazonChanged) { cache.AmazonApps = amazonApps; cache.AmazonFingerprint = amazonPrint; }
+                    if (xboxChanged) { cache.XboxApps = xboxApps; cache.XboxFingerprint = xboxPrint; }
                     if (windowsChanged)
                     {
                         cache.WindowsApps = windowsApps; cache.WindowsFingerprint = winPrint;
@@ -5181,6 +5325,11 @@ namespace Doorpi
                     }
                     if (folderChanged) { cache.FolderApps = folderApps; cache.FolderTimestamps = folderTimestamps; }
 
+                    RefreshAutoAddSuppressions(cache);
+                    SaveAppCache(cache);
+                }
+                else if (RefreshAutoAddSuppressions(cache))
+                {
                     SaveAppCache(cache);
                 }
 
@@ -5196,11 +5345,241 @@ namespace Doorpi
         {
             var cache = LoadAppCache() ?? new AppCacheModel();
             var existingMap = BuildExistingAppsMap(); // Agora é um Map
-            var finalList = BuildFinalList(cache.SteamApps, cache.EpicApps, cache.GogApps, cache.RiotApps, cache.WindowsApps, cache.FolderApps, existingMap);
+            var finalList = BuildFinalList(
+                cache.SteamApps, cache.EpicApps, cache.GogApps, cache.RiotApps,
+                cache.UbisoftApps, cache.EaApps, cache.BattleNetApps, cache.AmazonApps, cache.XboxApps,
+                cache.WindowsApps, cache.FolderApps, existingMap);
 
             var payload = new { type = "installedAppsList", apps = finalList };
             Dispatcher.Invoke(() =>
                 webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(payload)));
+        }
+
+        private static bool IsPlatformSource(string source)
+        {
+            return source.Equals("Steam", StringComparison.OrdinalIgnoreCase)
+                || source.Equals("Epic", StringComparison.OrdinalIgnoreCase)
+                || source.Equals("GOG", StringComparison.OrdinalIgnoreCase)
+                || source.Equals("Riot", StringComparison.OrdinalIgnoreCase)
+                || source.Equals("Ubisoft", StringComparison.OrdinalIgnoreCase)
+                || source.Equals("EA", StringComparison.OrdinalIgnoreCase)
+                || source.Equals("Battle.net", StringComparison.OrdinalIgnoreCase)
+                || source.Equals("Amazon", StringComparison.OrdinalIgnoreCase)
+                || source.Equals("Xbox", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string NormalizeAutoAddKey(string key)
+        {
+            if (string.IsNullOrWhiteSpace(key)) return "";
+            try
+            {
+                if (Path.IsPathRooted(key)) key = Path.GetFullPath(key);
+            }
+            catch { }
+            return key.Trim();
+        }
+
+        private static string AutoAddKeyForApp(InstalledApp app)
+            => NormalizeAutoAddKey(!string.IsNullOrWhiteSpace(app.LaunchUrl) ? app.LaunchUrl : app.Path);
+
+        private static string AutoAddKeyForGame(GameModel game)
+            => NormalizeAutoAddKey(!string.IsNullOrWhiteSpace(game.LaunchUrl) ? game.LaunchUrl : game.Path);
+
+        private static IEnumerable<string> AutoAddKeysForApp(InstalledApp app)
+            => new[] { app.LaunchUrl, app.Path }
+                .Select(NormalizeAutoAddKey)
+                .Where(k => !string.IsNullOrWhiteSpace(k))
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+
+        private static IEnumerable<string> AutoAddKeysForGame(GameModel game)
+            => new[] { game.LaunchUrl, game.Path }
+                .Select(NormalizeAutoAddKey)
+                .Where(k => !string.IsNullOrWhiteSpace(k))
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+
+        private static bool InstalledAppMatchesGame(InstalledApp app, GameModel game)
+        {
+            var gameKeys = AutoAddKeysForGame(game).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return AutoAddKeysForApp(app).Any(gameKeys.Contains);
+        }
+
+        private List<InstalledApp> CollectCachedPlatformApps(AppCacheModel cache)
+        {
+            return cache.SteamApps
+                .Concat(cache.EpicApps)
+                .Concat(cache.GogApps)
+                .Concat(cache.RiotApps)
+                .Concat(cache.UbisoftApps)
+                .Concat(cache.EaApps)
+                .Concat(cache.BattleNetApps)
+                .Concat(cache.AmazonApps)
+                .Concat(cache.XboxApps)
+                .Where(a => IsPlatformSource(a.Source))
+                .ToList();
+        }
+
+        private static bool IsPlatformManagedLaunchUrl(string launchUrl)
+        {
+            if (string.IsNullOrWhiteSpace(launchUrl)) return false;
+            return launchUrl.StartsWith("steam://", StringComparison.OrdinalIgnoreCase)
+                || launchUrl.StartsWith("com.epicgames.launcher://", StringComparison.OrdinalIgnoreCase)
+                || launchUrl.StartsWith("goggalaxy://", StringComparison.OrdinalIgnoreCase)
+                || launchUrl.StartsWith("uplay://", StringComparison.OrdinalIgnoreCase)
+                || launchUrl.StartsWith("origin2://", StringComparison.OrdinalIgnoreCase)
+                || launchUrl.StartsWith("origin://", StringComparison.OrdinalIgnoreCase)
+                || launchUrl.StartsWith("battlenet://", StringComparison.OrdinalIgnoreCase)
+                || launchUrl.StartsWith("amazon-games://", StringComparison.OrdinalIgnoreCase)
+                || launchUrl.StartsWith("xbox://", StringComparison.OrdinalIgnoreCase)
+                || launchUrl.StartsWith("ms-xbl-", StringComparison.OrdinalIgnoreCase)
+                || launchUrl.StartsWith("riotclient://", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private List<GameModel> ReconcileDoorpiGamesWithPlatformCache(AppCacheModel cache)
+        {
+            var installedKeys = CollectCachedPlatformApps(cache)
+                .SelectMany(AutoAddKeysForApp)
+                .Where(k => !string.IsNullOrWhiteSpace(k))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            if (installedKeys.Count == 0) return new List<GameModel>();
+
+            var games = LoadGames();
+            var removed = games
+                .Where(g =>
+                    (g.AutoAddedByBootstrap || IsPlatformManagedLaunchUrl(g.LaunchUrl)) &&
+                    !AutoAddKeysForGame(g).Any(installedKeys.Contains))
+                .ToList();
+
+            if (removed.Count == 0) return removed;
+
+            foreach (var game in removed)
+            {
+                DeleteGameImages(game);
+                games.Remove(game);
+            }
+
+            SaveGames(games);
+            return removed;
+        }
+
+        private void PublishRemovedGamesToUI(List<GameModel> removedGames)
+        {
+            if (removedGames.Count == 0) return;
+
+            LoadGamesIntoUI();
+            Dispatcher.Invoke(() =>
+                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                {
+                    type = "gamesRemoved",
+                    games = removedGames.Select(g => new
+                    {
+                        g.Name,
+                        g.LaunchUrl,
+                        g.Path
+                    }).ToList()
+                })));
+            SendInstalledAppsToUI();
+        }
+
+        private int CountPendingPlatformArtwork()
+            => LoadGames().Count(g => g.AutoAddedByBootstrap && g.IsPendingArtwork);
+
+        private void ResumePendingPlatformArtworkIfNeeded()
+        {
+            int pending = CountPendingPlatformArtwork();
+            if (pending <= 0) return;
+
+            ShowPreparingGameSkeletons(Math.Clamp(pending, 1, 12));
+            StartStoreArtworkRefresh();
+        }
+
+        private bool RefreshAutoAddSuppressions(AppCacheModel cache)
+        {
+            cache.AutoAddSuppressions ??= new List<AutoAddSuppression>();
+            if (cache.AutoAddSuppressions.Count == 0) return false;
+
+            var installedKeys = CollectCachedPlatformApps(cache)
+                .SelectMany(AutoAddKeysForApp)
+                .Where(k => !string.IsNullOrWhiteSpace(k))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            bool changed = false;
+            for (int i = cache.AutoAddSuppressions.Count - 1; i >= 0; i--)
+            {
+                var suppression = cache.AutoAddSuppressions[i];
+                string key = NormalizeAutoAddKey(suppression.Key);
+                if (string.IsNullOrWhiteSpace(key))
+                {
+                    cache.AutoAddSuppressions.RemoveAt(i);
+                    changed = true;
+                    continue;
+                }
+
+                bool installed = installedKeys.Contains(key);
+                if (!installed)
+                {
+                    if (!suppression.MissingSinceDeletion)
+                    {
+                        suppression.MissingSinceDeletion = true;
+                        changed = true;
+                    }
+                    continue;
+                }
+
+                if (suppression.MissingSinceDeletion)
+                {
+                    cache.AutoAddSuppressions.RemoveAt(i);
+                    changed = true;
+                }
+            }
+
+            return changed;
+        }
+
+        private bool IsAutoAddSuppressed(InstalledApp app, AppCacheModel cache)
+        {
+            var appKeys = AutoAddKeysForApp(app).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (appKeys.Count == 0) return false;
+            return cache.AutoAddSuppressions?.Any(s =>
+                !s.MissingSinceDeletion &&
+                appKeys.Contains(NormalizeAutoAddKey(s.Key))) == true;
+        }
+
+        private void ClearAutoAddSuppressionForApp(InstalledApp app)
+        {
+            var cache = LoadAppCache() ?? new AppCacheModel();
+            var appKeys = AutoAddKeysForApp(app).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (appKeys.Count == 0 || cache.AutoAddSuppressions == null) return;
+
+            int removed = cache.AutoAddSuppressions.RemoveAll(s =>
+                appKeys.Contains(NormalizeAutoAddKey(s.Key)));
+            if (removed > 0) SaveAppCache(cache);
+        }
+
+        private void SuppressAutoAddForDeletedGame(GameModel game)
+        {
+            string key = AutoAddKeyForGame(game);
+            if (string.IsNullOrWhiteSpace(key)) return;
+
+            var cache = LoadAppCache() ?? new AppCacheModel();
+            var match = CollectCachedPlatformApps(cache)
+                .FirstOrDefault(a => AutoAddKeysForApp(a).Contains(key, StringComparer.OrdinalIgnoreCase));
+            if (match == null) return;
+
+            cache.AutoAddSuppressions ??= new List<AutoAddSuppression>();
+            if (!cache.AutoAddSuppressions.Any(s =>
+                string.Equals(NormalizeAutoAddKey(s.Key), key, StringComparison.OrdinalIgnoreCase)))
+            {
+                cache.AutoAddSuppressions.Add(new AutoAddSuppression
+                {
+                    Key = key,
+                    Source = match.Source,
+                    Name = game.Name,
+                    MissingSinceDeletion = false,
+                    DeletedAt = DateTime.Now
+                });
+                SaveAppCache(cache);
+            }
         }
 
         private Dictionary<string, string> BuildExistingAppsMap()
@@ -5211,8 +5590,8 @@ namespace Doorpi
             foreach (var g in LoadGames())
             {
                 string state = g.IsPendingArtwork ? "preparing-game" : "game";
-                if (!string.IsNullOrEmpty(g.LaunchUrl)) map[g.LaunchUrl] = state;
-                else if (!string.IsNullOrEmpty(g.Path)) map[Path.GetFullPath(g.Path)] = state;
+                foreach (var key in AutoAddKeysForGame(g))
+                    map[key] = state;
             }
 
             // Lê as Mídias
@@ -5232,6 +5611,11 @@ namespace Doorpi
             List<InstalledApp> epic,
             List<InstalledApp> gog,
             List<InstalledApp> riot,
+            List<InstalledApp> ubisoft,
+            List<InstalledApp> ea,
+            List<InstalledApp> battleNet,
+            List<InstalledApp> amazon,
+            List<InstalledApp> xbox,
             List<InstalledApp> windows,
             List<InstalledApp> folders,
             Dictionary<string, string> existingMap)
@@ -5241,15 +5625,21 @@ namespace Doorpi
             all.AddRange(epic);
             all.AddRange(gog);
             all.AddRange(riot);
+            all.AddRange(ubisoft);
+            all.AddRange(ea);
+            all.AddRange(battleNet);
+            all.AddRange(amazon);
+            all.AddRange(xbox);
             all.AddRange(windows);
             all.AddRange(folders);
 
             foreach (var app in all)
             {
-                string key = !string.IsNullOrEmpty(app.LaunchUrl) ? app.LaunchUrl : Path.GetFullPath(app.Path);
+                var appKeys = AutoAddKeysForApp(app).ToList();
 
                 // Reutiliza sua chave original IsAdded e alimenta o AddedTo
-                if (existingMap.TryGetValue(key, out string addedToType))
+                if (appKeys.Select(k => existingMap.TryGetValue(k, out string addedToType) ? addedToType : null)
+                    .FirstOrDefault(v => !string.IsNullOrEmpty(v)) is string addedToType)
                 {
                     app.IsAdded = true;
                     app.AddedTo = addedToType;
@@ -5276,8 +5666,8 @@ namespace Doorpi
             var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var g in LoadGames())
             {
-                if (!string.IsNullOrEmpty(g.LaunchUrl)) set.Add(g.LaunchUrl);
-                else if (!string.IsNullOrEmpty(g.Path)) set.Add(Path.GetFullPath(g.Path));
+                foreach (var key in AutoAddKeysForGame(g))
+                    set.Add(key);
             }
             return set;
         }
@@ -5311,6 +5701,11 @@ namespace Doorpi
             List<InstalledApp> epic,
             List<InstalledApp> gog,
             List<InstalledApp> riot,
+            List<InstalledApp> ubisoft,
+            List<InstalledApp> ea,
+            List<InstalledApp> battleNet,
+            List<InstalledApp> amazon,
+            List<InstalledApp> xbox,
             List<InstalledApp> windows,
             List<InstalledApp> folders,
             HashSet<string> existingGames)
@@ -5320,15 +5715,17 @@ namespace Doorpi
             all.AddRange(epic);
             all.AddRange(gog);
             all.AddRange(riot);
+            all.AddRange(ubisoft);
+            all.AddRange(ea);
+            all.AddRange(battleNet);
+            all.AddRange(amazon);
+            all.AddRange(xbox);
             all.AddRange(windows);
             all.AddRange(folders);
 
             foreach (var app in all)
             {
-                if (!string.IsNullOrEmpty(app.LaunchUrl))
-                    app.IsAdded = existingGames.Contains(app.LaunchUrl);
-                else
-                    app.IsAdded = existingGames.Contains(Path.GetFullPath(app.Path));
+                app.IsAdded = AutoAddKeysForApp(app).Any(existingGames.Contains);
             }
 
             return all
@@ -5408,6 +5805,11 @@ namespace Doorpi
             var lastEpic = GetEpicFingerprint();
             var lastGog = GetGogFingerprint();
             var lastRiot = GetRiotFingerprint();
+            var lastUbisoft = GetUbisoftFingerprint();
+            var lastEa = GetEaFingerprint();
+            var lastBattleNet = GetBattleNetFingerprint();
+            var lastAmazon = GetAmazonFingerprint();
+            var lastXbox = GetXboxFingerprint();
             var lastWin = GetWindowsRegistryFingerprint();
 
             while (_pollingActive)
@@ -5419,12 +5821,22 @@ namespace Doorpi
                 var curEpic = GetEpicFingerprint();
                 var curGog = GetGogFingerprint();
                 var curRiot = GetRiotFingerprint();
+                var curUbisoft = GetUbisoftFingerprint();
+                var curEa = GetEaFingerprint();
+                var curBattleNet = GetBattleNetFingerprint();
+                var curAmazon = GetAmazonFingerprint();
+                var curXbox = GetXboxFingerprint();
                 var curWin = GetWindowsRegistryFingerprint();
 
                 bool changed = !curSteam.SetEquals(lastSteam)
                             || !curEpic.SetEquals(lastEpic)
                             || !curGog.SetEquals(lastGog)
                             || !curRiot.SetEquals(lastRiot)
+                            || !curUbisoft.SetEquals(lastUbisoft)
+                            || !curEa.SetEquals(lastEa)
+                            || !curBattleNet.SetEquals(lastBattleNet)
+                            || !curAmazon.SetEquals(lastAmazon)
+                            || !curXbox.SetEquals(lastXbox)
                             || !curWin.SetEquals(lastWin);
 
                 if (changed)
@@ -5433,6 +5845,11 @@ namespace Doorpi
                     lastEpic = curEpic;
                     lastGog = curGog;
                     lastRiot = curRiot;
+                    lastUbisoft = curUbisoft;
+                    lastEa = curEa;
+                    lastBattleNet = curBattleNet;
+                    lastAmazon = curAmazon;
+                    lastXbox = curXbox;
                     lastWin = curWin;
 
                     await UpdateAppCacheAsync();
@@ -5440,6 +5857,7 @@ namespace Doorpi
                     var existingMap = BuildExistingAppsMap();
                     var apps = BuildFinalList(
                         cache.SteamApps, cache.EpicApps, cache.GogApps, cache.RiotApps,
+                        cache.UbisoftApps, cache.EaApps, cache.BattleNetApps, cache.AmazonApps, cache.XboxApps,
                         cache.WindowsApps, cache.FolderApps, existingMap);
 
                     Dispatcher.Invoke(() =>
@@ -5534,8 +5952,9 @@ namespace Doorpi
                 await Task.Delay(1500).ConfigureAwait(false);
         }
 
-        private async Task UpdatePlatformCacheFastAsync()
+        private async Task<bool> UpdatePlatformCacheFastAsync()
         {
+            List<GameModel> removedGames = new();
             await _cacheLock.WaitAsync();
             try
             {
@@ -5543,16 +5962,34 @@ namespace Doorpi
                 cache.SteamApps = GetSteamGames(includeIcons: false).Select(a => { a.Source = "Steam"; return a; }).ToList();
                 cache.EpicApps = GetEpicGames(includeIcons: false).Select(a => { a.Source = "Epic"; return a; }).ToList();
                 cache.GogApps = GetGOGGames(includeIcons: false).Select(a => { a.Source = "GOG"; return a; }).ToList();
+                cache.RiotApps = GetRiotGames().Select(a => { a.Source = "Riot"; return a; }).ToList();
+                cache.UbisoftApps = GetUbisoftGames(includeIcons: false).Select(a => { a.Source = "Ubisoft"; return a; }).ToList();
+                cache.EaApps = GetEaGames(includeIcons: false).Select(a => { a.Source = "EA"; return a; }).ToList();
+                cache.BattleNetApps = GetBattleNetGames(includeIcons: false).Select(a => { a.Source = "Battle.net"; return a; }).ToList();
+                cache.AmazonApps = GetAmazonGames(includeIcons: false).Select(a => { a.Source = "Amazon"; return a; }).ToList();
+                cache.XboxApps = GetXboxGames(includeIcons: false).Select(a => { a.Source = "Xbox"; return a; }).ToList();
                 cache.SteamFingerprint = GetSteamFingerprint();
                 cache.EpicFingerprint = GetEpicFingerprint();
                 cache.GogFingerprint = GetGogFingerprint();
+                cache.RiotFingerprint = GetRiotFingerprint();
+                cache.UbisoftFingerprint = GetUbisoftFingerprint();
+                cache.EaFingerprint = GetEaFingerprint();
+                cache.BattleNetFingerprint = GetBattleNetFingerprint();
+                cache.AmazonFingerprint = GetAmazonFingerprint();
+                cache.XboxFingerprint = GetXboxFingerprint();
+                cache.XboxFilterVersion = 2;
+                RefreshAutoAddSuppressions(cache);
                 SaveAppCache(cache);
                 _lastCacheBuilt = DateTime.Now;
+                removedGames = ReconcileDoorpiGamesWithPlatformCache(cache);
             }
             finally
             {
                 _cacheLock.Release();
             }
+
+            PublishRemovedGamesToUI(removedGames);
+            return removedGames.Count > 0;
         }
 
         private async Task<bool> UpsertAutoAddedPlatformGamesAsync(List<InstalledApp> platformGames)
@@ -5564,8 +6001,7 @@ namespace Doorpi
             {
                 string key = !string.IsNullOrEmpty(app.LaunchUrl) ? app.LaunchUrl : app.Path;
                 if (string.IsNullOrWhiteSpace(key)) continue;
-                if (games.Any(g => string.Equals(g.LaunchUrl, app.LaunchUrl, StringComparison.OrdinalIgnoreCase) ||
-                                   string.Equals(g.Path, app.Path, StringComparison.OrdinalIgnoreCase)))
+                if (games.Any(g => InstalledAppMatchesGame(app, g)))
                     continue;
 
                 string? steamAppId = ExtractSteamAppId(app);
@@ -5655,40 +6091,75 @@ namespace Doorpi
 
             foreach (var game in games.Where(g => g.AutoAddedByBootstrap && g.IsPendingArtwork).ToList())
             {
-                await WaitForGameSessionIdleAsync().ConfigureAwait(false);
+                try
+                {
+                    await WaitForGameSessionIdleAsync().ConfigureAwait(false);
 
-                var (gridUrl, horizontalUrl, heroUrl, logoUrl) = await FetchSteamGridAssetsAsync(game.Name).ConfigureAwait(false);
-                if (string.IsNullOrEmpty(gridUrl) || string.IsNullOrEmpty(heroUrl)) continue;
+                    var (gridUrl, horizontalUrl, heroUrl, logoUrl) = await FetchSteamGridAssetsAsync(game.Name).ConfigureAwait(false);
+                    if (string.IsNullOrEmpty(gridUrl) || string.IsNullOrEmpty(heroUrl))
+                    {
+                        game.GridImage = "";
+                        game.GridHorizontalImage = "";
+                        game.HeroImage = "";
+                        game.LogoImage = "";
+                        game.IsPendingArtwork = false;
+                        game.ArtworkSource = "no-art";
+                        changed = true;
+                        SaveGames(games);
+                        _ = Dispatcher.BeginInvoke(() => LoadGamesIntoUI());
+                        continue;
+                    }
 
-                string safeName = "auto_" + StableAssetName(game.LaunchUrl + game.Path + game.Name);
-                var gridTask = DownloadImageAsync(gridUrl, gridFolder, safeName);
-                var hTask = !string.IsNullOrEmpty(horizontalUrl) ? DownloadImageAsync(horizontalUrl, gridHorizontalFolder, safeName + "_h") : Task.FromResult<string?>(null);
-                var heroTask = DownloadImageAsync(heroUrl, heroFolder, safeName);
-                var logoTask = !string.IsNullOrEmpty(logoUrl) ? DownloadImageAsync(logoUrl, logoFolder, safeName + "_logo") : Task.FromResult<string?>(null);
+                    string safeName = "auto_" + StableAssetName(game.LaunchUrl + game.Path + game.Name);
+                    var gridTask = DownloadImageAsync(gridUrl, gridFolder, safeName);
+                    var hTask = !string.IsNullOrEmpty(horizontalUrl) ? DownloadImageAsync(horizontalUrl, gridHorizontalFolder, safeName + "_h") : Task.FromResult<string?>(null);
+                    var heroTask = DownloadImageAsync(heroUrl, heroFolder, safeName);
+                    var logoTask = !string.IsNullOrEmpty(logoUrl) ? DownloadImageAsync(logoUrl, logoFolder, safeName + "_logo") : Task.FromResult<string?>(null);
 
-                await Task.WhenAll(gridTask, hTask, heroTask, logoTask).ConfigureAwait(false);
+                    await Task.WhenAll(gridTask, hTask, heroTask, logoTask).ConfigureAwait(false);
 
-                if (gridTask.Result == null || heroTask.Result == null) continue;
+                    if (gridTask.Result == null || heroTask.Result == null)
+                    {
+                        game.GridImage = "";
+                        game.GridHorizontalImage = "";
+                        game.HeroImage = "";
+                        game.LogoImage = "";
+                        game.IsPendingArtwork = false;
+                        game.ArtworkSource = "no-art";
+                        changed = true;
+                        SaveGames(games);
+                        _ = Dispatcher.BeginInvoke(() => LoadGamesIntoUI());
+                        continue;
+                    }
 
-                game.GridImage = $"https://data.local/images/grid/{Path.GetFileName(gridTask.Result)}";
-                game.GridHorizontalImage = hTask.Result != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(hTask.Result)}" : game.GridImage;
-                game.HeroImage = $"https://data.local/images/hero/{Path.GetFileName(heroTask.Result)}";
-                game.LogoImage = logoTask.Result != null ? $"https://data.local/images/logo/{Path.GetFileName(logoTask.Result)}" : "";
-                game.IsPendingArtwork = false;
-                game.ArtworkSource = "steamgrid-local";
-                changed = true;
+                    game.GridImage = $"https://data.local/images/grid/{Path.GetFileName(gridTask.Result)}";
+                    game.GridHorizontalImage = hTask.Result != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(hTask.Result)}" : game.GridImage;
+                    game.HeroImage = $"https://data.local/images/hero/{Path.GetFileName(heroTask.Result)}";
+                    game.LogoImage = logoTask.Result != null ? $"https://data.local/images/logo/{Path.GetFileName(logoTask.Result)}" : "";
+                    game.IsPendingArtwork = false;
+                    game.ArtworkSource = "steamgrid-local";
+                    changed = true;
 
-                SaveGames(games);
-                _ = Dispatcher.BeginInvoke(() => LoadGamesIntoUI());
+                    SaveGames(games);
+                    _ = Dispatcher.BeginInvoke(() => LoadGamesIntoUI());
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[Artwork] Falha ao enriquecer {game.Name}: {ex.Message}");
+                }
             }
 
             if (changed) SaveGames(games);
         }
 
-        private void StartLibraryBootstrapIfNeeded()
+        private bool StartLibraryBootstrapIfNeeded()
         {
-            if (!IsCurrentUserSystemOwner()) return;
-            if (Interlocked.CompareExchange(ref _libraryBootstrapRunning, 1, 0) != 0) return;
+            if (!IsCurrentUserSystemOwner()) return false;
+
+            var state = LoadLibraryBootstrapState();
+            if (state.PlatformAutoAddCompleted) return false;
+
+            if (Interlocked.CompareExchange(ref _libraryBootstrapRunning, 1, 0) != 0) return true;
 
 
             var existingCount = LoadGames().Count;
@@ -5698,7 +6169,12 @@ namespace Doorpi
                 int estimate = Math.Clamp(
                     (cache?.SteamApps?.Count ?? 0) +
                     (cache?.EpicApps?.Count ?? 0) +
-                    (cache?.GogApps?.Count ?? 0), 4, 12);
+                    (cache?.GogApps?.Count ?? 0) +
+                    (cache?.UbisoftApps?.Count ?? 0) +
+                    (cache?.EaApps?.Count ?? 0) +
+                    (cache?.BattleNetApps?.Count ?? 0) +
+                    (cache?.AmazonApps?.Count ?? 0) +
+                    (cache?.XboxApps?.Count ?? 0), 4, 12);
 
                 Dispatcher.Invoke(() =>
                     webView.CoreWebView2.PostWebMessageAsString(
@@ -5711,6 +6187,7 @@ namespace Doorpi
                 catch (Exception ex) { Debug.WriteLine("[Bootstrap] Erro: " + ex.Message); }
                 finally { Interlocked.Exchange(ref _libraryBootstrapRunning, 0); }
             });
+            return true;
         }
 
         private async Task RunLibraryBootstrapAsync()
@@ -5725,6 +6202,12 @@ namespace Doorpi
             var platformGames = cache.SteamApps
                 .Concat(cache.EpicApps)
                 .Concat(cache.GogApps)
+                .Concat(cache.RiotApps)
+                .Concat(cache.UbisoftApps)
+                .Concat(cache.EaApps)
+                .Concat(cache.BattleNetApps)
+                .Concat(cache.AmazonApps)
+                .Concat(cache.XboxApps)
                 .Where(a => !string.IsNullOrWhiteSpace(a.Name))
                 .Where(a => !a.Name.Contains("Steamworks", StringComparison.OrdinalIgnoreCase))
                 .Where(a => !a.Name.Contains("Unreal Engine", StringComparison.OrdinalIgnoreCase))
@@ -5891,6 +6374,9 @@ namespace Doorpi
                             if ((DateTime.Now - _lastCacheBuilt).TotalSeconds > 60)
                             {
                                 await UpdateAppCacheAsync().ConfigureAwait(false);
+                                var cache = LoadAppCache() ?? new AppCacheModel();
+                                var removedGames = ReconcileDoorpiGamesWithPlatformCache(cache);
+                                PublishRemovedGamesToUI(removedGames);
 
                                
                                 SendInstalledAppsToUI();
@@ -7193,6 +7679,35 @@ namespace Doorpi
                     if (!string.IsNullOrEmpty(url))
                         Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
                 }
+                else if (action == "openStore" && root.TryGetProperty("storeId", out var storeIdEl))
+                {
+                    string storeId = storeIdEl.GetString() ?? "";
+                    if (!string.IsNullOrEmpty(storeId))
+                        _ = Dispatcher.InvokeAsync(async () => await OpenStoreAsync(storeId));
+                }
+                else if (action == "closeStore")
+                {
+                    CloseStoreSessionCompletely();
+                }
+                else if (action == "resumeStore")
+                {
+                    ResumeStoreSession();
+                }
+                else if (action == "requestStoreAutoAddSettings")
+                {
+                    SendStoreAutoAddSettingsToUI();
+                }
+                else if (action == "setStoreAutoAdd"
+                         && root.TryGetProperty("store", out var storeKeyEl)
+                         && root.TryGetProperty("enabled", out var storeEnabledEl))
+                {
+                    string storeKey = storeKeyEl.GetString() ?? "";
+                    if (!string.IsNullOrEmpty(storeKey))
+                    {
+                        SaveStoreAutoAddSetting(storeKey, storeEnabledEl.GetBoolean());
+                        SendStoreAutoAddSettingsToUI();
+                    }
+                }
                 else if (action == "launchMediaApp" && root.TryGetProperty("url", out var mediaUrlEl))
                 {
                     _currentToastTitle = GetStr(root, "toastTitle", "Copiado!");
@@ -8231,7 +8746,6 @@ namespace Doorpi
             var allGames = LoadGames()
                 .Where(g => !g.IsPendingArtwork)
                 .ToList();
-            if (allGames.Count == 0) return;
 
             var featured = allGames
                 .Where(g => g.LastPlayed > DateTime.MinValue)
@@ -8608,6 +9122,11 @@ namespace Doorpi
             "Epic" => 1,
             "GOG" => 1,
             "Riot" => 1,
+            "Ubisoft" => 1,
+            "EA" => 1,
+            "Battle.net" => 1,
+            "Amazon" => 1,
+            "Xbox" => 1,
             "Folder" => 2,
             "Windows" => 3,
             _ => 4

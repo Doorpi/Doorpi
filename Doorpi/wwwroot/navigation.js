@@ -109,6 +109,10 @@ function triggerContextMenu() {
 }
 function closeCtxMenu() { if (!isCtxMenuOpen) return; window._ctxMenuClose?.(); }
 function getCtxMenuItems() {
+    if (window.isStoreSessionMenuOpen?.()) {
+        return Array.from(document.querySelectorAll('#storeSessionMenu .ctx-item'))
+            .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0);
+    }
     return Array.from(document.querySelectorAll('.context-menu.visible .ctx-item'))
         .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0);
 }
@@ -155,7 +159,13 @@ function getNavigableItems() {
     }
     if (!isModalOpen) {
         const tabs = Array.from(document.querySelectorAll('.home-tab'));
-        const activeGrid = window.getCurrentHomeTab?.() === 'media' ? document.getElementById('mediaGrid') : document.getElementById('gameGrid');
+        const homeTab = window.getCurrentHomeTab?.() || 'games';
+        const activeGridId = homeTab === 'media' ? 'mediaGrid' : (homeTab === 'stores' ? 'storesGrid' : 'gameGrid');
+        if (window.isStoreSessionMenuOpen?.()) {
+            return getCtxMenuItems();
+        }
+
+        const activeGrid = document.getElementById(activeGridId);
         const cards = Array.from(activeGrid?.querySelectorAll("[tabindex='0']") ?? []);
         const profileBtn = document.getElementById('btnTopProfile');
         const items = [...tabs, ...cards];
@@ -384,8 +394,9 @@ function gamepadStart() {
     if (window.isGlobalLoading) return;
     if (isModalOpen) { closeModal?.(); return; }
 
-    if (window.getCurrentHomeTab?.() === 'media') document.getElementById('btnAddMedia')?.click();
-    else document.getElementById('btnAdd')?.click();
+    const homeTab = window.getCurrentHomeTab?.() || 'games';
+    if (homeTab === 'media') document.getElementById('btnAddMedia')?.click();
+    else if (homeTab !== 'stores') document.getElementById('btnAdd')?.click();
 }
 
 function gamepadTriangle() { if (isModalOpen && !window.isGlobalLoading) document.getElementById('btnSearch')?.click(); }
@@ -476,7 +487,7 @@ function moveFocus(direction) {
     }
 
     if (!isModalOpen) {
-        if (current.closest('#mediaGrid, #gameGrid')) {
+        if (current.closest('#mediaGrid, #gameGrid, #storesGrid')) {
             if (direction === 'UP') {
                 const activeTab = document.querySelector('.home-tab.active');
                 if (activeTab) { activeTab.focus(); return; }
@@ -571,7 +582,8 @@ function moveFocus(direction) {
 
 window.focusFeaturedCard = function () {
     if (isModalOpen || isEditModalOpen || window._vkbIsOpen || isSetupOpen) return;
-    const activeGridId = window.getCurrentHomeTab?.() === 'media' ? 'mediaGrid' : 'gameGrid';
+    const ht = window.getCurrentHomeTab?.() || 'games';
+    const activeGridId = ht === 'media' ? 'mediaGrid' : (ht === 'stores' ? 'storesGrid' : 'gameGrid');
     const grid = document.getElementById(activeGridId);
     if (!grid) return;
     const featured = grid.querySelector('.card.featured');
@@ -590,7 +602,7 @@ function focusItemByIndex(index) {
 
 function smoothHorizontalScroll(element, onDone) {
     if (isModalOpen) { onDone?.(); return; }
-    const grid = element.closest('#mediaGrid, #gameGrid') ?? document.getElementById('gameGrid');
+    const grid = element.closest('#mediaGrid, #gameGrid, #storesGrid') ?? document.getElementById('gameGrid');
     if (!grid || !grid.getBoundingClientRect) { onDone?.(); return; }
 
     if (grid._scrollRafId) { cancelAnimationFrame(grid._scrollRafId); grid._scrollRafId = null; }
@@ -992,7 +1004,11 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             gamepadTriangle();
         }
         if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) {
-            if (isEditModalOpen) window._editModalClose?.();
+            if (window.isStoreSessionMenuOpen?.()) {
+                window.hideStoreSessionMenu?.();
+                if (typeof postToHost === 'function') postToHost({ action: 'closeStore' });
+            }
+            else if (isEditModalOpen) window._editModalClose?.();
             else triggerContextMenu();
         }
         // DEPOIS

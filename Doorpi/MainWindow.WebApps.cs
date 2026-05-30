@@ -140,6 +140,12 @@ namespace Doorpi
 
                         Dispatcher.Invoke(() =>
                         {
+                            if (_isStoreLauncherSession)
+                            {
+                                MinimizeStoreSessionAndShowMenu();
+                                return;
+                            }
+
                             _vkbIsOpen = false;
                             _vkbOwnerView = null;
                             _vkbHasFocus = false;
@@ -149,9 +155,7 @@ namespace Doorpi
                             _popupWebView = null;
 
                             if (_webAppWindow != null)
-                            {
                                 _webAppWindow.WindowState = WindowState.Minimized;
-                            }
                             ForceFocus();
                         });
                         prevButtons = btn;
@@ -1202,7 +1206,7 @@ namespace Doorpi
 
                 _webAppWindow.Closed += (s, e) =>
                 {
-                    if (!_ytClosing) Dispatcher.Invoke(CloseYouTubeInline);
+                    if (!_ytClosing) Dispatcher.Invoke(() => CloseYouTubeInline());
                 };
                 _webAppWindow.StateChanged += (s, e) =>
                 {
@@ -1402,7 +1406,7 @@ namespace Doorpi
         }
 
         // ── Fechar app ────────────────────────────────────────────────────────
-        public void CloseYouTubeInline()
+        public void CloseYouTubeInline(bool skipStoreCompletion = false)
         {
             if (_ytClosing || _ytWebView == null) return;
             _ytClosing = true;
@@ -1443,6 +1447,9 @@ namespace Doorpi
             ForceFocus();
             webView.CoreWebView2?.PostWebMessageAsString("{\"type\":\"mediaAppClosed\"}");
             SendRuntimeSessionsToUI();
+
+            if (!skipStoreCompletion && _isStoreLauncherSession)
+                FinalizeStoreSessionFromWebClose();
         }
 
         // ── Handlers ─────────────────────────────────────────────────────────
@@ -1459,7 +1466,7 @@ namespace Doorpi
                     }
                     else
                     {
-                        Dispatcher.Invoke(CloseYouTubeInline);
+                        Dispatcher.Invoke(() => CloseYouTubeInline());
                     }
                 }
             }

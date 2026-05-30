@@ -222,7 +222,7 @@ let _currentHomeTab = 'games';
             linear-gradient(135deg, rgba(32,42,76,0.98), rgba(11,13,26,0.98) 58%, rgba(42,35,72,0.98));
         text-transform: uppercase;
     }
-    .media-card.no-art img { display: none; }
+    .card.no-art img { display: none; }
 
     #systemLoadingOverlay {
         position: fixed; inset: 0; z-index: 8500; display: none;
@@ -257,9 +257,9 @@ let _currentHomeTab = 'games';
     .home-tab:focus, .home-tab:hover { color: rgba(255,255,255,0.65); background: rgba(255,255,255,0.06); }
     .home-tab.active:focus, .home-tab.active:hover { color: #fff; background: rgba(255,255,255,0.06); }
     
-    #mediaGrid { display: none; }
-    #mediaGrid.active { display: flex; }
-    #gameGrid.tab-hidden { display: none; }
+    #mediaGrid, #storesGrid { display: none; }
+    #mediaGrid.active, #storesGrid.active { display: flex; }
+    #gameGrid.tab-hidden, #mediaGrid.tab-hidden { display: none; }
 
     @media (max-height: 900px), (max-width: 1600px) { .home-tab { font-size: clamp(0.7rem, 0.88vw, 1rem); } }
     @media (max-height: 768px) { .home-tab { font-size: clamp(0.65rem, 0.8vw, 0.88rem); padding: 4px 8px; } .home-tabs { margin-bottom: 6px; } }
@@ -324,28 +324,33 @@ function switchHomeTab(tab) {
 
     const gameGrid = document.getElementById('gameGrid');
     const mediaGrid = document.getElementById('mediaGrid');
+    const storesGrid = document.getElementById('storesGrid');
 
-    if (tab === 'games') {
-        gameGrid?.classList.remove('tab-hidden');
-        mediaGrid?.classList.remove('active');
-        const feat = document.querySelector('#gameGrid .card.featured');
-        feat?._startInteraction?.();
-    } else {
-        gameGrid?.classList.add('tab-hidden');
-        mediaGrid?.classList.add('active');
-        const feat = document.querySelector('#mediaGrid .card.featured');
-        feat?._startInteraction?.();
+    gameGrid?.classList.toggle('tab-hidden', tab !== 'games');
+    mediaGrid?.classList.toggle('active', tab === 'media');
+    mediaGrid?.classList.toggle('tab-hidden', tab !== 'media');
+    storesGrid?.classList.toggle('active', tab === 'stores');
+
+    const gridSel = tab === 'games' ? '#gameGrid' : (tab === 'media' ? '#mediaGrid' : '#storesGrid');
+    const feat = document.querySelector(`${gridSel} .card.featured`);
+    feat?._startInteraction?.();
+
+    if (tab === 'stores') {
+        const first = document.querySelector('#storesGrid .store-card');
+        first?.focus();
     }
 }
 
 function cycleHomeTab(direction) {
-    const tabs = ['games', 'media'];
+    const tabs = ['games', 'media', 'stores'];
     const idx = tabs.indexOf(_currentHomeTab);
     const next = tabs[(idx + direction + tabs.length) % tabs.length];
     switchHomeTab(next);
     setTimeout(() => {
-        const activeGrid = _currentHomeTab === 'games' ? '#gameGrid' : '#mediaGrid';
-        const first = document.querySelector(`${activeGrid} .card:not(.add-card)`);
+        const activeGrid = _currentHomeTab === 'games' ? '#gameGrid'
+            : (_currentHomeTab === 'media' ? '#mediaGrid' : '#storesGrid');
+        const first = document.querySelector(
+            `${activeGrid} .card:not(.add-card), ${activeGrid} .store-card`);
         first?.focus();
     }, 60);
 }
@@ -353,6 +358,12 @@ function cycleHomeTab(direction) {
 window.switchHomeTab = switchHomeTab;
 window.cycleHomeTab = cycleHomeTab;
 window.getCurrentHomeTab = () => _currentHomeTab;
+window.getHomeGridId = (tab) => {
+    const t = tab ?? _currentHomeTab;
+    if (t === 'media') return 'mediaGrid';
+    if (t === 'stores') return 'storesGrid';
+    return 'gameGrid';
+};
 
 
 // ── Bridge Específica (Processos internos da tab de mídia) ────────────────────
@@ -396,9 +407,14 @@ window._mediaHandleMessage = (data) => {
 
         case 'mediaAppClosed':
             window.isMediaAppActive = false;
+            window._storesHandleMessage?.(data);
             setTimeout(() => {
                 window.focus?.();
-                window.focusFeaturedCard?.();
+                if (typeof window.getCurrentHomeTab === 'function' && window.getCurrentHomeTab() === 'stores') {
+                    document.querySelector('#storesGrid .store-card')?.focus();
+                } else {
+                    window.focusFeaturedCard?.();
+                }
             }, 150);
             break;
     }

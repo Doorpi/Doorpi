@@ -347,6 +347,26 @@
             type: 'svg',
             icon: `<svg viewBox="0 0 24 24" fill="#eb0029" xmlns="http://www.w3.org/2000/svg"><path d="M13.458.86 0 7.093l3.353 12.761 2.552-.313-.701-8.024.838-.373 1.447 8.202 4.361-.535-.775-8.857.83-.37 1.591 9.025 4.412-.542-.849-9.708.84-.374 1.74 9.87L24 17.318V3.5Zm.316 19.356.222 1.256L24 23.14v-4.18l-10.22 1.256Z"/></svg>`
         },
+        Ubisoft: {
+            type: 'svg',
+            icon: `<svg viewBox="0 0 24 24" fill="#36a8ff" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="5" fill="#06131f"/><circle cx="14" cy="10" r="2" fill="#36a8ff"/></svg>`
+        },
+        EA: {
+            type: 'svg',
+            icon: `<svg viewBox="0 0 24 24" fill="#ff4747" xmlns="http://www.w3.org/2000/svg"><path d="M3 6h9l-1.4 3H6.8l-.6 1.2h4l-1.3 2.7h-4L4.3 14H9l-1.5 3H0zm10.2 0H17l7 11h-3.9l-1-1.7h-5.3l-1 1.7H9zm2 6.6h2.3l-1.1-2z"/></svg>`
+        },
+        'Battle.net': {
+            type: 'svg',
+            icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#62b6ff" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg"><ellipse cx="12" cy="12" rx="9" ry="3.8"/><ellipse cx="12" cy="12" rx="9" ry="3.8" transform="rotate(60 12 12)"/><ellipse cx="12" cy="12" rx="9" ry="3.8" transform="rotate(120 12 12)"/><circle cx="12" cy="12" r="1.7" fill="#62b6ff" stroke="none"/></svg>`
+        },
+        Amazon: {
+            type: 'svg',
+            icon: `<svg viewBox="0 0 24 24" fill="#ff9900" xmlns="http://www.w3.org/2000/svg"><path d="M6 7.5c1.4-1.2 3.2-1.9 5.4-1.9 3.2 0 5.2 1.7 5.2 4.8v5.4c0 .7.2 1.3.6 1.8l-3.1.7-.6-1.2c-1.2 1-2.6 1.4-4.2 1.4-2.5 0-4.2-1.5-4.2-3.7 0-2.6 2.2-4 6.4-4h1.8v-.5c0-1.1-.7-1.8-2.1-1.8-1.3 0-2.5.4-3.6 1.3zm7.3 5.6h-1.5c-2 0-3 .5-3 1.5 0 .8.7 1.3 1.7 1.3 1.1 0 2.1-.4 2.8-1.2z"/></svg>`
+        },
+        Xbox: {
+            type: 'svg',
+            icon: `<svg viewBox="0 0 24 24" fill="#107c10" xmlns="http://www.w3.org/2000/svg"><path d="M12 2a10 10 0 0 0-7 17.1c1.3-3 3.3-5.8 5.5-7.9C8.7 9.5 6.5 8 4.2 7.1A10 10 0 0 1 12 2zm7.8 5.1c-2.3.9-4.5 2.4-6.3 4.1 2.2 2.1 4.2 4.9 5.5 7.9a10 10 0 0 0 .8-12zM6.6 20.3a10 10 0 0 0 10.8 0c-1.1-2.4-3-5.1-5.4-7.3-2.4 2.2-4.3 4.9-5.4 7.3z"/></svg>`
+        },
         Folder: {
             type: 'svg',
             icon: `<svg viewBox="0 0 24 24" fill="#f0a500" xmlns="http://www.w3.org/2000/svg"><path d="M10.4 4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V6c0-1.1.9-2 2-2h5.4z"/></svg>`
@@ -363,10 +383,15 @@
         Epic: ['Epic'],
         GOG: ['GOG'],
         Riot: ['Riot'],
+        Ubisoft: ['Ubisoft'],
+        EA: ['EA'],
+        BattleNet: ['Battle.net'],
+        Amazon: ['Amazon'],
+        Xbox: ['Xbox'],
         Windows: ['Windows', 'Folder'],
     };
 
-    const SCAN_LIBS = ['Steam', 'Epic', 'GOG', 'Riot', 'Windows', 'Folder'];
+    const SCAN_LIBS = ['Steam', 'Epic', 'GOG', 'Riot', 'Ubisoft', 'EA', 'BattleNet', 'Amazon', 'Xbox', 'Windows', 'Folder'];
     // ── ANTI-WEB FIXES (Impede bordas brancas e força Loading na GPU corretamente) ───────────
     (function applyAntiWebFixes() {
         const s = document.createElement('style');
@@ -555,11 +580,21 @@
             else if (data.type === 'renderGames') {
                 if (window.AppStore) window.AppStore.mutations.setBatch('games', data.games || []);
             }
+            else if (data.type === 'gamesRemoved' && Array.isArray(data.games)) {
+                data.games.forEach(game => {
+                    const id = game.id || game.launchUrl || game.LaunchUrl || game.path || game.Path;
+                    if (!id) return;
+                    window.newGameIdsThisSession?.delete(id);
+                    window.AppStore?.mutations?.removeItem('games', id);
+                    window._navMenuRemoveItem?.('games', id);
+                });
+            }
             // app.js — handler de mensagens do C#
             else if (data.type === 'windowFocused') {
                 window.isGameLaunchActive = false;
                 window._doorpiGameInputSuppressedUntil = 0;
                 window.isMediaAppActive = false;
+                window.isStoreSessionActive = false;
 
                 if (data.appAlive !== undefined) {
                     window._isExternalAppRunning = data.appAlive;
@@ -862,6 +897,18 @@
 
 
             window._mediaHandleMessage?.(data);
+            window._storesHandleMessage?.(data);
+
+            if ((data.type === 'libraryRevalidated' || data.type === 'newGamesDetected') && Array.isArray(data.games)) {
+                data.games.filter(g => g.autoAdded).forEach(game => {
+                    const id = game.LaunchUrl || game.launchUrl || game.Path || game.path;
+                    if (id) window.newGameIdsThisSession?.add(id);
+                });
+            }
+            else if (data.type === 'storeAutoAddSettings' && data.storeAutoAdd) {
+                window._storeAutoAddSettings = data.storeAutoAdd;
+                window._renderStoreAutoAddSettings?.();
+            }
         } catch (e) { console.error('[bridge] Erro:', e); }
     });
     function recoverGlobalFocus() {
@@ -871,14 +918,18 @@
             if (btn && btn.style.display !== 'none') { btn.focus(); return; }
         }
 
-        // 2. Prioridade: Se o usuário estiver na tela principal (jogos ou mídia)
+        // 2. Prioridade: Se o usuário estiver na tela principal (jogos, mídia ou lojas)
         const currentTab = (typeof window.getCurrentHomeTab === 'function') ? window.getCurrentHomeTab() : 'games';
-        const gridId = currentTab === 'media' ? 'mediaGrid' : 'gameGrid';
+        const gridId = typeof window.getHomeGridId === 'function'
+            ? window.getHomeGridId(currentTab)
+            : (currentTab === 'media' ? 'mediaGrid' : 'gameGrid');
         const grid = document.getElementById(gridId);
 
         if (grid) {
-            // Agora o alvo INCLUI o botão add-card como fallback principal
-            const target = grid.querySelector('.card.featured') || grid.querySelector('.card:not(.add-card)') || grid.querySelector('.card.add-card');
+            const target = grid.querySelector('.card.featured')
+                || grid.querySelector('.store-card')
+                || grid.querySelector('.card:not(.add-card)')
+                || grid.querySelector('.card.add-card');
             if (target) {
                 target.focus();
                 return;
@@ -2238,7 +2289,8 @@ function renderFolderList(folders) {
     function getPlatformBadge(source) {
         const p = PLATFORMS[source];
         if (!p) return '';
-        const label = t('platformLabels.' + source);
+        const labelKey = source === 'Battle.net' ? 'BattleNet' : source;
+        const label = t('platformLabels.' + labelKey);
         const inner = p.type === 'url' ? `<img src="${p.icon}" alt="${label}" />` : p.icon;
         return `<span class="platform-badge" title="${label}">${inner}</span>`;
     }
@@ -2858,6 +2910,12 @@ function renderFolderList(folders) {
             <button class="ctx-item ctx-primary-action" id="ctxRuntimeAction" role="menuitem">
                 <span class="ctx-icon">▶</span> <span id="ctxRuntimeActionText">Iniciar</span>
             </button>
+            <button class="ctx-item" id="ctxStoreGamepadControl" role="menuitem">
+                <span class="ctx-icon">✓</span> <span id="ctxStoreGamepadControlText">Não usar mouse/teclado no launcher</span>
+            </button>
+            <button class="ctx-item" id="ctxStoreAutoAdd" role="menuitem">
+                <span class="ctx-icon">âœ“</span> <span id="ctxStoreAutoAddText">Adicionar jogos automaticamente</span>
+            </button>
             <div class="ctx-separator"></div>
             <button class="ctx-item" id="ctxExtensions" role="menuitem">
                 <span class="ctx-icon">+</span> <span data-i18n="manageExtensions">${t('manageExtensions')}</span>
@@ -2896,13 +2954,44 @@ function renderFolderList(folders) {
         const ctxSharingBtn = _ctxMenu.querySelector('#ctxSharing');
         const ctxRuntimeBtn = _ctxMenu.querySelector('#ctxRuntimeAction');
         const ctxRuntimeText = _ctxMenu.querySelector('#ctxRuntimeActionText');
+        const ctxStoreGamepadBtn = _ctxMenu.querySelector('#ctxStoreGamepadControl');
+        const ctxStoreGamepadText = _ctxMenu.querySelector('#ctxStoreGamepadControlText');
+        const ctxStoreAutoAddBtn = _ctxMenu.querySelector('#ctxStoreAutoAdd');
+        const ctxStoreAutoAddText = _ctxMenu.querySelector('#ctxStoreAutoAddText');
+        const isStoreCard = card.dataset.channel === 'stores' || card.closest('#storesGrid') !== null;
+        const storeId = card.dataset.appId || card.dataset.id || card.dataset.appUrl || '';
         const isRunning = window.isCardRuntimeRunning?.(card) === true;
         if (ctxRuntimeBtn && ctxRuntimeText) {
             ctxRuntimeBtn.classList.toggle('ctx-danger', isRunning);
-            ctxRuntimeText.textContent = isRunning
-                ? (typeof t === 'function' ? t('ctxCloseRunning') : 'Fechar')
-                : (typeof t === 'function' ? t('ctxStart') : 'Iniciar');
+            ctxRuntimeText.textContent = isStoreCard && !isRunning
+                ? (typeof t === 'function' ? t('storeOpenBtn') : 'Abrir')
+                : (isRunning
+                    ? (typeof t === 'function' ? t('ctxCloseRunning') : 'Fechar')
+                    : (typeof t === 'function' ? t('ctxStart') : 'Iniciar'));
             ctxRuntimeBtn.querySelector('.ctx-icon').textContent = isRunning ? '×' : '▶';
+        }
+        if (ctxStoreGamepadBtn && ctxStoreGamepadText) {
+            const disabled = card.dataset.disableGamepadControl === 'true';
+            ctxStoreGamepadBtn.style.display = isStoreCard ? 'flex' : 'none';
+            ctxStoreGamepadBtn.classList.toggle('on', disabled);
+            ctxStoreGamepadBtn.querySelector('.ctx-icon').textContent = disabled ? '✓' : '';
+            ctxStoreGamepadText.textContent = typeof t === 'function'
+                ? t('storeDisableGamepadControl', 'Não usar mouse/teclado no launcher')
+                : 'Não usar mouse/teclado no launcher';
+        }
+        if (ctxStoreAutoAddBtn && ctxStoreAutoAddText) {
+            if (isStoreCard && typeof postToHost === 'function' && !window._storeAutoAddSettings) {
+                postToHost({ action: 'requestStoreAutoAddSettings' });
+            }
+            const settings = window._storeAutoAddSettings || {};
+            const autoAdd = Object.prototype.hasOwnProperty.call(settings, storeId) ? !!settings[storeId] : true;
+            ctxStoreAutoAddBtn.style.display = isStoreCard ? 'flex' : 'none';
+            ctxStoreAutoAddBtn.classList.toggle('on', autoAdd);
+            ctxStoreAutoAddBtn.querySelector('.ctx-icon').textContent = autoAdd ? 'âœ“' : '';
+            ctxStoreAutoAddBtn.querySelector('.ctx-icon').textContent = autoAdd ? '\u2713' : '';
+            ctxStoreAutoAddText.textContent = typeof t === 'function'
+                ? t('storeAutoAddQuickToggle', 'Adicionar jogos automaticamente')
+                : 'Adicionar jogos automaticamente';
         }
         const isBrowserMedia = (card.hasAttribute('data-app-id') || card.closest('#mediaGrid')) &&
             ['browser', 'webview'].includes((card.dataset.appType || 'browser').toLowerCase());
@@ -2933,7 +3022,14 @@ function renderFolderList(folders) {
             _ctxMenu.appendChild(ctxCloseBtn);
         }
 
-        if (isYoutube) {
+        if (isStoreCard) {
+            if (ctxEditBtn) ctxEditBtn.style.display = 'none';
+            if (ctxExtensionsBtn) ctxExtensionsBtn.style.display = 'none';
+            if (ctxSharingBtn) ctxSharingBtn.style.display = 'none';
+            if (ctxDeleteBtn) ctxDeleteBtn.style.display = 'none';
+            ctxCloseBtn.style.display = 'none';
+            _ctxMenu.querySelector('#ctxGameName').textContent = card.querySelector('.title, .nav-vertical-card-title')?.innerText?.trim() || '';
+        } else if (isYoutube) {
             if (ctxEditBtn) ctxEditBtn.style.display = 'none';
             if (ctxExtensionsBtn) ctxExtensionsBtn.style.display = isBrowserMedia ? 'flex' : 'none';
             if (ctxSharingBtn) ctxSharingBtn.style.display = isBrowserMedia ? 'flex' : 'none';
@@ -2992,6 +3088,57 @@ function renderFolderList(folders) {
         const appId = card?.dataset.appId || card?.dataset.gameId || '';
         _closeCtxMenu();
         if (appId) window._navMenuOpenAccountSharing?.(appId);
+    });
+
+    document.getElementById('ctxStoreGamepadControl').addEventListener('click', () => {
+        const card = _ctxCard;
+        if (!card) return;
+
+        const storeId = card.dataset.appId || card.dataset.id || card.dataset.appUrl || '';
+        const next = card.dataset.disableGamepadControl !== 'true';
+        card.dataset.disableGamepadControl = String(next);
+        if (window.AppStore?.mutations?.patchItem && storeId) {
+            window.AppStore.mutations.patchItem('stores', storeId, { disableGamepadControl: next });
+        }
+        if (typeof postToHost === 'function' && storeId) {
+            postToHost({ action: 'setStoreGamepadControl', storeId, disabled: next });
+        }
+
+        const btn = document.getElementById('ctxStoreGamepadControl');
+        if (btn) {
+            btn.classList.toggle('on', next);
+            const icon = btn.querySelector('.ctx-icon');
+            if (icon) icon.textContent = next ? '✓' : '';
+        }
+    });
+
+    document.getElementById('ctxStoreAutoAdd')?.addEventListener('click', () => {
+        const card = _ctxCard;
+        if (!card) return;
+
+        const storeId = card.dataset.appId || card.dataset.id || card.dataset.appUrl || '';
+        if (!storeId) return;
+
+        const settings = window._storeAutoAddSettings || {};
+        const current = Object.prototype.hasOwnProperty.call(settings, storeId) ? !!settings[storeId] : true;
+        const next = !current;
+
+        window._storeAutoAddSettings = window._storeAutoAddSettings || {};
+        window._storeAutoAddSettings[storeId] = next;
+
+        if (typeof postToHost === 'function') {
+            postToHost({ action: 'setStoreAutoAdd', store: storeId, enabled: next });
+        }
+
+        const btn = document.getElementById('ctxStoreAutoAdd');
+        if (btn) {
+            btn.classList.toggle('on', next);
+            const icon = btn.querySelector('.ctx-icon');
+            if (icon) icon.textContent = next ? 'âœ“' : '';
+        }
+
+        document.querySelector('#ctxStoreAutoAdd .ctx-icon').textContent = next ? '\u2713' : '';
+        window._renderStoreAutoAddSettings?.();
     });
 
     document.getElementById('ctxRuntimeAction').addEventListener('click', () => {

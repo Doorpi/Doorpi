@@ -79,6 +79,9 @@
     <None Update="wwwroot\store.js">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="wwwroot\stores.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="wwwroot\strings.js">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

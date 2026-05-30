@@ -2,7 +2,8 @@ window.AppStore = (() => {
     const _state = {
         games: [],
         media: [],
-        featuredId: { games: null, media: null },
+        stores: [],
+        featuredId: { games: null, media: null, stores: null },
         newIds: new Set()
     };
 
@@ -34,6 +35,23 @@ window.AppStore = (() => {
                 horizontal: raw.horizontalImage || raw.GridHorizontalImage || raw.horizontal || '',
                 hero: raw.hero || raw.HeroImage || '', logo: raw.logo || raw.LogoImage || '',
                 isAnimated: raw.isAnimated || false,
+            };
+        }
+
+        if (channel === 'stores') {
+            return {
+                id, name: raw.Name || raw.name || '', url: raw.Id || raw.id || id, channel: 'stores',
+                appType: 'store',
+                staticVertical: raw.GridStaticImage || raw.gridStaticImage || '',
+                staticHorizontal: raw.GridHorizontalStaticImage || raw.gridHorizontalStaticImage || '',
+                staticHero: raw.HeroStaticImage || raw.heroStaticImage || '',
+                staticLogo: raw.LogoStaticImage || raw.logoStaticImage || '',
+                vertical: raw.GridImage || raw.gridImage || '',
+                horizontal: raw.GridHorizontalImage || raw.gridHorizontalImage || '',
+                hero: raw.HeroImage || raw.heroImage || '',
+                logo: raw.LogoImage || raw.logoImage || '',
+                disableGamepadControl: raw.DisableGamepadControl || raw.disableGamepadControl || false,
+                isAnimated: false,
             };
         }
 
@@ -126,6 +144,7 @@ window.AppStore = (() => {
             if (patch.staticHorizontal || patch.GridHorizontalStaticImage) normalizedPatch.staticHorizontal = patch.staticHorizontal || patch.GridHorizontalStaticImage;
             if (patch.staticHero || patch.HeroStaticImage) normalizedPatch.staticHero = patch.staticHero || patch.HeroStaticImage;
             if (patch.staticLogo || patch.LogoStaticImage) normalizedPatch.staticLogo = patch.staticLogo || patch.LogoStaticImage;
+            if (patch.disableGamepadControl != null || patch.DisableGamepadControl != null) normalizedPatch.disableGamepadControl = patch.disableGamepadControl ?? patch.DisableGamepadControl;
             if (patch.shareMode || patch.ShareMode) normalizedPatch.shareMode = patch.shareMode || patch.ShareMode;
             if (patch.sharedWithUserIds || patch.SharedWithUserIds) normalizedPatch.sharedWithUserIds = patch.sharedWithUserIds || patch.SharedWithUserIds;
             if (patch.sharedWithUserNames || patch.SharedWithUserNames) normalizedPatch.sharedWithUserNames = patch.sharedWithUserNames || patch.SharedWithUserNames;

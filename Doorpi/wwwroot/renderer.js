@@ -16,6 +16,7 @@ const CardInteraction = (() => {
 
         const channel = card.dataset.channel;
         if (channel === 'media' && window.getCurrentHomeTab?.() !== 'media') return;
+        if (channel === 'stores' && window.getCurrentHomeTab?.() !== 'stores') return;
 
         if (currentActiveCard && currentActiveCard !== card) {
             stop(currentActiveCard);
@@ -193,6 +194,75 @@ const CardRenderer = (() => {
         if (_pool.length < MAX_POOL) _pool.push(card);
     }
 
+    function _selectedImageSrc(item, isFeatured) {
+        return isFeatured
+            ? (item.staticHorizontal || item.horizontal || item.staticVertical || item.vertical)
+            : (item.staticVertical || item.vertical);
+    }
+
+    function _queueStaticExtraction(card, item) {
+        if (typeof processImage !== 'function') return;
+
+        const queue = (src, dsKey, imageType) => {
+            const processingKey = `processing_${dsKey}`;
+            if (!src || item[dsKey] || card.dataset[dsKey] || card.dataset[processingKey]) return;
+            card.dataset[processingKey] = 'true';
+            Promise.resolve(processImage(card, src, dsKey, imageType, item.id))
+                .finally(() => { delete card.dataset[processingKey]; });
+        };
+
+        queue(item.vertical, 'staticVertical', 'GridStatic');
+        queue(item.horizontal, 'staticHorizontal', 'HorizontalStatic');
+        queue(item.hero, 'staticHero', 'HeroStatic');
+        queue(item.logo, 'staticLogo', 'LogoStatic');
+    }
+
+    function _syncCardData(card, item, isFeatured) {
+        card.dataset.vertical = item.vertical || '';
+        card.dataset.horizontal = item.horizontal || '';
+        card.dataset.hero = item.hero || '';
+        card.dataset.logo = item.logo || '';
+        card.dataset.staticVertical = item.staticVertical || '';
+        card.dataset.staticHorizontal = item.staticHorizontal || '';
+        card.dataset.staticHero = item.staticHero || '';
+        card.dataset.staticLogo = item.staticLogo || '';
+        card.dataset.isAnimated = item.isAnimated ? 'true' : 'false';
+        if (item.disableGamepadControl != null) {
+            card.dataset.disableGamepadControl = item.disableGamepadControl ? 'true' : 'false';
+        }
+
+        const titleEl = card.querySelector('.title');
+        if (titleEl) titleEl.textContent = item.name || '';
+
+        const fallbackEl = card.querySelector('.media-card-fallback');
+        if (fallbackEl) fallbackEl.textContent = (item.name || '?').charAt(0).toUpperCase();
+
+        const img = card.querySelector('img');
+        const src = _selectedImageSrc(item, isFeatured);
+
+        if (!src) {
+            card.classList.add('no-art');
+            if (img) img.style.display = 'none';
+            if (fallbackEl) fallbackEl.style.display = '';
+            return;
+        }
+
+        card.classList.remove('no-art');
+        if (fallbackEl) fallbackEl.style.display = 'none';
+        if (img) {
+            img.onload = () => { if (fallbackEl) fallbackEl.style.display = 'none'; };
+            img.onerror = () => {
+                img.style.display = 'none';
+                card.classList.add('no-art');
+                if (fallbackEl) fallbackEl.style.display = '';
+            };
+            img.style.display = '';
+            if (img.getAttribute('src') !== src) img.src = src;
+        }
+
+        _queueStaticExtraction(card, item);
+    }
+
     function _buildCard(item, isFeatured) {
         const card = _getCard();
         const ctrl = new AbortController();
@@ -251,26 +321,24 @@ const CardRenderer = (() => {
         titleEl.textContent = item.name;
         window.applyRuntimeStateToCard?.(card);
 
-        const staticSrc = isFeatured
-            ? (item.staticHorizontal || item.horizontal || item.staticVertical || item.vertical)
-            : (item.staticVertical || item.vertical);
+        const staticSrc = _selectedImageSrc(item, isFeatured);
 
-        if (item.channel === 'media') {
-            if (fallbackEl) {
-                fallbackEl.style.display = '';
-                fallbackEl.textContent = (item.name || '?').charAt(0).toUpperCase();
-            }
-            if (!staticSrc) {
-                card.classList.add('no-art');
-            }
-        } else {
-            if (fallbackEl) fallbackEl.style.display = 'none';
+        if (fallbackEl) {
+            fallbackEl.textContent = (item.name || '?').charAt(0).toUpperCase();
+            fallbackEl.style.display = staticSrc ? 'none' : '';
+        }
+        if (!staticSrc) {
+            card.classList.add('no-art');
         }
 
         if (staticSrc) {
             img.src = staticSrc;
             img.onload = () => { if (fallbackEl) fallbackEl.style.display = 'none'; };
-            img.onerror = () => { img.style.display = 'none'; };
+            img.onerror = () => {
+                img.style.display = 'none';
+                card.classList.add('no-art');
+                if (fallbackEl) fallbackEl.style.display = '';
+            };
         }
 
         if (item.channel === 'media' && (item.shareMode !== 'private' || item.sharedFromOther)) {
@@ -305,6 +373,9 @@ const CardRenderer = (() => {
             if (item.channel === 'games') {
                 window.suspendDoorpiGameInput?.();
                 postToHost({ action: 'launch', path: launchId, errorMsg: typeof t === 'function' ? t('msgErrorLaunch') : 'Erro ao iniciar' });
+            } else if (item.channel === 'stores') {
+                window.isStoreSessionActive = true;
+                postToHost({ action: 'openStore', storeId: item.id || launchId });
             } else {
                 window.isMediaAppActive = true;
                 postToHost({
@@ -419,7 +490,7 @@ const CardRenderer = (() => {
             if (titleEl) titleEl.textContent = patch.name;
 
             const fallbackEl = card.querySelector('.media-card-fallback');
-            if (fallbackEl && card.classList.contains('media-card')) {
+            if (fallbackEl) {
                 fallbackEl.textContent = patch.name.charAt(0).toUpperCase();
             }
         }
@@ -432,6 +503,8 @@ const CardRenderer = (() => {
         const img = card.querySelector('img');
         if (img && patch.staticVertical) {
             card.classList.remove('no-art');
+            const fallbackEl = card.querySelector('.media-card-fallback');
+            if (fallbackEl) fallbackEl.style.display = 'none';
             const isFeatured = card.classList.contains('featured');
             if (!isFeatured) {
                 img.src = patch.staticVertical;
@@ -458,15 +531,9 @@ const CardRenderer = (() => {
             let card = existingMap.get(item.id);
 
             if (card) {
+                _syncCardData(card, item, isFeatured);
                 if (card.classList.contains('featured') !== isFeatured) {
                     card.classList.toggle('featured', isFeatured);
-                    const img = card.querySelector('img');
-                    if (img) {
-                        const src = isFeatured
-                            ? (card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical)
-                            : (card.dataset.staticVertical || card.dataset.vertical);
-                        if (src) img.src = src;
-                    }
                 }
                 gridEl.insertBefore(card, anchorEl);
             } else {
