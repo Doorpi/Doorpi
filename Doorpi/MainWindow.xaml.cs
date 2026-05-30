@@ -1486,7 +1486,7 @@ namespace Doorpi
         private void StoreLauncherShortcutLoop(int sessionId)
         {
             ushort prevButtons = 0;
-            while (_isStoreLauncherSession && !_storePausedByDoorpi && _mediaExeSessionId == sessionId)
+            while (_isStoreLauncherSession && !_storePausedByDoorpi && !_storeChildGameActive && _mediaExeSessionId == sessionId)
             {
                 try
                 {
@@ -1621,12 +1621,16 @@ namespace Doorpi
             catch { }
             return null;
         }
-        private async Task TryMaximizeExternalWindowAsync(Process proc, string mediaUrl, CancellationToken token = default)
+        private async Task TryMaximizeExternalWindowAsync(
+            Process proc,
+            string mediaUrl,
+            CancellationToken token = default,
+            bool requireControllerActive = true)
         {
             for (int i = 0; i < 600; i++)
             {
                 // CRÍTICO: Para imediatamente se saímos do modo (botão Xbox)
-                if (token.IsCancellationRequested || !_mediaExeModeActive) return;
+                if (token.IsCancellationRequested || (requireControllerActive && !_mediaExeModeActive)) return;
 
                 await Task.Delay(200);
                 try
@@ -1643,7 +1647,7 @@ namespace Doorpi
 
                     if (hwnd != IntPtr.Zero)
                     {
-                        if (token.IsCancellationRequested || !_mediaExeModeActive) return;
+                        if (token.IsCancellationRequested || (requireControllerActive && !_mediaExeModeActive)) return;
 
                         ShowWindow(hwnd, 3); // SW_MAXIMIZE
                         FocusExternalWindow(hwnd);
@@ -1745,6 +1749,22 @@ namespace Doorpi
                         // DEPOIS — 2 checks × 200ms = 400ms máximo, mais tolerante que 1 check
                         if (!hasActiveWindow)
                         {
+                            bool processStillAlive = processes.Length > 0;
+                            if (!processStillAlive)
+                            {
+                                try { processStillAlive = FindRunningProcessForExe(mediaUrl) != null; } catch { }
+                            }
+
+                            if (!processStillAlive && _isStoreLauncherSession)
+                                processStillAlive = IsActiveStoreLauncherProcessAlive();
+
+                            if (processStillAlive)
+                            {
+                                // Janela minimizada, na barra de tarefas ou na bandeja: sessão continua viva.
+                                ReturnToDoorpiFromMedia();
+                                return;
+                            }
+
                             missingCount++;
                             if (missingCount >= 2)
                             {
@@ -1817,7 +1837,17 @@ namespace Doorpi
                 SendRuntimeSessionsToUI();
 
                 if (_isStoreLauncherSession && !_storePausedByDoorpi)
-                    CloseStoreSessionCompletely();
+                {
+                    if (IsActiveStoreLauncherProcessAlive())
+                    {
+                        _storePausedByDoorpi = true;
+                        SendRuntimeSessionsToUI();
+                    }
+                    else
+                    {
+                        CloseStoreSessionCompletely();
+                    }
+                }
             });
         }
         private void MinimizeAllWindowsExcept(IntPtr excludeHwnd)
@@ -3502,6 +3532,8 @@ namespace Doorpi
                 if (!string.IsNullOrWhiteSpace(id) &&
                     string.Equals(_activeSessionGameId, id, StringComparison.OrdinalIgnoreCase))
                 {
+                    bool wasStoreChildGame = IsActiveGameFromStoreChild(id);
+
                     try
                     {
                         if (!string.IsNullOrWhiteSpace(_lockedGameProcessName))
@@ -3519,7 +3551,25 @@ namespace Doorpi
 
                     CommitActiveSession();
                     ClearGameWindowSession();
-                    ForceFocus();
+                    if (wasStoreChildGame)
+                    {
+                        _storeChildGameActive = false;
+                        _storeChildGameStoreId = "";
+                        _storeChildGameId = "";
+                        if (_isStoreLauncherSession)
+                        {
+                            _storePausedByDoorpi = true;
+                            ResumeStoreSession();
+                        }
+                        else
+                        {
+                            ForceFocus();
+                        }
+                    }
+                    else
+                    {
+                        ForceFocus();
+                    }
                     SendRuntimeSessionsToUI();
                 }
                 return;
@@ -3676,8 +3726,10 @@ namespace Doorpi
 
             _gameIsMinimized = true;
             _gameIsRunningAndDoorpiHidden = false;
+            MarkStorePausedBecauseChildGameReturnedToDoorpi();
             _mainUiGamepadSuspendedForGame = false;
             Interlocked.Exchange(ref _mainUiGamepadSuppressUntilUtcTicks, 0);
+            SendRuntimeSessionsToUI();
 
             if (_currentGameHwnd != IntPtr.Zero)
             {
@@ -4446,6 +4498,9 @@ namespace Doorpi
             try
             {
                 if (IsIconic(hWnd)) ShowWindow(hWnd, 9); // SW_RESTORE
+                else ShowWindow(hWnd, 5);
+                BringWindowToTop(hWnd);
+                SwitchToThisWindow(hWnd, true);
                 SetForegroundWindow(hWnd);
             }
             catch { }
@@ -4497,6 +4552,9 @@ namespace Doorpi
                             if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(appId)) continue;
 
                             string iconBase64 = "";
+                            string gameFolder = !string.IsNullOrEmpty(installDir)
+                                ? Path.Combine(libraryPath, "steamapps", "common", installDir)
+                                : "";
 
                             string iconHash = Regex.Match(acfContent, @"""(?:clienticon|icon)""\s+""([a-fA-F0-9]+)""").Groups[1].Value;
                             if (includeIcons && !string.IsNullOrEmpty(iconHash))
@@ -4507,7 +4565,6 @@ namespace Doorpi
 
                             if (includeIcons && string.IsNullOrEmpty(iconBase64) && !string.IsNullOrEmpty(installDir))
                             {
-                                string gameFolder = Path.Combine(libraryPath, "steamapps", "common", installDir);
                                 if (Directory.Exists(gameFolder))
                                 {
                                     try
@@ -4551,7 +4608,7 @@ namespace Doorpi
                             {
                                 Name = name,
                                 LaunchUrl = $"steam://run/{appId}",
-                                Path = appId,
+                                Path = Directory.Exists(gameFolder) ? gameFolder : appId,
                                 IconBase64 = iconBase64,
                                 Source = "Steam"
                             });
@@ -4695,11 +4752,13 @@ namespace Doorpi
                     string installLocation = root.GetProperty("InstallLocation").GetString() ?? "";
                     string launchExe = root.TryGetProperty("LaunchExecutable", out var exeProp)
                                                 ? exeProp.GetString() ?? "" : "";
+                    string exePath = !string.IsNullOrEmpty(installLocation) && !string.IsNullOrEmpty(launchExe)
+                        ? Path.Combine(installLocation, launchExe)
+                        : "";
 
                     string iconBase64 = "";
                     if (includeIcons && !string.IsNullOrEmpty(installLocation) && !string.IsNullOrEmpty(launchExe))
                     {
-                        string exePath = Path.Combine(installLocation, launchExe);
                         if (File.Exists(exePath)) iconBase64 = GetCachedIcon(exePath);
                     }
 
@@ -4707,7 +4766,7 @@ namespace Doorpi
                     {
                         Name = name,
                         LaunchUrl = $"com.epicgames.launcher://apps/{namespaceStr}%3A{catalogItemId}%3A{appName}?action=launch&silent=true",
-                        Path = appName,
+                        Path = File.Exists(exePath) ? exePath : appName,
                         IconBase64 = iconBase64,
                         Source = "Epic"
                     });
