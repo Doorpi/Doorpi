@@ -8323,6 +8323,8 @@ namespace Doorpi
 
                 if (game != null)
                 {
+                    SendGameLaunchStatus("gameLaunching", game.Name, game.HeroImage ?? "", game.GridImage ?? "");
+
                     game.LastPlayed = DateTime.Now;
                     SaveGames(games);
                     LoadGamesIntoUI();
@@ -8345,6 +8347,7 @@ namespace Doorpi
                     // Trava: não permite lançar um segundo jogo simultaneamente
                     if (differentGameRunning)
                     {
+                        SendGameLaunchStatus("gameLaunchDone");
                         webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
                         {
                             type = "gameAlreadyRunning",
@@ -8471,7 +8474,6 @@ namespace Doorpi
                     // ==============================================================
 
                     // 1. TRAVA A TELA DE "ABRINDO" IMEDIATAMENTE NA UI
-                    SendGameLaunchStatus("gameLaunching", game.Name, game.HeroImage ?? "", game.GridImage ?? "");
 
                     // 2. AVISA O WATCHDOG PARA NÃO INTERFERIR ANTES MESMO DO JOGO ABRIR
                     _gameSessionActive = true;

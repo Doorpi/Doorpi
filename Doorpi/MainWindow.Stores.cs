@@ -18,6 +18,8 @@ namespace Doorpi
         private HashSet<string> _libraryKeysBeforeStore = new(StringComparer.OrdinalIgnoreCase);
         private HashSet<string> _storeKeysBeforeStore = new(StringComparer.OrdinalIgnoreCase);
         private HashSet<string> _storeKeysProcessedDuringSession = new(StringComparer.OrdinalIgnoreCase);
+        private HashSet<int> _storeProcessSnapshot = new();
+        private HashSet<IntPtr> _storeWindowSnapshot = new();
         private CancellationTokenSource? _storeLibraryMonitorCts;
         private CancellationTokenSource? _storeChildGameDetectorCts;
         private bool _storeChildGameActive;
@@ -650,7 +652,12 @@ namespace Doorpi
                 foreach (var pair in candidates)
                 {
                     int score = ScoreStoreChildGameCandidate(pair.Game!, pair.App, process, hWnd, rect);
-                    if (score < 80) continue;
+                    if (!_storeProcessSnapshot.Contains((int)pidRaw)) score += 55;
+                    if (!_storeWindowSnapshot.Contains(hWnd)) score += 35;
+                    if (!_storeProcessSnapshot.Contains((int)pidRaw) && !_storeWindowSnapshot.Contains(hWnd))
+                        score += 35;
+
+                    if (score < 70) continue;
 
                     if (best == null || score > best.Score)
                     {
@@ -684,12 +691,20 @@ namespace Doorpi
                     continue;
                 }
 
+                var hwnd = FindAnyWindowForProcess(pid);
                 foreach (var pair in candidates)
                 {
                     int score = ScoreStoreChildGameProcessCandidate(pair.Game!, pair.App, process);
-                    if (score < 95) continue;
+                    bool hasIdentityMatch = score >= 75;
+                    bool isNewWindowedProcess = !_storeProcessSnapshot.Contains(pid) && hwnd != IntPtr.Zero;
+                    if (!hasIdentityMatch && !isNewWindowedProcess) continue;
 
-                    var hwnd = FindAnyWindowForProcess(pid);
+                    if (!_storeProcessSnapshot.Contains(pid)) score += 80;
+                    if (hwnd != IntPtr.Zero && !_storeWindowSnapshot.Contains(hwnd)) score += 35;
+                    if (!_storeProcessSnapshot.Contains(pid) && hwnd != IntPtr.Zero) score += 35;
+
+                    if (score < 75) continue;
+
                     if (best == null || score > best.Score)
                     {
                         best = new StoreChildGameCandidate
@@ -1112,6 +1127,8 @@ namespace Doorpi
             _isStoreLauncherSession = true;
             _storePausedByDoorpi = false;
             _activeStoreId = storeId;
+            _storeProcessSnapshot = SnapshotProcessIds();
+            _storeWindowSnapshot = SnapshotVisibleWindows();
             _libraryKeysBeforeStore = BuildLibraryKeySet();
             _storeKeysBeforeStore = BuildStoreAppKeySet(storeId);
             lock (_storeLibraryMonitorLock)
@@ -1125,10 +1142,15 @@ namespace Doorpi
             var store = StoreCatalog.FirstOrDefault(s => string.Equals(s.Id, storeId, StringComparison.OrdinalIgnoreCase));
             if (store == null) return;
 
+            var card = LoadStoreLaunchers().FirstOrDefault(s => string.Equals(s.Id, storeId, StringComparison.OrdinalIgnoreCase));
+            string heroImg = card?.HeroImage ?? "";
+            string gridImg = card?.GridImage ?? "";
+
             if (_isStoreLauncherSession)
             {
                 if (string.Equals(_activeStoreId, store.Id, StringComparison.OrdinalIgnoreCase))
                 {
+                    SendGameLaunchStatus("gameLaunching", store.Name, heroImg, gridImg, "restore");
                     ResumeStoreSession();
                     return;
                 }
@@ -1141,12 +1163,9 @@ namespace Doorpi
                 return;
             }
 
+            SendGameLaunchStatus("gameLaunching", store.Name, heroImg, gridImg);
             BeginStoreLauncherSession(store.Id);
             _storeLauncherExe = ResolveStoreLauncherExe(store.Id);
-
-            var card = LoadStoreLaunchers().FirstOrDefault(s => string.Equals(s.Id, storeId, StringComparison.OrdinalIgnoreCase));
-            string heroImg = card?.HeroImage ?? "";
-            string gridImg = card?.GridImage ?? "";
 
             SuspendMainUiGamepadForGameLaunch();
 
@@ -1428,6 +1447,8 @@ namespace Doorpi
             _activeStoreId = null;
             _libraryKeysBeforeStore = new(StringComparer.OrdinalIgnoreCase);
             _storeKeysBeforeStore = new(StringComparer.OrdinalIgnoreCase);
+            _storeProcessSnapshot = new();
+            _storeWindowSnapshot = new();
 
             _mediaExeWatcherCts?.Cancel();
             _mediaExeModeActive = false;
@@ -1473,6 +1494,8 @@ namespace Doorpi
             _activeStoreId = null;
             _libraryKeysBeforeStore = new(StringComparer.OrdinalIgnoreCase);
             _storeKeysBeforeStore = new(StringComparer.OrdinalIgnoreCase);
+            _storeProcessSnapshot = new();
+            _storeWindowSnapshot = new();
 
             Dispatcher.Invoke(() =>
                 webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideStoreSessionMenu\"}"));
