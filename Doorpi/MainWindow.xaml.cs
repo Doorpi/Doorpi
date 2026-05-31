@@ -219,6 +219,9 @@ namespace Doorpi
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
+        [DllImport("user32.dll")]
+        private static extern bool IsChild(IntPtr hWndParent, IntPtr hWnd);
+
         private const uint WM_SYSCOMMAND = 0x0112;
         private const int SC_MINIMIZE = 0xF020;
         private const int SC_RESTORE = 0xF120;
@@ -381,7 +384,8 @@ namespace Doorpi
                 if (DateTime.UtcNow.Ticks < Interlocked.Read(ref _returnFromExternalModeSuppressUntil))
                     return;
 
-                bool hasPendingSession = HasAnyPendingSession();
+                bool hasBlockingSession = HasAnyBlockingExternalSession();
+                bool shouldMuteDoorpiAudio = ShouldMuteDoorpiAudio();
 
                 if (IsMediaAppAlive())
                 {
@@ -398,13 +402,14 @@ namespace Doorpi
                     !IsStoreChildGameBlockingStoreControls() &&
                     IsActiveStoreLauncherProcessAlive())
                 {
-                    ShowExecutionLockForStore();
+                    ScheduleStoreExecutionLockIfDoorpiStillForeground();
                     return;
                 }
 
                 if (_gameSessionActive)
                 {
-                    if (_gameIsRunningAndDoorpiHidden && !_gameIsMinimized)
+                    if (_gameIsRunningAndDoorpiHidden && !_gameIsMinimized
+                        && (IsLockedGameProcessAlive() || IsPendingLaunchProcessAlive())) 
                     {
                         ShowExecutionLockForGame();
                         SendRuntimeSessionsToUI();
@@ -427,7 +432,15 @@ namespace Doorpi
                     "window.isDoorpiFocused = true; window.isMediaAppActive = false; window._doorpiGameInputSuppressedUntil = 0; window.focusFeaturedCard?.();");
 
                 if (webView?.CoreWebView2 != null)
-                    webView.CoreWebView2.PostWebMessageAsString($"{{\"type\":\"windowFocused\", \"appAlive\": {hasPendingSession.ToString().ToLower()}}}");
+                    webView.CoreWebView2.PostWebMessageAsString(
+                        JsonSerializer.Serialize(new
+                        {
+                            type = "windowFocused",
+                            appAlive = shouldMuteDoorpiAudio,
+                            hasBlockingSession,
+                            hasLiveExternalSession = shouldMuteDoorpiAudio,
+                            shouldMuteDoorpiAudio
+                        }));
                 SendRuntimeSessionsToUI();
             };
             this.Deactivated += (s, e) =>
@@ -1194,7 +1207,7 @@ namespace Doorpi
             }
         }
         // ========================= CONTROLE COMPARTILHADO (APP EXE & DIALOGS) =========================
-        private void SharedGamepadControllerLoop(Func<bool> isActive, Action onExitCombo)
+        private void SharedGamepadControllerLoop(Func<bool> isActive, Action onExitCombo, bool handleXboxButton = true)
         {
             var sw = Stopwatch.StartNew();
             ushort prevButtons = 0;
@@ -1250,7 +1263,7 @@ namespace Doorpi
                         bool Released(ushort m) => (btn & m) == 0 && (prevButtons & m) != 0;
                         // ── Botão Xbox = Voltar/Minimizar Modo Mídia Exe/Dialog ──
                         bool xboxBtn = (btn & 0x0400) != 0;
-                        if (xboxBtn)
+                        if (handleXboxButton && xboxBtn)
                         {
                             onExitCombo?.Invoke();
                             if (!isActive()) break;
@@ -1500,7 +1513,7 @@ namespace Doorpi
                         _mainScreenMouseVisible = false;
                         _lastKnownCursorPos = new POINT { X = 0, Y = 0 };
                         SetCursorPos(0, 0);
-                        ForceFocus();
+                        FocusDoorpiKeepSession();
                     });
                 }
             );
@@ -1535,6 +1548,17 @@ namespace Doorpi
             }
         }
 
+        private void EnsureStoreShortcutThread(int sessionId)
+        {
+            if (_storeShortcutThread?.IsAlive == true) return;
+
+            _storeShortcutThread = new Thread(() => StoreLauncherShortcutLoop(sessionId))
+            {
+                IsBackground = true
+            };
+            _storeShortcutThread.Start();
+        }
+
         private void StoreExeControllerLoop(int sessionId)
         {
             SharedGamepadControllerLoop(
@@ -1560,7 +1584,8 @@ namespace Doorpi
                     if (vkbWasOpen) return;
 
                     Dispatcher.Invoke(MinimizeStoreSessionAndShowMenu);
-                }
+                },
+                handleXboxButton: false
             );
         }
 
@@ -3466,10 +3491,14 @@ namespace Doorpi
                         {
                             Dispatcher.Invoke(() =>
                             {
+                                bool shouldMuteDoorpiAudio = ShouldMuteDoorpiAudio();
                                 webView?.CoreWebView2?.PostWebMessageAsString(JsonSerializer.Serialize(new
                                 {
                                     type = "appProcessDied",
-                                    hasPendingSession = HasAnyPendingSession()
+                                    hasPendingSession = shouldMuteDoorpiAudio,
+                                    hasLiveExternalSession = shouldMuteDoorpiAudio,
+                                    shouldMuteDoorpiAudio,
+                                    hasBlockingSession = HasAnyBlockingExternalSession()
                                 }));
                             });
                             break;
@@ -3542,7 +3571,7 @@ namespace Doorpi
                         channel = "media",
                         url = session.Url,
                         kind = "exe",
-                        status = session.ControllerActive ? "active" : "running"
+                        status = session.DoorpiSuspended ? "minimized" : (session.ControllerActive ? "active" : "running")
                     });
                 }
 
@@ -3553,7 +3582,7 @@ namespace Doorpi
                         channel = "media",
                         url = _currentWebAppUrl,
                         kind = "web",
-                        status = "running"
+                        status = _webAppWindow?.WindowState == WindowState.Minimized ? "minimized" : "running"
                     });
                 }
 
@@ -3572,7 +3601,10 @@ namespace Doorpi
                 webView?.CoreWebView2?.PostWebMessageAsString(JsonSerializer.Serialize(new
                 {
                     type = "runtimeSessionsChanged",
-                    hasPendingSession = HasAnyPendingSession(),
+                    hasPendingSession = ShouldMuteDoorpiAudio(),
+                    hasLiveExternalSession = ShouldMuteDoorpiAudio(),
+                    shouldMuteDoorpiAudio = ShouldMuteDoorpiAudio(),
+                    hasBlockingSession = HasAnyBlockingExternalSession(),
                     running
                 }));
             }
@@ -3671,6 +3703,7 @@ namespace Doorpi
             }
         }
         private long _focusRestoredAtTicks = 0;
+        private long _ignoreGameForegroundRestoreUntilUtcTicks = 0;
         public void ForceFocus()
         {
             // Se o jogo foi minimizado pelo usuário (Xbox button) e ainda está vivo,
@@ -3705,7 +3738,8 @@ namespace Doorpi
             SendGameLaunchStatus("gameLaunchDone");
             ReleaseAllStuckKeys();
 
-            bool hasPendingSession = HasAnyPendingSession();
+            bool hasBlockingSession = HasAnyBlockingExternalSession();
+            bool shouldMuteDoorpiAudio = ShouldMuteDoorpiAudio();
 
             Dispatcher.BeginInvoke(() =>
             {
@@ -3732,13 +3766,25 @@ namespace Doorpi
                 webView?.CoreWebView2?.ExecuteScriptAsync(
                     "window.isDoorpiFocused = true; window.isMediaAppActive = false; window.isGameLaunchActive = false; window._doorpiGameInputSuppressedUntil = 0; window.focusFeaturedCard?.();");
                 webView?.CoreWebView2?.PostWebMessageAsString(
-                    $"{{\"type\":\"windowFocused\", \"appAlive\": {hasPendingSession.ToString().ToLower()}}}");
+                    JsonSerializer.Serialize(new
+                    {
+                        type = "windowFocused",
+                        appAlive = shouldMuteDoorpiAudio,
+                        hasBlockingSession,
+                        hasLiveExternalSession = shouldMuteDoorpiAudio,
+                        shouldMuteDoorpiAudio
+                    }));
                 SendRuntimeSessionsToUI();
                 DiscordRpcManager.Instance.UpdateState("menu");
             });
         }
         private void FocusDoorpiKeepSession()
         {
+          
+            _mainUiGamepadSuspendedForGame = false;
+            Interlocked.Exchange(ref _mainUiGamepadSuppressUntilUtcTicks, 0);
+            Interlocked.Exchange(ref _focusRestoredAtTicks, DateTime.UtcNow.Ticks);
+
             SendGameLaunchStatus("gameLaunchDone");
             ReleaseAllStuckKeys();
 
@@ -3766,8 +3812,17 @@ namespace Doorpi
 
                 webView?.CoreWebView2?.ExecuteScriptAsync(
                     "window.isDoorpiFocused = true; window.isMediaAppActive = false; window.isGameLaunchActive = false; window._doorpiGameInputSuppressedUntil = 0; window.focusFeaturedCard?.();");
+                bool shouldMuteDoorpiAudio = ShouldMuteDoorpiAudio();
                 webView?.CoreWebView2?.PostWebMessageAsString(
-                    $"{{\"type\":\"windowFocused\", \"appAlive\": true}}");
+                    JsonSerializer.Serialize(new
+                    {
+                        type = "windowFocused",
+                        appAlive = shouldMuteDoorpiAudio,
+                        hasBlockingSession = false,
+                        hasLiveExternalSession = shouldMuteDoorpiAudio,
+                        shouldMuteDoorpiAudio
+                    }));
+                SendRuntimeSessionsToUI();
                 DiscordRpcManager.Instance.UpdateState("menu");
 
             });
@@ -3778,10 +3833,16 @@ namespace Doorpi
             Debug.WriteLine("\n=======================================================");
             Debug.WriteLine("[DEBUG MINIMIZE] INICIANDO MINIMIZAÇÃO DA SESSÃO");
 
+            Interlocked.Exchange(ref _executionLockSuppressUntilUtcTicks, DateTime.UtcNow.AddSeconds(2).Ticks);
+            Interlocked.Exchange(ref _ignoreGameForegroundRestoreUntilUtcTicks, DateTime.UtcNow.AddSeconds(2).Ticks);
             _gameIsMinimized = true;
             _gameIsRunningAndDoorpiHidden = false;
             MarkStorePausedBecauseChildGameReturnedToDoorpi();
             _mainUiGamepadSuspendedForGame = false;
+            _launcherMouseActive = false;
+            ClearExecutionLock();
+            SendGameLaunchStatus("gameLaunchDone");
+            try { webView?.CoreWebView2?.PostWebMessageAsString("{\"type\":\"officialReturnToDoorpi\"}"); } catch { }
             Interlocked.Exchange(ref _mainUiGamepadSuppressUntilUtcTicks, 0);
             SendRuntimeSessionsToUI();
 
@@ -4035,7 +4096,11 @@ namespace Doorpi
                     // --- MÁGICA: PAUSA ABSOLUTA DA BUSCA SE TIVER MINIMIZADO ---
                     if (_gameIsMinimized)
                     {
-                        if (IsForegroundOwnedByCurrentGame())
+                        bool canTreatForegroundAsRestore =
+                            DateTime.UtcNow.Ticks >= Interlocked.Read(ref _ignoreGameForegroundRestoreUntilUtcTicks) &&
+                            !IsDoorpiMainWindowForeground();
+
+                        if (canTreatForegroundAsRestore && IsForegroundOwnedByCurrentGame())
                         {
                             Dispatcher.Invoke(MarkCurrentGameForegroundRestored);
                             continue;
@@ -4131,9 +4196,25 @@ namespace Doorpi
                         }
                         else
                         {
-                            // O executável REALMENTE fechou. Começa a contagem original super rápida.
                             missingChecks++;
-                            if (missingChecks >= 4)
+                            if (!string.IsNullOrEmpty(lockedProcessName) && missingChecks >= 2)
+                            {
+                                Dispatcher.Invoke(() => ForceFocus());
+                                return;
+                            }
+
+                            if (missingChecks == 4)
+                            {
+                                Dispatcher.Invoke(() =>
+                                {
+                                    _gameIsRunningAndDoorpiHidden = false;
+                                    if (IsForegroundDoorpi())
+                                        ShowExecutionLockForGame();
+                                    SendRuntimeSessionsToUI();
+                                });
+                            }
+
+                            if (missingChecks >= 8)
                             {
                                 Dispatcher.Invoke(() => ForceFocus());
                                 return;
@@ -4194,7 +4275,11 @@ namespace Doorpi
                     gameName,
                     heroImage,
                     gridImage,
-                    reason
+                    reason,
+                    hasPendingSession = ShouldMuteDoorpiAudio(),
+                    hasLiveExternalSession = ShouldMuteDoorpiAudio(),
+                    shouldMuteDoorpiAudio = ShouldMuteDoorpiAudio(),
+                    hasBlockingSession = HasAnyBlockingExternalSession()
                 }));
             });
         }
@@ -4425,6 +4510,20 @@ namespace Doorpi
 
         private void ShowExecutionLock(string kind, string name, string id, string url, string channel, string appType, string heroImage = "", string gridImage = "")
         {
+            if (DateTime.UtcNow.Ticks < Interlocked.Read(ref _executionLockSuppressUntilUtcTicks))
+                return;
+
+            if (string.IsNullOrWhiteSpace(name) &&
+                string.IsNullOrWhiteSpace(id) &&
+                string.IsNullOrWhiteSpace(url))
+            {
+                ClearExecutionLock();
+                return;
+            }
+
+            if (kind == "game" && _gameIsMinimized)
+                return;
+
             _executionLockActive = true;
             _executionLockKind = kind;
             _executionLockChannel = channel;
@@ -4483,6 +4582,8 @@ namespace Doorpi
         private bool ShowExecutionLockForStore()
         {
             if (!_isStoreLauncherSession || string.IsNullOrWhiteSpace(_activeStoreId)) return false;
+            if (!IsForegroundDoorpi()) return false;
+
             var store = LoadStoreLaunchers().FirstOrDefault(s => string.Equals(s.Id, _activeStoreId, StringComparison.OrdinalIgnoreCase));
             ShowExecutionLock(
                 "store",
@@ -4494,6 +4595,26 @@ namespace Doorpi
                 store?.HeroImage ?? "",
                 store?.GridImage ?? "");
             return true;
+        }
+
+        private void ScheduleStoreExecutionLockIfDoorpiStillForeground()
+        {
+            _ = Dispatcher.BeginInvoke(async () =>
+            {
+                await Task.Delay(250);
+
+                if (_executionLockActive ||
+                    !_isStoreLauncherSession ||
+                    _storePausedByDoorpi ||
+                    IsStoreChildGameBlockingStoreControls() ||
+                    !IsActiveStoreLauncherProcessAlive() ||
+                    !IsForegroundDoorpi())
+                {
+                    return;
+                }
+
+                ShowExecutionLockForStore();
+            });
         }
 
         private bool ShowExecutionLockForMediaExe()
@@ -4534,6 +4655,47 @@ namespace Doorpi
             return false;
         }
 
+        private IntPtr ResolveCurrentGameWindow()
+        {
+            IntPtr hwnd = _currentGameHwnd;
+            if (hwnd != IntPtr.Zero && (IsWindowVisible(hwnd) || IsIconic(hwnd)))
+                return hwnd;
+
+            if (!string.IsNullOrWhiteSpace(_lockedGameProcessName))
+            {
+                foreach (var process in Process.GetProcessesByName(_lockedGameProcessName))
+                {
+                    try
+                    {
+                        hwnd = FindAnyWindowForProcess(process.Id);
+                        if (hwnd == IntPtr.Zero) hwnd = process.MainWindowHandle;
+                        if (hwnd != IntPtr.Zero)
+                        {
+                            _currentGameHwnd = hwnd;
+                            return hwnd;
+                        }
+                    }
+                    catch { }
+                }
+            }
+
+            if (IsPendingLaunchProcessAlive())
+            {
+                try
+                {
+                    hwnd = FindAnyWindowForProcess(_pendingLaunchProcess!.Id);
+                    if (hwnd == IntPtr.Zero) hwnd = _pendingLaunchProcess.MainWindowHandle;
+                    if (hwnd != IntPtr.Zero) return hwnd;
+                }
+                catch { }
+            }
+
+            if (IsLastVisibleWindowStillValid())
+                return _lastVisibleWindowBeforeMinimize;
+
+            return IntPtr.Zero;
+        }
+
         private void RestoreExecutionLockSession()
         {
             string kind = _executionLockKind;
@@ -4543,7 +4705,23 @@ namespace Doorpi
 
             if (kind == "game" && !string.IsNullOrWhiteSpace(id))
             {
-                LaunchGame(id, "Erro ao restaurar jogo: ");
+                var hwnd = ResolveCurrentGameWindow();
+                if (hwnd != IntPtr.Zero)
+                {
+                    RestoreGameCleanly(hwnd);
+                    _gameIsMinimized = false;
+                    _gameIsRunningAndDoorpiHidden = true;
+                    SendGameLaunchStatus("gameLaunchDone");
+                    SendRuntimeSessionsToUI();
+                }
+                else
+                {
+                    _gameIsRunningAndDoorpiHidden = false;
+                    SendGameLaunchStatus("gameLaunchDone");
+                    SendRuntimeSessionsToUI();
+                    if (IsForegroundDoorpi())
+                        ShowExecutionLockForGame();
+                }
                 return;
             }
 
@@ -8214,7 +8392,8 @@ namespace Doorpi
                 }
                 else if (action == "resumeStore")
                 {
-                    ResumeStoreSession();
+                    if (!TryRestoreStoreChildGameSession())
+                        ResumeStoreSession();
                 }
                 else if (action == "requestStoreAutoAddSettings")
                 {
@@ -9454,7 +9633,31 @@ namespace Doorpi
                 catch { return false; }
             }
 
-            return hwnd != IntPtr.Zero && GetForegroundWindow() == hwnd;
+            if (hwnd == IntPtr.Zero) return false;
+
+            var foreground = GetForegroundWindow();
+            if (foreground == hwnd) return true;
+            if (foreground != IntPtr.Zero && IsChild(hwnd, foreground)) return true;
+
+            try
+            {
+                if (Dispatcher.Invoke(() => IsActive || IsKeyboardFocusWithin || webView.IsKeyboardFocusWithin))
+                    return true;
+            }
+            catch { }
+
+            try
+            {
+                if (foreground != IntPtr.Zero)
+                {
+                    GetWindowThreadProcessId(foreground, out var pidRaw);
+                    if (pidRaw == Environment.ProcessId)
+                        return true;
+                }
+            }
+            catch { }
+
+            return false;
         }
 
         private void SuspendMainUiGamepadForGameLaunch(int milliseconds = 15000)

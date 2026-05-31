@@ -19,6 +19,7 @@ namespace Doorpi
         private Process? _storeLauncherProcess;
         private CancellationTokenSource? _storeLauncherWatcherCts;
         private Thread? _storeControllerThread;
+        private Thread? _storeShortcutThread;
         private int _storeSessionId;
         private bool _storeControllerActive;
         private bool _storeGamepadDisabled;
@@ -553,8 +554,8 @@ namespace Doorpi
 
                         if (!_isStoreLauncherSession ||
                             !string.Equals(_activeStoreId, storeId, StringComparison.OrdinalIgnoreCase) ||
-                            _storeChildGameActive ||
-                            _gameSessionActive)
+                            (_gameSessionActive && !_storeChildGameActive) ||
+                            (_storeChildGameActive && !string.IsNullOrWhiteSpace(_lockedGameProcessName)))
                         {
                             continue;
                         }
@@ -563,6 +564,14 @@ namespace Doorpi
                         if (candidate != null)
                         {
                             Dispatcher.Invoke(() => BeginStoreChildGameSession(storeId, candidate));
+                            continue;
+                        }
+
+                        if (!_storeChildGameActive && !_gameSessionActive)
+                        {
+                            var launcher = FindStoreChildLauncherCandidate(storeId);
+                            if (launcher != null)
+                                Dispatcher.Invoke(() => BeginStoreChildLauncherSession(storeId, launcher));
                         }
                     }
                 }
@@ -596,7 +605,7 @@ namespace Doorpi
             public int Score { get; init; }
         }
 
-        private StoreChildGameCandidate? FindStoreChildGameCandidate(string storeId)
+        private List<(InstalledApp App, GameModel Game)> GetStoreChildGamePairs(string storeId)
         {
             List<InstalledApp> storeApps;
             try
@@ -615,18 +624,24 @@ namespace Doorpi
             }
             catch
             {
-                return null;
+                return new();
             }
 
             var games = LoadGames();
-            var candidates = storeApps
+            return storeApps
                 .Select(app => new
                 {
                     App = app,
                     Game = games.FirstOrDefault(g => InstalledAppMatchesGame(app, g))
                 })
                 .Where(x => x.Game != null)
+                .Select(x => (x.App, x.Game!))
                 .ToList();
+        }
+
+        private StoreChildGameCandidate? FindStoreChildGameCandidate(string storeId)
+        {
+            var candidates = GetStoreChildGamePairs(storeId);
 
             if (candidates.Count == 0) return null;
 
@@ -656,7 +671,7 @@ namespace Doorpi
 
                 foreach (var pair in candidates)
                 {
-                    var context = BuildStoreChildGameMonitorContext(pair.Game!, pair.App, process);
+                    var context = BuildStoreChildGameMonitorContext(pair.Game, pair.App, process);
                     if (context.BaselineProcessIds.Contains((int)pidRaw) && _storeWindowSnapshot.Contains(hWnd))
                         continue;
 
@@ -667,7 +682,68 @@ namespace Doorpi
                     {
                         best = new StoreChildGameCandidate
                         {
-                            Game = pair.Game!,
+                            Game = pair.Game,
+                            Hwnd = hWnd,
+                            ProcessId = (int)pidRaw,
+                            ProcessName = processName,
+                            Score = score
+                        };
+                    }
+                }
+            }
+
+            return best;
+        }
+
+        private StoreChildGameCandidate? FindStoreChildLauncherCandidate(string storeId)
+        {
+            var candidates = GetStoreChildGamePairs(storeId);
+            if (candidates.Count == 0) return null;
+
+            StoreChildGameCandidate? best = null;
+            foreach (var hWnd in EnumerateTopLevelWindows())
+            {
+                if (hWnd == _mainWindowHandle || hWnd == GetShellWindow()) continue;
+                if (_storeWindowSnapshot.Contains(hWnd)) continue;
+                if (!IsWindowVisible(hWnd) || IsIconic(hWnd)) continue;
+                if (!GetWindowRect(hWnd, out RECT rect) || rect.Width < 300 || rect.Height < 240) continue;
+
+                GetWindowThreadProcessId(hWnd, out uint pidRaw);
+                if (pidRaw == 0 || pidRaw == Environment.ProcessId) continue;
+
+                Process process;
+                try { process = Process.GetProcessById((int)pidRaw); }
+                catch { continue; }
+
+                var processName = SafeProcessName(process);
+                if (string.IsNullOrWhiteSpace(processName)) continue;
+                if (_shellProcessNames.Contains(processName)) continue;
+
+                var processPath = SafeProcessPath(process);
+                if (!string.IsNullOrWhiteSpace(_storeLauncherExe) &&
+                    !string.IsNullOrWhiteSpace(processPath) &&
+                    PathsEqual(_storeLauncherExe, processPath))
+                {
+                    continue;
+                }
+
+                foreach (var pair in candidates)
+                {
+                    var context = BuildStoreChildGameMonitorContext(pair.Game, pair.App, process);
+                    if (context.BaselineProcessIds.Contains((int)pidRaw) && _storeWindowSnapshot.Contains(hWnd))
+                        continue;
+
+                    int score = Math.Max(
+                        ScoreStoreChildGameProcessCandidate(pair.Game, pair.App, process),
+                        ScoreStoreChildGameCandidate(pair.Game, pair.App, process, hWnd, rect));
+
+                    if (score < 90) continue;
+
+                    if (best == null || score > best.Score)
+                    {
+                        best = new StoreChildGameCandidate
+                        {
+                            Game = pair.Game,
                             Hwnd = hWnd,
                             ProcessId = (int)pidRaw,
                             ProcessName = processName,
@@ -847,18 +923,23 @@ namespace Doorpi
 
         private void BeginStoreChildGameSession(string storeId, StoreChildGameCandidate candidate)
         {
-            if (!_isStoreLauncherSession ||
-                !string.Equals(_activeStoreId, storeId, StringComparison.OrdinalIgnoreCase) ||
-                _gameSessionActive ||
-                _storeChildGameActive)
-            {
-                return;
-            }
-
             string gameId = !string.IsNullOrWhiteSpace(candidate.Game.LaunchUrl)
                 ? candidate.Game.LaunchUrl
                 : candidate.Game.Path;
             if (string.IsNullOrWhiteSpace(gameId)) return;
+
+            bool promotingLauncherForSameGame =
+                _storeChildGameActive &&
+                _gameSessionActive &&
+                string.IsNullOrWhiteSpace(_lockedGameProcessName) &&
+                string.Equals(_storeChildGameId, gameId, StringComparison.OrdinalIgnoreCase);
+
+            if (!_isStoreLauncherSession ||
+                !string.Equals(_activeStoreId, storeId, StringComparison.OrdinalIgnoreCase) ||
+                ((_gameSessionActive || _storeChildGameActive) && !promotingLauncherForSameGame))
+            {
+                return;
+            }
 
             MarkStoreChildGameAsPlayed(candidate.Game, gameId);
 
@@ -883,6 +964,7 @@ namespace Doorpi
             _gameIsRunningAndDoorpiHidden = true;
             _currentGameHwnd = candidate.Hwnd;
             _currentLauncherHwnd = IntPtr.Zero;
+            _pendingLaunchProcess = null;
             _lastVisibleWindowBeforeMinimize = IntPtr.Zero;
             _lockedGameProcessName = candidate.ProcessName;
             _activeSessionGameId = gameId;
@@ -894,6 +976,50 @@ namespace Doorpi
                 ShowExecutionLockForGame();
             SendRuntimeSessionsToUI();
             _ = Task.Run(() => MonitorStoreChildGameAsync(candidate.Game, candidate.ProcessName, cts.Token));
+        }
+
+        private void BeginStoreChildLauncherSession(string storeId, StoreChildGameCandidate candidate)
+        {
+            if (!_isStoreLauncherSession ||
+                !string.Equals(_activeStoreId, storeId, StringComparison.OrdinalIgnoreCase) ||
+                _gameSessionActive ||
+                _storeChildGameActive)
+            {
+                return;
+            }
+
+            string gameId = !string.IsNullOrWhiteSpace(candidate.Game.LaunchUrl)
+                ? candidate.Game.LaunchUrl
+                : candidate.Game.Path;
+            if (string.IsNullOrWhiteSpace(gameId)) return;
+
+            Process? launcherProcess = null;
+            try { launcherProcess = Process.GetProcessById(candidate.ProcessId); } catch { }
+
+            MarkStoreChildGameAsPlayed(candidate.Game, gameId);
+
+            _storeControllerActive = false;
+            _storeChildGameActive = true;
+            _storeChildGameStoreId = storeId;
+            _storeChildGameId = gameId;
+            _storePausedByDoorpi = false;
+
+            _gameSessionActive = true;
+            _gameIsMinimized = false;
+            _gameIsRunningAndDoorpiHidden = true;
+            _currentGameHwnd = IntPtr.Zero;
+            _currentLauncherHwnd = candidate.Hwnd;
+            _lastVisibleWindowBeforeMinimize = candidate.Hwnd;
+            _pendingLaunchProcess = launcherProcess;
+            _lockedGameProcessName = "";
+            _activeSessionGameId = gameId;
+            _sessionStartUtc = DateTime.UtcNow;
+
+            DiscordRpcManager.Instance.UpdateState("game", candidate.Game.Name);
+            SendGameLaunchStatus("gameLaunchDone");
+            if (IsForegroundDoorpi())
+                ShowExecutionLockForGame();
+            SendRuntimeSessionsToUI();
         }
 
         private void MarkStoreChildGameAsPlayed(GameModel game, string gameId)
@@ -941,7 +1067,11 @@ namespace Doorpi
                 {
                     if (_gameIsMinimized)
                     {
-                        if (IsForegroundOwnedByCurrentGame())
+                        bool canTreatForegroundAsRestore =
+                            DateTime.UtcNow.Ticks >= Interlocked.Read(ref _ignoreGameForegroundRestoreUntilUtcTicks) &&
+                            !IsDoorpiMainWindowForeground();
+
+                        if (canTreatForegroundAsRestore && IsForegroundOwnedByCurrentGame())
                         {
                             Dispatcher.Invoke(MarkCurrentGameForegroundRestored);
                             continue;
@@ -1004,6 +1134,7 @@ namespace Doorpi
                     }
                     else if (++missingChecks >= 4)
                     {
+                        _gameIsRunningAndDoorpiHidden = false; 
                         Dispatcher.Invoke(() => HandleStoreChildGameClosed(game));
                         return;
                     }
@@ -1020,6 +1151,15 @@ namespace Doorpi
             if (!_storeChildGameActive) return;
 
             string storeId = _storeChildGameStoreId;
+
+            // NOVO: sinaliza que o jogo não está mais oculto atrás do Doorpi,
+            // impedindo que o Activated dispare ShowExecutionLockForGame durante a transição
+            _gameIsRunningAndDoorpiHidden = false;
+
+            // NOVO: suprime qualquer execution lock por 5s enquanto a loja retoma
+            Interlocked.Exchange(ref _executionLockSuppressUntilUtcTicks,
+                DateTime.UtcNow.AddSeconds(5).Ticks);
+
             CommitActiveSession();
             ClearGameWindowSession();
             _storeChildGameActive = false;
@@ -1110,17 +1250,27 @@ namespace Doorpi
             {
                 if (string.Equals(_activeStoreId, store.Id, StringComparison.OrdinalIgnoreCase))
                 {
-                    SendGameLaunchStatus("gameLaunching", store.Name, heroImg, gridImg, "restore");
-                    ResumeStoreSession();
+                    if (TryRestoreStoreChildGameSession())
+                        return;
+
+                    if (IsActiveStoreLauncherProcessAlive())
+                    {
+                        SendGameLaunchStatus("gameLaunching", store.Name, heroImg, gridImg, "restore");
+                        ResumeStoreSession();
+                        return;
+                    }
+
+                    CloseStoreSessionCompletely();
+                }
+                else
+                {
+                    webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                    {
+                        type = "storeAlreadyRunning",
+                        currentStoreId = _activeStoreId
+                    }));
                     return;
                 }
-
-                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
-                {
-                    type = "storeAlreadyRunning",
-                    currentStoreId = _activeStoreId
-                }));
-                return;
             }
 
             SendGameLaunchStatus("gameLaunching", store.Name, heroImg, gridImg);
@@ -1135,9 +1285,9 @@ namespace Doorpi
                 try
                 {
                     var existing = FindRunningProcessForExe(_storeLauncherExe);
-                    if (existing != null && FindVisibleWindowForProcess(existing.Id) != IntPtr.Zero)
+                    if (TryFindStoreWindow(store.Id, _storeLauncherExe, out var existingWindowProc, out _))
                     {
-                        EnterStoreExeMode(existing, store.Name, heroImg, gridImg);
+                        EnterStoreExeMode(existingWindowProc, store.Name, heroImg, gridImg);
                         return;
                     }
 
@@ -1184,7 +1334,83 @@ namespace Doorpi
             await OpenWebViewInlineAsync(store.WebUrl, false, store.Name, heroImg, gridImg);
         }
 
+        private bool TryRestoreStoreChildGameSession()
+        {
+            if (!_storeChildGameActive ||
+                !_gameSessionActive ||
+                string.IsNullOrWhiteSpace(_storeChildGameId))
+            {
+                return false;
+            }
+
+            var hwnd = ResolveCurrentGameWindow();
+            if (hwnd != IntPtr.Zero)
+            {
+                _storePausedByDoorpi = true;
+                _storeControllerActive = false;
+                _gameIsMinimized = false;
+                _gameIsRunningAndDoorpiHidden = true;
+                ClearExecutionLock();
+                RestoreGameCleanly(hwnd);
+                SendGameLaunchStatus("gameLaunchDone");
+                SendRuntimeSessionsToUI();
+                return true;
+            }
+
+            if (IsForegroundDoorpi())
+                ShowExecutionLockForGame();
+
+            SendRuntimeSessionsToUI();
+            return true;
+        }
+
         private Process? FindRunningStoreProcessWithWindow(string exePath)
+        {
+            try
+            {
+                if (TryFindStoreWindow(_activeStoreId ?? "", exePath, out var storeProc, out _))
+                    return storeProc;
+
+                string name = Path.GetFileNameWithoutExtension(exePath);
+                foreach (var p in Process.GetProcessesByName(name))
+                {
+                    try
+                    {
+                        if (!PathsEqual(SafeProcessPath(p), exePath)) continue;
+                        if (FindVisibleWindowForProcess(p.Id) != IntPtr.Zero)
+                            return p;
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+
+            return null;
+        }
+
+        private bool TryFindStoreWindow(string storeId, string exePath, out Process process, out IntPtr hwnd)
+        {
+            process = null!;
+            hwnd = IntPtr.Zero;
+
+            if (string.Equals(storeId, "Steam", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(Path.GetFileNameWithoutExtension(exePath), "steam", StringComparison.OrdinalIgnoreCase))
+            {
+                return TryFindSteamWindow(out process, out hwnd);
+            }
+
+            var running = FindRunningStoreProcessWithWindowByExeOnly(exePath);
+            if (running == null) return false;
+
+            var window = FindVisibleWindowForProcess(running.Id);
+            if (window == IntPtr.Zero) return false;
+
+            process = running;
+            hwnd = window;
+            return true;
+        }
+
+        private Process? FindRunningStoreProcessWithWindowByExeOnly(string exePath)
         {
             try
             {
@@ -1205,6 +1431,57 @@ namespace Doorpi
             return null;
         }
 
+        private bool TryFindSteamWindow(out Process process, out IntPtr hwnd)
+        {
+            process = null!;
+            hwnd = IntPtr.Zero;
+            Process? bestProcess = null;
+            IntPtr bestHwnd = IntPtr.Zero;
+            int bestScore = 0;
+
+            foreach (var candidateHwnd in EnumerateTopLevelWindows())
+            {
+                GetWindowThreadProcessId(candidateHwnd, out uint pidRaw);
+                if (pidRaw == 0 || pidRaw == Environment.ProcessId) continue;
+
+                Process candidateProcess;
+                try { candidateProcess = Process.GetProcessById((int)pidRaw); }
+                catch { continue; }
+
+                string processName = SafeProcessName(candidateProcess);
+                bool isSteamProcess = string.Equals(processName, "steam", StringComparison.OrdinalIgnoreCase);
+                bool isSteamWebHelper = string.Equals(processName, "steamwebhelper", StringComparison.OrdinalIgnoreCase);
+                if (!isSteamProcess && !isSteamWebHelper) continue;
+
+                string title = GetWindowTitle(candidateHwnd);
+                if (!GetWindowRect(candidateHwnd, out RECT rect)) continue;
+
+                int score = 0;
+                if (isSteamProcess) score += 45;
+                if (isSteamWebHelper) score += 35;
+                if (!string.IsNullOrWhiteSpace(title)) score += 25;
+                if (title.Equals("Steam", StringComparison.OrdinalIgnoreCase)) score += 80;
+                else if (title.Contains("Steam", StringComparison.OrdinalIgnoreCase)) score += 50;
+                if (rect.Width >= 700 && rect.Height >= 450) score += 30;
+                else if (rect.Width >= 360 && rect.Height >= 240) score += 10;
+                if (!IsIconic(candidateHwnd)) score += 10;
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestProcess = candidateProcess;
+                    bestHwnd = candidateHwnd;
+                }
+            }
+
+            if (bestProcess == null || bestHwnd == IntPtr.Zero || bestScore < 45)
+                return false;
+
+            process = bestProcess;
+            hwnd = bestHwnd;
+            return true;
+        }
+
         private void EnterStoreExeMode(Process proc, string appName, string heroImg, string gridImg)
         {
             string url = _storeLauncherExe ?? appName;
@@ -1219,6 +1496,8 @@ namespace Doorpi
             _storeGamepadDisabled = disableControllerEmulation;
             _storeControllerActive = !disableControllerEmulation;
             int sessionId = Interlocked.Increment(ref _storeSessionId);
+            var watcherCts = _storeLauncherWatcherCts;
+            var watcherToken = watcherCts?.Token ?? CancellationToken.None;
 
             SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg);
             _ = Task.Run(async () =>
@@ -1226,19 +1505,16 @@ namespace Doorpi
                 await TryMaximizeExternalWindowAsync(
                     proc,
                     url,
-                    _storeLauncherWatcherCts.Token,
+                    watcherToken,
                     requireControllerActive: false).ConfigureAwait(false);
-                if (!_storeLauncherWatcherCts.Token.IsCancellationRequested)
+                if (!watcherToken.IsCancellationRequested)
                     SendGameLaunchStatus("gameLaunchDone");
             });
 
-            StartStoreLauncherWatcher(proc, appName, sessionId, _storeLauncherWatcherCts.Token);
+            StartStoreLauncherWatcher(proc, appName, sessionId, watcherToken);
+            EnsureStoreShortcutThread(sessionId);
 
-            if (disableControllerEmulation)
-            {
-                _storeControllerThread = new Thread(() => StoreLauncherShortcutLoop(sessionId)) { IsBackground = true };
-            }
-            else
+            if (!disableControllerEmulation)
             {
                 Dispatcher.Invoke(() =>
                 {
@@ -1248,8 +1524,8 @@ namespace Doorpi
                     UpdateHoverStateInWebView();
                 });
                 _storeControllerThread = new Thread(() => StoreExeControllerLoop(sessionId)) { IsBackground = true };
+                _storeControllerThread.Start();
             }
-            _storeControllerThread.Start();
             SendRuntimeSessionsToUI();
         }
 
@@ -1259,9 +1535,6 @@ namespace Doorpi
             {
                 try
                 {
-                    bool sawWindow = FindVisibleWindowForProcess(proc.Id) != IntPtr.Zero;
-                    DateTime started = DateTime.UtcNow;
-
                     while (!token.IsCancellationRequested &&
                            _isStoreLauncherSession &&
                            _storeSessionId == sessionId)
@@ -1282,34 +1555,38 @@ namespace Doorpi
                         bool hasVisibleWindow = false;
                         try
                         {
-                            if (_storeLauncherProcess != null && !SafeHasExited(_storeLauncherProcess))
-                                hasVisibleWindow = FindVisibleWindowForProcess(_storeLauncherProcess.Id) != IntPtr.Zero;
-
-                            if (!hasVisibleWindow && !string.IsNullOrWhiteSpace(_storeLauncherExe))
+                            if (!string.IsNullOrWhiteSpace(_storeLauncherExe) &&
+                                TryFindStoreWindow(_activeStoreId ?? "", _storeLauncherExe, out var visibleProc, out _))
                             {
-                                var visible = FindRunningStoreProcessWithWindow(_storeLauncherExe);
-                                if (visible != null)
-                                {
-                                    _storeLauncherProcess = visible;
-                                    hasVisibleWindow = true;
-                                }
+                                _storeLauncherProcess = visibleProc;
+                                hasVisibleWindow = true;
                             }
                         }
                         catch { }
 
-                        if (hasVisibleWindow)
-                        {
-                            sawWindow = true;
-                        }
-                        else if (sawWindow || (DateTime.UtcNow - started).TotalSeconds > 4)
+                        if (!hasVisibleWindow && IsForegroundDoorpi())
                         {
                             Dispatcher.Invoke(() =>
                             {
-                                if (!_isStoreLauncherSession || _storePausedByDoorpi || IsStoreChildGameBlockingStoreControls()) return;
-                                _storeControllerActive = false;
-                                if (IsForegroundDoorpi())
-                                    ShowExecutionLockForStore();
+                                if (!_isStoreLauncherSession ||
+                                    _storePausedByDoorpi ||
+                                    IsStoreChildGameBlockingStoreControls() ||
+                                    !IsActiveStoreLauncherProcessAlive())
+                                {
+                                    return;
+                                }
+
+                                ShowExecutionLockForStore();
                             });
+                        }
+
+                        if (!IsForegroundDoorpi() &&
+                            (_executionLockActive ||
+                             _storeShortcutThread?.IsAlive != true ||
+                             (!_storeGamepadDisabled &&
+                              (_storeControllerThread?.IsAlive != true || !_storeControllerActive))))
+                        {
+                            Dispatcher.Invoke(ReactivateStoreControlsForForeground);
                         }
 
                         await Task.Delay(300, token).ConfigureAwait(false);
@@ -1325,6 +1602,11 @@ namespace Doorpi
             if (!_isStoreLauncherSession) return;
             _storePausedByDoorpi = true;
             _storeControllerActive = false;
+
+           
+            _mainUiGamepadSuspendedForGame = false;
+            Interlocked.Exchange(ref _mainUiGamepadSuppressUntilUtcTicks, 0);
+
             ClearExecutionLock();
 
             if (_storeSessionKind == "web")
@@ -1410,6 +1692,13 @@ namespace Doorpi
                     proc = FindRunningProcessForExe(_storeLauncherExe);
             }
 
+            if (!string.IsNullOrWhiteSpace(_storeLauncherExe) &&
+                TryFindStoreWindow(_activeStoreId ?? "", _storeLauncherExe, out var storeWindowProc, out var storeWindowHwnd))
+            {
+                RestoreStoreWindow(storeWindowProc, storeWindowHwnd);
+                return;
+            }
+
             if (proc != null && !SafeHasExited(proc))
             {
                 IntPtr hwnd = FindVisibleWindowForProcess(proc.Id);
@@ -1422,28 +1711,6 @@ namespace Doorpi
                     }
                 }
 
-                if (hwnd == IntPtr.Zero && !string.IsNullOrEmpty(_storeLauncherExe) && File.Exists(_storeLauncherExe))
-                {
-                    try
-                    {
-                        Process.Start(new ProcessStartInfo
-                        {
-                            FileName = _storeLauncherExe,
-                            UseShellExecute = true,
-                            WorkingDirectory = Path.GetDirectoryName(_storeLauncherExe) ?? "",
-                            WindowStyle = ProcessWindowStyle.Maximized
-                        });
-
-                        Thread.Sleep(800);
-                        foreach (var p in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(_storeLauncherExe)))
-                        {
-                            hwnd = FindVisibleWindowForProcess(p.Id);
-                            if (hwnd != IntPtr.Zero) { proc = p; break; }
-                        }
-                    }
-                    catch (Exception ex) { Debug.WriteLine($"[Store] Reabrir janela: {ex.Message}"); }
-                }
-
                 if (hwnd != IntPtr.Zero)
                 {
                     if (IsIconic(hwnd)) ShowWindow(hwnd, 9);
@@ -1454,10 +1721,89 @@ namespace Doorpi
                     EnterStoreExeMode(proc, card?.Name ?? "Loja", card?.HeroImage ?? "", card?.GridImage ?? "");
                     return;
                 }
+
+                if (IsActiveStoreLauncherProcessAlive())
+                {
+                    if (string.Equals(_activeStoreId, "Steam", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _ = ResumeSteamStoreWindowAsync();
+                        return;
+                    }
+
+                    SendRuntimeSessionsToUI();
+                    if (IsForegroundDoorpi())
+                        ShowExecutionLockForStore();
+                    return;
+                }
             }
 
-            if (!string.IsNullOrEmpty(_activeStoreId))
-                _ = Dispatcher.InvokeAsync(async () => await OpenStoreAsync(_activeStoreId));
+            CloseStoreSessionCompletely();
+        }
+
+        private void RestoreStoreWindow(Process proc, IntPtr hwnd)
+        {
+            _storeLauncherProcess = proc;
+            if (IsIconic(hwnd)) ShowWindow(hwnd, 9);
+            ShowWindow(hwnd, 3);
+            FocusExternalWindow(hwnd);
+
+            var card = LoadStoreLaunchers().FirstOrDefault(s => s.Id == _activeStoreId);
+            EnterStoreExeMode(proc, card?.Name ?? "Loja", card?.HeroImage ?? "", card?.GridImage ?? "");
+        }
+
+        private async Task ResumeSteamStoreWindowAsync()
+        {
+            try
+            {
+                RequestSteamMainWindow();
+
+                for (int i = 0; i < 20; i++)
+                {
+                    await Task.Delay(100).ConfigureAwait(false);
+                    if (!_isStoreLauncherSession ||
+                        !string.Equals(_activeStoreId, "Steam", StringComparison.OrdinalIgnoreCase) ||
+                        string.IsNullOrWhiteSpace(_storeLauncherExe))
+                    {
+                        return;
+                    }
+
+                    if (TryFindSteamWindow(out var steamProc, out var steamHwnd))
+                    {
+                        Dispatcher.Invoke(() =>
+                        {
+                            if (!_isStoreLauncherSession ||
+                                !string.Equals(_activeStoreId, "Steam", StringComparison.OrdinalIgnoreCase))
+                            {
+                                return;
+                            }
+
+                            RestoreStoreWindow(steamProc, steamHwnd);
+                            SendRuntimeSessionsToUI();
+                        });
+                        return;
+                    }
+                }
+
+                Dispatcher.Invoke(() =>
+                {
+                    SendRuntimeSessionsToUI();
+                    if (IsForegroundDoorpi())
+                        ShowExecutionLockForStore();
+                });
+            }
+            catch (Exception ex) { Debug.WriteLine("[Store] Retomar Steam: " + ex.Message); }
+        }
+
+        private static void RequestSteamMainWindow()
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo("steam://open/main")
+                {
+                    UseShellExecute = true
+                });
+            }
+            catch { }
         }
 
         private void ReactivateStoreControlsForForeground()
@@ -1471,6 +1817,7 @@ namespace Doorpi
 
             _storeGamepadDisabled = disableControllerEmulation;
             _storeControllerActive = !disableControllerEmulation;
+            EnsureStoreShortcutThread(_storeSessionId);
 
             if (!disableControllerEmulation)
             {
@@ -1479,11 +1826,9 @@ namespace Doorpi
             }
 
             int sessionId = _storeSessionId;
-            if (_storeControllerThread?.IsAlive != true)
+            if (!disableControllerEmulation && _storeControllerThread?.IsAlive != true)
             {
-                _storeControllerThread = disableControllerEmulation
-                    ? new Thread(() => StoreLauncherShortcutLoop(sessionId)) { IsBackground = true }
-                    : new Thread(() => StoreExeControllerLoop(sessionId)) { IsBackground = true };
+                _storeControllerThread = new Thread(() => StoreExeControllerLoop(sessionId)) { IsBackground = true };
                 _storeControllerThread.Start();
             }
 

@@ -119,6 +119,7 @@
     window._audioPlayer.init();
 
     window._isIntroComplete = false;
+    window._doorpiOfficialReturnSuppressUntil = 0;
     window._isDoorpiFocused = document.hasFocus(); // Lê o estado inicial
 
     // ── SISTEMA DE DISPARO POR ESTADO ───────────────────────────────────
@@ -138,8 +139,18 @@
 
     window._pauseAmbience = window._stopSystemAudio;
 
-    window._syncSystemAudioFromRuntime = function (hasPendingSession) {
-        window._isExternalAppRunning = !!hasPendingSession;
+    function _readDoorpiAudioMuteFlag(data, fallback = false) {
+        if (!data) return !!fallback;
+        if (data.shouldMuteDoorpiAudio !== undefined) return !!data.shouldMuteDoorpiAudio;
+        if (data.hasLiveExternalSession !== undefined) return !!data.hasLiveExternalSession;
+        if (data.hasPendingSession !== undefined) return !!data.hasPendingSession;
+        if (data.hasBlockingSession !== undefined) return !!data.hasBlockingSession;
+        if (data.appAlive !== undefined) return !!data.appAlive;
+        return !!fallback;
+    }
+
+    window._syncSystemAudioFromRuntime = function (shouldMuteDoorpiAudio) {
+        window._isExternalAppRunning = !!shouldMuteDoorpiAudio;
         if (!window._isDoorpiFocused) return;
 
         if (window._isExternalAppRunning) {
@@ -607,8 +618,13 @@
                 window.isMediaAppActive = false;
                 window.isStoreSessionActive = false;
 
-                if (data.appAlive !== undefined) {
-                    window._isExternalAppRunning = data.appAlive;
+                const shouldMuteDoorpiAudio = _readDoorpiAudioMuteFlag(data);
+
+                if (data.appAlive !== undefined ||
+                    data.hasBlockingSession !== undefined ||
+                    data.hasLiveExternalSession !== undefined ||
+                    data.shouldMuteDoorpiAudio !== undefined) {
+                    window._isExternalAppRunning = shouldMuteDoorpiAudio;
                 }
 
                 window._isDoorpiFocused = true;
@@ -633,10 +649,11 @@
                     window.DoorpiRuntimeState.running = data.running;
                     refreshRuntimeCards();
                 }
-                const hasPendingSession = data.hasPendingSession !== undefined
-                    ? !!data.hasPendingSession
-                    : window.DoorpiRuntimeState.running.length > 0;
-                window._syncSystemAudioFromRuntime(hasPendingSession);
+                const shouldMuteDoorpiAudio = _readDoorpiAudioMuteFlag(
+                    data,
+                    window.DoorpiRuntimeState.running.length > 0
+                );
+                window._syncSystemAudioFromRuntime(shouldMuteDoorpiAudio);
             }
             else if (data.type === 'scanProgress') {
                 window.setInlineScanStatus?.(true, `Lendo: ${data.folderName}...`);
@@ -644,17 +661,14 @@
             else if (data.type === 'runtimeSessionsChanged') {
                 window.DoorpiRuntimeState.running = Array.isArray(data.running) ? data.running : [];
                 refreshRuntimeCards();
-                const hasPendingSession = data.hasPendingSession !== undefined
-                    ? !!data.hasPendingSession
-                    : window.DoorpiRuntimeState.running.length > 0;
-                window._syncSystemAudioFromRuntime(hasPendingSession);
+                const shouldMuteDoorpiAudio = _readDoorpiAudioMuteFlag(
+                    data,
+                    window.DoorpiRuntimeState.running.length > 0
+                );
+                window._syncSystemAudioFromRuntime(shouldMuteDoorpiAudio);
             }
             else if (data.type === 'windowLostFocus') {
                 window._isDoorpiFocused = false;
-                window._stopSystemAudio();
-            }
-            else if (data.type === 'windowLostFocus') {
-                // Garante o encerramento imediato do áudio ao sinalizar perda de foco pelo WPF
                 window._stopSystemAudio();
             }
             else if (data.type === 'openUserPicker') {
@@ -857,6 +871,10 @@
                 GameLaunchOverlay.show(data.gameName, data.heroImage, data.gridImage, data.reason === 'restore');
             }
             else if (data.type === 'executionLock') {
+                if (Date.now() < (window._doorpiOfficialReturnSuppressUntil || 0)) {
+                    GameLaunchOverlay.hide();
+                    return;
+                }
                 window._isExternalAppRunning = true;
                 window._stopSystemAudio();
                 window.isMediaAppActive = true;
@@ -864,7 +882,14 @@
             }
             else if (data.type === 'executionLockCleared') {
                 window.isMediaAppActive = false;
-                GameLaunchOverlay.hideExecutionLock();
+                GameLaunchOverlay.hide();
+            }
+            else if (data.type === 'officialReturnToDoorpi') {
+                window._doorpiOfficialReturnSuppressUntil = Date.now() + 2000;
+                window.isMediaAppActive = false;
+                window.isGameLaunchActive = false;
+                window._doorpiGameInputSuppressedUntil = 0;
+                GameLaunchOverlay.hide();
             }
             else if (data.type === 'userSwitchStart') {
                 _userSwitchFadeOut();
@@ -874,18 +899,24 @@
             }
 
             else if (data.type === 'gameLaunchFailed') {
-                window._isExternalAppRunning = false; // Falhou, pode desmutar
+                const shouldMuteDoorpiAudio = _readDoorpiAudioMuteFlag(
+                    data,
+                    window.DoorpiRuntimeState.running.length > 0
+                );
                 window.isGameLaunchActive = false;
                 window._doorpiGameInputSuppressedUntil = 0;
                 window.isMediaAppActive = false;
                 GameLaunchOverlay.setError(data.gameName, data.reason);
-                if (window._isDoorpiFocused) {
-                    window._startSystemAudio(true);
-                }
+                window._syncSystemAudioFromRuntime(shouldMuteDoorpiAudio);
             }
             else if (data.type === 'gameLaunchDone') {
                 window.isGameLaunchActive = false;
                 window._doorpiGameInputSuppressedUntil = 0;
+                const shouldMuteDoorpiAudio = _readDoorpiAudioMuteFlag(
+                    data,
+                    window.DoorpiRuntimeState.running.length > 0
+                );
+                window._syncSystemAudioFromRuntime(shouldMuteDoorpiAudio);
                 const launchOverlay = document.getElementById('gameLaunchOverlay');
                 if (!launchOverlay?.classList.contains('execution-lock-visible')) {
                     GameLaunchOverlay.hide();
@@ -4576,6 +4607,11 @@ function renderFolderList(folders) {
         function showExecutionLock(data = {}) {
             if (overlay._waitTimer) clearTimeout(overlay._waitTimer);
             const name = data.name || data.gameName || '';
+            const hasContext = name || data.id || data.url;
+            if (!hasContext || Date.now() < (window._doorpiOfficialReturnSuppressUntil || 0)) {
+                hide();
+                return;
+            }
 
             nameEl.textContent = name;
             statusEl.textContent = 'EM EXECUÇÃO';

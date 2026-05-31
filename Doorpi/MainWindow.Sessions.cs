@@ -78,6 +78,7 @@ namespace Doorpi
         private string _executionLockUrl = "";
         private string _executionLockAppType = "";
         private CancellationTokenSource? _executionLockFocusCts;
+        private long _executionLockSuppressUntilUtcTicks;
 
         private GameWindowSession EnsureGameSession()
             => _gameSession ??= new GameWindowSession();
@@ -152,6 +153,35 @@ namespace Doorpi
 
             return game || exe || web || store;
         }
+
+        private bool HasAnyBlockingExternalSession()
+        {
+            bool game = _gameSession is { Active: true } && !_gameIsMinimized;
+
+            bool exe = false;
+            foreach (var session in _executableAppSessions.Values)
+            {
+                if (session.Process != null &&
+                    !SafeHasExited(session.Process) &&
+                    !session.DoorpiSuspended)
+                {
+                    exe = true;
+                    break;
+                }
+            }
+
+            bool web = _webAppSession is { Window: not null } &&
+                       _webAppWindow?.WindowState != WindowState.Minimized;
+
+            bool store = _isStoreLauncherSession &&
+                         !_storePausedByDoorpi &&
+                         IsActiveStoreLauncherProcessAlive();
+
+            return game || exe || web || store;
+        }
+
+        private bool ShouldMuteDoorpiAudio()
+            => HasAnyPendingSession();
 
         private void ClearGameWindowSession()
         {

@@ -156,7 +156,7 @@ namespace Doorpi
 
                             if (_webAppWindow != null)
                                 _webAppWindow.WindowState = WindowState.Minimized;
-                            ForceFocus();
+                            FocusDoorpiKeepSession();
                         });
                         prevButtons = btn;
                         Thread.Sleep(100);
@@ -1214,7 +1214,7 @@ namespace Doorpi
                     if (_webAppWindow.WindowState == WindowState.Minimized && !_ytClosing)
                     {
                         StopMediaControllerMode();
-                        Dispatcher.Invoke(() => ForceFocus());
+                        Dispatcher.Invoke(() => FocusDoorpiKeepSession());
                     }
                 };
 
