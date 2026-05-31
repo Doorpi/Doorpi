@@ -129,6 +129,16 @@ namespace Doorpi
                     ushort btn = gp.wButtons;
                     long nowMs = Environment.TickCount64;
 
+                    // Nunca manter emulação de mouse/teclado ativa quando nenhuma janela
+                    // do Doorpi está em foco (ex.: jogo em primeiro plano).
+                    // Isso evita input duplicado ao alternar WebApp -> Jogo.
+                    if (!IsForegroundOwnedByProcess(Environment.ProcessId))
+                    {
+                        prevButtons = btn;
+                        Thread.Sleep(25);
+                        continue;
+                    }
+
                     bool Pressed(ushort m) => (btn & m) != 0 && (prevButtons & m) == 0;
                     bool Held(ushort m) => (btn & m) != 0;
 
@@ -1416,6 +1426,11 @@ namespace Doorpi
             if (_ytClosing || _ytWebView == null) return;
             _ytClosing = true;
 
+            bool shouldFinalizeStoreFromThisWebClose =
+                !skipStoreCompletion &&
+                _isStoreLauncherSession &&
+                string.Equals(_storeSessionKind, "web", StringComparison.OrdinalIgnoreCase);
+
             StopMediaControllerMode();
             _vkbIsOpen = false;
             _vkbOwnerView = null;
@@ -1453,7 +1468,8 @@ namespace Doorpi
             webView.CoreWebView2?.PostWebMessageAsString("{\"type\":\"mediaAppClosed\"}");
             SendRuntimeSessionsToUI();
 
-            if (!skipStoreCompletion && _isStoreLauncherSession)
+            // Só fecha sessão de loja quando a própria loja está rodando em modo web.
+            if (shouldFinalizeStoreFromThisWebClose)
                 FinalizeStoreSessionFromWebClose();
         }
 
