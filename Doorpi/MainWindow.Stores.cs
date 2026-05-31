@@ -33,6 +33,7 @@ namespace Doorpi
         private bool _storeChildGameActive;
         private string _storeChildGameStoreId = "";
         private string _storeChildGameId = "";
+        private long _storeChildDetectionSuppressUntilUtcTicks;
         private readonly object _storeLibraryMonitorLock = new();
         private int _storeArtworkRefreshRunning;
         private string storesFile = "";
@@ -554,11 +555,16 @@ namespace Doorpi
 
                         if (!_isStoreLauncherSession ||
                             !string.Equals(_activeStoreId, storeId, StringComparison.OrdinalIgnoreCase) ||
+                            _storePausedByDoorpi ||
+                            string.Equals(_gameSessionParentKind, "doorpi", StringComparison.OrdinalIgnoreCase) ||
                             (_gameSessionActive && !_storeChildGameActive) ||
                             (_storeChildGameActive && !string.IsNullOrWhiteSpace(_lockedGameProcessName)))
                         {
                             continue;
                         }
+
+                        if (DateTime.UtcNow.Ticks < Interlocked.Read(ref _storeChildDetectionSuppressUntilUtcTicks))
+                            continue;
 
                         var candidate = FindStoreChildGameCandidate(storeId);
                         if (candidate != null)
@@ -928,6 +934,23 @@ namespace Doorpi
                 : candidate.Game.Path;
             if (string.IsNullOrWhiteSpace(gameId)) return;
 
+            // Nunca reclassificar sessão já assumida pelo Doorpi.
+            if (string.Equals(_gameSessionParentKind, "doorpi", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            // Se a loja está pausada pelo Doorpi, ela não pode "capturar" contexto.
+            if (_storePausedByDoorpi)
+                return;
+
+            // Só permitimos takeover da loja quando não existe jogo ativo
+            // ou quando já estamos promovendo uma cadeia que era da própria loja.
+            bool hasNonStoreOwnedActiveGame =
+                _gameSessionActive &&
+                !string.IsNullOrWhiteSpace(_activeSessionGameId) &&
+                !string.Equals(_gameSessionParentKind, "store", StringComparison.OrdinalIgnoreCase);
+            if (hasNonStoreOwnedActiveGame)
+                return;
+
             bool promotingLauncherForSameGame =
                 _storeChildGameActive &&
                 _gameSessionActive &&
@@ -968,6 +991,7 @@ namespace Doorpi
             _lastVisibleWindowBeforeMinimize = IntPtr.Zero;
             _lockedGameProcessName = candidate.ProcessName;
             _activeSessionGameId = gameId;
+            _gameSessionParentKind = "store";
             _sessionStartUtc = DateTime.UtcNow;
 
             DiscordRpcManager.Instance.UpdateState("game", candidate.Game.Name);
@@ -993,6 +1017,14 @@ namespace Doorpi
                 : candidate.Game.Path;
             if (string.IsNullOrWhiteSpace(gameId)) return;
 
+            // Nunca reclassificar sessão já assumida pelo Doorpi.
+            if (string.Equals(_gameSessionParentKind, "doorpi", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            // Se a loja está pausada pelo Doorpi, ela não pode "capturar" contexto.
+            if (_storePausedByDoorpi)
+                return;
+
             Process? launcherProcess = null;
             try { launcherProcess = Process.GetProcessById(candidate.ProcessId); } catch { }
 
@@ -1013,6 +1045,7 @@ namespace Doorpi
             _pendingLaunchProcess = launcherProcess;
             _lockedGameProcessName = "";
             _activeSessionGameId = gameId;
+            _gameSessionParentKind = "store";
             _sessionStartUtc = DateTime.UtcNow;
 
             DiscordRpcManager.Instance.UpdateState("game", candidate.Game.Name);
@@ -1063,7 +1096,9 @@ namespace Doorpi
                 int missingChecks = 0;
                 bool launchDoneSent = _currentGameHwnd != IntPtr.Zero;
 
-                while (!token.IsCancellationRequested && _storeChildGameActive)
+                while (!token.IsCancellationRequested &&
+                       _storeChildGameActive &&
+                       string.Equals(_gameSessionParentKind, "store", StringComparison.OrdinalIgnoreCase))
                 {
                     if (_gameIsMinimized)
                     {
@@ -1148,7 +1183,11 @@ namespace Doorpi
 
         private void HandleStoreChildGameClosed(GameModel game)
         {
-            if (!_storeChildGameActive) return;
+            if (!_storeChildGameActive ||
+                !string.Equals(_gameSessionParentKind, "store", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
 
             string storeId = _storeChildGameStoreId;
 
@@ -1159,6 +1198,9 @@ namespace Doorpi
             // NOVO: suprime qualquer execution lock por 5s enquanto a loja retoma
             Interlocked.Exchange(ref _executionLockSuppressUntilUtcTicks,
                 DateTime.UtcNow.AddSeconds(5).Ticks);
+            // Evita redetectar launcher/jogo enquanto a loja retoma e estabiliza.
+            Interlocked.Exchange(ref _storeChildDetectionSuppressUntilUtcTicks,
+                DateTime.UtcNow.AddSeconds(4).Ticks);
 
             CommitActiveSession();
             ClearGameWindowSession();
@@ -1181,16 +1223,24 @@ namespace Doorpi
 
         private bool IsActiveGameFromStoreChild(string id)
             => _storeChildGameActive &&
+               string.Equals(_gameSessionParentKind, "store", StringComparison.OrdinalIgnoreCase) &&
                !string.IsNullOrWhiteSpace(id) &&
                string.Equals(_storeChildGameId, id, StringComparison.OrdinalIgnoreCase);
 
         private bool IsStoreChildGameBlockingStoreControls()
-            => _storeChildGameActive && _gameSessionActive && !_gameIsMinimized;
+            => _storeChildGameActive &&
+               string.Equals(_gameSessionParentKind, "store", StringComparison.OrdinalIgnoreCase) &&
+               _gameSessionActive &&
+               !_gameIsMinimized;
 
         private void MarkStorePausedBecauseChildGameReturnedToDoorpi()
         {
-            if (_storeChildGameActive && _isStoreLauncherSession)
+            if (_storeChildGameActive &&
+                _isStoreLauncherSession &&
+                string.Equals(_gameSessionParentKind, "store", StringComparison.OrdinalIgnoreCase))
+            {
                 _storePausedByDoorpi = true;
+            }
         }
 
         private bool IsActiveStoreLauncherProcessAlive()
@@ -1482,7 +1532,7 @@ namespace Doorpi
             return true;
         }
 
-        private void EnterStoreExeMode(Process proc, string appName, string heroImg, string gridImg)
+        private void EnterStoreExeMode(Process proc, string appName, string heroImg, string gridImg, bool showLaunchOverlay = true)
         {
             string url = _storeLauncherExe ?? appName;
             var store = LoadStoreLaunchers().FirstOrDefault(s =>
@@ -1499,7 +1549,10 @@ namespace Doorpi
             var watcherCts = _storeLauncherWatcherCts;
             var watcherToken = watcherCts?.Token ?? CancellationToken.None;
 
-            SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg);
+            if (showLaunchOverlay)
+                SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg);
+            else
+                SendGameLaunchStatus("gameLaunchDone");
             _ = Task.Run(async () =>
             {
                 await TryMaximizeExternalWindowAsync(
@@ -1507,7 +1560,7 @@ namespace Doorpi
                     url,
                     watcherToken,
                     requireControllerActive: false).ConfigureAwait(false);
-                if (!watcherToken.IsCancellationRequested)
+                if (!watcherToken.IsCancellationRequested && showLaunchOverlay)
                     SendGameLaunchStatus("gameLaunchDone");
             });
 
@@ -1539,6 +1592,13 @@ namespace Doorpi
                            _isStoreLauncherSession &&
                            _storeSessionId == sessionId)
                     {
+                        if (_gameSessionActive &&
+                            string.Equals(_gameSessionParentKind, "doorpi", StringComparison.OrdinalIgnoreCase))
+                        {
+                            await Task.Delay(250, token).ConfigureAwait(false);
+                            continue;
+                        }
+
                         if (_storePausedByDoorpi || IsStoreChildGameBlockingStoreControls())
                         {
                             await Task.Delay(250, token).ConfigureAwait(false);
@@ -1661,6 +1721,11 @@ namespace Doorpi
         private void ResumeStoreSession()
         {
             if (!_isStoreLauncherSession) return;
+            if (_gameSessionActive &&
+                string.Equals(_gameSessionParentKind, "doorpi", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
             if (_storeChildGameActive && _gameSessionActive && !_gameIsMinimized) return;
 
             _storePausedByDoorpi = false;
@@ -1718,7 +1783,7 @@ namespace Doorpi
                     FocusExternalWindow(hwnd);
 
                     var card = LoadStoreLaunchers().FirstOrDefault(s => s.Id == _activeStoreId);
-                    EnterStoreExeMode(proc, card?.Name ?? "Loja", card?.HeroImage ?? "", card?.GridImage ?? "");
+                    EnterStoreExeMode(proc, card?.Name ?? "Loja", card?.HeroImage ?? "", card?.GridImage ?? "", showLaunchOverlay: false);
                     return;
                 }
 
@@ -1748,7 +1813,7 @@ namespace Doorpi
             FocusExternalWindow(hwnd);
 
             var card = LoadStoreLaunchers().FirstOrDefault(s => s.Id == _activeStoreId);
-            EnterStoreExeMode(proc, card?.Name ?? "Loja", card?.HeroImage ?? "", card?.GridImage ?? "");
+            EnterStoreExeMode(proc, card?.Name ?? "Loja", card?.HeroImage ?? "", card?.GridImage ?? "", showLaunchOverlay: false);
         }
 
         private async Task ResumeSteamStoreWindowAsync()
@@ -1810,6 +1875,11 @@ namespace Doorpi
         {
             if (!_isStoreLauncherSession || _storePausedByDoorpi || IsStoreChildGameBlockingStoreControls())
                 return;
+            if (_gameSessionActive &&
+                string.Equals(_gameSessionParentKind, "doorpi", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
 
             var store = LoadStoreLaunchers().FirstOrDefault(s =>
                 string.Equals(s.Id, _activeStoreId, StringComparison.OrdinalIgnoreCase));

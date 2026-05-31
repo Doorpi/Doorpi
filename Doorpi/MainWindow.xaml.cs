@@ -396,25 +396,25 @@ namespace Doorpi
                     _backgroundAppMonitorCts?.Cancel();
                 }
 
+                if (_gameSessionActive &&
+                    !_gameIsMinimized &&
+                    !string.IsNullOrWhiteSpace(_activeSessionGameId))
+                {
+                    ShowExecutionLockForGame();
+                    SendRuntimeSessionsToUI();
+                    return;
+                }
+
                 if (!_executionLockActive &&
                     _isStoreLauncherSession &&
+                    !(_gameSessionActive &&
+                      string.Equals(_gameSessionParentKind, "doorpi", StringComparison.OrdinalIgnoreCase)) &&
                     !_storePausedByDoorpi &&
                     !IsStoreChildGameBlockingStoreControls() &&
                     IsActiveStoreLauncherProcessAlive())
                 {
                     ScheduleStoreExecutionLockIfDoorpiStillForeground();
                     return;
-                }
-
-                if (_gameSessionActive)
-                {
-                    if (_gameIsRunningAndDoorpiHidden && !_gameIsMinimized
-                        && (IsLockedGameProcessAlive() || IsPendingLaunchProcessAlive())) 
-                    {
-                        ShowExecutionLockForGame();
-                        SendRuntimeSessionsToUI();
-                        return;
-                    }
                 }
 
                 if (!_executionLockActive &&
@@ -3549,6 +3549,9 @@ namespace Doorpi
             try
             {
                 var running = new List<object>();
+                bool hasDoorpiParentActiveGame =
+                    _gameSession is { Active: true } &&
+                    string.Equals(_gameSessionParentKind, "doorpi", StringComparison.OrdinalIgnoreCase);
 
                 if (_gameSession is { Active: true } && !string.IsNullOrWhiteSpace(_activeSessionGameId))
                 {
@@ -3587,7 +3590,9 @@ namespace Doorpi
                     });
                 }
 
-                if (_isStoreLauncherSession && !string.IsNullOrWhiteSpace(_activeStoreId))
+                if (!hasDoorpiParentActiveGame &&
+                    _isStoreLauncherSession &&
+                    !string.IsNullOrWhiteSpace(_activeStoreId))
                 {
                     running.Add(new
                     {
@@ -3619,7 +3624,9 @@ namespace Doorpi
                 if (!string.IsNullOrWhiteSpace(id) &&
                     string.Equals(_activeSessionGameId, id, StringComparison.OrdinalIgnoreCase))
                 {
-                    bool wasStoreChildGame = IsActiveGameFromStoreChild(id);
+                    bool isDoorpiOwnedGame =
+                        string.Equals(_gameSessionParentKind, "doorpi", StringComparison.OrdinalIgnoreCase);
+                    bool wasStoreChildGame = !isDoorpiOwnedGame && IsActiveGameFromStoreChild(id);
 
                     try
                     {
@@ -3826,6 +3833,7 @@ namespace Doorpi
                         hasLiveExternalSession = shouldMuteDoorpiAudio,
                         shouldMuteDoorpiAudio
                     }));
+                try { webView?.CoreWebView2?.PostWebMessageAsString("{\"type\":\"officialReturnToDoorpi\"}"); } catch { }
                 SendRuntimeSessionsToUI();
                 DiscordRpcManager.Instance.UpdateState("menu");
 
@@ -4537,9 +4545,6 @@ namespace Doorpi
                 return;
             }
 
-            if (kind == "game" && _gameIsMinimized)
-                return;
-
             _executionLockActive = true;
             _executionLockKind = kind;
             _executionLockChannel = channel;
@@ -4599,6 +4604,11 @@ namespace Doorpi
         {
             if (!_isStoreLauncherSession || string.IsNullOrWhiteSpace(_activeStoreId)) return false;
             if (!IsForegroundDoorpi()) return false;
+            if (_gameSessionActive &&
+                string.Equals(_gameSessionParentKind, "doorpi", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
 
             var store = LoadStoreLaunchers().FirstOrDefault(s => string.Equals(s.Id, _activeStoreId, StringComparison.OrdinalIgnoreCase));
             ShowExecutionLock(
@@ -4619,7 +4629,12 @@ namespace Doorpi
             {
                 await Task.Delay(250);
 
+                bool hasDoorpiParentActiveGame =
+                    _gameSessionActive &&
+                    string.Equals(_gameSessionParentKind, "doorpi", StringComparison.OrdinalIgnoreCase);
+
                 if (_executionLockActive ||
+                    hasDoorpiParentActiveGame ||
                     !_isStoreLauncherSession ||
                     _storePausedByDoorpi ||
                     IsStoreChildGameBlockingStoreControls() ||
@@ -4654,6 +4669,12 @@ namespace Doorpi
 
         private bool ShowExecutionLockForCurrentSession()
         {
+            if (_gameSessionActive && !string.IsNullOrWhiteSpace(_activeSessionGameId))
+                return ShowExecutionLockForGame();
+
+            if (_mediaExeProcess != null && !SafeHasExited(_mediaExeProcess))
+                return ShowExecutionLockForMediaExe();
+
             if (_isStoreLauncherSession &&
                 !_storePausedByDoorpi &&
                 !IsStoreChildGameBlockingStoreControls() &&
@@ -4662,13 +4683,72 @@ namespace Doorpi
                 return ShowExecutionLockForStore();
             }
 
-            if (_gameSessionActive && !_gameIsMinimized && !string.IsNullOrWhiteSpace(_activeSessionGameId))
-                return ShowExecutionLockForGame();
-
-            if (_mediaExeProcess != null && !SafeHasExited(_mediaExeProcess))
-                return ShowExecutionLockForMediaExe();
-
             return false;
+        }
+
+        private void RequestExecutionLockFromRuntime(string kind, string channel, string id, string url)
+        {
+            if (DateTime.UtcNow.Ticks < Interlocked.Read(ref _executionLockSuppressUntilUtcTicks))
+                return;
+
+            // Prioridade absoluta: se existe sessão de jogo ativa em primeiro plano lógico,
+            // sempre usar o contexto do jogo (mesmo que o runtime candidate venha da loja).
+            if (_gameSessionActive &&
+                !string.IsNullOrWhiteSpace(_activeSessionGameId))
+            {
+                ShowExecutionLockForGame();
+                return;
+            }
+
+            if (_executionLockActive)
+                return;
+
+            bool wantsGame = string.Equals(kind, "game", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(channel, "games", StringComparison.OrdinalIgnoreCase);
+            bool wantsStore = string.Equals(kind, "store", StringComparison.OrdinalIgnoreCase) ||
+                              string.Equals(channel, "stores", StringComparison.OrdinalIgnoreCase);
+            bool wantsMedia = string.Equals(channel, "media", StringComparison.OrdinalIgnoreCase) ||
+                              string.Equals(kind, "exe", StringComparison.OrdinalIgnoreCase) ||
+                              string.Equals(kind, "web", StringComparison.OrdinalIgnoreCase);
+
+            if (wantsGame &&
+                _gameSessionActive &&
+                !string.IsNullOrWhiteSpace(_activeSessionGameId))
+            {
+                ShowExecutionLockForGame();
+                return;
+            }
+
+            if (wantsStore &&
+                !(_gameSessionActive &&
+                  string.Equals(_gameSessionParentKind, "doorpi", StringComparison.OrdinalIgnoreCase)) &&
+                _isStoreLauncherSession &&
+                !_storePausedByDoorpi &&
+                !IsStoreChildGameBlockingStoreControls() &&
+                IsActiveStoreLauncherProcessAlive())
+            {
+                ShowExecutionLockForStore();
+                return;
+            }
+
+            if (wantsMedia)
+            {
+                if (!string.IsNullOrWhiteSpace(url))
+                {
+                    var session = GetExecutableAppSession(url);
+                    if (session != null)
+                    {
+                        ActivateExecutableAppSession(url);
+                        if (ShowExecutionLockForMediaExe()) return;
+                    }
+                }
+
+                if (_mediaExeProcess != null && !SafeHasExited(_mediaExeProcess) && ShowExecutionLockForMediaExe())
+                    return;
+            }
+
+            // Fallback resiliente: tenta a sessão ativa conhecida.
+            ShowExecutionLockForCurrentSession();
         }
 
         private IntPtr ResolveCurrentGameWindow()
@@ -4789,11 +4869,27 @@ namespace Doorpi
 
         private void CloseExecutionLockSession()
         {
+            string kind = _executionLockKind;
             string id = _executionLockId;
             string url = _executionLockUrl;
             string channel = _executionLockChannel;
             string appType = _executionLockAppType;
             ClearExecutionLock();
+
+            // Blindagem: sessão de jogo com pai Doorpi nunca pode ser fechada
+            // por contexto de loja que tenha "vazado" para o lock atual.
+            if (_gameSessionActive &&
+                string.Equals(_gameSessionParentKind, "doorpi", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(_activeSessionGameId) &&
+                !string.Equals(kind, "game", StringComparison.OrdinalIgnoreCase))
+            {
+                kind = "game";
+                channel = "games";
+                appType = "game";
+                id = _activeSessionGameId;
+                url = "";
+            }
+
             CloseRunningItem(id, url, channel, appType);
         }
 
@@ -8623,6 +8719,14 @@ namespace Doorpi
                 {
                     await Dispatcher.InvokeAsync(CloseExecutionLockSession);
                 }
+                else if (action == "requestExecutionLockFromRuntime")
+                {
+                    string kind = GetStr(root, "kind");
+                    string channel = GetStr(root, "channel");
+                    string id = GetStr(root, "id");
+                    string url = GetStr(root, "url");
+                    await Dispatcher.InvokeAsync(() => RequestExecutionLockFromRuntime(kind, channel, id, url));
+                }
 
                 else if (action == "pickFolderForSetup")
                 {
@@ -9144,6 +9248,11 @@ namespace Doorpi
 
                     // 2. AVISA O WATCHDOG PARA NÃO INTERFERIR ANTES MESMO DO JOGO ABRIR
                     _gameSessionActive = true;
+                    _activeSessionGameId = identifier;
+                    _gameSessionParentKind = "doorpi";
+                    _storeChildGameActive = false;
+                    _storeChildGameStoreId = "";
+                    _storeChildGameId = "";
                     SuspendMainUiGamepadForGameLaunch();
 
                     var processSnapshot = SnapshotProcessIds();
@@ -9270,9 +9379,8 @@ namespace Doorpi
                             if (launchAttempted)
                             {
                                 _pendingLaunchProcess = launched;
-                                StartGameLaunchMonitor(game, launched, processSnapshot);
                                 _sessionStartUtc = DateTime.UtcNow;
-                                _activeSessionGameId = identifier;
+                                StartGameLaunchMonitor(game, launched, processSnapshot);
                                 Dispatcher.Invoke(() =>
                                 {
                                     EnsureCursorVisible();
@@ -9749,7 +9857,12 @@ namespace Doorpi
                                             (DateTime.UtcNow.Ticks - Interlocked.Read(ref _focusRestoredAtTicks))
                                             < TimeSpan.FromSeconds(2).Ticks;
 
-                    bool isLaunchingOrRunning = (_gameSessionActive && !_gameIsMinimized) || _mediaExeModeActive || _launcherMouseActive || _systemControllerActive || IsMainUiGamepadSuspendedForGame();
+                    bool isLaunchingOrRunning = (_gameSessionActive && !_gameIsMinimized)
+                        || _executionLockActive
+                        || _mediaExeModeActive
+                        || _launcherMouseActive
+                        || _systemControllerActive
+                        || IsMainUiGamepadSuspendedForGame();
 
                     if (_systemControllerActive || _dialogModeActive || _launcherMouseActive || !foregroundOk || isLaunchingOrRunning)
                     {

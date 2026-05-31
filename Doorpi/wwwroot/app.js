@@ -257,6 +257,8 @@
     window.DoorpiRuntimeState = {
         running: []
     };
+    window._lastExecutionLockData = null;
+    window._executionLockRequestUntil = 0;
 
     function _runtimeCardKey(card) {
         if (!card) return '';
@@ -314,6 +316,223 @@
     function refreshRuntimeCards() {
 
         document.querySelectorAll('.card:not(.add-card), .nav-vertical-card').forEach(card => window.applyRuntimeStateToCard(card));
+    }
+
+    function _escapeForSelector(value) {
+        const raw = String(value ?? '');
+        if (!raw) return '';
+        if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(raw);
+        return raw.replace(/["\\]/g, '\\$&');
+    }
+
+    function _runtimeCardFromEntry(entry) {
+        if (!entry) return null;
+        const selectors = [];
+        if (entry.id) {
+            const sid = _escapeForSelector(entry.id);
+            selectors.push(`.card[data-game-id="${sid}"]`, `.card[data-app-id="${sid}"]`, `.nav-vertical-card[data-game-id="${sid}"]`, `.nav-vertical-card[data-app-id="${sid}"]`);
+        }
+        if (entry.url) {
+            const surl = _escapeForSelector(entry.url);
+            selectors.push(`.card[data-app-url="${surl}"]`, `.nav-vertical-card[data-app-url="${surl}"]`);
+        }
+        for (const selector of selectors) {
+            const card = document.querySelector(selector);
+            if (card) return card;
+        }
+        return null;
+    }
+
+    function _runtimeEntryPriority(entry) {
+        if (!entry) return -9999;
+        let score = 0;
+        if (entry.status === 'active') score += 120;
+        else if (entry.status === 'running') score += 80;
+        else if (entry.status === 'minimized') score -= 40;
+
+        if (entry.channel === 'games') score += 300;
+        else if (entry.channel === 'stores') score += 180;
+        else if (entry.channel === 'media') score += 120;
+
+        if (entry.kind === 'game') score += 120;
+        else if (entry.kind === 'store') score += 80;
+        else if (entry.kind === 'exe') score += 60;
+        else if (entry.kind === 'web') score += 40;
+        return score;
+    }
+
+    function _buildExecutionLockDataFromRuntimeEntry(entry) {
+        if (!entry) return null;
+        const card = _runtimeCardFromEntry(entry);
+        const nameFromCard = card?.querySelector('.title, .nav-vertical-card-title')?.textContent?.trim() || '';
+        const resolvedId = entry.id || card?.dataset?.gameId || card?.dataset?.appId || '';
+        const resolvedUrl = entry.url || card?.dataset?.appUrl || '';
+        const name =
+            nameFromCard ||
+            (entry.channel === 'games' ? 'Jogo em execução'
+                : entry.channel === 'stores' ? 'Loja em execução'
+                    : 'Sessão em execução');
+
+        // Sem alvo acionável (id/url), não promovemos para evitar overlay "órfão".
+        if (!resolvedId && !resolvedUrl) return null;
+
+        return {
+            kind: entry.kind || '',
+            channel: entry.channel || '',
+            id: resolvedId,
+            url: resolvedUrl,
+            appType: entry.channel === 'games' ? 'game' : (entry.kind || ''),
+            name,
+            heroImage: card?.dataset?.staticHero || card?.dataset?.hero || '',
+            gridImage: card?.dataset?.staticVertical || card?.dataset?.vertical || card?.dataset?.staticHorizontal || card?.dataset?.horizontal || ''
+        };
+    }
+
+    function _nonMinimizedRuntimeEntries() {
+        return (Array.isArray(window.DoorpiRuntimeState?.running) ? window.DoorpiRuntimeState.running : [])
+            .filter(entry => entry && entry.status !== 'minimized');
+    }
+
+    function _findRuntimeEntryForLockTarget(target) {
+        const entries = _nonMinimizedRuntimeEntries();
+        if (!entries.length) return null;
+
+        const byId = entries.find(entry => target.id && entry.id && entry.id === target.id);
+        if (byId) return byId;
+
+        const byUrl = entries.find(entry => target.url && entry.url && entry.url === target.url);
+        if (byUrl) return byUrl;
+
+        const byKindAndChannel = entries.find(entry =>
+            (!target.kind || entry.kind === target.kind) &&
+            (!target.channel || entry.channel === target.channel));
+        if (byKindAndChannel) return byKindAndChannel;
+
+        return entries
+            .slice()
+            .sort((a, b) => _runtimeEntryPriority(b) - _runtimeEntryPriority(a))[0] || null;
+    }
+
+    function _hydrateExecutionLockPayload(raw) {
+        const payload = {
+            kind: raw.kind || '',
+            channel: raw.channel || '',
+            id: raw.id || '',
+            url: raw.url || '',
+            appType: raw.appType || '',
+            name: raw.name || raw.gameName || '',
+            heroImage: raw.heroImage || '',
+            gridImage: raw.gridImage || ''
+        };
+        const fallbackName =
+            payload.kind === 'game' || payload.channel === 'games' ? 'Jogo em execução' :
+                payload.kind === 'store' || payload.channel === 'stores' ? 'Loja em execução' :
+                    'Sessão em execução';
+
+        const needsVisualContext = !payload.name || (!payload.heroImage && !payload.gridImage);
+        if (!needsVisualContext) return payload;
+
+        const matchedEntry = _findRuntimeEntryForLockTarget(payload);
+        const fromRuntime = _buildExecutionLockDataFromRuntimeEntry(matchedEntry);
+        if (!fromRuntime) {
+            if (!payload.name) payload.name = fallbackName;
+            return payload;
+        }
+
+        return {
+            kind: payload.kind || fromRuntime.kind || '',
+            channel: payload.channel || fromRuntime.channel || '',
+            id: payload.id || fromRuntime.id || '',
+            url: payload.url || fromRuntime.url || '',
+            appType: payload.appType || fromRuntime.appType || '',
+            name: payload.name || fromRuntime.name || fallbackName,
+            heroImage: payload.heroImage || fromRuntime.heroImage || '',
+            gridImage: payload.gridImage || fromRuntime.gridImage || ''
+        };
+    }
+
+    function _tryPromoteRuntimeToExecutionLock(force = false) {
+        if (typeof postToHost !== 'function') return false;
+        const launchOverlay = document.getElementById('gameLaunchOverlay');
+        if (!launchOverlay) return false;
+        if (!force && launchOverlay.classList.contains('execution-lock-visible')) return false;
+        if (Date.now() < (window._executionLockRequestUntil || 0)) return false;
+
+        const candidates = _nonMinimizedRuntimeEntries();
+        if (!candidates.length) return false;
+
+        const candidate = candidates
+            .slice()
+            .sort((a, b) => _runtimeEntryPriority(b) - _runtimeEntryPriority(a))[0];
+        let data = _buildExecutionLockDataFromRuntimeEntry(candidate);
+        if (!data || (!data.name && !data.id && !data.url)) return false;
+
+        window._executionLockRequestUntil = Date.now() + 220;
+        postToHost({
+            action: 'requestExecutionLockFromRuntime',
+            kind: data.kind || '',
+            channel: data.channel || '',
+            id: data.id || '',
+            url: data.url || ''
+        });
+        return true;
+    }
+
+    function _hasAnyRuntimeSession() {
+        return _nonMinimizedRuntimeEntries().length > 0;
+    }
+
+    function _hasActiveGameRuntimeSession() {
+        return _nonMinimizedRuntimeEntries().some(entry =>
+            entry &&
+            (entry.channel === 'games' || entry.kind === 'game') &&
+            (entry.status === 'running' || entry.status === 'active'));
+    }
+
+    function _shouldKeepExecutionOverlay() {
+        if (Date.now() < (window._doorpiOfficialReturnSuppressUntil || 0)) return false;
+        return _hasAnyRuntimeSession();
+    }
+
+    function _ensureExecutionOverlayForActiveSession() {
+        if (typeof GameLaunchOverlay === 'undefined') return false;
+        const launchOverlay = document.getElementById('gameLaunchOverlay');
+        const isVisibleExecution = !!(launchOverlay &&
+            launchOverlay.classList.contains('visible') &&
+            launchOverlay.classList.contains('execution-lock-visible'));
+        if (isVisibleExecution) {
+            if (!_hasAnyRuntimeSession()) {
+                GameLaunchOverlay.hide();
+                return false;
+            }
+            return _tryPromoteRuntimeToExecutionLock(true);
+        }
+        return _tryPromoteRuntimeToExecutionLock();
+    }
+
+    function _isExecutionOverlayVisible() {
+        const launchOverlay = document.getElementById('gameLaunchOverlay');
+        return !!(launchOverlay &&
+            launchOverlay.classList.contains('visible') &&
+            launchOverlay.classList.contains('execution-lock-visible'));
+    }
+
+    function _isWaitingForValidGameWindowOverlayVisible() {
+        const launchOverlay = document.getElementById('gameLaunchOverlay');
+        if (!launchOverlay) return false;
+        if (!launchOverlay.classList.contains('visible')) return false;
+        if (!launchOverlay.classList.contains('state-loading')) return false;
+        // A tela "aguardando janela do jogo" só aparece quando o botão de cancelar já foi liberado.
+        const cancelBtn = document.getElementById('overlayCancelLaunchBtn');
+        return !!(cancelBtn && cancelBtn.style.display !== 'none');
+    }
+
+    function _isAnyLaunchLoadingOverlayVisible() {
+        const launchOverlay = document.getElementById('gameLaunchOverlay');
+        if (!launchOverlay) return false;
+        if (!launchOverlay.classList.contains('visible')) return false;
+        if (launchOverlay.classList.contains('execution-lock-visible')) return false;
+        return launchOverlay.classList.contains('state-loading');
     }
 
     // ── TRAVA DE SEGURANÇA DA INTRO ────────────────────────────────────────
@@ -617,6 +836,15 @@
                 window._doorpiGameInputSuppressedUntil = 0;
                 window.isMediaAppActive = false;
                 window.isStoreSessionActive = false;
+                const launchOverlay = document.getElementById('gameLaunchOverlay');
+                const isExecutionLockVisible = !!(launchOverlay &&
+                    launchOverlay.classList.contains('visible') &&
+                    launchOverlay.classList.contains('execution-lock-visible'));
+                const isTransientLaunchOverlayVisible = !!(launchOverlay &&
+                    launchOverlay.classList.contains('visible') &&
+                    !isExecutionLockVisible);
+                const isWaitingForValidGameWindowVisible = _isWaitingForValidGameWindowOverlayVisible();
+                const isAnyLaunchLoadingVisible = _isAnyLaunchLoadingOverlayVisible();
 
                 const shouldMuteDoorpiAudio = _readDoorpiAudioMuteFlag(data);
 
@@ -625,6 +853,13 @@
                     data.hasLiveExternalSession !== undefined ||
                     data.shouldMuteDoorpiAudio !== undefined) {
                     window._isExternalAppRunning = shouldMuteDoorpiAudio;
+                }
+
+                if (isExecutionLockVisible) {
+                    window._isExternalAppRunning = true;
+                }
+                if (isWaitingForValidGameWindowVisible) {
+                    window._isExternalAppRunning = true;
                 }
 
                 window._isDoorpiFocused = true;
@@ -636,10 +871,47 @@
 
                 if (window._isExternalAppRunning) {
                     window._stopSystemAudio();
+                    if (isAnyLaunchLoadingVisible) {
+                        return;
+                    }
+                    if (isTransientLaunchOverlayVisible && _tryPromoteRuntimeToExecutionLock()) {
+                        return;
+                    }
 
                 } else {
+                    // Gap de transição: se houver sessão ativa, sobe direto para EM EXECUÇÃO
+                    // em vez de esconder o overlay no retorno de foco.
+                    if (!isAnyLaunchLoadingVisible &&
+                        isTransientLaunchOverlayVisible &&
+                        _tryPromoteRuntimeToExecutionLock()) {
+                        window._isExternalAppRunning = true;
+                        window._stopSystemAudio();
+                        return;
+                    }
+                    if (!isAnyLaunchLoadingVisible &&
+                        isTransientLaunchOverlayVisible &&
+                        data.hasBlockingSession === true &&
+                        window._lastExecutionLockData) {
+                        window._executionLockRequestUntil = Date.now() + 220;
+                        postToHost({
+                            action: 'requestExecutionLockFromRuntime',
+                            kind: window._lastExecutionLockData.kind || '',
+                            channel: window._lastExecutionLockData.channel || '',
+                            id: window._lastExecutionLockData.id || '',
+                            url: window._lastExecutionLockData.url || ''
+                        });
+                        window._isExternalAppRunning = true;
+                        window._stopSystemAudio();
+                        return;
+                    }
+                    if ((data.hasBlockingSession === true || _shouldKeepExecutionOverlay()) && _ensureExecutionOverlayForActiveSession()) {
+                        window._isExternalAppRunning = true;
+                        window._stopSystemAudio();
+                        return;
+                    }
+
                     window._startSystemAudio(true);
-                    if (typeof GameLaunchOverlay !== 'undefined') {
+                    if (!isExecutionLockVisible && typeof GameLaunchOverlay !== 'undefined') {
                         GameLaunchOverlay.hide();
                     }
                 }
@@ -666,6 +938,15 @@
                     window.DoorpiRuntimeState.running.length > 0
                 );
                 window._syncSystemAudioFromRuntime(shouldMuteDoorpiAudio);
+                if (!_isAnyLaunchLoadingOverlayVisible() &&
+                    window.isDoorpiFocused &&
+                    _shouldKeepExecutionOverlay()) {
+                    _ensureExecutionOverlayForActiveSession();
+                } else if (!_shouldKeepExecutionOverlay() && _isExecutionOverlayVisible()) {
+                    window.isMediaAppActive = false;
+                    window._lastExecutionLockData = null;
+                    GameLaunchOverlay.hide();
+                }
             }
             else if (data.type === 'windowLostFocus') {
                 window._isDoorpiFocused = false;
@@ -875,20 +1156,55 @@
                     GameLaunchOverlay.hide();
                     return;
                 }
+                const hydrated = _hydrateExecutionLockPayload(data);
+                const launchOverlay = document.getElementById('gameLaunchOverlay');
+                const isVisibleExecution = !!(launchOverlay &&
+                    launchOverlay.classList.contains('visible') &&
+                    launchOverlay.classList.contains('execution-lock-visible'));
+                const hasVisualContext = !!(hydrated.name || hydrated.heroImage || hydrated.gridImage);
+                const hasIdentity = !!(hydrated.id || hydrated.url || hydrated.kind || hydrated.channel);
+                if (isVisibleExecution && !hasVisualContext && hasIdentity && window._lastExecutionLockData) {
+                    return;
+                }
+                const currentLock = window._lastExecutionLockData || {};
+                const currentIsGame = currentLock.channel === 'games' || currentLock.kind === 'game';
+                const incomingIsGame = hydrated.channel === 'games' || hydrated.kind === 'game';
+                if (isVisibleExecution && currentIsGame && !incomingIsGame && _hasActiveGameRuntimeSession()) {
+                    return;
+                }
                 window._isExternalAppRunning = true;
                 window._stopSystemAudio();
                 window.isMediaAppActive = true;
-                GameLaunchOverlay.showExecutionLock(data);
+                window._lastExecutionLockData = {
+                    kind: hydrated.kind || '',
+                    channel: hydrated.channel || '',
+                    id: hydrated.id || '',
+                    url: hydrated.url || '',
+                    appType: hydrated.appType || '',
+                    name: hydrated.name || '',
+                    heroImage: hydrated.heroImage || '',
+                    gridImage: hydrated.gridImage || ''
+                };
+                GameLaunchOverlay.showExecutionLock(hydrated);
             }
             else if (data.type === 'executionLockCleared') {
+                // Nunca manter overlay "órfão": limpa a UI atual e só volta
+                // para EM EXECUÇÃO quando houver nova confirmação oficial do host.
                 window.isMediaAppActive = false;
                 GameLaunchOverlay.hide();
+
+                if (_shouldKeepExecutionOverlay() && _ensureExecutionOverlayForActiveSession()) {
+                    window.isMediaAppActive = true;
+                } else {
+                    window._lastExecutionLockData = null;
+                }
             }
             else if (data.type === 'officialReturnToDoorpi') {
                 window._doorpiOfficialReturnSuppressUntil = Date.now() + 2000;
                 window.isMediaAppActive = false;
                 window.isGameLaunchActive = false;
                 window._doorpiGameInputSuppressedUntil = 0;
+                window._lastExecutionLockData = null;
                 GameLaunchOverlay.hide();
             }
             else if (data.type === 'userSwitchStart') {
@@ -917,6 +1233,10 @@
                     window.DoorpiRuntimeState.running.length > 0
                 );
                 window._syncSystemAudioFromRuntime(shouldMuteDoorpiAudio);
+                if (_shouldKeepExecutionOverlay()) {
+                    _ensureExecutionOverlayForActiveSession();
+                    return;
+                }
                 const launchOverlay = document.getElementById('gameLaunchOverlay');
                 if (!launchOverlay?.classList.contains('execution-lock-visible')) {
                     GameLaunchOverlay.hide();
@@ -4405,23 +4725,29 @@ function renderFolderList(folders) {
                     align-items: center;
                     justify-content: center;
                     gap: 16px;
-                    margin-top: 28px;
+                    width: 100%;
+                    margin-top: 18px;
                     pointer-events: all;
                 }
                 #gameLaunchOverlay.execution-lock-visible #executionLockActions {
                     display: flex;
                 }
+                #gameLaunchOverlay.execution-lock-visible .status-running {
+                    justify-content: center;
+                    min-height: 0;
+                    gap: 0;
+                }
                 #executionLockActions .lock-action {
-                    min-width: 210px;
-                    border: 1px solid rgba(255, 255, 255, 0.14);
+                    min-width: 196px;
+                    border: 1px solid #ffffff;
                     border-bottom: 3px solid rgba(0,0,0,0.32);
                     border-radius: 12px;
-                    background: rgba(255,255,255,0.07);
-                    color: rgba(255,255,255,0.8);
+                    background: #ffffff;
+                    color: #080817;
                     font-family: inherit;
-                    font-size: clamp(0.9rem, 1vw, 1.05rem);
+                    font-size: clamp(0.88rem, 0.95vw, 1rem);
                     font-weight: 700;
-                    padding: 13px 24px;
+                    padding: 12px 22px;
                     outline: none;
                     cursor: pointer;
                     transition: transform .18s ease, background .18s ease, color .18s ease, box-shadow .18s ease;
@@ -4434,9 +4760,15 @@ function renderFolderList(folders) {
                     transform: translateY(-2px) scale(1.04);
                     box-shadow: 0 12px 30px rgba(255,255,255,.22), 0 0 0 2px rgba(255,255,255,.16);
                 }
+                #executionLockActions .lock-action.danger {
+                    background: rgba(255, 77, 94, 0.14);
+                    color: #ff7f8d;
+                    border-color: #ff4d5e;
+                    box-shadow: 0 10px 24px rgba(255,77,94,.12), 0 0 0 1px rgba(255,77,94,.14);
+                }
                 #executionLockActions .lock-action.danger:focus,
                 #executionLockActions .lock-action.danger:hover {
-                    background: #ff4d5e;
+                    background: rgba(255, 77, 94, 0.22);
                     color: #fff;
                     border-color: #ff4d5e;
                     box-shadow: 0 12px 30px rgba(255,77,94,.26), 0 0 0 2px rgba(255,77,94,.16);
@@ -4472,8 +4804,8 @@ function renderFolderList(folders) {
             lockActions = document.createElement('div');
             lockActions.id = 'executionLockActions';
             lockActions.innerHTML = `
-                <button id="executionLockRestore" class="lock-action" data-gamepad-hint="confirm" tabindex="0">Restaurar janela</button>
-                <button id="executionLockClose" class="lock-action danger" data-gamepad-hint="square" tabindex="0">Encerrar processo</button>
+                <button id="executionLockRestore" class="lock-action" tabindex="0">Retomar</button>
+                <button id="executionLockClose" class="lock-action danger" tabindex="0">Fechar processo</button>
             `;
 
             lockActions.querySelector('#executionLockRestore')?.addEventListener('click', () => {
@@ -4483,10 +4815,19 @@ function renderFolderList(folders) {
                 postToHost({ action: 'closeExecutionLock' });
             });
 
-            const statusContainer = statusEl?.parentElement;
-            if (statusContainer) {
-                statusContainer.appendChild(lockActions);
+            const cardContainer = overlay?.querySelector('.overlay-card');
+            if (cardContainer) {
+                cardContainer.appendChild(lockActions);
             }
+        }
+
+        let executionLockFocusTimerA = 0;
+        let executionLockFocusTimerB = 0;
+        function clearExecutionLockFocusTimers() {
+            if (executionLockFocusTimerA) clearTimeout(executionLockFocusTimerA);
+            if (executionLockFocusTimerB) clearTimeout(executionLockFocusTimerB);
+            executionLockFocusTimerA = 0;
+            executionLockFocusTimerB = 0;
         }
 
         // Resolvido a partir de strings.js
@@ -4537,6 +4878,10 @@ function renderFolderList(folders) {
             const text = getI18n();
             nameEl.textContent = gameName || '';
             cancelBtn.innerHTML = `<span>${text.cancel}</span>`;
+
+            // Nunca permitir mistura entre "aguardando janela" e "EM EXECUÇÃO".
+            // Ao iniciar fluxo de launch/loading, sempre sai do modo execution-lock.
+            hideExecutionLock();
 
             if (bg) bg.style.backgroundImage = heroImage ? `url('${heroImage}')` : 'none';
             setArt(gridImage);
@@ -4606,12 +4951,25 @@ function renderFolderList(folders) {
 
         function showExecutionLock(data = {}) {
             if (overlay._waitTimer) clearTimeout(overlay._waitTimer);
-            const name = data.name || data.gameName || '';
+            const fallbackName =
+                data.kind === 'game' || data.channel === 'games' ? 'Jogo em execução' :
+                    data.kind === 'store' || data.channel === 'stores' ? 'Loja em execução' :
+                        'Sessão em execução';
+            const name = data.name || data.gameName || fallbackName;
             const hasContext = name || data.id || data.url;
             if (!hasContext || Date.now() < (window._doorpiOfficialReturnSuppressUntil || 0)) {
                 hide();
                 return;
             }
+
+            const nextContextKey = `${data.kind || ''}|${data.channel || ''}|${data.id || ''}|${data.url || ''}`;
+            const currentContextKey = overlay.dataset.executionLockKey || '';
+            const isAlreadyVisible =
+                overlay.classList.contains('visible') &&
+                overlay.classList.contains('execution-lock-visible');
+            const hasActionFocus = lockActions?.contains(document.activeElement);
+            const shouldPreserveFocus = isAlreadyVisible && currentContextKey === nextContextKey && hasActionFocus;
+            overlay.dataset.executionLockKey = nextContextKey;
 
             nameEl.textContent = name;
             statusEl.textContent = 'EM EXECUÇÃO';
@@ -4624,14 +4982,24 @@ function renderFolderList(folders) {
             overlay.style.pointerEvents = 'all';
             overlay.classList.add('visible', 'execution-lock-visible');
 
-            setTimeout(() => {
+            const focusPrimary = () => {
+                const primary = document.getElementById('executionLockRestore');
+                if (primary && primary.offsetWidth > 0 && primary.offsetHeight > 0) primary.focus();
+            };
+            clearExecutionLockFocusTimers();
+            executionLockFocusTimerA = setTimeout(() => {
                 if (typeof updateGamepadUI === 'function') updateGamepadUI(isGamepadConnected, _controllerType);
-                document.getElementById('executionLockRestore')?.focus();
+                if (!shouldPreserveFocus) focusPrimary();
             }, 50);
+            executionLockFocusTimerB = setTimeout(() => {
+                if (!shouldPreserveFocus) focusPrimary();
+            }, 220);
         }
 
         function hideExecutionLock() {
+            clearExecutionLockFocusTimers();
             overlay.classList.remove('execution-lock-visible');
+            overlay.dataset.executionLockKey = '';
             lockActions?.querySelectorAll('button').forEach(btn => {
                 if (document.activeElement === btn) btn.blur();
             });
@@ -4639,8 +5007,10 @@ function renderFolderList(folders) {
 
         function hide() {
             if (overlay._waitTimer) clearTimeout(overlay._waitTimer);
+            clearExecutionLockFocusTimers();
             cancelBtn.style.opacity = '0';
             overlay.classList.remove('execution-lock-visible');
+            overlay.dataset.executionLockKey = '';
 
 
             setTimeout(() => {

@@ -828,7 +828,7 @@ document.addEventListener('keydown', e => {
     }
 });
 
-let _gamepadIndex = null, _controllerType = 'generic', _btnCooldown = {}, _lastMoveTime = 0, _moveState = 0, _currentDirection = null;
+let _gamepadIndex = null, _controllerType = 'generic', _btnCooldown = {}, _lastMoveTime = 0, _moveState = 0, _currentDirection = null, _executionLockHeldDir = null;
 let _cursorHoldState = { l1: 0, r1: 0 }, _cursorLastTime = { l1: 0, r1: 0 };
 
 window._gpNavigating = false;
@@ -868,6 +868,7 @@ window.addEventListener('gamepaddisconnected', e => {
 window.isDoorpiFocused = document.hasFocus();
 
 
+window.addEventListener('focus', () => { window.isDoorpiFocused = true; });
 window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
 (function gamepadLoop() {
     try {
@@ -898,26 +899,39 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
 
         if (isExecutionLock) {
             let lockDir = null;
-            if (ax > thr || buttons[GAMEPAD.BTN_RIGHT]?.pressed) lockDir = 'RIGHT';
-            else if (ax < -thr || buttons[GAMEPAD.BTN_LEFT]?.pressed) lockDir = 'LEFT';
-            else if (ay > thr || buttons[GAMEPAD.BTN_DOWN]?.pressed) lockDir = 'DOWN';
-            else if (ay < -thr || buttons[GAMEPAD.BTN_UP]?.pressed) lockDir = 'UP';
-
-            if (lockDir && (lockDir !== _currentDirection || now - _lastMoveTime > (_moveState ? NAV.GAMEPAD.REPEAT_DELAY : NAV.GAMEPAD.INITIAL_DELAY))) {
-                moveFocus(lockDir);
-                _currentDirection = lockDir;
-                _lastMoveTime = now;
-                _moveState = 1;
-            } else if (!lockDir) {
-                _currentDirection = null;
-                _moveState = 0;
+            if (buttons[GAMEPAD.BTN_RIGHT]?.pressed) lockDir = 'RIGHT';
+            else if (buttons[GAMEPAD.BTN_LEFT]?.pressed) lockDir = 'LEFT';
+            else if (buttons[GAMEPAD.BTN_DOWN]?.pressed) lockDir = 'DOWN';
+            else if (buttons[GAMEPAD.BTN_UP]?.pressed) lockDir = 'UP';
+            else {
+                const lockAxisThreshold = Math.max(thr, 0.72);
+                const absX = Math.abs(ax);
+                const absY = Math.abs(ay);
+                if (absX >= lockAxisThreshold || absY >= lockAxisThreshold) {
+                    if (absX >= absY) lockDir = ax > 0 ? 'RIGHT' : 'LEFT';
+                    else lockDir = ay > 0 ? 'DOWN' : 'UP';
+                }
             }
+
+            if (lockDir) {
+                if (_executionLockHeldDir === null) {
+                    moveFocus(lockDir);
+                    _executionLockHeldDir = lockDir;
+                }
+            } else {
+                _executionLockHeldDir = null;
+            }
+
+            _currentDirection = null;
+            _moveState = 0;
 
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
             if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) document.getElementById('executionLockClose')?.click();
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) document.getElementById('executionLockRestore')?.focus();
             return;
         }
+
+        _executionLockHeldDir = null;
 
         if (window.DoorpiIntro?.isRunning?.()) {
             for (let i = 0; i < buttons.length; i++) {
