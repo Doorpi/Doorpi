@@ -396,6 +396,27 @@ namespace Doorpi
                     _backgroundAppMonitorCts?.Cancel();
                 }
 
+                if (_executionLockWatchSuspended)
+                {
+                    webView?.Focus();
+                    Keyboard.Focus(webView);
+                    webView?.CoreWebView2?.ExecuteScriptAsync(
+                        "window.isDoorpiFocused = true; window.isMediaAppActive = false; window._doorpiGameInputSuppressedUntil = 0; window.focusFeaturedCard?.();");
+
+                    if (webView?.CoreWebView2 != null)
+                        webView.CoreWebView2.PostWebMessageAsString(
+                            JsonSerializer.Serialize(new
+                            {
+                                type = "windowFocused",
+                                appAlive = shouldMuteDoorpiAudio,
+                                hasBlockingSession,
+                                hasLiveExternalSession = shouldMuteDoorpiAudio,
+                                shouldMuteDoorpiAudio
+                            }));
+                    SendRuntimeSessionsToUI();
+                    return;
+                }
+
                 if (_gameSessionActive &&
                     !_gameIsMinimized &&
                     !string.IsNullOrWhiteSpace(_activeSessionGameId))
@@ -1130,6 +1151,11 @@ namespace Doorpi
                 {
                     await Task.Delay(1800).ConfigureAwait(false);
                     await UpdatePlatformCacheFastAsync().ConfigureAwait(false);
+                    if (ShouldRefreshFullAppCacheOnIdle())
+                    {
+                        await UpdateAppCacheAsync().ConfigureAwait(false);
+                        SendInstalledAppsToUI();
+                    }
                 });
             }
 
@@ -1480,15 +1506,15 @@ namespace Doorpi
                     });
                     if (vkbWasOpen) return;
 
-                    if (_isStoreLauncherSession)
-                    {
-                        Dispatcher.Invoke(MinimizeStoreSessionAndShowMenu);
-                        return;
-                    }
-
                     _mediaExeModeActive = false;
                     _mediaExeWatcherCts?.Cancel();
                     _doorpiSuspendedForMedia = true;
+                    SuspendExecutionLockWatch();
+                    if (_isStoreLauncherSession)
+                    {
+                        _storePausedByDoorpi = true;
+                        _storeControllerActive = false;
+                    }
 
                     EnsureCursorHidden();
                     _mainScreenMouseVisible = false;
@@ -2887,15 +2913,28 @@ namespace Doorpi
             string file = string.Equals(userId, currentUserId, StringComparison.OrdinalIgnoreCase)
                 ? mediaFile
                 : Path.Combine(dataFolder, "users", userId, "media.json");
-            if (!File.Exists(file)) return new List<MediaAppModel>();
+            bool canFallbackToRoot = string.Equals(userId, currentUserId, StringComparison.OrdinalIgnoreCase);
+            string fallbackFile = Path.Combine(dataFolder, "media.json");
+            if (!File.Exists(file))
+            {
+                if (!canFallbackToRoot || !File.Exists(fallbackFile)) return new List<MediaAppModel>();
+                file = fallbackFile;
+            }
             try
             {
-                // USANDO O SAFE READ:
                 var apps = JsonSerializer.Deserialize<List<MediaAppModel>>(SafeReadAllText(file)) ?? new List<MediaAppModel>();
                 foreach (var app in apps.Where(a => string.IsNullOrWhiteSpace(a.OwnerUserId)))
                     app.OwnerUserId = userId;
                 foreach (var app in apps.Where(a => a.ShareMode == "user"))
                     ApplySharedUserNames(app);
+
+                if (canFallbackToRoot &&
+                    string.Equals(file, fallbackFile, StringComparison.OrdinalIgnoreCase) &&
+                    apps.Count > 0)
+                {
+                    try { SafeWriteAllText(mediaFile, JsonSerializer.Serialize(apps, new JsonSerializerOptions { WriteIndented = true })); } catch { }
+                }
+
                 return apps;
             }
             catch { return new List<MediaAppModel>(); }
@@ -3570,12 +3609,19 @@ namespace Doorpi
                     try { alive = session.Process != null && !session.Process.HasExited; } catch { }
                     if (!alive || string.IsNullOrWhiteSpace(session.Url)) continue;
 
+                    var media = LoadMediaApps().FirstOrDefault(m =>
+                        string.Equals(m.Url, session.Url, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(m.Id, session.Url, StringComparison.OrdinalIgnoreCase));
+
                     running.Add(new
                     {
                         channel = "media",
                         url = session.Url,
                         kind = "exe",
-                        status = session.DoorpiSuspended ? "minimized" : (session.ControllerActive ? "active" : "running")
+                        status = session.DoorpiSuspended ? "minimized" : (session.ControllerActive ? "active" : "running"),
+                        name = media?.Name ?? Path.GetFileNameWithoutExtension(session.Url) ?? "Aplicativo",
+                        heroImage = media?.HeroImage ?? "",
+                        gridImage = media?.GridImage ?? ""
                     });
                 }
 
@@ -3621,51 +3667,45 @@ namespace Doorpi
         {
             if (string.Equals(channel, "games", StringComparison.OrdinalIgnoreCase))
             {
-                if (!string.IsNullOrWhiteSpace(id) &&
-                    string.Equals(_activeSessionGameId, id, StringComparison.OrdinalIgnoreCase))
+                if (!_gameSessionActive || string.IsNullOrWhiteSpace(_activeSessionGameId))
+                    return;
+
+                bool hadStoreChildContext = _storeChildGameActive &&
+                    string.Equals(_gameSessionParentKind, "store", StringComparison.OrdinalIgnoreCase);
+
+                try
                 {
-                    bool isDoorpiOwnedGame =
-                        string.Equals(_gameSessionParentKind, "doorpi", StringComparison.OrdinalIgnoreCase);
-                    bool wasStoreChildGame = !isDoorpiOwnedGame && IsActiveGameFromStoreChild(id);
-
-                    try
+                    if (!string.IsNullOrWhiteSpace(_lockedGameProcessName))
                     {
-                        if (!string.IsNullOrWhiteSpace(_lockedGameProcessName))
+                        foreach (var p in Process.GetProcessesByName(_lockedGameProcessName))
                         {
-                            foreach (var p in Process.GetProcessesByName(_lockedGameProcessName))
-                            {
-                                try { p.Kill(true); } catch { }
-                            }
-                        }
-
-                        if (_pendingLaunchProcess != null && !SafeHasExited(_pendingLaunchProcess))
-                            _pendingLaunchProcess.Kill(true);
-                    }
-                    catch { }
-
-                    CommitActiveSession();
-                    ClearGameWindowSession();
-                    if (wasStoreChildGame)
-                    {
-                        _storeChildGameActive = false;
-                        _storeChildGameStoreId = "";
-                        _storeChildGameId = "";
-                        if (_isStoreLauncherSession)
-                        {
-                            _storePausedByDoorpi = true;
-                            ResumeStoreSession();
-                        }
-                        else
-                        {
-                            ForceFocus();
+                            try { p.Kill(true); } catch { }
                         }
                     }
-                    else
-                    {
-                        ForceFocus();
-                    }
-                    SendRuntimeSessionsToUI();
+
+                    if (_pendingLaunchProcess != null && !SafeHasExited(_pendingLaunchProcess))
+                        _pendingLaunchProcess.Kill(true);
                 }
+                catch { }
+
+                CommitActiveSession();
+                ClearGameWindowSession();
+
+                // Sempre limpar contexto de store-child ao fechar jogo via Doorpi.
+                _storeChildGameActive = false;
+                _storeChildGameStoreId = "";
+                _storeChildGameId = "";
+
+                if (hadStoreChildContext && _isStoreLauncherSession)
+                {
+                    _storePausedByDoorpi = true;
+                    ResumeStoreSession();
+                }
+                else
+                {
+                    ForceFocus();
+                }
+                SendRuntimeSessionsToUI();
                 return;
             }
 
@@ -3852,7 +3892,7 @@ namespace Doorpi
             MarkStorePausedBecauseChildGameReturnedToDoorpi();
             _mainUiGamepadSuspendedForGame = false;
             _launcherMouseActive = false;
-            ClearExecutionLock();
+            SuspendExecutionLockWatch();
             SendGameLaunchStatus("gameLaunchDone");
             try { webView?.CoreWebView2?.PostWebMessageAsString("{\"type\":\"officialReturnToDoorpi\"}"); } catch { }
             Interlocked.Exchange(ref _mainUiGamepadSuppressUntilUtcTicks, 0);
@@ -4327,6 +4367,18 @@ namespace Doorpi
             catch { }
         }
 
+        private void SuspendExecutionLockWatch()
+        {
+            _executionLockWatchSuspended = true;
+            ClearExecutionLock();
+            try { webView?.CoreWebView2?.PostWebMessageAsString("{\"type\":\"officialReturnToDoorpi\"}"); } catch { }
+        }
+
+        private void ResumeExecutionLockWatch()
+        {
+            _executionLockWatchSuspended = false;
+        }
+
         private bool IsForegroundDoorpi()
         {
             try
@@ -4534,12 +4586,23 @@ namespace Doorpi
 
         private void ShowExecutionLock(string kind, string name, string id, string url, string channel, string appType, string heroImage = "", string gridImage = "")
         {
+            if (_executionLockWatchSuspended)
+                return;
+
             if (DateTime.UtcNow.Ticks < Interlocked.Read(ref _executionLockSuppressUntilUtcTicks))
                 return;
 
             if (string.IsNullOrWhiteSpace(name) &&
                 string.IsNullOrWhiteSpace(id) &&
                 string.IsNullOrWhiteSpace(url))
+            {
+                ClearExecutionLock();
+                return;
+            }
+
+            // Nunca abrir EM EXECUÇÃO sem alvo acionável.
+            // Isso previne overlay "vazia" em corridas de Alt+Tab.
+            if (string.IsNullOrWhiteSpace(id) && string.IsNullOrWhiteSpace(url))
             {
                 ClearExecutionLock();
                 return;
@@ -4634,6 +4697,7 @@ namespace Doorpi
                     string.Equals(_gameSessionParentKind, "doorpi", StringComparison.OrdinalIgnoreCase);
 
                 if (_executionLockActive ||
+                    _executionLockWatchSuspended ||
                     hasDoorpiParentActiveGame ||
                     !_isStoreLauncherSession ||
                     _storePausedByDoorpi ||
@@ -4688,6 +4752,9 @@ namespace Doorpi
 
         private void RequestExecutionLockFromRuntime(string kind, string channel, string id, string url)
         {
+            if (_executionLockWatchSuspended)
+                return;
+
             if (DateTime.UtcNow.Ticks < Interlocked.Read(ref _executionLockSuppressUntilUtcTicks))
                 return;
 
@@ -4794,6 +4861,8 @@ namespace Doorpi
 
         private void RestoreExecutionLockSession()
         {
+            ResumeExecutionLockWatch();
+
             string kind = _executionLockKind;
             string id = _executionLockId;
             string url = _executionLockUrl;
@@ -5616,15 +5685,25 @@ namespace Doorpi
 
         private List<FolderStats> LoadFoldersData()
         {
-            if (!File.Exists(foldersFile)) return new List<FolderStats>();
+            string fallbackFile = Path.Combine(dataFolder, "folders.json");
+            string fileToRead = File.Exists(foldersFile)
+                ? foldersFile
+                : (File.Exists(fallbackFile) ? fallbackFile : foldersFile);
+            if (!File.Exists(fileToRead)) return new List<FolderStats>();
             try
             {
-                string json = File.ReadAllText(foldersFile);
+                string json = File.ReadAllText(fileToRead);
                 try
                 {
                     var data = JsonSerializer.Deserialize<List<FolderStats>>(json);
                     if (data != null && data.Count > 0 && !string.IsNullOrEmpty(data[0].Path))
+                    {
+                        if (!string.Equals(fileToRead, foldersFile, StringComparison.OrdinalIgnoreCase))
+                        {
+                            try { SaveFoldersData(data); } catch { }
+                        }
                         return data;
+                    }
                 }
                 catch { }
 
@@ -5963,8 +6042,21 @@ namespace Doorpi
 
         private AppCacheModel? LoadAppCache()
         {
-            if (!File.Exists(appCacheFile)) return null;
-            try { return JsonSerializer.Deserialize<AppCacheModel>(File.ReadAllText(appCacheFile)); }
+            string fallbackFile = Path.Combine(dataFolder, "appcache.json");
+            string fileToRead = File.Exists(appCacheFile)
+                ? appCacheFile
+                : (File.Exists(fallbackFile) ? fallbackFile : appCacheFile);
+            if (!File.Exists(fileToRead)) return null;
+            try
+            {
+                var cache = JsonSerializer.Deserialize<AppCacheModel>(File.ReadAllText(fileToRead));
+                if (cache != null &&
+                    !string.Equals(fileToRead, appCacheFile, StringComparison.OrdinalIgnoreCase))
+                {
+                    try { SaveAppCache(cache); } catch { }
+                }
+                return cache;
+            }
             catch { return null; }
         }
 
@@ -6793,7 +6885,6 @@ namespace Doorpi
                 cache.XboxFilterVersion = 2;
                 RefreshAutoAddSuppressions(cache);
                 SaveAppCache(cache);
-                _lastCacheBuilt = DateTime.Now;
                 removedGames = ReconcileDoorpiGamesWithPlatformCache(cache);
             }
             finally
@@ -6803,6 +6894,37 @@ namespace Doorpi
 
             PublishRemovedGamesToUI(removedGames);
             return removedGames.Count > 0;
+        }
+
+        private bool ShouldRefreshFullAppCacheOnIdle()
+        {
+            try
+            {
+                var cache = LoadAppCache();
+                if (cache == null) return true;
+
+                bool hasWatchedFolders = GetWatchedFolderPaths()
+                    .Any(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path));
+                if (hasWatchedFolders &&
+                    ((cache.FolderApps?.Count ?? 0) == 0 ||
+                     (cache.FolderTimestamps?.Count ?? 0) == 0))
+                {
+                    return true;
+                }
+
+                var winPrint = GetWindowsRegistryFingerprint();
+                if (!winPrint.SetEquals(cache.WindowsFingerprint) ||
+                    (cache.WindowsApps?.Count ?? 0) == 0)
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+                return true;
+            }
+
+            return false;
         }
 
         private async Task<bool> UpsertAutoAddedPlatformGamesAsync(List<InstalledApp> platformGames)
@@ -7035,6 +7157,16 @@ namespace Doorpi
                 state.CompletedAt = DateTime.Now;
                 SaveLibraryBootstrapState(state);
                 SendInstalledAppsToUI();
+            }
+
+            try
+            {
+                await UpdateAppCacheAsync().ConfigureAwait(false);
+                SendInstalledAppsToUI();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[Bootstrap] Cache completo: " + ex.Message);
             }
 
             await CacheSteamCdnImagesForExistingGamesAsync().ConfigureAwait(false);
@@ -8524,6 +8656,8 @@ namespace Doorpi
                 }
                 else if (action == "launchMediaApp" && root.TryGetProperty("url", out var mediaUrlEl))
                 {
+                    ResumeExecutionLockWatch();
+
                     _currentToastTitle = GetStr(root, "toastTitle", "Copiado!");
                     _currentToastSub = GetStr(root, "toastSub", "Retornando...");
 
@@ -9081,12 +9215,40 @@ namespace Doorpi
 
         // ========================= LAUNCH =========================
 
+        private static bool IsGogLaunchUrl(string? launchUrl)
+            => !string.IsNullOrWhiteSpace(launchUrl) &&
+               launchUrl.StartsWith("goggalaxy://", StringComparison.OrdinalIgnoreCase);
+
+        private static bool TryStartLocalGamePath(GameModel game, out Process? launched)
+        {
+            launched = null;
+
+            string path = (game.Path ?? "").Replace("\"", "").Trim();
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                return false;
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = path,
+                UseShellExecute = true
+            };
+
+            string? dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir))
+                startInfo.WorkingDirectory = dir;
+
+            launched = Process.Start(startInfo);
+            return true;
+        }
+
         private void LaunchGame(string? identifier, string errorMsg)
         {
             if (string.IsNullOrEmpty(identifier)) return;
 
             try
             {
+                ResumeExecutionLockWatch();
+
                 if (_mediaExeModeActive) _mediaExeModeActive = false;
 
                 var games = LoadGames();
@@ -9247,12 +9409,17 @@ namespace Doorpi
                     // 1. TRAVA A TELA DE "ABRINDO" IMEDIATAMENTE NA UI
 
                     // 2. AVISA O WATCHDOG PARA NÃO INTERFERIR ANTES MESMO DO JOGO ABRIR
+                    bool bindToActiveStoreContext = IsGameOwnedByActiveStore(game);
+
                     _gameSessionActive = true;
                     _activeSessionGameId = identifier;
-                    _gameSessionParentKind = "doorpi";
-                    _storeChildGameActive = false;
-                    _storeChildGameStoreId = "";
-                    _storeChildGameId = "";
+                    _gameSessionParentKind = bindToActiveStoreContext ? "store" : "doorpi";
+                    _forceDoorpiReturnOnGameClose = !bindToActiveStoreContext;
+                    _storeChildGameActive = bindToActiveStoreContext;
+                    _storeChildGameStoreId = bindToActiveStoreContext ? (_activeStoreId ?? "") : "";
+                    _storeChildGameId = bindToActiveStoreContext ? identifier : "";
+                    if (bindToActiveStoreContext)
+                        _storePausedByDoorpi = false;
                     SuspendMainUiGamepadForGameLaunch();
 
                     var processSnapshot = SnapshotProcessIds();
@@ -9266,30 +9433,9 @@ namespace Doorpi
                             Process? launched = null;
                             bool launchAttempted = false;
 
-                            if (!string.IsNullOrWhiteSpace(game.LaunchUrl) &&
-                                game.LaunchUrl.StartsWith("goggalaxy://", StringComparison.OrdinalIgnoreCase))
+                            if (IsGogLaunchUrl(game.LaunchUrl))
                             {
-                                string gogClientPath = "";
-                                using (var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\GOG.com\GalaxyClient\paths"))
-                                    gogClientPath = (key?.GetValue("client") as string ?? "").Replace("\"", "").Trim();
-
-                                string gameId = game.LaunchUrl.Replace("goggalaxy://launch/", "").Trim();
-
-                                if (File.Exists(gogClientPath))
-                                {
-                                    launchAttempted = true;
-                                    launched = Process.Start(new ProcessStartInfo
-                                    {
-                                        FileName = gogClientPath,
-                                        Arguments = $"/command=launch /gameId={gameId}",
-                                        UseShellExecute = true
-                                    });
-                                }
-                                else
-                                {
-                                    launchAttempted = true;
-                                    launched = Process.Start(new ProcessStartInfo(game.LaunchUrl) { UseShellExecute = true });
-                                }
+                                launchAttempted = TryStartLocalGamePath(game, out launched);
                             }
                             else if (!string.IsNullOrWhiteSpace(game.LaunchUrl) &&
                                                          game.LaunchUrl.StartsWith("riot:", StringComparison.OrdinalIgnoreCase))
@@ -9546,9 +9692,20 @@ namespace Doorpi
         {
             lock (_gamesFileLock)
             {
-                if (!File.Exists(gamesFile)) return new List<GameModel>();
-                string json = SafeReadAllText(gamesFile);
-                return JsonSerializer.Deserialize<List<GameModel>>(json) ?? new List<GameModel>();
+                string fallbackFile = Path.Combine(dataFolder, "games.json");
+                string fileToRead = File.Exists(gamesFile)
+                    ? gamesFile
+                    : (File.Exists(fallbackFile) ? fallbackFile : gamesFile);
+                if (!File.Exists(fileToRead)) return new List<GameModel>();
+
+                string json = SafeReadAllText(fileToRead);
+                var games = JsonSerializer.Deserialize<List<GameModel>>(json) ?? new List<GameModel>();
+                if (games.Count > 0 &&
+                    !string.Equals(fileToRead, gamesFile, StringComparison.OrdinalIgnoreCase))
+                {
+                    try { SaveGames(games); } catch { }
+                }
+                return games;
             }
         }
 

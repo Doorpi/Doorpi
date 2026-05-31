@@ -992,6 +992,7 @@ namespace Doorpi
             _lockedGameProcessName = candidate.ProcessName;
             _activeSessionGameId = gameId;
             _gameSessionParentKind = "store";
+            _forceDoorpiReturnOnGameClose = false;
             _sessionStartUtc = DateTime.UtcNow;
 
             DiscordRpcManager.Instance.UpdateState("game", candidate.Game.Name);
@@ -1046,6 +1047,7 @@ namespace Doorpi
             _lockedGameProcessName = "";
             _activeSessionGameId = gameId;
             _gameSessionParentKind = "store";
+            _forceDoorpiReturnOnGameClose = false;
             _sessionStartUtc = DateTime.UtcNow;
 
             DiscordRpcManager.Instance.UpdateState("game", candidate.Game.Name);
@@ -1233,6 +1235,25 @@ namespace Doorpi
                _gameSessionActive &&
                !_gameIsMinimized;
 
+        private bool IsGameOwnedByActiveStore(GameModel game)
+        {
+            if (!_isStoreLauncherSession ||
+                string.IsNullOrWhiteSpace(_activeStoreId))
+            {
+                return false;
+            }
+
+            try
+            {
+                var pairs = GetStoreChildGamePairs(_activeStoreId);
+                return pairs.Any(pair => InstalledAppMatchesGame(pair.App, game));
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private void MarkStorePausedBecauseChildGameReturnedToDoorpi()
         {
             if (_storeChildGameActive &&
@@ -1289,6 +1310,8 @@ namespace Doorpi
 
         private async Task OpenStoreAsync(string storeId)
         {
+            ResumeExecutionLockWatch();
+
             var store = StoreCatalog.FirstOrDefault(s => string.Equals(s.Id, storeId, StringComparison.OrdinalIgnoreCase));
             if (store == null) return;
 
@@ -1667,7 +1690,7 @@ namespace Doorpi
             _mainUiGamepadSuspendedForGame = false;
             Interlocked.Exchange(ref _mainUiGamepadSuppressUntilUtcTicks, 0);
 
-            ClearExecutionLock();
+            SuspendExecutionLockWatch();
 
             if (_storeSessionKind == "web")
             {
@@ -1720,6 +1743,8 @@ namespace Doorpi
 
         private void ResumeStoreSession()
         {
+            ResumeExecutionLockWatch();
+
             if (!_isStoreLauncherSession) return;
             if (_gameSessionActive &&
                 string.Equals(_gameSessionParentKind, "doorpi", StringComparison.OrdinalIgnoreCase))

@@ -259,6 +259,135 @@
     };
     window._lastExecutionLockData = null;
     window._executionLockRequestUntil = 0;
+    window._executionOverlayCloseTimer = 0;
+    window._executionOverlayRefreshTimer = 0;
+    window._executionOverlayVisualKey = '';
+
+    function _clearExecutionOverlayCloseTimer() {
+        if (window._executionOverlayCloseTimer) {
+            clearTimeout(window._executionOverlayCloseTimer);
+            window._executionOverlayCloseTimer = 0;
+        }
+    }
+
+    function _stopExecutionOverlayRefreshLoop() {
+        if (window._executionOverlayRefreshTimer) {
+            clearInterval(window._executionOverlayRefreshTimer);
+            window._executionOverlayRefreshTimer = 0;
+        }
+    }
+
+    function _bestExecutionLockDataFromRuntime() {
+        const candidates = _nonMinimizedRuntimeEntries();
+        if (!candidates.length) return null;
+        const candidate = candidates
+            .slice()
+            .sort((a, b) => _runtimeEntryPriority(b) - _runtimeEntryPriority(a))[0];
+        return _buildExecutionLockDataFromRuntimeEntry(candidate);
+    }
+
+    function _executionStoreGameVisualPair(lockData) {
+        if (!lockData) return null;
+        const lockIsGame = lockData.channel === 'games' || lockData.kind === 'game';
+        if (!lockIsGame) return null;
+
+        const entries = Array.isArray(window.DoorpiRuntimeState?.running) ? window.DoorpiRuntimeState.running : [];
+        const gameEntries = entries.filter(e => e && (e.channel === 'games' || e.kind === 'game'));
+        const storeEntries = entries.filter(e => e && (e.channel === 'stores' || e.kind === 'store'));
+        if (!gameEntries.length || !storeEntries.length) return null;
+
+        const bestGame = gameEntries.slice().sort((a, b) => _runtimeEntryPriority(b) - _runtimeEntryPriority(a))[0];
+        const bestStore = storeEntries.slice().sort((a, b) => _runtimeEntryPriority(b) - _runtimeEntryPriority(a))[0];
+        const gameVisual = _buildExecutionLockDataFromRuntimeEntry(bestGame) || {};
+        const storeVisual = _buildExecutionLockDataFromRuntimeEntry(bestStore) || {};
+
+        const game = {
+            name: gameVisual.name || lockData.name || 'Jogo',
+            image: gameVisual.gridImage || gameVisual.heroImage || lockData.gridImage || lockData.heroImage || ''
+        };
+        const store = {
+            name: storeVisual.name || 'Loja',
+            image: storeVisual.gridImage || storeVisual.heroImage || ''
+        };
+        return { game, store };
+    }
+
+    function _executionOverlayVisualKeyFor(lockData) {
+        const base = [
+            lockData?.kind || '',
+            lockData?.channel || '',
+            lockData?.id || '',
+            lockData?.url || '',
+            lockData?.appType || '',
+            lockData?.name || '',
+            lockData?.heroImage || '',
+            lockData?.gridImage || ''
+        ].join('|');
+        const pair = _executionStoreGameVisualPair(lockData);
+        if (!pair) return `${base}|pair:none`;
+        const pairSig = [
+            pair.store?.name || '',
+            pair.store?.image || '',
+            pair.game?.name || '',
+            pair.game?.image || ''
+        ].join('|');
+        return `${base}|pair:${pairSig}`;
+    }
+
+    function _refreshExecutionOverlayFromRuntime() {
+        if (!_isExecutionOverlayVisible()) return false;
+        if (!_hasAnyRuntimeSession()) return false;
+
+        const current = window._lastExecutionLockData || {};
+        const best = _bestExecutionLockDataFromRuntime();
+        let hydrated = null;
+
+        if (best && (best.id || best.url)) {
+            hydrated = _hydrateExecutionLockPayload(best);
+        } else {
+            hydrated = _hydrateExecutionLockPayload(current);
+        }
+
+        if (!(hydrated.id || hydrated.url)) return false;
+
+        const next = {
+            kind: hydrated.kind || '',
+            channel: hydrated.channel || '',
+            id: hydrated.id || '',
+            url: hydrated.url || '',
+            appType: hydrated.appType || '',
+            name: hydrated.name || '',
+            heroImage: hydrated.heroImage || '',
+            gridImage: hydrated.gridImage || ''
+        };
+        const prev = window._lastExecutionLockData || {};
+        const changed =
+            (prev.kind || '') !== next.kind ||
+            (prev.channel || '') !== next.channel ||
+            (prev.id || '') !== next.id ||
+            (prev.url || '') !== next.url ||
+            (prev.appType || '') !== next.appType ||
+            (prev.name || '') !== next.name ||
+            (prev.heroImage || '') !== next.heroImage ||
+            (prev.gridImage || '') !== next.gridImage;
+
+        const nextVisualKey = _executionOverlayVisualKeyFor(next);
+        if (!changed && nextVisualKey === (window._executionOverlayVisualKey || '')) return false;
+
+        window._lastExecutionLockData = next;
+        window._executionOverlayVisualKey = nextVisualKey;
+        GameLaunchOverlay.showExecutionLock(next);
+        return true;
+    }
+
+    function _ensureExecutionOverlayRefreshLoop() {
+        if (window._executionOverlayRefreshTimer) return;
+        window._executionOverlayRefreshTimer = setInterval(() => {
+            if (!_hasAnyRuntimeSession()) return;
+            if (!_isExecutionOverlayVisible()) return;
+            _refreshExecutionOverlayFromRuntime();
+        }, 260);
+    }
 
     function _runtimeCardKey(card) {
         if (!card) return '';
@@ -365,10 +494,12 @@
         if (!entry) return null;
         const card = _runtimeCardFromEntry(entry);
         const nameFromCard = card?.querySelector('.title, .nav-vertical-card-title')?.textContent?.trim() || '';
+        const cardImg = card?.querySelector('img')?.getAttribute('src') || '';
         const resolvedId = entry.id || card?.dataset?.gameId || card?.dataset?.appId || '';
         const resolvedUrl = entry.url || card?.dataset?.appUrl || '';
         const name =
             nameFromCard ||
+            entry.name ||
             (entry.channel === 'games' ? 'Jogo em execução'
                 : entry.channel === 'stores' ? 'Loja em execução'
                     : 'Sessão em execução');
@@ -383,8 +514,8 @@
             url: resolvedUrl,
             appType: entry.channel === 'games' ? 'game' : (entry.kind || ''),
             name,
-            heroImage: card?.dataset?.staticHero || card?.dataset?.hero || '',
-            gridImage: card?.dataset?.staticVertical || card?.dataset?.vertical || card?.dataset?.staticHorizontal || card?.dataset?.horizontal || ''
+            heroImage: card?.dataset?.staticHero || card?.dataset?.hero || entry.heroImage || '',
+            gridImage: card?.dataset?.staticVertical || card?.dataset?.vertical || card?.dataset?.staticHorizontal || card?.dataset?.horizontal || entry.gridImage || cardImg || ''
         };
     }
 
@@ -857,6 +988,9 @@
 
                 if (isExecutionLockVisible) {
                     window._isExternalAppRunning = true;
+                    window.isMediaAppActive = true;
+                    _ensureExecutionOverlayRefreshLoop();
+                    _refreshExecutionOverlayFromRuntime();
                 }
                 if (isWaitingForValidGameWindowVisible) {
                     window._isExternalAppRunning = true;
@@ -871,49 +1005,12 @@
 
                 if (window._isExternalAppRunning) {
                     window._stopSystemAudio();
-                    if (isAnyLaunchLoadingVisible) {
-                        return;
-                    }
-                    if (isTransientLaunchOverlayVisible && _tryPromoteRuntimeToExecutionLock()) {
-                        return;
-                    }
 
                 } else {
                     // Gap de transição: se houver sessão ativa, sobe direto para EM EXECUÇÃO
                     // em vez de esconder o overlay no retorno de foco.
-                    if (!isAnyLaunchLoadingVisible &&
-                        isTransientLaunchOverlayVisible &&
-                        _tryPromoteRuntimeToExecutionLock()) {
-                        window._isExternalAppRunning = true;
-                        window._stopSystemAudio();
-                        return;
-                    }
-                    if (!isAnyLaunchLoadingVisible &&
-                        isTransientLaunchOverlayVisible &&
-                        data.hasBlockingSession === true &&
-                        window._lastExecutionLockData) {
-                        window._executionLockRequestUntil = Date.now() + 220;
-                        postToHost({
-                            action: 'requestExecutionLockFromRuntime',
-                            kind: window._lastExecutionLockData.kind || '',
-                            channel: window._lastExecutionLockData.channel || '',
-                            id: window._lastExecutionLockData.id || '',
-                            url: window._lastExecutionLockData.url || ''
-                        });
-                        window._isExternalAppRunning = true;
-                        window._stopSystemAudio();
-                        return;
-                    }
-                    if ((data.hasBlockingSession === true || _shouldKeepExecutionOverlay()) && _ensureExecutionOverlayForActiveSession()) {
-                        window._isExternalAppRunning = true;
-                        window._stopSystemAudio();
-                        return;
-                    }
 
                     window._startSystemAudio(true);
-                    if (!isExecutionLockVisible && typeof GameLaunchOverlay !== 'undefined') {
-                        GameLaunchOverlay.hide();
-                    }
                 }
             }
             else if (data.type === 'appProcessDied') {
@@ -938,14 +1035,24 @@
                     window.DoorpiRuntimeState.running.length > 0
                 );
                 window._syncSystemAudioFromRuntime(shouldMuteDoorpiAudio);
-                if (!_isAnyLaunchLoadingOverlayVisible() &&
-                    window.isDoorpiFocused &&
-                    _shouldKeepExecutionOverlay()) {
-                    _ensureExecutionOverlayForActiveSession();
-                } else if (!_shouldKeepExecutionOverlay() && _isExecutionOverlayVisible()) {
-                    window.isMediaAppActive = false;
-                    window._lastExecutionLockData = null;
-                    GameLaunchOverlay.hide();
+                if (_hasAnyRuntimeSession()) {
+                    _clearExecutionOverlayCloseTimer();
+                    _ensureExecutionOverlayRefreshLoop();
+                    _refreshExecutionOverlayFromRuntime();
+                } else if (_isExecutionOverlayVisible()) {
+                    _clearExecutionOverlayCloseTimer();
+                    window._executionOverlayCloseTimer = setTimeout(() => {
+                        window._executionOverlayCloseTimer = 0;
+                        if (_hasAnyRuntimeSession()) return;
+                        if (!_isExecutionOverlayVisible()) return;
+                        window.isMediaAppActive = false;
+                        window._lastExecutionLockData = null;
+                        window._executionOverlayVisualKey = '';
+                        GameLaunchOverlay.hide();
+                        _stopExecutionOverlayRefreshLoop();
+                    }, 450);
+                } else {
+                    _stopExecutionOverlayRefreshLoop();
                 }
             }
             else if (data.type === 'windowLostFocus') {
@@ -1161,12 +1268,48 @@
                 const isVisibleExecution = !!(launchOverlay &&
                     launchOverlay.classList.contains('visible') &&
                     launchOverlay.classList.contains('execution-lock-visible'));
-                const hasVisualContext = !!(hydrated.name || hydrated.heroImage || hydrated.gridImage);
+                const hasActionableIdentity = !!(hydrated?.id || hydrated?.url);
+                if (!hasActionableIdentity) {
+                    return;
+                }
+                const hasVisualContext = !!(hydrated.heroImage || hydrated.gridImage);
                 const hasIdentity = !!(hydrated.id || hydrated.url || hydrated.kind || hydrated.channel);
+                const currentLock = window._lastExecutionLockData || {};
+                const currentTargetKey = currentLock.id ? `id:${currentLock.id}` : (currentLock.url ? `url:${currentLock.url}` : '');
+                const incomingTargetKey = hydrated.id ? `id:${hydrated.id}` : (hydrated.url ? `url:${hydrated.url}` : '');
+                const isSameTargetVisible =
+                    isVisibleExecution &&
+                    !!currentTargetKey &&
+                    !!incomingTargetKey &&
+                    currentTargetKey === incomingTargetKey;
+                if (isVisibleExecution &&
+                    currentTargetKey &&
+                    incomingTargetKey &&
+                    currentTargetKey !== incomingTargetKey) {
+                    // Overlay já está estável para uma sessão; ignoramos troca tardia
+                    // para evitar flicker/alternância de contexto em Alt+Tab repetido.
+                    return;
+                }
                 if (isVisibleExecution && !hasVisualContext && hasIdentity && window._lastExecutionLockData) {
                     return;
                 }
-                const currentLock = window._lastExecutionLockData || {};
+                if (isVisibleExecution &&
+                    currentTargetKey &&
+                    incomingTargetKey &&
+                    currentTargetKey === incomingTargetKey) {
+                    if (!hydrated.heroImage && currentLock.heroImage) hydrated.heroImage = currentLock.heroImage;
+                    if (!hydrated.gridImage && currentLock.gridImage) hydrated.gridImage = currentLock.gridImage;
+                    if (!hydrated.name && currentLock.name) hydrated.name = currentLock.name;
+                }
+                if (isSameTargetVisible &&
+                    (hydrated.kind || '') === (currentLock.kind || '') &&
+                    (hydrated.channel || '') === (currentLock.channel || '') &&
+                    (hydrated.appType || '') === (currentLock.appType || '') &&
+                    (hydrated.name || '') === (currentLock.name || '') &&
+                    (hydrated.heroImage || '') === (currentLock.heroImage || '') &&
+                    (hydrated.gridImage || '') === (currentLock.gridImage || '')) {
+                    return;
+                }
                 const currentIsGame = currentLock.channel === 'games' || currentLock.kind === 'game';
                 const incomingIsGame = hydrated.channel === 'games' || hydrated.kind === 'game';
                 if (isVisibleExecution && currentIsGame && !incomingIsGame && _hasActiveGameRuntimeSession()) {
@@ -1175,6 +1318,8 @@
                 window._isExternalAppRunning = true;
                 window._stopSystemAudio();
                 window.isMediaAppActive = true;
+                _clearExecutionOverlayCloseTimer();
+                _ensureExecutionOverlayRefreshLoop();
                 window._lastExecutionLockData = {
                     kind: hydrated.kind || '',
                     channel: hydrated.channel || '',
@@ -1185,27 +1330,35 @@
                     heroImage: hydrated.heroImage || '',
                     gridImage: hydrated.gridImage || ''
                 };
+                window._executionOverlayVisualKey = _executionOverlayVisualKeyFor(window._lastExecutionLockData);
                 GameLaunchOverlay.showExecutionLock(hydrated);
             }
             else if (data.type === 'executionLockCleared') {
+                _clearExecutionOverlayCloseTimer();
+                if (_hasAnyRuntimeSession()) {
+                    _ensureExecutionOverlayRefreshLoop();
+                    _refreshExecutionOverlayFromRuntime();
+                    return;
+                }
                 // Nunca manter overlay "órfão": limpa a UI atual e só volta
                 // para EM EXECUÇÃO quando houver nova confirmação oficial do host.
                 window.isMediaAppActive = false;
                 GameLaunchOverlay.hide();
 
-                if (_shouldKeepExecutionOverlay() && _ensureExecutionOverlayForActiveSession()) {
-                    window.isMediaAppActive = true;
-                } else {
-                    window._lastExecutionLockData = null;
-                }
+                window._lastExecutionLockData = null;
+                window._executionOverlayVisualKey = '';
+                _stopExecutionOverlayRefreshLoop();
             }
             else if (data.type === 'officialReturnToDoorpi') {
+                _clearExecutionOverlayCloseTimer();
                 window._doorpiOfficialReturnSuppressUntil = Date.now() + 2000;
                 window.isMediaAppActive = false;
                 window.isGameLaunchActive = false;
                 window._doorpiGameInputSuppressedUntil = 0;
                 window._lastExecutionLockData = null;
+                window._executionOverlayVisualKey = '';
                 GameLaunchOverlay.hide();
+                _stopExecutionOverlayRefreshLoop();
             }
             else if (data.type === 'userSwitchStart') {
                 _userSwitchFadeOut();
@@ -1233,15 +1386,11 @@
                     window.DoorpiRuntimeState.running.length > 0
                 );
                 window._syncSystemAudioFromRuntime(shouldMuteDoorpiAudio);
-                if (_shouldKeepExecutionOverlay()) {
-                    _ensureExecutionOverlayForActiveSession();
-                    return;
-                }
                 const launchOverlay = document.getElementById('gameLaunchOverlay');
                 if (!launchOverlay?.classList.contains('execution-lock-visible')) {
                     GameLaunchOverlay.hide();
                 }
-                if (!window._vkbIsOpen) {
+                if (!window._vkbIsOpen && !isExecutionLockVisible) {
                     recoverGlobalFocus();
                 }
             }
@@ -4773,6 +4922,70 @@ function renderFolderList(folders) {
                     border-color: #ff4d5e;
                     box-shadow: 0 12px 30px rgba(255,77,94,.26), 0 0 0 2px rgba(255,77,94,.16);
                 }
+                #executionLockSessionPair {
+                    display: none;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 10px;
+                    width: 100%;
+                    margin-top: 10px;
+                    margin-bottom: 2px;
+                    pointer-events: none;
+                }
+                #gameLaunchOverlay.execution-lock-visible.has-session-pair #executionLockSessionPair {
+                    display: flex;
+                }
+                #executionLockSessionPair .pair-chip {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 8px;
+                    min-width: 138px;
+                    max-width: 214px;
+                    padding: 6px 9px;
+                    border-radius: 10px;
+                    border: 1px solid rgba(255,255,255,.16);
+                    background: rgba(10,10,20,.50);
+                }
+                #executionLockSessionPair .pair-chip.store {
+                    border-color: rgba(122, 184, 255, 0.42);
+                    background: rgba(26, 56, 98, 0.28);
+                }
+                #executionLockSessionPair .pair-chip.game {
+                    border-color: rgba(80, 255, 195, 0.34);
+                    background: rgba(17, 64, 53, 0.24);
+                }
+                #executionLockSessionPair .pair-thumb {
+                    width: 30px;
+                    height: 42px;
+                    border-radius: 7px;
+                    background: #1b1f36;
+                    background-size: cover;
+                    background-position: center;
+                    border: 1px solid rgba(255,255,255,.14);
+                    flex: 0 0 auto;
+                }
+                #executionLockSessionPair .pair-meta {
+                    min-width: 0;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 2px;
+                }
+                #executionLockSessionPair .pair-role {
+                    font-size: .66rem;
+                    font-weight: 600;
+                    letter-spacing: .04em;
+                    text-transform: uppercase;
+                    color: rgba(255,255,255,.58);
+                }
+                #executionLockSessionPair .pair-name {
+                    font-size: .78rem;
+                    font-weight: 600;
+                    color: rgba(255,255,255,.92);
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    max-width: 142px;
+                }
             `;
             document.head.appendChild(s);
         })();
@@ -4819,6 +5032,71 @@ function renderFolderList(folders) {
             if (cardContainer) {
                 cardContainer.appendChild(lockActions);
             }
+        }
+
+        let sessionPair = document.getElementById('executionLockSessionPair');
+        if (!sessionPair) {
+            sessionPair = document.createElement('div');
+            sessionPair.id = 'executionLockSessionPair';
+            const insertAnchor = nameEl?.nextElementSibling;
+            if (nameEl?.parentElement) {
+                if (insertAnchor) {
+                    nameEl.parentElement.insertBefore(sessionPair, insertAnchor);
+                } else {
+                    nameEl.parentElement.appendChild(sessionPair);
+                }
+            }
+        }
+
+        function clearSessionPair() {
+            overlay.classList.remove('has-session-pair');
+            if (sessionPair) {
+                sessionPair.innerHTML = '';
+                sessionPair.style.display = 'none';
+            }
+        }
+
+        function appendSessionChip(container, role, visual) {
+            const chip = document.createElement('div');
+            chip.className = `pair-chip ${role}`;
+
+            const thumb = document.createElement('div');
+            thumb.className = 'pair-thumb';
+            if (visual?.image) {
+                thumb.style.backgroundImage = `url('${visual.image}')`;
+            }
+
+            const meta = document.createElement('div');
+            meta.className = 'pair-meta';
+
+            const roleEl = document.createElement('div');
+            roleEl.className = 'pair-role';
+            roleEl.textContent = role === 'game' ? 'Jogo' : 'Loja';
+
+            const name = document.createElement('div');
+            name.className = 'pair-name';
+            name.textContent = visual?.name || (role === 'game' ? 'Jogo' : 'Loja');
+
+            meta.appendChild(roleEl);
+            meta.appendChild(name);
+            chip.appendChild(thumb);
+            chip.appendChild(meta);
+            container.appendChild(chip);
+        }
+
+        function renderSessionPair(data = {}) {
+            if (!sessionPair) return;
+            const pair = _executionStoreGameVisualPair(data);
+            if (!pair) {
+                clearSessionPair();
+                return;
+            }
+
+            sessionPair.innerHTML = '';
+            appendSessionChip(sessionPair, 'store', pair.store);
+            appendSessionChip(sessionPair, 'game', pair.game);
+            sessionPair.style.display = 'flex';
+            overlay.classList.add('has-session-pair');
         }
 
         let executionLockFocusTimerA = 0;
@@ -4882,6 +5160,7 @@ function renderFolderList(folders) {
             // Nunca permitir mistura entre "aguardando janela" e "EM EXECUÇÃO".
             // Ao iniciar fluxo de launch/loading, sempre sai do modo execution-lock.
             hideExecutionLock();
+            clearSessionPair();
 
             if (bg) bg.style.backgroundImage = heroImage ? `url('${heroImage}')` : 'none';
             setArt(gridImage);
@@ -4940,6 +5219,7 @@ function renderFolderList(folders) {
             if (overlay._waitTimer) clearTimeout(overlay._waitTimer);
             cancelBtn.style.display = 'none';
             overlay.classList.remove('execution-lock-visible');
+            clearSessionPair();
 
             errTitle.textContent = text.errTitle + (gameName ? ` "${gameName}"` : '');
             errSub.textContent = reason === 'crash' ? text.errCrash
@@ -4951,6 +5231,10 @@ function renderFolderList(folders) {
 
         function showExecutionLock(data = {}) {
             if (overlay._waitTimer) clearTimeout(overlay._waitTimer);
+            const hasActionableTarget = !!(data.id || data.url);
+            if (!hasActionableTarget) {
+                return;
+            }
             const fallbackName =
                 data.kind === 'game' || data.channel === 'games' ? 'Jogo em execução' :
                     data.kind === 'store' || data.channel === 'stores' ? 'Loja em execução' :
@@ -4967,15 +5251,20 @@ function renderFolderList(folders) {
             const isAlreadyVisible =
                 overlay.classList.contains('visible') &&
                 overlay.classList.contains('execution-lock-visible');
-            const hasActionFocus = lockActions?.contains(document.activeElement);
-            const shouldPreserveFocus = isAlreadyVisible && currentContextKey === nextContextKey && hasActionFocus;
+            const isSameContextVisible = isAlreadyVisible && currentContextKey === nextContextKey;
+            const shouldPreserveFocus = isAlreadyVisible;
             overlay.dataset.executionLockKey = nextContextKey;
 
             nameEl.textContent = name;
             statusEl.textContent = 'EM EXECUÇÃO';
-            if (bg) bg.style.backgroundImage = data.heroImage ? `url('${data.heroImage}')` : 'none';
-            setArt(data.gridImage);
+            if (bg && (data.heroImage || !isSameContextVisible)) {
+                bg.style.backgroundImage = data.heroImage ? `url('${data.heroImage}')` : 'none';
+            }
+            if (data.gridImage || !isSameContextVisible) {
+                setArt(data.gridImage);
+            }
             setState('running');
+            renderSessionPair(data);
 
             cancelBtn.style.display = 'none';
             cancelBtn.style.opacity = '0';
@@ -5000,6 +5289,7 @@ function renderFolderList(folders) {
             clearExecutionLockFocusTimers();
             overlay.classList.remove('execution-lock-visible');
             overlay.dataset.executionLockKey = '';
+            clearSessionPair();
             lockActions?.querySelectorAll('button').forEach(btn => {
                 if (document.activeElement === btn) btn.blur();
             });
@@ -5011,6 +5301,7 @@ function renderFolderList(folders) {
             cancelBtn.style.opacity = '0';
             overlay.classList.remove('execution-lock-visible');
             overlay.dataset.executionLockKey = '';
+            clearSessionPair();
 
 
             setTimeout(() => {

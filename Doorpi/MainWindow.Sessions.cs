@@ -14,6 +14,7 @@ namespace Doorpi
             public bool Active;
             public bool DoorpiHiddenBehindGame;
             public bool MinimizedToDoorpi;
+            public bool ForceDoorpiReturnOnClose;
             public bool LaunchCancelled;
             public Process? PendingLaunchProcess;
             public IntPtr GameHwnd = IntPtr.Zero;
@@ -80,6 +81,7 @@ namespace Doorpi
         private string _executionLockAppType = "";
         private CancellationTokenSource? _executionLockFocusCts;
         private long _executionLockSuppressUntilUtcTicks;
+        private bool _executionLockWatchSuspended;
 
         private GameWindowSession EnsureGameSession()
             => _gameSession ??= new GameWindowSession();
@@ -302,6 +304,12 @@ namespace Doorpi
         {
             get => _gameSession?.MinimizedToDoorpi == true;
             set => EnsureGameSession().MinimizedToDoorpi = value;
+        }
+
+        private bool _forceDoorpiReturnOnGameClose
+        {
+            get => _gameSession?.ForceDoorpiReturnOnClose == true;
+            set => EnsureGameSession().ForceDoorpiReturnOnClose = value;
         }
 
         private bool _launchCancelled
