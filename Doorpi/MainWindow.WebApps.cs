@@ -382,6 +382,9 @@ namespace Doorpi
 
                 await _popupWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync("window.name = 'doorpi_popup';");
                 _popupWebView.CoreWebView2.Settings.UserAgent = await BuildBrandedUserAgentAsync(_popupWebView.CoreWebView2);
+                _popupWebView.CoreWebView2.Settings.AreHostObjectsAllowed = false;
+                _popupWebView.CoreWebView2.Settings.IsStatusBarEnabled = false;
+                _popupWebView.CoreWebView2.PermissionRequested += OnWebViewPermissionRequested;
 
 
                 _popupWebView.CoreWebView2.DocumentTitleChanged += (s, _) =>
@@ -1231,7 +1234,7 @@ namespace Doorpi
             var env = await CoreWebView2Environment.CreateAsync(null, userDataPath, options);
             await _ytWebView.EnsureCoreWebView2Async(env);
 
-            _ytWebView.CoreWebView2.Profile.PreferredTrackingPreventionLevel = CoreWebView2TrackingPreventionLevel.None;
+            _ytWebView.CoreWebView2.Profile.PreferredTrackingPreventionLevel = CoreWebView2TrackingPreventionLevel.Balanced;
 
             await LoadExtensionsAsync(_ytWebView.CoreWebView2);
 
@@ -1241,12 +1244,14 @@ namespace Doorpi
                 _ytWebView.CoreWebView2.Settings.UserAgent = await BuildBrandedUserAgentAsync(_ytWebView.CoreWebView2);
             _ytWebView.CoreWebView2.Settings.IsStatusBarEnabled = false;
             _ytWebView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
+            _ytWebView.CoreWebView2.Settings.AreHostObjectsAllowed = false;
             _ytWebView.CoreWebView2.Settings.IsZoomControlEnabled = false;
 
             _ytWebView.CoreWebView2.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
             _ytWebView.CoreWebView2.WebResourceRequested += YtOnWebResourceRequested;
             _ytWebView.CoreWebView2.WebMessageReceived += YtOnWebMessageReceived;
             _ytWebView.CoreWebView2.NewWindowRequested += OnNewWindowRequested;
+            _ytWebView.CoreWebView2.PermissionRequested += OnWebViewPermissionRequested;
 
             if (!isUtility)
             {
@@ -1520,6 +1525,7 @@ namespace Doorpi
             }
             else if (msg.StartsWith("copy_api_key:"))
             {
+                if (!IsWebMessageFromHost(e, "www.steamgriddb.com")) return;
                 string key = msg["copy_api_key:".Length..];
                 Dispatcher.Invoke(() =>
                 {
@@ -1529,6 +1535,7 @@ namespace Doorpi
             }
             else if (msg.StartsWith("auto_install_extension:"))
             {
+                if (!IsWebMessageFromHost(e, "chromewebstore.google.com")) return;
                 string extUrl = msg["auto_install_extension:".Length..];
                 Dispatcher.Invoke(() =>
                 {
@@ -1542,6 +1549,22 @@ namespace Doorpi
                 });
             }
             else if (msg == "doorpi_profile_hacked_done") { /* ack */ }
+        }
+
+        private static bool IsWebMessageFromHost(CoreWebView2WebMessageReceivedEventArgs e, string expectedHost)
+        {
+            try
+            {
+                if (!Uri.TryCreate(e.Source, UriKind.Absolute, out var source))
+                    return false;
+
+                return string.Equals(source.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) &&
+                       string.Equals(source.Host, expectedHost, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private void YtOnWebResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)

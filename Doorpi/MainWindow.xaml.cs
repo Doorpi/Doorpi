@@ -9,6 +9,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -686,6 +687,8 @@ namespace Doorpi
 
             // Inicializa o WebView2 usando essas opções
             await webView.EnsureCoreWebView2Async(environment);
+            webView.CoreWebView2.Settings.AreHostObjectsAllowed = false;
+            webView.CoreWebView2.PermissionRequested += OnWebViewPermissionRequested;
             string folderPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot");
 
             webView.CoreWebView2.SetVirtualHostNameToFolderMapping(
@@ -793,6 +796,7 @@ namespace Doorpi
             Directory.CreateDirectory(Path.Combine(dataFolder, "users"));
 
             var users = LoadUserProfiles();
+            if (users.Count > 0) SaveUserProfiles(users);
             if (users.Count == 0 && File.Exists(userFile))
             {
                 try
@@ -800,6 +804,7 @@ namespace Doorpi
                     var legacy = JsonSerializer.Deserialize<UserProfile>(File.ReadAllText(userFile));
                     if (legacy != null && !string.IsNullOrWhiteSpace(legacy.Name))
                     {
+                        UnprotectUserProfile(legacy);
                         legacy.Id = MakeUserId(legacy.Name);
                         legacy.DateCreated = DateTime.Now;
                         legacy.LastUsed = DateTime.Now;
@@ -829,6 +834,8 @@ namespace Doorpi
                 var users = JsonSerializer.Deserialize<List<UserProfile>>(File.ReadAllText(profilesFile)) ?? new();
                 foreach (var user in users.Where(u => string.IsNullOrWhiteSpace(u.Id)))
                     user.Id = MakeUserId(user.Name);
+                foreach (var user in users)
+                    UnprotectUserProfile(user);
                 return users;
             }
             catch { return new List<UserProfile>(); }
@@ -836,7 +843,8 @@ namespace Doorpi
 
         private void SaveUserProfiles(List<UserProfile> users)
         {
-            File.WriteAllText(profilesFile, JsonSerializer.Serialize(users, new JsonSerializerOptions { WriteIndented = true }));
+            var storageUsers = users.Select(CloneUserProfileForStorage).ToList();
+            File.WriteAllText(profilesFile, JsonSerializer.Serialize(storageUsers, new JsonSerializerOptions { WriteIndented = true }));
         }
 
         private static string MakeUserId(string name)
@@ -863,6 +871,66 @@ namespace Doorpi
         {
             var clean = Regex.Replace(value ?? "", @"[^\p{L}\p{Nd}]+", "_").Trim('_').ToLowerInvariant();
             return string.IsNullOrWhiteSpace(clean) ? "default" : clean;
+        }
+
+        private const string ProtectedValuePrefix = "dpapi:";
+        private static readonly byte[] ProtectedValueEntropy =
+            System.Text.Encoding.UTF8.GetBytes("Doorpi.LocalUserSecret.v1");
+
+        private static string ProtectLocalUserSecret(string value)
+        {
+            if (string.IsNullOrEmpty(value) || value.StartsWith(ProtectedValuePrefix, StringComparison.Ordinal))
+                return value ?? "";
+
+            try
+            {
+                var bytes = System.Text.Encoding.UTF8.GetBytes(value);
+                var protectedBytes = ProtectedData.Protect(bytes, ProtectedValueEntropy, DataProtectionScope.CurrentUser);
+                return ProtectedValuePrefix + Convert.ToBase64String(protectedBytes);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[Secrets] Falha ao proteger segredo local: " + ex.Message);
+                return value;
+            }
+        }
+
+        private static string UnprotectLocalUserSecret(string value)
+        {
+            if (string.IsNullOrEmpty(value) || !value.StartsWith(ProtectedValuePrefix, StringComparison.Ordinal))
+                return value ?? "";
+
+            try
+            {
+                var payload = Convert.FromBase64String(value[ProtectedValuePrefix.Length..]);
+                var bytes = ProtectedData.Unprotect(payload, ProtectedValueEntropy, DataProtectionScope.CurrentUser);
+                return System.Text.Encoding.UTF8.GetString(bytes);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[Secrets] Falha ao descriptografar segredo local: " + ex.Message);
+                return "";
+            }
+        }
+
+        private static UserProfile CloneUserProfileForStorage(UserProfile profile)
+        {
+            var json = JsonSerializer.Serialize(profile);
+            var clone = JsonSerializer.Deserialize<UserProfile>(json) ?? new UserProfile();
+            clone.SteamGridApiKey = ProtectLocalUserSecret(clone.SteamGridApiKey);
+            return clone;
+        }
+
+        private static void UnprotectUserProfile(UserProfile profile)
+        {
+            profile.SteamGridApiKey = UnprotectLocalUserSecret(profile.SteamGridApiKey);
+        }
+
+        private static void WriteUserProfileFile(string path, UserProfile profile)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, JsonSerializer.Serialize(CloneUserProfileForStorage(profile),
+                new JsonSerializerOptions { WriteIndented = true }));
         }
 
         private string GetUserProfileToken(string userId, IReadOnlyList<UserProfile>? users = null)
@@ -1064,8 +1132,7 @@ namespace Doorpi
             SaveUserProfile(profile);
             MirrorCurrentUserDataFiles();
             File.WriteAllText(currentUserFile, currentUserId);
-            File.WriteAllText(Path.Combine(dataFolder, "user.json"),
-                JsonSerializer.Serialize(profile, new JsonSerializerOptions { WriteIndented = true }));
+            WriteUserProfileFile(Path.Combine(dataFolder, "user.json"), profile);
         }
 
         private void MirrorCurrentUserDataFiles()
@@ -2508,17 +2575,20 @@ namespace Doorpi
         private UserProfile LoadUserProfile()
         {
             if (!File.Exists(userFile)) return new UserProfile();
-            try { return JsonSerializer.Deserialize<UserProfile>(File.ReadAllText(userFile)) ?? new UserProfile(); }
+            try
+            {
+                var profile = JsonSerializer.Deserialize<UserProfile>(File.ReadAllText(userFile)) ?? new UserProfile();
+                UnprotectUserProfile(profile);
+                return profile;
+            }
             catch { return new UserProfile(); }
         }
 
         private void SaveUserProfile(UserProfile profile)
         {
             if (string.IsNullOrWhiteSpace(profile.Id)) profile.Id = currentUserId;
-            File.WriteAllText(userFile, JsonSerializer.Serialize(profile,
-                new JsonSerializerOptions { WriteIndented = true }));
-            File.WriteAllText(Path.Combine(dataFolder, "user.json"), JsonSerializer.Serialize(profile,
-                new JsonSerializerOptions { WriteIndented = true }));
+            WriteUserProfileFile(userFile, profile);
+            WriteUserProfileFile(Path.Combine(dataFolder, "user.json"), profile);
         }
         // ========================= INICIAR COM O WINDOWS =========================
 
@@ -7298,6 +7368,11 @@ namespace Doorpi
         {
             var jsonMessage = e.TryGetWebMessageAsString();
             if (string.IsNullOrEmpty(jsonMessage)) return;
+            if (!IsTrustedMainWebMessageSource(e.Source))
+            {
+                Debug.WriteLine("[WebView] Mensagem ignorada de origem não confiável: " + e.Source);
+                return;
+            }
 
             try
             {
@@ -8138,8 +8213,7 @@ namespace Doorpi
                         existingUsers.Add(profile);
                         string userDir = Path.Combine(dataFolder, "users", profile.Id);
                         Directory.CreateDirectory(userDir);
-                        File.WriteAllText(Path.Combine(userDir, "user.json"),
-                            JsonSerializer.Serialize(profile, new JsonSerializerOptions { WriteIndented = true }));
+                        WriteUserProfileFile(Path.Combine(userDir, "user.json"), profile);
                         File.WriteAllText(Path.Combine(userDir, "games.json"), "[]");
                         File.WriteAllText(Path.Combine(userDir, "media.json"), "[]");
                         File.WriteAllText(Path.Combine(userDir, "folders.json"),
@@ -8214,14 +8288,25 @@ namespace Doorpi
                         try
                         {
                             string safeName = string.IsNullOrWhiteSpace(userToRemove.Name) ? "default" : string.Concat(userToRemove.Name.Where(c => !Path.GetInvalidFileNameChars().Contains(c)));
+                            string userToken = SafeBrowserProfileToken(userToRemove.Name);
+                            string[] profilePrefixes =
+                            {
+                                $"{userToRemove.Id}-",
+                                $"{userToRemove.Id}_",
+                                $"{userToken}-",
+                                $"{userToken}_",
+                                $"{safeName}-",
+                                $"{safeName}_"
+                            };
                             string profilesDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "browser-profiles");
                             if (Directory.Exists(profilesDir))
                             {
                                 foreach (var dir in Directory.GetDirectories(profilesDir))
                                 {
-                                    if (Path.GetFileName(dir).StartsWith($"{safeName}-"))
+                                    string dirName = Path.GetFileName(dir);
+                                    if (profilePrefixes.Any(prefix => dirName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
                                     {
-                                        Directory.Delete(dir, true);
+                                        ForceDeleteDirectory(dir);
                                     }
                                 }
                             }
@@ -8948,6 +9033,22 @@ namespace Doorpi
                 }
             }
             catch (Exception ex) { Debug.WriteLine($"Erro no WebView Message: {ex.Message}"); }
+        }
+
+        private static bool IsTrustedMainWebMessageSource(string source)
+        {
+            try
+            {
+                if (!Uri.TryCreate(source, UriKind.Absolute, out var uri))
+                    return false;
+
+                return string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) &&
+                       string.Equals(uri.Host, "app.local", StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         // ========================= ADICIONAR JOGOS =========================
