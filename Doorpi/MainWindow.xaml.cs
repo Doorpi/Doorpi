@@ -418,6 +418,7 @@ namespace Doorpi
                 }
 
                 if (!_executionLockActive &&
+                    _mediaExeModeActive &&
                     _mediaExeProcess != null &&
                     !SafeHasExited(_mediaExeProcess) &&
                     !_doorpiSuspendedForMedia)
@@ -3708,11 +3709,12 @@ namespace Doorpi
         {
             // Se o jogo foi minimizado pelo usuário (Xbox button) e ainda está vivo,
             // preserva a sessão — fechar um webapp não deve destruir o contexto do jogo.
+            bool hasLockedGameProcess = !string.IsNullOrWhiteSpace(_lockedGameProcessName);
             bool preserveGameSession = !string.IsNullOrEmpty(_activeSessionGameId) && (
-    IsLockedGameProcessAlive() ||
-    IsPendingLaunchProcessAlive() ||
-    IsLastVisibleWindowStillValid()
-);
+                IsLockedGameProcessAlive() ||
+                (!hasLockedGameProcess && IsPendingLaunchProcessAlive()) ||
+                IsLastVisibleWindowStillValid()
+            );
 
             if (!preserveGameSession)
             {
@@ -3726,6 +3728,8 @@ namespace Doorpi
                 // _gameIsMinimized, _currentGameHwnd, _gameSessionActive, 
                 // _activeSessionGameId e _lockedGameProcessName ficam intactos
             }
+
+            ClearExecutionLock();
 
             if (_mediaExeModeActive) _mediaExeModeActive = false;
             if (_systemControllerActive) StopSystemControllerMode();
@@ -3846,22 +3850,33 @@ namespace Doorpi
             Interlocked.Exchange(ref _mainUiGamepadSuppressUntilUtcTicks, 0);
             SendRuntimeSessionsToUI();
 
-            if (_currentGameHwnd != IntPtr.Zero)
+            // Minimiza a janela da sessão atual: jogo real, launcher conhecido, ou pending-process.
+            IntPtr targetHwnd = _currentGameHwnd;
+            if (targetHwnd == IntPtr.Zero &&
+                _currentLauncherHwnd != IntPtr.Zero &&
+                (IsWindowVisible(_currentLauncherHwnd) || IsIconic(_currentLauncherHwnd)))
+            {
+                targetHwnd = _currentLauncherHwnd;
+            }
+
+            if (targetHwnd == IntPtr.Zero && IsPendingLaunchProcessAlive() && _pendingLaunchProcess != null)
+            {
+                try
+                {
+                    targetHwnd = FindAnyWindowForProcess(_pendingLaunchProcess.Id);
+                    if (targetHwnd == IntPtr.Zero) targetHwnd = _pendingLaunchProcess.MainWindowHandle;
+                }
+                catch { }
+            }
+
+            if (targetHwnd != IntPtr.Zero)
             {
                 // PostMessage SC_MINIMIZE é mais confiável para DX9/DX11 fullscreen exclusivo;
                 // ShowWindowAsync fica como fallback caso a janela não processe WM_SYSCOMMAND.
-                if (!PostMessage(_currentGameHwnd, WM_SYSCOMMAND, new IntPtr(SC_MINIMIZE), IntPtr.Zero))
-                    ShowWindowAsync(_currentGameHwnd, 6);
+                if (!PostMessage(targetHwnd, WM_SYSCOMMAND, new IntPtr(SC_MINIMIZE), IntPtr.Zero))
+                    ShowWindowAsync(targetHwnd, 6);
 
-                _lastVisibleWindowBeforeMinimize = _currentGameHwnd;
-            }
-
-            IntPtr fg = GetForegroundWindow();
-            if (fg != IntPtr.Zero && fg != _mainWindowHandle && fg != GetShellWindow() && fg != _currentGameHwnd)
-            {
-                ShowWindowAsync(fg, 6);
-                if (_lastVisibleWindowBeforeMinimize == IntPtr.Zero)
-                    _lastVisibleWindowBeforeMinimize = fg;
+                _lastVisibleWindowBeforeMinimize = targetHwnd;
             }
 
             DiscordRpcManager.Instance.UpdateState("menu");
@@ -4133,6 +4148,7 @@ namespace Doorpi
                                 lockedProcessName = SafeProcessName(proc);
                                 _lockedGameProcessName = lockedProcessName; // ← NOVO: promove para classe
                                 _currentLauncherHwnd = IntPtr.Zero;         // ← NOVO: esquece o launcher
+                                _pendingLaunchProcess = null;               // jogo real identificado: launcher intermediário deixa de ser referência
                             }
                             catch { }
                         }
@@ -9296,7 +9312,25 @@ namespace Doorpi
         private bool IsLastVisibleWindowStillValid()
         {
             if (_lastVisibleWindowBeforeMinimize == IntPtr.Zero) return false;
-            try { return IsWindowVisible(_lastVisibleWindowBeforeMinimize) || IsIconic(_lastVisibleWindowBeforeMinimize); }
+            try
+            {
+                if (!IsWindowVisible(_lastVisibleWindowBeforeMinimize) && !IsIconic(_lastVisibleWindowBeforeMinimize))
+                    return false;
+
+                GetWindowThreadProcessId(_lastVisibleWindowBeforeMinimize, out uint pidRaw);
+                if (pidRaw == 0) return false;
+
+                if (!string.IsNullOrWhiteSpace(_lockedGameProcessName))
+                {
+                    using var process = Process.GetProcessById((int)pidRaw);
+                    return string.Equals(SafeProcessName(process), _lockedGameProcessName, StringComparison.OrdinalIgnoreCase);
+                }
+
+                if (IsPendingLaunchProcessAlive() && _pendingLaunchProcess != null)
+                    return _pendingLaunchProcess.Id == (int)pidRaw;
+
+                return _currentGameHwnd != IntPtr.Zero && _lastVisibleWindowBeforeMinimize == _currentGameHwnd;
+            }
             catch { return false; }
         }
 
