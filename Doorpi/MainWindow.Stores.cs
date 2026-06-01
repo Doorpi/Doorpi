@@ -1347,10 +1347,20 @@ namespace Doorpi
             }
 
             SendGameLaunchStatus("gameLaunching", store.Name, heroImg, gridImg);
+            if (string.Equals(store.Id, "Xbox", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
+                }
+                catch { }
+            }
             BeginStoreLauncherSession(store.Id);
             _storeLauncherExe = ResolveStoreLauncherExe(store.Id);
 
             SuspendMainUiGamepadForGameLaunch();
+            if (string.Equals(store.Id, "Xbox", StringComparison.OrdinalIgnoreCase))
+                TerminateXboxProcessesForFreshLaunch(_storeLauncherExe);
 
             if (!string.IsNullOrEmpty(_storeLauncherExe) && File.Exists(_storeLauncherExe))
             {
@@ -1393,6 +1403,24 @@ namespace Doorpi
                         await Task.Delay(150).ConfigureAwait(false);
                     }
 
+                    if (string.Equals(store.Id, "Xbox", StringComparison.OrdinalIgnoreCase) &&
+                        !string.IsNullOrWhiteSpace(_storeLauncherExe))
+                    {
+                        if (!TryFindStoreWindow(store.Id, _storeLauncherExe, out _, out _))
+                        {
+                            RequestXboxMainWindow();
+                            for (int i = 0; i < 20; i++)
+                            {
+                                if (TryFindStoreWindow(store.Id, _storeLauncherExe, out var xboxProc, out _))
+                                {
+                                    proc = xboxProc;
+                                    break;
+                                }
+                                await Task.Delay(120).ConfigureAwait(false);
+                            }
+                        }
+                    }
+
                     if (proc != null)
                     {
                         EnterStoreExeMode(proc, store.Name, heroImg, gridImg);
@@ -1400,6 +1428,25 @@ namespace Doorpi
                     }
                 }
                 catch (Exception ex) { Debug.WriteLine($"[Store] Falha ao abrir exe {store.Id}: {ex.Message}"); }
+            }
+
+            if (string.Equals(store.Id, "Xbox", StringComparison.OrdinalIgnoreCase))
+            {
+                _storeSessionKind = "exe";
+                try
+                {
+                    RequestXboxMainWindow();
+                    for (int i = 0; i < 30; i++)
+                    {
+                        if (TryFindStoreWindow(store.Id, _storeLauncherExe ?? "", out var xboxProc, out _))
+                        {
+                            EnterStoreExeMode(xboxProc, store.Name, heroImg, gridImg);
+                            return;
+                        }
+                        await Task.Delay(120).ConfigureAwait(false);
+                    }
+                }
+                catch (Exception ex) { Debug.WriteLine($"[Store] Falha ao abrir Xbox por protocolo: {ex.Message}"); }
             }
 
             _storeSessionKind = "web";
@@ -1466,6 +1513,12 @@ namespace Doorpi
             process = null!;
             hwnd = IntPtr.Zero;
 
+            if (string.Equals(storeId, "Xbox", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(Path.GetFileNameWithoutExtension(exePath), "xboxpcapp", StringComparison.OrdinalIgnoreCase))
+            {
+                return TryFindXboxStoreWindow(exePath, out process, out hwnd);
+            }
+
             if (string.Equals(storeId, "Steam", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(Path.GetFileNameWithoutExtension(exePath), "steam", StringComparison.OrdinalIgnoreCase))
             {
@@ -1480,6 +1533,123 @@ namespace Doorpi
 
             process = running;
             hwnd = window;
+            return true;
+        }
+
+        private void TerminateXboxProcessesForFreshLaunch(string? xboxExePath)
+        {
+            try
+            {
+                var killNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    "xboxpcapp",
+                    "gamingservicesui",
+                    "xboxappservices"
+                };
+
+                foreach (var process in Process.GetProcesses())
+                {
+                    try
+                    {
+                        if (process.Id == Environment.ProcessId || SafeHasExited(process))
+                            continue;
+
+                        string processName = SafeProcessName(process);
+                        bool shouldKill = killNames.Contains(processName);
+
+                        if (!shouldKill && !string.IsNullOrWhiteSpace(xboxExePath))
+                        {
+                            var processPath = SafeProcessPath(process);
+                            if (!string.IsNullOrWhiteSpace(processPath))
+                                shouldKill = PathsEqual(processPath, xboxExePath);
+                        }
+
+                        if (!shouldKill) continue;
+
+                        try
+                        {
+                            process.Kill(true);
+                            process.WaitForExit(2000);
+                        }
+                        catch
+                        {
+                            try
+                            {
+                                process.Kill();
+                                process.WaitForExit(1000);
+                            }
+                            catch { }
+                        }
+                    }
+                    catch { }
+                    finally
+                    {
+                        try { process.Dispose(); } catch { }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private bool TryFindXboxStoreWindow(string exePath, out Process process, out IntPtr hwnd)
+        {
+            process = null!;
+            hwnd = IntPtr.Zero;
+
+            Process? bestWindowOwner = null;
+            IntPtr bestHwnd = IntPtr.Zero;
+            int bestScore = 0;
+
+            foreach (var candidateHwnd in EnumerateTopLevelWindows())
+            {
+                GetWindowThreadProcessId(candidateHwnd, out uint pidRaw);
+                if (pidRaw == 0 || pidRaw == Environment.ProcessId) continue;
+
+                Process candidateProcess;
+                try { candidateProcess = Process.GetProcessById((int)pidRaw); }
+                catch { continue; }
+
+                string processName = SafeProcessName(candidateProcess);
+                bool isXboxApp = string.Equals(processName, "xboxpcapp", StringComparison.OrdinalIgnoreCase);
+                bool isFrameHost = string.Equals(processName, "applicationframehost", StringComparison.OrdinalIgnoreCase);
+                bool isGamingUi = string.Equals(processName, "gamingservicesui", StringComparison.OrdinalIgnoreCase);
+                if (!isXboxApp && !isFrameHost && !isGamingUi) continue;
+
+                string title = GetWindowTitle(candidateHwnd);
+                if (!GetWindowRect(candidateHwnd, out RECT rect)) continue;
+                if (rect.Width < 320 || rect.Height < 220) continue;
+                if (!IsWindowVisible(candidateHwnd) && !IsIconic(candidateHwnd)) continue;
+
+                bool titleLooksXbox =
+                    title.Contains("Xbox", StringComparison.OrdinalIgnoreCase) ||
+                    title.Contains("Game Pass", StringComparison.OrdinalIgnoreCase);
+
+                if (!isXboxApp && !titleLooksXbox) continue;
+
+                int score = 0;
+                if (isXboxApp) score += 60;
+                if (isFrameHost) score += 25;
+                if (isGamingUi) score += 15;
+                if (!string.IsNullOrWhiteSpace(title)) score += 20;
+                if (title.Equals("Xbox", StringComparison.OrdinalIgnoreCase)) score += 50;
+                else if (titleLooksXbox) score += 35;
+                if (rect.Width >= 700 && rect.Height >= 450) score += 20;
+                else if (rect.Width >= 400 && rect.Height >= 300) score += 10;
+                if (!IsIconic(candidateHwnd)) score += 8;
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestWindowOwner = candidateProcess;
+                    bestHwnd = candidateHwnd;
+                }
+            }
+
+            if (bestWindowOwner == null || bestHwnd == IntPtr.Zero || bestScore < 45)
+                return false;
+
+            process = FindRunningProcessForExe(exePath) ?? bestWindowOwner;
+            hwnd = bestHwnd;
             return true;
         }
 
@@ -1801,6 +1971,23 @@ namespace Doorpi
                     }
                 }
 
+                if (hwnd == IntPtr.Zero &&
+                    string.Equals(_activeStoreId, "Xbox", StringComparison.OrdinalIgnoreCase) &&
+                    !string.IsNullOrWhiteSpace(_storeLauncherExe))
+                {
+                    RequestXboxMainWindow();
+                    for (int i = 0; i < 20; i++)
+                    {
+                        if (TryFindStoreWindow(_activeStoreId ?? "", _storeLauncherExe, out var xboxProc, out var xboxHwnd))
+                        {
+                            proc = xboxProc;
+                            hwnd = xboxHwnd;
+                            break;
+                        }
+                        Thread.Sleep(120);
+                    }
+                }
+
                 if (hwnd != IntPtr.Zero)
                 {
                     if (IsIconic(hwnd)) ShowWindow(hwnd, 9);
@@ -1889,6 +2076,18 @@ namespace Doorpi
             try
             {
                 Process.Start(new ProcessStartInfo("steam://open/main")
+                {
+                    UseShellExecute = true
+                });
+            }
+            catch { }
+        }
+
+        private static void RequestXboxMainWindow()
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo("msxbox://")
                 {
                     UseShellExecute = true
                 });

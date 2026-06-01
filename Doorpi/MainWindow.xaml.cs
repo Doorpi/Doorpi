@@ -9342,6 +9342,48 @@ namespace Doorpi
             return true;
         }
 
+        private static bool TryStartShellAppsFolderLaunch(string launchUrl, out Process? launched)
+        {
+            launched = null;
+            if (string.IsNullOrWhiteSpace(launchUrl)) return false;
+
+            string raw = launchUrl.Trim();
+            const string shellPrefix = "shell:AppsFolder\\";
+
+            try
+            {
+                if (raw.StartsWith(shellPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    launched = Process.Start(new ProcessStartInfo(raw) { UseShellExecute = true });
+                    return true;
+                }
+
+                int shellIndex = raw.IndexOf(shellPrefix, StringComparison.OrdinalIgnoreCase);
+                if (shellIndex < 0) return false;
+
+                string args = raw.Substring(shellIndex).Trim();
+                string exePart = raw.Substring(0, shellIndex).Trim().Trim('"');
+                if (string.IsNullOrWhiteSpace(exePart) ||
+                    !exePart.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                {
+                    exePart = "explorer.exe";
+                }
+
+                launched = Process.Start(new ProcessStartInfo
+                {
+                    FileName = exePart,
+                    Arguments = args,
+                    UseShellExecute = true
+                });
+                return true;
+            }
+            catch
+            {
+                launched = null;
+                return false;
+            }
+        }
+
         private void LaunchGame(string? identifier, string errorMsg)
         {
             if (string.IsNullOrEmpty(identifier)) return;
@@ -9608,8 +9650,15 @@ namespace Doorpi
                                 }
                                 else
                                 {
-                                    // Outros launchers (Epic, Riot, etc) continuam iguais
-                                    launched = Process.Start(new ProcessStartInfo(game.LaunchUrl) { UseShellExecute = true });
+                                    if (TryStartShellAppsFolderLaunch(game.LaunchUrl, out var shellLaunched))
+                                    {
+                                        launched = shellLaunched;
+                                    }
+                                    else
+                                    {
+                                        // Outros launchers (Epic, Riot, etc) continuam iguais
+                                        launched = Process.Start(new ProcessStartInfo(game.LaunchUrl) { UseShellExecute = true });
+                                    }
                                 }
                             }
                             else if (File.Exists(game.Path))
