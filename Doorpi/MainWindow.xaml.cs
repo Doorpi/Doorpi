@@ -225,6 +225,7 @@ namespace Doorpi
         private static extern bool IsChild(IntPtr hWndParent, IntPtr hWnd);
 
         private const uint WM_SYSCOMMAND = 0x0112;
+        private const uint WM_CLOSE = 0x0010;
         private const int SC_MINIMIZE = 0xF020;
         private const int SC_RESTORE = 0xF120;
         [System.Runtime.InteropServices.DllImport("user32.dll")]
@@ -4468,20 +4469,47 @@ namespace Doorpi
                 bool hadStoreChildContext = _storeChildGameActive &&
                     string.Equals(_gameSessionParentKind, "store", StringComparison.OrdinalIgnoreCase);
 
+                if (hadStoreChildContext && TryRequestCloseStoreChildGameWindow())
+                {
+                    SendRuntimeSessionsToUI();
+                    return;
+                }
+
+                bool killedAny = false;
                 try
                 {
                     if (!string.IsNullOrWhiteSpace(_lockedGameProcessName))
                     {
                         foreach (var p in Process.GetProcessesByName(_lockedGameProcessName))
                         {
-                            try { p.Kill(true); } catch { }
+                            try
+                            {
+                                if (hadStoreChildContext && IsProcessActiveStoreLauncher(p))
+                                    continue;
+
+                                p.Kill(true);
+                                killedAny = true;
+                            }
+                            catch { }
                         }
                     }
 
-                    if (_pendingLaunchProcess != null && !SafeHasExited(_pendingLaunchProcess))
+                    if (_pendingLaunchProcess != null &&
+                        !SafeHasExited(_pendingLaunchProcess) &&
+                        (!hadStoreChildContext || !IsProcessActiveStoreLauncher(_pendingLaunchProcess)))
+                    {
                         _pendingLaunchProcess.Kill(true);
+                        killedAny = true;
+                    }
                 }
                 catch { }
+
+                if (hadStoreChildContext && !killedAny)
+                {
+                    ResumeStoreSession();
+                    SendRuntimeSessionsToUI();
+                    return;
+                }
 
                 CommitActiveSession();
                 ClearGameWindowSession();
@@ -5327,6 +5355,52 @@ namespace Doorpi
             }
         }
 
+        private bool TryRequestCloseStoreChildGameWindow()
+        {
+            var hwnd = ResolveCurrentGameWindow();
+            if (hwnd == IntPtr.Zero)
+                return false;
+
+            try
+            {
+                GetWindowThreadProcessId(hwnd, out uint pidRaw);
+                if (pidRaw == 0 || pidRaw == Environment.ProcessId)
+                    return false;
+
+                using var process = Process.GetProcessById((int)pidRaw);
+                if (IsProcessActiveStoreLauncher(process))
+                    return false;
+
+                return PostMessage(hwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+            }
+            catch { return false; }
+        }
+
+        private bool IsProcessActiveStoreLauncher(Process process)
+        {
+            try
+            {
+                if (process.Id == SafeProcessId(_storeLauncherProcess))
+                    return true;
+
+                var processPath = SafeProcessPath(process);
+                if (!string.IsNullOrWhiteSpace(processPath) &&
+                    !string.IsNullOrWhiteSpace(_storeLauncherExe) &&
+                    PathsEqual(processPath, _storeLauncherExe))
+                {
+                    return true;
+                }
+
+                var launcherName = !string.IsNullOrWhiteSpace(_storeLauncherExe)
+                    ? Path.GetFileNameWithoutExtension(_storeLauncherExe)
+                    : _storeProcessGroupExeName;
+
+                return !string.IsNullOrWhiteSpace(launcherName) &&
+                       string.Equals(SafeProcessName(process), launcherName, StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
+        }
+
         private static bool IsStoreAuxiliaryProcessName(string processName)
         {
             if (string.IsNullOrWhiteSpace(processName)) return false;
@@ -5949,6 +6023,22 @@ namespace Doorpi
             string url = _executionLockUrl;
             string channel = _executionLockChannel;
             string appType = _executionLockAppType;
+
+            bool shouldCloseStoreChildGame =
+                _gameSessionActive &&
+                _storeChildGameActive &&
+                string.Equals(_gameSessionParentKind, "store", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(_activeSessionGameId);
+
+            if (shouldCloseStoreChildGame)
+            {
+                kind = "game";
+                channel = "games";
+                appType = "game";
+                id = _activeSessionGameId;
+                url = "";
+            }
+
             ClearExecutionLock();
 
             // Blindagem: sessão de jogo com pai Doorpi nunca pode ser fechada
