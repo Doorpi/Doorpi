@@ -2122,7 +2122,7 @@ namespace Doorpi
                         }
                         catch { }
 
-                        if (!hasVisibleWindow && IsForegroundDoorpi())
+                        if (!hasVisibleWindow)
                         {
                             bool waitingForSteamMainWindow =
                                 IsSteamStoreWindowLookup(_activeStoreId ?? "", _storeLauncherExe ?? "") &&
@@ -2145,6 +2145,12 @@ namespace Doorpi
                             }
 
                             if (waitingForSteamMainWindow)
+                            {
+                                await Task.Delay(300, token).ConfigureAwait(false);
+                                continue;
+                            }
+
+                            if (!IsForegroundDoorpi())
                             {
                                 await Task.Delay(300, token).ConfigureAwait(false);
                                 continue;

@@ -5260,6 +5260,9 @@ namespace Doorpi
             if (IsForegroundOwnedBySteamInteractiveWindow())
                 return true;
 
+            if (IsForegroundOwnedByStoreAuxiliaryWindow())
+                return true;
+
             try
             {
                 if (_storeLauncherProcess != null &&
@@ -5286,6 +5289,57 @@ namespace Doorpi
             return !string.IsNullOrWhiteSpace(_storeLauncherExe) &&
                    IsForegroundOwnedByExecutablePath(_storeLauncherExe);
         }
+
+        private bool IsForegroundOwnedByStoreAuxiliaryWindow()
+        {
+            if (!_isStoreLauncherSession ||
+                _storePausedByDoorpi ||
+                IsStoreChildGameBlockingStoreControls())
+            {
+                return false;
+            }
+
+            if (!IsForegroundExternalInteractiveWindow(out var foreground, out var process) ||
+                process == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                var processName = SafeProcessName(process);
+                if (string.IsNullOrWhiteSpace(processName))
+                    return false;
+
+                bool knownAuxiliaryProcess = IsStoreAuxiliaryProcessName(processName);
+                if (!knownAuxiliaryProcess && _storeWindowSnapshot.Contains(foreground))
+                    return false;
+
+                if (!knownAuxiliaryProcess && _shellProcessNames.Contains(processName))
+                    return false;
+
+                return true;
+            }
+            catch { return false; }
+            finally
+            {
+                try { process.Dispose(); } catch { }
+            }
+        }
+
+        private static bool IsStoreAuxiliaryProcessName(string processName)
+        {
+            if (string.IsNullOrWhiteSpace(processName)) return false;
+
+            return _storeAuxiliaryProcessNames.Contains(processName);
+        }
+
+        private static readonly HashSet<string> _storeAuxiliaryProcessNames = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "chrome", "msedge", "firefox", "brave", "opera", "opera_gx", "vivaldi",
+            "browser", "iexplore", "systemsettings", "applicationframehost",
+            "rundll32", "control", "controlpanel"
+        };
 
         private bool IsForegroundOwnedByCurrentGame()
         {
@@ -11168,7 +11222,8 @@ namespace Doorpi
                                             (DateTime.UtcNow.Ticks - Interlocked.Read(ref _focusRestoredAtTicks))
                                             < TimeSpan.FromSeconds(2).Ticks;
 
-                    bool isLaunchingOrRunning = (_gameSessionActive && !_gameIsMinimized)
+                    bool isLaunchingOrRunning = _executionLockActive
+                        || (_gameSessionActive && !_gameIsMinimized)
                         || _mediaExeModeActive
                         || _launcherMouseActive
                         || _systemControllerActive
