@@ -368,6 +368,9 @@ const CardRenderer = (() => {
 
         card.addEventListener('click', () => {
             const launchId = item.channel === 'games' ? (item.launchUrl || item.path) : item.url;
+            const hasConflict = window._handleSessionConflictFromLaunch?.(item, launchId) === true;
+            if (hasConflict) return;
+
             window.AppStore.mutations.trackOpened(item.id);
 
             if (item.channel === 'games') {
@@ -378,6 +381,7 @@ const CardRenderer = (() => {
                 postToHost({ action: 'openStore', storeId: item.id || launchId });
             } else {
                 window.isMediaAppActive = true;
+                window._rememberLaunchedWebAppForConflict?.(item, launchId);
                 postToHost({
                     action: 'launchMediaApp', url: launchId, appType: item.appType,
                     toastTitle: typeof t === 'function' ? t('toastCopied') : '', toastSub: typeof t === 'function' ? t('toastReturning') : ''

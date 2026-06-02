@@ -29,7 +29,7 @@ const _storeSessionMenu = (() => {
         </button>
         <button class="ctx-item" id="storeMenuGamepadControl" type="button">
             <span class="ctx-icon" id="storeMenuGamepadIcon">✓</span>
-            <span data-i18n="storeDisableGamepadControl">Nao usar mouse/teclado no launcher</span>
+            <span data-i18n="storeDisableGamepadControl">Iniciar com modo mouse habilitado</span>
         </button>
         <p class="store-menu-hint" style="margin:10px 0 0;font-size:0.75rem;color:rgba(255,255,255,0.45);">
             <span data-i18n="storeMenuHintSquare">□</span> <span data-i18n="storeMenuResume">Retomar loja</span>
@@ -45,8 +45,8 @@ const _storeSessionMenu = (() => {
         _storeMenuDisableGamepadControl = !_storeMenuDisableGamepadControl;
         const icon = document.getElementById('storeMenuGamepadIcon');
         const toggle = document.getElementById('storeMenuGamepadControl');
-        if (toggle) toggle.classList.toggle('on', _storeMenuDisableGamepadControl);
-        if (icon) icon.textContent = _storeMenuDisableGamepadControl ? '✓' : '';
+        if (toggle) toggle.classList.toggle('on', !_storeMenuDisableGamepadControl);
+        if (icon) icon.textContent = !_storeMenuDisableGamepadControl ? '✓' : '';
         postToHost?.({ action: 'setStoreGamepadControl', storeId: _storeMenuStoreId, disabled: _storeMenuDisableGamepadControl });
     });
 
@@ -66,8 +66,8 @@ function showStoreSessionMenu(data) {
 
     const toggle = document.getElementById('storeMenuGamepadControl');
     const icon = document.getElementById('storeMenuGamepadIcon');
-    if (toggle) toggle.classList.toggle('on', _storeMenuDisableGamepadControl);
-    if (icon) icon.textContent = _storeMenuDisableGamepadControl ? '✓' : '';
+    if (toggle) toggle.classList.toggle('on', !_storeMenuDisableGamepadControl);
+    if (icon) icon.textContent = !_storeMenuDisableGamepadControl ? '✓' : '';
     if (typeof applyI18n === 'function') applyI18n();
 
     _storeSessionMenu.style.display = 'flex';

@@ -71,6 +71,7 @@ window.AppStore = (() => {
             vertical: raw.GridImage || raw.gridImage || raw.imageData || '',
             horizontal: raw.GridHorizontalImage || raw.gridHorizontalImage || '',
             hero: raw.HeroImage || raw.heroImage || raw.hero || '', logo: raw.LogoImage || raw.logoImage || raw.logo || '',
+            disableGamepadControl: raw.DisableGamepadControl || raw.disableGamepadControl || false,
             isAnimated: raw.isAnimated || false,
         };
     }

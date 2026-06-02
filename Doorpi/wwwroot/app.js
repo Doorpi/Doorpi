@@ -257,6 +257,7 @@
     window.DoorpiRuntimeState = {
         running: []
     };
+    window._currentWebAppConflictEntry = null;
     window._lastExecutionLockData = null;
     window._executionLockRequestUntil = 0;
     window._executionOverlayCloseTimer = 0;
@@ -334,6 +335,13 @@
         return `${base}|pair:${pairSig}`;
     }
 
+    function _executionTargetKey(data) {
+        if (!data) return '';
+        if (data.url) return `url:${data.url}`;
+        if (data.id) return `id:${data.id}`;
+        return '';
+    }
+
     function _refreshExecutionOverlayFromRuntime() {
         if (!_isExecutionOverlayVisible()) return false;
         if (!_hasAnyRuntimeSession()) return false;
@@ -350,17 +358,21 @@
 
         if (!(hydrated.id || hydrated.url)) return false;
 
+        const prev = window._lastExecutionLockData || {};
+        const prevTargetKey = _executionTargetKey(prev);
+        const hydratedTargetKey = _executionTargetKey(hydrated);
+        const isSameTarget = !!prevTargetKey && !!hydratedTargetKey && prevTargetKey === hydratedTargetKey;
+
         const next = {
             kind: hydrated.kind || '',
             channel: hydrated.channel || '',
             id: hydrated.id || '',
             url: hydrated.url || '',
             appType: hydrated.appType || '',
-            name: hydrated.name || '',
-            heroImage: hydrated.heroImage || '',
-            gridImage: hydrated.gridImage || ''
+            name: hydrated.name || (isSameTarget ? (prev.name || '') : ''),
+            heroImage: hydrated.heroImage || (isSameTarget ? (prev.heroImage || '') : ''),
+            gridImage: hydrated.gridImage || (isSameTarget ? (prev.gridImage || '') : '')
         };
-        const prev = window._lastExecutionLockData || {};
         const changed =
             (prev.kind || '') !== next.kind ||
             (prev.channel || '') !== next.channel ||
@@ -495,7 +507,8 @@
         const card = _runtimeCardFromEntry(entry);
         const nameFromCard = card?.querySelector('.title, .nav-vertical-card-title')?.textContent?.trim() || '';
         const cardImg = card?.querySelector('img')?.getAttribute('src') || '';
-        const resolvedId = entry.id || card?.dataset?.gameId || card?.dataset?.appId || '';
+        const isExecutableMedia = entry.channel === 'media' && entry.kind === 'exe';
+        const resolvedId = entry.id || (isExecutableMedia ? '' : (card?.dataset?.gameId || card?.dataset?.appId || ''));
         const resolvedUrl = entry.url || card?.dataset?.appUrl || '';
         const name =
             nameFromCard ||
@@ -664,6 +677,275 @@
         if (!launchOverlay.classList.contains('visible')) return false;
         if (launchOverlay.classList.contains('execution-lock-visible')) return false;
         return launchOverlay.classList.contains('state-loading');
+    }
+
+    function _resolveRuntimeEntryName(entry) {
+        if (!entry) return '';
+        if (entry.name) return entry.name;
+        const card = _runtimeCardFromEntry(entry);
+        return card?.querySelector('.title, .nav-vertical-card-title')?.textContent?.trim() || '';
+    }
+
+    function _buildClosePayloadFromRuntimeEntry(entry) {
+        if (!entry) return null;
+        const kind = (entry.kind || '').toLowerCase();
+        const appType = kind === 'web' ? 'webview'
+            : kind === 'store' ? 'store'
+                : kind === 'game' ? 'game'
+                    : 'exe';
+        return {
+            id: entry.id || '',
+            url: entry.url || '',
+            channel: entry.channel || '',
+            appType
+        };
+    }
+
+    function _findSessionConflictEntry(item, launchId) {
+        const entries = Array.isArray(window.DoorpiRuntimeState?.running) ? window.DoorpiRuntimeState.running : [];
+        const channel = (item?.channel || '').toLowerCase();
+        const appType = (item?.appType || '').toLowerCase();
+
+        if (channel === 'games') {
+            return entries.find(e =>
+                (e.channel === 'games' || e.kind === 'game') &&
+                !!e.id &&
+                e.id !== item.id
+            ) || null;
+        }
+
+        if (channel === 'stores') {
+            return entries.find(e =>
+                (e.channel === 'stores' || e.kind === 'store') &&
+                !!e.id &&
+                e.id !== item.id
+            ) || null;
+        }
+
+        if (channel === 'media') {
+            if (appType === 'webview' || appType === 'browser') {
+                const runningWeb = entries.find(e =>
+                    e.channel === 'media' &&
+                    e.kind === 'web' &&
+                    ((!!e.url && e.url !== launchId) || !e.url)
+                );
+                if (runningWeb) return runningWeb;
+
+                const rememberedWeb = window._currentWebAppConflictEntry;
+                if (rememberedWeb &&
+                    rememberedWeb.channel === 'media' &&
+                    rememberedWeb.kind === 'web' &&
+                    rememberedWeb.url !== launchId) {
+                    return rememberedWeb;
+                }
+
+                return null;
+            }
+
+            if (appType === 'exe') {
+                return entries.find(e =>
+                    e.channel === 'media' &&
+                    e.kind === 'exe' &&
+                    !!e.url &&
+                    e.url !== launchId
+                ) || null;
+            }
+        }
+
+        return null;
+    }
+
+    let _sessionConflictOverlay = null;
+    let _sessionConflictClosePayload = null;
+    let _sessionConflictReturnFocusEl = null;
+
+    function _ensureSessionConflictOverlay() {
+        if (_sessionConflictOverlay) return _sessionConflictOverlay;
+
+        const style = document.createElement('style');
+        style.textContent = `
+            #sessionConflictOverlay {
+                position: fixed;
+                inset: 0;
+                z-index: 13500;
+                display: none;
+                align-items: center;
+                justify-content: center;
+                background: rgba(5, 6, 14, 0.72);
+                backdrop-filter: blur(12px);
+                -webkit-backdrop-filter: blur(12px);
+            }
+            #sessionConflictOverlay.visible { display: flex; }
+            #sessionConflictCard {
+                width: min(540px, 90vw);
+                border-radius: 12px;
+                border: 1px solid rgba(255,255,255,.12);
+                background: linear-gradient(180deg, rgba(16,18,32,.96), rgba(8,9,18,.96));
+                box-shadow: 0 24px 60px rgba(0,0,0,.55);
+                padding: 24px 24px 18px;
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+            }
+            #sessionConflictTitle {
+                margin: 0;
+                color: #fff;
+                font-family: 'Outfit', sans-serif;
+                font-size: clamp(1rem, 1.2vw, 1.25rem);
+                font-weight: 700;
+            }
+            #sessionConflictMessage {
+                margin: 0;
+                color: rgba(255,255,255,.72);
+                font-family: 'Outfit', sans-serif;
+                font-size: clamp(.84rem, .96vw, 1rem);
+                line-height: 1.45;
+            }
+            #sessionConflictActions {
+                display: flex;
+                justify-content: flex-end;
+                gap: 10px;
+                margin-top: 6px;
+            }
+            #sessionConflictActions .modal-btn {
+                min-width: 132px;
+            }
+        `;
+        document.head.appendChild(style);
+
+        const overlay = document.createElement('div');
+        overlay.id = 'sessionConflictOverlay';
+        overlay.innerHTML = `
+            <div id="sessionConflictCard" role="dialog" aria-modal="true" aria-label="Conflito de sessão">
+                <h3 id="sessionConflictTitle">Processo/Jogo em andamento</h3>
+                <p id="sessionConflictMessage">Deseja encerrar o processo atual?</p>
+                <div id="sessionConflictActions">
+                    <button id="sessionConflictCancel" class="modal-btn cancel" type="button" tabindex="0">Cancelar</button>
+                    <button id="sessionConflictClose" class="modal-btn primary" type="button" tabindex="0">Encerrar</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+
+        const cancelBtn = overlay.querySelector('#sessionConflictCancel');
+        const closeBtn = overlay.querySelector('#sessionConflictClose');
+
+        cancelBtn?.addEventListener('click', () => {
+            window.hideSessionConflictPopup?.(true);
+        });
+        closeBtn?.addEventListener('click', () => {
+            const payload = _sessionConflictClosePayload;
+            window.hideSessionConflictPopup?.(true);
+            if (payload) {
+                postToHost({
+                    action: 'closeRunningItem',
+                    id: payload.id || '',
+                    url: payload.url || '',
+                    channel: payload.channel || '',
+                    appType: payload.appType || ''
+                });
+            }
+        });
+
+        _sessionConflictOverlay = overlay;
+        return overlay;
+    }
+
+    window.isSessionConflictPopupOpen = function () {
+        return !!(_sessionConflictOverlay && _sessionConflictOverlay.classList.contains('visible'));
+    };
+
+    window.getSessionConflictPopupItems = function () {
+        if (!window.isSessionConflictPopupOpen()) return [];
+        return Array.from(_sessionConflictOverlay.querySelectorAll('#sessionConflictActions button'))
+            .filter(el => !el.disabled && el.offsetWidth > 0 && el.offsetHeight > 0);
+    };
+
+    window.hideSessionConflictPopup = function (restoreFocus = true) {
+        if (!_sessionConflictOverlay) return;
+        _sessionConflictOverlay.classList.remove('visible');
+        _sessionConflictClosePayload = null;
+        if (restoreFocus) {
+            const target = _sessionConflictReturnFocusEl;
+            _sessionConflictReturnFocusEl = null;
+            setTimeout(() => {
+                if (target && document.contains(target) && typeof target.focus === 'function') {
+                    target.focus();
+                } else {
+                    recoverGlobalFocus?.();
+                }
+            }, 0);
+        } else {
+            _sessionConflictReturnFocusEl = null;
+        }
+    };
+
+    window.showSessionConflictPopup = function ({ closePayload, runningName } = {}) {
+        const overlay = _ensureSessionConflictOverlay();
+        const wasVisible = overlay.classList.contains('visible');
+        _sessionConflictClosePayload = closePayload || null;
+        if (!wasVisible) {
+            _sessionConflictReturnFocusEl = document.activeElement;
+        }
+
+        const titleEl = overlay.querySelector('#sessionConflictTitle');
+        const messageEl = overlay.querySelector('#sessionConflictMessage');
+        const cancelBtn = overlay.querySelector('#sessionConflictCancel');
+        const closeBtn = overlay.querySelector('#sessionConflictClose');
+
+        const titleText = typeof t === 'function' ? t('sessionConflictTitle') : 'Processo/Jogo em andamento';
+        const fallbackName = typeof t === 'function' ? t('sessionConflictCurrent') : 'atual';
+        const baseMessage = typeof t === 'function' ? t('sessionConflictMessage') : 'Deseja encerrar o processo/jogo {name}?';
+        const resolvedName = runningName || fallbackName;
+        const messageText = baseMessage.replace('{name}', resolvedName);
+
+        if (titleEl) titleEl.textContent = titleText;
+        if (messageEl) messageEl.textContent = messageText;
+        if (cancelBtn) cancelBtn.textContent = typeof t === 'function' ? t('sessionConflictCancel') : 'Cancelar';
+        if (closeBtn) closeBtn.textContent = typeof t === 'function' ? t('sessionConflictClose') : 'Encerrar';
+
+        overlay.classList.add('visible');
+        if (!wasVisible) {
+            setTimeout(() => {
+                cancelBtn?.focus();
+                if (typeof updateGamepadUI === 'function') updateGamepadUI(isGamepadConnected, _controllerType);
+            }, 0);
+        }
+    };
+
+    window._handleSessionConflictFromLaunch = function (item, launchId) {
+        const entry = _findSessionConflictEntry(item, launchId);
+        if (!entry) return false;
+        window.showSessionConflictPopup?.({
+            closePayload: _buildClosePayloadFromRuntimeEntry(entry),
+            runningName: _resolveRuntimeEntryName(entry)
+        });
+        return true;
+    };
+
+    window._rememberLaunchedWebAppForConflict = function (item, launchId) {
+        if (!item) return;
+        const appType = (item.appType || '').toLowerCase();
+        if (item.channel !== 'media' || (appType !== 'webview' && appType !== 'browser')) return;
+
+        window._currentWebAppConflictEntry = {
+            channel: 'media',
+            kind: 'web',
+            url: launchId || item.url || item.id || '',
+            name: item.name || '',
+            heroImage: item.hero || item.staticHero || '',
+            gridImage: item.staticVertical || item.vertical || item.staticHorizontal || item.horizontal || ''
+        };
+    };
+
+    function _syncWebAppConflictEntryFromRuntime() {
+        const running = Array.isArray(window.DoorpiRuntimeState?.running) ? window.DoorpiRuntimeState.running : [];
+        const webEntry = running.find(e => e && e.channel === 'media' && e.kind === 'web');
+        if (webEntry) {
+            window._currentWebAppConflictEntry = webEntry;
+        } else {
+            window._currentWebAppConflictEntry = null;
+        }
     }
 
     // ── TRAVA DE SEGURANÇA DA INTRO ────────────────────────────────────────
@@ -1016,6 +1298,7 @@
             else if (data.type === 'appProcessDied') {
                 if (Array.isArray(data.running)) {
                     window.DoorpiRuntimeState.running = data.running;
+                    _syncWebAppConflictEntryFromRuntime();
                     refreshRuntimeCards();
                 }
                 const shouldMuteDoorpiAudio = _readDoorpiAudioMuteFlag(
@@ -1029,6 +1312,7 @@
             }
             else if (data.type === 'runtimeSessionsChanged') {
                 window.DoorpiRuntimeState.running = Array.isArray(data.running) ? data.running : [];
+                _syncWebAppConflictEntryFromRuntime();
                 refreshRuntimeCards();
                 const shouldMuteDoorpiAudio = _readDoorpiAudioMuteFlag(
                     data,
@@ -1179,6 +1463,44 @@
                 // 🔹 Avisa o Store: ele reordena o carrossel E atualiza o hero automaticamente
                 if (window.AppStore) window.AppStore.mutations.trackOpened(data.id);
             }
+            else if (data.type === 'gameAlreadyRunning') {
+                const running = _nonMinimizedRuntimeEntries().find(e =>
+                    (e.channel === 'games' || e.kind === 'game') &&
+                    (!data.currentGameId || !e.id || e.id === data.currentGameId)
+                );
+                const payload = running
+                    ? _buildClosePayloadFromRuntimeEntry(running)
+                    : { id: data.currentGameId || '', url: '', channel: 'games', appType: 'game' };
+                window.showSessionConflictPopup?.({
+                    closePayload: payload,
+                    runningName: running ? _resolveRuntimeEntryName(running) : ''
+                });
+            }
+            else if (data.type === 'storeAlreadyRunning') {
+                const running = _nonMinimizedRuntimeEntries().find(e =>
+                    (e.channel === 'stores' || e.kind === 'store') &&
+                    (!data.currentStoreId || !e.id || e.id === data.currentStoreId)
+                );
+                const payload = running
+                    ? _buildClosePayloadFromRuntimeEntry(running)
+                    : { id: data.currentStoreId || '', url: data.currentStoreId || '', channel: 'stores', appType: 'store' };
+                window.showSessionConflictPopup?.({
+                    closePayload: payload,
+                    runningName: running ? _resolveRuntimeEntryName(running) : ''
+                });
+            }
+            else if (data.type === 'sessionConflictPrompt') {
+                const payload = {
+                    id: data.id || '',
+                    url: data.url || '',
+                    channel: data.channel || '',
+                    appType: data.appType || ''
+                };
+                window.showSessionConflictPopup?.({
+                    closePayload: payload,
+                    runningName: data.name || ''
+                });
+            }
             else if (data.type === 'updateLoadingText') {
                 if (window.isGlobalLoading) {
                     showGlobalLoading(data.title, data.subtitle);
@@ -1275,8 +1597,8 @@
                 const hasVisualContext = !!(hydrated.heroImage || hydrated.gridImage);
                 const hasIdentity = !!(hydrated.id || hydrated.url || hydrated.kind || hydrated.channel);
                 const currentLock = window._lastExecutionLockData || {};
-                const currentTargetKey = currentLock.id ? `id:${currentLock.id}` : (currentLock.url ? `url:${currentLock.url}` : '');
-                const incomingTargetKey = hydrated.id ? `id:${hydrated.id}` : (hydrated.url ? `url:${hydrated.url}` : '');
+                const currentTargetKey = _executionTargetKey(currentLock);
+                const incomingTargetKey = _executionTargetKey(hydrated);
                 const isSameTargetVisible =
                     isVisibleExecution &&
                     !!currentTargetKey &&
@@ -3438,7 +3760,7 @@ function renderFolderList(folders) {
                 <span class="ctx-icon">▶</span> <span id="ctxRuntimeActionText">Iniciar</span>
             </button>
             <button class="ctx-item" id="ctxStoreGamepadControl" role="menuitem">
-                <span class="ctx-icon">✓</span> <span id="ctxStoreGamepadControlText">Não usar mouse/teclado no launcher</span>
+                <span class="ctx-icon">✓</span> <span id="ctxStoreGamepadControlText">Iniciar com modo mouse habilitado</span>
             </button>
             <button class="ctx-item" id="ctxStoreAutoAdd" role="menuitem">
                 <span class="ctx-icon">âœ“</span> <span id="ctxStoreAutoAddText">Adicionar jogos automaticamente</span>
@@ -3500,11 +3822,11 @@ function renderFolderList(folders) {
         if (ctxStoreGamepadBtn && ctxStoreGamepadText) {
             const disabled = card.dataset.disableGamepadControl === 'true';
             ctxStoreGamepadBtn.style.display = isStoreCard ? 'flex' : 'none';
-            ctxStoreGamepadBtn.classList.toggle('on', disabled);
-            ctxStoreGamepadBtn.querySelector('.ctx-icon').textContent = disabled ? '✓' : '';
+            ctxStoreGamepadBtn.classList.toggle('on', !disabled);
+            ctxStoreGamepadBtn.querySelector('.ctx-icon').textContent = !disabled ? '✓' : '';
             ctxStoreGamepadText.textContent = typeof t === 'function'
-                ? t('storeDisableGamepadControl', 'Não usar mouse/teclado no launcher')
-                : 'Não usar mouse/teclado no launcher';
+                ? t('storeDisableGamepadControl', 'Iniciar com modo mouse habilitado')
+                : 'Iniciar com modo mouse habilitado';
         }
         if (ctxStoreAutoAddBtn && ctxStoreAutoAddText) {
             if (isStoreCard && typeof postToHost === 'function' && !window._storeAutoAddSettings) {
@@ -3622,20 +3944,21 @@ function renderFolderList(folders) {
         if (!card) return;
 
         const storeId = card.dataset.appId || card.dataset.id || card.dataset.appUrl || '';
-        const next = card.dataset.disableGamepadControl !== 'true';
-        card.dataset.disableGamepadControl = String(next);
+        const nextStartMouseMode = card.dataset.disableGamepadControl === 'true';
+        const nextDisabled = !nextStartMouseMode;
+        card.dataset.disableGamepadControl = String(nextDisabled);
         if (window.AppStore?.mutations?.patchItem && storeId) {
-            window.AppStore.mutations.patchItem('stores', storeId, { disableGamepadControl: next });
+            window.AppStore.mutations.patchItem('stores', storeId, { disableGamepadControl: nextDisabled });
         }
         if (typeof postToHost === 'function' && storeId) {
-            postToHost({ action: 'setStoreGamepadControl', storeId, disabled: next });
+            postToHost({ action: 'setStoreGamepadControl', storeId, disabled: nextDisabled });
         }
 
         const btn = document.getElementById('ctxStoreGamepadControl');
         if (btn) {
-            btn.classList.toggle('on', next);
+            btn.classList.toggle('on', nextStartMouseMode);
             const icon = btn.querySelector('.ctx-icon');
-            if (icon) icon.textContent = next ? '✓' : '';
+            if (icon) icon.textContent = nextStartMouseMode ? '✓' : '';
         }
     });
 
@@ -3855,12 +4178,12 @@ function renderFolderList(folders) {
                         <label class="edit-modal-label">${typeof t === 'function' ? t('gamepadControlLabel', 'CONTROLE XINPUT') : 'CONTROLE XINPUT'}</label>
                         <label class="edit-toggle-row" tabindex="0">
                             <span class="edit-toggle-switch">
-                                <input type="checkbox" id="editDisableGamepadControl" tabindex="-1" ${disableGamepadControl ? 'checked' : ''} />
+                                <input type="checkbox" id="editDisableGamepadControl" tabindex="-1" ${!disableGamepadControl ? 'checked' : ''} />
                                 <span class="edit-toggle-slider"></span>
                             </span>
-                            <span class="edit-toggle-label">${typeof t === 'function' ? t('disableGamepadControlLabel', 'Desativar modo controle emulado') : 'Desativar modo controle emulado'}</span>
+                            <span class="edit-toggle-label">${typeof t === 'function' ? t('disableGamepadControlLabel', 'Iniciar com modo mouse habilitado') : 'Iniciar com modo mouse habilitado'}</span>
                         </label>
-                        <span class="edit-modal-input-hint">${typeof t === 'function' ? t('disableGamepadControlHint', 'Recomendado para apps que possuem suporte nativo a controle.') : 'Recomendado para apps que possuem suporte nativo a controle.'}</span>
+                        <span class="edit-modal-input-hint">${typeof t === 'function' ? t('disableGamepadControlHint', 'Quando desligado, use L3 + R3 + L1 + R1 durante a sessão para ativar temporariamente.') : 'Quando desligado, use L3 + R3 + L1 + R1 durante a sessão para ativar temporariamente.'}</span>
                     </div>` : ''}
                 </div>
                 <div class="edit-modal-actions">
@@ -3899,7 +4222,7 @@ function renderFolderList(folders) {
             const nameChanged = newName && newName !== currentName;
 
             const disableCheckbox = overlay.querySelector('#editDisableGamepadControl');
-            const newDisable = disableCheckbox ? disableCheckbox.checked : disableGamepadControl;
+            const newDisable = disableCheckbox ? !disableCheckbox.checked : disableGamepadControl;
             const disableChanged = isExeApp && newDisable !== disableGamepadControl;
             if (nameChanged) {
                 const gameId = card.dataset.gameId || card.dataset.appId;
@@ -5252,7 +5575,7 @@ function renderFolderList(folders) {
                 overlay.classList.contains('visible') &&
                 overlay.classList.contains('execution-lock-visible');
             const isSameContextVisible = isAlreadyVisible && currentContextKey === nextContextKey;
-            const shouldPreserveFocus = isAlreadyVisible;
+            const shouldPreserveFocus = isSameContextVisible;
             overlay.dataset.executionLockKey = nextContextKey;
 
             nameEl.textContent = name;
@@ -5275,13 +5598,14 @@ function renderFolderList(folders) {
                 const primary = document.getElementById('executionLockRestore');
                 if (primary && primary.offsetWidth > 0 && primary.offsetHeight > 0) primary.focus();
             };
+            const lockHasFocus = !!(lockActions && lockActions.contains(document.activeElement));
             clearExecutionLockFocusTimers();
             executionLockFocusTimerA = setTimeout(() => {
                 if (typeof updateGamepadUI === 'function') updateGamepadUI(isGamepadConnected, _controllerType);
-                if (!shouldPreserveFocus) focusPrimary();
+                if (!shouldPreserveFocus || !lockHasFocus) focusPrimary();
             }, 50);
             executionLockFocusTimerB = setTimeout(() => {
-                if (!shouldPreserveFocus) focusPrimary();
+                if (!shouldPreserveFocus || !lockHasFocus) focusPrimary();
             }, 220);
         }
 

@@ -151,6 +151,9 @@ function getNavigableItems() {
         return Array.from(document.querySelectorAll('.edit-modal-input, .doorpi-choice-trigger, .doorpi-choice-option, #editSharingBtn, #editExtensionsBtn, .edit-toggle-row, .edit-modal-actions button'))
             .filter(el => el.offsetWidth > 0 && !el.disabled && !el.closest('.doorpi-choice-wrap.is-disabled'));
     }
+    if (window.isSessionConflictPopupOpen?.()) {
+        return window.getSessionConflictPopupItems?.() || [];
+    }
 
     const launchOverlay = document.getElementById('gameLaunchOverlay');
     if (launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('execution-lock-visible')) {
@@ -379,6 +382,30 @@ function getGroupTransition(direction, groupName, groups, current) {
 }
 
 let _lastFocusedApp = null, _lastFocusedFilter = null, _lastFocusedSidebar = null, _lastSetupFocused = null;
+let _sessionConflictSuppressKeyNavUntil = 0;
+let _sessionConflictLastKeyNavAt = 0;
+
+function moveSessionConflictFocus(direction) {
+    const items = window.getSessionConflictPopupItems?.() || [];
+    if (!items.length) return;
+
+    const current = document.activeElement;
+    if (!items.includes(current)) {
+        items[0]?.focus();
+        return;
+    }
+
+    const idx = items.indexOf(current);
+    let next = current;
+    if ((direction === 'RIGHT' || direction === 'DOWN') && idx < items.length - 1) {
+        next = items[idx + 1];
+    } else if ((direction === 'LEFT' || direction === 'UP') && idx > 0) {
+        next = items[idx - 1];
+    }
+
+    if (next && next !== current) next.focus();
+}
+
 document.addEventListener('focusin', () => {
     if (!window.isSetupOpen) return;
 
@@ -474,6 +501,11 @@ function moveFocus(direction) {
                 else if (tr.top < cr.top) container.scrollTop -= (cr.top - tr.top) + 40;
             }
         }
+        return;
+    }
+
+    if (window.isSessionConflictPopupOpen?.()) {
+        moveSessionConflictFocus(direction);
         return;
     }
 
@@ -688,6 +720,30 @@ document.addEventListener('keydown', e => {
             return;
         }
     }
+    if (window.isSessionConflictPopupOpen?.()) {
+        const dirMapConflict = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' };
+        if (dirMapConflict[e.key]) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            const now = performance.now();
+            if (now < _sessionConflictSuppressKeyNavUntil) return;
+            _sessionConflictLastKeyNavAt = now;
+            moveSessionConflictFocus(dirMapConflict[e.key]);
+            return;
+        }
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            document.activeElement?.click();
+            return;
+        }
+        if (e.key === 'Escape' || e.key === 'Backspace') {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            document.getElementById('sessionConflictCancel')?.click();
+            return;
+        }
+    }
     const isWaitingLaunch = launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('state-loading');
     if (isWaitingLaunch) {
         if (e.key === 'Escape' || e.key === 'Backspace') {
@@ -828,7 +884,7 @@ document.addEventListener('keydown', e => {
     }
 });
 
-let _gamepadIndex = null, _controllerType = 'generic', _btnCooldown = {}, _lastMoveTime = 0, _moveState = 0, _currentDirection = null, _executionLockHeldDir = null;
+let _gamepadIndex = null, _controllerType = 'generic', _btnCooldown = {}, _lastMoveTime = 0, _moveState = 0, _currentDirection = null, _executionLockHeldDir = null, _sessionConflictHeldDir = null;
 let _cursorHoldState = { l1: 0, r1: 0 }, _cursorLastTime = { l1: 0, r1: 0 };
 
 window._gpNavigating = false;
@@ -881,8 +937,9 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         const launchOverlay = document.getElementById('gameLaunchOverlay');
         const isExecutionLock = launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('execution-lock-visible');
         const isWaitingLaunch = launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('state-loading');
+        const isSessionConflict = window.isSessionConflictPopupOpen?.() === true;
 
-        if (window.isGlobalLoading || (!isWaitingLaunch && !isExecutionLock && (window.isMediaAppActive || isDoorpiGameInputSuppressed())) || !document.hasFocus()) return;
+        if (window.isGlobalLoading || (!isWaitingLaunch && !isExecutionLock && !isSessionConflict && (window.isMediaAppActive || isDoorpiGameInputSuppressed())) || !document.hasFocus()) return;
 
         const { GAMEPAD } = NAV, buttons = gamepad.buttons;
         const ax = gamepad.axes[0], ay = gamepad.axes[1], thr = GAMEPAD.AXIS_THRESHOLD, now = performance.now();
@@ -932,6 +989,50 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         }
 
         _executionLockHeldDir = null;
+
+        if (isSessionConflict) {
+            let conflictDir = null;
+            if (buttons[GAMEPAD.BTN_RIGHT]?.pressed) conflictDir = 'RIGHT';
+            else if (buttons[GAMEPAD.BTN_LEFT]?.pressed) conflictDir = 'LEFT';
+            else if (buttons[GAMEPAD.BTN_DOWN]?.pressed) conflictDir = 'DOWN';
+            else if (buttons[GAMEPAD.BTN_UP]?.pressed) conflictDir = 'UP';
+            else {
+                const conflictAxisThreshold = Math.max(thr, 0.72);
+                const absX = Math.abs(ax);
+                const absY = Math.abs(ay);
+                if (absX >= conflictAxisThreshold || absY >= conflictAxisThreshold) {
+                    if (absX >= absY) conflictDir = ax > 0 ? 'RIGHT' : 'LEFT';
+                    else conflictDir = ay > 0 ? 'DOWN' : 'UP';
+                }
+            }
+
+            if (conflictDir) {
+                if (_sessionConflictHeldDir === null) {
+                    const nowNav = performance.now();
+                    if (nowNav - _sessionConflictLastKeyNavAt > 90) {
+                        _sessionConflictSuppressKeyNavUntil = nowNav + 90;
+                        moveSessionConflictFocus(conflictDir);
+                    }
+                    _sessionConflictHeldDir = conflictDir;
+                }
+            } else {
+                _sessionConflictHeldDir = null;
+            }
+
+            _currentDirection = null;
+            _moveState = 0;
+
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
+                const active = document.activeElement;
+                if (active && active.closest?.('#sessionConflictActions')) active.click();
+                else document.getElementById('sessionConflictCancel')?.click();
+            }
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) document.getElementById('sessionConflictCancel')?.click();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) document.getElementById('sessionConflictClose')?.click();
+            return;
+        }
+
+        _sessionConflictHeldDir = null;
 
         if (window.DoorpiIntro?.isRunning?.()) {
             for (let i = 0; i < buttons.length; i++) {

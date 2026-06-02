@@ -36,9 +36,16 @@ namespace Doorpi
             public bool ControllerActive;
             public bool WatcherPaused;
             public bool GamepadDisabled;
+            public bool MouseModeRequested;
+            public bool MouseModeInitialized;
             public bool DoorpiSuspended;
             public CancellationTokenSource? WatcherCts;
             public Thread? ControllerThread;
+            public Thread? ShortcutThread;
+            public HashSet<int> ProcessGroupIds = new();
+            public HashSet<int> BaselineProcessIds = new();
+            public string ProcessGroupRootDirectory = "";
+            public string ProcessGroupExeName = "";
             public int SessionId;
         }
 
@@ -140,8 +147,11 @@ namespace Doorpi
             bool exe = false;
             foreach (var session in _executableAppSessions.Values)
             {
-                if (session.ControllerActive ||
-                    (session.Process != null && !SafeHasExited(session.Process)))
+                var aliveProcess = FindAliveMediaExeProcess(session.Url, session.Process);
+                if (aliveProcess != null)
+                    session.Process = aliveProcess;
+
+                if (session.ControllerActive || aliveProcess != null)
                 {
                     exe = true;
                     break;
@@ -164,9 +174,11 @@ namespace Doorpi
             bool exe = false;
             foreach (var session in _executableAppSessions.Values)
             {
-                if (session.Process != null &&
-                    !SafeHasExited(session.Process) &&
-                    !session.DoorpiSuspended)
+                var aliveProcess = FindAliveMediaExeProcess(session.Url, session.Process);
+                if (aliveProcess != null)
+                    session.Process = aliveProcess;
+
+                if (aliveProcess != null && !session.DoorpiSuspended)
                 {
                     exe = true;
                     break;
@@ -258,6 +270,18 @@ namespace Doorpi
             set => EnsureExecutableAppSession().GamepadDisabled = value;
         }
 
+        private bool _mediaExeMouseModeRequested
+        {
+            get => ActiveExecutableAppSession?.MouseModeRequested == true;
+            set => EnsureExecutableAppSession().MouseModeRequested = value;
+        }
+
+        private bool _mediaExeMouseModeInitialized
+        {
+            get => ActiveExecutableAppSession?.MouseModeInitialized == true;
+            set => EnsureExecutableAppSession().MouseModeInitialized = value;
+        }
+
         private bool _doorpiSuspendedForMedia
         {
             get => ActiveExecutableAppSession?.DoorpiSuspended == true;
@@ -274,6 +298,12 @@ namespace Doorpi
         {
             get => ActiveExecutableAppSession?.ControllerThread;
             set => EnsureExecutableAppSession().ControllerThread = value;
+        }
+
+        private Thread? _mediaExeShortcutThread
+        {
+            get => ActiveExecutableAppSession?.ShortcutThread;
+            set => EnsureExecutableAppSession().ShortcutThread = value;
         }
 
         private Thread? _systemControllerThread

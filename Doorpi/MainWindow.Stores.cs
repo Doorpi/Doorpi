@@ -1,6 +1,7 @@
 using Microsoft.Win32;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -23,11 +24,18 @@ namespace Doorpi
         private int _storeSessionId;
         private bool _storeControllerActive;
         private bool _storeGamepadDisabled;
+        private bool _storeMouseModeRequested;
+        private bool _storeMouseModeInitialized;
+        private bool _storeLauncherWindowSeen;
+        private bool _storeTrayCloseInProgress;
         private HashSet<string> _libraryKeysBeforeStore = new(StringComparer.OrdinalIgnoreCase);
         private HashSet<string> _storeKeysBeforeStore = new(StringComparer.OrdinalIgnoreCase);
         private HashSet<string> _storeKeysProcessedDuringSession = new(StringComparer.OrdinalIgnoreCase);
         private HashSet<int> _storeProcessSnapshot = new();
+        private HashSet<int> _storeProcessGroupIds = new();
         private HashSet<IntPtr> _storeWindowSnapshot = new();
+        private string _storeProcessGroupRootDirectory = "";
+        private string _storeProcessGroupExeName = "";
         private CancellationTokenSource? _storeLibraryMonitorCts;
         private CancellationTokenSource? _storeChildGameDetectorCts;
         private bool _storeChildGameActive;
@@ -83,7 +91,7 @@ namespace Doorpi
             "StorePurchaseApp", "DesktopAppInstaller", "PeopleExperienceHost"
         };
 
-        private static bool IsStoreGamepadControlDisabledByDefault(string storeId)
+        private static bool IsStoreMouseModeDisabledByDefault(string storeId)
             => storeId.Equals("Xbox", StringComparison.OrdinalIgnoreCase)
             || storeId.Equals("GOG", StringComparison.OrdinalIgnoreCase)
             || storeId.Equals("Ubisoft", StringComparison.OrdinalIgnoreCase);
@@ -1293,12 +1301,141 @@ namespace Doorpi
             return false;
         }
 
+        private void InitializeStoreLauncherProcessGroup(Process? rootProcess)
+        {
+            _storeProcessGroupIds.Clear();
+            _storeProcessGroupRootDirectory = "";
+            _storeProcessGroupExeName = "";
+
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(_storeLauncherExe) && File.Exists(_storeLauncherExe))
+                {
+                    _storeProcessGroupRootDirectory = Path.GetDirectoryName(Path.GetFullPath(_storeLauncherExe)) ?? "";
+                    _storeProcessGroupExeName = Path.GetFileNameWithoutExtension(_storeLauncherExe);
+                }
+            }
+            catch { }
+
+            try
+            {
+                if (rootProcess != null && !SafeHasExited(rootProcess))
+                    _storeProcessGroupIds.Add(rootProcess.Id);
+            }
+            catch { }
+
+            ExpandStoreLauncherProcessGroup();
+        }
+
+        private void ExpandStoreLauncherProcessGroup()
+        {
+            if (string.IsNullOrWhiteSpace(_storeLauncherExe))
+                return;
+
+            if (_storeProcessGroupIds.Count == 0)
+            {
+                try
+                {
+                    if (_storeLauncherProcess != null && !SafeHasExited(_storeLauncherProcess))
+                        _storeProcessGroupIds.Add(_storeLauncherProcess.Id);
+                }
+                catch { }
+            }
+
+            var parentIds = SnapshotParentProcessIds();
+            Process[] processes;
+            try { processes = Process.GetProcesses(); }
+            catch { return; }
+
+            bool changed;
+            do
+            {
+                changed = false;
+                foreach (var process in processes)
+                {
+                    int pid;
+                    try { pid = process.Id; } catch { continue; }
+                    if (_storeProcessGroupIds.Contains(pid)) continue;
+
+                    bool hasStoreExeName =
+                        !string.IsNullOrWhiteSpace(_storeProcessGroupExeName) &&
+                        string.Equals(SafeProcessName(process), _storeProcessGroupExeName, StringComparison.OrdinalIgnoreCase);
+                    bool isDescendant = HasAncestorInGroup(pid, parentIds, _storeProcessGroupIds);
+                    bool isNewRelatedProcess =
+                        !_storeProcessSnapshot.Contains(pid) &&
+                        hasStoreExeName;
+
+                    if (isDescendant || isNewRelatedProcess)
+                    {
+                        _storeProcessGroupIds.Add(pid);
+                        changed = true;
+                    }
+                }
+            }
+            while (changed);
+        }
+
+        private HashSet<int> GetStoreLauncherProcessIdsForClose()
+        {
+            var ids = new HashSet<int>(_storeProcessGroupIds);
+
+            try
+            {
+                if (_storeLauncherProcess != null && !SafeHasExited(_storeLauncherProcess))
+                    ids.Add(_storeLauncherProcess.Id);
+            }
+            catch { }
+
+            return ids;
+        }
+
+        private bool HasActiveStoreLauncherWindow()
+        {
+            if (string.IsNullOrWhiteSpace(_storeLauncherExe))
+                return false;
+
+            try
+            {
+                return TryFindStoreWindow(_activeStoreId ?? "", _storeLauncherExe, out _, out _);
+            }
+            catch { return false; }
+        }
+
+        private void FinalizeStoreTraySession()
+        {
+            if (_storeTrayCloseInProgress)
+                return;
+
+            if (!_isStoreLauncherSession || _storePausedByDoorpi || IsStoreChildGameBlockingStoreControls())
+                return;
+
+            if (!_storeLauncherWindowSeen || HasActiveStoreLauncherWindow())
+                return;
+
+            _storeTrayCloseInProgress = true;
+            try
+            {
+                CloseStoreSessionCompletely();
+            }
+            finally
+            {
+                _storeTrayCloseInProgress = false;
+            }
+        }
+
         private void BeginStoreLauncherSession(string storeId)
         {
             _isStoreLauncherSession = true;
             _storePausedByDoorpi = false;
+            _storeMouseModeRequested = false;
+            _storeMouseModeInitialized = false;
+            _storeLauncherWindowSeen = false;
+            _storeTrayCloseInProgress = false;
             _activeStoreId = storeId;
             _storeProcessSnapshot = SnapshotProcessIds();
+            _storeProcessGroupIds = new();
+            _storeProcessGroupRootDirectory = "";
+            _storeProcessGroupExeName = "";
             _storeWindowSnapshot = SnapshotVisibleWindows();
             _libraryKeysBeforeStore = BuildLibraryKeySet();
             _storeKeysBeforeStore = BuildStoreAppKeySet(storeId);
@@ -1488,8 +1625,12 @@ namespace Doorpi
         {
             try
             {
-                if (TryFindStoreWindow(_activeStoreId ?? "", exePath, out var storeProc, out _))
+                string storeId = _activeStoreId ?? "";
+                if (TryFindStoreWindow(storeId, exePath, out var storeProc, out _))
                     return storeProc;
+
+                if (IsSteamStoreWindowLookup(storeId, exePath))
+                    return null;
 
                 string name = Path.GetFileNameWithoutExtension(exePath);
                 foreach (var p in Process.GetProcessesByName(name))
@@ -1508,6 +1649,10 @@ namespace Doorpi
             return null;
         }
 
+        private static bool IsSteamStoreWindowLookup(string storeId, string exePath)
+            => string.Equals(storeId, "Steam", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(Path.GetFileNameWithoutExtension(exePath), "steam", StringComparison.OrdinalIgnoreCase);
+
         private bool TryFindStoreWindow(string storeId, string exePath, out Process process, out IntPtr hwnd)
         {
             process = null!;
@@ -1519,8 +1664,7 @@ namespace Doorpi
                 return TryFindXboxStoreWindow(exePath, out process, out hwnd);
             }
 
-            if (string.Equals(storeId, "Steam", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(Path.GetFileNameWithoutExtension(exePath), "steam", StringComparison.OrdinalIgnoreCase))
+            if (IsSteamStoreWindowLookup(storeId, exePath))
             {
                 return TryFindSteamWindow(out process, out hwnd);
             }
@@ -1697,7 +1841,9 @@ namespace Doorpi
                 if (!isSteamProcess && !isSteamWebHelper) continue;
 
                 string title = GetWindowTitle(candidateHwnd);
-                if (!GetWindowRect(candidateHwnd, out RECT rect)) continue;
+                string className = GetWindowClassNameSafe(candidateHwnd);
+                if (!IsSteamMainWindowCandidate(candidateHwnd, title, className, allowIconic: _storeLauncherWindowSeen))
+                    continue;
 
                 int score = 0;
                 if (isSteamProcess) score += 45;
@@ -1705,8 +1851,6 @@ namespace Doorpi
                 if (!string.IsNullOrWhiteSpace(title)) score += 25;
                 if (title.Equals("Steam", StringComparison.OrdinalIgnoreCase)) score += 80;
                 else if (title.Contains("Steam", StringComparison.OrdinalIgnoreCase)) score += 50;
-                if (rect.Width >= 700 && rect.Height >= 450) score += 30;
-                else if (rect.Width >= 360 && rect.Height >= 240) score += 10;
                 if (!IsIconic(candidateHwnd)) score += 10;
 
                 if (score > bestScore)
@@ -1725,19 +1869,77 @@ namespace Doorpi
             return true;
         }
 
+        private static bool IsSteamMainWindowCandidate(IntPtr hwnd, string title, string className, bool allowIconic)
+        {
+            if (hwnd == IntPtr.Zero)
+                return false;
+
+            if (!IsWindowVisible(hwnd) && !IsIconic(hwnd))
+                return false;
+
+            if (IsIconic(hwnd) && !allowIconic)
+                return false;
+
+            if (string.Equals(className, "BootstrapUpdateUIClass", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            string normalizedTitle = title?.Trim() ?? "";
+            if (normalizedTitle.Contains("update", StringComparison.OrdinalIgnoreCase) ||
+                normalizedTitle.Contains("updating", StringComparison.OrdinalIgnoreCase) ||
+                normalizedTitle.Contains("atualiza", StringComparison.OrdinalIgnoreCase) ||
+                normalizedTitle.Contains("iniciar a sessão", StringComparison.OrdinalIgnoreCase) ||
+                normalizedTitle.Contains("iniciando sessão", StringComparison.OrdinalIgnoreCase) ||
+                normalizedTitle.Contains("sessão no steam", StringComparison.OrdinalIgnoreCase) ||
+                normalizedTitle.Contains("sign in", StringComparison.OrdinalIgnoreCase) ||
+                normalizedTitle.Contains("signing in", StringComparison.OrdinalIgnoreCase) ||
+                normalizedTitle.Contains("login", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static string GetWindowClassNameSafe(IntPtr hwnd)
+        {
+            try
+            {
+                var buffer = new StringBuilder(256);
+                int len = GetClassName(hwnd, buffer, buffer.Capacity);
+                return len > 0 ? buffer.ToString() : "";
+            }
+            catch { return ""; }
+        }
+
         private void EnterStoreExeMode(Process proc, string appName, string heroImg, string gridImg, bool showLaunchOverlay = true)
         {
             string url = _storeLauncherExe ?? appName;
             var store = LoadStoreLaunchers().FirstOrDefault(s =>
                 string.Equals(s.Id, _activeStoreId, StringComparison.OrdinalIgnoreCase));
-            bool disableControllerEmulation = store?.DisableGamepadControl == true;
+            if (!_storeMouseModeInitialized)
+            {
+                _storeMouseModeRequested = ShouldStartMouseMode(store);
+                _storeMouseModeInitialized = true;
+            }
+            bool startMouseMode = _storeMouseModeRequested;
 
             _storeLauncherWatcherCts?.Cancel();
             _storeLauncherWatcherCts = new CancellationTokenSource();
             _storeLauncherProcess = proc;
+            InitializeStoreLauncherProcessGroup(proc);
+            if (!string.IsNullOrWhiteSpace(_storeLauncherExe))
+            {
+                try
+                {
+                    _storeLauncherWindowSeen = _storeLauncherWindowSeen ||
+                        TryFindStoreWindow(_activeStoreId ?? "", _storeLauncherExe, out _, out _);
+                }
+                catch { }
+            }
             _storePausedByDoorpi = false;
-            _storeGamepadDisabled = disableControllerEmulation;
-            _storeControllerActive = !disableControllerEmulation;
+            _storeMouseModeRequested = startMouseMode;
+            _storeGamepadDisabled = !startMouseMode;
+            _storeControllerActive = startMouseMode;
             int sessionId = Interlocked.Increment(ref _storeSessionId);
             var watcherCts = _storeLauncherWatcherCts;
             var watcherToken = watcherCts?.Token ?? CancellationToken.None;
@@ -1760,7 +1962,7 @@ namespace Doorpi
             StartStoreLauncherWatcher(proc, appName, sessionId, watcherToken);
             EnsureStoreShortcutThread(sessionId);
 
-            if (!disableControllerEmulation)
+            if (startMouseMode)
             {
                 Dispatcher.Invoke(() =>
                 {
@@ -1781,6 +1983,8 @@ namespace Doorpi
             {
                 try
                 {
+                    int missingWindowCount = 0;
+
                     while (!token.IsCancellationRequested &&
                            _isStoreLauncherSession &&
                            _storeSessionId == sessionId)
@@ -1813,12 +2017,40 @@ namespace Doorpi
                             {
                                 _storeLauncherProcess = visibleProc;
                                 hasVisibleWindow = true;
+                                _storeLauncherWindowSeen = true;
+                                missingWindowCount = 0;
                             }
                         }
                         catch { }
 
                         if (!hasVisibleWindow && IsForegroundDoorpi())
                         {
+                            bool waitingForSteamMainWindow =
+                                IsSteamStoreWindowLookup(_activeStoreId ?? "", _storeLauncherExe ?? "") &&
+                                !_storeLauncherWindowSeen;
+
+                            if (_storeLauncherWindowSeen)
+                            {
+                                missingWindowCount++;
+                                if (missingWindowCount >= 2)
+                                {
+                                    Dispatcher.Invoke(FinalizeStoreTraySession);
+                                    if (!_isStoreLauncherSession || _storeSessionId != sessionId)
+                                        return;
+                                    missingWindowCount = 0;
+                                }
+                            }
+                            else
+                            {
+                                missingWindowCount = 0;
+                            }
+
+                            if (waitingForSteamMainWindow)
+                            {
+                                await Task.Delay(300, token).ConfigureAwait(false);
+                                continue;
+                            }
+
                             Dispatcher.Invoke(() =>
                             {
                                 if (!_isStoreLauncherSession ||
@@ -1829,8 +2061,15 @@ namespace Doorpi
                                     return;
                                 }
 
-                                ShowExecutionLockForStore();
+                                if (_storeLauncherWindowSeen && !HasActiveStoreLauncherWindow())
+                                    FinalizeStoreTraySession();
+                                else
+                                    ShowExecutionLockForStore();
                             });
+                        }
+                        else if (hasVisibleWindow)
+                        {
+                            missingWindowCount = 0;
                         }
 
                         if (!IsForegroundDoorpi() &&
@@ -1996,6 +2235,7 @@ namespace Doorpi
 
                     var card = LoadStoreLaunchers().FirstOrDefault(s => s.Id == _activeStoreId);
                     EnterStoreExeMode(proc, card?.Name ?? "Loja", card?.HeroImage ?? "", card?.GridImage ?? "", showLaunchOverlay: false);
+                    ReactivateStoreControlsForForeground();
                     return;
                 }
 
@@ -2026,6 +2266,7 @@ namespace Doorpi
 
             var card = LoadStoreLaunchers().FirstOrDefault(s => s.Id == _activeStoreId);
             EnterStoreExeMode(proc, card?.Name ?? "Loja", card?.HeroImage ?? "", card?.GridImage ?? "", showLaunchOverlay: false);
+            ReactivateStoreControlsForForeground();
         }
 
         private async Task ResumeSteamStoreWindowAsync()
@@ -2107,20 +2348,24 @@ namespace Doorpi
 
             var store = LoadStoreLaunchers().FirstOrDefault(s =>
                 string.Equals(s.Id, _activeStoreId, StringComparison.OrdinalIgnoreCase));
-            bool disableControllerEmulation = store?.DisableGamepadControl == true;
+            if (!_storeMouseModeInitialized)
+            {
+                _storeMouseModeRequested = ShouldStartMouseMode(store);
+                _storeMouseModeInitialized = true;
+            }
 
-            _storeGamepadDisabled = disableControllerEmulation;
-            _storeControllerActive = !disableControllerEmulation;
+            _storeGamepadDisabled = !_storeMouseModeRequested;
+            _storeControllerActive = _storeMouseModeRequested;
             EnsureStoreShortcutThread(_storeSessionId);
 
-            if (!disableControllerEmulation)
+            if (_storeMouseModeRequested)
             {
                 EnsureCursorVisible();
                 _mainScreenMouseVisible = true;
             }
 
             int sessionId = _storeSessionId;
-            if (!disableControllerEmulation && _storeControllerThread?.IsAlive != true)
+            if (_storeMouseModeRequested && _storeControllerThread?.IsAlive != true)
             {
                 _storeControllerThread = new Thread(() => StoreExeControllerLoop(sessionId)) { IsBackground = true };
                 _storeControllerThread.Start();
@@ -2139,6 +2384,9 @@ namespace Doorpi
             string? exe = _storeLauncherExe;
             bool wasWeb = _storeSessionKind == "web";
             bool hadStoreChildGame = _storeChildGameActive;
+            var capturedStoreProcessIds = (!wasWeb && !hadStoreChildGame)
+                ? GetStoreLauncherProcessIdsForClose()
+                : new HashSet<int>();
             StopStoreLibraryMonitor();
             StopStoreChildGameDetector();
             try { _storeLauncherWatcherCts?.Cancel(); } catch { }
@@ -2149,6 +2397,9 @@ namespace Doorpi
             _storeChildGameId = "";
             _storeControllerActive = false;
             _storeGamepadDisabled = false;
+            _storeMouseModeRequested = false;
+            _storeMouseModeInitialized = false;
+            _storeLauncherWindowSeen = false;
             _storeLauncherProcess = null;
             _storeSessionId++;
             ClearExecutionLock();
@@ -2161,6 +2412,9 @@ namespace Doorpi
             _libraryKeysBeforeStore = new(StringComparer.OrdinalIgnoreCase);
             _storeKeysBeforeStore = new(StringComparer.OrdinalIgnoreCase);
             _storeProcessSnapshot = new();
+            _storeProcessGroupIds = new();
+            _storeProcessGroupRootDirectory = "";
+            _storeProcessGroupExeName = "";
             _storeWindowSnapshot = new();
 
             if (wasWeb)
@@ -2168,7 +2422,7 @@ namespace Doorpi
             else
             {
                 if (!string.IsNullOrEmpty(exe))
-                    KillLauncherProcessTree(exe);
+                    _ = Task.Run(() => KillLauncherProcessTree(exe, capturedStoreProcessIds));
 
                 Dispatcher.Invoke(() =>
                 {
@@ -2199,6 +2453,10 @@ namespace Doorpi
             _storeChildGameStoreId = "";
             _storeChildGameId = "";
             _storeControllerActive = false;
+            _storeMouseModeRequested = false;
+            _storeMouseModeInitialized = false;
+            _storeLauncherWindowSeen = false;
+            _storeTrayCloseInProgress = false;
             _storeLauncherProcess = null;
             _storeSessionId++;
             _isStoreLauncherSession = false;
@@ -2209,6 +2467,9 @@ namespace Doorpi
             _libraryKeysBeforeStore = new(StringComparer.OrdinalIgnoreCase);
             _storeKeysBeforeStore = new(StringComparer.OrdinalIgnoreCase);
             _storeProcessSnapshot = new();
+            _storeProcessGroupIds = new();
+            _storeProcessGroupRootDirectory = "";
+            _storeProcessGroupExeName = "";
             _storeWindowSnapshot = new();
 
             Dispatcher.Invoke(() =>
@@ -2258,27 +2519,72 @@ namespace Doorpi
             });
         }
 
-        private static void KillLauncherProcessTree(string? launcherExe)
+        private static void KillLauncherProcessTree(string? launcherExe, IEnumerable<int>? capturedProcessIds = null)
         {
-            if (string.IsNullOrWhiteSpace(launcherExe)) return;
-            string procName = Path.GetFileNameWithoutExtension(launcherExe);
-            if (string.IsNullOrEmpty(procName)) return;
+            var killed = new HashSet<int>();
 
-            foreach (var proc in Process.GetProcessesByName(procName))
+            void Kill(Process? proc)
             {
+                if (proc == null) return;
                 try
                 {
-                    if (proc.HasExited) continue;
-                    Process.Start(new ProcessStartInfo
+                    if (proc.HasExited) return;
+                    int pid = proc.Id;
+                    if (!killed.Add(pid)) return;
+                    proc.Kill(true);
+                    proc.WaitForExit(2000);
+                }
+                catch
+                {
+                    try
                     {
-                        FileName = "taskkill",
-                        Arguments = $"/PID {proc.Id} /T /F",
-                        CreateNoWindow = true,
-                        UseShellExecute = false
-                    })?.WaitForExit(4000);
+                        if (!proc.HasExited)
+                        {
+                            proc.Kill();
+                            proc.WaitForExit(1000);
+                        }
+                    }
+                    catch { }
+                }
+            }
+
+            if (capturedProcessIds != null)
+            {
+                foreach (int pid in capturedProcessIds)
+                {
+                    try { Kill(Process.GetProcessById(pid)); }
+                    catch { }
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(launcherExe)) return;
+
+            string procName;
+            try { procName = Path.GetFileNameWithoutExtension(launcherExe); }
+            catch { return; }
+
+            if (string.IsNullOrEmpty(procName)) return;
+
+            Process[] processes;
+            try { processes = Process.GetProcessesByName(procName); }
+            catch { return; }
+
+            foreach (var proc in processes)
+            {
+                bool matchesPath = false;
+                try
+                {
+                    string processPath = SafeProcessPath(proc);
+                    matchesPath = !string.IsNullOrWhiteSpace(processPath) && PathsEqual(processPath, launcherExe);
                 }
                 catch { }
+
+                if (matchesPath)
+                    Kill(proc);
             }
+
+            foreach (var proc in processes)
+                Kill(proc);
         }
 
         private async Task HandleStoreSessionClosedAsync(HashSet<string> librarySnapshot, string? storeId, HashSet<string> storeSnapshot)
@@ -2384,7 +2690,7 @@ namespace Doorpi
                 byId.TryGetValue(id, out var entry);
                 entry ??= new MediaAppModel { Id = id, Name = name, Type = "store", Url = id, OwnerUserId = currentUserId, DateAdded = DateTime.Now };
 
-                if (!entry.DisableGamepadControlConfigured && IsStoreGamepadControlDisabledByDefault(id))
+                if (!entry.DisableGamepadControlConfigured && IsStoreMouseModeDisabledByDefault(id))
                 {
                     entry.DisableGamepadControl = true;
                     entry.DisableGamepadControlConfigured = true;

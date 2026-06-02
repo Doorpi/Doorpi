@@ -407,6 +407,7 @@ window._mediaHandleMessage = (data) => {
 
         case 'mediaAppClosed':
             window.isMediaAppActive = false;
+            window._currentWebAppConflictEntry = null;
             window._storesHandleMessage?.(data);
             setTimeout(() => {
                 window.focus?.();

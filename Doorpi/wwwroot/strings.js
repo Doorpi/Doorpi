@@ -250,7 +250,7 @@ const STRINGS = {
         storeMenuResume: 'Retomar loja',
         storeMenuClose: 'Fechar loja',
         storeMenuHintSquare: '□',
-        storeDisableGamepadControl: 'Não usar mouse/teclado no launcher',
+        storeDisableGamepadControl: 'Iniciar com modo mouse habilitado',
         btnAddAppLabel: 'Adicionar App',
         preparingSystem: 'Preparando o Doorpi',
         preparingSystemSub: 'Baixando artes dos aplicativos...',
@@ -297,9 +297,9 @@ const STRINGS = {
         toastExtSent: 'Extensão enviada ao Doorpi!',
         toastDoorpi: 'Doorpi',
 
-        gamepadControlLabel: 'Controle via gamepad',
-        disableGamepadControlLabel: 'Desabilitar mouse e teclado via controle',
-        disableGamepadControlHint: 'Útil para apps que já usam o controle nativamente (emuladores, jogos, etc.)',
+        gamepadControlLabel: 'Modo mouse',
+        disableGamepadControlLabel: 'Iniciar com modo mouse habilitado',
+        disableGamepadControlHint: 'Quando desligado, pressione L3 + R3 + L1 + R1 durante a sessão para ativar temporariamente.',
 
         hintOptions: 'Opções',
         hintConfirm: 'Confirmar',
@@ -362,6 +362,11 @@ const STRINGS = {
 
         runningLabel: 'Em execução',
         resumeLabel: 'Retomar',
+        sessionConflictTitle: 'Processo/Jogo em andamento',
+        sessionConflictMessage: 'Deseja encerrar o processo/jogo {name}?',
+        sessionConflictCurrent: 'atual',
+        sessionConflictCancel: 'Cancelar',
+        sessionConflictClose: 'Encerrar',
         ctxStart: 'Iniciar',
         ctxCloseRunning: 'Fechar',
 
@@ -375,6 +380,11 @@ const STRINGS = {
 
         runningLabel: 'Running',
         resumeLabel: 'Resume',
+        sessionConflictTitle: 'Process/Game in progress',
+        sessionConflictMessage: 'Do you want to close {name}?',
+        sessionConflictCurrent: 'current',
+        sessionConflictCancel: 'Cancel',
+        sessionConflictClose: 'Close',
         ctxStart: 'Launch',
         ctxCloseRunning: 'Close',
         // ---- Launch Overlay ----
@@ -434,9 +444,9 @@ const STRINGS = {
         hintAdd: 'Add',
         hintStartBtn: 'START',
 
-        gamepadControlLabel: 'Gamepad control',
-        disableGamepadControlLabel: 'Disable mouse and keyboard via controller',
-        disableGamepadControlHint: 'Useful for apps that natively use the controller (emulators, games, etc.)',
+        gamepadControlLabel: 'Mouse mode',
+        disableGamepadControlLabel: 'Start with mouse mode enabled',
+        disableGamepadControlHint: 'When disabled, press L3 + R3 + L1 + R1 during the session to enable it temporarily.',
         // ---- Adições de media.js ----
         sysMediaFolders: 'Folders',
         sysMediaDownloadingCovers: 'Downloading game covers...',
@@ -569,7 +579,7 @@ const STRINGS = {
         storeMenuResume: 'Resume store',
         storeMenuClose: 'Close store',
         storeMenuHintSquare: '□',
-        storeDisableGamepadControl: 'Do not use mouse/keyboard in launcher',
+        storeDisableGamepadControl: 'Start with mouse mode enabled',
         btnAddAppLabel: 'Add App',
         preparingSystem: 'Setting up Doorpi',
         preparingSystemSub: 'Downloading app artwork...',
