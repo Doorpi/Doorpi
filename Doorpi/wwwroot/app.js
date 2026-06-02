@@ -70,6 +70,52 @@
             }
         }
 
+        stopSources() {
+            [this.wakeNode, this.ambienceNode].forEach(node => {
+                try { node?.stop(); } catch { }
+                try { node?.disconnect(); } catch { }
+            });
+            this.wakeNode = null;
+            this.ambienceNode = null;
+        }
+
+        startSources(startAt) {
+            if (!this.ctx || !this.gainNode || !this.wakeBuffer || !this.ambienceBuffer) return;
+
+            this.wakeNode = this.ctx.createBufferSource();
+            this.wakeNode.buffer = this.wakeBuffer;
+            this.wakeNode.connect(this.gainNode);
+
+            this.ambienceNode = this.ctx.createBufferSource();
+            this.ambienceNode.buffer = this.ambienceBuffer;
+            this.ambienceNode.loop = true;
+            this.ambienceNode.connect(this.gainNode);
+
+            this.wakeNode.start(startAt);
+            this.ambienceNode.start(startAt + this.wakeBuffer.duration);
+        }
+
+        async restartFromBeginning() {
+            if (!this.isLoaded) return;
+            this.isPlaying = true;
+
+            if (this.suspendTimeout) {
+                clearTimeout(this.suspendTimeout);
+                this.suspendTimeout = null;
+            }
+
+            if (this.ctx.state === 'suspended') {
+                await this.ctx.resume();
+            }
+
+            this.stopSources();
+            const now = this.ctx.currentTime;
+            this.gainNode.gain.cancelScheduledValues(now);
+            this.gainNode.gain.setValueAtTime(0, now);
+            this.startSources(now);
+            this.gainNode.gain.linearRampToValueAtTime(this.volume, now + 1.2);
+        }
+
         async play() {
             if (!this.isLoaded) return;
             this.isPlaying = true;
@@ -138,6 +184,13 @@
     };
 
     window._pauseAmbience = window._stopSystemAudio;
+
+    window._restartSystemAudioForNewSession = function () {
+        if (!window._isIntroComplete) return;
+        window._isExternalAppRunning = false;
+        window._isDoorpiFocused = true;
+        window._audioPlayer.restartFromBeginning();
+    };
 
     function _readDoorpiAudioMuteFlag(data, fallback = false) {
         if (!data) return !!fallback;
@@ -1683,10 +1736,10 @@
                 _stopExecutionOverlayRefreshLoop();
             }
             else if (data.type === 'userSwitchStart') {
-                _userSwitchFadeOut();
+                _userSwitchFadeOut(data);
             }
             else if (data.type === 'userSwitchComplete') {
-                _userSwitchFadeIn();
+                _userSwitchFadeIn(data);
             }
 
             else if (data.type === 'gameLaunchFailed') {
@@ -1756,7 +1809,6 @@
             }
             else if (data.type === 'storeAutoAddSettings' && data.storeAutoAdd) {
                 window._storeAutoAddSettings = data.storeAutoAdd;
-                window._renderStoreAutoAddSettings?.();
             }
         } catch (e) { console.error('[bridge] Erro:', e); }
     });
@@ -3425,7 +3477,7 @@ function renderFolderList(folders) {
             text-overflow: ellipsis;
             max-width: 230px;
         }
-        .ctx-separator { height: 1px; background: rgba(255,255,255,0.07); margin: 4px 2px; }
+        .ctx-separator { height: 1px; background: rgba(255,255,255,0.07); margin: 6px 2px; }
         .ctx-item {
             display: flex; align-items: center; gap: 10px;
             padding: 10px 14px;
@@ -3439,6 +3491,36 @@ function renderFolderList(folders) {
         .ctx-item:hover, .ctx-item:focus { background: rgba(255,255,255,0.09); color: #fff; outline: none; }
         .ctx-item.ctx-danger:hover, .ctx-item.ctx-danger:focus { background: rgba(220,50,50,0.18); color: #ff6e6e; }
         .ctx-item .ctx-icon { width: 16px; text-align: center; opacity: 0.6; font-size: 15px; flex-shrink: 0; }
+        .ctx-item.ctx-toggle-item { justify-content: space-between; gap: 14px; }
+        .ctx-item.ctx-toggle-item .ctx-icon {
+            width: 20px;
+            height: 20px;
+            min-width: 20px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            border: 1px solid rgba(255,255,255,0.24);
+            background: rgba(255,255,255,0.04);
+            color: transparent;
+            opacity: 1;
+            font-size: 12px;
+            font-weight: 700;
+            transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease, transform 0.12s ease;
+        }
+        .ctx-item.ctx-toggle-item.on {
+            background: rgba(90,150,255,0.12);
+            color: #fff;
+        }
+        .ctx-item.ctx-toggle-item.on .ctx-icon {
+            border-color: rgba(120,190,255,0.92);
+            background: rgba(120,190,255,0.95);
+            color: #06111f;
+            transform: scale(1.04);
+        }
+        .ctx-item.ctx-toggle-item:not(.on) .ctx-icon {
+            color: transparent;
+        }
 
         .edit-modal-overlay {
             position: fixed; inset: 0; z-index: 10000;
@@ -3759,11 +3841,11 @@ function renderFolderList(folders) {
             <button class="ctx-item ctx-primary-action" id="ctxRuntimeAction" role="menuitem">
                 <span class="ctx-icon">▶</span> <span id="ctxRuntimeActionText">Iniciar</span>
             </button>
-            <button class="ctx-item" id="ctxStoreGamepadControl" role="menuitem">
-                <span class="ctx-icon">✓</span> <span id="ctxStoreGamepadControlText">Iniciar com modo mouse habilitado</span>
+            <button class="ctx-item ctx-toggle-item" id="ctxStoreGamepadControl" role="menuitem">
+                <span class="ctx-icon"></span> <span id="ctxStoreGamepadControlText">Iniciar com modo mouse habilitado</span>
             </button>
-            <button class="ctx-item" id="ctxStoreAutoAdd" role="menuitem">
-                <span class="ctx-icon">âœ“</span> <span id="ctxStoreAutoAddText">Adicionar jogos automaticamente</span>
+            <button class="ctx-item ctx-toggle-item" id="ctxStoreAutoAdd" role="menuitem">
+                <span class="ctx-icon"></span> <span id="ctxStoreAutoAddText">Adicionar jogos automaticamente</span>
             </button>
             <div class="ctx-separator"></div>
             <button class="ctx-item" id="ctxExtensions" role="menuitem">
@@ -3786,6 +3868,37 @@ function renderFolderList(folders) {
     })();
 
     let _ctxCard = null;
+
+    function _isCtxItemVisible(el) {
+        return !!el && el.style.display !== 'none' && getComputedStyle(el).display !== 'none';
+    }
+
+    function _syncCtxMenuSeparators() {
+        const children = Array.from(_ctxMenu.children);
+        for (let i = 0; i < children.length; i++) {
+            const el = children[i];
+            if (!el.classList?.contains('ctx-separator')) continue;
+
+            let prevVisible = false;
+            let nextVisible = false;
+
+            for (let p = i - 1; p >= 0; p--) {
+                const prev = children[p];
+                if (prev.classList?.contains('ctx-separator')) continue;
+                prevVisible = _isCtxItemVisible(prev);
+                if (prevVisible) break;
+            }
+
+            for (let n = i + 1; n < children.length; n++) {
+                const next = children[n];
+                if (next.classList?.contains('ctx-separator')) continue;
+                nextVisible = _isCtxItemVisible(next);
+                if (nextVisible) break;
+            }
+
+            el.style.display = prevVisible && nextVisible ? 'block' : 'none';
+        }
+    }
 
     function _openCtxMenu(card, x, y) {
         _ctxCard = card;
@@ -3823,7 +3936,7 @@ function renderFolderList(folders) {
             const disabled = card.dataset.disableGamepadControl === 'true';
             ctxStoreGamepadBtn.style.display = isStoreCard ? 'flex' : 'none';
             ctxStoreGamepadBtn.classList.toggle('on', !disabled);
-            ctxStoreGamepadBtn.querySelector('.ctx-icon').textContent = !disabled ? '✓' : '';
+            ctxStoreGamepadBtn.querySelector('.ctx-icon').textContent = !disabled ? '\u2713' : '';
             ctxStoreGamepadText.textContent = typeof t === 'function'
                 ? t('storeDisableGamepadControl', 'Iniciar com modo mouse habilitado')
                 : 'Iniciar com modo mouse habilitado';
@@ -3836,7 +3949,6 @@ function renderFolderList(folders) {
             const autoAdd = Object.prototype.hasOwnProperty.call(settings, storeId) ? !!settings[storeId] : true;
             ctxStoreAutoAddBtn.style.display = isStoreCard ? 'flex' : 'none';
             ctxStoreAutoAddBtn.classList.toggle('on', autoAdd);
-            ctxStoreAutoAddBtn.querySelector('.ctx-icon').textContent = autoAdd ? 'âœ“' : '';
             ctxStoreAutoAddBtn.querySelector('.ctx-icon').textContent = autoAdd ? '\u2713' : '';
             ctxStoreAutoAddText.textContent = typeof t === 'function'
                 ? t('storeAutoAddQuickToggle', 'Adicionar jogos automaticamente')
@@ -3894,6 +4006,7 @@ function renderFolderList(folders) {
             _ctxMenu.querySelector('#ctxGameName').textContent = card.querySelector('.title, .nav-vertical-card-title')?.innerText?.trim() || '';
         }
 
+        _syncCtxMenuSeparators();
         _ctxMenu.style.display = 'flex';
         requestAnimationFrame(() => {
             const w = _ctxMenu.offsetWidth, h = _ctxMenu.offsetHeight, m = 10;
@@ -3958,7 +4071,7 @@ function renderFolderList(folders) {
         if (btn) {
             btn.classList.toggle('on', nextStartMouseMode);
             const icon = btn.querySelector('.ctx-icon');
-            if (icon) icon.textContent = nextStartMouseMode ? '✓' : '';
+            if (icon) icon.textContent = nextStartMouseMode ? '\u2713' : '';
         }
     });
 
@@ -3984,11 +4097,10 @@ function renderFolderList(folders) {
         if (btn) {
             btn.classList.toggle('on', next);
             const icon = btn.querySelector('.ctx-icon');
-            if (icon) icon.textContent = next ? 'âœ“' : '';
+            if (icon) icon.textContent = next ? '\u2713' : '';
         }
 
         document.querySelector('#ctxStoreAutoAdd .ctx-icon').textContent = next ? '\u2713' : '';
-        window._renderStoreAutoAddSettings?.();
     });
 
     document.getElementById('ctxRuntimeAction').addEventListener('click', () => {
@@ -4782,9 +4894,34 @@ function renderFolderList(folders) {
             }, 80);
         }
     });
-    function _userSwitchFadeOut() {
+    function _ensureUserSwitchLogoutOverlay() {
+        let overlay = document.getElementById('doorpiUserSwitchLogout');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'doorpiUserSwitchLogout';
+            overlay.innerHTML = `
+                <div class="logout-mark">${typeof t === 'function' ? t('sessionTransitionMark') : 'Sessao'}</div>
+                <div class="logout-title">${typeof t === 'function' ? t('sessionSwitchTitle') : 'Trocando sessao'}</div>
+                <div class="logout-sub">${typeof t === 'function' ? t('logoutSubtitle') : 'Encerrando sessão atual'}</div>
+                <div class="logout-dots"><span></span><span></span><span></span></div>
+            `;
+            document.body.appendChild(overlay);
+        } else {
+            const mark = overlay.querySelector('.logout-mark');
+            const title = overlay.querySelector('.logout-title');
+            const sub = overlay.querySelector('.logout-sub');
+            if (mark) mark.textContent = typeof t === 'function' ? t('sessionTransitionMark') : 'Sessao';
+            if (title) title.textContent = typeof t === 'function' ? t('sessionSwitchTitle') : 'Trocando sessao';
+            if (sub) sub.textContent = typeof t === 'function' ? t('logoutSubtitle') : 'Encerrando sessão atual';
+        }
+        return overlay;
+    }
+
+    function _userSwitchFadeOut(data = {}) {
+        if (data.showTransition === false) return;
         // Limpa o hero na hora, sem delay, e bloqueia novos switches
         window._userSwitching = true;
+        window._stopSystemAudio?.();
         _currentBgSrc = '';
         if (typeof _heroReqId !== 'undefined') _heroReqId++;
 
@@ -4798,6 +4935,10 @@ function renderFolderList(folders) {
         if (logoEl) logoEl.classList.remove('visible');
         if (gridBg) gridBg.removeAttribute('src');
 
+        const logoutOverlay = _ensureUserSwitchLogoutOverlay();
+        logoutOverlay.style.display = 'flex';
+        requestAnimationFrame(() => logoutOverlay.classList.add('visible'));
+
         const wrap = document.querySelector('.main-content-wrapper');
         if (!wrap) return;
         wrap.style.opacity = '0';
@@ -4805,7 +4946,15 @@ function renderFolderList(folders) {
         wrap.style.pointerEvents = 'none';
     }
 
-    function _userSwitchFadeIn() {
+    function _userSwitchFadeIn(data = {}) {
+        const shouldShowTransition = data.showTransition !== false && window._userSwitching;
+        const shouldRestartAudio = !!data.restartAudio;
+
+        if (!shouldShowTransition) {
+            if (shouldRestartAudio) window._restartSystemAudioForNewSession?.();
+            return;
+        }
+
         const wrap = document.querySelector('.main-content-wrapper');
         if (!wrap) return;
 
@@ -4823,6 +4972,20 @@ function renderFolderList(folders) {
         wrap.style.opacity = '1';
         wrap.style.transform = 'none';
         wrap.style.pointerEvents = '';
+
+        const logoutOverlay = document.getElementById('doorpiUserSwitchLogout');
+        if (logoutOverlay) {
+            logoutOverlay.classList.remove('visible');
+            setTimeout(() => {
+                if (!logoutOverlay.classList.contains('visible')) {
+                    logoutOverlay.style.display = 'none';
+                }
+            }, 300);
+        }
+
+        if (shouldRestartAudio) {
+            window._restartSystemAudioForNewSession?.();
+        }
 
         setTimeout(() => {
             wrap.style.removeProperty('transition');

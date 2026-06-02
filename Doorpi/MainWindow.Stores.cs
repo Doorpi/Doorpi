@@ -1283,6 +1283,9 @@ namespace Doorpi
 
             if (string.IsNullOrWhiteSpace(_storeLauncherExe)) return false;
 
+            if (IsBattleNetStoreWindowLookup(_activeStoreId ?? "", _storeLauncherExe))
+                return IsBattleNetRelatedProcessAlive();
+
             try
             {
                 string procName = Path.GetFileNameWithoutExtension(_storeLauncherExe);
@@ -1294,6 +1297,31 @@ namespace Doorpi
                             return true;
                     }
                     catch { }
+                }
+            }
+            catch { }
+
+            return false;
+        }
+
+        private bool IsBattleNetRelatedProcessAlive()
+        {
+            try
+            {
+                foreach (var process in Process.GetProcesses())
+                {
+                    try
+                    {
+                        if (SafeHasExited(process)) continue;
+                        string processName = SafeProcessName(process);
+                        if (IsBattleNetProcessName(processName))
+                            return true;
+                    }
+                    catch { }
+                    finally
+                    {
+                        try { process.Dispose(); } catch { }
+                    }
                 }
             }
             catch { }
@@ -1529,7 +1557,7 @@ namespace Doorpi
                         proc = existing;
 
                     if (proc != null &&
-                        IsSteamStoreWindowLookup(store.Id, _storeLauncherExe ?? ""))
+                        IsStoreMainWindowLookupAwaited(store.Id, _storeLauncherExe ?? ""))
                     {
                         EnterStoreExeMode(proc, store.Name, heroImg, gridImg);
                         return;
@@ -1636,7 +1664,7 @@ namespace Doorpi
                 if (TryFindStoreWindow(storeId, exePath, out var storeProc, out _))
                     return storeProc;
 
-                if (IsSteamStoreWindowLookup(storeId, exePath))
+                if (IsStoreMainWindowLookupAwaited(storeId, exePath))
                     return null;
 
                 string name = Path.GetFileNameWithoutExtension(exePath);
@@ -1660,6 +1688,16 @@ namespace Doorpi
             => string.Equals(storeId, "Steam", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(Path.GetFileNameWithoutExtension(exePath), "steam", StringComparison.OrdinalIgnoreCase);
 
+        private static bool IsBattleNetStoreWindowLookup(string storeId, string exePath)
+            => string.Equals(storeId, "BattleNet", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(storeId, "Battle.net", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(Path.GetFileNameWithoutExtension(exePath), "Battle.net Launcher", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(Path.GetFileNameWithoutExtension(exePath), "Battle.net", StringComparison.OrdinalIgnoreCase);
+
+        private static bool IsStoreMainWindowLookupAwaited(string storeId, string exePath)
+            => IsSteamStoreWindowLookup(storeId, exePath) ||
+               IsBattleNetStoreWindowLookup(storeId, exePath);
+
         private bool TryFindStoreWindow(string storeId, string exePath, out Process process, out IntPtr hwnd)
         {
             process = null!;
@@ -1674,6 +1712,11 @@ namespace Doorpi
             if (IsSteamStoreWindowLookup(storeId, exePath))
             {
                 return TryFindSteamWindow(out process, out hwnd);
+            }
+
+            if (IsBattleNetStoreWindowLookup(storeId, exePath))
+            {
+                return TryFindBattleNetWindow(out process, out hwnd);
             }
 
             var running = FindRunningStoreProcessWithWindowByExeOnly(exePath);
@@ -1936,6 +1979,110 @@ namespace Doorpi
             return true;
         }
 
+        private bool TryFindBattleNetWindow(out Process process, out IntPtr hwnd)
+        {
+            process = null!;
+            hwnd = IntPtr.Zero;
+            Process? bestProcess = null;
+            IntPtr bestHwnd = IntPtr.Zero;
+            int bestScore = 0;
+
+            foreach (var candidateHwnd in EnumerateTopLevelWindows())
+            {
+                GetWindowThreadProcessId(candidateHwnd, out uint pidRaw);
+                if (pidRaw == 0 || pidRaw == Environment.ProcessId) continue;
+
+                Process candidateProcess;
+                try { candidateProcess = Process.GetProcessById((int)pidRaw); }
+                catch { continue; }
+
+                string processName = SafeProcessName(candidateProcess);
+                if (!IsBattleNetProcessName(processName)) continue;
+
+                string title = GetWindowTitle(candidateHwnd);
+                string className = GetWindowClassNameSafe(candidateHwnd);
+                if (!IsBattleNetMainWindowCandidate(candidateHwnd, processName, title, className, allowIconic: _storeLauncherWindowSeen))
+                    continue;
+
+                int score = 0;
+                if (string.Equals(processName, "Battle.net", StringComparison.OrdinalIgnoreCase)) score += 65;
+                if (string.Equals(processName, "Battle.net Launcher", StringComparison.OrdinalIgnoreCase)) score += 45;
+                if (!string.IsNullOrWhiteSpace(title)) score += 25;
+                if (title.Equals("Battle.net", StringComparison.OrdinalIgnoreCase)) score += 90;
+                else if (title.Contains("Battle.net", StringComparison.OrdinalIgnoreCase)) score += 55;
+                if (!IsIconic(candidateHwnd)) score += 10;
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestProcess = candidateProcess;
+                    bestHwnd = candidateHwnd;
+                }
+            }
+
+            if (bestProcess == null || bestHwnd == IntPtr.Zero || bestScore < 55)
+                return false;
+
+            process = bestProcess;
+            hwnd = bestHwnd;
+            return true;
+        }
+
+        private bool TryFindBattleNetInteractiveWindow(out Process process, out IntPtr hwnd)
+        {
+            process = null!;
+            hwnd = IntPtr.Zero;
+            Process? bestProcess = null;
+            IntPtr bestHwnd = IntPtr.Zero;
+            int bestScore = 0;
+
+            foreach (var candidateHwnd in EnumerateTopLevelWindows())
+            {
+                if (!IsWindowVisible(candidateHwnd) || IsIconic(candidateHwnd))
+                    continue;
+
+                GetWindowThreadProcessId(candidateHwnd, out uint pidRaw);
+                if (pidRaw == 0 || pidRaw == Environment.ProcessId) continue;
+
+                Process candidateProcess;
+                try { candidateProcess = Process.GetProcessById((int)pidRaw); }
+                catch { continue; }
+
+                string processName = SafeProcessName(candidateProcess);
+                if (!IsBattleNetProcessName(processName)) continue;
+
+                string title = GetWindowTitle(candidateHwnd).Trim();
+                string className = GetWindowClassNameSafe(candidateHwnd);
+                int score = 0;
+
+                if (string.Equals(processName, "Battle.net", StringComparison.OrdinalIgnoreCase)) score += 55;
+                if (string.Equals(processName, "Battle.net Launcher", StringComparison.OrdinalIgnoreCase)) score += 45;
+                if (string.Equals(processName, "Battle.net Update Agent", StringComparison.OrdinalIgnoreCase)) score += 20;
+                if (string.Equals(processName, "Agent", StringComparison.OrdinalIgnoreCase)) score += 20;
+                if (!string.IsNullOrWhiteSpace(title)) score += 20;
+                if (title.Contains("Battle.net", StringComparison.OrdinalIgnoreCase)) score += 35;
+                if (className.Contains("Chrome", StringComparison.OrdinalIgnoreCase) ||
+                    className.Contains("Qt", StringComparison.OrdinalIgnoreCase))
+                {
+                    score += 10;
+                }
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestProcess = candidateProcess;
+                    bestHwnd = candidateHwnd;
+                }
+            }
+
+            if (bestProcess == null || bestHwnd == IntPtr.Zero || bestScore < 35)
+                return false;
+
+            process = bestProcess;
+            hwnd = bestHwnd;
+            return true;
+        }
+
         private static bool IsSteamMainWindowCandidate(IntPtr hwnd, string title, string className, bool allowIconic)
         {
             if (hwnd == IntPtr.Zero)
@@ -1960,6 +2107,52 @@ namespace Doorpi
                 normalizedTitle.Contains("sign in", StringComparison.OrdinalIgnoreCase) ||
                 normalizedTitle.Contains("signing in", StringComparison.OrdinalIgnoreCase) ||
                 normalizedTitle.Contains("login", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsBattleNetProcessName(string processName)
+        {
+            if (string.IsNullOrWhiteSpace(processName)) return false;
+
+            return string.Equals(processName, "Battle.net", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(processName, "Battle.net Launcher", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(processName, "Battle.net Helper", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(processName, "Battle.net Update Agent", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(processName, "Agent", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsBattleNetMainWindowCandidate(IntPtr hwnd, string processName, string title, string className, bool allowIconic)
+        {
+            if (hwnd == IntPtr.Zero)
+                return false;
+
+            if (!IsWindowVisible(hwnd) && !IsIconic(hwnd))
+                return false;
+
+            if (IsIconic(hwnd) && !allowIconic)
+                return false;
+
+            if (string.Equals(processName, "Agent", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(processName, "Battle.net Update Agent", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            string normalizedTitle = title?.Trim() ?? "";
+            if (normalizedTitle.Contains("update", StringComparison.OrdinalIgnoreCase) ||
+                normalizedTitle.Contains("updating", StringComparison.OrdinalIgnoreCase) ||
+                normalizedTitle.Contains("atualiza", StringComparison.OrdinalIgnoreCase) ||
+                normalizedTitle.Contains("instalando", StringComparison.OrdinalIgnoreCase) ||
+                normalizedTitle.Contains("installing", StringComparison.OrdinalIgnoreCase) ||
+                normalizedTitle.Contains("bootstrap", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (className.Contains("Update", StringComparison.OrdinalIgnoreCase) ||
+                className.Contains("Bootstrap", StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
@@ -1995,6 +2188,36 @@ namespace Doorpi
                 string processName = SafeProcessName(process);
                 return string.Equals(processName, "steam", StringComparison.OrdinalIgnoreCase) ||
                        string.Equals(processName, "steamwebhelper", StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
+        }
+
+        private bool IsForegroundOwnedByBattleNetInteractiveWindow()
+        {
+            if (!IsBattleNetStoreWindowLookup(_activeStoreId ?? "", _storeLauncherExe ?? ""))
+                return false;
+
+            try
+            {
+                var foreground = GetForegroundWindow();
+                if (foreground == IntPtr.Zero || foreground == GetShellWindow())
+                    return false;
+
+                if (_mainWindowHandle != IntPtr.Zero &&
+                    (foreground == _mainWindowHandle || IsChild(_mainWindowHandle, foreground)))
+                {
+                    return false;
+                }
+
+                if (!IsWindowVisible(foreground) || IsIconic(foreground))
+                    return false;
+
+                GetWindowThreadProcessId(foreground, out var pidRaw);
+                if (pidRaw == 0 || pidRaw == Environment.ProcessId)
+                    return false;
+
+                using var process = Process.GetProcessById((int)pidRaw);
+                return IsBattleNetProcessName(SafeProcessName(process));
             }
             catch { return false; }
         }
@@ -2124,8 +2347,8 @@ namespace Doorpi
 
                         if (!hasVisibleWindow)
                         {
-                            bool waitingForSteamMainWindow =
-                                IsSteamStoreWindowLookup(_activeStoreId ?? "", _storeLauncherExe ?? "") &&
+                            bool waitingForLauncherMainWindow =
+                                IsStoreMainWindowLookupAwaited(_activeStoreId ?? "", _storeLauncherExe ?? "") &&
                                 !_storeLauncherWindowSeen;
 
                             if (_storeLauncherWindowSeen)
@@ -2144,7 +2367,7 @@ namespace Doorpi
                                 missingWindowCount = 0;
                             }
 
-                            if (waitingForSteamMainWindow)
+                            if (waitingForLauncherMainWindow)
                             {
                                 await Task.Delay(300, token).ConfigureAwait(false);
                                 continue;
@@ -3498,7 +3721,7 @@ namespace Doorpi
                     string friendly = pkg.Name[(pkg.Name.IndexOf('.') + 1)..];
                     displayName = friendly.Replace('_', ' ').Trim();
                 }
-
+                
                 if (!isGameCategory)
                 {
                     // Fallback: pasta típica de título Xbox (contém Content ou executável de jogo)

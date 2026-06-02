@@ -198,6 +198,8 @@ namespace Doorpi
         private volatile bool _windowsCacheInvalid = false;
         private volatile bool _pollingActive = false;
         private int _libraryBootstrapRunning = 0;
+        private int _userSwitchInProgress = 0;
+        private bool _interactiveUserSessionStarted = false;
 
         private readonly SemaphoreSlim _cacheLock = new SemaphoreSlim(1, 1);
         private DateTime _lastCacheBuilt = DateTime.MinValue;
@@ -1246,6 +1248,7 @@ namespace Doorpi
         }
         private void LoadCurrentUserIntoUI()
         {
+            _interactiveUserSessionStarted = true;
             ClearHomeUi();
 
             var user = LoadUserProfile();
@@ -1300,31 +1303,259 @@ namespace Doorpi
 
         private void SwitchToUser(string userId)
         {
+            if (Interlocked.Exchange(ref _userSwitchInProgress, 1) == 1)
+                return;
+
             var users = LoadUserProfiles();
             var user = users.FirstOrDefault(u => string.Equals(u.Id, userId, StringComparison.OrdinalIgnoreCase));
-            if (user == null) return;
+            if (user == null)
+            {
+                Interlocked.Exchange(ref _userSwitchInProgress, 0);
+                return;
+            }
 
             user.LastUsed = DateTime.Now;
             SaveUserProfiles(users);
 
+            bool isRealAccountSwitch =
+                _interactiveUserSessionStarted &&
+                !string.Equals(currentUserId, user.Id, StringComparison.OrdinalIgnoreCase);
 
-            Dispatcher.Invoke(() =>
-                webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"userSwitchStart\"}"));
+            if (isRealAccountSwitch)
+            {
+                Dispatcher.Invoke(() =>
+                    webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                    {
+                        type = "userSwitchStart",
+                        mode = "switch"
+                    })));
+            }
 
             _ = Task.Run(async () =>
             {
-                await Task.Delay(150);
-
-                SetActiveUser(user, migrateLegacyFiles: false);
-                RestartWatchers();
-                await InitializeNativeAppsAsync(currentUserId, mediaFile, silent: true);
-
-                Dispatcher.Invoke(() =>
+                try
                 {
-                    LoadCurrentUserIntoUI();
-                    webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"userSwitchComplete\"}");
-                });
+                    if (isRealAccountSwitch)
+                        await Task.Delay(150).ConfigureAwait(false);
+
+                    List<Task> closeTasks = new();
+                    if (isRealAccountSwitch)
+                    {
+                        await Dispatcher.InvokeAsync(() =>
+                        {
+                            closeTasks = BeginLogoutCurrentSessionsForUserSwitch();
+                        });
+
+                        await WaitForUserLogoutSessionsToCloseAsync(closeTasks).ConfigureAwait(false);
+                        await Task.Delay(350).ConfigureAwait(false);
+                    }
+
+                    SetActiveUser(user, migrateLegacyFiles: false);
+                    RestartWatchers();
+                    await InitializeNativeAppsAsync(currentUserId, mediaFile, silent: true).ConfigureAwait(false);
+
+                    Dispatcher.Invoke(() =>
+                    {
+                        LoadCurrentUserIntoUI();
+                        webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                        {
+                            type = "userSwitchComplete",
+                            mode = isRealAccountSwitch ? "switch" : "initial",
+                            showTransition = isRealAccountSwitch,
+                            restartAudio = isRealAccountSwitch
+                        }));
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[Users] Falha ao trocar usuario: " + ex.Message);
+                    try
+                    {
+                        Dispatcher.Invoke(() =>
+                            webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                            {
+                                type = "userSwitchComplete",
+                                mode = isRealAccountSwitch ? "switch" : "initial",
+                                showTransition = isRealAccountSwitch,
+                                restartAudio = false
+                            })));
+                    }
+                    catch { }
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _userSwitchInProgress, 0);
+                }
             });
+        }
+
+        private List<Task> BeginLogoutCurrentSessionsForUserSwitch()
+        {
+            var closeTasks = new List<Task>();
+
+            try { _backgroundAppMonitorCts?.Cancel(); } catch { }
+            try { _desktopVkb?.Close(); _desktopVkb = null; } catch { }
+            try { ClearExecutionLock(); } catch { }
+
+            CloseCurrentGameForUserSwitch();
+            closeTasks.AddRange(CloseCurrentStoreForUserSwitch());
+            CloseCurrentWebAppForUserSwitch();
+            CloseExecutableAppsForUserSwitch();
+
+            try { ClearExecutionLock(); } catch { }
+            try { SendGameLaunchStatus("gameLaunchDone"); } catch { }
+            try { SendRuntimeSessionsToUI(); } catch { }
+            try { ForceFocus(); } catch { }
+
+            return closeTasks;
+        }
+
+        private void CloseCurrentGameForUserSwitch()
+        {
+            bool hadGameSession = _gameSession != null;
+            if (!hadGameSession) return;
+
+            var killed = new HashSet<int>();
+
+            void Kill(Process? process)
+            {
+                if (process == null) return;
+                try
+                {
+                    if (SafeHasExited(process)) return;
+                    if (!killed.Add(process.Id)) return;
+                    process.Kill(true);
+                    process.WaitForExit(1800);
+                }
+                catch
+                {
+                    try
+                    {
+                        if (!SafeHasExited(process))
+                            process.Kill();
+                    }
+                    catch { }
+                }
+            }
+
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(_lockedGameProcessName))
+                {
+                    foreach (var process in Process.GetProcessesByName(_lockedGameProcessName))
+                        Kill(process);
+                }
+            }
+            catch { }
+
+            try { Kill(_pendingLaunchProcess); } catch { }
+
+            try
+            {
+                if (_currentGameHwnd != IntPtr.Zero)
+                {
+                    GetWindowThreadProcessId(_currentGameHwnd, out uint pidRaw);
+                    if (pidRaw != 0)
+                        Kill(Process.GetProcessById((int)pidRaw));
+                }
+            }
+            catch { }
+
+            try
+            {
+                if (_gameSessionActive || !string.IsNullOrWhiteSpace(_activeSessionGameId))
+                    CommitActiveSession();
+            }
+            catch { }
+
+            ClearGameWindowSession();
+            _storeChildGameActive = false;
+            _storeChildGameStoreId = "";
+            _storeChildGameId = "";
+        }
+
+        private List<Task> CloseCurrentStoreForUserSwitch()
+        {
+            var closeTasks = new List<Task>();
+            if (!_isStoreLauncherSession) return closeTasks;
+
+            string? launcherExe = _storeLauncherExe;
+            HashSet<int> processIds = new();
+            try { processIds = GetStoreLauncherProcessIdsForClose(); } catch { }
+
+            try { CloseStoreSessionCompletely(); } catch { }
+
+            if (!string.IsNullOrWhiteSpace(launcherExe))
+            {
+                closeTasks.Add(Task.Run(() =>
+                {
+                    try { KillLauncherProcessTree(launcherExe, processIds); } catch { }
+                }));
+            }
+
+            return closeTasks;
+        }
+
+        private void CloseCurrentWebAppForUserSwitch()
+        {
+            try
+            {
+                if (_ytWebView != null || _webAppWindow != null || _popupWindow != null)
+                    CloseYouTubeInline(skipStoreCompletion: true);
+            }
+            catch
+            {
+                try { _popupWindow?.Close(); } catch { }
+                try { _webAppWindow?.Close(); } catch { }
+                try { _ytWebView?.Dispose(); } catch { }
+                try { _popupWebView?.Dispose(); } catch { }
+                ClearWebAppSession();
+            }
+        }
+
+        private void CloseExecutableAppsForUserSwitch()
+        {
+            var sessions = _executableAppSessions.Values.ToList();
+
+            foreach (var session in sessions)
+            {
+                try { session.WatcherCts?.Cancel(); } catch { }
+                try
+                {
+                    if (!string.IsNullOrWhiteSpace(session.Url))
+                    {
+                        var process = FindAliveMediaExeProcess(session.Url, session.Process);
+                        KillMediaExeProcessTree(session.Url, process ?? session.Process);
+                    }
+                }
+                catch { }
+            }
+
+            _executableAppSessions.Clear();
+            _activeExecutableAppSessionKey = "";
+        }
+
+        private async Task WaitForUserLogoutSessionsToCloseAsync(List<Task> closeTasks)
+        {
+            if (closeTasks.Count > 0)
+            {
+                var allCloseTasks = Task.WhenAll(closeTasks);
+                await Task.WhenAny(allCloseTasks, Task.Delay(5000)).ConfigureAwait(false);
+            }
+
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (DateTime.UtcNow < deadline)
+            {
+                bool hasPendingSession = false;
+                try
+                {
+                    hasPendingSession = Dispatcher.Invoke(HasAnyPendingSession);
+                }
+                catch { }
+
+                if (!hasPendingSession) break;
+                await Task.Delay(150).ConfigureAwait(false);
+            }
         }
         private const uint KEYEVENTF_UNICODE = 0x0004;
         private DesktopVkbWindow _desktopVkb;
@@ -1839,8 +2070,7 @@ namespace Doorpi
                         }
 
                         bool mouseShortcutPressed = IsMouseModeShortcutPressed(btn) && !IsMouseModeShortcutPressed(prevButtons);
-                        if (!_storeControllerActive &&
-                            mouseShortcutPressed &&
+                        if (mouseShortcutPressed &&
                             IsForegroundOwnedByActiveStore())
                         {
                             ToggleStoreMouseModeForSession(sessionId);
@@ -2385,8 +2615,12 @@ namespace Doorpi
             bool isSteamStoreLaunch =
                 _isStoreLauncherSession &&
                 IsSteamStoreWindowLookup(_activeStoreId ?? "", mediaUrl);
-            int maxAttempts = isSteamStoreLaunch ? 1800 : 600;
+            bool isBattleNetStoreLaunch =
+                _isStoreLauncherSession &&
+                IsBattleNetStoreWindowLookup(_activeStoreId ?? "", mediaUrl);
+            int maxAttempts = (isSteamStoreLaunch || isBattleNetStoreLaunch) ? 1800 : 600;
             bool steamInteractiveWindowFocused = false;
+            bool battleNetInteractiveWindowFocused = false;
 
             for (int i = 0; i < maxAttempts; i++)
             {
@@ -2427,6 +2661,30 @@ namespace Doorpi
 
                         targetProc = steamProc;
                         hwnd = steamHwnd;
+                    }
+                    else if (_isStoreLauncherSession &&
+                             IsBattleNetStoreWindowLookup(_activeStoreId ?? "", mediaUrl))
+                    {
+                        if (!TryFindBattleNetWindow(out var battleNetProc, out var battleNetHwnd))
+                        {
+                            if (!battleNetInteractiveWindowFocused &&
+                                TryFindBattleNetInteractiveWindow(out _, out var battleNetInteractiveHwnd))
+                            {
+                                FocusExternalWindow(battleNetInteractiveHwnd);
+                                battleNetInteractiveWindowFocused = true;
+
+                                _ = Dispatcher.BeginInvoke(() =>
+                                {
+                                    EnsureCursorVisible();
+                                    _mainScreenMouseVisible = true;
+                                    UpdateHoverStateInWebView();
+                                });
+                            }
+                            continue;
+                        }
+
+                        targetProc = battleNetProc;
+                        hwnd = battleNetHwnd;
                     }
                     else
                     {
@@ -5288,6 +5546,9 @@ namespace Doorpi
             if (IsForegroundOwnedBySteamInteractiveWindow())
                 return true;
 
+            if (IsForegroundOwnedByBattleNetInteractiveWindow())
+                return true;
+
             if (IsForegroundOwnedByStoreAuxiliaryWindow())
                 return true;
 
@@ -5681,7 +5942,7 @@ namespace Doorpi
         {
             if (!_isStoreLauncherSession || string.IsNullOrWhiteSpace(_activeStoreId)) return false;
             if (!IsForegroundDoorpi()) return false;
-            if (IsSteamStoreWindowLookup(_activeStoreId ?? "", _storeLauncherExe ?? "") &&
+            if (IsStoreMainWindowLookupAwaited(_activeStoreId ?? "", _storeLauncherExe ?? "") &&
                 !_storeLauncherWindowSeen)
             {
                 return false;
@@ -9856,6 +10117,16 @@ namespace Doorpi
                 else if (action == "requestStoreAutoAddSettings")
                 {
                     SendStoreAutoAddSettingsToUI();
+                }
+                else if (action == "setStoreGamepadControl"
+                         && root.TryGetProperty("storeId", out var storeGamepadStoreIdEl)
+                         && root.TryGetProperty("disabled", out var storeGamepadDisabledEl))
+                {
+                    string storeId = storeGamepadStoreIdEl.GetString() ?? "";
+                    if (!string.IsNullOrEmpty(storeId))
+                    {
+                        SaveStoreGamepadControlSetting(storeId, storeGamepadDisabledEl.GetBoolean());
+                    }
                 }
                 else if (action == "setStoreAutoAdd"
                          && root.TryGetProperty("store", out var storeKeyEl)
