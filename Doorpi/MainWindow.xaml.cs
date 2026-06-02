@@ -625,13 +625,14 @@ namespace Doorpi
                 var pci = new CURSORINFO();
                 pci.cbSize = Marshal.SizeOf(typeof(CURSORINFO));
 
-                if (GetCursorInfo(out pci) && pci.flags == CURSOR_SHOWING)
+                if (GetCursorInfo(out pci))
                 {
                     // Carrega a "barrinha de texto" do sistema
                     IntPtr textCursorHandle = LoadCursor(IntPtr.Zero, IDC_IBEAM);
 
-                    // Se o cursor atual for a barrinha, estamos em um campo de texto!
-                    return pci.hCursor == textCursorHandle;
+                    // Em sessões externas o ShowCursor pode oscilar durante foco/click.
+                    // O handle do cursor continua sendo a fonte mais estável para IBEAM.
+                    return pci.hCursor != IntPtr.Zero && pci.hCursor == textCursorHandle;
                 }
             }
             catch { }
@@ -655,6 +656,8 @@ namespace Doorpi
             {
                 Dispatcher.Invoke(() =>
                 {
+                    if (ShouldMainScreenMouseWatchYield()) return;
+
                     // A REGRA DE OURO: Só mexe no mouse se o Doorpi estiver em primeiro plano!
                     if (!IsDoorpiMainWindowForeground()) return;
 
@@ -680,6 +683,8 @@ namespace Doorpi
                 _lastKnownCursorPos = pt;
                 Dispatcher.Invoke(() =>
                 {
+                    if (ShouldMainScreenMouseWatchYield()) return;
+
                     // Só reage ao movimento se o Doorpi estiver em foco
                     if (!IsDoorpiMainWindowForeground()) return;
 
@@ -693,6 +698,15 @@ namespace Doorpi
                 _mouseIdleTimer?.Change(MOUSE_IDLE_MS, Timeout.Infinite);
             }, null, 0, 100);
         }
+
+        private bool ShouldMainScreenMouseWatchYield()
+        {
+            return _systemControllerActive ||
+                   _mediaExeModeActive ||
+                   _isStoreLauncherSession ||
+                   _gameSessionActive;
+        }
+
         private void StopMainScreenMouseWatch()
         {
             _mousePollTimer?.Change(Timeout.Infinite, Timeout.Infinite);
@@ -2371,6 +2385,7 @@ namespace Doorpi
                 _isStoreLauncherSession &&
                 IsSteamStoreWindowLookup(_activeStoreId ?? "", mediaUrl);
             int maxAttempts = isSteamStoreLaunch ? 1800 : 600;
+            bool steamInteractiveWindowFocused = false;
 
             for (int i = 0; i < maxAttempts; i++)
             {
@@ -2392,7 +2407,22 @@ namespace Doorpi
                         IsSteamStoreWindowLookup(_activeStoreId ?? "", mediaUrl))
                     {
                         if (!TryFindSteamWindow(out var steamProc, out var steamHwnd))
+                        {
+                            if (!steamInteractiveWindowFocused &&
+                                TryFindSteamInteractiveWindow(out _, out var steamInteractiveHwnd))
+                            {
+                                FocusExternalWindow(steamInteractiveHwnd);
+                                steamInteractiveWindowFocused = true;
+
+                                _ = Dispatcher.BeginInvoke(() =>
+                                {
+                                    EnsureCursorVisible();
+                                    _mainScreenMouseVisible = true;
+                                    UpdateHoverStateInWebView();
+                                });
+                            }
                             continue;
+                        }
 
                         targetProc = steamProc;
                         hwnd = steamHwnd;
@@ -5227,6 +5257,9 @@ namespace Doorpi
 
         private bool IsForegroundOwnedByActiveStore()
         {
+            if (IsForegroundOwnedBySteamInteractiveWindow())
+                return true;
+
             try
             {
                 if (_storeLauncherProcess != null &&

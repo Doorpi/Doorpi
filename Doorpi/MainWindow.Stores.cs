@@ -1528,6 +1528,13 @@ namespace Doorpi
                     if (proc == null)
                         proc = existing;
 
+                    if (proc != null &&
+                        IsSteamStoreWindowLookup(store.Id, _storeLauncherExe ?? ""))
+                    {
+                        EnterStoreExeMode(proc, store.Name, heroImg, gridImg);
+                        return;
+                    }
+
                     for (int i = 0; i < 20; i++)
                     {
                         var visible = FindRunningStoreProcessWithWindow(_storeLauncherExe);
@@ -1869,6 +1876,66 @@ namespace Doorpi
             return true;
         }
 
+        private bool TryFindSteamInteractiveWindow(out Process process, out IntPtr hwnd)
+        {
+            process = null!;
+            hwnd = IntPtr.Zero;
+            Process? bestProcess = null;
+            IntPtr bestHwnd = IntPtr.Zero;
+            int bestScore = 0;
+
+            foreach (var candidateHwnd in EnumerateTopLevelWindows())
+            {
+                if (!IsWindowVisible(candidateHwnd) || IsIconic(candidateHwnd))
+                    continue;
+
+                GetWindowThreadProcessId(candidateHwnd, out uint pidRaw);
+                if (pidRaw == 0 || pidRaw == Environment.ProcessId) continue;
+
+                Process candidateProcess;
+                try { candidateProcess = Process.GetProcessById((int)pidRaw); }
+                catch { continue; }
+
+                string processName = SafeProcessName(candidateProcess);
+                bool isSteamProcess = string.Equals(processName, "steam", StringComparison.OrdinalIgnoreCase);
+                bool isSteamWebHelper = string.Equals(processName, "steamwebhelper", StringComparison.OrdinalIgnoreCase);
+                if (!isSteamProcess && !isSteamWebHelper) continue;
+
+                string title = GetWindowTitle(candidateHwnd).Trim();
+                string className = GetWindowClassNameSafe(candidateHwnd);
+                int score = 0;
+
+                if (isSteamProcess) score += 40;
+                if (isSteamWebHelper) score += 35;
+                if (!string.IsNullOrWhiteSpace(title)) score += 20;
+                if (title.Contains("Steam", StringComparison.OrdinalIgnoreCase)) score += 35;
+                if (string.Equals(className, "BootstrapUpdateUIClass", StringComparison.OrdinalIgnoreCase)) score += 45;
+                if (title.Contains("iniciar a sessÃ£o", StringComparison.OrdinalIgnoreCase) ||
+                    title.Contains("iniciando sessÃ£o", StringComparison.OrdinalIgnoreCase) ||
+                    title.Contains("sessÃ£o no steam", StringComparison.OrdinalIgnoreCase) ||
+                    title.Contains("sign in", StringComparison.OrdinalIgnoreCase) ||
+                    title.Contains("signing in", StringComparison.OrdinalIgnoreCase) ||
+                    title.Contains("login", StringComparison.OrdinalIgnoreCase))
+                {
+                    score += 45;
+                }
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestProcess = candidateProcess;
+                    bestHwnd = candidateHwnd;
+                }
+            }
+
+            if (bestProcess == null || bestHwnd == IntPtr.Zero || bestScore < 35)
+                return false;
+
+            process = bestProcess;
+            hwnd = bestHwnd;
+            return true;
+        }
+
         private static bool IsSteamMainWindowCandidate(IntPtr hwnd, string title, string className, bool allowIconic)
         {
             if (hwnd == IntPtr.Zero)
@@ -1898,6 +1965,38 @@ namespace Doorpi
             }
 
             return true;
+        }
+
+        private bool IsForegroundOwnedBySteamInteractiveWindow()
+        {
+            if (!IsSteamStoreWindowLookup(_activeStoreId ?? "", _storeLauncherExe ?? ""))
+                return false;
+
+            try
+            {
+                var foreground = GetForegroundWindow();
+                if (foreground == IntPtr.Zero || foreground == GetShellWindow())
+                    return false;
+
+                if (_mainWindowHandle != IntPtr.Zero &&
+                    (foreground == _mainWindowHandle || IsChild(_mainWindowHandle, foreground)))
+                {
+                    return false;
+                }
+
+                if (!IsWindowVisible(foreground) || IsIconic(foreground))
+                    return false;
+
+                GetWindowThreadProcessId(foreground, out var pidRaw);
+                if (pidRaw == 0 || pidRaw == Environment.ProcessId)
+                    return false;
+
+                using var process = Process.GetProcessById((int)pidRaw);
+                string processName = SafeProcessName(process);
+                return string.Equals(processName, "steam", StringComparison.OrdinalIgnoreCase) ||
+                       string.Equals(processName, "steamwebhelper", StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
         }
 
         private static string GetWindowClassNameSafe(IntPtr hwnd)
