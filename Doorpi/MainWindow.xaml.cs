@@ -4769,8 +4769,31 @@ namespace Doorpi
                     string.Equals(_gameSessionParentKind, "store", StringComparison.OrdinalIgnoreCase);
                 string storeChildStoreId = hadStoreChildContext ? _storeChildGameStoreId : "";
 
-                if (hadStoreChildContext && TryRequestCloseStoreChildGameWindow())
+                if (hadStoreChildContext)
                 {
+                    if (IsGogStoreId(storeChildStoreId))
+                        _gogBackInputPendingOnStoreResume = true;
+
+                    CloseStoreChildLayerArtifacts();
+                    CommitActiveSession();
+                    ClearGameWindowSession();
+
+                    _storeChildGameActive = false;
+                    _storeChildGameStoreId = "";
+                    _storeChildGameId = "";
+                    _storeAttachedProcessIds.Clear();
+                    _storeAttachedWindowHandles.Clear();
+
+                    if (_isStoreLauncherSession)
+                    {
+                        _storePausedByDoorpi = true;
+                        ResumeStoreSession();
+                    }
+                    else
+                    {
+                        ForceFocus();
+                    }
+
                     SendRuntimeSessionsToUI();
                     return;
                 }
@@ -6612,6 +6635,9 @@ namespace Doorpi
                 MarkStoreChildGameAsPlayed(game, gameId);
                 _storeControllerActive = false;
                 _storePausedByDoorpi = false;
+                _storeAttachedProcessIds.Add(candidate.ProcessId);
+                _storeAttachedWindowHandles.Add(candidate.Hwnd);
+                CaptureStoreAttachedSessionArtifacts();
             }
 
             lock (_gameLaunchMonitorLock)

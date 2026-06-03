@@ -33,6 +33,8 @@ namespace Doorpi
         private HashSet<string> _storeKeysProcessedDuringSession = new(StringComparer.OrdinalIgnoreCase);
         private HashSet<int> _storeProcessSnapshot = new();
         private HashSet<int> _storeProcessGroupIds = new();
+        private HashSet<int> _storeAttachedProcessIds = new();
+        private HashSet<IntPtr> _storeAttachedWindowHandles = new();
         private HashSet<IntPtr> _storeWindowSnapshot = new();
         private string _storeProcessGroupRootDirectory = "";
         private string _storeProcessGroupExeName = "";
@@ -576,6 +578,8 @@ namespace Doorpi
                         if (DateTime.UtcNow.Ticks < Interlocked.Read(ref _storeChildDetectionSuppressUntilUtcTicks))
                             continue;
 
+                        CaptureStoreAttachedSessionArtifacts();
+
                         var candidate = FindStoreChildGameCandidate(storeId);
                         if (candidate != null)
                         {
@@ -627,7 +631,7 @@ namespace Doorpi
             try
             {
                 var cache = LoadAppCache() ?? new AppCacheModel();
-                storeApps = GetCachedAppsForStore(cache, storeId).ToList();
+                storeApps = CollectAllCachedPlatformApps(cache);
                 var freshApps = GetInstalledAppsForStore(storeId, includeIcons: false);
                 storeApps = storeApps
                     .Concat(freshApps)
@@ -644,14 +648,40 @@ namespace Doorpi
             }
 
             var games = LoadGames();
-            return storeApps
+            var pairs = storeApps
                 .Select(app => new
                 {
                     App = app,
                     Game = games.FirstOrDefault(g => InstalledAppMatchesGame(app, g))
                 })
                 .Where(x => x.Game != null)
-                .Select(x => (x.App, x.Game!))
+                .Select(x => (App: x.App, Game: x.Game!))
+                .ToList();
+
+            var pairedGameKeys = pairs
+                .SelectMany(pair => AutoAddKeysForGame(pair.Game))
+                .Where(key => !string.IsNullOrWhiteSpace(key))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var game in games)
+            {
+                var keys = AutoAddKeysForGame(game).Where(key => !string.IsNullOrWhiteSpace(key)).ToList();
+                if (keys.Count > 0 && keys.Any(pairedGameKeys.Contains))
+                    continue;
+
+                pairs.Add((new InstalledApp
+                {
+                    Name = game.Name,
+                    Path = game.Path,
+                    LaunchUrl = game.LaunchUrl,
+                    Source = ""
+                }, game));
+            }
+
+            return pairs
+                .GroupBy(pair => !string.IsNullOrWhiteSpace(pair.Game.LaunchUrl) ? pair.Game.LaunchUrl : pair.Game.Path,
+                    StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
                 .ToList();
         }
 
@@ -990,6 +1020,9 @@ namespace Doorpi
             _storeChildGameActive = true;
             _storeChildGameStoreId = storeId;
             _storeChildGameId = gameId;
+            _storeAttachedProcessIds.Add(candidate.ProcessId);
+            _storeAttachedWindowHandles.Add(candidate.Hwnd);
+            CaptureStoreAttachedSessionArtifacts();
             _storePausedByDoorpi = false;
 
             _gameSessionActive = true;
@@ -1045,6 +1078,9 @@ namespace Doorpi
             _storeChildGameActive = true;
             _storeChildGameStoreId = storeId;
             _storeChildGameId = gameId;
+            _storeAttachedProcessIds.Add(candidate.ProcessId);
+            _storeAttachedWindowHandles.Add(candidate.Hwnd);
+            CaptureStoreAttachedSessionArtifacts();
             _storePausedByDoorpi = false;
 
             _gameSessionActive = true;
@@ -1129,6 +1165,8 @@ namespace Doorpi
                         continue;
                     }
 
+                    CaptureStoreAttachedSessionArtifacts();
+
                     bool alive = false;
                     try
                     {
@@ -1204,6 +1242,8 @@ namespace Doorpi
             string storeId = _storeChildGameStoreId;
             if (IsGogStoreId(storeId))
                 _gogBackInputPendingOnStoreResume = true;
+
+            CloseStoreChildLayerArtifacts();
 
             // NOVO: sinaliza que o jogo não está mais oculto atrás do Doorpi,
             // impedindo que o Activated dispare ShowExecutionLockForGame durante a transição
@@ -1419,9 +1459,139 @@ namespace Doorpi
             while (changed);
         }
 
+        private void CaptureStoreAttachedSessionArtifacts()
+        {
+            if (!_isStoreLauncherSession || _storePausedByDoorpi)
+                return;
+
+            try { ExpandStoreLauncherProcessGroup(); } catch { }
+
+            foreach (var hWnd in EnumerateTopLevelWindows())
+            {
+                try
+                {
+                    if (hWnd == IntPtr.Zero ||
+                        hWnd == _mainWindowHandle ||
+                        hWnd == GetShellWindow() ||
+                        _storeWindowSnapshot.Contains(hWnd))
+                    {
+                        continue;
+                    }
+
+                    if (!GetWindowRect(hWnd, out var rect) || rect.Width < 120 || rect.Height < 80)
+                        continue;
+
+                    GetWindowThreadProcessId(hWnd, out uint pidRaw);
+                    int pid = (int)pidRaw;
+                    if (pid <= 0 || pid == Environment.ProcessId)
+                        continue;
+
+                    using var process = Process.GetProcessById(pid);
+                    if (SafeHasExited(process))
+                        continue;
+
+                    string processName = SafeProcessName(process);
+                    if (string.IsNullOrWhiteSpace(processName) || _shellProcessNames.Contains(processName))
+                        continue;
+
+                    if (IsProcessActiveStoreLauncher(process))
+                        continue;
+
+                    bool knownLauncher = _knownLauncherProcessNames.Contains(processName);
+                    bool auxiliaryWindow = IsStoreAuxiliaryProcessName(processName);
+                    bool newProcess = !_storeProcessSnapshot.Contains(pid);
+                    bool attachedDescendant = IsDescendantOfAnyAttachedProcess(pid);
+
+                    if (knownLauncher || auxiliaryWindow || attachedDescendant)
+                        _storeAttachedWindowHandles.Add(hWnd);
+
+                    if (newProcess && (knownLauncher || attachedDescendant || LooksLikeAttachedLauncherProcess(processName)))
+                        _storeAttachedProcessIds.Add(pid);
+                }
+                catch { }
+            }
+
+            ExpandStoreAttachedProcessGroup();
+        }
+
+        private bool IsDescendantOfAnyAttachedProcess(int pid)
+        {
+            try
+            {
+                if (_storeAttachedProcessIds.Count == 0)
+                    return false;
+
+                var parentIds = SnapshotParentProcessIds();
+                return HasAncestorInGroup(pid, parentIds, _storeAttachedProcessIds);
+            }
+            catch { return false; }
+        }
+
+        private static bool LooksLikeAttachedLauncherProcess(string processName)
+        {
+            if (string.IsNullOrWhiteSpace(processName)) return false;
+
+            return processName.Contains("launcher", StringComparison.OrdinalIgnoreCase) ||
+                   processName.Contains("client", StringComparison.OrdinalIgnoreCase) ||
+                   processName.Contains("galaxy", StringComparison.OrdinalIgnoreCase) ||
+                   processName.Contains("steam", StringComparison.OrdinalIgnoreCase) ||
+                   processName.Contains("epic", StringComparison.OrdinalIgnoreCase) ||
+                   processName.Contains("battle", StringComparison.OrdinalIgnoreCase) ||
+                   processName.Contains("ubisoft", StringComparison.OrdinalIgnoreCase) ||
+                   processName.Contains("origin", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void ExpandStoreAttachedProcessGroup()
+        {
+            if (_storeAttachedProcessIds.Count == 0)
+                return;
+
+            var parentIds = SnapshotParentProcessIds();
+            Process[] processes;
+            try { processes = Process.GetProcesses(); }
+            catch { return; }
+
+            bool changed;
+            do
+            {
+                changed = false;
+                var roots = new HashSet<int>(_storeAttachedProcessIds);
+                roots.UnionWith(_storeProcessGroupIds);
+
+                foreach (var process in processes)
+                {
+                    int pid;
+                    try { pid = process.Id; } catch { continue; }
+                    if (pid <= 0 ||
+                        pid == Environment.ProcessId ||
+                        _storeAttachedProcessIds.Contains(pid) ||
+                        _storeProcessSnapshot.Contains(pid))
+                    {
+                        continue;
+                    }
+
+                    if (HasAncestorInGroup(pid, parentIds, roots) &&
+                        !IsProcessActiveStoreLauncher(process))
+                    {
+                        _storeAttachedProcessIds.Add(pid);
+                        changed = true;
+                    }
+                }
+            }
+            while (changed);
+        }
+
+        private HashSet<IntPtr> GetStoreAttachedWindowsForClose()
+        {
+            CaptureStoreAttachedSessionArtifacts();
+            return new HashSet<IntPtr>(_storeAttachedWindowHandles);
+        }
+
         private HashSet<int> GetStoreLauncherProcessIdsForClose()
         {
+            CaptureStoreAttachedSessionArtifacts();
             var ids = new HashSet<int>(_storeProcessGroupIds);
+            ids.UnionWith(_storeAttachedProcessIds);
 
             try
             {
@@ -1431,6 +1601,123 @@ namespace Doorpi
             catch { }
 
             return ids;
+        }
+
+        private HashSet<int> GetStoreChildLayerProcessIdsForClose()
+        {
+            CaptureStoreAttachedSessionArtifacts();
+            var ids = new HashSet<int>(_storeAttachedProcessIds);
+
+            if (!string.IsNullOrWhiteSpace(_lockedGameProcessName))
+            {
+                foreach (var process in Process.GetProcessesByName(_lockedGameProcessName))
+                {
+                    try
+                    {
+                        if (!IsProcessActiveStoreLauncher(process))
+                            ids.Add(process.Id);
+                    }
+                    catch { }
+                    finally
+                    {
+                        try { process.Dispose(); } catch { }
+                    }
+                }
+            }
+
+            try
+            {
+                if (_pendingLaunchProcess != null &&
+                    !SafeHasExited(_pendingLaunchProcess) &&
+                    !IsProcessActiveStoreLauncher(_pendingLaunchProcess))
+                {
+                    ids.Add(_pendingLaunchProcess.Id);
+                }
+            }
+            catch { }
+
+            return ids;
+        }
+
+        private void CloseStoreAttachedWindows(IEnumerable<IntPtr> windows)
+        {
+            foreach (var hWnd in windows.Distinct())
+            {
+                try
+                {
+                    if (hWnd == IntPtr.Zero ||
+                        hWnd == _mainWindowHandle ||
+                        hWnd == GetShellWindow() ||
+                        !IsWindow(hWnd))
+                    {
+                        continue;
+                    }
+
+                    GetWindowThreadProcessId(hWnd, out uint pidRaw);
+                    if (pidRaw == 0 || pidRaw == Environment.ProcessId)
+                        continue;
+
+                    using var process = Process.GetProcessById((int)pidRaw);
+                    if (IsProcessActiveStoreLauncher(process))
+                        continue;
+
+                    PostMessage(hWnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+                }
+                catch { }
+            }
+        }
+
+        private void CloseStoreChildLayerArtifacts()
+        {
+            var windows = GetStoreAttachedWindowsForClose();
+            var processIds = GetStoreChildLayerProcessIdsForClose();
+
+            CloseStoreAttachedWindows(windows);
+
+            var rootProcessIds = new HashSet<int>();
+            try
+            {
+                if (_storeLauncherProcess != null && !SafeHasExited(_storeLauncherProcess))
+                    rootProcessIds.Add(_storeLauncherProcess.Id);
+            }
+            catch { }
+            rootProcessIds.UnionWith(_storeProcessGroupIds);
+
+            processIds.ExceptWith(rootProcessIds);
+            KillProcessesById(processIds);
+        }
+
+        private static void KillProcessesById(IEnumerable<int> processIds)
+        {
+            var killed = new HashSet<int>();
+            foreach (var pid in processIds)
+            {
+                if (pid <= 0 || !killed.Add(pid))
+                    continue;
+
+                try
+                {
+                    using var process = Process.GetProcessById(pid);
+                    if (process.HasExited)
+                        continue;
+
+                    process.Kill(true);
+                    process.WaitForExit(1800);
+                }
+                catch
+                {
+                    try
+                    {
+                        using var process = Process.GetProcessById(pid);
+                        if (!process.HasExited)
+                        {
+                            process.Kill();
+                            process.WaitForExit(900);
+                        }
+                    }
+                    catch { }
+                }
+            }
         }
 
         private bool HasActiveStoreLauncherWindow()
@@ -1478,6 +1765,8 @@ namespace Doorpi
             _activeStoreId = storeId;
             _storeProcessSnapshot = SnapshotProcessIds();
             _storeProcessGroupIds = new();
+            _storeAttachedProcessIds = new();
+            _storeAttachedWindowHandles = new();
             _storeProcessGroupRootDirectory = "";
             _storeProcessGroupExeName = "";
             _storeWindowSnapshot = SnapshotVisibleWindows();
@@ -2527,6 +2816,8 @@ namespace Doorpi
                             continue;
                         }
 
+                        CaptureStoreAttachedSessionArtifacts();
+
                         bool processAlive = IsActiveStoreLauncherProcessAlive();
                         if (!processAlive)
                         {
@@ -3128,7 +3419,10 @@ namespace Doorpi
             string? exe = _storeLauncherExe;
             bool wasWeb = _storeSessionKind == "web";
             bool hadStoreChildGame = _storeChildGameActive;
-            var capturedStoreProcessIds = (!wasWeb && !hadStoreChildGame)
+            var capturedAttachedWindows = !wasWeb
+                ? GetStoreAttachedWindowsForClose()
+                : new HashSet<IntPtr>();
+            var capturedStoreProcessIds = !wasWeb
                 ? GetStoreLauncherProcessIdsForClose()
                 : new HashSet<int>();
             StopStoreLibraryMonitor();
@@ -3136,9 +3430,16 @@ namespace Doorpi
             try { _storeLauncherWatcherCts?.Cancel(); } catch { }
             _storeLauncherWatcherCts?.Dispose();
             _storeLauncherWatcherCts = null;
+            if (hadStoreChildGame)
+            {
+                CommitActiveSession();
+                ClearGameWindowSession();
+            }
             _storeChildGameActive = false;
             _storeChildGameStoreId = "";
             _storeChildGameId = "";
+            _storeAttachedProcessIds.Clear();
+            _storeAttachedWindowHandles.Clear();
             _storeControllerActive = false;
             _storeGamepadDisabled = false;
             _storeMouseModeRequested = false;
@@ -3157,6 +3458,8 @@ namespace Doorpi
             _storeKeysBeforeStore = new(StringComparer.OrdinalIgnoreCase);
             _storeProcessSnapshot = new();
             _storeProcessGroupIds = new();
+            _storeAttachedProcessIds = new();
+            _storeAttachedWindowHandles = new();
             _storeProcessGroupRootDirectory = "";
             _storeProcessGroupExeName = "";
             _storeWindowSnapshot = new();
@@ -3166,7 +3469,13 @@ namespace Doorpi
             else
             {
                 if (!string.IsNullOrEmpty(exe))
-                    _ = Task.Run(() => KillLauncherProcessTree(exe, capturedStoreProcessIds));
+                {
+                    _ = Task.Run(() =>
+                    {
+                        try { CloseStoreAttachedWindows(capturedAttachedWindows); } catch { }
+                        KillLauncherProcessTree(exe, capturedStoreProcessIds);
+                    });
+                }
 
                 Dispatcher.Invoke(() =>
                 {
@@ -3212,6 +3521,8 @@ namespace Doorpi
             _storeKeysBeforeStore = new(StringComparer.OrdinalIgnoreCase);
             _storeProcessSnapshot = new();
             _storeProcessGroupIds = new();
+            _storeAttachedProcessIds = new();
+            _storeAttachedWindowHandles = new();
             _storeProcessGroupRootDirectory = "";
             _storeProcessGroupExeName = "";
             _storeWindowSnapshot = new();
