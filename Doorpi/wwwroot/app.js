@@ -1636,6 +1636,18 @@
                 const isRestore = reason === 'restore' || reason === 'storeRestore';
                 GameLaunchOverlay.show(data.gameName, data.heroImage, data.gridImage, isRestore, launchKind);
             }
+            else if (data.type === 'storeTransition') {
+                window._isExternalAppRunning = true;
+                window._stopSystemAudio();
+                window.isMediaAppActive = true;
+                GameLaunchOverlay.showStoreTransition(data);
+            }
+            else if (data.type === 'storeTransitionDone') {
+                const launchOverlay = document.getElementById('gameLaunchOverlay');
+                if (launchOverlay?.classList.contains('store-transition-visible')) {
+                    GameLaunchOverlay.hide();
+                }
+            }
             else if (data.type === 'executionLock') {
                 if (Date.now() < (window._doorpiOfficialReturnSuppressUntil || 0)) {
                     GameLaunchOverlay.hide();
@@ -1765,7 +1777,8 @@
                 );
                 window._syncSystemAudioFromRuntime(shouldMuteDoorpiAudio);
                 const launchOverlay = document.getElementById('gameLaunchOverlay');
-                if (!launchOverlay?.classList.contains('execution-lock-visible')) {
+                if (!launchOverlay?.classList.contains('execution-lock-visible') &&
+                    !launchOverlay?.classList.contains('store-transition-visible')) {
                     GameLaunchOverlay.hide();
                 }
                 if (!window._vkbIsOpen && !isExecutionLockVisible) {
@@ -5610,6 +5623,8 @@ function renderFolderList(folders) {
             errTimeout: t('launchErrTimeout'),
             errGeneric: t('launchErrGeneric'),
             cancel: t('launchCancelBtn'),
+            returningStore: t('launchReturningStore') || t('launchWaitingStore') || t('launchWaiting'),
+            closingStore: t('launchClosingStore') || t('launchWaitingStore') || t('launchWaiting'),
         });
 
         function getWaitingText(text, launchKind) {
@@ -5696,6 +5711,26 @@ function renderFolderList(folders) {
                     }
                 }, 3500);
             }
+        }
+
+        function showStoreTransition(data = {}) {
+            const text = getI18n();
+            const mode = data.mode || 'returning';
+            nameEl.textContent = data.name || '';
+
+            hideExecutionLock();
+            clearSessionPair();
+            if (overlay._waitTimer) clearTimeout(overlay._waitTimer);
+
+            if (bg) bg.style.backgroundImage = data.heroImage ? `url('${data.heroImage}')` : 'none';
+            setArt(data.gridImage || '');
+            setState('loading');
+
+            statusEl.textContent = mode === 'closing' ? text.closingStore : text.returningStore;
+            cancelBtn.style.display = 'none';
+            cancelBtn.style.opacity = '0';
+            overlay.style.pointerEvents = 'all';
+            overlay.classList.add('visible', 'store-transition-visible');
         }
 
         function setRunning() {
@@ -5799,7 +5834,7 @@ function renderFolderList(folders) {
             if (overlay._waitTimer) clearTimeout(overlay._waitTimer);
             clearExecutionLockFocusTimers();
             cancelBtn.style.opacity = '0';
-            overlay.classList.remove('execution-lock-visible');
+            overlay.classList.remove('execution-lock-visible', 'store-transition-visible');
             overlay.dataset.executionLockKey = '';
             clearSessionPair();
 
@@ -5826,7 +5861,7 @@ function renderFolderList(folders) {
             }, 400);
         }
 
-        return { show, setRunning, setError, hide, showExecutionLock, hideExecutionLock };
+        return { show, showStoreTransition, setRunning, setError, hide, showExecutionLock, hideExecutionLock };
     })();
 
 

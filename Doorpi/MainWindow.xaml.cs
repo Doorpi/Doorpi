@@ -4774,23 +4774,25 @@ namespace Doorpi
                     if (IsGogStoreId(storeChildStoreId))
                         _gogBackInputPendingOnStoreResume = true;
 
-                    CloseStoreChildLayerArtifacts();
+                    ResumeExecutionLockWatch();
+                    SendGameLaunchStatus("gameLaunchDone");
+                    BeginStoreTransitionOverlay("returning");
                     CommitActiveSession();
                     ClearGameWindowSession();
+                    _gameIsMinimized = false;
+                    _gameIsRunningAndDoorpiHidden = false;
 
                     _storeChildGameActive = false;
                     _storeChildGameStoreId = "";
                     _storeChildGameId = "";
-                    _storeAttachedProcessIds.Clear();
-                    _storeAttachedWindowHandles.Clear();
 
                     if (_isStoreLauncherSession)
                     {
-                        _storePausedByDoorpi = true;
-                        ResumeStoreSession();
+                        _ = CloseStoreChildLayerAndResumeStoreAsync(storeChildStoreId);
                     }
                     else
                     {
+                        EndStoreTransitionOverlay();
                         ForceFocus();
                     }
 
@@ -5992,6 +5994,7 @@ namespace Doorpi
 
         private bool ShowExecutionLockForGame()
         {
+            if (_storeTransitionOverlayActive) return false;
             if (string.IsNullOrWhiteSpace(_activeSessionGameId)) return false;
 
             var game = LoadGames().FirstOrDefault(g =>
@@ -6012,6 +6015,7 @@ namespace Doorpi
 
         private bool ShowExecutionLockForStore()
         {
+            if (_storeTransitionOverlayActive) return false;
             if (!_isStoreLauncherSession || string.IsNullOrWhiteSpace(_activeStoreId)) return false;
             if (!IsForegroundDoorpi()) return false;
             if (IsStoreMainWindowLookupAwaited(_activeStoreId ?? "", _storeLauncherExe ?? "") &&
@@ -6021,8 +6025,11 @@ namespace Doorpi
             }
             if (_storeLauncherWindowSeen && !HasActiveStoreLauncherWindow())
             {
-                FinalizeStoreTraySession();
-                return false;
+                if (!ShouldDeferEpicTrayCloseForPotentialChildLaunch())
+                {
+                    FinalizeStoreTraySession();
+                    return false;
+                }
             }
             if (_gameSessionActive &&
                 string.Equals(_gameSessionParentKind, "doorpi", StringComparison.OrdinalIgnoreCase))

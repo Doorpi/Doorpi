@@ -28,6 +28,9 @@ namespace Doorpi
         private bool _storeMouseModeInitialized;
         private bool _storeLauncherWindowSeen;
         private bool _storeTrayCloseInProgress;
+        private bool _storeTransitionOverlayActive;
+        private long _epicTrayGraceUntilUtcTicks;
+        private long _epicTrayRestoreUntilUtcTicks;
         private HashSet<string> _libraryKeysBeforeStore = new(StringComparer.OrdinalIgnoreCase);
         private HashSet<string> _storeKeysBeforeStore = new(StringComparer.OrdinalIgnoreCase);
         private HashSet<string> _storeKeysProcessedDuringSession = new(StringComparer.OrdinalIgnoreCase);
@@ -1023,6 +1026,8 @@ namespace Doorpi
             _storeAttachedProcessIds.Add(candidate.ProcessId);
             _storeAttachedWindowHandles.Add(candidate.Hwnd);
             CaptureStoreAttachedSessionArtifacts();
+            Interlocked.Exchange(ref _epicTrayGraceUntilUtcTicks, 0);
+            Interlocked.Exchange(ref _epicTrayRestoreUntilUtcTicks, 0);
             _storePausedByDoorpi = false;
 
             _gameSessionActive = true;
@@ -1081,6 +1086,8 @@ namespace Doorpi
             _storeAttachedProcessIds.Add(candidate.ProcessId);
             _storeAttachedWindowHandles.Add(candidate.Hwnd);
             CaptureStoreAttachedSessionArtifacts();
+            Interlocked.Exchange(ref _epicTrayGraceUntilUtcTicks, 0);
+            Interlocked.Exchange(ref _epicTrayRestoreUntilUtcTicks, 0);
             _storePausedByDoorpi = false;
 
             _gameSessionActive = true;
@@ -1243,7 +1250,7 @@ namespace Doorpi
             if (IsGogStoreId(storeId))
                 _gogBackInputPendingOnStoreResume = true;
 
-            CloseStoreChildLayerArtifacts();
+            BeginStoreTransitionOverlay("returning");
 
             // NOVO: sinaliza que o jogo não está mais oculto atrás do Doorpi,
             // impedindo que o Activated dispare ShowExecutionLockForGame durante a transição
@@ -1266,11 +1273,11 @@ namespace Doorpi
             if (_isStoreLauncherSession &&
                 string.Equals(_activeStoreId, storeId, StringComparison.OrdinalIgnoreCase))
             {
-                _storePausedByDoorpi = true;
-                ResumeStoreSession();
+                _ = CloseStoreChildLayerAndResumeStoreAsync(storeId);
             }
             else
             {
+                EndStoreTransitionOverlay();
                 ForceFocus();
             }
         }
@@ -1687,6 +1694,82 @@ namespace Doorpi
             KillProcessesById(processIds);
         }
 
+        private void BeginStoreTransitionOverlay(string mode = "returning")
+        {
+            if (!_isStoreLauncherSession || string.IsNullOrWhiteSpace(_activeStoreId))
+                return;
+
+            _storeTransitionOverlayActive = true;
+            Interlocked.Exchange(ref _executionLockSuppressUntilUtcTicks,
+                DateTime.UtcNow.AddSeconds(8).Ticks);
+
+            try
+            {
+                var card = LoadStoreLaunchers().FirstOrDefault(s =>
+                    string.Equals(s.Id, _activeStoreId, StringComparison.OrdinalIgnoreCase));
+
+                webView?.CoreWebView2?.PostWebMessageAsString(JsonSerializer.Serialize(new
+                {
+                    type = "storeTransition",
+                    mode,
+                    name = card?.Name ?? _activeStoreId ?? "Loja",
+                    heroImage = card?.HeroImage ?? "",
+                    gridImage = card?.GridImage ?? ""
+                }));
+            }
+            catch { }
+        }
+
+        private void EndStoreTransitionOverlay(bool hide = true)
+        {
+            _storeTransitionOverlayActive = false;
+            if (!hide)
+                return;
+
+            try
+            {
+                webView?.CoreWebView2?.PostWebMessageAsString(
+                    JsonSerializer.Serialize(new { type = "storeTransitionDone" }));
+            }
+            catch { }
+        }
+
+        private async Task CloseStoreChildLayerAndResumeStoreAsync(string storeId)
+        {
+            if (!_storeTransitionOverlayActive)
+                BeginStoreTransitionOverlay("returning");
+
+            try
+            {
+                await Task.Run(CloseStoreChildLayerArtifacts).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[Store] Transição para loja: " + ex.Message);
+            }
+
+            Dispatcher.Invoke(() =>
+            {
+                _storeAttachedProcessIds.Clear();
+                _storeAttachedWindowHandles.Clear();
+
+                if (!_isStoreLauncherSession ||
+                    !string.Equals(_activeStoreId, storeId, StringComparison.OrdinalIgnoreCase))
+                {
+                    EndStoreTransitionOverlay();
+                    ForceFocus();
+                    return;
+                }
+
+                _storePausedByDoorpi = true;
+                ResumeStoreSession();
+                EndStoreTransitionOverlay();
+                SendRuntimeSessionsToUI();
+                if (IsForegroundDoorpi())
+                    ShowExecutionLockForStore();
+            });
+        }
+
         private static void KillProcessesById(IEnumerable<int> processIds)
         {
             var killed = new HashSet<int>();
@@ -1743,6 +1826,12 @@ namespace Doorpi
             if (!_storeLauncherWindowSeen || HasActiveStoreLauncherWindow())
                 return;
 
+            if (ShouldDeferEpicTrayCloseForPotentialChildLaunch())
+            {
+                FocusDoorpiForEpicTrayGrace();
+                return;
+            }
+
             _storeTrayCloseInProgress = true;
             try
             {
@@ -1754,6 +1843,77 @@ namespace Doorpi
             }
         }
 
+        private bool ShouldDeferEpicTrayCloseForPotentialChildLaunch()
+        {
+            if (!IsEpicStoreId(_activeStoreId))
+                return false;
+
+            if (_storeChildGameActive ||
+                (_gameSessionActive &&
+                 string.Equals(_gameSessionParentKind, "store", StringComparison.OrdinalIgnoreCase)))
+            {
+                return false;
+            }
+
+            var nowTicks = DateTime.UtcNow.Ticks;
+            var restoreUntilTicks = Interlocked.Read(ref _epicTrayRestoreUntilUtcTicks);
+            if (restoreUntilTicks > nowTicks)
+                return true;
+
+            var untilTicks = Interlocked.Read(ref _epicTrayGraceUntilUtcTicks);
+            if (untilTicks <= 0)
+            {
+                Interlocked.Exchange(ref _epicTrayGraceUntilUtcTicks,
+                    DateTime.UtcNow.AddSeconds(8).Ticks);
+                return true;
+            }
+
+            return nowTicks < untilTicks;
+        }
+
+        private bool IsEpicTrayGraceActive()
+            => IsEpicStoreId(_activeStoreId) &&
+               Interlocked.Read(ref _epicTrayGraceUntilUtcTicks) > DateTime.UtcNow.Ticks;
+
+        private void CancelEpicTrayGrace()
+        {
+            Interlocked.Exchange(ref _epicTrayGraceUntilUtcTicks, 0);
+        }
+
+        private void FocusDoorpiForEpicTrayGrace()
+        {
+            SendRuntimeSessionsToUI();
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    var hwnd = _mainWindowHandle != IntPtr.Zero
+                        ? _mainWindowHandle
+                        : new System.Windows.Interop.WindowInteropHelper(this).Handle;
+
+                    this.Show();
+
+                    if (!IsForegroundDoorpi() &&
+                        hwnd != IntPtr.Zero &&
+                        GetWindowRect(hwnd, out var rect) &&
+                        rect.Width > 0 &&
+                        rect.Height > 0)
+                    {
+                        int clickX = rect.Left + 24;
+                        int clickY = rect.Top + 24;
+                        SetCursorPos(clickX, clickY);
+                        mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+                        mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+                    }
+                }
+                catch { }
+
+                SendRuntimeSessionsToUI();
+                ShowExecutionLockForStore();
+            }), System.Windows.Threading.DispatcherPriority.Background);
+        }
+
         private void BeginStoreLauncherSession(string storeId)
         {
             _isStoreLauncherSession = true;
@@ -1762,6 +1922,8 @@ namespace Doorpi
             _storeMouseModeInitialized = false;
             _storeLauncherWindowSeen = false;
             _storeTrayCloseInProgress = false;
+            _storeTransitionOverlayActive = false;
+            Interlocked.Exchange(ref _epicTrayGraceUntilUtcTicks, 0);
             _activeStoreId = storeId;
             _storeProcessSnapshot = SnapshotProcessIds();
             _storeProcessGroupIds = new();
@@ -2834,6 +2996,8 @@ namespace Doorpi
                                 _storeLauncherProcess = visibleProc;
                                 hasVisibleWindow = true;
                                 _storeLauncherWindowSeen = true;
+                                Interlocked.Exchange(ref _epicTrayGraceUntilUtcTicks, 0);
+                                Interlocked.Exchange(ref _epicTrayRestoreUntilUtcTicks, 0);
                                 missingWindowCount = 0;
                             }
                         }
@@ -2891,6 +3055,8 @@ namespace Doorpi
                         }
                         else if (hasVisibleWindow)
                         {
+                            Interlocked.Exchange(ref _epicTrayGraceUntilUtcTicks, 0);
+                            Interlocked.Exchange(ref _epicTrayRestoreUntilUtcTicks, 0);
                             missingWindowCount = 0;
                         }
 
@@ -2977,6 +3143,14 @@ namespace Doorpi
             ResumeExecutionLockWatch();
 
             if (!_isStoreLauncherSession) return;
+            bool restoreFromEpicTrayGrace = IsEpicTrayGraceActive();
+            if (restoreFromEpicTrayGrace)
+            {
+                CancelEpicTrayGrace();
+                Interlocked.Exchange(ref _epicTrayRestoreUntilUtcTicks,
+                    DateTime.UtcNow.AddSeconds(12).Ticks);
+            }
+
             if (_gameSessionActive &&
                 string.Equals(_gameSessionParentKind, "doorpi", StringComparison.OrdinalIgnoreCase))
             {
@@ -3049,6 +3223,33 @@ namespace Doorpi
                     }
                 }
 
+                if (hwnd == IntPtr.Zero &&
+                    IsEpicStoreId(_activeStoreId) &&
+                    !string.IsNullOrWhiteSpace(_storeLauncherExe))
+                {
+                    Interlocked.Exchange(ref _epicTrayRestoreUntilUtcTicks,
+                        DateTime.UtcNow.AddSeconds(12).Ticks);
+                    RequestEpicMainWindow(_storeLauncherExe);
+                    for (int i = 0; i < 24; i++)
+                    {
+                        if (TryFindStoreWindow(_activeStoreId ?? "", _storeLauncherExe, out var epicProc, out var epicHwnd))
+                        {
+                            proc = epicProc;
+                            hwnd = epicHwnd;
+                            break;
+                        }
+
+                        if (_storeChildGameActive &&
+                            _gameSessionActive &&
+                            string.Equals(_gameSessionParentKind, "store", StringComparison.OrdinalIgnoreCase))
+                        {
+                            return;
+                        }
+
+                        Thread.Sleep(120);
+                    }
+                }
+
                 if (hwnd != IntPtr.Zero)
                 {
                     RestoreStoreWindow(proc, hwnd);
@@ -3088,6 +3289,9 @@ namespace Doorpi
 
         private static bool IsGogStoreId(string? storeId)
             => string.Equals(storeId, "GOG", StringComparison.OrdinalIgnoreCase);
+
+        private static bool IsEpicStoreId(string? storeId)
+            => string.Equals(storeId, "Epic", StringComparison.OrdinalIgnoreCase);
 
         private void LogGogLauncherDiagnostics(string exePath)
         {
@@ -3371,6 +3575,23 @@ namespace Doorpi
             catch { }
         }
 
+        private static void RequestEpicMainWindow(string? exePath)
+        {
+            if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath))
+                return;
+
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = exePath,
+                    UseShellExecute = true,
+                    WorkingDirectory = Path.GetDirectoryName(exePath) ?? ""
+                });
+            }
+            catch { }
+        }
+
         private void ReactivateStoreControlsForForeground()
         {
             if (!_isStoreLauncherSession || _storePausedByDoorpi || IsStoreChildGameBlockingStoreControls())
@@ -3413,6 +3634,9 @@ namespace Doorpi
         {
             if (!_isStoreLauncherSession) return;
 
+            EndStoreTransitionOverlay();
+            SendGameLaunchStatus("gameLaunchDone");
+
             var snapshot = _libraryKeysBeforeStore;
             var storeSnapshot = _storeKeysBeforeStore;
             string? storeId = _activeStoreId;
@@ -3445,6 +3669,9 @@ namespace Doorpi
             _storeMouseModeRequested = false;
             _storeMouseModeInitialized = false;
             _storeLauncherWindowSeen = false;
+            _storeTransitionOverlayActive = false;
+            Interlocked.Exchange(ref _epicTrayGraceUntilUtcTicks, 0);
+            Interlocked.Exchange(ref _epicTrayRestoreUntilUtcTicks, 0);
             _storeLauncherProcess = null;
             _storeSessionId++;
             ClearExecutionLock();
@@ -3493,6 +3720,9 @@ namespace Doorpi
 
         private void FinalizeStoreSessionFromWebClose()
         {
+            EndStoreTransitionOverlay();
+            SendGameLaunchStatus("gameLaunchDone");
+
             var snapshot = _libraryKeysBeforeStore;
             var storeSnapshot = _storeKeysBeforeStore;
             string? storeId = _activeStoreId;
@@ -3509,7 +3739,10 @@ namespace Doorpi
             _storeMouseModeRequested = false;
             _storeMouseModeInitialized = false;
             _storeLauncherWindowSeen = false;
+            _storeTransitionOverlayActive = false;
             _storeTrayCloseInProgress = false;
+            Interlocked.Exchange(ref _epicTrayGraceUntilUtcTicks, 0);
+            Interlocked.Exchange(ref _epicTrayRestoreUntilUtcTicks, 0);
             _storeLauncherProcess = null;
             _storeSessionId++;
             _isStoreLauncherSession = false;
