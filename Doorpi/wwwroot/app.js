@@ -1631,7 +1631,10 @@
                 window._stopSystemAudio();
                 window.isMediaAppActive = true;
 
-                GameLaunchOverlay.show(data.gameName, data.heroImage, data.gridImage, data.reason === 'restore');
+                const reason = data.reason || '';
+                const launchKind = reason.startsWith('store') ? 'store' : (reason === 'app' ? 'app' : 'game');
+                const isRestore = reason === 'restore' || reason === 'storeRestore';
+                GameLaunchOverlay.show(data.gameName, data.heroImage, data.gridImage, isRestore, launchKind);
             }
             else if (data.type === 'executionLock') {
                 if (Date.now() < (window._doorpiOfficialReturnSuppressUntil || 0)) {
@@ -5598,6 +5601,9 @@ function renderFolderList(folders) {
         const getI18n = () => ({
             opening: t('launchOpening'),
             waiting: t('launchWaiting'),
+            waitingGame: t('launchWaitingGame') || t('launchWaiting'),
+            waitingStore: t('launchWaitingStore') || t('launchWaiting'),
+            waitingApp: t('launchWaitingApp') || t('launchWaiting'),
             running: t('launchRunning'),
             errTitle: t('launchErrTitle'),
             errCrash: t('launchErrCrash'),
@@ -5605,6 +5611,12 @@ function renderFolderList(folders) {
             errGeneric: t('launchErrGeneric'),
             cancel: t('launchCancelBtn'),
         });
+
+        function getWaitingText(text, launchKind) {
+            if (launchKind === 'store') return text.waitingStore;
+            if (launchKind === 'app') return text.waitingApp;
+            return text.waitingGame || text.waiting;
+        }
 
         function setState(state) {
             overlay.classList.remove('state-loading', 'state-running', 'state-error');
@@ -5638,8 +5650,9 @@ function renderFolderList(folders) {
           </svg>`;
         }
 
-        function show(gameName, heroImage, gridImage, isRestore = false) {
+        function show(gameName, heroImage, gridImage, isRestore = false, launchKind = 'game') {
             const text = getI18n();
+            const waitingText = getWaitingText(text, launchKind);
             nameEl.textContent = gameName || '';
             cancelBtn.innerHTML = `<span>${text.cancel}</span>`;
 
@@ -5657,7 +5670,7 @@ function renderFolderList(folders) {
             if (overlay._waitTimer) clearTimeout(overlay._waitTimer);
 
             if (isRestore) {
-                statusEl.textContent = text.waiting;
+                statusEl.textContent = waitingText;
                 cancelBtn.style.display = 'inline-flex';
                 cancelBtn.style.opacity = '1';
 
@@ -5673,7 +5686,7 @@ function renderFolderList(folders) {
 
                 overlay._waitTimer = setTimeout(() => {
                     if (overlay.classList.contains('state-loading')) {
-                        statusEl.textContent = text.waiting;
+                        statusEl.textContent = waitingText;
                         cancelBtn.style.display = 'inline-flex';
                         setTimeout(() => {
                             cancelBtn.style.opacity = '1';

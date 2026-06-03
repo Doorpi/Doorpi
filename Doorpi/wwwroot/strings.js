@@ -358,6 +358,9 @@ const STRINGS = {
         // ---- Launch Overlay ----
         launchOpening: 'Iniciando',
         launchWaiting: 'Aguardando a janela do jogo...',
+        launchWaitingGame: 'Aguardando a janela do jogo...',
+        launchWaitingStore: 'Aguardando janela da loja...',
+        launchWaitingApp: 'Aguardando janela do aplicativo...',
         launchRunning: 'Em execução',
         launchErrTitle: 'Não foi possível abrir',
         launchErrCrash: 'O jogo fechou inesperadamente. Verifique se o executável está correto.',
@@ -395,6 +398,9 @@ const STRINGS = {
         // ---- Launch Overlay ----
         launchOpening: 'Starting',
         launchWaiting: 'Waiting for the game window...',
+        launchWaitingGame: 'Waiting for the game window...',
+        launchWaitingStore: 'Waiting for the store window...',
+        launchWaitingApp: 'Waiting for the app window...',
         launchRunning: 'Running',
         launchErrTitle: 'Could not launch',
         launchErrCrash: 'The game closed unexpectedly. Check if the executable is correct.',

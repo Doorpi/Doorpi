@@ -1150,7 +1150,7 @@ namespace Doorpi
                 {
                     if (_currentWebAppUrl == url)
                     {
-                        SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg);
+                        SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg, "app");
 
                         _webAppWindow.WindowState = WindowState.Maximized;
                         _webAppWindow.Activate();
@@ -1184,7 +1184,7 @@ namespace Doorpi
 
             _currentWebAppUrl = url;
 
-            if (!isUtility) SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg);
+            if (!isUtility) SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg, "app");
 
             _ytClosing = false;
             _isCurrentSiteYouTube = isYouTube;

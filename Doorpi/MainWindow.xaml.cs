@@ -304,6 +304,9 @@ namespace Doorpi
         [DllImport("user32.dll")]
         private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
+        [DllImport("user32.dll")]
+        private static extern bool IsWindow(IntPtr hWnd);
+
         // ========================= DETECÇÃO DO CURSOR (I-BEAM) =========================
         [StructLayout(LayoutKind.Sequential)]
         private struct CURSORINFO
@@ -2618,9 +2621,13 @@ namespace Doorpi
             bool isBattleNetStoreLaunch =
                 _isStoreLauncherSession &&
                 IsBattleNetStoreWindowLookup(_activeStoreId ?? "", mediaUrl);
-            int maxAttempts = (isSteamStoreLaunch || isBattleNetStoreLaunch) ? 1800 : 600;
+            bool isGogStoreLaunch =
+                _isStoreLauncherSession &&
+                IsGogStoreWindowLookup(_activeStoreId ?? "", mediaUrl);
+            int maxAttempts = (isSteamStoreLaunch || isBattleNetStoreLaunch || isGogStoreLaunch) ? 1800 : 600;
             bool steamInteractiveWindowFocused = false;
             bool battleNetInteractiveWindowFocused = false;
+            bool gogInteractiveWindowFocused = false;
 
             for (int i = 0; i < maxAttempts; i++)
             {
@@ -2631,7 +2638,12 @@ namespace Doorpi
                 try
                 {
                     Process? targetProc = proc;
-                    if (SafeHasExited(targetProc))
+                    bool canResolveTargetLater =
+                        _isStoreLauncherSession &&
+                        (IsSteamStoreWindowLookup(_activeStoreId ?? "", mediaUrl) ||
+                         IsBattleNetStoreWindowLookup(_activeStoreId ?? "", mediaUrl) ||
+                         IsGogStoreWindowLookup(_activeStoreId ?? "", mediaUrl));
+                    if (!canResolveTargetLater && SafeHasExited(targetProc))
                     {
                         targetProc = FindRunningProcessForExe(mediaUrl);
                         if (targetProc == null) continue;
@@ -2686,8 +2698,38 @@ namespace Doorpi
                         targetProc = battleNetProc;
                         hwnd = battleNetHwnd;
                     }
+                    else if (_isStoreLauncherSession &&
+                             IsGogStoreWindowLookup(_activeStoreId ?? "", mediaUrl))
+                    {
+                        if (!TryFindGogWindow(mediaUrl, out var gogProc, out var gogHwnd))
+                        {
+                            if (!gogInteractiveWindowFocused &&
+                                TryFindGogInteractiveWindow(out _, out var gogInteractiveHwnd))
+                            {
+                                FocusExternalWindow(gogInteractiveHwnd);
+                                gogInteractiveWindowFocused = true;
+
+                                _ = Dispatcher.BeginInvoke(() =>
+                                {
+                                    EnsureCursorVisible();
+                                    _mainScreenMouseVisible = true;
+                                    UpdateHoverStateInWebView();
+                                });
+                            }
+                            continue;
+                        }
+
+                        targetProc = gogProc;
+                        hwnd = gogHwnd;
+                    }
                     else
                     {
+                        if (SafeHasExited(targetProc))
+                        {
+                            targetProc = FindRunningProcessForExe(mediaUrl);
+                            if (targetProc == null) continue;
+                        }
+
                         hwnd = targetProc.MainWindowHandle;
                         if (hwnd == IntPtr.Zero) hwnd = FindVisibleWindowForProcess(targetProc.Id);
                     }
@@ -3046,7 +3088,7 @@ namespace Doorpi
                 UpdateHoverStateInWebView(); // Devolve controle do hover se for Mídia
             });
 
-            SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg);
+            SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg, "app");
             _ = TryMaximizeExternalWindowAsync(proc, url, _mediaExeWatcherCts.Token);
             StartMediaExeWatcher(proc, url, appName, _mediaExeWatcherCts.Token);
             EnsureMediaExeShortcutThread(sessionId);
@@ -3531,7 +3573,6 @@ namespace Doorpi
                 SendInput(1, new[] { input }, INPUT.Size);
             }
         }
-
 
         private static int AxisToCursorDelta(short rawValue, int maxPixels, bool invert = false)
         {
@@ -4726,6 +4767,7 @@ namespace Doorpi
 
                 bool hadStoreChildContext = _storeChildGameActive &&
                     string.Equals(_gameSessionParentKind, "store", StringComparison.OrdinalIgnoreCase);
+                string storeChildStoreId = hadStoreChildContext ? _storeChildGameStoreId : "";
 
                 if (hadStoreChildContext && TryRequestCloseStoreChildGameWindow())
                 {
@@ -4764,6 +4806,8 @@ namespace Doorpi
 
                 if (hadStoreChildContext && !killedAny)
                 {
+                    if (IsGogStoreId(storeChildStoreId))
+                        _gogBackInputPendingOnStoreResume = true;
                     ResumeStoreSession();
                     SendRuntimeSessionsToUI();
                     return;
@@ -4779,6 +4823,8 @@ namespace Doorpi
 
                 if (hadStoreChildContext && _isStoreLauncherSession)
                 {
+                    if (IsGogStoreId(storeChildStoreId))
+                        _gogBackInputPendingOnStoreResume = true;
                     _storePausedByDoorpi = true;
                     ResumeStoreSession();
                 }
@@ -5547,6 +5593,9 @@ namespace Doorpi
                 return true;
 
             if (IsForegroundOwnedByBattleNetInteractiveWindow())
+                return true;
+
+            if (IsForegroundOwnedByGogInteractiveWindow())
                 return true;
 
             if (IsForegroundOwnedByStoreAuxiliaryWindow())
@@ -10200,7 +10249,7 @@ namespace Doorpi
 
                             DiscordRpcManager.Instance.UpdateState("media", mediaUrl, mediaName);
 
-                            SendGameLaunchStatus("gameLaunching", mediaName, heroImg, gridImg);
+                            SendGameLaunchStatus("gameLaunching", mediaName, heroImg, gridImg, "app");
                             Dispatcher.Invoke(() =>
                             {
                                 EnsureCursorVisible();
@@ -10306,7 +10355,7 @@ namespace Doorpi
                                         }
                                         else
                                         {
-                                            SendGameLaunchStatus("gameLaunching", mediaName, heroImg, gridImg);
+                                            SendGameLaunchStatus("gameLaunching", mediaName, heroImg, gridImg, "app");
                                             _mediaExeWatcherCts = new CancellationTokenSource();
                                             _mediaExeProcess = proc;
                                             _mediaExeCurrentUrl = mediaUrl;

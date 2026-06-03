@@ -38,9 +38,11 @@ namespace Doorpi
         private string _storeProcessGroupExeName = "";
         private CancellationTokenSource? _storeLibraryMonitorCts;
         private CancellationTokenSource? _storeChildGameDetectorCts;
+        private readonly HashSet<string> _gogDiagnosticLogSeen = new(StringComparer.OrdinalIgnoreCase);
         private bool _storeChildGameActive;
         private string _storeChildGameStoreId = "";
         private string _storeChildGameId = "";
+        private bool _gogBackInputPendingOnStoreResume;
         private long _storeChildDetectionSuppressUntilUtcTicks;
         private readonly object _storeLibraryMonitorLock = new();
         private int _storeArtworkRefreshRunning;
@@ -1200,6 +1202,8 @@ namespace Doorpi
             }
 
             string storeId = _storeChildGameStoreId;
+            if (IsGogStoreId(storeId))
+                _gogBackInputPendingOnStoreResume = true;
 
             // NOVO: sinaliza que o jogo não está mais oculto atrás do Doorpi,
             // impedindo que o Activated dispare ShowExecutionLockForGame durante a transição
@@ -1286,6 +1290,9 @@ namespace Doorpi
             if (IsBattleNetStoreWindowLookup(_activeStoreId ?? "", _storeLauncherExe))
                 return IsBattleNetRelatedProcessAlive();
 
+            if (IsGogStoreWindowLookup(_activeStoreId ?? "", _storeLauncherExe))
+                return IsGogRelatedProcessAlive();
+
             try
             {
                 string procName = Path.GetFileNameWithoutExtension(_storeLauncherExe);
@@ -1327,6 +1334,15 @@ namespace Doorpi
             catch { }
 
             return false;
+        }
+
+        private bool IsGogRelatedProcessAlive()
+        {
+            try
+            {
+                return SnapshotProcessNamesById().Values.Any(IsGogRelatedProcessName);
+            }
+            catch { return false; }
         }
 
         private void InitializeStoreLauncherProcessGroup(Process? rootProcess)
@@ -1465,6 +1481,11 @@ namespace Doorpi
             _storeProcessGroupRootDirectory = "";
             _storeProcessGroupExeName = "";
             _storeWindowSnapshot = SnapshotVisibleWindows();
+            if (string.Equals(storeId, "GOG", StringComparison.OrdinalIgnoreCase))
+            {
+                _gogDiagnosticLogSeen.Clear();
+                ResetGogWindowLog();
+            }
             _libraryKeysBeforeStore = BuildLibraryKeySet();
             _storeKeysBeforeStore = BuildStoreAppKeySet(storeId);
             lock (_storeLibraryMonitorLock)
@@ -1493,7 +1514,7 @@ namespace Doorpi
 
                     if (IsActiveStoreLauncherProcessAlive())
                     {
-                        SendGameLaunchStatus("gameLaunching", store.Name, heroImg, gridImg, "restore");
+                        SendGameLaunchStatus("gameLaunching", store.Name, heroImg, gridImg, "storeRestore");
                         ResumeStoreSession();
                         return;
                     }
@@ -1511,7 +1532,7 @@ namespace Doorpi
                 }
             }
 
-            SendGameLaunchStatus("gameLaunching", store.Name, heroImg, gridImg);
+            SendGameLaunchStatus("gameLaunching", store.Name, heroImg, gridImg, "store");
             if (string.Equals(store.Id, "Xbox", StringComparison.OrdinalIgnoreCase))
             {
                 try
@@ -1694,9 +1715,14 @@ namespace Doorpi
                string.Equals(Path.GetFileNameWithoutExtension(exePath), "Battle.net Launcher", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(Path.GetFileNameWithoutExtension(exePath), "Battle.net", StringComparison.OrdinalIgnoreCase);
 
+        private static bool IsGogStoreWindowLookup(string storeId, string exePath)
+            => string.Equals(storeId, "GOG", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(Path.GetFileNameWithoutExtension(exePath), "GalaxyClient", StringComparison.OrdinalIgnoreCase);
+
         private static bool IsStoreMainWindowLookupAwaited(string storeId, string exePath)
             => IsSteamStoreWindowLookup(storeId, exePath) ||
-               IsBattleNetStoreWindowLookup(storeId, exePath);
+               IsBattleNetStoreWindowLookup(storeId, exePath) ||
+               IsGogStoreWindowLookup(storeId, exePath);
 
         private bool TryFindStoreWindow(string storeId, string exePath, out Process process, out IntPtr hwnd)
         {
@@ -1717,6 +1743,12 @@ namespace Doorpi
             if (IsBattleNetStoreWindowLookup(storeId, exePath))
             {
                 return TryFindBattleNetWindow(out process, out hwnd);
+            }
+
+            if (IsGogStoreId(storeId))
+            {
+                LogGogLauncherDiagnostics(exePath);
+                return TryFindGogWindow(exePath, out process, out hwnd);
             }
 
             var running = FindRunningStoreProcessWithWindowByExeOnly(exePath);
@@ -2083,6 +2115,112 @@ namespace Doorpi
             return true;
         }
 
+        private bool TryFindGogWindow(string exePath, out Process process, out IntPtr hwnd)
+        {
+            process = null!;
+            hwnd = IntPtr.Zero;
+            Process? bestProcess = null;
+            IntPtr bestHwnd = IntPtr.Zero;
+            int bestScore = 0;
+
+            foreach (var candidateHwnd in EnumerateTopLevelWindows())
+            {
+                GetWindowThreadProcessId(candidateHwnd, out uint pidRaw);
+                if (pidRaw == 0 || pidRaw == Environment.ProcessId) continue;
+
+                Process candidateProcess;
+                try { candidateProcess = Process.GetProcessById((int)pidRaw); }
+                catch { continue; }
+
+                string processName = SafeProcessName(candidateProcess);
+                if (!IsGogRelatedProcessName(processName)) continue;
+
+                string title = GetWindowTitle(candidateHwnd);
+                string className = GetWindowClassNameSafe(candidateHwnd);
+                if (!IsGogMainWindowCandidate(candidateHwnd, processName, title, className, allowIconic: _storeLauncherWindowSeen))
+                    continue;
+
+                int score = 0;
+                if (string.Equals(processName, "GalaxyClient", StringComparison.OrdinalIgnoreCase)) score += 80;
+                if (!string.IsNullOrWhiteSpace(title)) score += 20;
+                if (title.Contains("GOG GALAXY", StringComparison.OrdinalIgnoreCase)) score += 90;
+                if (string.Equals(className, "Chrome_WidgetWin_0", StringComparison.OrdinalIgnoreCase)) score += 25;
+                if (!IsIconic(candidateHwnd)) score += 10;
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestProcess = candidateProcess;
+                    bestHwnd = candidateHwnd;
+                }
+            }
+
+            if (bestProcess == null || bestHwnd == IntPtr.Zero || bestScore < 100)
+                return false;
+
+            process = FindRunningProcessForExe(exePath) ?? bestProcess;
+            hwnd = bestHwnd;
+            return true;
+        }
+
+        private bool TryFindGogInteractiveWindow(out Process process, out IntPtr hwnd)
+        {
+            process = null!;
+            hwnd = IntPtr.Zero;
+            Process? bestProcess = null;
+            IntPtr bestHwnd = IntPtr.Zero;
+            int bestScore = 0;
+
+            foreach (var candidateHwnd in EnumerateTopLevelWindows())
+            {
+                if (!IsWindowVisible(candidateHwnd) || IsIconic(candidateHwnd))
+                    continue;
+
+                GetWindowThreadProcessId(candidateHwnd, out uint pidRaw);
+                if (pidRaw == 0 || pidRaw == Environment.ProcessId) continue;
+
+                Process candidateProcess;
+                try { candidateProcess = Process.GetProcessById((int)pidRaw); }
+                catch { continue; }
+
+                string processName = SafeProcessName(candidateProcess);
+                if (!IsGogRelatedProcessName(processName)) continue;
+
+                string title = GetWindowTitle(candidateHwnd).Trim();
+                string className = GetWindowClassNameSafe(candidateHwnd);
+                bool mainWindow = IsGogMainWindowCandidate(candidateHwnd, processName, title, className, allowIconic: false);
+                int score = 0;
+
+                if (string.Equals(processName, "GalaxyClient", StringComparison.OrdinalIgnoreCase)) score += 50;
+                else score += 25;
+                if (!string.IsNullOrWhiteSpace(title)) score += 20;
+                if (title.Contains("GOG", StringComparison.OrdinalIgnoreCase)) score += 25;
+                if (title.Contains("log in", StringComparison.OrdinalIgnoreCase) ||
+                    title.Contains("login", StringComparison.OrdinalIgnoreCase) ||
+                    title.Contains("sign in", StringComparison.OrdinalIgnoreCase) ||
+                    title.Contains("entrar", StringComparison.OrdinalIgnoreCase))
+                {
+                    score += 40;
+                }
+                if (mainWindow) score += 20;
+                if (string.Equals(className, "Chrome_WidgetWin_0", StringComparison.OrdinalIgnoreCase)) score += 10;
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestProcess = candidateProcess;
+                    bestHwnd = candidateHwnd;
+                }
+            }
+
+            if (bestProcess == null || bestHwnd == IntPtr.Zero || bestScore < 35)
+                return false;
+
+            process = bestProcess;
+            hwnd = bestHwnd;
+            return true;
+        }
+
         private static bool IsSteamMainWindowCandidate(IntPtr hwnd, string title, string className, bool allowIconic)
         {
             if (hwnd == IntPtr.Zero)
@@ -2160,6 +2298,41 @@ namespace Doorpi
             return true;
         }
 
+        private static bool IsGogMainWindowCandidate(IntPtr hwnd, string processName, string title, string className, bool allowIconic)
+        {
+            if (hwnd == IntPtr.Zero)
+                return false;
+
+            if (!IsWindowVisible(hwnd) && !IsIconic(hwnd))
+                return false;
+
+            if (IsIconic(hwnd) && !allowIconic)
+                return false;
+
+            if (!string.Equals(processName, "GalaxyClient", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (!string.Equals(className, "Chrome_WidgetWin_0", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            string normalizedTitle = title?.Trim() ?? "";
+            if (string.IsNullOrWhiteSpace(normalizedTitle))
+                return false;
+
+            if (normalizedTitle.Contains("log in", StringComparison.OrdinalIgnoreCase) ||
+                normalizedTitle.Contains("login", StringComparison.OrdinalIgnoreCase) ||
+                normalizedTitle.Contains("sign in", StringComparison.OrdinalIgnoreCase) ||
+                normalizedTitle.Contains("entrar", StringComparison.OrdinalIgnoreCase) ||
+                normalizedTitle.Contains("update", StringComparison.OrdinalIgnoreCase) ||
+                normalizedTitle.Contains("updating", StringComparison.OrdinalIgnoreCase) ||
+                normalizedTitle.Contains("atualiza", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return normalizedTitle.Contains("GOG GALAXY", StringComparison.OrdinalIgnoreCase);
+        }
+
         private bool IsForegroundOwnedBySteamInteractiveWindow()
         {
             if (!IsSteamStoreWindowLookup(_activeStoreId ?? "", _storeLauncherExe ?? ""))
@@ -2222,6 +2395,36 @@ namespace Doorpi
             catch { return false; }
         }
 
+        private bool IsForegroundOwnedByGogInteractiveWindow()
+        {
+            if (!IsGogStoreWindowLookup(_activeStoreId ?? "", _storeLauncherExe ?? ""))
+                return false;
+
+            try
+            {
+                var foreground = GetForegroundWindow();
+                if (foreground == IntPtr.Zero || foreground == GetShellWindow())
+                    return false;
+
+                if (_mainWindowHandle != IntPtr.Zero &&
+                    (foreground == _mainWindowHandle || IsChild(_mainWindowHandle, foreground)))
+                {
+                    return false;
+                }
+
+                if (!IsWindowVisible(foreground) || IsIconic(foreground))
+                    return false;
+
+                GetWindowThreadProcessId(foreground, out var pidRaw);
+                if (pidRaw == 0 || pidRaw == Environment.ProcessId)
+                    return false;
+
+                using var process = Process.GetProcessById((int)pidRaw);
+                return IsGogRelatedProcessName(SafeProcessName(process));
+            }
+            catch { return false; }
+        }
+
         private static string GetWindowClassNameSafe(IntPtr hwnd)
         {
             try
@@ -2267,7 +2470,7 @@ namespace Doorpi
             var watcherToken = watcherCts?.Token ?? CancellationToken.None;
 
             if (showLaunchOverlay)
-                SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg);
+                SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg, "store");
             else
                 SendGameLaunchStatus("gameLaunchDone");
             _ = Task.Run(async () =>
@@ -2557,13 +2760,7 @@ namespace Doorpi
 
                 if (hwnd != IntPtr.Zero)
                 {
-                    if (IsIconic(hwnd)) ShowWindow(hwnd, 9);
-                    ShowWindow(hwnd, 3);
-                    FocusExternalWindow(hwnd);
-
-                    var card = LoadStoreLaunchers().FirstOrDefault(s => s.Id == _activeStoreId);
-                    EnterStoreExeMode(proc, card?.Name ?? "Loja", card?.HeroImage ?? "", card?.GridImage ?? "", showLaunchOverlay: false);
-                    ReactivateStoreControlsForForeground();
+                    RestoreStoreWindow(proc, hwnd);
                     return;
                 }
 
@@ -2595,6 +2792,225 @@ namespace Doorpi
             var card = LoadStoreLaunchers().FirstOrDefault(s => s.Id == _activeStoreId);
             EnterStoreExeMode(proc, card?.Name ?? "Loja", card?.HeroImage ?? "", card?.GridImage ?? "", showLaunchOverlay: false);
             ReactivateStoreControlsForForeground();
+            ApplyGogRestoreInputFixIfNeeded(hwnd);
+        }
+
+        private static bool IsGogStoreId(string? storeId)
+            => string.Equals(storeId, "GOG", StringComparison.OrdinalIgnoreCase);
+
+        private void LogGogLauncherDiagnostics(string exePath)
+        {
+            try
+            {
+                var processNames = SnapshotProcessNamesById();
+
+                EnumWindows((candidateHwnd, _) =>
+                {
+                    try
+                    {
+                        if (candidateHwnd == IntPtr.Zero ||
+                            candidateHwnd == _mainWindowHandle ||
+                            candidateHwnd == GetShellWindow())
+                        {
+                            return true;
+                        }
+
+                        GetWindowThreadProcessId(candidateHwnd, out uint pidRaw);
+                        if (pidRaw == 0 || pidRaw == Environment.ProcessId)
+                            return true;
+
+                        if (!processNames.TryGetValue((int)pidRaw, out var exeName) ||
+                            !IsGogRelatedProcessName(exeName))
+                            return true;
+
+                        string processName = Path.GetFileNameWithoutExtension(exeName);
+                        string title = GetWindowTitle(candidateHwnd);
+                        string className = GetWindowClassNameSafe(candidateHwnd);
+                        bool visible = IsWindowVisible(candidateHwnd);
+                        bool iconic = IsIconic(candidateHwnd);
+                        bool hasRect = GetWindowRect(candidateHwnd, out var rect);
+                        int width = hasRect ? rect.Width : 0;
+                        int height = hasRect ? rect.Height : 0;
+                        bool hasTitle = !string.IsNullOrWhiteSpace(title);
+                        string relation = GetGogProcessRelation(exeName, exePath);
+
+                        bool mainProcess = string.Equals(processName, "GalaxyClient", StringComparison.OrdinalIgnoreCase);
+                        bool accepted = IsGogMainWindowCandidate(candidateHwnd, processName, title, className, allowIconic: false);
+                        string reason =
+                            accepted ? "accepted" :
+                            !visible && !iconic ? "hidden" :
+                            !mainProcess ? "related-process" :
+                            !hasTitle ? "no-title" :
+                            !string.Equals(className, "Chrome_WidgetWin_0", StringComparison.OrdinalIgnoreCase) ? "non-main-class" :
+                            title.Contains("log in", StringComparison.OrdinalIgnoreCase) ||
+                            title.Contains("login", StringComparison.OrdinalIgnoreCase) ||
+                            title.Contains("sign in", StringComparison.OrdinalIgnoreCase) ? "login-window" :
+                            !title.Contains("GOG GALAXY", StringComparison.OrdinalIgnoreCase) ? "non-main-title" :
+                            width < 320 || height < 220 ? "small-window" :
+                            "rejected";
+
+                        string rectText = hasRect
+                            ? $"{rect.Left},{rect.Top},{rect.Right},{rect.Bottom}"
+                            : "unknown";
+                        string sizeText = hasRect ? $"{width}x{height}" : "unknown";
+                        string hwndText = $"0x{candidateHwnd.ToInt64():X}";
+                        string key = $"win|{hwndText}|{pidRaw}|{processName}|{className}|{title}|{visible}|{iconic}|{rectText}|{accepted}|{reason}";
+
+                        if (_gogDiagnosticLogSeen.Add(key))
+                        {
+                            WriteGogWindowLog(
+                                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] gog accepted={accepted} reason={reason} hwnd={hwndText} pid={pidRaw} process=\"{LogValue(processName)}\" relation=\"{LogValue(relation)}\" class=\"{LogValue(className)}\" title=\"{LogValue(title)}\" visible={visible} iconic={iconic} rect={rectText} size={sizeText}");
+                        }
+                    }
+                    catch { }
+
+                    return true;
+                }, IntPtr.Zero);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[GOG] Diagnóstico: " + ex.Message);
+            }
+        }
+
+        private Dictionary<int, string> SnapshotProcessNamesById()
+        {
+            var result = new Dictionary<int, string>();
+            IntPtr snapshot = IntPtr.Zero;
+
+            try
+            {
+                snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+                if (snapshot == IntPtr.Zero || snapshot == INVALID_HANDLE_VALUE)
+                    return result;
+
+                var entry = new PROCESSENTRY32 { dwSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<PROCESSENTRY32>() };
+                if (!Process32FirstW(snapshot, ref entry))
+                    return result;
+
+                do
+                {
+                    if (entry.th32ProcessID <= int.MaxValue &&
+                        !string.IsNullOrWhiteSpace(entry.szExeFile))
+                    {
+                        result[(int)entry.th32ProcessID] = entry.szExeFile;
+                    }
+                }
+                while (Process32NextW(snapshot, ref entry));
+            }
+            catch { }
+            finally
+            {
+                if (snapshot != IntPtr.Zero && snapshot != INVALID_HANDLE_VALUE)
+                {
+                    try { CloseHandle(snapshot); } catch { }
+                }
+            }
+
+            return result;
+        }
+
+        private static bool IsGogRelatedProcessName(string exeName)
+        {
+            var name = Path.GetFileNameWithoutExtension(exeName);
+            return name.Contains("galaxy", StringComparison.OrdinalIgnoreCase) ||
+                   name.Contains("gog", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string GetGogProcessRelation(string exeName, string exePath)
+        {
+            string launcherExe = "";
+            try { launcherExe = Path.GetFileName(exePath); } catch { }
+
+            if (!string.IsNullOrWhiteSpace(launcherExe) &&
+                string.Equals(exeName, launcherExe, StringComparison.OrdinalIgnoreCase))
+                return "launcher-exe-name";
+
+            return "process-name";
+        }
+
+        private void ResetGogWindowLog()
+        {
+            try
+            {
+                File.WriteAllText(GetGogWindowLogPath(), "", Encoding.UTF8);
+            }
+            catch { }
+        }
+
+        private string GetGogWindowLogPath()
+        {
+            var dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "logs");
+            Directory.CreateDirectory(dir);
+            return Path.Combine(dir, "gog-windows.log");
+        }
+
+        private void WriteGogWindowLog(string line)
+        {
+            try
+            {
+                Debug.WriteLine("[GogWindow] " + line);
+                File.AppendAllText(GetGogWindowLogPath(), line + Environment.NewLine, Encoding.UTF8);
+            }
+            catch { }
+        }
+
+        private static string LogValue(string? value)
+            => (value ?? "").Replace("\"", "'");
+
+        private void ApplyGogRestoreInputFixIfNeeded(IntPtr hwnd)
+        {
+            if (!IsGogStoreId(_activeStoreId) || hwnd == IntPtr.Zero)
+                return;
+
+            bool sendBackInput = _gogBackInputPendingOnStoreResume;
+            _gogBackInputPendingOnStoreResume = false;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(260).ConfigureAwait(false);
+
+                    if (!_isStoreLauncherSession ||
+                        !IsGogStoreId(_activeStoreId) ||
+                        !IsWindow(hwnd))
+                    {
+                        return;
+                    }
+
+                    Dispatcher.Invoke(() =>
+                    {
+                        if (GetWindowRect(hwnd, out var rect) && rect.Width > 0 && rect.Height > 0)
+                        {
+                            int clickX = Math.Min(rect.Right - 24, rect.Left + 36);
+                            int clickY = Math.Max(rect.Top + 24, rect.Bottom - 96);
+                            SetCursorPos(clickX, clickY);
+                            mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+                            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+                        }
+                    });
+
+                    if (!sendBackInput)
+                        return;
+
+                    await Task.Delay(420).ConfigureAwait(false);
+
+                    if (!_isStoreLauncherSession ||
+                        !IsGogStoreId(_activeStoreId) ||
+                        !IsWindow(hwnd))
+                    {
+                        return;
+                    }
+
+                    mouse_event(MOUSEEVENTF_XDOWN, 0, 0, XBUTTON1, UIntPtr.Zero);
+                    mouse_event(MOUSEEVENTF_XUP, 0, 0, XBUTTON1, UIntPtr.Zero);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[GOG] Ajuste de restore: " + ex.Message);
+                }
+            });
         }
 
         private async Task ResumeSteamStoreWindowAsync()
