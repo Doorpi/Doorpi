@@ -44,6 +44,7 @@ namespace Doorpi
             public Thread? ShortcutThread;
             public HashSet<int> ProcessGroupIds = new();
             public HashSet<int> BaselineProcessIds = new();
+            public HashSet<IntPtr> AttachedWindowHandles = new();
             public string ProcessGroupRootDirectory = "";
             public string ProcessGroupExeName = "";
             public int SessionId;

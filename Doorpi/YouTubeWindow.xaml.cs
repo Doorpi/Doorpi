@@ -65,7 +65,6 @@ namespace Doorpi
             await InjectUltrawideFixAsync();
             await InjectDebugAsync();
             await InjectPlayerBackgroundAsync();
-            await InjectAccountWatcherAsync();
 
             ytWebView.ZoomFactor = 0.3;
             ytWebView.CoreWebView2.Navigate(YT_TV_URL);
@@ -173,7 +172,7 @@ namespace Doorpi
             if (msg == "player_loaded") ytWebView.ZoomFactor = 1.0;
             else if (msg == "close_app") CloseYouTube();
             else if (msg == "doorpi_profile_hacked_done") _profileHackDone = true;
-            else if (msg == "check_accounts") _ = CheckAndClearProfileIfNeededAsync();
+            else if (msg == "check_accounts") Debug.WriteLine("[Doorpi] YouTube account check ignorado; contas salvas nunca devem ser apagadas automaticamente.");
         }
 
         // ── PLAYER BACKGROUND ─────────────────────────────────────────────────

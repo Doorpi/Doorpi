@@ -1297,6 +1297,7 @@ namespace Doorpi
             if (isYouTube)
             {
                 await YtInjectAdBlockerAsync(_ytWebView.CoreWebView2);
+                await YtInjectStateLoggerAsync(_ytWebView.CoreWebView2);
                 await YtInjectGamepadAsync(_ytWebView.CoreWebView2);
                 await YtInjectZoomHackAsync(_ytWebView.CoreWebView2);
                 await YtInjectForceUserSelectionAsync(_ytWebView.CoreWebView2);
@@ -1564,7 +1565,25 @@ namespace Doorpi
                     catch { }
                 });
             }
+            else if (msg.StartsWith("yt_state:"))
+            {
+                LogYouTubeTvState(msg["yt_state:".Length..]);
+            }
             else if (msg == "doorpi_profile_hacked_done") { /* ack */ }
+        }
+
+        private static void LogYouTubeTvState(string payload)
+        {
+            try
+            {
+                string dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "logs");
+                Directory.CreateDirectory(dir);
+
+                string line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {payload}{Environment.NewLine}";
+                File.AppendAllText(Path.Combine(dir, "youtube-tv-state.log"), line);
+                Debug.WriteLine("[YouTubeTV] " + payload);
+            }
+            catch { }
         }
 
         private static bool IsWebMessageFromHost(CoreWebView2WebMessageReceivedEventArgs e, string expectedHost)
@@ -1787,9 +1806,36 @@ namespace Doorpi
     if (window.__doorpiGamepadInjected) return;
     window.__doorpiGamepadInjected = true;
 
+    const doorpiGetGamepads = navigator.getGamepads ? navigator.getGamepads.bind(navigator) : null;
+    try {
+        Object.defineProperty(navigator, 'getGamepads', {
+            value: function() { return []; },
+            configurable: true
+        });
+    } catch(_) {}
+    try {
+        Object.defineProperty(Navigator.prototype, 'getGamepads', {
+            value: function() { return []; },
+            configurable: true
+        });
+    } catch(_) {}
+    try {
+        window.addEventListener('gamepadconnected', e => e.stopImmediatePropagation(), true);
+        window.addEventListener('gamepaddisconnected', e => e.stopImmediatePropagation(), true);
+    } catch(_) {}
+
+    if (window.top !== window) return;
+
     let buttonStates = {}, buttonHoldTimes = {}, buttonRepeatCount = {};
+    let lastFireByKey = {};
+    const YT_INITIAL_REPEAT_MS = 700;
+    const YT_REPEAT_MS = 130;
 
     function fireKey(code, key) {
+        const now = Date.now();
+        if (key !== 'Escape' && lastFireByKey[key] && now - lastFireByKey[key] < 160) return;
+        lastFireByKey[key] = now;
+
         document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, keyCode: code, which: code, key: key }));
         setTimeout(() => {
             document.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, cancelable: true, keyCode: code, which: code, key: key }));
@@ -1832,8 +1878,8 @@ namespace Doorpi
                 buttonStates[idx] = true; buttonHoldTimes[idx] = Date.now(); buttonRepeatCount[idx] = 0;
             } else {
                 let held = Date.now() - buttonHoldTimes[idx];
-                if (held > 400) {
-                    let expected = Math.floor((held - 400) / 80);
+                if (held > YT_INITIAL_REPEAT_MS) {
+                    let expected = Math.floor((held - YT_INITIAL_REPEAT_MS) / YT_REPEAT_MS);
                     if (expected > buttonRepeatCount[idx]) { fireKey(code, key); buttonRepeatCount[idx] = expected; }
                 }
             }
@@ -1848,7 +1894,7 @@ namespace Doorpi
 
     function pollGamepad() {
         try {
-            const gp = (navigator.getGamepads?.() ?? [])[0];
+            const gp = (doorpiGetGamepads?.() ?? [])[0];
             if (gp && document.hasFocus()) {
                 for (const [idx,[code,key]] of Object.entries(map))
                     processButton(Number(idx), !!gp.buttons[idx]?.pressed, code, key);
@@ -1868,6 +1914,96 @@ namespace Doorpi
         requestAnimationFrame(pollGamepad);
     }
     pollGamepad();
+})();";
+            await cw.AddScriptToExecuteOnDocumentCreatedAsync(script);
+        }
+
+        private static async Task YtInjectStateLoggerAsync(CoreWebView2 cw)
+        {
+            const string script = @"
+(function() {
+    if (window.__doorpiYtStateLogger) return;
+    window.__doorpiYtStateLogger = true;
+
+    let _last = '';
+    let _ticks = 0;
+
+    function has(sel) {
+        try {
+            if (document.querySelector(sel)) return true;
+            for (const el of document.querySelectorAll('*')) {
+                if (el.shadowRoot && el.shadowRoot.querySelector(sel)) return true;
+            }
+        } catch(_) {}
+        return false;
+    }
+
+    function count(sel) {
+        try {
+            let total = document.querySelectorAll(sel).length;
+            for (const el of document.querySelectorAll('*')) {
+                if (el.shadowRoot) total += el.shadowRoot.querySelectorAll(sel).length;
+            }
+            return total;
+        } catch(_) { return -1; }
+    }
+
+    function pageTypeFromBody() {
+        try {
+            const classes = Array.from(document.body?.classList || []);
+            return classes.filter(c => c.indexOf('WEB_PAGE_TYPE_') === 0).join('|');
+        } catch(_) { return ''; }
+    }
+
+    function post(reason) {
+        try {
+            const payload = {
+                reason,
+                href: location.href,
+                pathname: location.pathname,
+                hash: location.hash,
+                title: document.title || '',
+                readyState: document.readyState,
+                bodyClasses: Array.from(document.body?.classList || []).slice(0, 40).join(' '),
+                pageType: pageTypeFromBody(),
+                ytcfgPageType: (window.ytcfg?.get?.('PAGE_TYPE') || window.ytcfg?.get?.('WEB_PAGE_TYPE') || ''),
+                loggedIn: window.ytcfg?.get?.('LOGGED_IN'),
+                hasApp: has('ytlr-app'),
+                hasAccountSelector: has('ytlr-account-selector'),
+                hasWelcome: has('ytlr-welcome'),
+                hasWatch: has('ytlr-watch,#watch'),
+                hasPlayer: has('ytlr-player,video'),
+                accountSelectorCount: count('ytlr-account-selector'),
+                hostCount: count('ytlr-app,ytlr-watch,ytlr-browse,ytlr-guide')
+            };
+            const key = JSON.stringify(payload);
+            if (key === _last && reason !== 'heartbeat') return;
+            _last = key;
+            window.chrome.webview.postMessage('yt_state:' + key);
+        } catch(_) {}
+    }
+
+    post('document-created');
+    document.addEventListener('DOMContentLoaded', () => post('dom-content-loaded'), true);
+    window.addEventListener('load', () => post('window-load'), true);
+    window.addEventListener('hashchange', () => post('hashchange'), true);
+    window.addEventListener('popstate', () => post('popstate'), true);
+
+    const observer = new MutationObserver(() => post('mutation'));
+    const waitBody = setInterval(() => {
+        try {
+            if (!document.body) return;
+            clearInterval(waitBody);
+            observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+            post('observer-start');
+        } catch(_) {}
+    }, 50);
+
+    const heartbeat = setInterval(() => {
+        _ticks++;
+        post(_ticks % 5 === 0 ? 'heartbeat' : 'poll');
+        if (_ticks >= 60) clearInterval(heartbeat);
+    }, 500);
 })();";
             await cw.AddScriptToExecuteOnDocumentCreatedAsync(script);
         }
@@ -1911,9 +2047,31 @@ namespace Doorpi
                       document.body?.classList?.contains('WEB_PAGE_TYPE_CHANNEL_CREATION'));
         } catch(e) { return false; }
     }
+    function isBrowsePage() {
+        try {
+            return !!(document.body?.classList?.contains('WEB_PAGE_TYPE_BROWSE') ||
+                      document.body?.classList?.contains('WEB_PAGE_TYPE_WATCH'));
+        } catch(e) { return false; }
+    }
     function isDone() { return isAccountSelector() || isWelcomePage(); }
 
+    function logHack(action) {
+        try {
+            window.chrome.webview.postMessage('yt_state:' + JSON.stringify({
+                reason: 'profile-hack-' + action,
+                href: location.href,
+                pathname: location.pathname,
+                hash: location.hash,
+                title: document.title || '',
+                bodyClasses: Array.from(document.body?.classList || []).slice(0, 40).join(' '),
+                isAccountSelector: isAccountSelector(),
+                isWelcomePage: isWelcomePage()
+            }));
+        } catch(e) {}
+    }
+
     function fireEscape() {
+        logHack('escape');
         try {
             document.dispatchEvent(new KeyboardEvent('keydown', { bubbles:true, cancelable:true, keyCode:27, which:27, key:'Escape' }));
             setTimeout(() => {
@@ -1923,16 +2081,19 @@ namespace Doorpi
     }
 
     function finish() {
+        logHack('done');
         hideOverlay();
         try { window.chrome.webview.postMessage('doorpi_profile_hacked_done'); } catch(e) {}
     }
 
     function startLoop() {
         if (isDone()) { finish(); return; }
+        logHack('start');
         showOverlay();
 
         const safetyTimer = setTimeout(() => {
             clearInterval(poller);
+            logHack('timeout');
             hideOverlay();
             try { window.chrome.webview.postMessage('doorpi_profile_hacked_done'); } catch(e) {}
         }, 60000);
@@ -1956,11 +2117,11 @@ namespace Doorpi
 
     function waitForApp() {
         const selectors = 'ytlr-app, ytlr-watch, #watch, .ytlr-masthead-renderer, #thumbnail-items';
-        if (document.querySelector(selectors)) { startLoop(); return; }
+        if (isBrowsePage() || document.querySelector(selectors)) { startLoop(); return; }
 
         const observer = new MutationObserver(() => {
             try {
-                if (document.querySelector(selectors)) { observer.disconnect(); startLoop(); }
+                if (isBrowsePage() || document.querySelector(selectors)) { observer.disconnect(); startLoop(); }
             } catch(e) {}
         });
 
@@ -1969,7 +2130,7 @@ namespace Doorpi
                 if (document.body) {
                     clearInterval(waitBody);
                     if (isDone()) { finish(); return; }
-                    if (document.querySelector(selectors)) { startLoop(); return; }
+                    if (isBrowsePage() || document.querySelector(selectors)) { startLoop(); return; }
                     observer.observe(document.body, { childList: true, subtree: true });
                 }
             } catch(e) {}

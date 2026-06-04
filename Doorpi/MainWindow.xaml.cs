@@ -200,6 +200,7 @@ namespace Doorpi
         private int _libraryBootstrapRunning = 0;
         private int _userSwitchInProgress = 0;
         private bool _interactiveUserSessionStarted = false;
+        private IntPtr _lastExternalForegroundAttachmentHwnd = IntPtr.Zero;
 
         private readonly SemaphoreSlim _cacheLock = new SemaphoreSlim(1, 1);
         private DateTime _lastCacheBuilt = DateTime.MinValue;
@@ -477,6 +478,14 @@ namespace Doorpi
                     !IsStoreChildGameBlockingStoreControls() &&
                     IsActiveStoreLauncherProcessAlive())
                 {
+                    if (IsActiveXboxStoreSession())
+                    {
+                        FocusDoorpiForXboxStoreReturn(hasBlockingSession, shouldMuteDoorpiAudio);
+                        ShowExecutionLockForStore();
+                        SendRuntimeSessionsToUI();
+                        return;
+                    }
+
                     ScheduleStoreExecutionLockIfDoorpiStillForeground();
                     return;
                 }
@@ -1933,7 +1942,7 @@ namespace Doorpi
                         FocusDoorpiKeepSession();
                     });
                 },
-                shouldAcceptInput: IsForegroundOwnedByActiveMediaExe,
+                shouldAcceptInput: IsForegroundAllowedForExternalSessionInput,
                 onMouseModeShortcut: () => ToggleMediaExeMouseModeForSession(sessionId)
             );
         }
@@ -2187,7 +2196,7 @@ namespace Doorpi
                     Dispatcher.Invoke(MinimizeStoreSessionAndShowMenu);
                 },
                 handleXboxButton: false,
-                shouldAcceptInput: IsForegroundOwnedByActiveStore,
+                shouldAcceptInput: IsForegroundAllowedForExternalSessionInput,
                 onMouseModeShortcut: () => ToggleStoreMouseModeForSession(sessionId)
             );
         }
@@ -2395,6 +2404,7 @@ namespace Doorpi
             session.BaselineProcessIds = baselineProcessIds != null
                 ? new HashSet<int>(baselineProcessIds)
                 : SnapshotProcessIds();
+            session.AttachedWindowHandles.Clear();
             session.ProcessGroupRootDirectory = "";
             session.ProcessGroupExeName = "";
 
@@ -2604,6 +2614,16 @@ namespace Doorpi
             var targets = groupProcesses.Count > 0
                 ? groupProcesses
                 : EnumerateMediaExeProcesses(mediaUrl, knownProcess).ToList();
+
+            try
+            {
+                var media = FindMediaAppByUrlOrId(mediaUrl);
+                string resolvedUrl = ResolveMediaExecutableUrl(media, mediaUrl);
+                var session = GetExecutableAppSession(resolvedUrl) ?? GetExecutableAppSession(mediaUrl);
+                if (session != null)
+                    CloseStoreAttachedWindows(session.AttachedWindowHandles);
+            }
+            catch { }
 
             foreach (var process in targets)
                 Kill(process);
@@ -5550,6 +5570,87 @@ namespace Doorpi
                 return pidRaw == Environment.ProcessId;
             }
             catch { return false; }
+        }
+
+        private bool IsForegroundAllowedForExternalSessionInput()
+        {
+            try
+            {
+                var foreground = GetForegroundWindow();
+                if (foreground == IntPtr.Zero)
+                    return false;
+
+                if (_mainWindowHandle != IntPtr.Zero &&
+                    (foreground == _mainWindowHandle || IsChild(_mainWindowHandle, foreground)))
+                {
+                    return false;
+                }
+
+                if (foreground != _lastExternalForegroundAttachmentHwnd)
+                {
+                    _lastExternalForegroundAttachmentHwnd = foreground;
+                    CaptureForegroundExternalWindowForActiveSession(foreground);
+                }
+
+                return true;
+            }
+            catch { return false; }
+        }
+
+        private void CaptureForegroundExternalWindowForActiveSession(IntPtr foreground)
+        {
+            if (foreground == IntPtr.Zero ||
+                foreground == GetShellWindow() ||
+                foreground == _mainWindowHandle ||
+                (_mainWindowHandle != IntPtr.Zero && IsChild(_mainWindowHandle, foreground)))
+            {
+                return;
+            }
+
+            try
+            {
+                if (!IsWindowVisible(foreground))
+                    return;
+
+                GetWindowThreadProcessId(foreground, out var pidRaw);
+                int pid = (int)pidRaw;
+                if (pid <= 0 || pid == Environment.ProcessId)
+                    return;
+
+                using var process = Process.GetProcessById(pid);
+                if (SafeHasExited(process))
+                    return;
+
+                string processName = SafeProcessName(process);
+                if (string.IsNullOrWhiteSpace(processName) ||
+                    _shellProcessNames.Contains(processName))
+                {
+                    return;
+                }
+
+                if (_isStoreLauncherSession &&
+                    !_storePausedByDoorpi &&
+                    !IsStoreChildGameBlockingStoreControls() &&
+                    !_storeWindowSnapshot.Contains(foreground) &&
+                    !IsProcessActiveStoreLauncher(process))
+                {
+                    _storeAttachedWindowHandles.Add(foreground);
+                    if (!_storeProcessSnapshot.Contains(pid))
+                        _storeAttachedProcessIds.Add(pid);
+                    return;
+                }
+
+                var session = ActiveExecutableAppSession;
+                if (session != null &&
+                    _mediaExeModeActive &&
+                    _mediaExeSessionId == session.SessionId &&
+                    !session.BaselineProcessIds.Contains(pid))
+                {
+                    session.ProcessGroupIds.Add(pid);
+                    session.AttachedWindowHandles.Add(foreground);
+                }
+            }
+            catch { }
         }
 
         private bool IsForegroundOwnedByExecutablePath(string path)
@@ -11667,6 +11768,7 @@ namespace Doorpi
 
                     bool isLaunchingOrRunning = _executionLockActive
                         || (_gameSessionActive && !_gameIsMinimized)
+                        || _mediaMouseActive
                         || _mediaExeModeActive
                         || _launcherMouseActive
                         || _systemControllerActive

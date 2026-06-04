@@ -103,6 +103,30 @@ namespace Doorpi
             || storeId.Equals("GOG", StringComparison.OrdinalIgnoreCase)
             || storeId.Equals("Ubisoft", StringComparison.OrdinalIgnoreCase);
 
+        private bool IsActiveXboxStoreSession()
+            => _isStoreLauncherSession &&
+               string.Equals(_activeStoreId, "Xbox", StringComparison.OrdinalIgnoreCase);
+
+        private void FocusDoorpiForXboxStoreReturn(bool hasBlockingSession, bool shouldMuteDoorpiAudio)
+        {
+            try
+            {
+                webView?.Focus();
+                System.Windows.Input.Keyboard.Focus(webView);
+                webView?.CoreWebView2?.ExecuteScriptAsync(
+                    "window.isDoorpiFocused = true; window.isMediaAppActive = false; window.isStoreSessionActive = false; window._doorpiGameInputSuppressedUntil = 0;");
+                webView?.CoreWebView2?.PostWebMessageAsString(JsonSerializer.Serialize(new
+                {
+                    type = "windowFocused",
+                    appAlive = shouldMuteDoorpiAudio,
+                    hasBlockingSession,
+                    hasLiveExternalSession = shouldMuteDoorpiAudio,
+                    shouldMuteDoorpiAudio
+                }));
+            }
+            catch { }
+        }
+
         private sealed class StoreDefinition
         {
             public string Id { get; init; } = "";
@@ -1508,11 +1532,12 @@ namespace Doorpi
                     bool auxiliaryWindow = IsStoreAuxiliaryProcessName(processName);
                     bool newProcess = !_storeProcessSnapshot.Contains(pid);
                     bool attachedDescendant = IsDescendantOfAnyAttachedProcess(pid);
+                    bool newSessionWindow = !_storeWindowSnapshot.Contains(hWnd);
 
-                    if (knownLauncher || auxiliaryWindow || attachedDescendant)
+                    if (newSessionWindow || knownLauncher || auxiliaryWindow || attachedDescendant)
                         _storeAttachedWindowHandles.Add(hWnd);
 
-                    if (newProcess && (knownLauncher || attachedDescendant || LooksLikeAttachedLauncherProcess(processName)))
+                    if (newProcess && (newSessionWindow || knownLauncher || attachedDescendant || LooksLikeAttachedLauncherProcess(processName)))
                         _storeAttachedProcessIds.Add(pid);
                 }
                 catch { }
