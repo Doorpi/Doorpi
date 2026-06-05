@@ -632,6 +632,7 @@ function moveFocus(direction) {
     if (target && target !== current) {
         target.focus();
         target.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+        if (window._gpNavigating) window.DoorpiUiSound?.play('move');
         signalNavigation();
     }
 }
@@ -927,7 +928,15 @@ function isDoorpiGameInputSuppressed() {
 }
 
 function buttonJustPressed(btn, index) {
-    if (btn?.pressed) { if (!_btnCooldown[index]) { _btnCooldown[index] = true; return true; } return false; }
+    if (btn?.pressed) {
+        if (!_btnCooldown[index]) {
+            _btnCooldown[index] = true;
+            if (index === NAV.GAMEPAD.BTN_CONFIRM) window.DoorpiUiSound?.play('confirm');
+            if (index === NAV.GAMEPAD.BTN_CANCEL) window.DoorpiUiSound?.play('back');
+            return true;
+        }
+        return false;
+    }
     _btnCooldown[index] = false; return false;
 }
 

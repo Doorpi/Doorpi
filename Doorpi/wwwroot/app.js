@@ -233,7 +233,7 @@
         }
     }
 
-    const MAX_AMBIENCE_VOLUME = 0.6;
+    const MAX_AMBIENCE_VOLUME = 0.4;
     window._audioPlayer = new SeamlessPlayer(MAX_AMBIENCE_VOLUME);
     window._audioPlayer.init();
 
@@ -265,6 +265,204 @@
         window._audioPlayer.restartFromBeginning();
     };
 
+    window.DoorpiUiSound = (() => {
+        // Ajustes centrais dos sons de UI.
+        const uiSound = {
+            masterGain: 0.7,
+            space: {
+                delay: 0.055,
+                feedback: 0.10,
+                lowpass: 2200,
+                wet: 0.09,
+            },
+            move: {
+                gain: 0.16,
+                frequency: 300,
+                endFrequency: 520,
+                attack: 0.012,
+            },
+            confirm: {
+                gain: 0.17,
+                frequency: 330,
+                endFrequency: 610,
+                attack: 0.016,
+            },
+            back: {
+                gain: 0.08,
+                frequency: 320,
+                endFrequency: 200,
+                attack: 0.03,
+                space: 0.16,
+            },
+        };
+
+        let masterGain = null;
+        let spaceInput = null;
+        let spaceContext = null;
+        let lastMoveAt = 0;
+        let noiseBuffer = null;
+
+        window.DoorpiUiSoundConfig = uiSound;
+
+        function ctx() {
+            return window._audioPlayer?.ctx || null;
+        }
+
+        function ensureMaster(context) {
+            if (!masterGain) {
+                masterGain = context.createGain();
+                masterGain.gain.value = uiSound.masterGain;
+                masterGain.connect(context.destination);
+            }
+            return masterGain;
+        }
+
+        function ensureSpace(context) {
+            if (spaceInput && spaceContext === context) return spaceInput;
+
+            spaceContext = context;
+            spaceInput = context.createGain();
+            const delay = context.createDelay(0.25);
+            const feedback = context.createGain();
+            const filter = context.createBiquadFilter();
+            const wet = context.createGain();
+
+            delay.delayTime.value = uiSound.space.delay;
+            feedback.gain.value = uiSound.space.feedback;
+            filter.type = 'lowpass';
+            filter.frequency.value = uiSound.space.lowpass;
+            filter.Q.value = 0.45;
+            wet.gain.value = uiSound.space.wet;
+
+            spaceInput.connect(delay);
+            delay.connect(filter);
+            filter.connect(wet);
+            filter.connect(feedback);
+            feedback.connect(delay);
+            wet.connect(ensureMaster(context));
+
+            return spaceInput;
+        }
+
+        function getNoiseBuffer(context) {
+            if (noiseBuffer && noiseBuffer.sampleRate === context.sampleRate) return noiseBuffer;
+
+            const length = Math.max(1, Math.floor(context.sampleRate * 0.18));
+            noiseBuffer = context.createBuffer(1, length, context.sampleRate);
+            const data = noiseBuffer.getChannelData(0);
+            for (let i = 0; i < length; i++) {
+                data[i] = (Math.random() * 2 - 1) * 0.28;
+            }
+            return noiseBuffer;
+        }
+
+        function playTone(context, at, frequency, duration, gainValue, options = {}) {
+            const osc = context.createOscillator();
+            const gain = context.createGain();
+            const endFrequency = options.endFrequency ?? frequency;
+            const attack = options.attack ?? 0.012;
+            const type = options.type ?? 'sine';
+
+            osc.type = type;
+            osc.frequency.setValueAtTime(frequency, at);
+            if (endFrequency !== frequency) {
+                osc.frequency.exponentialRampToValueAtTime(Math.max(1, endFrequency), at + duration);
+            }
+            gain.gain.setValueAtTime(0.0001, at);
+            gain.gain.exponentialRampToValueAtTime(gainValue, at + attack);
+            gain.gain.exponentialRampToValueAtTime(0.0001, at + duration);
+
+            osc.connect(gain);
+            gain.connect(ensureMaster(context));
+            let send = null;
+            if (options.space) {
+                send = context.createGain();
+                send.gain.value = options.space;
+                gain.connect(send);
+                send.connect(ensureSpace(context));
+            }
+            osc.start(at);
+            osc.stop(at + duration + 0.05);
+            osc.onended = () => {
+                try { osc.disconnect(); } catch { }
+                try { gain.disconnect(); } catch { }
+                try { send?.disconnect(); } catch { }
+            };
+        }
+
+        function playNoise(context, at, duration, gainValue, options = {}) {
+            const source = context.createBufferSource();
+            const filter = context.createBiquadFilter();
+            const gain = context.createGain();
+            const attack = options.attack ?? 0.004;
+
+            source.buffer = getNoiseBuffer(context);
+            filter.type = options.filterType ?? 'highpass';
+            filter.frequency.setValueAtTime(options.frequency ?? 2600, at);
+            filter.Q.value = options.q ?? 0.7;
+
+            gain.gain.setValueAtTime(0.0001, at);
+            gain.gain.exponentialRampToValueAtTime(gainValue, at + attack);
+            gain.gain.exponentialRampToValueAtTime(0.0001, at + duration);
+
+            source.connect(filter);
+            filter.connect(gain);
+            gain.connect(ensureMaster(context));
+            let send = null;
+            if (options.space) {
+                send = context.createGain();
+                send.gain.value = options.space;
+                gain.connect(send);
+                send.connect(ensureSpace(context));
+            }
+            source.start(at);
+            source.stop(at + duration + 0.05);
+            source.onended = () => {
+                try { source.disconnect(); } catch { }
+                try { filter.disconnect(); } catch { }
+                try { gain.disconnect(); } catch { }
+                try { send?.disconnect(); } catch { }
+            };
+        }
+
+        async function play(kind) {
+            if (!window._isIntroComplete || window._isExternalAppRunning) return;
+            const context = ctx();
+            if (!context) return;
+
+            if (kind === 'move') {
+                const nowMs = performance.now();
+                if (nowMs - lastMoveAt < 45) return;
+                lastMoveAt = nowMs;
+            }
+
+            if (context.state === 'suspended') {
+                try { await context.resume(); } catch { return; }
+            }
+
+            const now = context.currentTime;
+            if (kind === 'confirm') {
+                playTone(context, now + 0.002, uiSound.confirm.frequency, 0.16, uiSound.confirm.gain, {
+                    endFrequency: uiSound.confirm.endFrequency,
+                    attack: uiSound.confirm.attack,
+                });
+            } else if (kind === 'back') {
+                playTone(context, now + 0.002, uiSound.back.frequency, 0.34, uiSound.back.gain, {
+                    endFrequency: uiSound.back.endFrequency,
+                    attack: uiSound.back.attack,
+                    space: uiSound.back.space,
+                });
+            } else {
+                playTone(context, now + 0.002, uiSound.move.frequency, 0.09, uiSound.move.gain, {
+                    endFrequency: uiSound.move.endFrequency,
+                    attack: uiSound.move.attack,
+                });
+            }
+        }
+
+        return { play };
+    })();
+
     function _readDoorpiAudioMuteFlag(data, fallback = false) {
         if (!data) return !!fallback;
         if (data.shouldMuteDoorpiAudio !== undefined) return !!data.shouldMuteDoorpiAudio;
@@ -287,6 +485,20 @@
     };
 
     // ── GATILHOS DE RETORNO DO ÁUDIO (Navegador) ────────────────────────
+    document.addEventListener('keydown', (e) => {
+        if (e.repeat && ['Enter', 'Escape', 'Backspace'].includes(e.key)) return;
+        if (e.altKey || e.ctrlKey || e.metaKey) return;
+        if (window.isGlobalLoading) return;
+
+        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+            window.DoorpiUiSound?.play('move');
+        } else if (e.key === 'Enter') {
+            window.DoorpiUiSound?.play('confirm');
+        } else if (e.key === 'Escape' || e.key === 'Backspace') {
+            window.DoorpiUiSound?.play('back');
+        }
+    }, true);
+
     window.addEventListener('focus', () => {
         window._isDoorpiFocused = true;
         window._startSystemAudio();
