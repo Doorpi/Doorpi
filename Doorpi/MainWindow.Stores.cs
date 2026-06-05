@@ -1748,6 +1748,7 @@ namespace Doorpi
         private void EndStoreTransitionOverlay(bool hide = true)
         {
             _storeTransitionOverlayActive = false;
+            Interlocked.Exchange(ref _executionLockSuppressUntilUtcTicks, 0);
             if (!hide)
                 return;
 
@@ -1792,6 +1793,8 @@ namespace Doorpi
                 SendRuntimeSessionsToUI();
                 if (IsForegroundDoorpi())
                     ShowExecutionLockForStore();
+                else
+                    ScheduleStoreExecutionLockIfDoorpiStillForeground();
             });
         }
 

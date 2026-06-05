@@ -26,6 +26,8 @@ namespace Doorpi
             public string ParentKind = "";
             public DateTime StartedUtc = DateTime.MinValue;
             public CancellationTokenSource? LaunchMonitorCts;
+            public bool FocusFallbackPromptVisible;
+            public DateTime LastFocusFallbackPromptUtc = DateTime.MinValue;
         }
 
         private sealed class ExecutableAppSession

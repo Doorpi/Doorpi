@@ -587,7 +587,7 @@
 
     function _nonMinimizedRuntimeEntries() {
         return (Array.isArray(window.DoorpiRuntimeState?.running) ? window.DoorpiRuntimeState.running : [])
-            .filter(entry => entry && entry.status !== 'minimized');
+            .filter(entry => entry && entry.status !== 'minimized' && entry.status !== 'launching');
     }
 
     function _findRuntimeEntryForLockTarget(target) {
@@ -824,44 +824,193 @@
                 display: none;
                 align-items: center;
                 justify-content: center;
-                background: rgba(5, 6, 14, 0.72);
-                backdrop-filter: blur(12px);
-                -webkit-backdrop-filter: blur(12px);
+                padding: 48px;
+                background:
+                    radial-gradient(circle at 50% 48%, rgba(255,255,255,0.07), transparent 28%),
+                    rgba(2, 3, 9, 0.82);
+                backdrop-filter: blur(18px) saturate(1.2);
+                -webkit-backdrop-filter: blur(18px) saturate(1.2);
             }
             #sessionConflictOverlay.visible { display: flex; }
             #sessionConflictCard {
-                width: min(540px, 90vw);
-                border-radius: 12px;
-                border: 1px solid rgba(255,255,255,.12);
-                background: linear-gradient(180deg, rgba(16,18,32,.96), rgba(8,9,18,.96));
-                box-shadow: 0 24px 60px rgba(0,0,0,.55);
-                padding: 24px 24px 18px;
+                width: min(720px, 92vw);
+                min-height: 228px;
+                border-radius: 8px;
+                border: 1px solid rgba(255,255,255,.14);
+                background:
+                    linear-gradient(180deg, rgba(18,20,34,.92), rgba(7,8,16,.96)),
+                    rgba(8,9,18,.96);
+                box-shadow: 0 34px 90px rgba(0,0,0,.68), inset 0 1px 0 rgba(255,255,255,.08);
+                padding: 0;
+                display: flex;
+                overflow: hidden;
+                color: #fff;
+                transform: translateY(8px) scale(.985);
+                opacity: 0;
+                transition: transform .22s cubic-bezier(.22,1,.36,1), opacity .18s ease;
+            }
+            #sessionConflictOverlay.visible #sessionConflictCard {
+                transform: translateY(0) scale(1);
+                opacity: 1;
+            }
+            #sessionConflictAccent {
+                width: 4px;
+                flex: 0 0 4px;
+                background: linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.16));
+                box-shadow: 0 0 24px rgba(255,255,255,.22);
+            }
+            #sessionConflictBody {
+                min-width: 0;
+                flex: 1;
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) auto;
+                grid-template-rows: auto 1fr auto;
+                column-gap: 28px;
+                row-gap: 14px;
+                padding: 28px 30px 24px 32px;
+            }
+            #sessionConflictKicker {
+                grid-column: 1 / -1;
+                display: inline-flex;
+                align-items: center;
+                width: fit-content;
+                color: rgba(255,255,255,.48);
+                font-family: 'Outfit', sans-serif;
+                font-size: .72rem;
+                font-weight: 800;
+                letter-spacing: .14em;
+                line-height: 1;
+                text-transform: uppercase;
+            }
+            #sessionConflictCopy {
+                min-width: 0;
                 display: flex;
                 flex-direction: column;
-                gap: 12px;
+                justify-content: center;
+                gap: 10px;
             }
             #sessionConflictTitle {
                 margin: 0;
                 color: #fff;
                 font-family: 'Outfit', sans-serif;
-                font-size: clamp(1rem, 1.2vw, 1.25rem);
+                font-size: 1.42rem;
                 font-weight: 700;
+                line-height: 1.08;
+                letter-spacing: 0;
             }
             #sessionConflictMessage {
                 margin: 0;
-                color: rgba(255,255,255,.72);
+                max-width: 46ch;
+                color: rgba(255,255,255,.64);
                 font-family: 'Outfit', sans-serif;
-                font-size: clamp(.84rem, .96vw, 1rem);
-                line-height: 1.45;
+                font-size: .98rem;
+                font-weight: 500;
+                line-height: 1.46;
+                letter-spacing: 0;
+            }
+            #sessionConflictHint {
+                margin: 2px 0 0;
+                color: rgba(255,255,255,.36);
+                font-family: 'Outfit', sans-serif;
+                font-size: .8rem;
+                font-weight: 600;
+                line-height: 1.35;
+                letter-spacing: 0;
             }
             #sessionConflictActions {
+                grid-row: 2 / 4;
+                grid-column: 2;
                 display: flex;
-                justify-content: flex-end;
+                flex-direction: column;
+                justify-content: center;
+                align-items: stretch;
                 gap: 10px;
-                margin-top: 6px;
+                width: 212px;
+                pointer-events: all;
             }
-            #sessionConflictActions .modal-btn {
-                min-width: 132px;
+            #sessionConflictActions .conflict-action {
+                position: relative;
+                min-width: 0;
+                width: 100%;
+                min-height: 54px;
+                border-radius: 8px;
+                border: 1px solid rgba(255,255,255,.14);
+                border-bottom-color: rgba(0,0,0,.38);
+                background: rgba(255,255,255,.055);
+                color: rgba(255,255,255,.76);
+                font-family: 'Outfit', sans-serif;
+                font-size: .95rem;
+                font-weight: 800;
+                line-height: 1;
+                letter-spacing: 0;
+                padding: 0 16px;
+                outline: none;
+                cursor: pointer;
+                display: inline-flex;
+                align-items: center;
+                justify-content: flex-start;
+                gap: 10px;
+                white-space: nowrap;
+                overflow: hidden;
+                transition: transform .16s ease, background .16s ease, color .16s ease, border-color .16s ease, box-shadow .16s ease;
+            }
+            #sessionConflictActions .conflict-action .action-text {
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            #sessionConflictActions .conflict-action.primary {
+                background: #fff;
+                color: #060714;
+                border-color: #fff;
+                box-shadow: 0 14px 34px rgba(255,255,255,.17);
+            }
+            #sessionConflictActions .conflict-action.secondary {
+                color: rgba(255,255,255,.58);
+                border-color: rgba(255,255,255,.10);
+                background: rgba(255,255,255,.035);
+            }
+            #sessionConflictActions .conflict-action:focus,
+            #sessionConflictActions .conflict-action:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 18px 42px rgba(255,255,255,.20), 0 0 0 2px rgba(255,255,255,.12);
+            }
+            #sessionConflictActions .conflict-action.secondary:focus,
+            #sessionConflictActions .conflict-action.secondary:hover {
+                background: rgba(255,255,255,.08);
+                border-color: rgba(255,255,255,.22);
+                color: #fff;
+            }
+            @media (max-width: 760px) {
+                #sessionConflictOverlay {
+                    padding: 20px;
+                    align-items: flex-end;
+                }
+                #sessionConflictCard {
+                    width: 100%;
+                    min-height: 0;
+                }
+                #sessionConflictBody {
+                    grid-template-columns: 1fr;
+                    row-gap: 18px;
+                    padding: 24px 22px 22px;
+                }
+                #sessionConflictActions {
+                    grid-row: auto;
+                    grid-column: 1;
+                    width: 100%;
+                    flex-direction: row;
+                }
+                #sessionConflictActions .conflict-action {
+                    justify-content: center;
+                    flex: 1 1 0;
+                    min-height: 50px;
+                }
+            }
+            @media (max-width: 440px) {
+                #sessionConflictActions {
+                    flex-direction: column;
+                }
             }
         `;
         document.head.appendChild(style);
@@ -870,11 +1019,22 @@
         overlay.id = 'sessionConflictOverlay';
         overlay.innerHTML = `
             <div id="sessionConflictCard" role="dialog" aria-modal="true" aria-label="Conflito de sessão">
-                <h3 id="sessionConflictTitle">Processo/Jogo em andamento</h3>
-                <p id="sessionConflictMessage">Deseja encerrar o processo atual?</p>
-                <div id="sessionConflictActions">
-                    <button id="sessionConflictCancel" class="modal-btn cancel" type="button" tabindex="0">Cancelar</button>
-                    <button id="sessionConflictClose" class="modal-btn primary" type="button" tabindex="0">Encerrar</button>
+                <div id="sessionConflictAccent" aria-hidden="true"></div>
+                <div id="sessionConflictBody">
+                    <div id="sessionConflictKicker">Sessão ativa</div>
+                    <div id="sessionConflictCopy">
+                        <h3 id="sessionConflictTitle">Sessão em andamento</h3>
+                        <p id="sessionConflictMessage">Uma sessão já está ativa. Encerre a sessão atual para iniciar outra.</p>
+                        <p id="sessionConflictHint">O Doorpi mantém uma sessão por vez para evitar sobreposição de janelas.</p>
+                    </div>
+                    <div id="sessionConflictActions">
+                        <button id="sessionConflictClose" class="conflict-action primary" type="button" tabindex="0">
+                            <span class="action-text">Encerrar</span>
+                        </button>
+                        <button id="sessionConflictCancel" class="conflict-action secondary" type="button" tabindex="0">
+                            <span class="action-text">Cancelar</span>
+                        </button>
+                    </div>
                 </div>
             </div>
         `;
@@ -941,8 +1101,10 @@
             _sessionConflictReturnFocusEl = document.activeElement;
         }
 
+        const kickerEl = overlay.querySelector('#sessionConflictKicker');
         const titleEl = overlay.querySelector('#sessionConflictTitle');
         const messageEl = overlay.querySelector('#sessionConflictMessage');
+        const hintEl = overlay.querySelector('#sessionConflictHint');
         const cancelBtn = overlay.querySelector('#sessionConflictCancel');
         const closeBtn = overlay.querySelector('#sessionConflictClose');
 
@@ -952,15 +1114,23 @@
         const resolvedName = runningName || fallbackName;
         const messageText = baseMessage.replace('{name}', resolvedName);
 
+        if (kickerEl) kickerEl.textContent = typeof t === 'function' ? t('sessionConflictKicker') : 'Sessão ativa';
         if (titleEl) titleEl.textContent = titleText;
         if (messageEl) messageEl.textContent = messageText;
-        if (cancelBtn) cancelBtn.textContent = typeof t === 'function' ? t('sessionConflictCancel') : 'Cancelar';
-        if (closeBtn) closeBtn.textContent = typeof t === 'function' ? t('sessionConflictClose') : 'Encerrar';
+        if (hintEl) hintEl.textContent = typeof t === 'function' ? t('sessionConflictHint') : 'O Doorpi mantém uma sessão por vez para evitar sobreposição de janelas.';
+        if (cancelBtn) {
+            const textEl = cancelBtn.querySelector('.action-text');
+            if (textEl) textEl.textContent = typeof t === 'function' ? t('sessionConflictCancel') : 'Cancelar';
+        }
+        if (closeBtn) {
+            const textEl = closeBtn.querySelector('.action-text');
+            if (textEl) textEl.textContent = typeof t === 'function' ? t('sessionConflictClose') : 'Encerrar';
+        }
 
         overlay.classList.add('visible');
         if (!wasVisible) {
             setTimeout(() => {
-                cancelBtn?.focus();
+                closeBtn?.focus();
                 if (typeof updateGamepadUI === 'function') updateGamepadUI(isGamepadConnected, _controllerType);
             }, 0);
         }
@@ -974,6 +1144,330 @@
             runningName: _resolveRuntimeEntryName(entry)
         });
         return true;
+    };
+
+    let _gameFocusFallbackOverlay = null;
+    let _gameFocusFallbackPayload = null;
+    let _gameFocusFallbackReturnFocusEl = null;
+
+    function _ensureGameFocusFallbackOverlay() {
+        if (_gameFocusFallbackOverlay) return _gameFocusFallbackOverlay;
+
+        const style = document.createElement('style');
+        style.textContent = `
+            #gameFocusFallbackOverlay {
+                position: fixed;
+                inset: 0;
+                z-index: 13600;
+                display: none;
+                align-items: center;
+                justify-content: center;
+                padding: 48px;
+                background:
+                    radial-gradient(circle at 50% 48%, rgba(255,255,255,0.08), transparent 28%),
+                    rgba(2, 3, 9, 0.82);
+                backdrop-filter: blur(18px) saturate(1.2);
+                -webkit-backdrop-filter: blur(18px) saturate(1.2);
+            }
+            #gameFocusFallbackOverlay.visible { display: flex; }
+            #gameFocusFallbackCard {
+                width: min(720px, 92vw);
+                min-height: 228px;
+                border-radius: 8px;
+                border: 1px solid rgba(255,255,255,.14);
+                background:
+                    linear-gradient(180deg, rgba(18,20,34,.92), rgba(7,8,16,.96)),
+                    rgba(8,9,18,.96);
+                box-shadow: 0 34px 90px rgba(0,0,0,.68), inset 0 1px 0 rgba(255,255,255,.08);
+                padding: 0;
+                display: flex;
+                overflow: hidden;
+                color: #fff;
+                transform: translateY(8px) scale(.985);
+                opacity: 0;
+                transition: transform .22s cubic-bezier(.22,1,.36,1), opacity .18s ease;
+            }
+            #gameFocusFallbackOverlay.visible #gameFocusFallbackCard {
+                transform: translateY(0) scale(1);
+                opacity: 1;
+            }
+            #gameFocusFallbackAccent {
+                width: 4px;
+                flex: 0 0 4px;
+                background: linear-gradient(180deg, #ffffff, rgba(255,255,255,.18));
+                box-shadow: 0 0 24px rgba(255,255,255,.28);
+            }
+            #gameFocusFallbackBody {
+                min-width: 0;
+                flex: 1;
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) auto;
+                grid-template-rows: auto 1fr auto;
+                column-gap: 28px;
+                row-gap: 14px;
+                padding: 28px 30px 24px 32px;
+            }
+            #gameFocusFallbackKicker {
+                grid-column: 1 / -1;
+                display: inline-flex;
+                align-items: center;
+                width: fit-content;
+                color: rgba(255,255,255,.48);
+                font-family: 'Outfit', sans-serif;
+                font-size: .72rem;
+                font-weight: 800;
+                letter-spacing: .14em;
+                line-height: 1;
+                text-transform: uppercase;
+            }
+            #gameFocusFallbackCopy {
+                min-width: 0;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                gap: 10px;
+            }
+            #gameFocusFallbackTitle {
+                margin: 0;
+                color: #fff;
+                font-family: 'Outfit', sans-serif;
+                font-size: 1.42rem;
+                font-weight: 700;
+                line-height: 1.08;
+                letter-spacing: 0;
+            }
+            #gameFocusFallbackMessage {
+                margin: 0;
+                max-width: 46ch;
+                color: rgba(255,255,255,.64);
+                font-family: 'Outfit', sans-serif;
+                font-size: .98rem;
+                font-weight: 500;
+                line-height: 1.46;
+                letter-spacing: 0;
+            }
+            #gameFocusFallbackHint {
+                margin: 2px 0 0;
+                color: rgba(255,255,255,.36);
+                font-family: 'Outfit', sans-serif;
+                font-size: .8rem;
+                font-weight: 600;
+                line-height: 1.35;
+                letter-spacing: 0;
+            }
+            #gameFocusFallbackActions {
+                grid-row: 2 / 4;
+                grid-column: 2;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: stretch;
+                gap: 10px;
+                width: 212px;
+                pointer-events: all;
+            }
+            #gameFocusFallbackActions .fallback-action {
+                position: relative;
+                min-width: 0;
+                width: 100%;
+                min-height: 54px;
+                border-radius: 8px;
+                border: 1px solid rgba(255,255,255,.14);
+                border-bottom-color: rgba(0,0,0,.38);
+                background: rgba(255,255,255,.055);
+                color: rgba(255,255,255,.76);
+                font-family: 'Outfit', sans-serif;
+                font-size: .95rem;
+                font-weight: 800;
+                line-height: 1;
+                letter-spacing: 0;
+                padding: 0 16px;
+                outline: none;
+                cursor: pointer;
+                display: inline-flex;
+                align-items: center;
+                justify-content: flex-start;
+                gap: 10px;
+                white-space: nowrap;
+                overflow: hidden;
+                transition: transform .16s ease, background .16s ease, color .16s ease, border-color .16s ease, box-shadow .16s ease;
+            }
+            #gameFocusFallbackActions .fallback-action .action-text {
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            #gameFocusFallbackActions .fallback-action.primary {
+                background: #fff;
+                color: #060714;
+                border-color: #fff;
+                box-shadow: 0 14px 34px rgba(255,255,255,.17);
+            }
+            #gameFocusFallbackActions .fallback-action.secondary {
+                color: rgba(255,255,255,.58);
+                border-color: rgba(255,255,255,.10);
+                background: rgba(255,255,255,.035);
+            }
+            #gameFocusFallbackActions .fallback-action:focus,
+            #gameFocusFallbackActions .fallback-action:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 18px 42px rgba(255,255,255,.20), 0 0 0 2px rgba(255,255,255,.12);
+            }
+            #gameFocusFallbackActions .fallback-action.secondary:focus,
+            #gameFocusFallbackActions .fallback-action.secondary:hover {
+                background: rgba(255,255,255,.08);
+                border-color: rgba(255,255,255,.22);
+                color: #fff;
+            }
+            @media (max-width: 760px) {
+                #gameFocusFallbackOverlay {
+                    padding: 20px;
+                    align-items: flex-end;
+                }
+                #gameFocusFallbackCard {
+                    width: 100%;
+                    min-height: 0;
+                }
+                #gameFocusFallbackBody {
+                    grid-template-columns: 1fr;
+                    row-gap: 18px;
+                    padding: 24px 22px 22px;
+                }
+                #gameFocusFallbackActions {
+                    grid-row: auto;
+                    grid-column: 1;
+                    width: 100%;
+                    flex-direction: row;
+                }
+                #gameFocusFallbackActions .fallback-action {
+                    justify-content: center;
+                    flex: 1 1 0;
+                    min-height: 50px;
+                }
+            }
+            @media (max-width: 440px) {
+                #gameFocusFallbackActions {
+                    flex-direction: column;
+                }
+            }
+        `;
+        document.head.appendChild(style);
+
+        const overlay = document.createElement('div');
+        overlay.id = 'gameFocusFallbackOverlay';
+        overlay.innerHTML = `
+            <div id="gameFocusFallbackCard" role="dialog" aria-modal="true" aria-label="Restauracao manual">
+                <div id="gameFocusFallbackAccent" aria-hidden="true"></div>
+                <div id="gameFocusFallbackBody">
+                    <div id="gameFocusFallbackKicker">Foco da janela</div>
+                    <div id="gameFocusFallbackCopy">
+                        <h3 id="gameFocusFallbackTitle">Janela pronta</h3>
+                        <p id="gameFocusFallbackMessage">A janela do jogo foi detectada, mas o Windows manteve o Doorpi em primeiro plano.</p>
+                        <p id="gameFocusFallbackHint">Use o alternador do Windows para escolher a janela ativa.</p>
+                    </div>
+                    <div id="gameFocusFallbackActions">
+                        <button id="gameFocusFallbackManual" class="fallback-action primary" type="button" tabindex="0">
+                            <span class="action-text">Escolher janela</span>
+                        </button>
+                        <button id="gameFocusFallbackClose" class="fallback-action secondary" type="button" tabindex="0">
+                            <span class="action-text">Encerrar</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+
+        overlay.querySelector('#gameFocusFallbackManual')?.addEventListener('click', () => {
+            window.hideGameFocusFallbackPopup?.(false);
+            postToHost({ action: 'manualGameWindowRestore' });
+        });
+        overlay.querySelector('#gameFocusFallbackClose')?.addEventListener('click', () => {
+            const payload = _gameFocusFallbackPayload;
+            window.hideGameFocusFallbackPopup?.(true);
+            postToHost({
+                action: 'closeRunningItem',
+                id: payload?.id || '',
+                url: payload?.url || '',
+                channel: payload?.channel || 'games',
+                appType: payload?.appType || 'game'
+            });
+        });
+
+        _gameFocusFallbackOverlay = overlay;
+        return overlay;
+    }
+
+    window.isGameFocusFallbackPopupOpen = function () {
+        return !!(_gameFocusFallbackOverlay && _gameFocusFallbackOverlay.classList.contains('visible'));
+    };
+
+    window.getGameFocusFallbackPopupItems = function () {
+        if (!window.isGameFocusFallbackPopupOpen()) return [];
+        return Array.from(_gameFocusFallbackOverlay.querySelectorAll('#gameFocusFallbackActions button'))
+            .filter(el => !el.disabled && el.offsetWidth > 0 && el.offsetHeight > 0);
+    };
+
+    window.hideGameFocusFallbackPopup = function (restoreFocus = true) {
+        if (!_gameFocusFallbackOverlay) return;
+        _gameFocusFallbackOverlay.classList.remove('visible');
+        _gameFocusFallbackPayload = null;
+        if (restoreFocus) {
+            const target = _gameFocusFallbackReturnFocusEl;
+            _gameFocusFallbackReturnFocusEl = null;
+            setTimeout(() => {
+                if (target && document.contains(target) && typeof target.focus === 'function') {
+                    target.focus();
+                } else {
+                    recoverGlobalFocus?.();
+                }
+            }, 0);
+        } else {
+            _gameFocusFallbackReturnFocusEl = null;
+        }
+    };
+
+    window.showGameFocusFallbackPopup = function ({ id, name } = {}) {
+        const overlay = _ensureGameFocusFallbackOverlay();
+        const wasVisible = overlay.classList.contains('visible');
+        if (!wasVisible) _gameFocusFallbackReturnFocusEl = document.activeElement;
+
+        const fallbackName = name || (typeof t === 'function' ? t('sessionConflictCurrent') : 'atual');
+        _gameFocusFallbackPayload = { id: id || '', channel: 'games', appType: 'game' };
+
+        const kickerEl = overlay.querySelector('#gameFocusFallbackKicker');
+        const titleEl = overlay.querySelector('#gameFocusFallbackTitle');
+        const messageEl = overlay.querySelector('#gameFocusFallbackMessage');
+        const hintEl = overlay.querySelector('#gameFocusFallbackHint');
+        const manualBtn = overlay.querySelector('#gameFocusFallbackManual');
+        const closeBtn = overlay.querySelector('#gameFocusFallbackClose');
+
+        const title = typeof t === 'function' ? t('gameFocusFallbackTitle') : 'Janela do jogo detectada';
+        const message = (typeof t === 'function'
+            ? t('gameFocusFallbackMessage')
+            : 'A janela de {name} foi encontrada, mas o Windows manteve o Doorpi em primeiro plano. Deseja escolher a janela manualmente pelo alternador nativo?')
+            .replace('{name}', fallbackName);
+
+        if (kickerEl) kickerEl.textContent = typeof t === 'function' ? t('gameFocusFallbackKicker') : 'Foco da janela';
+        if (titleEl) titleEl.textContent = title;
+        if (messageEl) messageEl.textContent = message;
+        if (hintEl) hintEl.textContent = typeof t === 'function' ? t('gameFocusFallbackHint') : 'Use o alternador do Windows para escolher a janela ativa.';
+        if (manualBtn) {
+            const textEl = manualBtn.querySelector('.action-text');
+            if (textEl) textEl.textContent = typeof t === 'function' ? t('gameFocusFallbackManual') : 'Escolher janela';
+        }
+        if (closeBtn) {
+            const textEl = closeBtn.querySelector('.action-text');
+            if (textEl) textEl.textContent = typeof t === 'function' ? t('gameFocusFallbackClose') : 'Encerrar';
+        }
+
+        overlay.classList.add('visible');
+        if (!wasVisible) {
+            setTimeout(() => {
+                manualBtn?.focus();
+                if (typeof updateGamepadUI === 'function') updateGamepadUI(isGamepadConnected, _controllerType);
+            }, 0);
+        }
     };
 
     window._rememberLaunchedWebAppForConflict = function (item, launchId) {
@@ -1553,6 +2047,15 @@
                     closePayload: payload,
                     runningName: data.name || ''
                 });
+            }
+            else if (data.type === 'gameFocusFallbackPrompt') {
+                window.showGameFocusFallbackPopup?.({
+                    id: data.id || '',
+                    name: data.name || data.gameName || ''
+                });
+            }
+            else if (data.type === 'hideGameFocusFallbackPrompt') {
+                window.hideGameFocusFallbackPopup?.(false);
             }
             else if (data.type === 'updateLoadingText') {
                 if (window.isGlobalLoading) {

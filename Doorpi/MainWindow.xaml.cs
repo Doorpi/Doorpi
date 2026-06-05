@@ -382,6 +382,8 @@ namespace Doorpi
         private const uint INPUT_MOUSE = 0;
         private const uint INPUT_KEYBOARD = 1;
         private const uint KEYEVENTF_KEYUP = 0x0002;
+        private const ushort VK_MENU = 0x12;
+        private const ushort VK_TAB = 0x09;
 
         private long _userShellInteractionUntil = 0;
 
@@ -4707,12 +4709,17 @@ namespace Doorpi
 
                 if (_gameSession is { Active: true } && !string.IsNullOrWhiteSpace(_activeSessionGameId))
                 {
+                    bool hasConfirmedGameWindow = HasConfirmedGameWindow();
+                    string gameStatus = _gameIsMinimized
+                        ? "minimized"
+                        : ((_gameIsRunningAndDoorpiHidden || hasConfirmedGameWindow) ? "running" : "launching");
+
                     running.Add(new
                     {
                         channel = "games",
                         id = _activeSessionGameId,
                         kind = "game",
-                        status = _gameIsMinimized ? "minimized" : "running"
+                        status = gameStatus
                     });
                 }
 
@@ -4956,6 +4963,7 @@ namespace Doorpi
             }
 
             ClearExecutionLock();
+            ClearGameFocusFallbackPrompt();
 
             if (_mediaExeModeActive) _mediaExeModeActive = false;
             if (_systemControllerActive) StopSystemControllerMode();
@@ -5408,8 +5416,18 @@ namespace Doorpi
                             });
 
                             SendGameLaunchStatus("gameLaunchDone");
+                            VerifyGameFocusOrPromptAsync(candidates[0], game);
                             DiscordRpcManager.Instance.UpdateState("game", game.Name);
 
+                        }
+                        else if (_gameSession?.FocusFallbackPromptVisible == true && IsForegroundOwnedByCurrentGame())
+                        {
+                            Dispatcher.Invoke(() =>
+                            {
+                                _gameIsRunningAndDoorpiHidden = true;
+                                ClearGameFocusFallbackPrompt();
+                                SendRuntimeSessionsToUI();
+                            });
                         }
                     }
                     else if (!doorpiHidden)
@@ -5878,6 +5896,248 @@ namespace Doorpi
             return false;
         }
 
+        private static string GetWindowClassName(IntPtr hWnd)
+        {
+            try
+            {
+                var builder = new StringBuilder(256);
+                return GetClassName(hWnd, builder, builder.Capacity) > 0 ? builder.ToString() : "";
+            }
+            catch { return ""; }
+        }
+
+        private static bool LooksLikeAltTabSwitcher(IntPtr hWnd)
+        {
+            var className = GetWindowClassName(hWnd);
+            if (string.IsNullOrWhiteSpace(className)) return false;
+
+            return className.Contains("TaskSwitcher", StringComparison.OrdinalIgnoreCase) ||
+                   className.Contains("Multitasking", StringComparison.OrdinalIgnoreCase) ||
+                   className.Contains("XamlExplorerHost", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool IsShellLikeWindow(IntPtr hWnd)
+        {
+            try
+            {
+                if (hWnd == IntPtr.Zero || hWnd == GetShellWindow())
+                    return true;
+
+                GetWindowThreadProcessId(hWnd, out var pidRaw);
+                if (pidRaw == 0) return true;
+
+                using var process = Process.GetProcessById((int)pidRaw);
+                return _shellProcessNames.Contains(SafeProcessName(process));
+            }
+            catch { return false; }
+        }
+
+        private bool IsRestorableGameWindow(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero) return false;
+            try
+            {
+                return IsWindow(hwnd) && (IsWindowVisible(hwnd) || IsIconic(hwnd));
+            }
+            catch { return false; }
+        }
+
+        private bool HasConfirmedGameWindow()
+        {
+            if (string.IsNullOrWhiteSpace(_lockedGameProcessName))
+                return false;
+
+            if (IsRestorableGameWindow(_currentGameHwnd))
+                return true;
+
+            try
+            {
+                foreach (var process in Process.GetProcessesByName(_lockedGameProcessName))
+                {
+                    try
+                    {
+                        var hwnd = FindAnyWindowForProcess(process.Id);
+                        if (hwnd == IntPtr.Zero) hwnd = process.MainWindowHandle;
+                        if (IsRestorableGameWindow(hwnd))
+                        {
+                            _currentGameHwnd = hwnd;
+                            return true;
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+
+            return false;
+        }
+
+        private void ClearGameFocusFallbackPrompt()
+        {
+            if (_gameSession != null)
+                _gameSession.FocusFallbackPromptVisible = false;
+
+            try { webView?.CoreWebView2?.PostWebMessageAsString("{\"type\":\"hideGameFocusFallbackPrompt\"}"); } catch { }
+        }
+
+        private void ShowGameFocusFallbackPrompt(GameModel? game = null)
+        {
+            if (!_gameSessionActive || string.IsNullOrWhiteSpace(_activeSessionGameId))
+                return;
+
+            var hwnd = ResolveCurrentGameWindow();
+            if (!IsRestorableGameWindow(hwnd))
+                return;
+
+            var session = EnsureGameSession();
+            var now = DateTime.UtcNow;
+            if (session.FocusFallbackPromptVisible)
+                return;
+            if ((now - session.LastFocusFallbackPromptUtc).TotalMilliseconds < 1200)
+                return;
+
+            game ??= LoadGames().FirstOrDefault(g =>
+                string.Equals(g.LaunchUrl, _activeSessionGameId, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(g.Path, _activeSessionGameId, StringComparison.OrdinalIgnoreCase));
+
+            session.FocusFallbackPromptVisible = true;
+            session.LastFocusFallbackPromptUtc = now;
+            _gameIsRunningAndDoorpiHidden = false;
+
+            try
+            {
+                webView?.CoreWebView2?.PostWebMessageAsString(JsonSerializer.Serialize(new
+                {
+                    type = "gameFocusFallbackPrompt",
+                    id = _activeSessionGameId,
+                    name = game?.Name ?? "Jogo",
+                    heroImage = game?.HeroImage ?? "",
+                    gridImage = game?.GridImage ?? ""
+                }));
+            }
+            catch { }
+
+            SendRuntimeSessionsToUI();
+        }
+
+        private async void VerifyGameFocusOrPromptAsync(IntPtr hwnd, GameModel game, int delayMs = 700)
+        {
+            if (hwnd == IntPtr.Zero) return;
+
+            try
+            {
+                await Task.Delay(delayMs).ConfigureAwait(false);
+                Dispatcher.Invoke(() =>
+                {
+                    if (!_gameSessionActive || _gameIsMinimized)
+                        return;
+
+                    if (IsForegroundOwnedByCurrentGame())
+                    {
+                        _gameIsRunningAndDoorpiHidden = true;
+                        ClearGameFocusFallbackPrompt();
+                        SendGameLaunchStatus("gameLaunchDone");
+                        SendRuntimeSessionsToUI();
+                        return;
+                    }
+
+                    if (IsForegroundDoorpi() && IsRestorableGameWindow(hwnd))
+                    {
+                        _gameIsRunningAndDoorpiHidden = false;
+                        ShowGameFocusFallbackPrompt(game);
+                    }
+                });
+            }
+            catch { }
+        }
+
+        private static INPUT KeyboardInput(ushort key, bool keyUp = false)
+        {
+            var input = new INPUT { type = INPUT_KEYBOARD };
+            input.U.ki = new KEYBDINPUT
+            {
+                wVk = key,
+                dwFlags = keyUp ? KEYEVENTF_KEYUP : 0
+            };
+            return input;
+        }
+
+        private static void SendKey(ushort key, bool keyUp = false)
+        {
+            var inputs = new[] { KeyboardInput(key, keyUp) };
+            SendInput((uint)inputs.Length, inputs, INPUT.Size);
+        }
+
+        private void BeginManualGameWindowRestore()
+        {
+            if (!_gameSessionActive)
+                return;
+
+            ClearGameFocusFallbackPrompt();
+            SendGameLaunchStatus("gameLaunchDone");
+            ReleaseAllStuckKeys();
+
+            _ = Task.Run(async () =>
+            {
+                bool altDown = false;
+                try
+                {
+                    SendKey(VK_MENU);
+                    altDown = true;
+                    await Task.Delay(80).ConfigureAwait(false);
+                    SendKey(VK_TAB);
+                    await Task.Delay(70).ConfigureAwait(false);
+                    SendKey(VK_TAB, keyUp: true);
+
+                    var started = DateTime.UtcNow;
+                    while ((DateTime.UtcNow - started).TotalSeconds < 12)
+                    {
+                        await Task.Delay(180).ConfigureAwait(false);
+
+                        var elapsed = DateTime.UtcNow - started;
+                        var foreground = GetForegroundWindow();
+                        if (foreground != IntPtr.Zero &&
+                            elapsed.TotalMilliseconds >= 900 &&
+                            !IsForegroundDoorpi() &&
+                            !LooksLikeAltTabSwitcher(foreground) &&
+                            !IsShellLikeWindow(foreground))
+                        {
+                            break;
+                        }
+                    }
+                }
+                catch { }
+                finally
+                {
+                    if (altDown)
+                    {
+                        try { SendKey(VK_MENU, keyUp: true); } catch { }
+                    }
+
+                    await Task.Delay(450).ConfigureAwait(false);
+                    Dispatcher.Invoke(() =>
+                    {
+                        if (!_gameSessionActive) return;
+
+                        if (IsForegroundOwnedByCurrentGame())
+                        {
+                            _gameIsMinimized = false;
+                            _gameIsRunningAndDoorpiHidden = true;
+                            ClearExecutionLock();
+                            ClearGameFocusFallbackPrompt();
+                            SendGameLaunchStatus("gameLaunchDone");
+                            SendRuntimeSessionsToUI();
+                        }
+                        else if (IsForegroundDoorpi())
+                        {
+                            _gameIsRunningAndDoorpiHidden = false;
+                            ShowExecutionLockForGame();
+                        }
+                    });
+                }
+            });
+        }
+
         private void MarkCurrentGameForegroundRestored()
         {
             if (!_gameSessionActive || !_gameIsMinimized) return;
@@ -5892,6 +6152,7 @@ namespace Doorpi
             }
 
             ClearExecutionLock();
+            ClearGameFocusFallbackPrompt();
             SendGameLaunchStatus("gameLaunchDone");
             SendRuntimeSessionsToUI();
         }
@@ -6097,6 +6358,7 @@ namespace Doorpi
         {
             if (_storeTransitionOverlayActive) return false;
             if (string.IsNullOrWhiteSpace(_activeSessionGameId)) return false;
+            if (!_gameIsMinimized && !_gameIsRunningAndDoorpiHidden && !HasConfirmedGameWindow()) return false;
 
             var game = LoadGames().FirstOrDefault(g =>
                 string.Equals(g.LaunchUrl, _activeSessionGameId, StringComparison.OrdinalIgnoreCase) ||
@@ -6360,9 +6622,15 @@ namespace Doorpi
                 {
                     RestoreGameCleanly(hwnd);
                     _gameIsMinimized = false;
-                    _gameIsRunningAndDoorpiHidden = true;
+                    _gameIsRunningAndDoorpiHidden = false;
                     SendGameLaunchStatus("gameLaunchDone");
                     SendRuntimeSessionsToUI();
+
+                    var game = LoadGames().FirstOrDefault(g =>
+                        string.Equals(g.LaunchUrl, id, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(g.Path, id, StringComparison.OrdinalIgnoreCase));
+                    if (game != null)
+                        VerifyGameFocusOrPromptAsync(hwnd, game);
                 }
                 else
                 {
@@ -6769,6 +7037,7 @@ namespace Doorpi
 
             RestoreGameCleanly(candidate.Hwnd);
             SendGameLaunchStatus("gameLaunchDone");
+            VerifyGameFocusOrPromptAsync(candidate.Hwnd, game);
             DiscordRpcManager.Instance.UpdateState("game", game.Name);
             SendRuntimeSessionsToUI();
             return true;
@@ -9273,6 +9542,7 @@ namespace Doorpi
                     _pendingLaunchProcess = null;
 
                     SendGameLaunchStatus("gameLaunchDone");
+                    ClearGameFocusFallbackPrompt();
                     Dispatcher.Invoke(ForceFocus);
                 }
                 else if (action == "startAppPolling")
@@ -10522,6 +10792,10 @@ namespace Doorpi
                 {
                     await Dispatcher.InvokeAsync(RestoreExecutionLockSession);
                 }
+                else if (action == "manualGameWindowRestore")
+                {
+                    await Dispatcher.InvokeAsync(BeginManualGameWindowRestore);
+                }
                 else if (action == "closeExecutionLock")
                 {
                     await Dispatcher.InvokeAsync(CloseExecutionLockSession);
@@ -11114,8 +11388,9 @@ namespace Doorpi
                                     }
                                     else
                                     {
-                                        _gameIsRunningAndDoorpiHidden = true;
+                                        _gameIsRunningAndDoorpiHidden = false;
                                         SendGameLaunchStatus("gameLaunchDone");
+                                        VerifyGameFocusOrPromptAsync(hwndToRestore, game);
                                     }
                                 }
                                 else if (_lastVisibleWindowBeforeMinimize != IntPtr.Zero)
@@ -11131,8 +11406,9 @@ namespace Doorpi
                                     }
                                     else
                                     {
-                                        _gameIsRunningAndDoorpiHidden = true;
+                                        _gameIsRunningAndDoorpiHidden = false;
                                         SendGameLaunchStatus("gameLaunchDone");
+                                        VerifyGameFocusOrPromptAsync(fb, game);
                                     }
                                 }
                                 else

@@ -154,6 +154,9 @@ function getNavigableItems() {
     if (window.isSessionConflictPopupOpen?.()) {
         return window.getSessionConflictPopupItems?.() || [];
     }
+    if (window.isGameFocusFallbackPopupOpen?.()) {
+        return window.getGameFocusFallbackPopupItems?.() || [];
+    }
 
     const launchOverlay = document.getElementById('gameLaunchOverlay');
     if (launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('execution-lock-visible')) {
@@ -740,7 +743,26 @@ document.addEventListener('keydown', e => {
         if (e.key === 'Escape' || e.key === 'Backspace') {
             e.preventDefault();
             e.stopImmediatePropagation();
-            document.getElementById('sessionConflictCancel')?.click();
+            return;
+        }
+    }
+    if (window.isGameFocusFallbackPopupOpen?.()) {
+        const dirMapFallback = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' };
+        if (dirMapFallback[e.key]) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            moveFocus(dirMapFallback[e.key]);
+            return;
+        }
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            document.activeElement?.click();
+            return;
+        }
+        if (e.key === 'Escape' || e.key === 'Backspace') {
+            e.preventDefault();
+            e.stopImmediatePropagation();
             return;
         }
     }
@@ -884,7 +906,7 @@ document.addEventListener('keydown', e => {
     }
 });
 
-let _gamepadIndex = null, _controllerType = 'generic', _btnCooldown = {}, _lastMoveTime = 0, _moveState = 0, _currentDirection = null, _executionLockHeldDir = null, _sessionConflictHeldDir = null;
+let _gamepadIndex = null, _controllerType = 'generic', _btnCooldown = {}, _lastMoveTime = 0, _moveState = 0, _currentDirection = null, _executionLockHeldDir = null, _sessionConflictHeldDir = null, _gameFocusFallbackHeldDir = null;
 let _cursorHoldState = { l1: 0, r1: 0 }, _cursorLastTime = { l1: 0, r1: 0 };
 
 window._gpNavigating = false;
@@ -938,8 +960,9 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         const isExecutionLock = launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('execution-lock-visible');
         const isWaitingLaunch = launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('state-loading');
         const isSessionConflict = window.isSessionConflictPopupOpen?.() === true;
+        const isGameFocusFallback = window.isGameFocusFallbackPopupOpen?.() === true;
 
-        if (window.isGlobalLoading || (!isWaitingLaunch && !isExecutionLock && !isSessionConflict && (window.isMediaAppActive || isDoorpiGameInputSuppressed())) || !document.hasFocus()) return;
+        if (window.isGlobalLoading || (!isWaitingLaunch && !isExecutionLock && !isSessionConflict && !isGameFocusFallback && (window.isMediaAppActive || isDoorpiGameInputSuppressed())) || !document.hasFocus()) return;
 
         const { GAMEPAD } = NAV, buttons = gamepad.buttons;
         const ax = gamepad.axes[0], ay = gamepad.axes[1], thr = GAMEPAD.AXIS_THRESHOLD, now = performance.now();
@@ -1025,14 +1048,50 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
                 const active = document.activeElement;
                 if (active && active.closest?.('#sessionConflictActions')) active.click();
-                else document.getElementById('sessionConflictCancel')?.click();
+                else document.getElementById('sessionConflictClose')?.focus();
             }
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) document.getElementById('sessionConflictCancel')?.click();
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) document.getElementById('sessionConflictClose')?.click();
             return;
         }
 
         _sessionConflictHeldDir = null;
+
+        if (isGameFocusFallback) {
+            let fallbackDir = null;
+            if (buttons[GAMEPAD.BTN_RIGHT]?.pressed) fallbackDir = 'RIGHT';
+            else if (buttons[GAMEPAD.BTN_LEFT]?.pressed) fallbackDir = 'LEFT';
+            else if (buttons[GAMEPAD.BTN_DOWN]?.pressed) fallbackDir = 'DOWN';
+            else if (buttons[GAMEPAD.BTN_UP]?.pressed) fallbackDir = 'UP';
+            else {
+                const fallbackAxisThreshold = Math.max(thr, 0.72);
+                const absX = Math.abs(ax);
+                const absY = Math.abs(ay);
+                if (absX >= fallbackAxisThreshold || absY >= fallbackAxisThreshold) {
+                    if (absX >= absY) fallbackDir = ax > 0 ? 'RIGHT' : 'LEFT';
+                    else fallbackDir = ay > 0 ? 'DOWN' : 'UP';
+                }
+            }
+
+            if (fallbackDir) {
+                if (_gameFocusFallbackHeldDir === null) {
+                    moveFocus(fallbackDir);
+                    _gameFocusFallbackHeldDir = fallbackDir;
+                }
+            } else {
+                _gameFocusFallbackHeldDir = null;
+            }
+
+            _currentDirection = null;
+            _moveState = 0;
+
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
+                const active = document.activeElement;
+                if (active && active.closest?.('#gameFocusFallbackActions')) active.click();
+                else document.getElementById('gameFocusFallbackManual')?.focus();
+            }
+            return;
+        }
+
+        _gameFocusFallbackHeldDir = null;
 
         if (window.DoorpiIntro?.isRunning?.()) {
             for (let i = 0; i < buttons.length; i++) {
