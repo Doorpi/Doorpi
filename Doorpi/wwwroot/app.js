@@ -18,6 +18,11 @@
             this.ambienceBuffer = null;
             this.wakeNode = null;
             this.ambienceNode = null;
+            this.ambienceNodes = [];
+            this.ambienceScheduler = null;
+            this.nextAmbienceStart = 0;
+            this.scheduleAheadTime = 5.0;
+            this.ambienceCrossfadeTime = 0.12;
             this.gainNode = null;
             this.isLoaded = false;
             this.isPlaying = false;
@@ -49,15 +54,13 @@
                 this.wakeNode.buffer = this.wakeBuffer;
                 this.wakeNode.connect(this.gainNode);
 
-                this.ambienceNode = this.ctx.createBufferSource();
-                this.ambienceNode.buffer = this.ambienceBuffer;
-                this.ambienceNode.loop = true;
-                this.ambienceNode.connect(this.gainNode);
-
                 // Inicia a execução imediatamente em background
                 const now = this.ctx.currentTime;
                 this.wakeNode.start(now);
-                this.ambienceNode.start(now + this.wakeBuffer.duration);
+                const ambienceStart = now + this.wakeBuffer.duration;
+                this.ambienceNode = this.scheduleAmbienceNode(ambienceStart, { fadeIn: false });
+                this.nextAmbienceStart = ambienceStart + this.ambienceBuffer.duration - this.ambienceCrossfadeTime;
+                this.startAmbienceScheduler();
 
                 // Suspende o contexto inicialmente para não consumir recursos
                 await this.ctx.suspend();
@@ -70,13 +73,85 @@
             }
         }
 
+        trackAmbienceNode(node, nodeGain) {
+            const entry = { node, nodeGain };
+            this.ambienceNodes.push(entry);
+            node.onended = () => {
+                this.ambienceNodes = this.ambienceNodes.filter(item => item !== entry);
+                try { node.disconnect(); } catch { }
+                try { nodeGain.disconnect(); } catch { }
+            };
+        }
+
+        scheduleAmbienceNode(startAt, options = {}) {
+            if (!this.ctx || !this.gainNode || !this.ambienceBuffer) return;
+
+            const node = this.ctx.createBufferSource();
+            const nodeGain = this.ctx.createGain();
+            const fade = Math.min(this.ambienceCrossfadeTime, this.ambienceBuffer.duration / 4);
+            const endAt = startAt + this.ambienceBuffer.duration;
+            const fadeIn = options.fadeIn !== false;
+
+            node.buffer = this.ambienceBuffer;
+            node.loop = false;
+            node.connect(nodeGain);
+            nodeGain.connect(this.gainNode);
+
+            if (fadeIn) {
+                nodeGain.gain.setValueAtTime(0.0001, startAt);
+                nodeGain.gain.linearRampToValueAtTime(1, startAt + fade);
+            } else {
+                nodeGain.gain.setValueAtTime(1, startAt);
+            }
+            nodeGain.gain.setValueAtTime(1, Math.max(startAt + fade, endAt - fade));
+            nodeGain.gain.linearRampToValueAtTime(0.0001, endAt);
+
+            node.start(startAt);
+            this.trackAmbienceNode(node, nodeGain);
+            return node;
+        }
+
+        startAmbienceScheduler() {
+            if (this.ambienceScheduler) {
+                clearInterval(this.ambienceScheduler);
+            }
+
+            const schedule = () => {
+                if (!this.ctx || !this.ambienceBuffer || !this.isPlaying) return;
+
+                const horizon = this.ctx.currentTime + this.scheduleAheadTime;
+                if (this.nextAmbienceStart > 0 && this.nextAmbienceStart < this.ctx.currentTime) {
+                    this.nextAmbienceStart = this.ctx.currentTime + 0.02;
+                }
+                while (this.nextAmbienceStart > 0 && this.nextAmbienceStart < horizon) {
+                    this.scheduleAmbienceNode(this.nextAmbienceStart);
+                    this.nextAmbienceStart += this.ambienceBuffer.duration - this.ambienceCrossfadeTime;
+                }
+            };
+
+            schedule();
+            this.ambienceScheduler = setInterval(schedule, 500);
+        }
+
         stopSources() {
+            if (this.ambienceScheduler) {
+                clearInterval(this.ambienceScheduler);
+                this.ambienceScheduler = null;
+            }
+
             [this.wakeNode, this.ambienceNode].forEach(node => {
                 try { node?.stop(); } catch { }
                 try { node?.disconnect(); } catch { }
             });
+            this.ambienceNodes.forEach(entry => {
+                try { entry.node?.stop(); } catch { }
+                try { entry.node?.disconnect(); } catch { }
+                try { entry.nodeGain?.disconnect(); } catch { }
+            });
             this.wakeNode = null;
             this.ambienceNode = null;
+            this.ambienceNodes = [];
+            this.nextAmbienceStart = 0;
         }
 
         startSources(startAt) {
@@ -86,13 +161,11 @@
             this.wakeNode.buffer = this.wakeBuffer;
             this.wakeNode.connect(this.gainNode);
 
-            this.ambienceNode = this.ctx.createBufferSource();
-            this.ambienceNode.buffer = this.ambienceBuffer;
-            this.ambienceNode.loop = true;
-            this.ambienceNode.connect(this.gainNode);
-
             this.wakeNode.start(startAt);
-            this.ambienceNode.start(startAt + this.wakeBuffer.duration);
+            const ambienceStart = startAt + this.wakeBuffer.duration;
+            this.ambienceNode = this.scheduleAmbienceNode(ambienceStart, { fadeIn: false });
+            this.nextAmbienceStart = ambienceStart + this.ambienceBuffer.duration - this.ambienceCrossfadeTime;
+            this.startAmbienceScheduler();
         }
 
         async restartFromBeginning() {
