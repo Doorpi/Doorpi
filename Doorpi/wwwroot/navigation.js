@@ -703,79 +703,78 @@ document.addEventListener('keydown', e => {
     // ── NOVO: Cancelar launch via teclado (Esc ou Backspace) ──
     const launchOverlay = document.getElementById('gameLaunchOverlay');
     const isExecutionLock = launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('execution-lock-visible');
-    if (isExecutionLock) {
-        const dirMapLock = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' };
-        if (dirMapLock[e.key]) {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            moveFocus(dirMapLock[e.key]);
-            return;
+        if (isExecutionLock) {
+            const dirMapLock = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' };
+            if (dirMapLock[e.key]) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                moveFocus(dirMapLock[e.key]);
+                return;
+            }
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                document.activeElement?.click();
+                return;
+            }
+            if (e.key === 'Escape' || e.key === 'Backspace') {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                if (window.requestDoorpiBackAction?.()) return;
+                return;
+            }
         }
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            document.activeElement?.click();
-            return;
-        }
-        if (e.key === 'Escape' || e.key === 'Backspace') {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            document.getElementById('executionLockRestore')?.focus();
-            return;
-        }
-    }
-    if (window.isSessionConflictPopupOpen?.()) {
-        const dirMapConflict = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' };
-        if (dirMapConflict[e.key]) {
-            e.preventDefault();
-            e.stopImmediatePropagation();
+        if (window.isSessionConflictPopupOpen?.()) {
+            const dirMapConflict = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' };
+            if (dirMapConflict[e.key]) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
             const now = performance.now();
             if (now < _sessionConflictSuppressKeyNavUntil) return;
             _sessionConflictLastKeyNavAt = now;
             moveSessionConflictFocus(dirMapConflict[e.key]);
             return;
         }
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            document.activeElement?.click();
-            return;
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                document.activeElement?.click();
+                return;
+            }
+            if (e.key === 'Escape' || e.key === 'Backspace') {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                if (window.requestDoorpiBackAction?.()) return;
+                return;
+            }
         }
-        if (e.key === 'Escape' || e.key === 'Backspace') {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            return;
-        }
-    }
-    if (window.isGameFocusFallbackPopupOpen?.()) {
-        const dirMapFallback = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' };
-        if (dirMapFallback[e.key]) {
-            e.preventDefault();
-            e.stopImmediatePropagation();
+        if (window.isGameFocusFallbackPopupOpen?.()) {
+            const dirMapFallback = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' };
+            if (dirMapFallback[e.key]) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
             moveFocus(dirMapFallback[e.key]);
             return;
         }
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            document.activeElement?.click();
-            return;
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                document.activeElement?.click();
+                return;
+            }
+            if (e.key === 'Escape' || e.key === 'Backspace') {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                if (window.requestDoorpiBackAction?.()) return;
+                return;
+            }
         }
-        if (e.key === 'Escape' || e.key === 'Backspace') {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            return;
-        }
-    }
     const isWaitingLaunch = launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('state-loading');
     if (isWaitingLaunch) {
         if (e.key === 'Escape' || e.key === 'Backspace') {
             e.preventDefault();
             e.stopImmediatePropagation();
-            const btn = document.getElementById('overlayCancelLaunchBtn');
-            if (btn && btn.style.display !== 'none') {
-                btn.click();
-            }
+            window.requestDoorpiBackAction?.();
             return;
         }
     }
@@ -786,7 +785,7 @@ document.addEventListener('keydown', e => {
         if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') window._dwMoveFocus?.(-1);
         if (e.key === 'ArrowRight' || e.key === 'ArrowDown') window._dwMoveFocus?.(1);
         if (e.key === 'Enter') window._dwAction?.('CONFIRM');
-        if (e.key === 'Escape' || e.key === 'Backspace') window._dwAction?.('CANCEL');
+        if (e.key === 'Escape' || e.key === 'Backspace') window.requestDoorpiBackAction?.();
         return;
     }
     if (window.DoorpiIntro?.isRunning?.()) {
@@ -834,20 +833,26 @@ document.addEventListener('keydown', e => {
         }
         if (e.key === 'Escape') {
             e.preventDefault();
-            // 🔒 TRAVA GLOBAL AQUI
-            if (!canCloseProfileSelection()) return;
-            window.closeDoorpiTopOverlay?.();
+            if (!window.requestDoorpiBackAction?.()) return;
             return;
         }
     }
 
     // O NavMenu bloqueia o teclado, a menos que as popups que abriram dele estejam no topo
-    if (window.isNavMenuOpen && !isCtxMenuOpen && !isEditModalOpen) return;
+    if (window.isNavMenuOpen && !isCtxMenuOpen && !isEditModalOpen) {
+        if (e.key === 'Escape' || e.key === 'Backspace') {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            if (window.requestDoorpiBackAction?.()) return;
+            return;
+        }
+        return;
+    }
 
     if (window._vkbIsOpen) {
         const dirMap = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' };
         if (dirMap[e.key]) { e.preventDefault(); moveFocus(dirMap[e.key]); return; }
-        if (e.key === 'Escape') { e.preventDefault(); window._vkbCancel?.(); return; }
+        if (e.key === 'Escape') { e.preventDefault(); window.requestDoorpiBackAction?.(); return; }
         if (e.key === 'Enter') { e.preventDefault(); document.activeElement?.click(); return; }
         if (e.key === 'Backspace') { e.preventDefault(); window._vkbPhysicalKey?.('Backspace'); return; }
         if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
@@ -927,12 +932,110 @@ function isDoorpiGameInputSuppressed() {
     return false;
 }
 
+window.requestDoorpiBackAction = function () {
+    const launchOverlay = document.getElementById('gameLaunchOverlay');
+    const isExecutionLock = launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('execution-lock-visible');
+    const isWaitingLaunch = launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('state-loading');
+
+    if (window.isDesktopWarningOpen) {
+        window._dwAction?.('CANCEL');
+        window.DoorpiUiSound?.play('back');
+        return true;
+    }
+
+    if (isExecutionLock) {
+        const restoreBtn = document.getElementById('executionLockRestore');
+        if (restoreBtn && restoreBtn.style.display !== 'none') {
+            restoreBtn.click();
+            window.DoorpiUiSound?.play('back');
+            return true;
+        }
+        return false;
+    }
+
+    if (isWaitingLaunch) {
+        const btn = document.getElementById('overlayCancelLaunchBtn');
+        if (btn && btn.style.display !== 'none') {
+            btn.click();
+            window.DoorpiUiSound?.play('back');
+            return true;
+        }
+        return false;
+    }
+
+    if (window.isSessionConflictPopupOpen?.()) {
+        const cancelBtn = document.getElementById('sessionConflictCancel');
+        if (cancelBtn && cancelBtn.style.display !== 'none') {
+            cancelBtn.click();
+            window.DoorpiUiSound?.play('back');
+            return true;
+        }
+        window.hideSessionConflictPopup?.(true);
+        window.DoorpiUiSound?.play('back');
+        return true;
+    }
+
+    if (window.isGameFocusFallbackPopupOpen?.()) {
+        window.hideGameFocusFallbackPopup?.(true);
+        window.DoorpiUiSound?.play('back');
+        return true;
+    }
+
+    if (window.isDoorpiOverlayOpen?.()) {
+        if (!canCloseProfileSelection()) return false;
+        window.closeDoorpiTopOverlay?.();
+        window.DoorpiUiSound?.play('back');
+        return true;
+    }
+
+    if (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) {
+        closeCtxMenu();
+        window.DoorpiUiSound?.play('back');
+        return true;
+    }
+
+    if (typeof isEditModalOpen !== 'undefined' && isEditModalOpen) {
+        window._editModalClose?.();
+        window.DoorpiUiSound?.play('back');
+        return true;
+    }
+
+    if (typeof isSetupOpen !== 'undefined' && isSetupOpen) {
+        const cancelBtn = document.getElementById('btnSetupCancel');
+        if (cancelBtn && cancelBtn.style.display !== 'none') {
+            cancelBtn.click();
+            window.DoorpiUiSound?.play('back');
+            return true;
+        }
+        return false;
+    }
+
+    if (window._vkbIsOpen) {
+        window._vkbCancel?.();
+        window.DoorpiUiSound?.play('back');
+        return true;
+    }
+
+    if (window.isNavMenuOpen) {
+        const handled = window._navMenuHandleKey?.('Backspace') === true;
+        if (handled) window.DoorpiUiSound?.play('back');
+        return handled;
+    }
+
+    if (typeof isModalOpen !== 'undefined' && isModalOpen) {
+        closeModal?.();
+        window.DoorpiUiSound?.play('back');
+        return true;
+    }
+
+    return false;
+};
+
 function buttonJustPressed(btn, index) {
     if (btn?.pressed) {
         if (!_btnCooldown[index]) {
             _btnCooldown[index] = true;
             if (index === NAV.GAMEPAD.BTN_CONFIRM) window.DoorpiUiSound?.play('confirm');
-            if (index === NAV.GAMEPAD.BTN_CANCEL) window.DoorpiUiSound?.play('back');
             return true;
         }
         return false;
@@ -1016,7 +1119,10 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
 
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
             if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) document.getElementById('executionLockClose')?.click();
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) document.getElementById('executionLockRestore')?.focus();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
+                if (window.requestDoorpiBackAction?.()) return;
+                document.getElementById('executionLockRestore')?.focus();
+            }
             return;
         }
 
@@ -1059,6 +1165,9 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
                 if (active && active.closest?.('#sessionConflictActions')) active.click();
                 else document.getElementById('sessionConflictClose')?.focus();
             }
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
+                if (window.requestDoorpiBackAction?.()) return;
+            }
             return;
         }
 
@@ -1097,6 +1206,9 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
                 if (active && active.closest?.('#gameFocusFallbackActions')) active.click();
                 else document.getElementById('gameFocusFallbackManual')?.focus();
             }
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
+                if (window.requestDoorpiBackAction?.()) return;
+            }
             return;
         }
 
@@ -1128,7 +1240,10 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         }
         if (window.isDesktopWarningOpen) {
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) window._dwAction?.('CONFIRM');
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) window._dwAction?.('CANCEL');
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
+                if (window.requestDoorpiBackAction?.()) return;
+                window._dwAction?.('CANCEL');
+            }
             return;
         }
         // -------------------------------
@@ -1147,7 +1262,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
                 else el?.click();
             }
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
-
+                if (window.requestDoorpiBackAction?.()) return;
                 if (!canCloseProfileSelection()) return;
                 window.closeDoorpiTopOverlay?.();
             }
@@ -1169,17 +1284,26 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
                         }
                         else el?.click();
                     }
-                    if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) window._editModalClose?.();
+                    if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
+                        if (window.requestDoorpiBackAction?.()) return;
+                        window._editModalClose?.();
+                    }
                     return;
                 }
                 else if (isCtxMenuOpen) {
                     if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
-                    if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) closeCtxMenu();
+                    if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
+                        if (window.requestDoorpiBackAction?.()) return;
+                        closeCtxMenu();
+                    }
                     return;
                 }
                 else {
                     if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) window._navMenuHandleKey?.('Enter');
-                    if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) window._navMenuHandleKey?.('Escape');
+                    if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
+                        if (window.requestDoorpiBackAction?.()) return;
+                        window._navMenuHandleKey?.('Escape');
+                    }
                     if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) window._navMenuTriggerCtxMenu?.();
                     if (buttonJustPressed(buttons[GAMEPAD.BTN_L1], GAMEPAD.BTN_L1)) window._navMenuCycleTab?.(-1);
                     if (buttonJustPressed(buttons[GAMEPAD.BTN_R1], GAMEPAD.BTN_R1)) window._navMenuCycleTab?.(1);
@@ -1190,7 +1314,10 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
 
         if (window._vkbIsOpen) {
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) window._vkbCancel?.();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
+                if (window.requestDoorpiBackAction?.()) return;
+                window._vkbCancel?.();
+            }
             if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) window._editModalSave?.();
 
             [['l1', GAMEPAD.BTN_L1, -1], ['r1', GAMEPAD.BTN_R1, 1]].forEach(([id, idx, val]) => {
@@ -1230,6 +1357,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         }
         if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
             // 1. Se estiver na seleção de perfil, checa a trava
+            if (window.requestDoorpiBackAction?.()) return;
             if (window.isDoorpiOverlayOpen?.()) {
                 if (!canCloseProfileSelection()) return;
                 window.closeDoorpiTopOverlay?.();

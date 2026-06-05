@@ -2689,13 +2689,13 @@ window.isNavMenuOpen = false;
     };
 
     window._navMenuHandleKey = function (key) {
-        if (window._vkbIsOpen) return;
-        if (_isTransitioning) return;
-        if (key === 'L1') { window._navMenuCycleTab(-1); return; }
-        if (key === 'R1') { window._navMenuCycleTab(1); return; }
+        if (window._vkbIsOpen) return false;
+        if (_isTransitioning) return false;
+        if (key === 'L1') { window._navMenuCycleTab(-1); return true; }
+        if (key === 'R1') { window._navMenuCycleTab(1); return true; }
 
-        if (_topbarFocus) { _navTopbar(key); }
-        else { _navContent(key); }
+        if (_topbarFocus) return _navTopbar(key) === true;
+        return _navContent(key) === true;
     };
 
     document.addEventListener('keydown', e => {
@@ -2750,7 +2750,10 @@ window.isNavMenuOpen = false;
 
             e.preventDefault();
             e.stopImmediatePropagation();
-            if (e.key === 'Escape') { closeNavMenu(); return; }
+            if (e.key === 'Escape' || e.key === 'Backspace') {
+                if (window.requestDoorpiBackAction?.()) return;
+                return;
+            }
             window._navMenuHandleKey(e.key);
             return;
         }
@@ -2760,10 +2763,10 @@ window.isNavMenuOpen = false;
         switch (key) {
             case 'ArrowLeft':
                 if (_catIdx > 0) { _catIdx--; _selectCat(_catIdx); }
-                break;
+                return true;
             case 'ArrowRight':
                 if (_catIdx < CATS.length - 1) { _catIdx++; _selectCat(_catIdx); }
-                break;
+                return true;
             case 'ArrowDown':
             case 'Enter':
                 if (_contentItems.length > 0) {
@@ -2771,13 +2774,14 @@ window.isNavMenuOpen = false;
                     _contentIdx = 0;
                     _updateContentFocus();
                 }
-                break;
+                return true;
             case 'ArrowUp':
             case 'Escape':
             case 'Backspace':
                 close();
-                break;
+                return true;
         }
+        return false;
     }
 
     function _navContent(key) {
@@ -2803,16 +2807,16 @@ window.isNavMenuOpen = false;
                 case 'Enter': {
                     const card = _contentItems[_contentIdx];
                     if (card) card.click();
-                    break;
+                    return true;
                 }
                 case 'Escape': case 'Backspace':
                     _setTopbarFocus(true);
-                    break;
+                    return true;
                 case ' ': case 'Square':
                     window._navMenuTriggerCtxMenu();
-                    break;
+                    return true;
             }
-            return;
+            return false;
         }
 
         // Navegação Complexa nos menus de Settings da Conta
@@ -3050,12 +3054,13 @@ window.isNavMenuOpen = false;
                     _renderContent('settings');
                     _updateContentFocus();
                 } else { _setTopbarFocus(true); }
-                break;
+                return true;
             case ' ':
             case 'Square':
                 window._navMenuTriggerCtxMenu();
-                break;
+                return true;
         }
+        return false;
     }
 
     // ── Bridge Update ─────────────────────────────────────────────────────────

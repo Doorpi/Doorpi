@@ -1571,6 +1571,175 @@ namespace Doorpi
                 await Task.Delay(150).ConfigureAwait(false);
             }
         }
+
+        private void ResetCurrentUserContext()
+        {
+            currentUserId = "";
+            currentUserDataFolder = "";
+            userFile = Path.Combine(dataFolder, "user.json");
+            gamesFile = Path.Combine(dataFolder, "games.json");
+            foldersFile = Path.Combine(dataFolder, "folders.json");
+            appCacheFile = Path.Combine(dataFolder, "appcache.json");
+            mediaFile = Path.Combine(dataFolder, "media.json");
+            libraryBootstrapFile = Path.Combine(dataFolder, "library-bootstrap.json");
+            storesFile = Path.Combine(dataFolder, "stores.json");
+        }
+
+        private void DeleteCurrentUserRootFiles()
+        {
+            try
+            {
+                if (File.Exists(currentUserFile)) File.Delete(currentUserFile);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Users] Falha ao limpar current-user.json: {ex.Message}");
+            }
+
+            string[] ghostFiles = { "user.json", "games.json", "folders.json", "appcache.json", "media.json" };
+            foreach (var file in ghostFiles)
+            {
+                try
+                {
+                    string fp = Path.Combine(dataFolder, file);
+                    if (File.Exists(fp)) File.Delete(fp);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[Users] Falha ao limpar {file}: {ex.Message}");
+                }
+            }
+        }
+
+        private async Task HandleDeleteCurrentUserAsync()
+        {
+            if (Interlocked.Exchange(ref _userSwitchInProgress, 1) == 1)
+                return;
+
+            try
+            {
+                var users = LoadUserProfiles();
+                var userToRemove = users.FirstOrDefault(u => string.Equals(u.Id, currentUserId, StringComparison.OrdinalIgnoreCase));
+                if (userToRemove == null) return;
+
+                Dispatcher.Invoke(() =>
+                    webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                    {
+                        type = "userSwitchStart",
+                        mode = "delete"
+                    })));
+
+                Dispatcher.Invoke(() =>
+                    webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"closeNavMenu\"}"));
+
+                await Task.Delay(150).ConfigureAwait(false);
+
+                List<Task> closeTasks = new();
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    closeTasks = BeginLogoutCurrentSessionsForUserSwitch();
+                });
+
+                await WaitForUserLogoutSessionsToCloseAsync(closeTasks).ConfigureAwait(false);
+                await Task.Delay(350).ConfigureAwait(false);
+
+                users = LoadUserProfiles();
+                userToRemove = users.FirstOrDefault(u => string.Equals(u.Id, currentUserId, StringComparison.OrdinalIgnoreCase));
+
+                if (userToRemove != null)
+                {
+                    users.RemoveAll(u => string.Equals(u.Id, userToRemove.Id, StringComparison.OrdinalIgnoreCase));
+                    SaveUserProfiles(users);
+
+                    try
+                    {
+                        ForceDeleteDirectory(Path.Combine(dataFolder, "users", userToRemove.Id));
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"Erro ao deletar pasta do usuário: {ex.Message}");
+                    }
+
+                    try
+                    {
+                        string safeName = string.IsNullOrWhiteSpace(userToRemove.Name)
+                            ? "default"
+                            : string.Concat(userToRemove.Name.Where(c => !Path.GetInvalidFileNameChars().Contains(c)));
+                        string userToken = SafeBrowserProfileToken(userToRemove.Name);
+                        string[] profilePrefixes =
+                        {
+                            $"{userToRemove.Id}-",
+                            $"{userToRemove.Id}_",
+                            $"{userToken}-",
+                            $"{userToken}_",
+                            $"{safeName}-",
+                            $"{safeName}_"
+                        };
+                        string profilesDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "browser-profiles");
+                        if (Directory.Exists(profilesDir))
+                        {
+                            foreach (var dir in Directory.GetDirectories(profilesDir))
+                            {
+                                string dirName = Path.GetFileName(dir);
+                                if (profilePrefixes.Any(prefix => dirName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    ForceDeleteDirectory(dir);
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"Erro ao limpar caches do usuário: {ex.Message}");
+                    }
+                }
+
+                StopWatchers();
+                ResetCurrentUserContext();
+                DeleteCurrentUserRootFiles();
+
+                if (users.Count > 0)
+                {
+                    ClearHomeUi();
+                    SendUsersToUI(requireSelection: true);
+                }
+                else
+                {
+                    ClearHomeUi();
+                    Dispatcher.Invoke(() =>
+                        webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"showSetup\"}"));
+                }
+
+                Dispatcher.Invoke(() =>
+                    webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                    {
+                        type = "userSwitchComplete",
+                        mode = "delete",
+                        showTransition = true,
+                        restartAudio = true
+                    })));
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[Users] Falha ao excluir usuario: " + ex.Message);
+                try
+                {
+                    Dispatcher.Invoke(() =>
+                        webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                        {
+                            type = "userSwitchComplete",
+                            mode = "delete",
+                            showTransition = true,
+                            restartAudio = false
+                        })));
+                }
+                catch { }
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _userSwitchInProgress, 0);
+            }
+        }
         private const uint KEYEVENTF_UNICODE = 0x0004;
         private DesktopVkbWindow _desktopVkb;
 
@@ -3778,13 +3947,18 @@ namespace Doorpi
             }
         }
 
-        private void RestartWatchers()
+        private void StopWatchers()
         {
             foreach (var watcher in _folderWatchers)
             {
                 try { watcher.EnableRaisingEvents = false; watcher.Dispose(); } catch { }
             }
             _folderWatchers.Clear();
+        }
+
+        private void RestartWatchers()
+        {
+            StopWatchers();
             StartWatchers();
         }
 
@@ -10106,107 +10280,7 @@ namespace Doorpi
                 }
                 else if (action == "deleteCurrentUser")
                 {
-                    var users = LoadUserProfiles();
-                    var userToRemove = users.FirstOrDefault(u => string.Equals(u.Id, currentUserId, StringComparison.OrdinalIgnoreCase));
-
-                    if (userToRemove != null)
-                    {
-                        users.Remove(userToRemove);
-                        SaveUserProfiles(users);
-
-                        // Apaga arquivos pessoais da conta
-                        try
-                        {
-                            string userDir = Path.Combine(dataFolder, "users", userToRemove.Id);
-                            if (Directory.Exists(userDir))
-                            {
-                                GC.Collect();
-                                GC.WaitForPendingFinalizers();
-                                Directory.Delete(userDir, true);
-                            }
-                        }
-                        catch (Exception ex) { Debug.WriteLine($"Erro ao deletar pasta do usuário: {ex.Message}"); }
-
-                        // Apaga todos os caches Webviews dessa conta em específico
-                        try
-                        {
-                            string safeName = string.IsNullOrWhiteSpace(userToRemove.Name) ? "default" : string.Concat(userToRemove.Name.Where(c => !Path.GetInvalidFileNameChars().Contains(c)));
-                            string userToken = SafeBrowserProfileToken(userToRemove.Name);
-                            string[] profilePrefixes =
-                            {
-                                $"{userToRemove.Id}-",
-                                $"{userToRemove.Id}_",
-                                $"{userToken}-",
-                                $"{userToken}_",
-                                $"{safeName}-",
-                                $"{safeName}_"
-                            };
-                            string profilesDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "browser-profiles");
-                            if (Directory.Exists(profilesDir))
-                            {
-                                foreach (var dir in Directory.GetDirectories(profilesDir))
-                                {
-                                    string dirName = Path.GetFileName(dir);
-                                    if (profilePrefixes.Any(prefix => dirName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
-                                    {
-                                        ForceDeleteDirectory(dir);
-                                    }
-                                }
-                            }
-                        }
-                        catch (Exception ex) { Debug.WriteLine($"Erro ao deletar caches do usuário: {ex.Message}"); }
-                    }
-
-                    if (users.Count > 0)
-                    {
-                        Dispatcher.Invoke(() =>
-                        {
-                            ClearHomeUi();
-                            SendUsersToUI(requireSelection: true);
-                        });
-                    }
-                    else
-                    {
-                        currentUserId = "";
-                        if (File.Exists(currentUserFile)) File.Delete(currentUserFile);
-
-                        // LIMPEZA DEFINITIVA PARA EVITAR O BUG DO "GHOST ACCOUNT":
-                        // Deleta os arquivos da pasta raiz para forçar o sistema a abrir do absoluto zero.
-                        if (File.Exists(Path.Combine(dataFolder, "user.json"))) File.Delete(Path.Combine(dataFolder, "user.json"));
-                        if (File.Exists(Path.Combine(dataFolder, "games.json"))) File.Delete(Path.Combine(dataFolder, "games.json"));
-                        if (File.Exists(Path.Combine(dataFolder, "folders.json"))) File.Delete(Path.Combine(dataFolder, "folders.json"));
-                        if (File.Exists(Path.Combine(dataFolder, "appcache.json"))) File.Delete(Path.Combine(dataFolder, "appcache.json"));
-                        if (File.Exists(Path.Combine(dataFolder, "media.json"))) File.Delete(Path.Combine(dataFolder, "media.json"));
-
-                        Dispatcher.Invoke(() =>
-                        {
-                            ClearHomeUi();
-                            webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"showSetup\"}");
-                        });
-                    }
-
-
-                    if (users.Count > 0)
-                    {
-                        // Sobraram contas? Volta pra tela de Trocar de Conta (Users List)
-                        Dispatcher.Invoke(() =>
-                        {
-                            ClearHomeUi();
-                            SendUsersToUI(requireSelection: true);
-                        });
-                    }
-                    else
-                    {
-                        // Zerou os usuários? Limpa os arquivos bases e força a tela de Setup Inicial
-                        currentUserId = "";
-                        if (File.Exists(currentUserFile)) File.Delete(currentUserFile);
-
-                        Dispatcher.Invoke(() =>
-                        {
-                            ClearHomeUi();
-                            webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"showSetup\"}");
-                        });
-                    }
+                    await HandleDeleteCurrentUserAsync();
                 }
                 else if (action == "saveUserProfile")
                 {
@@ -10329,65 +10403,6 @@ namespace Doorpi
                                 type = "currentUserUpdated",
                                 user = profile
                             }));
-                        });
-                    }
-                }
-                else if (action == "deleteCurrentUser")
-                {
-                    var users = LoadUserProfiles();
-                    var userToRemove = users.FirstOrDefault(u => string.Equals(u.Id, currentUserId, StringComparison.OrdinalIgnoreCase));
-
-                    if (userToRemove != null)
-                    {
-                        users.Remove(userToRemove);
-                        SaveUserProfiles(users);
-
-                        ForceDeleteDirectory(Path.Combine(dataFolder, "users", userToRemove.Id));
-
-
-                        try
-                        {
-                            string safeName = string.IsNullOrWhiteSpace(userToRemove.Name) ? "default" : string.Concat(userToRemove.Name.Where(c => !Path.GetInvalidFileNameChars().Contains(c)));
-                            string profilesDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "browser-profiles");
-                            if (Directory.Exists(profilesDir))
-                            {
-                                foreach (var dir in Directory.GetDirectories(profilesDir))
-                                {
-                                    if (Path.GetFileName(dir).StartsWith($"{safeName}-", StringComparison.OrdinalIgnoreCase))
-                                    {
-                                        ForceDeleteDirectory(dir);
-                                    }
-                                }
-                            }
-                        }
-                        catch (Exception ex) { Debug.WriteLine($"Erro ao limpar caches do usuário: {ex.Message}"); }
-                    }
-
-                    if (users.Count > 0)
-                    {
-                        Dispatcher.Invoke(() =>
-                        {
-                            ClearHomeUi();
-                            SendUsersToUI(requireSelection: true);
-                        });
-                    }
-                    else
-                    {
-                        currentUserId = "";
-                        if (File.Exists(currentUserFile)) File.Delete(currentUserFile);
-
-                        // DELETA ARQUIVOS FANTASMAS DA RAIZ PARA IMPEDIR O BUG DE RESSURREIÇÃO
-                        string[] ghostFiles = { "user.json", "games.json", "folders.json", "appcache.json", "media.json" };
-                        foreach (var file in ghostFiles)
-                        {
-                            string fp = Path.Combine(dataFolder, file);
-                            if (File.Exists(fp)) File.Delete(fp);
-                        }
-
-                        Dispatcher.Invoke(() =>
-                        {
-                            ClearHomeUi();
-                            webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"showSetup\"}");
                         });
                     }
                 }

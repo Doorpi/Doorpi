@@ -268,7 +268,7 @@
     window.DoorpiUiSound = (() => {
         // Ajustes centrais dos sons de UI.
         const uiSound = {
-            masterGain: 0.7,
+            masterGain: 0.65,
             space: {
                 delay: 0.055,
                 feedback: 0.10,
@@ -485,7 +485,7 @@
     };
 
     // ── GATILHOS DE RETORNO DO ÁUDIO (Navegador) ────────────────────────
-    document.addEventListener('keydown', (e) => {
+        document.addEventListener('keydown', (e) => {
         if (e.repeat && ['Enter', 'Escape', 'Backspace'].includes(e.key)) return;
         if (e.altKey || e.ctrlKey || e.metaKey) return;
         if (window.isGlobalLoading) return;
@@ -494,8 +494,6 @@
             window.DoorpiUiSound?.play('move');
         } else if (e.key === 'Enter') {
             window.DoorpiUiSound?.play('confirm');
-        } else if (e.key === 'Escape' || e.key === 'Backspace') {
-            window.DoorpiUiSound?.play('back');
         }
     }, true);
 
@@ -2362,6 +2360,9 @@
                 window._doorpiUsers = data.users || [];
                 window._doorpiCurrentUserId = data.currentUserId || '';
                 showUserPicker(data.users || [], !!data.requireSelection);
+            }
+            else if (data.type === 'closeNavMenu') {
+                window.closeNavMenu?.();
             }
             else if (data.type === 'usersData') {
                 window._doorpiUsers = data.users || [];
@@ -5698,15 +5699,32 @@ function renderFolderList(folders) {
             }, 80);
         }
     });
-    function _ensureUserSwitchLogoutOverlay() {
+    function _getUserSwitchOverlayCopy(mode = 'switch') {
+        if (mode === 'delete') {
+            return {
+                mark: typeof t === 'function' ? t('sessionDeleteMark') : 'Conta',
+                title: typeof t === 'function' ? t('sessionDeleteTitle') : 'Encerrando sessão para excluir',
+                sub: typeof t === 'function' ? t('sessionDeleteSubtitle') : 'Fechando processos e preparando a exclusão desta conta',
+            };
+        }
+
+        return {
+            mark: typeof t === 'function' ? t('sessionTransitionMark') : 'Sessao',
+            title: typeof t === 'function' ? t('sessionSwitchTitle') : 'Trocando sessao',
+            sub: typeof t === 'function' ? t('logoutSubtitle') : 'Encerrando sessão atual',
+        };
+    }
+
+    function _ensureUserSwitchLogoutOverlay(mode = 'switch') {
+        const copy = _getUserSwitchOverlayCopy(mode);
         let overlay = document.getElementById('doorpiUserSwitchLogout');
         if (!overlay) {
             overlay = document.createElement('div');
             overlay.id = 'doorpiUserSwitchLogout';
             overlay.innerHTML = `
-                <div class="logout-mark">${typeof t === 'function' ? t('sessionTransitionMark') : 'Sessao'}</div>
-                <div class="logout-title">${typeof t === 'function' ? t('sessionSwitchTitle') : 'Trocando sessao'}</div>
-                <div class="logout-sub">${typeof t === 'function' ? t('logoutSubtitle') : 'Encerrando sessão atual'}</div>
+                <div class="logout-mark">${copy.mark}</div>
+                <div class="logout-title">${copy.title}</div>
+                <div class="logout-sub">${copy.sub}</div>
                 <div class="logout-dots"><span></span><span></span><span></span></div>
             `;
             document.body.appendChild(overlay);
@@ -5714,9 +5732,9 @@ function renderFolderList(folders) {
             const mark = overlay.querySelector('.logout-mark');
             const title = overlay.querySelector('.logout-title');
             const sub = overlay.querySelector('.logout-sub');
-            if (mark) mark.textContent = typeof t === 'function' ? t('sessionTransitionMark') : 'Sessao';
-            if (title) title.textContent = typeof t === 'function' ? t('sessionSwitchTitle') : 'Trocando sessao';
-            if (sub) sub.textContent = typeof t === 'function' ? t('logoutSubtitle') : 'Encerrando sessão atual';
+            if (mark) mark.textContent = copy.mark;
+            if (title) title.textContent = copy.title;
+            if (sub) sub.textContent = copy.sub;
         }
         return overlay;
     }
@@ -5739,7 +5757,7 @@ function renderFolderList(folders) {
         if (logoEl) logoEl.classList.remove('visible');
         if (gridBg) gridBg.removeAttribute('src');
 
-        const logoutOverlay = _ensureUserSwitchLogoutOverlay();
+        const logoutOverlay = _ensureUserSwitchLogoutOverlay(data.mode || 'switch');
         logoutOverlay.style.display = 'flex';
         requestAnimationFrame(() => logoutOverlay.classList.add('visible'));
 
