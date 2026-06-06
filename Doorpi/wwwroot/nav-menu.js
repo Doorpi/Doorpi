@@ -233,6 +233,7 @@ window.isNavMenuOpen = false;
             this.emptyIcon    = emptyIcon;
             this.onLaunchAction = onLaunchAction;
             this.onFocusUpdate  = onFocusUpdate; 
+            this.scrollRoot   = scrollRoot;
 
             // Margens para garantir que o skeleton nunca seja visto:
             // Ele vai carregar as imagens muito antes de entrar e só descarregar muito depois de sair.
@@ -245,6 +246,15 @@ window.isNavMenuOpen = false;
             this._unloadObs  = null;         
             this._aborted    = false;
             this._wrapper    = null;
+            this._initialCount = 0;
+            this._scrollRaf = 0;
+            this._onScroll = () => {
+                if (this._scrollRaf) return;
+                this._scrollRaf = requestAnimationFrame(() => {
+                    this._scrollRaf = 0;
+                    this.hydrateViewportBand();
+                });
+            };
 
             this._build(body, scrollRoot);
         }
@@ -261,14 +271,18 @@ window.isNavMenuOpen = false;
             body.appendChild(this._wrapper);
 
             this._setupObservers(scrollRoot);
+            scrollRoot?.addEventListener?.('scroll', this._onScroll, { passive: true });
 
             const firstBatch = Math.min(this.items.length, this.BATCH_SIZE);
+            this._initialCount = firstBatch;
             for (let i = 0; i < firstBatch; i++) {
                 const card = this._createCard(i);
+                card._initialPage = true;
                 this._grid.appendChild(card);
                 this._cards.push(card);
                 this._loadObs.observe(card);
                 this._unloadObs.observe(card);
+                this._loadCard(card);
             }
 
             this.onFocusUpdate(this._cards, -1);
@@ -277,6 +291,7 @@ window.isNavMenuOpen = false;
             if (this.items.length > firstBatch) {
                 this._buildRemainder(firstBatch);
             }
+            requestAnimationFrame(() => this.hydrateViewportBand());
         }
 
         async _buildRemainder(startIdx) {
@@ -348,6 +363,7 @@ window.isNavMenuOpen = false;
             card.dataset.gameId  = item.LaunchUrl || item.Path || item.Url || '';
             card._item           = item;
             card._loaded         = false;
+            card._initialPage    = false;
 
             if (this.catId === 'media') {
                 card.dataset.appId   = item.Id  || item.Url || '';
@@ -425,6 +441,8 @@ window.isNavMenuOpen = false;
 
         _unloadCard(card) {
             if (!card._loaded) return;
+            if (card._initialPage) return;
+            if (this._isInViewportBand(card)) return;
             
             // Nunca descarrega a imagem do item que está com foco no gamepad
             if (card.classList.contains('nav-focused')) return;
@@ -441,6 +459,75 @@ window.isNavMenuOpen = false;
                 skeletonBg.className = 'nlg-skeleton-bg';
                 skeletonBg.setAttribute('aria-hidden', 'true');
                 content.replaceWith(skeletonBg);
+            }
+        }
+        hydrateInitialPage() {
+            const count = Math.min(this._initialCount || this.BATCH_SIZE, this._cards.length);
+            for (let i = 0; i < count; i++) {
+                const card = this._cards[i];
+                if (card) this._loadCard(card);
+            }
+        }
+        warmInitialPage() {
+            this.hydrateInitialPage();
+
+            const count = Math.min(this._initialCount || this.BATCH_SIZE, this.items.length);
+            const tasks = [];
+            for (let i = 0; i < count; i++) {
+                const item = this.items[i];
+                const src = item?.GridStaticImage || item?.GridImage || '';
+                if (src) tasks.push(this._preloadImage(src));
+            }
+            return Promise.allSettled(tasks);
+        }
+        _preloadImage(src) {
+            if (!src) return Promise.resolve();
+
+            const cache = window.__doorpiNavImagePreloadCache || (window.__doorpiNavImagePreloadCache = new Map());
+            if (cache.has(src)) return cache.get(src);
+
+            const promise = new Promise(resolve => {
+                let done = false;
+                const finish = () => {
+                    if (done) return;
+                    done = true;
+                    resolve();
+                };
+
+                const img = new Image();
+                img.decoding = 'async';
+                img.loading = 'eager';
+                img.onload = () => {
+                    if (typeof img.decode === 'function') img.decode().then(finish).catch(finish);
+                    else finish();
+                };
+                img.onerror = finish;
+                img.src = src;
+
+                if (img.complete) {
+                    if (typeof img.decode === 'function') img.decode().then(finish).catch(finish);
+                    else finish();
+                }
+            });
+
+            cache.set(src, promise);
+            return promise;
+        }
+        hydrateViewportBand() {
+            for (const card of this._cards) {
+                if (card && this._isInViewportBand(card)) this._loadCard(card);
+            }
+        }
+        _isInViewportBand(card) {
+            const root = this.scrollRoot;
+            if (!root || !card?.isConnected) return false;
+
+            try {
+                const rootRect = root.getBoundingClientRect();
+                const cardRect = card.getBoundingClientRect();
+                return cardRect.bottom >= rootRect.top && cardRect.top <= rootRect.bottom;
+            } catch (_) {
+                return false;
             }
         }
         removeItem(itemKey) {
@@ -469,6 +556,11 @@ window.isNavMenuOpen = false;
         }
         destroy() {
             this._aborted = true;
+            this.scrollRoot?.removeEventListener?.('scroll', this._onScroll);
+            if (this._scrollRaf) {
+                cancelAnimationFrame(this._scrollRaf);
+                this._scrollRaf = 0;
+            }
             this._loadObs?.disconnect();
             this._unloadObs?.disconnect();
             this._loadObs = null;
@@ -502,7 +594,6 @@ window.isNavMenuOpen = false;
     let _lazyGrid = null;   // grid de jogos (persistente)
     let _lazyGridMedia = null;   // grid de mídia (persistente)
     let _dualPaneContainer = null;
-    let _isTransitioning = false;
 
     function _currentLazyGrid() {
         const id = CATS[_catIdx]?.id;
@@ -526,11 +617,35 @@ window.isNavMenuOpen = false;
         document.getElementById('navContentBody')?.classList.remove('dual-pane-active');
         _contentItems = [];
     }
+
+    function _attachDualPane(body) {
+        if (!body) return;
+        body.classList.add('dual-pane-active');
+
+        if (!_dualPaneContainer) {
+            body.innerHTML = '';
+            _ensureDualPane(body);
+            return;
+        }
+
+        if (_dualPaneContainer.parentNode !== body) {
+            body.innerHTML = '';
+            body.appendChild(_dualPaneContainer);
+        }
+
+        _dualPaneContainer.style.display = 'block';
+        _dualPaneContainer.setAttribute('aria-hidden', 'false');
+    }
+
+    function _detachDualPane(body) {
+        if (_dualPaneContainer?.parentNode) _dualPaneContainer.parentNode.removeChild(_dualPaneContainer);
+        if (body) body.classList.remove('dual-pane-active');
+    }
+
     // ── Dual Pane: constrói e gerencia os dois grids persistentes ─────────────
     function _ensureDualPane(body) {
         if (_dualPaneContainer) return; // já existe, só mudar visibilidade
 
-        body.innerHTML = '';
         body.classList.add('dual-pane-active');
 
         _dualPaneContainer = document.createElement('div');
@@ -579,8 +694,8 @@ window.isNavMenuOpen = false;
     }
 
     function _applyPaneVisibility(catId) {
-        const gamesPane = document.getElementById('navPaneGames');
-        const mediaPane = document.getElementById('navPaneMedia');
+        const gamesPane = _dualPaneContainer?.querySelector('#navPaneGames');
+        const mediaPane = _dualPaneContainer?.querySelector('#navPaneMedia');
         if (!gamesPane || !mediaPane) return;
 
         const showGames = catId === 'games';
@@ -596,18 +711,30 @@ window.isNavMenuOpen = false;
         hidPane.style.zIndex = '0';
 
         const grid = showGames ? _lazyGrid : _lazyGridMedia;
+        grid?.hydrateInitialPage?.();
+        grid?.hydrateViewportBand?.();
         _contentItems = grid ? grid._cards : [];
     }
 
     function _switchDualPane(catId) {
-        if (_isTransitioning) return;
-        _isTransitioning = true;
         _applyPaneVisibility(catId);
-        setTimeout(() => {
-            _isTransitioning = false;
-            _contentIdx = 0;
-            _updateContentFocus();
-        }, 250);
+        _contentIdx = 0;
+        _updateContentFocus();
+    }
+
+    function _warmDualPaneInitialPages() {
+        const tasks = [];
+        const gamesWarm = _lazyGrid?.warmInitialPage?.();
+        const mediaWarm = _lazyGridMedia?.warmInitialPage?.();
+        if (gamesWarm) tasks.push(gamesWarm);
+        if (mediaWarm) tasks.push(mediaWarm);
+
+        requestAnimationFrame(() => {
+            _lazyGrid?.hydrateViewportBand?.();
+            _lazyGridMedia?.hydrateViewportBand?.();
+        });
+
+        return Promise.allSettled(tasks);
     }
     // ─────────────────────────────────────────────────────────────────────────
     // ── Funções de Inicialização / Componentes Settings ───────────────────────
@@ -953,6 +1080,12 @@ window.isNavMenuOpen = false;
     let _sharingFocusAppId = '';
     let _preserveSettingsSubViewOnce = false;
     let _autoStartEnabled = false;
+    const NAV_MENU_TRANSITION_MS = 600;
+    let _navMenuTransitionTimer = 0;
+    let _navMenuTransitionToken = 0;
+    let _navMenuTransitionCleanup = null;
+    let _navMenuPhase = 'closed';
+    let _navMenuLifecycleToken = 0;
 
     // ── Estilos ────────────────────────────────────────
     (function injectStyles() {
@@ -965,7 +1098,7 @@ window.isNavMenuOpen = false;
     padding: 0; margin: 0; overflow: hidden;
 }
 #navDualPane {
-    position: relative; width: 100%; height: 100%;
+    position: absolute; inset: 0; width: 100%; height: 100%;
     container-type: size; container-name: pane;
 }
 #navPaneGames, #navPaneMedia {
@@ -1052,17 +1185,23 @@ window.isNavMenuOpen = false;
 
 /* ── Overlay Transição ── */
 #navMenuOverlay {
-    content-visibility: visible; contain: layout style; position: fixed; inset: 0; z-index: 8000;
-    display: none; opacity: 1; font-family: 'Inter', 'Segoe UI', sans-serif;
-    transform: translateY(100%); transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    content-visibility: visible; contain: layout paint style; isolation: isolate;
+    position: fixed; inset: 0; z-index: 8000;
+    display: none; opacity: 1; pointer-events: none;
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+    transform: translate3d(0, 100%, 0);
+    transition: transform 0.60s cubic-bezier(0.16, 1, 0.3, 1);
+    backface-visibility: hidden;
 }
-#navMenuOverlay.visible { transform: translateY(0); }
-#navMenuBg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+#navMenuOverlay.visible { transform: translate3d(0, 0, 0); pointer-events: auto; }
+#navMenuOverlay.nav-menu-animating { will-change: transform; }
+#navMenuOverlay.nav-menu-input-released { pointer-events: none; }
+#navMenuBg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; transform: translateZ(0); }
 
 .top-profile-btn.nav-menu-hidden { opacity: 0 !important; pointer-events: none !important; transition: opacity 0.3s ease; }
 
-.nav-layout { position: relative; z-index: 1; display: flex; flex-direction: column; width: 100%; height: 100%; }
-#navMenuOverlay.visible .nav-layout { transform: scale(1); }
+.nav-layout { position: relative; z-index: 1; display: flex; flex-direction: column; width: 100%; height: 100%; contain: layout paint style; transform: translateZ(0); }
+#navMenuOverlay.visible .nav-layout { transform: translateZ(0); }
 .nav-topbar { display: flex; align-items: center; padding-top: clamp(5rem, 5vh, 5rem); gap: clamp(12px, 2vw, 40px); flex-shrink: 0; flex-direction: column; }
 .nav-cat-list { display: flex; gap: clamp(16px, 2.5vw, 40px); }
 
@@ -1413,13 +1552,8 @@ window.isNavMenuOpen = false;
 
     // ── Seleção de categoria ──────────────────────────────────────────────────
     function _selectCat(idx) {
+        if (_navMenuPhase === 'closing') return;
         _catIdx = Number(idx);
-
-        const _newCatId = CATS[_catIdx]?.id;
-        const _newIsGrid = _newCatId === 'games' || _newCatId === 'media';
-
-
-        if (!_newIsGrid) _destroyLazyGrid();
 
         if (_preserveSettingsSubViewOnce) {
             _preserveSettingsSubViewOnce = false;
@@ -1547,26 +1681,23 @@ window.isNavMenuOpen = false;
         const body = document.getElementById('navContentBody');
         if (!body) return;
 
-        _destroyLazyGrid();
-        _contentItems = [];
-        body.innerHTML = '';
-
         switch (id) {
             case 'games':
             case 'media':
-                if (_dualPaneContainer) {
-                    _switchDualPane(id);
-                } else {
-                    _ensureDualPane(body);
-                    _applyPaneVisibility(id);
-                    _contentIdx = 0;
-                    _updateContentFocus();
-                }
+                _contentItems = [];
+                _attachDualPane(body);
+                _switchDualPane(id);
                 break;
             case 'settings':
+                _contentItems = [];
+                _detachDualPane(body);
+                body.innerHTML = '';
                 _renderSettings(body);
                 break;
             case 'profile':
+                _contentItems = [];
+                _detachDualPane(body);
+                body.innerHTML = '';
                 _renderProfile(body);
                 break;
         }
@@ -2599,6 +2730,8 @@ window.isNavMenuOpen = false;
                 card._startInteraction?.();
 
                 _lg._loadCard(card);
+                _lg.hydrateViewportBand?.();
+                requestAnimationFrame(() => _lg.hydrateViewportBand?.());
             }
        
         } else {
@@ -2621,49 +2754,47 @@ window.isNavMenuOpen = false;
         return Math.max(1, getComputedStyle(grid).gridTemplateColumns.split(' ').length);
     }
 
-    // ── Abrir / Fechar ────────────────────────────────────────────────────────
-    async function open(startIdx = 0) {
-        if (window.isNavMenuOpen || window.isDoorpiSessionTransitionActive?.()) return;
-        window.isNavMenuOpen = true;
+    function _runNavMenuTransition(afterDone) {
+        if (!_overlay) return;
 
-        document.body.classList.add('nav-menu-active');
+        const token = ++_navMenuTransitionToken;
+        if (_navMenuTransitionTimer) {
+            clearTimeout(_navMenuTransitionTimer);
+            _navMenuTransitionTimer = 0;
+        }
+        _navMenuTransitionCleanup?.();
+        _navMenuTransitionCleanup = null;
 
-        const topProf = document.getElementById('btnTopProfile');
-        if (topProf) topProf.classList.add('nav-menu-hidden');
-
-        _buildOverlay();
-        _overlay.style.display = 'flex';
+        _overlay.classList.add('nav-menu-animating');
         _overlay.style.willChange = 'transform';
-        window.updateNavHint?.();
-        await _loadJSONs();
 
-        requestAnimationFrame(() => {
-            _overlay.classList.add('visible');
-            _selectCat(_catIdx);
+        const finish = () => {
+            if (token !== _navMenuTransitionToken) return;
+            if (_navMenuTransitionTimer) {
+                clearTimeout(_navMenuTransitionTimer);
+                _navMenuTransitionTimer = 0;
+            }
+            _navMenuTransitionCleanup?.();
+            _navMenuTransitionCleanup = null;
+            _overlay?.classList.remove('nav-menu-animating');
+            if (_overlay) _overlay.style.willChange = 'auto';
+            afterDone?.();
+        };
 
-            setTimeout(() => {
-                if (_overlay) _overlay.style.willChange = 'auto';
-            }, 850);
-        });
+        const onEnd = (event) => {
+            if (event.target === _overlay && event.propertyName === 'transform') finish();
+        };
+
+        _overlay.addEventListener('transitionend', onEnd);
+        _navMenuTransitionCleanup = () => _overlay?.removeEventListener('transitionend', onEnd);
+        _navMenuTransitionTimer = setTimeout(finish, NAV_MENU_TRANSITION_MS + 90);
     }
 
-    function close() {
+    function _releaseNavMenuInput(lifecycleToken) {
+        if (lifecycleToken !== _navMenuLifecycleToken || _navMenuPhase !== 'closing') return;
         if (!window.isNavMenuOpen) return;
+
         window.isNavMenuOpen = false;
-
-        document.body.classList.remove('nav-menu-active');
-        
-        // Destrói totalmente o Virtual Grid do DOM sem travar o processador
-        _destroyLazyGrid();
-
-        const topProf = document.getElementById('btnTopProfile');
-        if (topProf) topProf.classList.remove('nav-menu-hidden');
-
-        _overlay?.classList.remove('visible');
-
-        setTimeout(() => {
-            if (!window.isNavMenuOpen && _overlay) _overlay.style.display = 'none';
-        }, 850);
 
         if (_lastFocus && document.contains(_lastFocus)) {
             _lastFocus.focus();
@@ -2671,7 +2802,75 @@ window.isNavMenuOpen = false;
             document.querySelector('#gameGrid .card:not(.add-card)')?.focus();
         }
 
-        setTimeout(() => window.updateNavHint?.(), 50);
+        window.updateNavHint?.();
+    }
+
+    // ── Abrir / Fechar ────────────────────────────────────────────────────────
+    async function open(startIdx = 0) {
+        if (window.isNavMenuOpen || _navMenuPhase !== 'closed' || window.isDoorpiSessionTransitionActive?.()) return;
+        const lifecycleToken = ++_navMenuLifecycleToken;
+        window.isNavMenuOpen = true;
+        _navMenuPhase = 'opening';
+
+        document.body.classList.add('nav-menu-active');
+        document.body.classList.remove('nav-menu-closing');
+
+        const topProf = document.getElementById('btnTopProfile');
+        if (topProf) topProf.classList.add('nav-menu-hidden');
+
+        _lastFocus = document.activeElement;
+
+        _buildOverlay();
+        _overlay.classList.remove('nav-menu-input-released');
+        _overlay.style.display = 'flex';
+        window.updateNavHint?.();
+        await _loadJSONs();
+        if (lifecycleToken !== _navMenuLifecycleToken || !window.isNavMenuOpen || _navMenuPhase !== 'opening') return;
+
+        const body = document.getElementById('navContentBody');
+        if (body) {
+            const initialPane = CATS[_catIdx]?.id === 'media' ? 'media' : 'games';
+            _attachDualPane(body);
+            _applyPaneVisibility(initialPane);
+            await Promise.race([
+                _warmDualPaneInitialPages(),
+                new Promise(resolve => setTimeout(resolve, 90))
+            ]);
+        }
+        if (lifecycleToken !== _navMenuLifecycleToken || !window.isNavMenuOpen || _navMenuPhase !== 'opening') return;
+
+        requestAnimationFrame(() => {
+            if (lifecycleToken !== _navMenuLifecycleToken || !window.isNavMenuOpen || _navMenuPhase !== 'opening') return;
+            _runNavMenuTransition(() => {
+                if (lifecycleToken === _navMenuLifecycleToken && window.isNavMenuOpen && _navMenuPhase === 'opening') _navMenuPhase = 'open';
+            });
+            _overlay.classList.add('visible');
+            _selectCat(_catIdx);
+        });
+    }
+
+    function close() {
+        if (!window.isNavMenuOpen || _navMenuPhase === 'closing') return;
+        const lifecycleToken = ++_navMenuLifecycleToken;
+        _navMenuPhase = 'closing';
+
+        document.body.classList.remove('nav-menu-active');
+        document.body.classList.add('nav-menu-closing');
+        
+        const topProf = document.getElementById('btnTopProfile');
+        if (topProf) topProf.classList.remove('nav-menu-hidden');
+
+        _overlay?.classList.add('nav-menu-input-released');
+        _releaseNavMenuInput(lifecycleToken);
+
+        _runNavMenuTransition(() => {
+            if (lifecycleToken !== _navMenuLifecycleToken || _navMenuPhase !== 'closing') return;
+            if (_overlay) _overlay.style.display = 'none';
+            _navMenuPhase = 'closed';
+            document.body.classList.remove('nav-menu-closing');
+            _overlay?.classList.remove('nav-menu-input-released');
+        });
+        _overlay?.classList.remove('visible');
     }
 
     // ── Teclado / gamepad ────────────────────────────────────────────────────
@@ -2690,7 +2889,7 @@ window.isNavMenuOpen = false;
 
     window._navMenuHandleKey = function (key) {
         if (window._vkbIsOpen) return false;
-        if (_isTransitioning) return false;
+        if (_navMenuPhase === 'closing') return false;
         if (key === 'L1') { window._navMenuCycleTab(-1); return true; }
         if (key === 'R1') { window._navMenuCycleTab(1); return true; }
 

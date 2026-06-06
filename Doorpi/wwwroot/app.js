@@ -4185,9 +4185,23 @@ function renderFolderList(folders) {
             #bgBlur,
             #gameLogo,
             [class*="crossfade-clone-"] {
-                will-change: transform;
                 backface-visibility: hidden;
                 transform: translateZ(0); /* Força aceleração 2D simples */
+            }
+
+            body.nav-menu-active .main-content-wrapper,
+            body.nav-menu-active #heroImage,
+            body.nav-menu-active #gridBgImg,
+            body.nav-menu-active #bgBlur,
+            body.nav-menu-active #gameLogo,
+            body.nav-menu-active [class*="crossfade-clone-"],
+            body.nav-menu-closing .main-content-wrapper,
+            body.nav-menu-closing #heroImage,
+            body.nav-menu-closing #gridBgImg,
+            body.nav-menu-closing #bgBlur,
+            body.nav-menu-closing #gameLogo,
+            body.nav-menu-closing [class*="crossfade-clone-"] {
+                will-change: transform, opacity;
             }
 
             /* 1. Transição com curva Sharp (Melhor para 60Hz) */
@@ -4197,7 +4211,7 @@ function renderFolderList(folders) {
             #bgBlur,
             #gameLogo,[class*="crossfade-clone-"] {
                 /* Curva 'Quintic Out': Começa muito rápido, termina muito lento */
-                transition: transform 0.6s cubic-bezier(0.23, 1, 0.32, 1), 
+                transition: transform 0.60s cubic-bezier(0.23, 1, 0.32, 1), 
                             opacity 0.25s ease-out !important;
             }
 
@@ -4207,14 +4221,14 @@ function renderFolderList(folders) {
             body.nav-menu-active #gridBgImg,
             body.nav-menu-active #bgBlur,
             body.nav-menu-active #gameLogo,
-            body.nav-menu-active[class*="crossfade-clone-"] {
+            body.nav-menu-active [class*="crossfade-clone-"] {
                 transform: translateY(-100vh) !important;
                 opacity: 0 !important;
             }
 
             /* 3. Desligar o Blur IMEDIATAMENTE (O maior peso no 60Hz) */
             body.nav-menu-active #bgBlur,
-            body.nav-menu-active[class*="crossfade-clone-bgBlur"] {
+            body.nav-menu-active [class*="crossfade-clone-bgBlur"] {
                 filter: none !important;
             }
 
@@ -5703,7 +5717,10 @@ function renderFolderList(folders) {
         const isCard = focused?.classList?.contains('card');
         const isInGrid = focused?.closest('#gameGrid');
 
-        const isNavMenuActive = document.body.classList.contains('nav-menu-active') || window.isNavMenuOpen;
+        const isNavMenuActive =
+            document.body.classList.contains('nav-menu-active') ||
+            document.body.classList.contains('nav-menu-closing') ||
+            window.isNavMenuOpen;
 
         if (!isCard && !isInGrid && !isNavMenuActive) {
             window._heroCleanupTimer = setTimeout(() => {
@@ -5885,7 +5902,10 @@ function renderFolderList(folders) {
         grid.querySelectorAll('.card.loading-card').forEach(c => c.remove());
     }
     function clearHero(instant = false) {
-        const isNavMenuActive = document.body.classList.contains('nav-menu-active') || window.isNavMenuOpen;
+        const isNavMenuActive =
+            document.body.classList.contains('nav-menu-active') ||
+            document.body.classList.contains('nav-menu-closing') ||
+            window.isNavMenuOpen;
  
         if (isNavMenuActive && !instant) return;
 
