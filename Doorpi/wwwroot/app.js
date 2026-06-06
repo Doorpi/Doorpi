@@ -265,6 +265,28 @@
         window._audioPlayer.restartFromBeginning();
     };
 
+    window.isDoorpiSessionTransitionActive = function () {
+        return !!window._userSwitching || Date.now() < (window._doorpiSessionTransitionBlockUntil || 0);
+    };
+
+    document.addEventListener('keydown', (e) => {
+        if (!window.isDoorpiSessionTransitionActive?.()) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+    }, true);
+
+    document.addEventListener('click', (e) => {
+        if (!window.isDoorpiSessionTransitionActive?.()) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+    }, true);
+
+    document.addEventListener('pointerdown', (e) => {
+        if (!window.isDoorpiSessionTransitionActive?.()) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+    }, true);
+
     window.DoorpiUiSound = (() => {
         // Ajustes centrais dos sons de UI.
         const uiSound = {
@@ -3158,6 +3180,7 @@
         }
     }
     window.openExtensionsManager = function () {
+        if (window.isDoorpiSessionTransitionActive?.()) return;
         // Se o Nav Menu estiver fechado, manda abrir
         if (!window.isNavMenuOpen) {
             if (typeof window.openNavMenu === 'function') {
@@ -5743,6 +5766,7 @@ function renderFolderList(folders) {
         if (data.showTransition === false) return;
         // Limpa o hero na hora, sem delay, e bloqueia novos switches
         window._userSwitching = true;
+        window._userSwitchStartedAt = performance.now();
         window._stopSystemAudio?.();
         _currentBgSrc = '';
         if (typeof _heroReqId !== 'undefined') _heroReqId++;
@@ -5773,12 +5797,49 @@ function renderFolderList(folders) {
         const shouldRestartAudio = !!data.restartAudio;
 
         if (!shouldShowTransition) {
+            const wrap = document.querySelector('.main-content-wrapper');
+            if (wrap) {
+                wrap.style.opacity = '1';
+                wrap.style.transform = '';
+                wrap.style.pointerEvents = '';
+                wrap.style.removeProperty('transition');
+            }
+            const logoutOverlay = document.getElementById('doorpiUserSwitchLogout');
+            if (logoutOverlay) {
+                logoutOverlay.classList.remove('visible');
+                setTimeout(() => {
+                    if (!logoutOverlay.classList.contains('visible')) {
+                        logoutOverlay.style.display = 'none';
+                    }
+                }, 300);
+            }
             if (shouldRestartAudio) window._restartSystemAudioForNewSession?.();
+            window._doorpiSessionTransitionBlockUntil = Date.now() + 450;
+            window._userSwitching = false;
+            return;
+        }
+
+        const minVisibleMs = Number.isFinite(data.minVisibleMs)
+            ? data.minVisibleMs
+            : (data.mode === 'delete' ? 900 : 550);
+        const elapsed = performance.now() - (window._userSwitchStartedAt || performance.now());
+        if (!data._delayed && elapsed < minVisibleMs) {
+            setTimeout(() => _userSwitchFadeIn({ ...data, _delayed: true }), minVisibleMs - elapsed);
             return;
         }
 
         const wrap = document.querySelector('.main-content-wrapper');
-        if (!wrap) return;
+        if (!wrap) {
+            const logoutOverlay = document.getElementById('doorpiUserSwitchLogout');
+            if (logoutOverlay) {
+                logoutOverlay.classList.remove('visible');
+                logoutOverlay.style.display = 'none';
+            }
+            if (shouldRestartAudio) window._restartSystemAudioForNewSession?.();
+            window._doorpiSessionTransitionBlockUntil = Date.now() + 450;
+            window._userSwitching = false;
+            return;
+        }
 
         wrap.style.setProperty('transition', 'none', 'important');
         wrap.style.opacity = '0';
@@ -5812,6 +5873,7 @@ function renderFolderList(folders) {
         setTimeout(() => {
             wrap.style.removeProperty('transition');
             wrap.style.transform = '';
+            window._doorpiSessionTransitionBlockUntil = Date.now() + 450;
             window._userSwitching = false;
         }, 320);
     }

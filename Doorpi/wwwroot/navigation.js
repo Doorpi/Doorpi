@@ -1074,6 +1074,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         const isSessionConflict = window.isSessionConflictPopupOpen?.() === true;
         const isGameFocusFallback = window.isGameFocusFallbackPopupOpen?.() === true;
 
+        if (window.isDoorpiSessionTransitionActive?.()) return;
         if (window.isGlobalLoading || (!isWaitingLaunch && !isExecutionLock && !isSessionConflict && !isGameFocusFallback && (window.isMediaAppActive || isDoorpiGameInputSuppressed())) || !document.hasFocus()) return;
 
         const { GAMEPAD } = NAV, buttons = gamepad.buttons;

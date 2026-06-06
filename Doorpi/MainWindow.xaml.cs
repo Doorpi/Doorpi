@@ -1697,6 +1697,7 @@ namespace Doorpi
                 StopWatchers();
                 ResetCurrentUserContext();
                 DeleteCurrentUserRootFiles();
+                _interactiveUserSessionStarted = false;
 
                 if (users.Count > 0)
                 {

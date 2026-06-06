@@ -2623,7 +2623,7 @@ window.isNavMenuOpen = false;
 
     // ── Abrir / Fechar ────────────────────────────────────────────────────────
     async function open(startIdx = 0) {
-        if (window.isNavMenuOpen) return;
+        if (window.isNavMenuOpen || window.isDoorpiSessionTransitionActive?.()) return;
         window.isNavMenuOpen = true;
 
         document.body.classList.add('nav-menu-active');
@@ -2699,6 +2699,12 @@ window.isNavMenuOpen = false;
     };
 
     document.addEventListener('keydown', e => {
+        if (window.isDoorpiSessionTransitionActive?.()) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            return;
+        }
+
         if (window.isDesktopWarningOpen) {
             e.preventDefault();
             e.stopImmediatePropagation();
