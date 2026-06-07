@@ -239,7 +239,8 @@ function findWrapCandidate(items, current, direction) {
 
 function findVkbCandidate(items, current, direction) {
     const curKey = current.dataset?.key;
-    if (VKB_BOTTOM_KEYS.includes(curKey) && (direction === 'LEFT' || direction === 'RIGHT')) {
+    const hasTextBottomRow = items.some(el => el.dataset?.key === 'space');
+    if (hasTextBottomRow && VKB_BOTTOM_KEYS.includes(curKey) && (direction === 'LEFT' || direction === 'RIGHT')) {
         const order = ['space', 'cancel', 'ok'];
         const idx = order.indexOf(curKey);
         const nextIdx = direction === 'RIGHT' ? idx + 1 : idx - 1;
@@ -254,7 +255,7 @@ function findVkbCandidate(items, current, direction) {
     let best = null, bestScore = Infinity;
     items.forEach(item => {
         if (item === current) return;
-        if (VKB_BOTTOM_KEYS.includes(item.dataset?.key) && direction !== 'DOWN') return;
+        if (hasTextBottomRow && VKB_BOTTOM_KEYS.includes(item.dataset?.key) && direction !== 'DOWN') return;
         const r = item.getBoundingClientRect();
         const icx = r.left + r.width / 2, icy = r.top + r.height / 2;
         let primary = 0, lateral = 0, valid = false;

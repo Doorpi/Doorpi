@@ -2061,6 +2061,7 @@
                 const heroSnapHoriz = document.getElementById('heroImage')?.src || '';
 
                 if (window.AppStore) window.AppStore.mutations.setBatch('games', data.games || []);
+                window._navMenuDataChanged?.('games');
 
                 // Se estava na mídia, devolve o hero que estava ativo
                 if (wasOnMedia && heroSnapSrc) {
@@ -2281,13 +2282,21 @@
                 if (data.imageType === 'LogoStatic') patch.staticLogo = data.newUrl;
 
                 // Avisamos o Store da mudança. O Store avisa o Grid, e a imagem é atualizada sem piscar.
-                if (window.AppStore.queries.hasItem('games', data.gameId)) {
+                const hasGame = window.AppStore.queries.hasItem('games', data.gameId)
+                    || window.AppStore.queries.isArtworkPending?.('games', data.gameId);
+                const hasMedia = window.AppStore.queries.hasItem('media', data.gameId)
+                    || window.AppStore.queries.isArtworkPending?.('media', data.gameId);
+
+                if (hasGame) {
                     window.AppStore.mutations.patchItem('games', data.gameId, patch);
-                } else if (window.AppStore.queries.hasItem('media', data.gameId)) {
+                    if (data.imageType === 'GridStatic') window._navMenuDataChanged?.('games');
+                } else if (hasMedia) {
                     window.AppStore.mutations.patchItem('media', data.gameId, patch);
+                    if (data.imageType === 'GridStatic') window._navMenuDataChanged?.('media');
                 }
             }
             else if (data.type === 'clearMediaGrid') {
+                if (window.AppStore) window.AppStore.mutations.setBatch('media', []);
                 const grid = document.getElementById('mediaGrid');
                 if (grid) {
                     const btnAdd = document.getElementById('btnAddMedia');
@@ -2296,7 +2305,26 @@
                 }
             }
             else if (data.type === 'currentUserUpdated') {
+                const nextUserId = data.currentUserId || data.user?.Id || data.user?.id || '';
+                const userChanged = !!nextUserId && String(nextUserId).toLowerCase() !== String(window._doorpiCurrentUserId || '').toLowerCase();
+                if (userChanged) {
+                    window.newGameIdsThisSession?.clear?.();
+                    window.AppStore?.mutations?.clearNewIds?.();
+                    document.querySelectorAll('.new-game').forEach(el => el.classList.remove('new-game'));
+                }
                 window._doorpiProfile = data.user;
+                if (nextUserId) window._doorpiCurrentUserId = nextUserId;
+                window._doorpiIsAdmin = !!data.isAdmin || !!(data.user?.IsAdmin || data.user?.isAdmin);
+                window._adminBlockedStoreIds = new Set(data.blockedStoreIds || []);
+                window._steamForceAccountSelection = !!data.steamForceAccountSelection;
+                window._navMenuCurrentUserChanged?.(data.user, nextUserId, userChanged);
+                if (window._pendingUserSwitchId && String(window._pendingUserSwitchId).toLowerCase() === String(nextUserId || '').toLowerCase()) {
+                    closeUserPinPrompt();
+                    const picker = document.getElementById('doorpiUserPicker');
+                    if (picker) picker.style.display = 'none';
+                    window._pendingUserSwitchId = '';
+                    window.DoorpiIntro?.finishHandoff?.();
+                }
                 const btn = document.getElementById('btnTopProfile');
                 if (btn) {
                     const u = data.user;
@@ -2353,6 +2381,15 @@
                     runningName: data.name || ''
                 });
             }
+            else if (data.type === 'adminPolicyBlocked') {
+                const title = data.kind === 'admin-delete'
+                    ? (typeof t === 'function' ? t('adminDeleteBlockedTitle', 'Conta administradora') : 'Conta administradora')
+                    : (typeof t === 'function' ? t('adminBlockedTitle', 'Bloqueado pelo administrador') : 'Bloqueado pelo administrador');
+                const subtitle = data.kind === 'admin-delete'
+                    ? (typeof t === 'function' ? t('adminDeleteBlockedSubtitle', 'A conta administradora não pode ser removida.') : 'A conta administradora não pode ser removida.')
+                    : (typeof t === 'function' ? t('adminBlockedSubtitle', 'Esta loja foi privada para esta conta.') : 'Esta loja foi privada para esta conta.');
+                window.showDoorpiToast?.(title, subtitle);
+            }
             else if (data.type === 'gameFocusFallbackPrompt') {
                 window.showGameFocusFallbackPopup?.({
                     id: data.id || '',
@@ -2390,6 +2427,13 @@
                 window._doorpiUsers = data.users || [];
                 window._doorpiCurrentUserId = data.currentUserId || '';
                 window._doorpiUsersDataReady?.(window._doorpiUsers, window._doorpiCurrentUserId);
+            }
+            else if (data.type === 'userPinRejected') {
+                const shown = setUserPinError(t('pinPromptInvalid'));
+                if (!shown) {
+                    window._pendingUserSwitchId = '';
+                    window.showDoorpiToast?.(t('pinPromptInvalid'), '');
+                }
             }
             else if (data.type === 'clipboardText') {
                 if (data.text?.trim()) {
@@ -2629,10 +2673,12 @@
             window._storesHandleMessage?.(data);
 
             if ((data.type === 'libraryRevalidated' || data.type === 'newGamesDetected') && Array.isArray(data.games)) {
-                data.games.filter(g => g.autoAdded).forEach(game => {
+                const autoAddedGames = data.games.filter(g => g.autoAdded);
+                autoAddedGames.forEach(game => {
                     const id = game.LaunchUrl || game.launchUrl || game.Path || game.path;
                     if (id) window.newGameIdsThisSession?.add(id);
                 });
+                if (autoAddedGames.length > 0) window._navMenuDataChanged?.('games');
             }
             else if (data.type === 'storeAutoAddSettings' && data.storeAutoAdd) {
                 window._storeAutoAddSettings = data.storeAutoAdd;
@@ -2808,6 +2854,26 @@
         .doorpi-status.success { color: rgba(110,230,150,.95); }
         .doorpi-share-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
         .doorpi-shared-note { font-size: .85rem; color: rgba(120,190,255,.9); margin-top: 8px; }
+        .doorpi-pin-panel { position: fixed; inset: 0; z-index: 10002; display: flex; align-items: center; justify-content: center; padding: clamp(40px, 6vh, 76px) clamp(24px, 5vw, 64px) clamp(260px, 34vh, 380px); box-sizing: border-box; background: rgba(5,6,12,.72); backdrop-filter: blur(34px) saturate(1.35); -webkit-backdrop-filter: blur(34px) saturate(1.35); }
+        .doorpi-pin-box { width: min(520px, 92vw); display: flex; flex-direction: column; align-items: center; gap: clamp(14px, 1.8vh, 24px); color: #fff; text-align: center; animation: doorpiCardRise .26s cubic-bezier(.16,1,.3,1) backwards; }
+        .doorpi-pin-identity { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+        .doorpi-pin-avatar { width: clamp(92px, 8vw, 128px); height: clamp(92px, 8vw, 128px); border-radius: 50%; overflow: hidden; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.075); border: 2px solid rgba(255,255,255,.18); color: rgba(255,255,255,.72); font-size: clamp(28px, 3vw, 44px); box-shadow: 0 18px 46px rgba(0,0,0,.34); }
+        .doorpi-pin-avatar img { width: 100%; height: 100%; object-fit: cover; }
+        .doorpi-pin-title { margin: 0; color: #fff; font-size: clamp(1.55rem, 2.2vw, 2.7rem); font-weight: 520; letter-spacing: 0; }
+        .doorpi-pin-sub { margin: -8px 0 0; color: rgba(255,255,255,.48); font-size: clamp(.92rem, 1vw, 1.15rem); line-height: 1.35; }
+        .doorpi-pin-dots { display: flex; justify-content: center; gap: clamp(16px, 2vw, 28px); margin: clamp(2px, 1vh, 12px) 0 0; min-height: clamp(48px, 4.8vw, 70px); padding: 8px 18px; border: 0; background: transparent; outline: none; }
+        .doorpi-pin-dot { width: clamp(17px, 1.55vw, 27px); height: clamp(17px, 1.55vw, 27px); border-radius: 50%; border: 2px solid rgba(255,255,255,.45); background: transparent; box-shadow: 0 0 0 0 rgba(255,255,255,0); transition: background .12s, border-color .12s, transform .12s, box-shadow .12s; }
+        .doorpi-pin-dot.filled { background: #fff; border-color: #fff; transform: scale(1.06); box-shadow: 0 0 24px rgba(255,255,255,.28); }
+        .doorpi-pin-dots:focus .doorpi-pin-dot.focused, .doorpi-pin-dots.nav-focused-el .doorpi-pin-dot.focused { border-color: #fff; box-shadow: 0 0 0 6px rgba(255,255,255,.14), 0 0 22px rgba(255,255,255,.22); transform: scale(1.14); }
+        .doorpi-pin-panel.pin-error .doorpi-pin-dot.error { animation: doorpiPinShake .28s cubic-bezier(.36,.07,.19,.97); background: rgba(255,95,95,.95); border-color: rgba(255,135,135,.98); box-shadow: 0 0 24px rgba(255,75,75,.36); }
+        @keyframes doorpiPinShake { 0%,100% { transform: translateX(0); } 20% { transform: translateX(-10px); } 40% { transform: translateX(8px); } 60% { transform: translateX(-5px); } 80% { transform: translateX(4px); } }
+        .doorpi-pin-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+        .doorpi-pin-error { min-height: 22px; color: rgba(255,120,120,.95); font-size: clamp(.9rem, .95vw, 1.05rem); }
+        .doorpi-pin-actions { display: flex; gap: 12px; justify-content: center; margin-top: 2px; }
+        .doorpi-pin-actions .doorpi-manager-btn { min-width: 104px; min-height: 42px; border-radius: 999px; background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.14); color: rgba(255,255,255,.72); padding: 10px 18px; }
+        .doorpi-pin-actions .doorpi-manager-btn.primary { background: rgba(255,255,255,.92); color: #080812; }
+        .doorpi-pin-actions .doorpi-manager-btn:focus, .doorpi-pin-actions .doorpi-manager-btn:hover { border-color: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,.18); color: #fff; }
+        .doorpi-pin-actions .doorpi-manager-btn.primary:focus, .doorpi-pin-actions .doorpi-manager-btn.primary:hover { color: #080812; box-shadow: 0 0 0 3px rgba(255,255,255,.22), 0 12px 30px rgba(0,0,0,.28); }
 
     /* USER CARDS STYLES */
     .doorpi-user-grid {
@@ -3005,6 +3071,139 @@
         return `<div class="doorpi-avatar">${user.PhotoBase64 ? `<img src="data:image/png;base64,${user.PhotoBase64}" />` : `<svg viewBox="0 0 24 24" width="40" height="40" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`}</div>`;
     }
 
+    function closeUserPinPrompt() {
+        window._vkbForceClose?.();
+        document.getElementById('doorpiUserPinPrompt')?.remove();
+    }
+
+    function updateUserPinDots(prompt, value, markError = false) {
+        const len = String(value || '').length;
+        const focusIdx = Math.min(3, len);
+        prompt?.querySelectorAll('.doorpi-pin-dot').forEach((dot, idx) => {
+            dot.classList.toggle('filled', idx < len);
+            dot.classList.toggle('focused', idx === focusIdx);
+            dot.classList.toggle('error', !!markError && idx < Math.max(1, len));
+        });
+    }
+
+    function setUserPinError(message) {
+        const prompt = document.getElementById('doorpiUserPinPrompt');
+        if (!prompt) return false;
+        prompt.dataset.submitting = 'false';
+        prompt.classList.remove('pin-error');
+        void prompt.offsetWidth;
+        prompt.classList.add('pin-error');
+        window._pendingUserSwitchId = '';
+        const error = prompt.querySelector('#doorpiUserPinError');
+        const input = prompt.querySelector('#doorpiUserPinInput');
+        if (error) error.textContent = message || '';
+        if (input) {
+            const failedPin = String(input.value || '').replace(/\D/g, '').slice(0, 4);
+            updateUserPinDots(prompt, failedPin, true);
+            input.value = '';
+            setTimeout(() => {
+                input.focus();
+                window._vkbOpen?.(input, input._doorpiPinCallbacks || { mode: 'numeric' });
+            }, window._vkbIsOpen ? 0 : 380);
+        }
+        setTimeout(() => {
+            prompt.classList.remove('pin-error');
+            updateUserPinDots(prompt, '');
+        }, 360);
+        return true;
+    }
+
+    function showUserPinPrompt(user) {
+        closeUserPinPrompt();
+        const prompt = document.createElement('div');
+        prompt.id = 'doorpiUserPinPrompt';
+        prompt.className = 'doorpi-pin-panel';
+        const pinAvatar = user.PhotoBase64
+            ? `<img src="data:image/png;base64,${user.PhotoBase64}" />`
+            : escapeHtml((user.Name || '?').charAt(0).toUpperCase());
+        prompt.innerHTML = `
+            <div class="doorpi-pin-box">
+                <div class="doorpi-pin-identity">
+                    <div class="doorpi-pin-avatar">${pinAvatar}</div>
+                    <h3 class="doorpi-pin-title">${escapeHtml(user.Name || '')}</h3>
+                    <p class="doorpi-pin-sub">${t('pinPromptTitle')}</p>
+                </div>
+                <button class="doorpi-pin-dots" id="doorpiUserPinDots" type="button" tabindex="0" aria-label="${escapeHtml(t('pinPromptTitle'))}">
+                    <span class="doorpi-pin-dot"></span>
+                    <span class="doorpi-pin-dot"></span>
+                    <span class="doorpi-pin-dot"></span>
+                    <span class="doorpi-pin-dot"></span>
+                </button>
+                <input class="doorpi-pin-input" id="doorpiUserPinInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" readonly tabindex="0" />
+                <div class="doorpi-pin-error" id="doorpiUserPinError"></div>
+                <div class="doorpi-pin-actions">
+                    <button class="doorpi-manager-btn" id="doorpiUserPinCancel" tabindex="0">${t('vkbCancel')}</button>
+                    <button class="doorpi-manager-btn primary" id="doorpiUserPinOk" tabindex="0">${t('vkbOk')}</button>
+                </div>
+            </div>`;
+        document.body.appendChild(prompt);
+
+        const input = prompt.querySelector('#doorpiUserPinInput');
+        const dotsBtn = prompt.querySelector('#doorpiUserPinDots');
+        const submit = () => {
+            if (prompt.dataset.submitting === 'true') return;
+            const pin = String(input.value || '').replace(/\D/g, '').slice(0, 4);
+            if (pin.length < 4) {
+                setUserPinError(t('pinPromptEmpty'));
+                return;
+            }
+            prompt.dataset.submitting = 'true';
+            window._pendingUserSwitchId = user.Id;
+            input._doorpiVkbReturnFocus = null;
+            window._vkbForceClose?.();
+            postToHost({ action: 'selectUser', userId: user.Id, pin });
+        };
+        const cancel = () => {
+            closeUserPinPrompt();
+            Array.from(document.querySelectorAll('.doorpi-user-card[data-user-id]'))
+                .find(card => String(card.dataset.userId) === String(user.Id))
+                ?.focus();
+        };
+
+        input._doorpiPinCallbacks = {
+            mode: 'numeric',
+            onOk: submit,
+            onCancel: cancel
+        };
+        const openPinKeyboard = () => {
+            if (prompt.dataset.submitting === 'true') return;
+            input.focus();
+            input._doorpiVkbReturnFocus = dotsBtn;
+            window._vkbOpen?.(input, input._doorpiPinCallbacks);
+        };
+        prompt.querySelector('#doorpiUserPinOk')?.addEventListener('click', submit);
+        prompt.querySelector('#doorpiUserPinCancel')?.addEventListener('click', cancel);
+        dotsBtn?.addEventListener('click', openPinKeyboard);
+        dotsBtn?.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                openPinKeyboard();
+            }
+        });
+        input.addEventListener('input', () => {
+            const digits = String(input.value || '').replace(/\D/g, '').slice(0, 4);
+            if (input.value !== digits) input.value = digits;
+            updateUserPinDots(prompt, digits);
+            if (digits.length === 4) submit();
+        });
+        updateUserPinDots(prompt, '');
+        prompt.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' || e.key === 'Backspace') {
+                e.preventDefault();
+                cancel();
+            }
+        }, true);
+
+        requestAnimationFrame(() => {
+            openPinKeyboard();
+        });
+    }
+
     function showUserPicker(users, requireSelection = false) {
         if (window.DoorpiIntro?.shouldDeferUserPicker?.()) {
             window.DoorpiIntro.runAfterIntro(() => showUserPicker(users, requireSelection));
@@ -3155,8 +3354,13 @@
 
         overlay.querySelectorAll('[data-user-id]').forEach(btn => {
             btn.addEventListener('click', () => {
+                const user = users.find(u => String(u.Id) === String(btn.dataset.userId));
+                if (user?.HasPin || user?.hasPin) {
+                    showUserPinPrompt(user);
+                    return;
+                }
+                window._pendingUserSwitchId = btn.dataset.userId;
                 postToHost({ action: 'selectUser', userId: btn.dataset.userId });
-                hidePicker();
             });
         });
         overlay.querySelector('#doorpiCreateUserCard')?.addEventListener('click', () => {
@@ -3227,13 +3431,14 @@
     window.openCreateUserDialog = openCreateUserDialog;
 
     window.isDoorpiOverlayOpen = function () {
-        return Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay'))
+        return Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay, .doorpi-pin-panel'))
             .some(el => el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
     };
 
     document.addEventListener('focusin', (e) => {
+        if (e.target?.closest?.('.vkb-overlay, .doorpi-vkb-overlay')) return;
         if (window.isDoorpiOverlayOpen && window.isDoorpiOverlayOpen()) {
-            const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay'))
+            const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay, .doorpi-pin-panel'))
                 .filter(el => el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
             const topOverlay = overlays.at(-1);
 
@@ -3247,7 +3452,7 @@
     });
 
     window.getDoorpiOverlayItems = function () {
-        const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay'))
+        const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay, .doorpi-pin-panel'))
             .filter(el => el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
         const top = overlays.at(-1);
         if (!top) return [];
@@ -3256,7 +3461,7 @@
     };
 
     window.closeDoorpiTopOverlay = function (force = false) {
-        const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay'))
+        const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay, .doorpi-pin-panel'))
             .filter(el => el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
         const top = overlays.at(-1);
         if (!force && top?.dataset.required === 'true') return;
@@ -3669,14 +3874,15 @@ document.getElementById('btnAddMedia')?.addEventListener('click', () => {
             const size = app.Size ?? app.size;
             const launch = app.LaunchUrl || app.launchUrl || '';
             const source = app.Source || app.source;
+            const isAdminLocked = app.IsAdminLocked === true || app.isAdminLocked === true;
             const addState = app.AddState || app.addState || '';
             const isPreparing = addState === 'preparing' || (app.AddedTo || app.addedTo) === 'preparing-game';
             const stateLabel = isPreparing ? 'Preparando capa' : (isAdded ? 'Já adicionado' : '');
 
             return `
-            <div class="app-item ${isAdded ? 'already-added' : ''} ${isPreparing ? 'preparing-artwork' : ''}" ${isAdded ? '' : 'tabindex="0"'}
+            <div class="app-item ${isAdded ? 'already-added' : ''} ${isAdminLocked ? 'already-added admin-locked' : ''} ${isPreparing ? 'preparing-artwork' : ''}" ${isAdded || isAdminLocked ? '' : 'tabindex="0"'}
                  data-path="${path.replace(/\\/g, '\\\\')}" data-launch="${launch}"
-                 data-name="${name.replace(/"/g, '&quot;')}">
+                 data-name="${name.replace(/"/g, '&quot;')}" data-source="${source || ''}">
                 ${icon ? `<img class="app-icon" src="data:image/png;base64,${icon}" />` : ''}
                 <div class="app-item-info">
                     <span class="app-name">${name}</span>
@@ -3727,7 +3933,7 @@ document.getElementById('btnAddMedia')?.addEventListener('click', () => {
 
             // Lógica normal se estivermos na aba de JOGOS (view-apps)
             const selected = Array.from(appList.querySelectorAll('.app-item.selected')).map(el => ({
-                Name: el.dataset.name, Path: el.dataset.path, LaunchUrl: el.dataset.launch,
+                Name: el.dataset.name, Path: el.dataset.path, LaunchUrl: el.dataset.launch, Source: el.dataset.source || '',
             }));
 
             if (selected.length > 0) {
@@ -3840,6 +4046,47 @@ function renderFolderList(folders) {
             tmp.src = blobUrl;
         });
     }
+
+    window.requestStaticFrameExtraction = async function ({ gameId, entityId, src, imageType }) {
+        const id = entityId || gameId;
+        if (!id || !src || !imageType) return false;
+
+        const blob = await getAnimatedBlob(src);
+        if (!blob) return false;
+
+        return new Promise(resolve => {
+            const tmp = new Image();
+            const blobUrl = URL.createObjectURL(blob);
+            let settled = false;
+
+            const finish = (ok) => {
+                if (settled) return;
+                settled = true;
+                URL.revokeObjectURL(blobUrl);
+                resolve(!!ok);
+            };
+
+            tmp.onload = () => {
+                try {
+                    const c = document.createElement('canvas');
+                    c.width = tmp.naturalWidth;
+                    c.height = tmp.naturalHeight;
+                    c.getContext('2d').drawImage(tmp, 0, 0);
+                    postToHost({
+                        action: 'saveStaticFrame',
+                        gameId: id,
+                        imageType,
+                        base64: c.toDataURL('image/png')
+                    });
+                    finish(true);
+                } catch (_) {
+                    finish(false);
+                }
+            };
+            tmp.onerror = () => finish(false);
+            tmp.src = blobUrl;
+        });
+    };
 
 
     function moveCardToTop(card) {
@@ -4442,7 +4689,7 @@ function renderFolderList(folders) {
         .vkb-overlay {
             position: fixed;
             bottom: 0; left: 0; right: 0;
-            z-index: 10001;
+            z-index: 10005;
             padding: 0 clamp(24px, 4vw, 80px) clamp(24px, 3vh, 48px);
             background: linear-gradient(to top, rgba(5,5,10,1) 65%, rgba(5,5,10,0.96) 85%, transparent 100%);
             transform: translateY(100%);
@@ -4488,6 +4735,22 @@ function renderFolderList(folders) {
             gap: clamp(4px, 0.5vh, 7px) clamp(4px, 0.38vw, 6px);
             width: fit-content;
             margin: 0 auto;
+        }
+        .vkb-overlay.numeric .vkb-grid {
+            grid-template-columns: repeat(3, clamp(64px, 5.6vw, 120px));
+        }
+        .vkb-overlay.numeric .vkb-key {
+            width: clamp(64px, 5.6vw, 120px);
+            height: clamp(54px, 5.2vw, 86px);
+            font-size: clamp(18px, 1.8vw, 28px);
+            font-weight: 650;
+        }
+        .vkb-overlay.numeric .vkb-key[data-key="cancel"],
+        .vkb-overlay.numeric .vkb-key[data-key="ok"] {
+            grid-column: span 1;
+            width: clamp(64px, 5.6vw, 120px);
+            height: clamp(54px, 5.2vw, 86px);
+            font-size: clamp(12px, 1.1vw, 16px);
         }
 
         .vkb-key {
@@ -4552,6 +4815,12 @@ function renderFolderList(folders) {
             background: rgb(50,110,255); color: #fff;
             border-color: transparent;
             box-shadow: 0 8px 28px rgba(50,110,255,0.55), 0 0 0 2px rgba(50,110,255,0.4);
+        }
+        .vkb-overlay.numeric .vkb-key[data-key="cancel"],
+        .vkb-overlay.numeric .vkb-key[data-key="ok"] {
+            grid-column: span 1 !important;
+            width: clamp(64px, 5.6vw, 120px) !important;
+            height: clamp(54px, 5.2vw, 86px) !important;
         }
         .vkb-key[data-key="⌫"]     { color: rgba(255,110,110,0.85); font-size: clamp(16px,1.7vw,23px); }
         .vkb-key[data-key="⌫"]:focus { color: #b00; }
@@ -5347,6 +5616,13 @@ function renderFolderList(folders) {
             'shift', 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.',
             'space', 'cancel', 'ok',
         ];
+        const NUMERIC_KEYS = [
+            '1', '2', '3',
+            '4', '5', '6',
+            '7', '8', '9',
+            '⌫', '0', 'ok',
+            'cancel'
+        ];
 
         let _el = null;
         let _callbacks = {};
@@ -5354,6 +5630,7 @@ function renderFolderList(folders) {
         let _shifted = true;
         let _inputEl = null;
         let _cursorPos = 0;
+        let _mode = 'text';
 
         function _build() {
             if (_el) return;
@@ -5384,14 +5661,38 @@ function renderFolderList(folders) {
             });
         }
 
+        function _renderKeys(mode) {
+            if (!_el) return;
+            _mode = mode === 'numeric' ? 'numeric' : 'text';
+            _el.classList.toggle('numeric', _mode === 'numeric');
+            const grid = _el.querySelector('.vkb-grid');
+            if (!grid) return;
+
+            const dynamicLabels = { '⌫': '⌫', shift: '⇧', space: t('vkbSpace'), cancel: t('vkbCancel'), ok: t('vkbOk') };
+            const keys = _mode === 'numeric' ? NUMERIC_KEYS : FLAT_KEYS;
+            grid.innerHTML = keys.map(k => {
+                const lbl = dynamicLabels[k] ?? k;
+                return `<button class="vkb-key" data-key="${k}" tabindex="0">${lbl}</button>`;
+            }).join('');
+
+            grid.querySelectorAll('.vkb-key').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    _pressKey(btn.dataset.key);
+                });
+            });
+        }
+
         function _syncCursorToInput() {
             if (!_inputEl) return;
-            _inputEl.setSelectionRange(_cursorPos, _cursorPos);
+            try { _inputEl.setSelectionRange(_cursorPos, _cursorPos); } catch (_) { }
         }
 
         function _insertText(text) {
             if (!_inputEl) return;
             let val = _inputEl.value;
+            const maxLen = Number.parseInt(_inputEl.getAttribute('maxlength') || '', 10);
+            if (Number.isFinite(maxLen) && maxLen > 0 && val.length + text.length > maxLen) return;
             _inputEl.value = val.substring(0, _cursorPos) + text + val.substring(_cursorPos);
             _cursorPos += text.length;
             _syncCursorToInput();
@@ -5407,6 +5708,7 @@ function renderFolderList(folders) {
 
         function _pressKey(key) {
             if (!_inputEl) return;
+            if (_mode === 'numeric' && !/^\d$/.test(key) && key !== '⌫' && key !== 'ok' && key !== 'cancel') return;
 
             if (key === '⌫') { _deleteText(); }
             else if (key === 'shift') { _setShiftVisual(!_shifted); return; }
@@ -5433,9 +5735,10 @@ function renderFolderList(folders) {
             const el = document.getElementById('vkbPreview');
             if (!el || !_inputEl) return;
             const val = _inputEl.value || '';
+            const previewVal = _inputEl.type === 'password' ? '*'.repeat(val.length) : val;
             const formatHtml = (text) => _esc(text).replace(/ /g, '&nbsp;');
-            const left = val.substring(0, _cursorPos);
-            const right = val.substring(_cursorPos);
+            const left = previewVal.substring(0, _cursorPos);
+            const right = previewVal.substring(_cursorPos);
             el.innerHTML = `${formatHtml(left)}<span class="vkb-cursor"></span>${formatHtml(right)}`;
         }
 
@@ -5460,20 +5763,22 @@ function renderFolderList(folders) {
 
         function _open(targetInput, callbacks = {}) {
             _callbacks = callbacks;
-            _returnFocusEl = targetInput ?? document.activeElement;
+            _returnFocusEl = targetInput?._doorpiVkbReturnFocus || targetInput || document.activeElement;
             _inputEl = targetInput || document.getElementById('editNameInput');
 
             if (!_inputEl) return;
             _build();
+            _renderKeys(callbacks.mode || (window._vkbIsNumericInput?.(_inputEl) ? 'numeric' : 'text'));
 
             if (_el) {
                 _el.querySelector('.vkb-preview-label').textContent = t('vkbPreviewLabel');
-                _el.querySelector('[data-key="space"]').textContent = t('vkbSpace');
+                const spaceKey = _el.querySelector('[data-key="space"]');
+                if (spaceKey) spaceKey.textContent = t('vkbSpace');
                 _el.querySelector('[data-key="cancel"]').textContent = t('vkbCancel');
                 _el.querySelector('[data-key="ok"]').textContent = t('vkbOk');
             }
 
-            _setShiftVisual(_shifted);
+            if (_mode === 'text') _setShiftVisual(_shifted);
             _cursorPos = _inputEl.value.length;
             _inputEl.classList.add('vkb-active');
             if (typeof _editOverlay !== 'undefined' && _editOverlay) _editOverlay.classList.add('vkb-active');
@@ -5485,7 +5790,7 @@ function renderFolderList(folders) {
             requestAnimationFrame(() => {
                 _el.classList.add('visible');
                 window._vkbIsOpen = true;
-                _el.querySelector('[data-key="q"]')?.focus();
+                _el.querySelector(`[data-key="${_mode === 'numeric' ? '1' : 'q'}"]`)?.focus();
             });
         }
 
@@ -5507,7 +5812,10 @@ function renderFolderList(folders) {
         function _physicalKey(key) {
             if (!_inputEl) return;
             if (key === 'Backspace') { _deleteText(); }
-            else if (key.length === 1) { _insertText(key); }
+            else if (key.length === 1) {
+                if (_mode === 'numeric' && !/^\d$/.test(key)) return;
+                _insertText(key);
+            }
             _inputEl.dispatchEvent(new Event('input', { bubbles: true }));
             _renderPreview();
         }
@@ -5519,9 +5827,24 @@ function renderFolderList(folders) {
     })();
 
     const _TEXT_INPUT_TYPES = new Set(['text', 'search', 'email', 'password', 'url', 'tel', '']);
+    const _NUMERIC_INPUT_TYPES = new Set(['number']);
+    window._vkbIsNumericInput = (el) => {
+        if (!el || el.tagName !== 'INPUT') return false;
+        const type = (el.type || '').toLowerCase();
+        const inputMode = (el.getAttribute('inputmode') || '').toLowerCase();
+        return _NUMERIC_INPUT_TYPES.has(type)
+            || inputMode === 'numeric'
+            || inputMode === 'decimal'
+            || el.dataset?.vkbMode === 'numeric';
+    };
     window._vkbOpen = (el, callbacks) => {
-        if (el && el.tagName === 'INPUT' && !_TEXT_INPUT_TYPES.has((el.type || '').toLowerCase())) return;
-        VKB.open(el, callbacks);
+        if (el && el.tagName === 'INPUT') {
+            const type = (el.type || '').toLowerCase();
+            if (!_TEXT_INPUT_TYPES.has(type) && !window._vkbIsNumericInput(el)) return;
+        }
+        const opts = { ...(callbacks || {}) };
+        if (!opts.mode && window._vkbIsNumericInput(el)) opts.mode = 'numeric';
+        VKB.open(el, opts);
     };
     window._vkbCancel = () => VKB.cancel();
     window._vkbForceClose = () => VKB.forceClose();
@@ -5536,6 +5859,16 @@ function renderFolderList(folders) {
         const el = document.activeElement;
         return el && el.classList.contains('vkb-key');
     };
+
+    const _tryOpenNumericVkb = (target) => {
+        const input = target?.closest?.('input');
+        if (!input || !window._vkbIsNumericInput?.(input)) return;
+        if (input.closest?.('.vkb-overlay')) return;
+        if (window._vkbIsOpen) return;
+        input.removeAttribute('readonly');
+        window._vkbOpen?.(input, { mode: 'numeric' });
+    };
+    document.addEventListener('click', (e) => _tryOpenNumericVkb(e.target), true);
 
     function _esc(str) {
         return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');

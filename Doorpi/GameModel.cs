@@ -28,5 +28,6 @@ namespace Doorpi
         public bool IsPendingArtwork { get; set; } = false;
         public bool AutoAddedByBootstrap { get; set; } = false;
         public string ArtworkSource { get; set; } = "";
+        public string Source { get; set; } = "";
     }
 }

@@ -90,6 +90,9 @@ function hideStoreSessionMenu() {
 
 window._storesHandleMessage = (data) => {
     if (data.type === 'storesAppsLoaded' && Array.isArray(data.apps)) {
+        window._doorpiIsAdmin = !!data.isAdmin;
+        window._adminBlockedStoreIds = new Set(data.blockedStoreIds || []);
+        window._steamForceAccountSelection = !!data.steamForceAccountSelection;
         if (window.AppStore) window.AppStore.mutations.setBatch('stores', data.apps);
     }
 

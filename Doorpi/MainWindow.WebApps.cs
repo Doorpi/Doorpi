@@ -808,10 +808,16 @@ namespace Doorpi
         if (!el) return false;
         if (el.tagName === 'INPUT') {{
             const t = (el.type||'').toLowerCase();
-            return['text','search','email','password','url','tel',''].includes(t);
+            return['text','search','email','password','url','tel',''].includes(t) || isNumericInput(el);
         }}
         return el.tagName === 'TEXTAREA' || el.isContentEditable ||
                (el.tagName === 'DIV' && el.getAttribute('role') === 'textbox');
+    }}
+    function isNumericInput(el) {{
+        if (!el || el.tagName !== 'INPUT') return false;
+        const t = (el.type||'').toLowerCase();
+        const mode = (el.getAttribute('inputmode')||'').toLowerCase();
+        return t === 'number' || mode === 'numeric' || mode === 'decimal' || el.dataset?.vkbMode === 'numeric';
     }}
 
     // ── Estilos ───────────────────────────────────────────────────────────────
@@ -835,6 +841,9 @@ namespace Doorpi
             '@keyframes doorpiVkbBlink{{0%,100%{{opacity:1}}50%{{opacity:0}}}}',
             '.doorpi-vkb-grid{{display:grid;grid-template-columns:repeat(10,clamp(42px,3.8vw,95px));',
             'gap:clamp(4px,0.5vh,7px) clamp(4px,0.38vw,6px);width:fit-content;margin:0 auto;}}',
+            '.doorpi-vkb-overlay.numeric .doorpi-vkb-grid{{grid-template-columns:repeat(3,clamp(64px,5.6vw,120px));}}',
+            '.doorpi-vkb-overlay.numeric .doorpi-vkb-key{{width:clamp(64px,5.6vw,120px);height:clamp(54px,5.2vw,86px);font-size:clamp(18px,1.8vw,28px);font-weight:650;}}',
+            '.doorpi-vkb-overlay.numeric .doorpi-vkb-key[data-key=cancel],.doorpi-vkb-overlay.numeric .doorpi-vkb-key[data-key=ok]{{grid-column:span 1;width:clamp(64px,5.6vw,120px);height:clamp(54px,5.2vw,86px);font-size:clamp(12px,1.1vw,16px);}}',
             '.doorpi-vkb-key{{width:clamp(42px,3.8vw,90px);height:clamp(42px,3.8vw,75px);padding:0;',
             'background:rgb(20 20 20);border:1px solid rgba(255,255,255,0.11);',
             'border-bottom:3px solid rgba(0,0,0,0.45);border-radius:clamp(7px,0.6vw,10px);',
@@ -857,6 +866,7 @@ namespace Doorpi
             'color:rgba(170,205,255,0.95);font-weight:650;font-size:clamp(12px,1.2vw,16px);width:100%;}}',
             '.doorpi-vkb-key[data-key=ok].focused{{background:rgb(50,110,255);color:#fff;border-color:transparent;',
             'box-shadow:0 8px 28px rgba(50,110,255,0.55),0 0 0 2px rgba(50,110,255,0.4);}}',
+            '.doorpi-vkb-overlay.numeric .doorpi-vkb-key[data-key=cancel],.doorpi-vkb-overlay.numeric .doorpi-vkb-key[data-key=ok]{{grid-column:span 1!important;width:clamp(64px,5.6vw,120px)!important;height:clamp(54px,5.2vw,86px)!important;}}',
             '.doorpi-vkb-key[data-key=shift]{{font-size:clamp(15px,1.6vw,22px);}}',
             '.doorpi-vkb-key[data-key=shift].shifted{{background:rgba(255,255,255,0.2);border-color:rgba(255,255,255,0.3);color:#fff;}}'
         ].join('');
@@ -868,6 +878,7 @@ namespace Doorpi
     const KEY_ROWS = [['1','2','3','4','5','6','7','8','9','0'],['q','w','e','r','t','y','u','i','o','p'],['a','s','d','f','g','h','j','k','l','\u232b'],['shift','z','x','c','v','b','n','m',',','.'],['@','_','-','/','?','!','+','*','.com','.br'],
         ['space','cancel','ok'],
     ];
+    const NUMERIC_KEY_ROWS = [['1','2','3'],['4','5','6'],['7','8','9'],['\u232b','0','ok'],['cancel']];
     const FLAT_KEYS  = KEY_ROWS.flat();
     const BOTTOM_KEYS = ['space','cancel','ok'];
     const LABELS = {{ '\u232b':'\u232b', shift:'\u21e7', space:'Espaço', cancel:'Cancelar', ok:'OK' }};
@@ -879,6 +890,7 @@ namespace Doorpi
     let _vkbCursorPos = 0;
     let _vkbFocusKey  = 'q';
     let _vkbClosing   = false;
+    let _vkbMode      = 'text';
 
     // ── Construção do DOM ─────────────────────────────────────────────────────
     function _vkbBuild() {{
@@ -907,6 +919,26 @@ namespace Doorpi
 
         _vkbEl.append(wrap, grid);
         document.body.appendChild(_vkbEl);
+    }}
+
+    function _vkbRenderKeys(mode) {{
+        _vkbMode = mode === 'numeric' ? 'numeric' : 'text';
+        if (!_vkbEl) return;
+        _vkbEl.classList.toggle('numeric', _vkbMode === 'numeric');
+        const grid = _vkbEl.querySelector('.doorpi-vkb-grid');
+        if (!grid) return;
+        const rows = _vkbMode === 'numeric' ? NUMERIC_KEY_ROWS : KEY_ROWS;
+        grid.innerHTML = '';
+        rows.flat().forEach(k => {{
+            const btn = document.createElement('button');
+            btn.className = 'doorpi-vkb-key';
+            btn.dataset.key = k; btn.tabIndex = -1;
+            btn.textContent = LABELS[k] || k;
+            if (k.length > 1 && !['shift','space','cancel','ok'].includes(k))
+                btn.style.fontSize = 'clamp(11px,1vw,15px)';
+            btn.addEventListener('pointerdown', e => {{ e.preventDefault(); if (_vkbFocusKey === null) return; _vkbPressKey(k); }});
+            grid.appendChild(btn);
+        }});
     }}
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -949,24 +981,26 @@ namespace Doorpi
     }}
 
     function _vkbMoveFocusInternal(dir) {{
-        if (!_vkbFocusKey) {{ _vkbSetFocus('q'); return; }}
+        if (!_vkbFocusKey) {{ _vkbSetFocus(_vkbMode === 'numeric' ? '1' : 'q'); return; }}
+        const rows = _vkbMode === 'numeric' ? NUMERIC_KEY_ROWS : KEY_ROWS;
+        const bottomKeys = _vkbMode === 'numeric' ? ['cancel'] : BOTTOM_KEYS;
         let rIdx = 0, cIdx = 0, found = false;
-        for (let r = 0; r < KEY_ROWS.length && !found; r++)
-            for (let c = 0; c < KEY_ROWS[r].length && !found; c++)
-                if (KEY_ROWS[r][c] === _vkbFocusKey) {{ rIdx = r; cIdx = c; found = true; }}
+        for (let r = 0; r < rows.length && !found; r++)
+            for (let c = 0; c < rows[r].length && !found; c++)
+                if (rows[r][c] === _vkbFocusKey) {{ rIdx = r; cIdx = c; found = true; }}
 
-        if (BOTTOM_KEYS.includes(_vkbFocusKey) && (dir === 'LEFT' || dir === 'RIGHT')) {{
-            const order =['space','cancel','ok'];
+        if (bottomKeys.includes(_vkbFocusKey) && (dir === 'LEFT' || dir === 'RIGHT')) {{
+            const order = _vkbMode === 'numeric' ? ['cancel'] : ['space','cancel','ok'];
             const next  = order.indexOf(_vkbFocusKey) + (dir === 'RIGHT' ? 1 : -1);
             if (next >= 0 && next < order.length) _vkbSetFocus(order[next]);
             return;
         }}
         if (dir === 'UP')    rIdx = Math.max(0, rIdx - 1);
-        if (dir === 'DOWN')  rIdx = Math.min(KEY_ROWS.length - 1, rIdx + 1);
+        if (dir === 'DOWN')  rIdx = Math.min(rows.length - 1, rIdx + 1);
         if (dir === 'LEFT')  cIdx = Math.max(0, cIdx - 1);
-        if (dir === 'RIGHT') cIdx = Math.min(KEY_ROWS[rIdx].length - 1, cIdx + 1);
-        cIdx = Math.min(cIdx, KEY_ROWS[rIdx].length - 1);
-        _vkbSetFocus(KEY_ROWS[rIdx][cIdx]);
+        if (dir === 'RIGHT') cIdx = Math.min(rows[rIdx].length - 1, cIdx + 1);
+        cIdx = Math.min(cIdx, rows[rIdx].length - 1);
+        _vkbSetFocus(rows[rIdx][cIdx]);
     }}
 
     function _vkbInsert(char) {{
@@ -981,6 +1015,8 @@ namespace Doorpi
             _vkbCursorPos += char.length;
         }} else {{
             const val = _vkbInputEl.value || '';
+            const maxLen = parseInt(_vkbInputEl.getAttribute('maxlength') || '', 10);
+            if (Number.isFinite(maxLen) && maxLen > 0 && val.length + char.length > maxLen) return;
             _setNativeValue(_vkbInputEl, val.slice(0, _vkbCursorPos) + char + val.slice(_vkbCursorPos));
             _vkbCursorPos += char.length;
             _vkbInputEl.dispatchEvent(new Event('input',  {{ bubbles:true, composed:true }}));
@@ -1022,6 +1058,7 @@ namespace Doorpi
 
     function _vkbPressKey(key) {{
         if (!_vkbInputEl) return;
+        if (_vkbMode === 'numeric' && !/^\d$/.test(key) && key !== '\u232b' && key !== 'ok' && key !== 'cancel') return;
         if      (key === '\u232b') _vkbDeleteChar();
         else if (key === 'shift')  _vkbSetShift(!_vkbShifted);
         else if (key === 'space')  _vkbInsert(' ');
@@ -1042,8 +1079,11 @@ namespace Doorpi
         if (window._vkbIsOpen && _vkbInputEl && _vkbInputEl !== targetEl) {{
             _vkbInputEl.removeEventListener('input', _vkbRenderPreview);
             _vkbInputEl = targetEl;
+            _vkbRenderKeys(isNumericInput(targetEl) ? 'numeric' : 'text');
+            _vkbSetFocus(_vkbMode === 'numeric' ? '1' : 'q');
             const isEditable = targetEl.isContentEditable || targetEl.tagName === 'DIV';
-            _vkbCursorPos = isEditable ? (targetEl.textContent||'').length : (targetEl.selectionStart ?? (targetEl.value||'').length);
+            let sel = null; try {{ sel = targetEl.selectionStart; }} catch(e) {{}}
+            _vkbCursorPos = isEditable ? (targetEl.textContent||'').length : (sel ?? (targetEl.value||'').length);
             _vkbInputEl.addEventListener('input', _vkbRenderPreview);
             _vkbRenderPreview();
             return;
@@ -1051,18 +1091,20 @@ namespace Doorpi
 
         _vkbInputEl   = targetEl;
         const isEditable = targetEl.isContentEditable || targetEl.tagName === 'DIV';
-        _vkbCursorPos = isEditable ? (targetEl.textContent||'').length : (targetEl.selectionStart ?? (targetEl.value||'').length);
+        let sel = null; try {{ sel = targetEl.selectionStart; }} catch(e) {{}}
+        _vkbCursorPos = isEditable ? (targetEl.textContent||'').length : (sel ?? (targetEl.value||'').length);
 
         _vkbBuild();
+        _vkbRenderKeys(isNumericInput(targetEl) ? 'numeric' : 'text');
         _vkbEl.style.display = 'block';
-        _vkbSetShift(_vkbShifted);
+        if (_vkbMode === 'text') _vkbSetShift(_vkbShifted);
         _vkbRenderPreview();
         _vkbInputEl.addEventListener('input', _vkbRenderPreview);
 
         requestAnimationFrame(() => {{
             _vkbEl.classList.add('visible');
             window._vkbIsOpen = true;
-            _vkbSetFocus('q');
+            _vkbSetFocus(_vkbMode === 'numeric' ? '1' : 'q');
             try {{ window.chrome.webview.postMessage('vkb_opened'); }} catch(_) {{}}
         }});
     }}

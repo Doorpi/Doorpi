@@ -66,6 +66,8 @@ namespace Doorpi
         public string AddedTo { get; set; } = "";
         public string AddState { get; set; } = "";
         public string Source { get; set; } = "";
+        public bool IsAdminLocked { get; set; } = false;
+        public string AdminLockReason { get; set; } = "";
     }
 
     public class UserProfile
@@ -74,6 +76,10 @@ namespace Doorpi
         public string Name { get; set; } = "";
         public string PhotoBase64 { get; set; } = "";
         public string SteamGridApiKey { get; set; } = "";
+        public string PinCode { get; set; } = "";
+        public bool IsAdmin { get; set; } = false;
+        public List<string> AdminBlockedStoreIds { get; set; } = new();
+        public bool SteamForceAccountSelection { get; set; } = false;
         public DateTime DateCreated { get; set; } = DateTime.Now;
         public DateTime LastUsed { get; set; } = DateTime.MinValue;
 
@@ -872,6 +878,7 @@ namespace Doorpi
                     {
                         UnprotectUserProfile(legacy);
                         legacy.Id = MakeUserId(legacy.Name);
+                        legacy.IsAdmin = true;
                         legacy.DateCreated = DateTime.Now;
                         legacy.LastUsed = DateTime.Now;
                         users.Add(legacy);
@@ -901,14 +908,100 @@ namespace Doorpi
                 foreach (var user in users.Where(u => string.IsNullOrWhiteSpace(u.Id)))
                     user.Id = MakeUserId(user.Name);
                 foreach (var user in users)
+                {
                     UnprotectUserProfile(user);
+                    user.AdminBlockedStoreIds ??= new List<string>();
+                }
+                EnsureOneAdmin(users);
                 return users;
             }
             catch { return new List<UserProfile>(); }
         }
 
+        private static void EnsureOneAdmin(List<UserProfile> users)
+        {
+            if (users.Count == 0) return;
+            if (users.Any(u => u.IsAdmin)) return;
+
+            var first = users
+                .Where(u => !string.IsNullOrWhiteSpace(u.Name))
+                .OrderBy(u => u.DateCreated == DateTime.MinValue ? DateTime.MaxValue : u.DateCreated)
+                .ThenBy(u => u.LastUsed == DateTime.MinValue ? DateTime.MaxValue : u.LastUsed)
+                .FirstOrDefault()
+                ?? users.First();
+            first.IsAdmin = true;
+        }
+
+        private bool IsCurrentUserAdmin()
+            => LoadUserProfiles().Any(u =>
+                string.Equals(u.Id, currentUserId, StringComparison.OrdinalIgnoreCase) && u.IsAdmin);
+
+        private UserProfile? GetAdminPolicyUser()
+        {
+            var users = LoadUserProfiles();
+            return users.FirstOrDefault(u => u.IsAdmin)
+                   ?? users.OrderBy(u => u.DateCreated).FirstOrDefault();
+        }
+
+        private static string NormalizeStorePolicyKey(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return "";
+            value = value.Trim();
+            return value switch
+            {
+                "Battle.net" => "BattleNet",
+                "Epic Games" => "Epic",
+                "GOG Galaxy" => "GOG",
+                "EA App" => "EA",
+                _ => value
+            };
+        }
+
+        private HashSet<string> GetAdminBlockedStoreIds()
+        {
+            var admin = GetAdminPolicyUser();
+            return (admin?.AdminBlockedStoreIds ?? new List<string>())
+                .Select(NormalizeStorePolicyKey)
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+
+        private bool IsStoreBlockedForCurrentUser(string storeIdOrSource)
+        {
+            if (IsCurrentUserAdmin()) return false;
+            var key = NormalizeStorePolicyKey(storeIdOrSource);
+            return !string.IsNullOrWhiteSpace(key) && GetAdminBlockedStoreIds().Contains(key);
+        }
+
+        private bool IsSteamAccountSelectionForced()
+            => GetAdminPolicyUser()?.SteamForceAccountSelection == true;
+
+        private void SaveAdminStorePolicy(string storeId, bool blockedForNonAdmins, bool? forceSteamAccountSelection = null)
+        {
+            if (!IsCurrentUserAdmin()) return;
+
+            var users = LoadUserProfiles();
+            var admin = users.FirstOrDefault(u => u.IsAdmin)
+                        ?? users.OrderBy(u => u.DateCreated).FirstOrDefault();
+            if (admin == null) return;
+
+            admin.AdminBlockedStoreIds ??= new List<string>();
+            string key = NormalizeStorePolicyKey(storeId);
+            admin.AdminBlockedStoreIds.RemoveAll(s => string.Equals(NormalizeStorePolicyKey(s), key, StringComparison.OrdinalIgnoreCase));
+            if (blockedForNonAdmins && !string.IsNullOrWhiteSpace(key))
+                admin.AdminBlockedStoreIds.Add(key);
+
+            if (forceSteamAccountSelection.HasValue)
+                admin.SteamForceAccountSelection = forceSteamAccountSelection.Value;
+
+            SaveUserProfiles(users);
+            if (string.Equals(admin.Id, currentUserId, StringComparison.OrdinalIgnoreCase))
+                SaveUserProfile(admin);
+        }
+
         private void SaveUserProfiles(List<UserProfile> users)
         {
+            EnsureOneAdmin(users);
             var storageUsers = users.Select(CloneUserProfileForStorage).ToList();
             File.WriteAllText(profilesFile, JsonSerializer.Serialize(storageUsers, new JsonSerializerOptions { WriteIndented = true }));
         }
@@ -979,17 +1072,22 @@ namespace Doorpi
             }
         }
 
+        private static string NormalizePinCode(string value)
+            => new string((value ?? "").Where(char.IsDigit).Take(4).ToArray());
+
         private static UserProfile CloneUserProfileForStorage(UserProfile profile)
         {
             var json = JsonSerializer.Serialize(profile);
             var clone = JsonSerializer.Deserialize<UserProfile>(json) ?? new UserProfile();
             clone.SteamGridApiKey = ProtectLocalUserSecret(clone.SteamGridApiKey);
+            clone.PinCode = ProtectLocalUserSecret(clone.PinCode);
             return clone;
         }
 
         private static void UnprotectUserProfile(UserProfile profile)
         {
             profile.SteamGridApiKey = UnprotectLocalUserSecret(profile.SteamGridApiKey);
+            profile.PinCode = UnprotectLocalUserSecret(profile.PinCode);
         }
 
         private static void WriteUserProfileFile(string path, UserProfile profile)
@@ -1228,7 +1326,7 @@ namespace Doorpi
 
         private void SendUsersToUI(bool requireSelection)
         {
-            var users = LoadUserProfiles().OrderByDescending(u => u.LastUsed).ToList();
+            var users = LoadUserProfiles().OrderByDescending(u => u.LastUsed).Select(UserProfilePickerPayload).ToList();
             Dispatcher.Invoke(() =>
                 webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
                 {
@@ -1241,7 +1339,7 @@ namespace Doorpi
 
         private void SendUsersDataToUI()
         {
-            var users = LoadUserProfiles().OrderByDescending(u => u.LastUsed).ToList();
+            var users = LoadUserProfiles().OrderByDescending(u => u.LastUsed).Select(UserProfilePickerPayload).ToList();
             Dispatcher.Invoke(() =>
                 webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
                 {
@@ -1249,6 +1347,29 @@ namespace Doorpi
                     users,
                     currentUserId
                 })));
+        }
+
+        private static object UserProfilePickerPayload(UserProfile user) => new
+        {
+            user.Id,
+            user.Name,
+            user.PhotoBase64,
+            user.IsAdmin,
+            HasPin = !string.IsNullOrWhiteSpace(user.PinCode)
+        };
+
+        private object BuildCurrentUserPayload(UserProfile user)
+        {
+            var blockedStores = GetAdminBlockedStoreIds();
+            return new
+            {
+                type = "currentUserUpdated",
+                user,
+                currentUserId,
+                isAdmin = IsCurrentUserAdmin(),
+                blockedStoreIds = blockedStores.ToList(),
+                steamForceAccountSelection = IsSteamAccountSelectionForced()
+            };
         }
 
         private void ClearHomeUi()
@@ -1267,11 +1388,7 @@ namespace Doorpi
 
             var user = LoadUserProfile();
             Dispatcher.Invoke(() =>
-                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
-                {
-                    type = "currentUserUpdated",
-                    user = user
-                })));
+                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(BuildCurrentUserPayload(user))));
 
             LoadGamesIntoUI();
             var apps = LoadMediaApps();
@@ -1621,6 +1738,18 @@ namespace Doorpi
                 var users = LoadUserProfiles();
                 var userToRemove = users.FirstOrDefault(u => string.Equals(u.Id, currentUserId, StringComparison.OrdinalIgnoreCase));
                 if (userToRemove == null) return;
+                if (userToRemove.IsAdmin)
+                {
+                    Dispatcher.Invoke(() =>
+                        webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                        {
+                            type = "adminPolicyBlocked",
+                            kind = "admin-delete",
+                            name = userToRemove.Name,
+                            storeId = ""
+                        })));
+                    return;
+                }
 
                 Dispatcher.Invoke(() =>
                     webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
@@ -8426,6 +8555,49 @@ namespace Doorpi
                 || launchUrl.StartsWith("riotclient://", StringComparison.OrdinalIgnoreCase);
         }
 
+        private static string StorePolicyKeyFromLaunchUrl(string launchUrl)
+        {
+            if (string.IsNullOrWhiteSpace(launchUrl)) return "";
+            if (launchUrl.StartsWith("steam://", StringComparison.OrdinalIgnoreCase)) return "Steam";
+            if (launchUrl.StartsWith("com.epicgames.launcher://", StringComparison.OrdinalIgnoreCase)) return "Epic";
+            if (launchUrl.StartsWith("goggalaxy://", StringComparison.OrdinalIgnoreCase)) return "GOG";
+            if (launchUrl.StartsWith("xbox://", StringComparison.OrdinalIgnoreCase) ||
+                launchUrl.StartsWith("ms-xbl-", StringComparison.OrdinalIgnoreCase)) return "Xbox";
+            if (launchUrl.StartsWith("uplay://", StringComparison.OrdinalIgnoreCase)) return "Ubisoft";
+            if (launchUrl.StartsWith("origin2://", StringComparison.OrdinalIgnoreCase) ||
+                launchUrl.StartsWith("origin://", StringComparison.OrdinalIgnoreCase)) return "EA";
+            if (launchUrl.StartsWith("battlenet://", StringComparison.OrdinalIgnoreCase)) return "BattleNet";
+            if (launchUrl.StartsWith("amazon-games://", StringComparison.OrdinalIgnoreCase)) return "Amazon";
+            if (launchUrl.StartsWith("riotclient://", StringComparison.OrdinalIgnoreCase) ||
+                launchUrl.StartsWith("riot:", StringComparison.OrdinalIgnoreCase)) return "Riot";
+            return "";
+        }
+
+        private string StorePolicyKeyForGame(GameModel game)
+        {
+            if (!string.IsNullOrWhiteSpace(game.Source))
+                return NormalizeStorePolicyKey(game.Source);
+            return StorePolicyKeyFromLaunchUrl(game.LaunchUrl);
+        }
+
+        private bool IsGameBlockedForCurrentUser(GameModel game)
+        {
+            var storeKey = StorePolicyKeyForGame(game);
+            return !string.IsNullOrWhiteSpace(storeKey) && IsStoreBlockedForCurrentUser(storeKey);
+        }
+
+        private void SendAdminPolicyBlocked(string kind, string name, string storeId)
+        {
+            Dispatcher.Invoke(() =>
+                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                {
+                    type = "adminPolicyBlocked",
+                    kind,
+                    name,
+                    storeId = NormalizeStorePolicyKey(storeId)
+                })));
+        }
+
         private List<GameModel> ReconcileDoorpiGamesWithPlatformCache(AppCacheModel cache)
         {
             var installedKeys = CollectCachedPlatformApps(cache)
@@ -8628,6 +8800,8 @@ namespace Doorpi
             foreach (var app in all)
             {
                 var appKeys = AutoAddKeysForApp(app).ToList();
+                app.IsAdminLocked = IsStoreBlockedForCurrentUser(app.Source);
+                app.AdminLockReason = app.IsAdminLocked ? "blocked-store" : "";
 
                 // Reutiliza sua chave original IsAdded e alimenta o AddedTo
                 if (appKeys.Select(k => existingMap.TryGetValue(k, out string addedToType) ? addedToType : null)
@@ -8718,6 +8892,8 @@ namespace Doorpi
             foreach (var app in all)
             {
                 app.IsAdded = AutoAddKeysForApp(app).Any(existingGames.Contains);
+                app.IsAdminLocked = IsStoreBlockedForCurrentUser(app.Source);
+                app.AdminLockReason = app.IsAdminLocked ? "blocked-store" : "";
             }
 
             return all
@@ -9044,7 +9220,8 @@ namespace Doorpi
                     DateAdded = DateTime.Now,
                     IsPendingArtwork = !steamReady,
                     AutoAddedByBootstrap = true,
-                    ArtworkSource = steamReady ? "steam-cdn" : "pending"
+                    ArtworkSource = steamReady ? "steam-cdn" : "pending",
+                    Source = NormalizeStorePolicyKey(app.Source)
                 });
                 changed = true;
             }
@@ -10214,12 +10391,15 @@ namespace Doorpi
 
                     foreach (var userEl in incoming)
                     {
+                        bool isFirstAdmin = !existingUsers.Any(u => u.IsAdmin) && savedProfiles.Count == 0;
                         var profile = new UserProfile
                         {
                             Id = MakeUserId(GetStr(userEl, "name")),
                             Name = GetStr(userEl, "name"),
                             PhotoBase64 = GetStr(userEl, "photoBase64"),
                             SteamGridApiKey = GetStr(userEl, "apiKey"),
+                            PinCode = NormalizePinCode(GetStr(userEl, "pin")),
+                            IsAdmin = isFirstAdmin,
                             DateCreated = DateTime.Now,
                             LastUsed = DateTime.Now,
                         };
@@ -10289,6 +10469,8 @@ namespace Doorpi
                     bool isPrimary = root.TryGetProperty("isPrimary", out var isPrimEl) && isPrimEl.GetBoolean();
                     bool isLast = root.TryGetProperty("isLast", out var isLastEl) && isLastEl.GetBoolean();
                     bool skipTasks = root.TryGetProperty("skipTasks", out var skipEl) && skipEl.GetBoolean();
+                    bool hasPin = root.TryGetProperty("pin", out _);
+                    string requestedPin = hasPin ? NormalizePinCode(GetStr(root, "pin")) : "";
 
                     string requestedId = GetStr(root, "userId");
                     var profile = new UserProfile
@@ -10297,6 +10479,7 @@ namespace Doorpi
                         Name = GetStr(root, "name"),
                         PhotoBase64 = GetStr(root, "photoBase64"),
                         SteamGridApiKey = GetStr(root, "apiKey"),
+                        PinCode = requestedPin,
                         DateCreated = DateTime.Now,
                         LastUsed = DateTime.Now,
                     };
@@ -10341,6 +10524,7 @@ namespace Doorpi
                         existingUser.Name = profile.Name;
                         existingUser.PhotoBase64 = profile.PhotoBase64;
                         existingUser.SteamGridApiKey = profile.SteamGridApiKey;
+                        if (hasPin) existingUser.PinCode = requestedPin;
                         existingUser.LastUsed = DateTime.Now;
                         profile.DateCreated = existingUser.DateCreated;
                         profile = existingUser;
@@ -10348,6 +10532,7 @@ namespace Doorpi
                     else
                     {
                         profile.Id = MakeUserId(profile.Name);
+                        profile.IsAdmin = users.Count == 0 || !users.Any(u => u.IsAdmin);
                         users.Add(profile);
                     }
 
@@ -10399,11 +10584,7 @@ namespace Doorpi
                     {
                         Dispatcher.Invoke(() =>
                         {
-                            webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
-                            {
-                                type = "currentUserUpdated",
-                                user = profile
-                            }));
+                            webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(BuildCurrentUserPayload(profile)));
                         });
                     }
                 }
@@ -10418,7 +10599,26 @@ namespace Doorpi
                 else if (action == "selectUser")
                 {
                     string userId = GetStr(root, "userId");
-                    if (!string.IsNullOrWhiteSpace(userId)) SwitchToUser(userId);
+                    if (!string.IsNullOrWhiteSpace(userId))
+                    {
+                        var requestedUser = LoadUserProfiles()
+                            .FirstOrDefault(u => string.Equals(u.Id, userId, StringComparison.OrdinalIgnoreCase));
+                        if (requestedUser != null && !string.IsNullOrWhiteSpace(requestedUser.PinCode))
+                        {
+                            string pin = NormalizePinCode(GetStr(root, "pin"));
+                            if (!string.Equals(pin, requestedUser.PinCode, StringComparison.Ordinal))
+                            {
+                                Dispatcher.Invoke(() =>
+                                    webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                                    {
+                                        type = "userPinRejected",
+                                        userId
+                                    })));
+                                return;
+                            }
+                        }
+                        SwitchToUser(userId);
+                    }
                 }
                 else if (action == "requestExtensions")
                 {
@@ -10606,6 +10806,28 @@ namespace Doorpi
                     {
                         SaveStoreAutoAddSetting(storeKey, storeEnabledEl.GetBoolean());
                         SendStoreAutoAddSettingsToUI();
+                    }
+                }
+                else if (action == "setAdminStorePolicy"
+                         && root.TryGetProperty("storeId", out var adminStoreIdEl))
+                {
+                    string storeId = adminStoreIdEl.GetString() ?? "";
+                    bool? blocked = root.TryGetProperty("blockedForNonAdmins", out var blockedEl)
+                        ? blockedEl.GetBoolean()
+                        : null;
+                    bool? forceSteam = root.TryGetProperty("steamForceAccountSelection", out var forceSteamEl)
+                        ? forceSteamEl.GetBoolean()
+                        : null;
+
+                    if (!string.IsNullOrWhiteSpace(storeId) && IsCurrentUserAdmin())
+                    {
+                        var currentBlocked = GetAdminBlockedStoreIds();
+                        SaveAdminStorePolicy(
+                            storeId,
+                            blocked ?? currentBlocked.Contains(NormalizeStorePolicyKey(storeId)),
+                            forceSteam);
+                        SendStoresToUI(LoadStoreLaunchers());
+                        LoadGamesIntoUI();
                     }
                 }
                 else if (action == "launchMediaApp" && root.TryGetProperty("url", out var mediaUrlEl))
@@ -10939,6 +11161,9 @@ namespace Doorpi
 
             foreach (var app in selectedApps)
             {
+                if (!string.IsNullOrWhiteSpace(app.Source) && IsStoreBlockedForCurrentUser(app.Source))
+                    continue;
+
                 if (existingGames.Any(g => g.Path.Equals(app.Path, StringComparison.OrdinalIgnoreCase)))
                     continue;
 
@@ -10971,7 +11196,8 @@ namespace Doorpi
                     HeroImage = tHero.Result != null ? $"https://data.local/images/hero/{Path.GetFileName(tHero.Result)}" : "",
                     LogoImage = tLogo.Result != null ? $"https://data.local/images/logo/{Path.GetFileName(tLogo.Result)}" : "",
                     LastPlayed = DateTime.MinValue,
-                    DateAdded = DateTime.Now
+                    DateAdded = DateTime.Now,
+                    Source = NormalizeStorePolicyKey(app.Source)
                 };
 
                 existingGames.Add(game);
@@ -11277,6 +11503,13 @@ namespace Doorpi
 
                 if (game != null)
                 {
+                    if (IsGameBlockedForCurrentUser(game))
+                    {
+                        SendAdminPolicyBlocked("game", game.Name, StorePolicyKeyForGame(game));
+                        SendGameLaunchStatus("gameLaunchDone");
+                        return;
+                    }
+
                     // ── Verifica estado atual da sessão ────────────────────────────────────
                     bool gameAlive = IsLockedGameProcessAlive();
                     bool isSameGame = (_gameSessionActive || gameAlive)
@@ -11515,26 +11748,37 @@ namespace Doorpi
                             // Substituir este bloco no método LaunchGame (linha ~2745 no seu código)
                             else if (!string.IsNullOrWhiteSpace(game.LaunchUrl))
                             {
-                                EnsureLauncherRunning(game.LaunchUrl);
+                                bool isSteamRunLaunch = game.LaunchUrl.StartsWith("steam://run/", StringComparison.OrdinalIgnoreCase);
+                                if (!isSteamRunLaunch || !IsSteamAccountSelectionForced())
+                                    EnsureLauncherRunning(game.LaunchUrl);
                                 launchAttempted = true;
 
                                 // INTERCEPTA O JOGO DA STEAM PARA LANÇAR DE FORMA DIRETA E SILENCIOSA
-                                if (game.LaunchUrl.StartsWith("steam://run/", StringComparison.OrdinalIgnoreCase))
+                                if (isSteamRunLaunch)
                                 {
                                     string steamExe = GetSteamExePath();
                                     string appId = game.LaunchUrl.Replace("steam://run/", "").Trim();
+                                    bool forceAccountSelection = IsSteamAccountSelectionForced();
 
                                     if (!string.IsNullOrEmpty(steamExe) && File.Exists(steamExe))
                                     {
-                                        // -applaunch abre o jogo direto. 
-                                        // -silent garante que nenhuma janela extra da Steam (como de propaganda ou biblioteca) apareça.
-                                        launched = Process.Start(new ProcessStartInfo
+                                        if (forceAccountSelection)
                                         {
-                                            FileName = steamExe,
-                                            Arguments = $"-applaunch {appId} -silent",
-                                            UseShellExecute = true,
-                                            WindowStyle = ProcessWindowStyle.Minimized
-                                        });
+                                            RestartSteamForAccountSelection(steamExe);
+                                            launched = Process.Start(new ProcessStartInfo(game.LaunchUrl) { UseShellExecute = true });
+                                        }
+                                        else
+                                        {
+                                            // -applaunch abre o jogo direto. 
+                                            // -silent garante que nenhuma janela extra da Steam (como de propaganda ou biblioteca) apareça.
+                                            launched = Process.Start(new ProcessStartInfo
+                                            {
+                                                FileName = steamExe,
+                                                Arguments = $"-applaunch {appId} -silent",
+                                                UseShellExecute = true,
+                                                WindowStyle = ProcessWindowStyle.Minimized
+                                            });
+                                        }
                                     }
                                     else
                                     {
@@ -11719,6 +11963,42 @@ namespace Doorpi
             catch (Exception ex) { Debug.WriteLine("Erro ao garantir launcher: " + ex.Message); }
         }
 
+        private void RestartSteamForAccountSelection(string steamExe)
+        {
+            try
+            {
+                foreach (var name in new[] { "steam", "steamwebhelper" })
+                {
+                    foreach (var process in Process.GetProcessesByName(name))
+                    {
+                        try { process.Kill(entireProcessTree: true); }
+                        catch { }
+                    }
+                }
+
+                var deadline = DateTime.UtcNow.AddSeconds(10);
+                while (DateTime.UtcNow < deadline)
+                {
+                    bool alive = Process.GetProcessesByName("steam").Any() ||
+                                 Process.GetProcessesByName("steamwebhelper").Any();
+                    if (!alive) break;
+                    System.Threading.Thread.Sleep(150);
+                }
+
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = steamExe,
+                    UseShellExecute = true,
+                    WindowStyle = ProcessWindowStyle.Normal
+                });
+                System.Threading.Thread.Sleep(1200);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[Steam] Falha ao relançar para seleção de conta: " + ex.Message);
+            }
+        }
+
         // ========================= GAMES DB =========================
 
 
@@ -11790,6 +12070,9 @@ namespace Doorpi
                 staticHero = game.HeroStaticImage,
                 logo = game.LogoImage,
                 staticLogo = game.LogoStaticImage,
+                source = StorePolicyKeyForGame(game),
+                isAdminLocked = IsGameBlockedForCurrentUser(game),
+                adminLockReason = "blocked-store",
                 isFeatured = isFeatured,
                 isNew = false, // <--- CORREÇÃO APLICADA
                 isAnimated = IsLocalFileAnimated(localGridPath),
@@ -11834,6 +12117,10 @@ namespace Doorpi
         }
         private void SendGameToUI(GameModel game, bool isFeatured = false)
         {
+            string localGridPath = string.IsNullOrEmpty(game.GridImage) ? "" :
+                Path.Combine(dataFolder,
+                    new Uri(game.GridImage).AbsolutePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+
             var data = new
             {
                 type = "newGame",
@@ -11848,8 +12135,12 @@ namespace Doorpi
                 staticHero = game.HeroStaticImage,
                 logo = game.LogoImage,
                 staticLogo = game.LogoStaticImage,
+                source = StorePolicyKeyForGame(game),
+                isAdminLocked = IsGameBlockedForCurrentUser(game),
+                adminLockReason = "blocked-store",
                 isFeatured = isFeatured,
-                isNew = false // <--- CORREÇÃO APLICADA
+                isNew = false, // <--- CORREÇÃO APLICADA
+                isAnimated = IsLocalFileAnimated(localGridPath)
             };
             webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(data));
         }

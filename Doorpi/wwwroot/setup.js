@@ -49,6 +49,7 @@ let _isAddingUserMode = false;
     .setup-user-pill.active { background: rgba(255,255,255,0.15); border-color: #fff; color: #fff; }
     .setup-user-pill-avatar { width: 26px; height: 26px; border-radius: 50%; background: rgba(255,255,255,0.2); overflow: hidden; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .setup-user-pill-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .setup-admin-badge { display: inline-flex; align-items: center; justify-content: center; height: 18px; padding: 0 7px; border-radius: 999px; background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.22); color: rgba(255,255,255,0.9); font-size: 0.58rem; font-weight: 900; letter-spacing: 0; text-transform: uppercase; }
 
     .setup-user-group { display: flex; align-items: center; gap: 6px; }
 
@@ -87,6 +88,7 @@ let _isAddingUserMode = false;
     .setup-photo-btn.has-photo { border-style:solid; border-color:rgba(255,255,255,0.35); }
 
     .setup-name-wrap { flex: 1; display: flex; flex-direction: column; gap: clamp(6px, 0.7vw, 10px); }
+    .setup-pin-hint { margin: -2px 0 0; color: rgba(255,255,255,0.34); font-size: clamp(0.72rem, 0.78vw, 0.95rem); line-height: 1.28; }
     .setup-field-label { font-size: clamp(0.68rem, 0.76vw, 0.9rem); color: rgba(255,255,255,0.45); font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; }
     
     .setup-input { width: 100%; background: rgba(255,255,255,0.09); border: 1px solid rgba(255,255,255,0.18); border-radius: clamp(10px, 1vw, 13px); padding: clamp(14px, 1.5vw, 20px) clamp(16px, 1.7vw, 22px); color: #fff; font-size: clamp(1rem, 1.15vw, 1.5rem); font-family: inherit; font-weight: 400; outline: none; box-sizing: border-box; cursor: pointer; caret-color: transparent; transition: border-color 0.18s, background 0.18s, box-shadow 0.18s; }
@@ -173,6 +175,9 @@ let _isAddingUserMode = false;
                             <div class="setup-name-wrap">
                                 <span class="setup-field-label" data-i18n="setupNameLabel"></span>
                                 <input class="setup-input setup-focusable" id="setupNameInput" type="text" readonly tabindex="-1" />
+                                <span class="setup-field-label" data-i18n="setupPinLabel"></span>
+                                <input class="setup-input setup-focusable" id="setupPinInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" readonly tabindex="-1" />
+                                <p class="setup-pin-hint" data-i18n="setupPinHint"></p>
                             </div>
                         </div>
                     </div>
@@ -235,6 +240,7 @@ let _isAddingUserMode = false;
 
     if (typeof applyI18n === 'function') applyI18n();
     document.getElementById('setupNameInput').placeholder = typeof t === 'function' ? t('setupStep1Placeholder') : 'Seu Nome';
+    document.getElementById('setupPinInput').placeholder = typeof t === 'function' ? t('setupPinPlaceholder') : 'Opcional';
     document.getElementById('setupApiInput').placeholder = typeof t === 'function' ? t('setupStep3Placeholder') : 'Chave API';
 
     _bindSetupEvents();
@@ -261,6 +267,7 @@ function _renderSetupUsers() {
                     ${u.photoBase64 ? `<img src="data:image/png;base64,${u.photoBase64}" />` : `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`}
                 </div>
                 <span>${u.name || (typeof t === 'function' ? t('defaultUserName', i + 1) : `Usuário ${i + 1}`)}</span>
+                ${i === 0 ? `<span class="setup-admin-badge">${typeof t === 'function' ? t('adminBadge', 'Admin') : 'Admin'}</span>` : ''}
             </button>
             ${_setupUsers.length > 1 ? `
             <button class="setup-btn-delete setup-focusable" data-idx="${i}" tabindex="-1" title="${typeof t === 'function' ? t('titleRemoveUser') : 'Remover Usuário'}">
@@ -309,7 +316,7 @@ function _renderSetupUsers() {
 
     // Adicionar Novo Usuário
     bar.querySelector('#btnSetupAddUser').addEventListener('click', () => {
-        const newUser = { id: Date.now(), name: '', photoBase64: '', apiKey: '', folders: [] };
+        const newUser = { id: Date.now(), name: '', pin: '', photoBase64: '', apiKey: '', folders: [] };
         _setupUsers.push(newUser);
         _currUser = newUser;
         _loadCurrentUserIntoForm();
@@ -329,6 +336,7 @@ function _renderSetupUsers() {
 function _loadCurrentUserIntoForm() {
     if (!_currUser) return;
     document.getElementById('setupNameInput').value = _currUser.name;
+    document.getElementById('setupPinInput').value = _currUser.pin || '';
     document.getElementById('setupApiInput').value = _currUser.apiKey;
     const btn = document.getElementById('setupPhotoBtn');
     if (_currUser.photoBase64) {
@@ -514,7 +522,7 @@ function openSetup(isAddingUser = false) {
         document.activeElement.blur();
     }
     _isAddingUserMode = isAddingUser;
-    _setupUsers = [{ id: Date.now(), name: '', photoBase64: '', apiKey: '', folders: [] }];
+    _setupUsers = [{ id: Date.now(), name: '', pin: '', photoBase64: '', apiKey: '', folders: [] }];
     _currUser = _setupUsers[0];
     _currentSection = null;
     document.querySelectorAll('.setup-section').forEach(sec => sec.classList.remove('expanded'));
@@ -599,6 +607,7 @@ function _validateAndFinish() {
             createAll: _isAddingUserMode,
             users: _setupUsers.map(u => ({
                 name: u.name,
+                pin: u.pin || '',
                 photoBase64: u.photoBase64,
                 apiKey: u.apiKey,
                 folders: u.folders
@@ -615,7 +624,7 @@ function _bindSetupEvents() {
         });
     });
 
-    ['setupNameInput', 'setupApiInput'].forEach(id => {
+    ['setupNameInput', 'setupPinInput', 'setupApiInput'].forEach(id => {
         const input = document.getElementById(id);
         input.addEventListener('focus', () => {
             if (!window._vkbIsOpen) {
@@ -654,6 +663,12 @@ function _bindSetupEvents() {
     document.getElementById('setupApiInput').addEventListener('input', (e) => {
         if (_currUser) _currUser.apiKey = e.target.value;
         _updateStatus();
+    });
+
+    document.getElementById('setupPinInput').addEventListener('input', (e) => {
+        const digits = String(e.target.value || '').replace(/\D/g, '').slice(0, 4);
+        if (e.target.value !== digits) e.target.value = digits;
+        if (_currUser) _currUser.pin = digits;
     });
 
     document.getElementById('btnSetupApiLink').addEventListener('click', () => {

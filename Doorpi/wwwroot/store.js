@@ -4,10 +4,12 @@ window.AppStore = (() => {
         media: [],
         stores: [],
         featuredId: { games: null, media: null, stores: null },
-        newIds: new Set()
+        newIds: new Set(),
+        pendingArtwork: { games: new Map(), media: new Map() }
     };
 
     const _subscribers = new Map();
+    const _artworkRequests = new Map();
 
     function _notify(channel, payload) {
         (_subscribers.get(channel) || []).forEach(fn => {
@@ -35,6 +37,9 @@ window.AppStore = (() => {
                 horizontal: raw.horizontalImage || raw.GridHorizontalImage || raw.horizontal || '',
                 hero: raw.hero || raw.HeroImage || '', logo: raw.logo || raw.LogoImage || '',
                 isAnimated: raw.isAnimated || false,
+                source: raw.source || raw.Source || '',
+                isAdminLocked: raw.isAdminLocked || raw.IsAdminLocked || false,
+                adminLockReason: raw.adminLockReason || raw.AdminLockReason || '',
             };
         }
 
@@ -51,6 +56,10 @@ window.AppStore = (() => {
                 hero: raw.HeroImage || raw.heroImage || '',
                 logo: raw.LogoImage || raw.logoImage || '',
                 disableGamepadControl: raw.DisableGamepadControl || raw.disableGamepadControl || false,
+                isAdminLocked: raw.isAdminLocked || raw.IsAdminLocked || false,
+                adminStoreBlocked: raw.adminStoreBlocked || raw.AdminStoreBlocked || false,
+                steamForceAccountSelection: raw.steamForceAccountSelection || raw.SteamForceAccountSelection || false,
+                adminLockReason: raw.adminLockReason || raw.AdminLockReason || '',
                 isAnimated: false,
             };
         }
@@ -76,10 +85,92 @@ window.AppStore = (() => {
         };
     }
 
+    function _requiresStaticBeforeRender(channel, item) {
+        if (channel !== 'games' && channel !== 'media') return false;
+        return !!(item && item.isAnimated && item.vertical && !item.staticVertical);
+    }
+
+    function _requestStaticArtwork(channel, item) {
+        if (!_requiresStaticBeforeRender(channel, item)) return;
+
+        const key = `${channel}:${item.id}:GridStatic`;
+        const req = _artworkRequests.get(key);
+        if (req?.inFlight) return;
+
+        const run = async () => {
+            if (!_state.pendingArtwork[channel]?.has(item.id)) {
+                _artworkRequests.delete(key);
+                return;
+            }
+
+            const extractor = window.requestStaticFrameExtraction;
+            if (typeof extractor !== 'function') {
+                _artworkRequests.set(key, { inFlight: false });
+                setTimeout(run, 450);
+                return;
+            }
+
+            _artworkRequests.set(key, { inFlight: true });
+            let ok = false;
+            try {
+                ok = await extractor({
+                    gameId: item.id,
+                    entityId: item.id,
+                    src: item.vertical,
+                    imageType: 'GridStatic'
+                });
+            } catch (_) {
+                ok = false;
+            }
+
+            _artworkRequests.set(key, { inFlight: false });
+            if (_state.pendingArtwork[channel]?.has(item.id)) {
+                setTimeout(run, ok ? 3200 : 1600);
+            }
+        };
+
+        setTimeout(run, 0);
+    }
+
+    function _visibleItems(channel, items) {
+        if (channel !== 'games' && channel !== 'media') return items;
+
+        const pending = _state.pendingArtwork[channel];
+        pending.clear();
+
+        const visible = [];
+        items.forEach((item, index) => {
+            item._pendingIndex = index;
+            if (_requiresStaticBeforeRender(channel, item)) {
+                pending.set(item.id, item);
+                _requestStaticArtwork(channel, item);
+            } else {
+                visible.push(item);
+            }
+        });
+        return visible;
+    }
+
+    function _insertVisible(channel, item, preferredIndex = null) {
+        let list = _state[channel].filter(i => i.id !== item.id);
+        const index = Number.isInteger(preferredIndex)
+            ? Math.max(0, Math.min(preferredIndex, list.length))
+            : (list.length > 0 ? 1 : 0);
+
+        list.splice(index, 0, item);
+        if (list.length > 12) list.pop();
+
+        _state[channel] = list;
+        _state.featuredId[channel] = list[0]?.id ?? null;
+
+        _notify(channel, { type: 'reset', items: list });
+        _notify('featured', { channel, id: _state.featuredId[channel] });
+    }
+
     const mutations = {
         setBatch(channel, rawItems) {
             // Apenas repassa a lista mastigada pelo C# (que já tem max 12 itens)
-            const items = (rawItems || []).map(r => _normalize(r, channel));
+            const items = _visibleItems(channel, (rawItems || []).map(r => _normalize(r, channel)));
             _state[channel] = items;
             _state.featuredId[channel] = items[0]?.id ?? null;
 
@@ -89,23 +180,13 @@ window.AppStore = (() => {
 
         addItem(channel, raw) {
             const item = _normalize(raw, channel);
-            let list = _state[channel].filter(i => i.id !== item.id);
-
-           
-            if (list.length > 0) {
-                list.splice(1, 0, item);
-            } else {
-                list.push(item);
+            if (_requiresStaticBeforeRender(channel, item)) {
+                _state.pendingArtwork[channel]?.set(item.id, item);
+                _requestStaticArtwork(channel, item);
+                return;
             }
 
-           
-            if (list.length > 12) list.pop();
-
-            _state[channel] = list;
-            _state.featuredId[channel] = list[0]?.id ?? null;
-
-            _notify(channel, { type: 'reset', items: list });
-            _notify('featured', { channel, id: _state.featuredId[channel] });
+            _insertVisible(channel, item);
         },
 
         removeItem(channel, id) {
@@ -137,7 +218,8 @@ window.AppStore = (() => {
 
         patchItem(channel, id, patch) {
             const item = _state[channel].find(i => i.id === id);
-            if (!item) return;
+            const pending = _state.pendingArtwork[channel]?.get(id);
+            if (!item && !pending) return;
 
             const normalizedPatch = {};
             if (patch.name || patch.Name) normalizedPatch.name = patch.name || patch.Name;
@@ -146,12 +228,36 @@ window.AppStore = (() => {
             if (patch.staticHero || patch.HeroStaticImage) normalizedPatch.staticHero = patch.staticHero || patch.HeroStaticImage;
             if (patch.staticLogo || patch.LogoStaticImage) normalizedPatch.staticLogo = patch.staticLogo || patch.LogoStaticImage;
             if (patch.disableGamepadControl != null || patch.DisableGamepadControl != null) normalizedPatch.disableGamepadControl = patch.disableGamepadControl ?? patch.DisableGamepadControl;
+            if (patch.isAdminLocked != null || patch.IsAdminLocked != null) normalizedPatch.isAdminLocked = patch.isAdminLocked ?? patch.IsAdminLocked;
+            if (patch.adminStoreBlocked != null || patch.AdminStoreBlocked != null) normalizedPatch.adminStoreBlocked = patch.adminStoreBlocked ?? patch.AdminStoreBlocked;
+            if (patch.steamForceAccountSelection != null || patch.SteamForceAccountSelection != null) normalizedPatch.steamForceAccountSelection = patch.steamForceAccountSelection ?? patch.SteamForceAccountSelection;
             if (patch.shareMode || patch.ShareMode) normalizedPatch.shareMode = patch.shareMode || patch.ShareMode;
             if (patch.sharedWithUserIds || patch.SharedWithUserIds) normalizedPatch.sharedWithUserIds = patch.sharedWithUserIds || patch.SharedWithUserIds;
             if (patch.sharedWithUserNames || patch.SharedWithUserNames) normalizedPatch.sharedWithUserNames = patch.sharedWithUserNames || patch.SharedWithUserNames;
 
-            Object.assign(item, normalizedPatch);
+            const target = item || pending;
+            Object.assign(target, normalizedPatch);
+
+            if (!item && pending) {
+                if (_requiresStaticBeforeRender(channel, pending)) {
+                    _requestStaticArtwork(channel, pending);
+                    return;
+                }
+
+                _state.pendingArtwork[channel].delete(id);
+                const preferredIndex = Number.isInteger(pending._pendingIndex) ? pending._pendingIndex : null;
+                delete pending._pendingIndex;
+                _insertVisible(channel, pending, preferredIndex);
+                window._navMenuDataChanged?.(channel);
+                return;
+            }
+
             _notify(channel, { type: 'update', id, patch: normalizedPatch });
+        },
+
+        clearNewIds() {
+            _state.newIds.clear();
+            ['games', 'media'].forEach(channel => _notify(channel, { type: 'refresh-new-state' }));
         },
     };
 
@@ -171,6 +277,7 @@ window.AppStore = (() => {
         isNew: (id) => _state.newIds.has(id),
         getItem: (channel, id) => _state[channel].find(i => i.id === id),
         hasItem: (channel, id) => _state[channel].some(i => i.id === id),
+        isArtworkPending: (channel, id) => !!_state.pendingArtwork[channel]?.has(id),
     };
 
     return { mutations, subscribe, queries };

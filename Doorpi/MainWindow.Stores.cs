@@ -479,6 +479,9 @@ namespace Doorpi
                 cancellationToken).ConfigureAwait(false);
 
             var newApps = result.NewApps;
+            newApps = newApps
+                .Where(a => !IsStoreBlockedForCurrentUser(a.Source))
+                .ToList();
             if (newApps.Count == 0 && result.RemovedGames.Count == 0) return;
 
             var settings = GetStoreAutoAddSettings();
@@ -486,6 +489,7 @@ namespace Doorpi
             if (toAutoAdd.Count > 0) ShowPreparingGameSkeletons(toAutoAdd.Count);
             bool autoAdded = toAutoAdd.Count > 0 && await UpsertAutoAddedPlatformGamesAsync(toAutoAdd).ConfigureAwait(false);
             if (toAutoAdd.Count > 0) StartStoreArtworkRefresh();
+            if (autoAdded) Dispatcher.Invoke(() => LoadGamesIntoUI());
 
             var payloadGames = newApps.Select(a => new
             {
@@ -1979,6 +1983,12 @@ namespace Doorpi
 
             var store = StoreCatalog.FirstOrDefault(s => string.Equals(s.Id, storeId, StringComparison.OrdinalIgnoreCase));
             if (store == null) return;
+
+            if (IsStoreBlockedForCurrentUser(store.Id))
+            {
+                SendAdminPolicyBlocked("store", store.Name, store.Id);
+                return;
+            }
 
             var card = LoadStoreLaunchers().FirstOrDefault(s => string.Equals(s.Id, storeId, StringComparison.OrdinalIgnoreCase));
             string heroImg = card?.HeroImage ?? "";
@@ -3924,12 +3934,15 @@ namespace Doorpi
             }
 
             var settings = GetStoreAutoAddSettings();
-            var newApps = result.NewApps;
+            var newApps = result.NewApps
+                .Where(a => !IsStoreBlockedForCurrentUser(a.Source))
+                .ToList();
             var toAutoAdd = newApps.Where(a => IsStoreAutoAddEnabled(settings, a.Source)).ToList();
 
             if (toAutoAdd.Count > 0) ShowPreparingGameSkeletons(toAutoAdd.Count);
             bool autoAdded = toAutoAdd.Count > 0 && await UpsertAutoAddedPlatformGamesAsync(toAutoAdd).ConfigureAwait(false);
             if (toAutoAdd.Count > 0) StartStoreArtworkRefresh();
+            if (autoAdded) Dispatcher.Invoke(() => LoadGamesIntoUI());
 
             var payload = new
             {
@@ -4052,9 +4065,40 @@ namespace Doorpi
         private void SendStoresToUI(List<MediaAppModel> stores)
         {
             var sorted = stores.OrderBy(s => s.Name).ToList();
+            var blockedStores = GetAdminBlockedStoreIds();
+            bool isAdmin = IsCurrentUserAdmin();
+            bool steamForceSelection = IsSteamAccountSelectionForced();
             Dispatcher.Invoke(() =>
                 webView.CoreWebView2.PostWebMessageAsString(
-                    JsonSerializer.Serialize(new { type = "storesAppsLoaded", apps = sorted })));
+                    JsonSerializer.Serialize(new
+                    {
+                        type = "storesAppsLoaded",
+                        isAdmin,
+                        blockedStoreIds = blockedStores.ToList(),
+                        steamForceAccountSelection = steamForceSelection,
+                        apps = sorted.Select(s => new
+                        {
+                            s.Id,
+                            s.Name,
+                            s.Url,
+                            s.Type,
+                            s.OwnerUserId,
+                            s.DisableGamepadControl,
+                            s.DisableGamepadControlConfigured,
+                            s.GridImage,
+                            s.GridStaticImage,
+                            s.GridHorizontalImage,
+                            s.GridHorizontalStaticImage,
+                            s.HeroImage,
+                            s.HeroStaticImage,
+                            s.LogoImage,
+                            s.LogoStaticImage,
+                            isAdminLocked = !isAdmin && blockedStores.Contains(NormalizeStorePolicyKey(s.Id)),
+                            adminLockReason = "blocked-store",
+                            adminStoreBlocked = blockedStores.Contains(NormalizeStorePolicyKey(s.Id)),
+                            steamForceAccountSelection = steamForceSelection
+                        }).ToList()
+                    })));
         }
 
         private void SaveStoreGamepadControlSetting(string storeId, bool disabled)

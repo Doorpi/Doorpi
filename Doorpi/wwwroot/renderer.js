@@ -59,10 +59,11 @@ const CardInteraction = (() => {
         if (!img) return;
 
         const isFeatured = card.classList.contains('featured');
+        const canUseLiveAsStatic = card.dataset.isAnimated !== 'true';
         const staticSrc = isFeatured
-            ? (card.dataset.staticHorizontal || card.dataset.horizontal
-                || card.dataset.staticVertical || card.dataset.vertical)
-            : (card.dataset.staticVertical || card.dataset.vertical);
+            ? (card.dataset.staticHorizontal || card.dataset.staticVertical
+                || (canUseLiveAsStatic ? (card.dataset.horizontal || card.dataset.vertical) : ''))
+            : (card.dataset.staticVertical || (canUseLiveAsStatic ? card.dataset.vertical : ''));
 
         // Só reverte se o src atual já é diferente — evita flicker desnecessário
         if (staticSrc && img.src && !img.src.endsWith(staticSrc)) {
@@ -76,10 +77,11 @@ const CardInteraction = (() => {
         const animSrc = isFeatured
             ? (card.dataset.horizontal || card.dataset.vertical)
             : card.dataset.vertical;
+        const canUseLiveAsStatic = card.dataset.isAnimated !== 'true';
         const staticSrc = isFeatured
-            ? (card.dataset.staticHorizontal || card.dataset.horizontal
-                || card.dataset.staticVertical || card.dataset.vertical)
-            : (card.dataset.staticVertical || card.dataset.vertical);
+            ? (card.dataset.staticHorizontal || card.dataset.staticVertical
+                || (canUseLiveAsStatic ? (card.dataset.horizontal || card.dataset.vertical) : ''))
+            : (card.dataset.staticVertical || (canUseLiveAsStatic ? card.dataset.vertical : ''));
 
         if (animSrc && animSrc !== staticSrc) {
             const img = card.querySelector('img');
@@ -144,6 +146,73 @@ const CardInteraction = (() => {
 
 
 const CardRenderer = (() => {
+    if (!document.getElementById('admin-lock-card-styles')) {
+        const s = document.createElement('style');
+        s.id = 'admin-lock-card-styles';
+        s.textContent = `
+            .card.admin-locked, .nav-vertical-card.admin-locked { filter: grayscale(.55) brightness(.72); opacity: .56; }
+            .card.admin-locked:focus, .card.admin-locked:hover,
+            .card.featured.admin-locked:focus, .card.featured.admin-locked:hover,
+            .nav-vertical-card.admin-locked.nav-focused-el,
+            .nav-vertical-card.admin-locked:focus, .nav-vertical-card.admin-locked:hover {
+                opacity: .56 !important;
+                filter: grayscale(.55) brightness(.72);
+            }
+            .admin-lock-icon {
+                position: absolute;
+                z-index: 5;
+                background: rgba(0,0,0,.72);
+                border: 1px solid rgba(255,255,255,.26);
+                color: rgba(255,255,255,.9);
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                pointer-events: none;
+                box-shadow: 0 8px 22px rgba(0,0,0,.38);
+            }
+            .admin-lock-icon svg { width: 58%; height: 58%; display: block; }
+            .card .admin-lock-icon {
+                top: clamp(10px, 0.8vw, 16px);
+                right: clamp(10px, 0.8vw, 16px);
+                width: clamp(34px, 2.2vw, 46px);
+                height: clamp(34px, 2.2vw, 46px);
+                border-radius: 50%;
+            }
+            .nav-vertical-card .admin-lock-icon {
+                left: 50%;
+                top: 50%;
+                width: clamp(38px, 4.2vw, 70px);
+                height: clamp(38px, 4.2vw, 70px);
+                border-radius: 50%;
+                transform: translate(-50%, -50%);
+                background: rgba(0,0,0,.66);
+                backdrop-filter: blur(4px);
+                -webkit-backdrop-filter: blur(4px);
+            }
+        `;
+        document.head.appendChild(s);
+    }
+
+    const LOCK_ICON_SVG = `
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <rect x="5.5" y="10" width="13" height="10" rx="2.2" stroke="currentColor" stroke-width="2"/>
+            <path d="M8.5 10V7.5a3.5 3.5 0 0 1 7 0V10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>`;
+
+    function _syncAdminLockIcon(card, locked) {
+        let icon = card.querySelector('.admin-lock-icon');
+        if (locked) {
+            if (!icon) {
+                icon = document.createElement('div');
+                icon.className = 'admin-lock-icon';
+                icon.innerHTML = LOCK_ICON_SVG;
+                card.appendChild(icon);
+            }
+        } else {
+            icon?.remove();
+        }
+        card.querySelector('.admin-lock-tooltip')?.remove();
+    }
 
     const _pool = [];
     const MAX_POOL = 24;
@@ -195,9 +264,10 @@ const CardRenderer = (() => {
     }
 
     function _selectedImageSrc(item, isFeatured) {
+        const canUseLiveAsStatic = !item.isAnimated;
         return isFeatured
-            ? (item.staticHorizontal || item.horizontal || item.staticVertical || item.vertical)
-            : (item.staticVertical || item.vertical);
+            ? (item.staticHorizontal || item.staticVertical || (canUseLiveAsStatic ? (item.horizontal || item.vertical) : ''))
+            : (item.staticVertical || (canUseLiveAsStatic ? item.vertical : ''));
     }
 
     function _queueStaticExtraction(card, item) {
@@ -230,9 +300,14 @@ const CardRenderer = (() => {
         if (item.disableGamepadControl != null) {
             card.dataset.disableGamepadControl = item.disableGamepadControl ? 'true' : 'false';
         }
+        card.dataset.isAdminLocked = item.isAdminLocked ? 'true' : 'false';
+        card.dataset.adminLockReason = item.adminLockReason || '';
+        card.classList.toggle('admin-locked', !!item.isAdminLocked);
 
         const titleEl = card.querySelector('.title');
         if (titleEl) titleEl.textContent = item.name || '';
+
+        _syncAdminLockIcon(card, !!item.isAdminLocked);
 
         const fallbackEl = card.querySelector('.media-card-fallback');
         if (fallbackEl) fallbackEl.textContent = (item.name || '?').charAt(0).toUpperCase();
@@ -282,6 +357,9 @@ const CardRenderer = (() => {
         card.dataset.channel = item.channel;
         card.dataset.appType = item.appType;
         card.dataset.isAnimated = item.isAnimated ? 'true' : 'false';
+        card.dataset.isAdminLocked = item.isAdminLocked ? 'true' : 'false';
+        card.dataset.adminLockReason = item.adminLockReason || '';
+        card.classList.toggle('admin-locked', !!item.isAdminLocked);
 
         card.dataset.vertical = item.vertical || '';
         card.dataset.horizontal = item.horizontal || '';
@@ -294,9 +372,12 @@ const CardRenderer = (() => {
 
         if (item.channel === 'games') {
             card.dataset.gameId = item.id;
+            card.dataset.source = item.source || '';
         } else {
             card.dataset.appId = item.id;
             card.dataset.appUrl = item.url || '';
+            card.dataset.adminStoreBlocked = item.adminStoreBlocked ? 'true' : 'false';
+            card.dataset.steamForceAccountSelection = item.steamForceAccountSelection ? 'true' : 'false';
             card.dataset.shareMode = item.shareMode || 'private';
             card.dataset.sharedWithUserId = item.sharedWithUserId || '';
             card.dataset.sharedWithUserIds = JSON.stringify(item.sharedWithUserIds || []);
@@ -320,6 +401,10 @@ const CardRenderer = (() => {
 
         titleEl.textContent = item.name;
         window.applyRuntimeStateToCard?.(card);
+
+        if (item.isAdminLocked) {
+            _syncAdminLockIcon(card, true);
+        }
 
         const staticSrc = _selectedImageSrc(item, isFeatured);
 
@@ -367,6 +452,14 @@ const CardRenderer = (() => {
         }, { signal });
 
         card.addEventListener('click', () => {
+            if (item.isAdminLocked) {
+                window.showDoorpiToast?.(
+                    typeof t === 'function' ? t('adminBlockedTitle', 'Bloqueado pelo administrador') : 'Bloqueado pelo administrador',
+                    typeof t === 'function' ? t('adminBlockedSubtitle', 'Esta loja foi privada para esta conta.') : 'Esta loja foi privada para esta conta.'
+                );
+                return;
+            }
+
             const launchId = item.channel === 'games' ? (item.launchUrl || item.path) : item.url;
             const hasConflict = window._handleSessionConflictFromLaunch?.(item, launchId) === true;
             if (hasConflict) return;
@@ -436,7 +529,7 @@ const CardRenderer = (() => {
             c.classList.remove('featured');
             const img = c.querySelector('img');
             if (img) {
-                const src = c.dataset.staticVertical || c.dataset.vertical;
+                const src = c.dataset.staticVertical || (c.dataset.isAnimated !== 'true' ? c.dataset.vertical : '');
                 if (src) img.src = src;
             }
         });
@@ -475,10 +568,11 @@ const CardRenderer = (() => {
                 const img = card.querySelector('img');
 
                 if (img && shouldBeFeatured) {
-                    const src = card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical;
+                    const src = card.dataset.staticHorizontal || card.dataset.staticVertical
+                        || (card.dataset.isAnimated !== 'true' ? (card.dataset.horizontal || card.dataset.vertical) : '');
                     if (src) img.src = src;
                 } else if (img && !shouldBeFeatured) {
-                    const src = card.dataset.staticVertical || card.dataset.vertical;
+                    const src = card.dataset.staticVertical || (card.dataset.isAnimated !== 'true' ? card.dataset.vertical : '');
                     if (src) img.src = src;
                 }
             });

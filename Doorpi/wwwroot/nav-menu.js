@@ -6,6 +6,8 @@ window.isNavMenuOpen = false;
 
     // ── Dados Locais ──────────────────────────────────────────────────────────
     let _menuData = { user: {}, games: [], media: [] };
+    let _menuDataUserId = '';
+    let _menuReloadToken = 0;
 
     // SVGs das Plataformas
     const PLATFORM_ICONS = {
@@ -23,6 +25,22 @@ window.isNavMenuOpen = false;
         if (url.startsWith('goggalaxy://')) return { name: 'GOG', svg: PLATFORM_ICONS.GOG };
         if (url.startsWith('riot:')) return { name: 'Riot Games', svg: PLATFORM_ICONS.Riot };
         return { name: 'Windows / Pasta', svg: PLATFORM_ICONS.Windows };
+    }
+
+    function _itemKey(item) {
+        return item?.LaunchUrl || item?.launchUrl || item?.Path || item?.path || item?.Url || item?.url || item?.Id || item?.id || '';
+    }
+
+    function _isArtworkPending(item, channel = 'games') {
+        const key = _itemKey(item);
+        return !!(key && window.AppStore?.queries?.isArtworkPending?.(channel, key));
+    }
+
+    function _restingGridSrc(item, channel = 'games') {
+        if (!item) return '';
+        if (item.GridStaticImage) return item.GridStaticImage;
+        if (_isArtworkPending(item, channel)) return '';
+        return item.GridImage || '';
     }
 
     // ── Função Exclusiva para o Modal de Aviso de Modo Desktop ──────────────
@@ -355,12 +373,14 @@ window.isNavMenuOpen = false;
         _createCard(idx) {
             const item = this.items[idx];
             const name = item.Name || '';
+            const isAdminLocked = _isAdminLockedGame(item);
 
             const card = document.createElement('div');
-            card.className = 'nav-vertical-card nav-skeleton';
+            card.className = `nav-vertical-card nav-skeleton${isAdminLocked ? ' admin-locked' : ''}`;
             card.tabIndex = -1;
             card.dataset.idx     = String(idx);
             card.dataset.gameId  = item.LaunchUrl || item.Path || item.Url || '';
+            card.dataset.isAdminLocked = isAdminLocked ? 'true' : 'false';
             card._item           = item;
             card._loaded         = false;
             card._initialPage    = false;
@@ -379,7 +399,8 @@ window.isNavMenuOpen = false;
             card.innerHTML = `
                 <div class="nlg-skeleton-bg" aria-hidden="true"></div>
                 <div class="nav-card-gradient"></div>
-                <div class="nav-vertical-card-title">${_esc(name)}</div>`;
+                <div class="nav-vertical-card-title">${_esc(name)}</div>
+                ${isAdminLocked ? `<div class="admin-lock-icon">${ADMIN_LOCK_ICON_SVG}</div>` : ''}`;
 
             card.addEventListener('click', () => {
                 if (!this._aborted) this.onLaunchAction(idx);
@@ -397,7 +418,7 @@ window.isNavMenuOpen = false;
             card.classList.remove('nav-skeleton');
 
             const item      = card._item;
-            const staticSrc = item.GridStaticImage || item.GridImage || '';
+            const staticSrc = _restingGridSrc(item, this.catId);
             const animSrc   = item.GridImage || '';
 
             if (staticSrc) {
@@ -475,7 +496,7 @@ window.isNavMenuOpen = false;
             const tasks = [];
             for (let i = 0; i < count; i++) {
                 const item = this.items[i];
-                const src = item?.GridStaticImage || item?.GridImage || '';
+                const src = _restingGridSrc(item, this.catId);
                 if (src) tasks.push(this._preloadImage(src));
             }
             return Promise.allSettled(tasks);
@@ -616,6 +637,74 @@ window.isNavMenuOpen = false;
         }
         document.getElementById('navContentBody')?.classList.remove('dual-pane-active');
         _contentItems = [];
+    }
+
+    function _activeUserIdFromPayload(user, currentUserId) {
+        return currentUserId || user?.Id || user?.id || user?.UserId || user?.userId || '';
+    }
+
+    async function _reloadMenuForCurrentUser(activeCatId) {
+        const token = ++_menuReloadToken;
+        await _loadJSONs();
+        if (token !== _menuReloadToken || !window.isNavMenuOpen) return;
+
+        const body = document.getElementById('navContentBody');
+        if (!body) return;
+
+        const catId = activeCatId || CATS[_catIdx]?.id || 'games';
+        if (catId === 'games' || catId === 'media') {
+            _attachDualPane(body);
+            _switchDualPane(catId);
+        } else {
+            _renderContent(catId);
+        }
+        _updateContentFocus();
+    }
+
+    async function _reloadMenuAfterLibraryChange(changedCatId = 'games') {
+        const token = ++_menuReloadToken;
+        const activeCatId = CATS[_catIdx]?.id || 'games';
+        await _loadJSONs();
+        if (token !== _menuReloadToken) return;
+        if (!window.isNavMenuOpen) {
+            if (changedCatId === 'games' || changedCatId === 'media') {
+                _destroyLazyGrid();
+            }
+            return;
+        }
+
+        if (activeCatId === 'games' || activeCatId === 'media') {
+            _destroyLazyGrid();
+            const body = document.getElementById('navContentBody');
+            if (!body) return;
+            _attachDualPane(body);
+            _switchDualPane(activeCatId);
+            _updateContentFocus();
+            return;
+        }
+
+        if (changedCatId === activeCatId) {
+            _renderContent(activeCatId);
+            _updateContentFocus();
+        }
+    }
+
+    function _setMenuUserContext(user, currentUserId, forceReload = false) {
+        const nextUserId = _activeUserIdFromPayload(user, currentUserId);
+        const changed = !!nextUserId && !_sameId(nextUserId, _menuDataUserId);
+        if (user) _menuData.user = user;
+        if (nextUserId) _menuDataUserId = nextUserId;
+
+        if (!changed && !forceReload) return;
+
+        _menuData.games = [];
+        _menuData.media = [];
+        const activeCatId = CATS[_catIdx]?.id || 'games';
+        _destroyLazyGrid();
+
+        if (window.isNavMenuOpen) {
+            _reloadMenuForCurrentUser(activeCatId);
+        }
     }
 
     function _attachDualPane(body) {
@@ -906,6 +995,8 @@ window.isNavMenuOpen = false;
                 return aIdx - bIdx;
             });
         }
+        let loadedGamesFromJson = false;
+        let loadedMediaFromJson = false;
         try {
             const ts = new Date().getTime();
             const [uRes, gRes, mRes] = await Promise.allSettled([
@@ -918,10 +1009,14 @@ window.isNavMenuOpen = false;
             if (gRes.status === 'fulfilled' && gRes.value.ok) {
                 const games = await gRes.value.json();
                 _menuData.games = Array.isArray(games)
-                    ? games.filter(g => !(g.IsPendingArtwork || g.isPendingArtwork))
+                    ? games.filter(g => !(g.IsPendingArtwork || g.isPendingArtwork) && !_isArtworkPending(g, 'games'))
                     : games;
+                loadedGamesFromJson = true;
             }
-            if (mRes.status === 'fulfilled' && mRes.value.ok) _menuData.media = await mRes.value.json();
+            if (mRes.status === 'fulfilled' && mRes.value.ok) {
+                _menuData.media = await mRes.value.json();
+                loadedMediaFromJson = true;
+            }
         } catch (e) {
             console.warn("Fetch bloqueado pelo WebView (CORS). Usando fallback local...", e);
         }
@@ -929,8 +1024,10 @@ window.isNavMenuOpen = false;
         if (!_menuData.user || Object.keys(_menuData.user).length === 0) {
             _menuData.user = window._doorpiProfile || {};
         }
+        const loadedUserId = _userId(_menuData.user) || window._doorpiCurrentUserId || '';
+        if (loadedUserId) _menuDataUserId = loadedUserId;
 
-        if (!_menuData.games || _menuData.games.length === 0) {
+        if (!loadedGamesFromJson && (!_menuData.games || _menuData.games.length === 0)) {
             const gameCards = Array.from(document.querySelectorAll('#gameGrid .card:not(.add-card)'));
             _menuData.games = gameCards.map(c => ({
                 Name: c.querySelector('.title')?.innerText || '',
@@ -940,7 +1037,7 @@ window.isNavMenuOpen = false;
             }));
         }
 
-        if (!_menuData.media || _menuData.media.length === 0) {
+        if (!loadedMediaFromJson && (!_menuData.media || _menuData.media.length === 0)) {
             const mediaCards = Array.from(document.querySelectorAll('#mediaGrid .card:not(.add-card)'));
             _menuData.media = mediaCards.map(c => ({
                 Name: c.querySelector('.title')?.innerText || '',
@@ -1030,6 +1127,34 @@ window.isNavMenuOpen = false;
         return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
     }
 
+    function _storePolicyKeyFromGame(item) {
+        const source = item?.Source || item?.source || '';
+        if (source) return source === 'Battle.net' ? 'BattleNet' : source;
+        const launch = item?.LaunchUrl || item?.launchUrl || '';
+        if (/^steam:/i.test(launch)) return 'Steam';
+        if (/^com\.epicgames\.launcher:/i.test(launch)) return 'Epic';
+        if (/^goggalaxy:/i.test(launch)) return 'GOG';
+        if (/^(xbox:|ms-xbl-)/i.test(launch)) return 'Xbox';
+        if (/^uplay:/i.test(launch)) return 'Ubisoft';
+        if (/^origin2?:/i.test(launch)) return 'EA';
+        if (/^battlenet:/i.test(launch)) return 'BattleNet';
+        if (/^amazon-games:/i.test(launch)) return 'Amazon';
+        return '';
+    }
+
+    function _isAdminLockedGame(item) {
+        if (item?.IsAdminLocked || item?.isAdminLocked) return true;
+        if (window._doorpiIsAdmin || window._doorpiProfile?.IsAdmin || window._doorpiProfile?.isAdmin) return false;
+        const key = _storePolicyKeyFromGame(item);
+        return !!key && window._adminBlockedStoreIds instanceof Set && window._adminBlockedStoreIds.has(key);
+    }
+
+    const ADMIN_LOCK_ICON_SVG = `
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <rect x="5.5" y="10" width="13" height="10" rx="2.2" stroke="currentColor" stroke-width="2"/>
+            <path d="M8.5 10V7.5a3.5 3.5 0 0 1 7 0V10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>`;
+
     function _userId(user) {
         if (typeof user === 'string') return user;
         return user?.Id || user?.id || user?.UserId || user?.userId || '';
@@ -1078,6 +1203,8 @@ window.isNavMenuOpen = false;
     let _lastFocus = null;
     let _settingsSubView = null;
     let _sharingFocusAppId = '';
+    let _sharingSubView = 'apps';
+    let _sharingFocusStoreId = 'Steam';
     let _preserveSettingsSubViewOnce = false;
     let _autoStartEnabled = false;
     const NAV_MENU_TRANSITION_MS = 600;
@@ -1594,7 +1721,7 @@ window.isNavMenuOpen = false;
                 .then(r => r.json())
                 .then(games => {
                     if (!Array.isArray(games)) return;
-                    _menuData.games = games.filter(g => !(g.IsPendingArtwork || g.isPendingArtwork));
+                    _menuData.games = games.filter(g => !(g.IsPendingArtwork || g.isPendingArtwork) && !_isArtworkPending(g, 'games'));
                     if (CATS[_catIdx]?.id === 'profile') {
                         _renderProfile(document.getElementById('navContentBody'));
                         _updateContentFocus();
@@ -1653,6 +1780,13 @@ window.isNavMenuOpen = false;
         const items = catId === 'games' ? _menuData.games : _menuData.media;
         const item = items[idx];
         if (!item) return;
+        if (catId === 'games' && _isAdminLockedGame(item)) {
+            window.showDoorpiToast?.(
+                _t('adminBlockedTitle', 'Bloqueado pelo administrador'),
+                _t('adminBlockedSubtitle', 'Esta loja foi privada para esta conta.')
+            );
+            return;
+        }
 
         if (typeof postToHost === 'function') {
             if (catId === 'games') {
@@ -1814,7 +1948,7 @@ window.isNavMenuOpen = false;
         </div>`;
         } else {
             recentGames.forEach((item) => {
-                const staticSrc = item.GridStaticImage || item.GridImage || '';
+                const staticSrc = _restingGridSrc(item, 'games');
                 const totalFmtItem = fmtTime(item.TotalPlaytimeMinutes);
                 const lastFmt = fmtTime(item.LastSessionMinutes);
                 const dateStr = relDate(item.LastPlayed);
@@ -2007,23 +2141,40 @@ window.isNavMenuOpen = false;
 
         let pendingName = _menuData.user.Name || '';
         let pendingApi = _menuData.user.SteamGridApiKey || '';
+        let pendingPin = String(_menuData.user.PinCode || _menuData.user.pinCode || '');
         const photo = _menuData.user.PhotoBase64 || '';
 
         const maskApi = (key) => key ? key.slice(0, 6) + '••••••••' + key.slice(-4) : '—';
 
-        const _saveApiNow = (apiKey) => {
-            pendingApi = apiKey;
-            _menuData.user.SteamGridApiKey = apiKey;
-            if (window._doorpiProfile) window._doorpiProfile.SteamGridApiKey = apiKey;
+        const maskPin = (pin) => pin ? '*'.repeat(Math.min(4, pin.length)) : _t('setupPinPlaceholder', 'Sem PIN');
+
+        const _saveProfileNow = (patch = {}) => {
+            if (Object.prototype.hasOwnProperty.call(patch, 'name')) pendingName = patch.name;
+            if (Object.prototype.hasOwnProperty.call(patch, 'apiKey')) pendingApi = patch.apiKey;
+            if (Object.prototype.hasOwnProperty.call(patch, 'pin')) pendingPin = patch.pin;
+            _menuData.user.Name = pendingName;
+            _menuData.user.SteamGridApiKey = pendingApi;
+            _menuData.user.PinCode = pendingPin;
+            if (window._doorpiProfile) {
+                window._doorpiProfile.Name = pendingName;
+                window._doorpiProfile.SteamGridApiKey = pendingApi;
+                window._doorpiProfile.PinCode = pendingPin;
+            }
             if (typeof postToHost === 'function') {
                 postToHost({
                     action: 'saveUserProfile',
                     name: pendingName,
-                    apiKey: apiKey,
+                    apiKey: pendingApi,
+                    pin: pendingPin,
                     photoBase64: _menuData.user.PhotoBase64 || '',
                     skipTasks: true
                 });
             }
+        };
+
+        const _saveApiNow = (apiKey) => {
+            pendingApi = apiKey;
+            _saveProfileNow({ apiKey });
         };
 
         body.innerHTML = `
@@ -2044,6 +2195,11 @@ window.isNavMenuOpen = false;
                     <div class="nav-profile-field">
                         <span class="nav-profile-field-label">${_t('navProfileNameLabel', 'Nome de Usuário')}</span>
                         <input class="nav-profile-field-input" id="navProfName" readonly value="${pendingName}" tabindex="-1" />
+                    </div>
+
+                    <div class="nav-profile-field" style="margin-top: 10px;">
+                        <span class="nav-profile-field-label">${_t('navProfilePinLabel', 'PIN de acesso (opcional)')}</span>
+                        <input class="nav-profile-field-input" id="navProfPin" type="password" readonly value="${maskPin(pendingPin)}" inputmode="numeric" pattern="[0-9]*" maxlength="4" tabindex="-1" />
                     </div>
                     
                     <div class="nav-profile-field" style="margin-top: 10px;">
@@ -2068,6 +2224,7 @@ window.isNavMenuOpen = false;
             body.querySelector('#setBack'),
             body.querySelector('#navProfilePhoto'),
             body.querySelector('#navProfName'),
+            body.querySelector('#navProfPin'),
             body.querySelector('#navProfApi'),
             body.querySelector('#navApiPaste'),
             body.querySelector('#navApiLink'),
@@ -2087,6 +2244,7 @@ window.isNavMenuOpen = false;
 
         const photoBtn = body.querySelector('#navProfilePhoto');
         const nameInput = body.querySelector('#navProfName');
+        const pinInput = body.querySelector('#navProfPin');
         const apiInput = body.querySelector('#navProfApi');
         const pasteBtn = body.querySelector('#navApiPaste');
         const linkBtn = body.querySelector('#navApiLink');
@@ -2152,17 +2310,7 @@ window.isNavMenuOpen = false;
                     nameInput.setAttribute('readonly', '');
                     window._vkbForceClose?.();
 
-                    _menuData.user.Name = pendingName;
-                    if (window._doorpiProfile) window._doorpiProfile.Name = pendingName;
-                    if (typeof postToHost === 'function') {
-                        postToHost({
-                            action: 'saveUserProfile',
-                            name: pendingName,
-                            apiKey: pendingApi,
-                            photoBase64: _menuData.user.PhotoBase64 || '',
-                            skipTasks: true
-                        });
-                    }
+                    _saveProfileNow({ name: pendingName });
                     const topBtnName = document.querySelector('#btnTopProfile .top-profile-name');
                     if (topBtnName) topBtnName.textContent = pendingName;
                     _showSavedFeedback();
@@ -2170,6 +2318,28 @@ window.isNavMenuOpen = false;
                 onCancel: () => {
                     nameInput.value = pendingName;
                     nameInput.setAttribute('readonly', '');
+                    window._vkbForceClose?.();
+                }
+            });
+        });
+
+        pinInput?.addEventListener('click', () => {
+            pinInput.value = pendingPin;
+            pinInput.removeAttribute('readonly');
+            window._vkbOpen?.(pinInput, {
+                mode: 'numeric',
+                onOk: () => {
+                    const newPin = String(pinInput.value || '').replace(/\D/g, '').slice(0, 4);
+                    pendingPin = newPin;
+                    pinInput.value = maskPin(newPin);
+                    pinInput.setAttribute('readonly', '');
+                    window._vkbForceClose?.();
+                    _saveProfileNow({ pin: newPin });
+                    _showSavedFeedback();
+                },
+                onCancel: () => {
+                    pinInput.value = maskPin(pendingPin);
+                    pinInput.setAttribute('readonly', '');
                     window._vkbForceClose?.();
                 }
             });
@@ -2211,7 +2381,7 @@ window.isNavMenuOpen = false;
         });
     }
 
-    function _renderSettingsSharing(body) {
+    function _renderSettingsSharingLegacy(body) {
         if (!document.getElementById('nav-sharing-styles')) {
             const s = document.createElement('style');
             s.id = 'nav-sharing-styles';
@@ -2241,6 +2411,24 @@ window.isNavMenuOpen = false;
                 .nav-sharing-save.nav-focused-el { background: #101018; color: #fff; border-color: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,0.26), 0 10px 26px rgba(0,0,0,0.45); transform: scale(1.04); }
                 .nav-sharing-save[disabled] { opacity: .45; pointer-events: none; }
                 .nav-sharing-note { min-height: 22px; color: rgba(130,210,255,0.95); font-size: 0.92rem; }
+                .nav-store-policy-section { max-width: 1180px; margin: 0 0 18px; animation: fadeInTop 0.3s ease; }
+                .nav-store-policy-head { display: flex; flex-direction: column; gap: 3px; margin: 0 0 10px; }
+                .nav-store-policy-head h3 { margin: 0; color: #fff; font-size: 1.02rem; font-weight: 600; }
+                .nav-store-policy-head p { margin: 0; color: rgba(255,255,255,0.46); font-size: 0.86rem; line-height: 1.32; }
+                .nav-store-policy-grid { display: flex; flex-direction: column; gap: 8px; }
+                .nav-store-policy-row { min-height: 58px; display: grid; grid-template-columns: minmax(150px, .45fr) minmax(0, 1fr); gap: 10px; align-items: center; padding: 9px 12px; border-radius: 8px; border: 1px solid transparent; background: rgba(255,255,255,0.035); }
+                .nav-store-policy-name { color: #fff; font-size: .98rem; font-weight: 600; }
+                .nav-store-policy-actions { display: flex; flex-direction: column; justify-content: center; align-items: stretch; gap: 7px; min-width: 0; }
+                .nav-store-policy-toggle { min-height: 40px; width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 9px; align-items: center; padding: 6px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.10); background: transparent; color: #fff; font: inherit; text-align: left; outline: none; cursor: pointer; }
+                .nav-store-policy-toggle.active { border-color: rgba(120,190,255,0.38); background: rgba(120,190,255,0.09); }
+                .nav-store-policy-toggle.nav-focused-el { border-color: #fff; background: rgba(255,255,255,0.14); box-shadow: 0 0 0 2px rgba(255,255,255,0.18), 0 8px 20px rgba(0,0,0,0.30); }
+                .nav-store-policy-switch { width: 36px; height: 20px; border-radius: 999px; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.14); position: relative; transition: background .14s ease, border-color .14s ease; }
+                .nav-store-policy-toggle.active .nav-store-policy-switch { background: rgba(120,190,255,0.8); border-color: rgba(255,255,255,0.42); }
+                .nav-store-policy-switch::after { content: ''; position: absolute; width: 14px; height: 14px; left: 2px; top: 2px; border-radius: 50%; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.35); transition: transform .14s ease; }
+                .nav-store-policy-toggle.active .nav-store-policy-switch::after { transform: translateX(16px); }
+                .nav-store-policy-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+                .nav-store-policy-copy strong { font-size: .86rem; color: rgba(255,255,255,.9); font-weight: 600; white-space: nowrap; }
+                .nav-store-policy-copy span { display: none; }
             `;
             document.head.appendChild(s);
         }
@@ -2253,6 +2441,18 @@ window.isNavMenuOpen = false;
         const users = (window._doorpiUsers || []).filter(u => _userId(u));
         const shareUsers = users.filter(u => !_sameId(_userId(u), currentUserId));
         const apps = (_menuData.media || []).filter(app => _isWebAccountApp(app));
+        const isAdmin = !!window._doorpiIsAdmin || !!(window._doorpiProfile?.IsAdmin || window._doorpiProfile?.isAdmin);
+        const betaStores = [
+            { id: 'Steam', name: 'Steam', steam: true },
+            { id: 'Epic', name: 'Epic Games' },
+            { id: 'GOG', name: 'GOG' },
+            { id: 'Xbox', name: 'Xbox' }
+        ];
+        const rawBlockedStores = window._adminBlockedStoreIds instanceof Set
+            ? Array.from(window._adminBlockedStoreIds)
+            : (Array.isArray(window._adminBlockedStoreIds) ? window._adminBlockedStoreIds : []);
+        const blockedStoreKeys = new Set(rawBlockedStores.map(id => String(id || '').trim().toLowerCase()).filter(Boolean));
+        const isStoreBlocked = (id) => blockedStoreKeys.has(String(id || '').trim().toLowerCase());
         let selectedAppId = _sharingFocusAppId || _appId(apps[0]) || '';
         let selectedApp = apps.find(app => _sameId(_appId(app), selectedAppId)) || apps[0] || null;
         if (selectedApp) selectedAppId = _appId(selectedApp);
@@ -2288,6 +2488,36 @@ window.isNavMenuOpen = false;
                 <button class="nav-back-btn" id="setBackSharing" tabindex="-1">< ${_t('navBack', 'Voltar')}</button>
                 <h2>${_t('accountSharingLabel', 'Compartilhamento de conta')}</h2>
             </div>
+            ${isAdmin ? `
+            <section class="nav-store-policy-section" aria-label="${_t('storePolicyTitle', 'Politicas de lojas')}">
+                <div class="nav-store-policy-head">
+                    <h3>${_t('storePolicyTitle', 'Politicas de lojas')}</h3>
+                    <p>${_t('storePolicyDesc', 'Controle quais lojas podem ser usadas por outras contas deste Doorpi.')}</p>
+                </div>
+                <div class="nav-store-policy-grid">
+                    ${betaStores.map(store => `
+                    <div class="nav-store-policy-row" data-store-id="${_esc(store.id)}">
+                        <div class="nav-store-policy-name">${_esc(store.name)}</div>
+                        <div class="nav-store-policy-actions">
+                            <button class="nav-store-policy-toggle ${isStoreBlocked(store.id) ? 'active' : ''}" data-policy="blocked" data-store-id="${_esc(store.id)}" data-active="${isStoreBlocked(store.id) ? 'true' : 'false'}" tabindex="-1">
+                                <span class="nav-store-policy-switch" aria-hidden="true"></span>
+                                <span class="nav-store-policy-copy">
+                                    <strong>${_t('storeAdminBlockToggle', 'Privar loja para outras contas')}</strong>
+                                    <span>${_t('storePolicyPrivateDesc', 'Impede abrir a loja e iniciar jogos dela em outros perfis.')}</span>
+                                </span>
+                            </button>
+                            ${store.steam ? `
+                            <button class="nav-store-policy-toggle ${window._steamForceAccountSelection ? 'active' : ''}" data-policy="steam-account" data-store-id="Steam" data-active="${window._steamForceAccountSelection ? 'true' : 'false'}" tabindex="-1">
+                                <span class="nav-store-policy-switch" aria-hidden="true"></span>
+                                <span class="nav-store-policy-copy">
+                                    <strong>${_t('steamForceAccountSelection', 'Forcar selecao de usuario Steam')}</strong>
+                                    <span>${_t('steamForceAccountSelectionDesc', 'Fecha e reabre a Steam antes de iniciar jogos para exibir o seletor de usuario.')}</span>
+                                </span>
+                            </button>` : ''}
+                        </div>
+                    </div>`).join('')}
+                </div>
+            </section>` : ''}
             <div class="nav-sharing-layout">
                 <div class="nav-sharing-apps" id="navSharingApps">
                     ${apps.length ? apps.map(app => {
@@ -2416,6 +2646,7 @@ window.isNavMenuOpen = false;
         function refreshSharingFocus() {
             _contentItems = [
                 body.querySelector('#setBackSharing'),
+                ...Array.from(body.querySelectorAll('.nav-store-policy-toggle')),
                 ...Array.from(body.querySelectorAll('.nav-sharing-app')),
                 ...Array.from(body.querySelectorAll('.nav-sharing-mode, .nav-sharing-user, .nav-sharing-save')).filter(el => !el.disabled && el.offsetParent !== null)
             ].filter(Boolean);
@@ -2437,6 +2668,32 @@ window.isNavMenuOpen = false;
         body.querySelectorAll('.nav-sharing-app').forEach(btn => {
             btn.addEventListener('click', () => selectApp(btn.dataset.appId || ''));
         });
+        body.querySelectorAll('.nav-store-policy-toggle').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const storeId = btn.dataset.storeId || '';
+                const policy = btn.dataset.policy || '';
+                const next = btn.dataset.active !== 'true';
+                btn.dataset.active = next ? 'true' : 'false';
+                btn.classList.toggle('active', next);
+
+                if (policy === 'blocked') {
+                    window._adminBlockedStoreIds = window._adminBlockedStoreIds instanceof Set
+                        ? window._adminBlockedStoreIds
+                        : new Set(Array.isArray(window._adminBlockedStoreIds) ? window._adminBlockedStoreIds : []);
+                    if (next) window._adminBlockedStoreIds.add(storeId);
+                    else window._adminBlockedStoreIds.delete(storeId);
+                    window.AppStore?.mutations?.patchItem?.('stores', storeId, { adminStoreBlocked: next });
+                    postToHost?.({ action: 'setAdminStorePolicy', storeId, blockedForNonAdmins: next });
+                    return;
+                }
+
+                if (policy === 'steam-account') {
+                    window._steamForceAccountSelection = next;
+                    window.AppStore?.mutations?.patchItem?.('stores', 'Steam', { steamForceAccountSelection: next });
+                    postToHost?.({ action: 'setAdminStorePolicy', storeId: 'Steam', steamForceAccountSelection: next });
+                }
+            });
+        });
 
         window._doorpiUsersDataReady = () => {
             if (_settingsSubView === 'sharing' && window.isNavMenuOpen) {
@@ -2450,6 +2707,381 @@ window.isNavMenuOpen = false;
         refreshSharingFocus();
         const focusedApp = _sharingFocusAppId ? body.querySelector(`.nav-sharing-app[data-app-id="${CSS.escape(_sharingFocusAppId)}"]`) : null;
         const idx = focusedApp ? _contentItems.indexOf(focusedApp) : 0;
+        _contentIdx = idx >= 0 ? idx : 0;
+    }
+
+    function _renderSettingsSharing(body) {
+        if (!document.getElementById('nav-sharing-v2-styles')) {
+            const s = document.createElement('style');
+            s.id = 'nav-sharing-v2-styles';
+            s.textContent = `
+                .nav-sharing-layout { display: grid; grid-template-columns: minmax(220px, 0.9fr) minmax(360px, 1.4fr); gap: 18px; align-items: start; max-width: 1180px; animation: fadeInTop 0.3s ease; }
+                .nav-sharing-apps, .nav-sharing-panel { background: rgba(255,255,255,0.035); border: 1px solid rgba(255,255,255,0.09); border-radius: 10px; padding: 14px; }
+                .nav-sharing-apps { display: flex; flex-direction: column; gap: 8px; max-height: 58vh; overflow: auto; }
+                .nav-sharing-app { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 52px; padding: 0 12px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #fff; font: inherit; text-align: left; outline: none; cursor: pointer; }
+                .nav-sharing-app.active { background: rgba(120,190,255,0.08); border-color: rgba(120,190,255,0.22); }
+                .nav-sharing-app.nav-focused-el { background: rgba(255,255,255,0.14); border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,0.22), 0 10px 24px rgba(0,0,0,0.35); }
+                .nav-sharing-app small { color: rgba(255,255,255,0.45); white-space: nowrap; }
+                .nav-sharing-panel { min-height: 360px; display: flex; flex-direction: column; gap: 16px; }
+                .nav-sharing-title { margin: 0; color: #fff; font-size: 1.35rem; font-weight: 500; }
+                .nav-sharing-sub { margin: -6px 0 0; color: rgba(255,255,255,0.55); line-height: 1.45; }
+                .nav-sharing-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+                .nav-sharing-mode, .nav-sharing-save { min-height: 48px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.05); color: #fff; font: inherit; outline: none; cursor: pointer; }
+                .nav-sharing-mode.active { border-color: rgba(120,190,255,0.55); background: rgba(120,190,255,0.12); }
+                .nav-sharing-mode.nav-focused-el { border-color: #fff; background: rgba(255,255,255,0.16); box-shadow: 0 0 0 2px rgba(255,255,255,0.2), 0 8px 20px rgba(0,0,0,0.32); }
+                .nav-sharing-users { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; }
+                .nav-sharing-user { min-height: 112px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04); color: #fff; font: inherit; outline: none; cursor: pointer; position: relative; }
+                .nav-sharing-user.selected { border-color: rgba(120,190,255,0.52); background: rgba(120,190,255,0.10); }
+                .nav-sharing-user.nav-focused-el { border-color: #fff; background: rgba(255,255,255,0.14); box-shadow: 0 0 0 2px rgba(255,255,255,0.2), 0 10px 24px rgba(0,0,0,0.35); }
+                .nav-sharing-user.selected::after { content: 'OK'; position: absolute; top: 8px; right: 8px; font-size: 0.62rem; color: #111; background: #fff; border-radius: 999px; padding: 2px 6px; font-weight: 800; }
+                .nav-sharing-avatar { width: 44px; height: 44px; border-radius: 50%; overflow: hidden; background: rgba(255,255,255,0.10); display:flex; align-items:center; justify-content:center; color: rgba(255,255,255,0.65); }
+                .nav-sharing-avatar img { width: 100%; height: 100%; object-fit: cover; }
+                .nav-sharing-save { align-self: flex-start; padding: 0 22px; font-weight: 700; background: #fff; color: #080812; border-color: transparent; }
+                .nav-sharing-save.nav-focused-el { background: #101018; color: #fff; border-color: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,0.26), 0 10px 26px rgba(0,0,0,0.45); transform: scale(1.04); }
+                .nav-sharing-save[disabled] { opacity: .45; pointer-events: none; }
+                .nav-sharing-note { min-height: 22px; color: rgba(130,210,255,0.95); font-size: 0.92rem; }
+                .nav-sharing-tabs { max-width: 1180px; display: flex; gap: 8px; margin: 0 0 14px; }
+                .nav-sharing-tab { min-height: 42px; min-width: 150px; padding: 0 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.035); color: rgba(255,255,255,.74); font: inherit; outline: none; cursor: pointer; }
+                .nav-sharing-tab.active { background: rgba(120,190,255,.10); border-color: rgba(120,190,255,.36); color: #fff; }
+                .nav-sharing-tab.nav-focused-el { background: rgba(255,255,255,.15); border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,.18), 0 8px 20px rgba(0,0,0,.30); }
+                .nav-sharing-panel-actions { display: flex; flex-direction: column; gap: 10px; }
+                .nav-sharing-toggle { min-height: 56px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: center; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.045); color: #fff; font: inherit; text-align: left; outline: none; cursor: pointer; }
+                .nav-sharing-toggle.active { border-color: rgba(120,190,255,.46); background: rgba(120,190,255,.10); }
+                .nav-sharing-toggle.nav-focused-el { border-color: #fff; background: rgba(255,255,255,.15); box-shadow: 0 0 0 2px rgba(255,255,255,.18), 0 8px 20px rgba(0,0,0,.30); }
+                .nav-sharing-switch { width: 42px; height: 24px; border-radius: 999px; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.14); position: relative; transition: background .14s ease, border-color .14s ease; }
+                .nav-sharing-toggle.active .nav-sharing-switch { background: rgba(120,190,255,.82); border-color: rgba(255,255,255,.42); }
+                .nav-sharing-switch::after { content: ''; position: absolute; width: 18px; height: 18px; left: 2px; top: 2px; border-radius: 50%; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.35); transition: transform .14s ease; }
+                .nav-sharing-toggle.active .nav-sharing-switch::after { transform: translateX(18px); }
+                .nav-sharing-toggle-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+                .nav-sharing-toggle-copy strong { color: rgba(255,255,255,.94); font-size: .95rem; font-weight: 650; }
+                .nav-sharing-toggle-copy span { color: rgba(255,255,255,.48); font-size: .82rem; line-height: 1.28; }
+            `;
+            document.head.appendChild(s);
+        }
+
+        if (!Array.isArray(window._doorpiUsers) || window._doorpiUsers.length === 0) {
+            if (typeof postToHost === 'function') postToHost({ action: 'requestUsersData' });
+        }
+
+        const currentUserId = _userId(_menuData.user) || _userId(window._doorpiProfile) || window._doorpiCurrentUserId || '';
+        const users = (window._doorpiUsers || []).filter(u => _userId(u));
+        const shareUsers = users.filter(u => !_sameId(_userId(u), currentUserId));
+        const apps = (_menuData.media || []).filter(app => _isWebAccountApp(app));
+        const isAdmin = !!window._doorpiIsAdmin || !!(window._doorpiProfile?.IsAdmin || window._doorpiProfile?.isAdmin);
+        const tabs = isAdmin
+            ? [
+                { id: 'apps', label: _t('sharingTabApps', 'Streaming e midia') },
+                { id: 'stores', label: _t('sharingTabStores', 'Lojas') }
+            ]
+            : [{ id: 'apps', label: _t('sharingTabApps', 'Streaming e midia') }];
+        if (!tabs.some(tab => tab.id === _sharingSubView)) _sharingSubView = 'apps';
+
+        const betaStores = [
+            { id: 'Steam', name: 'Steam', steam: true },
+            { id: 'Epic', name: 'Epic Games' },
+            { id: 'GOG', name: 'GOG' },
+            { id: 'Xbox', name: 'Xbox' }
+        ];
+        const rawBlockedStores = window._adminBlockedStoreIds instanceof Set
+            ? Array.from(window._adminBlockedStoreIds)
+            : (Array.isArray(window._adminBlockedStoreIds) ? window._adminBlockedStoreIds : []);
+        const blockedStoreKeys = new Set(rawBlockedStores.map(id => String(id || '').trim().toLowerCase()).filter(Boolean));
+        const isStoreBlocked = (id) => blockedStoreKeys.has(String(id || '').trim().toLowerCase());
+        const storeStatus = (store) => {
+            const blocked = isStoreBlocked(store.id);
+            if (store.steam && window._steamForceAccountSelection) {
+                return blocked ? _t('storePolicyStatusPrivateSteam', 'Privada + seletor') : _t('storePolicyStatusSteam', 'Seletor Steam');
+            }
+            return blocked ? _t('storePolicyStatusPrivate', 'Privada') : _t('storePolicyStatusOpen', 'Liberada');
+        };
+
+        let selectedAppId = _sharingFocusAppId || _appId(apps[0]) || '';
+        let selectedApp = apps.find(app => _sameId(_appId(app), selectedAppId)) || apps[0] || null;
+        if (selectedApp) selectedAppId = _appId(selectedApp);
+        let selectedStore = betaStores.find(store => _sameId(store.id, _sharingFocusStoreId)) || betaStores[0];
+        _sharingFocusStoreId = selectedStore?.id || 'Steam';
+
+        const sharedIdsOf = (app) => {
+            const ids = Array.isArray(app?.SharedWithUserIds || app?.sharedWithUserIds)
+                ? (app.SharedWithUserIds || app.sharedWithUserIds)
+                : [];
+            const legacy = app?.SharedWithUserId || app?.sharedWithUserId || '';
+            return [...ids, legacy].filter(Boolean).filter(id => !_sameId(id, currentUserId));
+        };
+        let draftMode = selectedApp?.ShareMode || selectedApp?.shareMode || 'private';
+        let draftUsers = new Set(sharedIdsOf(selectedApp));
+
+        const appStatus = (app) => {
+            if (app.IsSharedFromOtherUser || app.isSharedFromOtherUser)
+                return app.SharedFromUserName || app.sharedFromName || _t('sharedFromOther', 'Compartilhado');
+            const mode = app.ShareMode || app.shareMode || 'private';
+            if (mode === 'all') return _t('shareModeAll', 'Publico');
+            if (mode === 'user') {
+                const names = app.SharedWithUserNames || app.sharedWithUserNames || [];
+                return names.length ? names.join(', ') : _t('shareModeUser', 'Usuarios');
+            }
+            return _t('shareModePrivate', 'Separado');
+        };
+        const userAvatar = (u) => (u.PhotoBase64 || u.photoBase64)
+            ? `<img src="data:image/png;base64,${u.PhotoBase64 || u.photoBase64}" />`
+            : _esc((_userName(u) || '?').charAt(0).toUpperCase());
+
+        const listHtml = _sharingSubView === 'stores'
+            ? betaStores.map(store => `<button class="nav-sharing-app ${_sameId(store.id, _sharingFocusStoreId) ? 'active' : ''}" data-store-id="${_esc(store.id)}" tabindex="-1">
+                    <span>${_esc(store.name)}</span>
+                    <small>${_esc(storeStatus(store))}</small>
+                </button>`).join('')
+            : (apps.length ? apps.map(app => {
+                const id = _appId(app);
+                return `<button class="nav-sharing-app ${id === selectedAppId ? 'active' : ''}" data-app-id="${_esc(id)}" tabindex="-1">
+                    <span>${_esc(_appName(app))}</span>
+                    <small>${_esc(appStatus(app))}</small>
+                </button>`;
+            }).join('') : `<div class="nav-sharing-sub">${_t('navNoMedia', 'Nenhum app configurado')}</div>`);
+
+        body.innerHTML = `
+            <div class="nav-settings-subheader">
+                <button class="nav-back-btn" id="setBackSharing" tabindex="-1">< ${_t('navBack', 'Voltar')}</button>
+                <h2>${_t('accountSharingLabel', 'Compartilhamento de conta')}</h2>
+            </div>
+            <div class="nav-sharing-tabs">
+                ${tabs.map(tab => `<button class="nav-sharing-tab ${tab.id === _sharingSubView ? 'active' : ''}" data-sharing-tab="${tab.id}" tabindex="-1">${tab.label}</button>`).join('')}
+            </div>
+            <div class="nav-sharing-layout">
+                <div class="nav-sharing-apps" id="navSharingApps">${listHtml}</div>
+                <div class="nav-sharing-panel" id="navSharingPanel"></div>
+            </div>`;
+
+        const panel = body.querySelector('#navSharingPanel');
+
+        const renderAppsPanel = () => {
+            if (!panel) return;
+            if (!selectedApp) {
+                panel.innerHTML = `<p class="nav-sharing-sub">${_t('navNoMedia', 'Nenhum app configurado')}</p>`;
+                return;
+            }
+
+            const appName = _appName(selectedApp);
+            const sharedFrom = selectedApp.SharedFromUserName || selectedApp.sharedFromName || '';
+            const locked = !!(selectedApp.IsSharedFromOtherUser || selectedApp.isSharedFromOtherUser);
+            const selectedNames = Array.from(draftUsers)
+                .map(id => _userName(users.find(u => _sameId(_userId(u), id))))
+                .filter(Boolean);
+            const currentText = locked
+                ? _t('sharedByInfo', `Compartilhado por ${sharedFrom || _t('defaultOtherUser', 'outro usuario')}.`, sharedFrom || _t('defaultOtherUser', 'outro usuario'))
+                : draftMode === 'all'
+                    ? _t('shareStatusAll', 'Este app esta publico para todos os usuarios atuais e futuros.')
+                    : draftMode === 'user'
+                        ? (selectedNames.length ? _t('shareStatusUser', `Compartilhado com ${selectedNames.join(', ')}.`, selectedNames.join(', ')) : _t('shareStatusUserEmpty', 'Escolha um ou mais usuarios.'))
+                        : _t('shareStatusPrivate', 'Este app usa uma conta separada para cada usuario.');
+
+            panel.innerHTML = `
+                <h3 class="nav-sharing-title">${_esc(appName)}</h3>
+                <p class="nav-sharing-sub">${_esc(currentText)}</p>
+                ${locked ? '' : `
+                    <div class="nav-sharing-modes">
+                        <button class="nav-sharing-mode ${draftMode === 'private' ? 'active' : ''}" data-mode="private" tabindex="-1">${_t('shareModePrivate', 'Separado por usuario')}</button>
+                        <button class="nav-sharing-mode ${draftMode === 'user' ? 'active' : ''}" data-mode="user" tabindex="-1">${_t('shareModeUser', 'Usuarios especificos')}</button>
+                        <button class="nav-sharing-mode ${draftMode === 'all' ? 'active' : ''}" data-mode="all" tabindex="-1">${_t('shareModeAll', 'Publico')}</button>
+                    </div>
+                    <div class="nav-sharing-users" style="${draftMode === 'user' ? '' : 'display:none;'}">
+                        ${shareUsers.map(u => {
+                            const uid = _userId(u);
+                            const selected = Array.from(draftUsers).some(id => _sameId(id, uid));
+                            return `<button class="nav-sharing-user ${selected ? 'selected' : ''}" data-user-id="${_esc(uid)}" tabindex="-1">
+                                <span class="nav-sharing-avatar">${userAvatar(u)}</span>
+                                <span>${_esc(_userName(u))}</span>
+                            </button>`;
+                        }).join('')}
+                    </div>
+                    <button class="nav-sharing-save" id="navSharingSave" tabindex="-1" ${draftMode === 'user' && draftUsers.size === 0 ? 'disabled' : ''}>${_t('editModalSave', 'Salvar')}</button>
+                    <div class="nav-sharing-note" id="navSharingNote"></div>
+                `}
+            `;
+
+            panel.querySelectorAll('.nav-sharing-mode').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    draftMode = btn.dataset.mode || 'private';
+                    renderAppsPanel();
+                    refreshSharingFocus();
+                });
+            });
+            panel.querySelectorAll('.nav-sharing-user').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const id = btn.dataset.userId || '';
+                    const existing = Array.from(draftUsers).find(value => _sameId(value, id));
+                    if (existing) draftUsers.delete(existing);
+                    else draftUsers.add(id);
+                    renderAppsPanel();
+                    refreshSharingFocus();
+                });
+            });
+            panel.querySelector('#navSharingSave')?.addEventListener('click', () => {
+                if (!selectedApp) return;
+                const ids = draftMode === 'user' ? Array.from(draftUsers) : [];
+                if (draftMode === 'user' && ids.length === 0) return;
+                selectedApp.ShareMode = draftMode;
+                selectedApp.shareMode = draftMode;
+                selectedApp.SharedWithUserIds = ids;
+                selectedApp.sharedWithUserIds = ids;
+                selectedApp.SharedWithUserNames = ids.map(id => _userName(users.find(u => _sameId(_userId(u), id)))).filter(Boolean);
+                selectedApp.sharedWithUserNames = selectedApp.SharedWithUserNames;
+                if (typeof postToHost === 'function') {
+                    window._doorpiSuppressSharingRefreshUntil = Date.now() + 1200;
+                    postToHost({ action: 'updateAppSharing', appId: selectedAppId, shareMode: draftMode, sharedWithUserIds: ids });
+                }
+                const activeRow = Array.from(body.querySelectorAll('.nav-sharing-app'))
+                    .find(btn => _sameId(btn.dataset.appId, selectedAppId));
+                const statusEl = activeRow?.querySelector('small');
+                if (statusEl) statusEl.textContent = appStatus(selectedApp);
+                const note = panel.querySelector('#navSharingNote');
+                if (note) {
+                    note.textContent = _t('navSharingSaved', 'Compartilhamento salvo.');
+                    clearTimeout(note._clearTimer);
+                    note._clearTimer = setTimeout(() => {
+                        if (document.contains(note)) note.textContent = '';
+                    }, 2200);
+                }
+                const saveBtn = panel.querySelector('#navSharingSave');
+                if (saveBtn) {
+                    const idx = _contentItems.indexOf(saveBtn);
+                    if (idx >= 0) _contentIdx = idx;
+                    _updateContentFocus();
+                }
+            });
+        };
+
+        const renderStoresPanel = () => {
+            if (!panel || !selectedStore) return;
+            const blocked = isStoreBlocked(selectedStore.id);
+            const forceSteam = selectedStore.steam && !!window._steamForceAccountSelection;
+            panel.innerHTML = `
+                <h3 class="nav-sharing-title">${_esc(selectedStore.name)}</h3>
+                <p class="nav-sharing-sub">${_esc(_t('storePolicyDesc', 'Controle quais lojas podem ser usadas por outras contas deste Doorpi.'))}</p>
+                <div class="nav-sharing-panel-actions">
+                    <button class="nav-sharing-toggle ${blocked ? 'active' : ''}" data-policy="blocked" data-store-id="${_esc(selectedStore.id)}" data-active="${blocked ? 'true' : 'false'}" tabindex="-1">
+                        <span class="nav-sharing-switch" aria-hidden="true"></span>
+                        <span class="nav-sharing-toggle-copy">
+                            <strong>${_t('storeAdminBlockToggle', 'Privar loja para outras contas')}</strong>
+                            <span>${_t('storePolicyPrivateDesc', 'Impede abrir a loja e iniciar jogos dela em outros perfis.')}</span>
+                        </span>
+                    </button>
+                    ${selectedStore.steam ? `
+                    <button class="nav-sharing-toggle ${forceSteam ? 'active' : ''}" data-policy="steam-account" data-store-id="Steam" data-active="${forceSteam ? 'true' : 'false'}" tabindex="-1">
+                        <span class="nav-sharing-switch" aria-hidden="true"></span>
+                        <span class="nav-sharing-toggle-copy">
+                            <strong>${_t('steamForceAccountSelection', 'Forcar selecao de usuario Steam')}</strong>
+                            <span>${_t('steamForceAccountSelectionDesc', 'Fecha e reabre a Steam antes de iniciar jogos para exibir o seletor de usuario.')}</span>
+                        </span>
+                    </button>` : ''}
+                </div>`;
+
+            panel.querySelectorAll('.nav-sharing-toggle').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const storeId = btn.dataset.storeId || '';
+                    const policy = btn.dataset.policy || '';
+                    const next = btn.dataset.active !== 'true';
+                    btn.dataset.active = next ? 'true' : 'false';
+                    btn.classList.toggle('active', next);
+
+                    if (policy === 'blocked') {
+                        window._adminBlockedStoreIds = window._adminBlockedStoreIds instanceof Set
+                            ? window._adminBlockedStoreIds
+                            : new Set(Array.isArray(window._adminBlockedStoreIds) ? window._adminBlockedStoreIds : []);
+                        if (next) window._adminBlockedStoreIds.add(storeId);
+                        else window._adminBlockedStoreIds.delete(storeId);
+                        window.AppStore?.mutations?.patchItem?.('stores', storeId, { adminStoreBlocked: next });
+                        postToHost?.({ action: 'setAdminStorePolicy', storeId, blockedForNonAdmins: next });
+                    } else if (policy === 'steam-account') {
+                        window._steamForceAccountSelection = next;
+                        window.AppStore?.mutations?.patchItem?.('stores', 'Steam', { steamForceAccountSelection: next });
+                        postToHost?.({ action: 'setAdminStorePolicy', storeId: 'Steam', steamForceAccountSelection: next });
+                    }
+
+                    const row = body.querySelector(`.nav-sharing-app[data-store-id="${CSS.escape(storeId)}"] small`);
+                    const updatedStore = betaStores.find(store => _sameId(store.id, storeId));
+                    if (row && updatedStore) row.textContent = storeStatus(updatedStore);
+                    refreshSharingFocus();
+                });
+            });
+        };
+
+        const renderActivePanel = () => {
+            if (_sharingSubView === 'stores') renderStoresPanel();
+            else renderAppsPanel();
+        };
+
+        const selectApp = (appId) => {
+            _sharingFocusAppId = appId;
+            selectedApp = apps.find(app => _sameId(_appId(app), appId)) || apps[0] || null;
+            selectedAppId = _appId(selectedApp);
+            draftMode = selectedApp?.ShareMode || selectedApp?.shareMode || 'private';
+            draftUsers = new Set(sharedIdsOf(selectedApp));
+            body.querySelectorAll('.nav-sharing-app').forEach(btn => btn.classList.toggle('active', btn.dataset.appId === selectedAppId));
+            renderAppsPanel();
+            refreshSharingFocus();
+        };
+
+        const selectStore = (storeId) => {
+            selectedStore = betaStores.find(store => _sameId(store.id, storeId)) || betaStores[0];
+            _sharingFocusStoreId = selectedStore.id;
+            body.querySelectorAll('.nav-sharing-app').forEach(btn => btn.classList.toggle('active', _sameId(btn.dataset.storeId, _sharingFocusStoreId)));
+            renderStoresPanel();
+            refreshSharingFocus();
+        };
+
+        function refreshSharingFocus() {
+            _contentItems = [
+                body.querySelector('#setBackSharing'),
+                ...Array.from(body.querySelectorAll('.nav-sharing-tab')),
+                ...Array.from(body.querySelectorAll('.nav-sharing-app')),
+                ...Array.from(body.querySelectorAll('.nav-sharing-mode, .nav-sharing-user, .nav-sharing-save, .nav-sharing-toggle')).filter(el => !el.disabled && el.offsetParent !== null)
+            ].filter(Boolean);
+            _contentItems.forEach((el, idx) => {
+                el.onmouseenter = () => {
+                    _topbarFocus = false;
+                    _contentIdx = idx;
+                    _updateContentFocus();
+                };
+            });
+        }
+
+        body.querySelector('#setBackSharing')?.addEventListener('click', () => {
+            _settingsSubView = 'accountHub';
+            _contentIdx = 0;
+            _renderContent('settings');
+            _updateContentFocus();
+        });
+        body.querySelectorAll('.nav-sharing-tab').forEach(btn => {
+            btn.addEventListener('click', () => {
+                _sharingSubView = btn.dataset.sharingTab || 'apps';
+                _contentIdx = 1;
+                _renderSettingsSharing(body);
+                _updateContentFocus();
+            });
+        });
+        body.querySelectorAll('.nav-sharing-app').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (_sharingSubView === 'stores') selectStore(btn.dataset.storeId || '');
+                else selectApp(btn.dataset.appId || '');
+            });
+        });
+
+        window._doorpiUsersDataReady = () => {
+            if (_settingsSubView === 'sharing' && window.isNavMenuOpen) {
+                if (Date.now() < (window._doorpiSuppressSharingRefreshUntil || 0)) return;
+                _renderSettingsSharing(body);
+                _updateContentFocus();
+            }
+        };
+
+        renderActivePanel();
+        refreshSharingFocus();
+        const focusedSelector = _sharingSubView === 'stores'
+            ? `.nav-sharing-app[data-store-id="${CSS.escape(_sharingFocusStoreId)}"]`
+            : (_sharingFocusAppId ? `.nav-sharing-app[data-app-id="${CSS.escape(_sharingFocusAppId)}"]` : '');
+        const focused = focusedSelector ? body.querySelector(focusedSelector) : null;
+        const idx = focused ? _contentItems.indexOf(focused) : 0;
         _contentIdx = idx >= 0 ? idx : 0;
     }
 
@@ -2887,9 +3519,29 @@ window.isNavMenuOpen = false;
         tabs[nextIdx].click();
     };
 
+    window._navMenuCycleSharingSubtab = function (delta) {
+        if (CATS[_catIdx]?.id !== 'settings' || _settingsSubView !== 'sharing') return false;
+        if (_topbarFocus) return false;
+        const focused = _contentItems[_contentIdx];
+        if (focused?.id === 'setBackSharing') return false;
+
+        const tabs = Array.from(document.querySelectorAll('.nav-sharing-tab'));
+        if (tabs.length <= 1) return false;
+
+        let currentIdx = tabs.findIndex(tab => tab.classList.contains('active'));
+        if (currentIdx === -1) currentIdx = 0;
+
+        const nextIdx = Math.max(0, Math.min(tabs.length - 1, currentIdx + parseInt(delta)));
+        if (nextIdx === currentIdx) return true;
+
+        tabs[nextIdx].click();
+        return true;
+    };
+
     window._navMenuHandleKey = function (key) {
         if (window._vkbIsOpen) return false;
         if (_navMenuPhase === 'closing') return false;
+        if ((key === 'L1' || key === 'R1') && window._navMenuCycleSharingSubtab?.(key === 'R1' ? 1 : -1)) return true;
         if (key === 'L1') { window._navMenuCycleTab(-1); return true; }
         if (key === 'R1') { window._navMenuCycleTab(1); return true; }
 
@@ -3030,11 +3682,12 @@ window.isNavMenuOpen = false;
                 0: { ArrowDown: 1, ArrowRight: 1 },
                 1: { ArrowUp: 0, ArrowDown: 2, ArrowRight: 2 },
                 2: { ArrowUp: 1, ArrowDown: 3, ArrowLeft: 1 },
-                3: { ArrowUp: 2, ArrowDown: 6, ArrowRight: 4 },
-                4: { ArrowUp: 2, ArrowDown: 6, ArrowLeft: 3, ArrowRight: 5 },
-                5: { ArrowUp: 2, ArrowDown: 6, ArrowLeft: 4 },
-                6: { ArrowUp: 3, ArrowDown: 7 },
-                7: { ArrowUp: 6 }
+                3: { ArrowUp: 2, ArrowDown: 4, ArrowLeft: 1 },
+                4: { ArrowUp: 3, ArrowDown: 7, ArrowRight: 5, ArrowLeft: 1 },
+                5: { ArrowUp: 3, ArrowDown: 7, ArrowLeft: 4, ArrowRight: 6 },
+                6: { ArrowUp: 3, ArrowDown: 7, ArrowLeft: 5 },
+                7: { ArrowUp: 4, ArrowDown: 8 },
+                8: { ArrowUp: 7 }
             };
 
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
@@ -3068,31 +3721,33 @@ window.isNavMenuOpen = false;
 
         if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'sharing') {
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
-                const appCount = document.querySelectorAll('.nav-sharing-app').length;
-                const modeCount = document.querySelectorAll('.nav-sharing-mode').length;
-                const userCount = document.querySelectorAll('.nav-sharing-user').length;
-                const hasSave = !!document.querySelector('.nav-sharing-save:not([disabled])');
-                const appsStart = 1;
-                const rightStart = appsStart + appCount;
-                const modesStart = rightStart;
-                const usersStart = modesStart + modeCount;
-                const saveIdx = usersStart + userCount;
-                const activeApp = Array.from(document.querySelectorAll('.nav-sharing-app')).findIndex(el => el.classList.contains('active'));
-                const activeAppIdx = activeApp >= 0 ? appsStart + activeApp : appsStart;
+                const tabCount = document.querySelectorAll('.nav-sharing-tab').length;
+                const listCount = document.querySelectorAll('.nav-sharing-app').length;
+                const tabsStart = 1;
+                const listStart = tabsStart + tabCount;
+                const rightStart = listStart + listCount;
+                const rightCount = Math.max(0, total - rightStart);
+                const activeList = Array.from(document.querySelectorAll('.nav-sharing-app')).findIndex(el => el.classList.contains('active'));
+                const activeListIdx = activeList >= 0 ? listStart + activeList : listStart;
 
                 if (_contentIdx === 0) {
-                    if (key === 'ArrowDown' || key === 'ArrowRight') {
-                        const next = appCount ? appsStart : rightStart;
-                        if (next < total) _contentIdx = next;
-                        else _setTopbarFocus(true);
-                    }
+                    if (key === 'ArrowDown' || key === 'ArrowRight') _contentIdx = tabCount ? tabsStart : (listCount ? listStart : rightStart);
                     else if (key === 'ArrowUp') _setTopbarFocus(true);
                     _updateContentFocus();
                     return;
                 }
 
-                if (_contentIdx >= appsStart && _contentIdx < rightStart) {
-                    if (key === 'ArrowUp') _contentIdx = _contentIdx === appsStart ? 0 : _contentIdx - 1;
+                if (_contentIdx >= tabsStart && _contentIdx < listStart) {
+                    if (key === 'ArrowLeft') _contentIdx = Math.max(tabsStart, _contentIdx - 1);
+                    else if (key === 'ArrowRight') _contentIdx = Math.min(listStart - 1, _contentIdx + 1);
+                    else if (key === 'ArrowUp') _contentIdx = 0;
+                    else if (key === 'ArrowDown') _contentIdx = listCount ? listStart : (rightCount ? rightStart : _contentIdx);
+                    _updateContentFocus();
+                    return;
+                }
+
+                if (_contentIdx >= listStart && _contentIdx < rightStart) {
+                    if (key === 'ArrowUp') _contentIdx = _contentIdx === listStart ? (tabCount ? tabsStart : 0) : _contentIdx - 1;
                     else if (key === 'ArrowDown') _contentIdx = _contentIdx < rightStart - 1 ? _contentIdx + 1 : _contentIdx;
                     else if (key === 'ArrowRight' && rightStart < total) _contentIdx = rightStart;
                     else if (key === 'ArrowLeft') _setTopbarFocus(true);
@@ -3100,31 +3755,11 @@ window.isNavMenuOpen = false;
                     return;
                 }
 
-                if (_contentIdx >= modesStart && _contentIdx < usersStart) {
-                    const modeOffset = _contentIdx - modesStart;
-                    if (key === 'ArrowLeft') _contentIdx = modeOffset === 0 ? activeAppIdx : _contentIdx - 1;
-                    else if (key === 'ArrowRight') _contentIdx = modeOffset < modeCount - 1 ? _contentIdx + 1 : _contentIdx;
-                    else if (key === 'ArrowUp') _contentIdx = 0;
-                    else if (key === 'ArrowDown') _contentIdx = userCount ? usersStart : (hasSave ? saveIdx : _contentIdx);
-                    _updateContentFocus();
-                    return;
-                }
-
-                if (_contentIdx >= usersStart && _contentIdx < usersStart + userCount) {
-                    const userOffset = _contentIdx - usersStart;
-                    const grid = document.querySelector('.nav-sharing-users');
-                    const gridCols = grid ? Math.max(1, getComputedStyle(grid).gridTemplateColumns.split(' ').length) : 1;
-                    if (key === 'ArrowLeft') _contentIdx = userOffset === 0 ? activeAppIdx : _contentIdx - 1;
-                    else if (key === 'ArrowRight') _contentIdx = userOffset < userCount - 1 ? _contentIdx + 1 : _contentIdx;
-                    else if (key === 'ArrowUp') _contentIdx = userOffset < gridCols ? modesStart + Math.min(userOffset, Math.max(0, modeCount - 1)) : _contentIdx - gridCols;
-                    else if (key === 'ArrowDown') _contentIdx = userOffset + gridCols < userCount ? _contentIdx + gridCols : (hasSave ? saveIdx : _contentIdx);
-                    _updateContentFocus();
-                    return;
-                }
-
-                if (hasSave && _contentIdx === saveIdx) {
-                    if (key === 'ArrowLeft') _contentIdx = activeAppIdx;
-                    else if (key === 'ArrowUp') _contentIdx = userCount ? usersStart + userCount - 1 : modesStart;
+                if (_contentIdx >= rightStart) {
+                    if (key === 'ArrowLeft') _contentIdx = listCount ? activeListIdx : (tabCount ? tabsStart : 0);
+                    else if (key === 'ArrowUp') _contentIdx = _contentIdx === rightStart ? (tabCount ? tabsStart : 0) : _contentIdx - 1;
+                    else if (key === 'ArrowDown') _contentIdx = Math.min(total - 1, _contentIdx + 1);
+                    else if (key === 'ArrowRight') _contentIdx = Math.min(total - 1, _contentIdx + 1);
                     _updateContentFocus();
                     return;
                 }
@@ -3361,6 +3996,12 @@ window.isNavMenuOpen = false;
     // ── Expose ────────────────────────────────────────────────────────────────
     window.openNavMenu = open;
     window.closeNavMenu = close;
+    window._navMenuCurrentUserChanged = function (user, currentUserId, userChanged = false) {
+        _setMenuUserContext(user || {}, currentUserId || '', !!userChanged);
+    };
+    window._navMenuDataChanged = function (catId = 'games') {
+        _reloadMenuAfterLibraryChange(catId);
+    };
     window._navMenuRemoveItem = function (catId, itemKey) {
         if (catId === 'games' && Array.isArray(_menuData.games)) {
             _menuData.games = _menuData.games.filter(item => {
