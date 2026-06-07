@@ -1874,7 +1874,12 @@ namespace Doorpi
         private DesktopVkbWindow _desktopVkb;
 
         private const int MINIMUM_LAUNCH_ANIMATION_MS = 3000;
+        private const int GAME_WINDOW_DETECTION_TIMEOUT_MS = 4 * 60 * 1000;
+        private const int STORE_CHILD_GAME_WINDOW_DETECTION_TIMEOUT_MS = 90 * 1000;
+        private const int EXTERNAL_SESSION_MINIMIZE_GRACE_MS = 2500;
+        private const int STORE_SUSPICIOUS_WINDOW_CLOSED_GRACE_MS = 6000;
         private DateTime _launchAnimationStartedUtc = DateTime.MinValue;
+        private long _gameMinimizeAllowedAfterUtcTicks;
         private volatile bool _dialogModeActive = false;
 
         // ========================= FOCUS GUARD DE TRANSIÇÃO =========================
@@ -2378,8 +2383,17 @@ namespace Doorpi
                         bool xboxPressed = (btn & 0x0400) != 0 && (prevButtons & 0x0400) == 0;
                         if (xboxPressed)
                         {
-                            Dispatcher.Invoke(MinimizeStoreSessionAndShowMenu);
-                            break;
+                            bool minimized = false;
+                            Dispatcher.Invoke(() =>
+                            {
+                                if (CanMinimizeStoreSession())
+                                {
+                                    MinimizeStoreSessionAndShowMenu();
+                                    minimized = true;
+                                }
+                            });
+                            if (minimized)
+                                break;
                         }
 
                         bool mouseShortcutPressed = IsMouseModeShortcutPressed(btn) && !IsMouseModeShortcutPressed(prevButtons);
@@ -2460,6 +2474,118 @@ namespace Doorpi
             });
 
             SendRuntimeSessionsToUI();
+        }
+
+        private void BeginSteamAccountSelectionInput(string steamExe)
+        {
+            _steamAccountSelectionWindowGuardActive = true;
+
+            bool canOwnStoreSession =
+                !_isStoreLauncherSession ||
+                string.Equals(_activeStoreId, "Steam", StringComparison.OrdinalIgnoreCase);
+            if (!canOwnStoreSession)
+                return;
+
+            if (!_isStoreLauncherSession)
+            {
+                _steamAccountSelectionStoreSessionActive = true;
+                _isStoreLauncherSession = true;
+                _storePausedByDoorpi = false;
+                _activeStoreId = "Steam";
+                _storeSessionKind = "exe";
+                _storeLauncherExe = steamExe;
+                _storeMouseModeInitialized = true;
+                _storeLauncherWindowSeen = true;
+                _storeTrayCloseInProgress = false;
+                _storeTransitionOverlayActive = false;
+                _storeProcessSnapshot = SnapshotProcessIds();
+                _storeProcessGroupIds = new();
+                _storeAttachedProcessIds = new();
+                _storeAttachedWindowHandles = new();
+                _storeWindowSnapshot = SnapshotVisibleWindows();
+            }
+            else
+            {
+                _steamAccountSelectionStoreSessionActive = false;
+                if (string.IsNullOrWhiteSpace(_storeLauncherExe))
+                    _storeLauncherExe = steamExe;
+            }
+
+            try
+            {
+                _storeLauncherProcess = FindSteamClientProcess(steamExe);
+                if (_storeLauncherProcess != null)
+                    InitializeStoreLauncherProcessGroup(_storeLauncherProcess);
+            }
+            catch { }
+
+            int sessionId = Interlocked.Increment(ref _storeSessionId);
+            _steamAccountSelectionControlsActive = true;
+            _storeMouseModeRequested = true;
+            _storeGamepadDisabled = false;
+            _storeControllerActive = true;
+
+            Dispatcher.Invoke(() =>
+            {
+                EnsureCursorVisible();
+                _mainScreenMouseVisible = true;
+                CenterCursorOnScreen();
+                UpdateHoverStateInWebView();
+            });
+
+            _storeControllerThread = new Thread(() => StoreExeControllerLoop(sessionId)) { IsBackground = true };
+            _storeControllerThread.Start();
+            SendRuntimeSessionsToUI();
+        }
+
+        private void StopSteamAccountSelectionControlsForGame()
+        {
+            if (!_steamAccountSelectionControlsActive && !_steamAccountSelectionStoreSessionActive)
+                return;
+
+            _steamAccountSelectionControlsActive = false;
+            _storeMouseModeRequested = false;
+            _storeGamepadDisabled = true;
+            _storeControllerActive = false;
+            Interlocked.Increment(ref _storeSessionId);
+
+            Dispatcher.Invoke(() =>
+            {
+                _desktopVkb?.Close();
+                _desktopVkb = null;
+                EnsureCursorHidden();
+                _mainScreenMouseVisible = false;
+                _lastKnownCursorPos = new POINT { X = 0, Y = 0 };
+                try { SetCursorPos(0, 0); } catch { }
+            });
+
+            if (_steamAccountSelectionStoreSessionActive)
+            {
+                _steamAccountSelectionStoreSessionActive = false;
+                _isStoreLauncherSession = false;
+                _storePausedByDoorpi = false;
+                _storeLauncherExe = null;
+                _storeSessionKind = "";
+                _activeStoreId = null;
+                _storeLauncherProcess = null;
+                _storeMouseModeInitialized = false;
+                _storeMinimizeState = StoreMinimizeState.Opening;
+                _storeLauncherWindowSeen = false;
+                _storeProcessSnapshot = new();
+                _storeProcessGroupIds = new();
+                _storeAttachedProcessIds = new();
+                _storeAttachedWindowHandles = new();
+                ClearStorePendingChildWindows();
+                _storeWindowSnapshot = new();
+            }
+
+            SendRuntimeSessionsToUI();
+        }
+
+        private void ResetSteamAccountSelectionInputState()
+        {
+            _steamAccountSelectionWindowGuardActive = false;
+            StopSteamAccountSelectionControlsForGame();
         }
 
         private void ToggleStoreMouseModeForSession(int sessionId)
@@ -5373,6 +5499,9 @@ namespace Doorpi
 
         private void MinimizeCurrentGameAndRestoreDoorpi()
         {
+            if (!CanMinimizeCurrentGameSession())
+                return;
+
             Debug.WriteLine("\n=======================================================");
             Debug.WriteLine("[DEBUG MINIMIZE] INICIANDO MINIMIZAÇÃO DA SESSÃO");
 
@@ -5467,8 +5596,18 @@ namespace Doorpi
             "goggalaxy", "riotclientservices", "riotclientux", "riotclientuxrender",
             "leagueclient", "leagueclientux", "leagueclientuxrender",
             "eadesktop", "eabackgroundservice", "origin", "battle.net", "battle.net helper",
-            "ubisoftconnect", "upc", "rockstarservice", "rockstarlauncher",
-            "redprelauncher", "2klauncher", "t2gp"
+            "battle.net launcher", "ubisoftconnect", "upc", "rockstarservice", "rockstarlauncher",
+            "redprelauncher", "2klauncher", "t2gp", "gameoverlayui",
+            "xbox", "xboxapp", "xboxpcapp", "gamingapp", "gamingservices",
+            "gamingservicesnet", "gamingoverlay", "gamebar", "gamebarftserver",
+            "amazon games", "amazongames", "amazongameslauncher",
+            "winstore.app", "storeexperiencehost", "storepurchaseapp", "windowsstore"
+        };
+
+        private static readonly string[] _gameWindowIgnoredNameFragments =
+        {
+            "launcher", "bootstrapper", "updater", "installer", "setup",
+            "patcher", "overlay", "webhelper"
         };
 
         private static readonly HashSet<string> _shellProcessNames = new(StringComparer.OrdinalIgnoreCase)
@@ -5476,6 +5615,67 @@ namespace Doorpi
             "explorer", "shellexperiencehost", "startmenuexperiencehost", "searchhost",
             "searchapp", "taskmgr", "applicationframehost", "textinputhost"
         };
+
+        private static readonly HashSet<string> _steamClientProcessNames = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "steam", "steamwebhelper", "gameoverlayui"
+        };
+
+        private static bool IsSteamClientProcessName(string processName)
+            => !string.IsNullOrWhiteSpace(processName) &&
+               _steamClientProcessNames.Contains(processName);
+
+        private bool ShouldIgnoreSteamAccountSelectionWindow(Process process)
+            => _steamAccountSelectionWindowGuardActive &&
+               IsSteamClientProcessName(SafeProcessName(process));
+
+        private bool ShouldAlwaysIgnoreGameWindowProcess(Process process)
+        {
+            try
+            {
+                var processName = SafeProcessName(process);
+                if (string.IsNullOrWhiteSpace(processName))
+                    return true;
+
+                if (_shellProcessNames.Contains(processName))
+                    return true;
+
+                if (_knownLauncherProcessNames.Contains(processName))
+                    return true;
+
+                var processPath = SafeProcessPath(process);
+                var exeName = Path.GetFileNameWithoutExtension(processPath);
+                var haystack = $"{processName} {exeName}".ToLowerInvariant();
+                if (_gameWindowIgnoredNameFragments.Any(fragment =>
+                    haystack.Contains(fragment, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return true;
+                }
+
+                return false;
+            }
+            catch { return true; }
+        }
+
+        private Process? FindSteamClientProcess(string steamExe)
+        {
+            if (!string.IsNullOrWhiteSpace(steamExe))
+            {
+                try
+                {
+                    var running = FindRunningProcessForExe(steamExe);
+                    if (running != null)
+                        return running;
+                }
+                catch { }
+            }
+
+            try
+            {
+                return Process.GetProcessesByName("steam").FirstOrDefault();
+            }
+            catch { return null; }
+        }
 
         private HashSet<int> SnapshotProcessIds()
         {
@@ -5508,9 +5708,12 @@ namespace Doorpi
                 {
                     GetWindowThreadProcessId(hWnd, out uint pid);
                     var proc = Process.GetProcessById((int)pid);
-                    if (SafeProcessName(proc).Contains("Launcher", StringComparison.OrdinalIgnoreCase) ||
+                    if (ShouldIgnoreSteamAccountSelectionWindow(proc) ||
+                        ShouldAlwaysIgnoreGameWindowProcess(proc) ||
                         SafeProcessPath(proc).Contains("Launcher", StringComparison.OrdinalIgnoreCase))
+                    {
                         return true;
+                    }
                 }
                 catch { }
 
@@ -5664,9 +5867,10 @@ namespace Doorpi
                         continue;
                     }
 
-                    if (!doorpiHidden && (DateTime.UtcNow - startedUtc).TotalMinutes > 4)
+                    if (!doorpiHidden &&
+                        (DateTime.UtcNow - startedUtc).TotalMilliseconds > GAME_WINDOW_DETECTION_TIMEOUT_MS)
                     {
-                        Dispatcher.Invoke(() => ForceFocus());
+                        Dispatcher.Invoke(() => CancelUnresolvedGameLaunch(game));
                         return;
                     }
 
@@ -5688,6 +5892,14 @@ namespace Doorpi
                                 _lockedGameProcessName = lockedProcessName; // ← NOVO: promove para classe
                                 _currentLauncherHwnd = IntPtr.Zero;         // ← NOVO: esquece o launcher
                                 _pendingLaunchProcess = null;               // jogo real identificado: launcher intermediário deixa de ser referência
+                                DelayGameMinimizeAvailability();
+                                StopSteamAccountSelectionControlsForGame();
+                                if (_storeChildGameActive &&
+                                    string.Equals(_gameSessionParentKind, "store", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    ClearStorePendingChildWindows();
+                                    _storeMinimizeState = StoreMinimizeState.StoreChildGameValid;
+                                }
                             }
                             catch { }
                         }
@@ -5792,6 +6004,67 @@ namespace Doorpi
             }
             catch (OperationCanceledException) { }
             catch (Exception ex) { Debug.WriteLine($"[GameLaunchMonitor] {ex.Message}"); }
+        }
+
+        private void CancelUnresolvedGameLaunch(GameModel? game = null)
+        {
+            bool hadStoreChildContext =
+                _storeChildGameActive &&
+                string.Equals(_gameSessionParentKind, "store", StringComparison.OrdinalIgnoreCase);
+
+            string storeId = hadStoreChildContext ? _storeChildGameStoreId : "";
+
+            _launchCancelled = true;
+            ResetGameMinimizeGrace();
+
+            try
+            {
+                if (_pendingLaunchProcess != null &&
+                    !SafeHasExited(_pendingLaunchProcess) &&
+                    (!hadStoreChildContext || !IsProcessActiveStoreLauncher(_pendingLaunchProcess)))
+                {
+                    _pendingLaunchProcess.Kill(entireProcessTree: true);
+                }
+            }
+            catch { }
+
+            try
+            {
+                lock (_gameLaunchMonitorLock)
+                {
+                    _gameLaunchMonitorCts?.Cancel();
+                }
+            }
+            catch { }
+
+            ClearGameFocusFallbackPrompt();
+            _gameIsMinimized = false;
+            _gameIsRunningAndDoorpiHidden = false;
+            _currentGameHwnd = IntPtr.Zero;
+            _currentLauncherHwnd = IntPtr.Zero;
+            _pendingLaunchProcess = null;
+            _lockedGameProcessName = "";
+            ClearGameWindowSession();
+            _storeChildGameActive = false;
+            _storeChildGameStoreId = "";
+            _storeChildGameId = "";
+
+            if (hadStoreChildContext &&
+                _isStoreLauncherSession &&
+                string.Equals(_activeStoreId, storeId, StringComparison.OrdinalIgnoreCase))
+            {
+                DelayStorePendingChildClosedGrace();
+                _storeMinimizeState = StoreMinimizeState.StoreReturningToValid;
+            }
+
+            ForceFocus();
+            SendGameLaunchStatus(
+                "gameLaunchFailed",
+                game?.Name ?? "",
+                game?.HeroImage ?? "",
+                game?.GridImage ?? "",
+                "timeout");
+            SendRuntimeSessionsToUI();
         }
         // ── Session tracking ──────────────────────────────────────────────────────
         private void CommitActiveSession()
@@ -6076,6 +6349,45 @@ namespace Doorpi
                    IsForegroundOwnedByExecutablePath(_storeLauncherExe);
         }
 
+        private bool IsForegroundOwnedByActiveStoreMainWindow()
+        {
+            if (!_isStoreLauncherSession ||
+                _storePausedByDoorpi ||
+                string.IsNullOrWhiteSpace(_activeStoreId))
+            {
+                return false;
+            }
+
+            if (!IsForegroundExternalInteractiveWindow(out var foreground, out var process) ||
+                process == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                if (IsProcessActiveStoreLauncher(process))
+                    return true;
+
+                if (!string.IsNullOrWhiteSpace(_storeLauncherExe) &&
+                    TryFindStoreWindow(_activeStoreId ?? "", _storeLauncherExe, out var storeProc, out var storeHwnd))
+                {
+                    if (foreground == storeHwnd)
+                        return true;
+
+                    GetWindowThreadProcessId(foreground, out var pidRaw);
+                    return pidRaw != 0 && pidRaw == (uint)storeProc.Id;
+                }
+
+                return false;
+            }
+            catch { return false; }
+            finally
+            {
+                try { process.Dispose(); } catch { }
+            }
+        }
+
         private bool IsForegroundOwnedByStoreAuxiliaryWindow()
         {
             if (!_isStoreLauncherSession ||
@@ -6275,6 +6587,35 @@ namespace Doorpi
 
             return false;
         }
+
+        private bool CanMinimizeCurrentGameSession()
+        {
+            if (!_gameSessionActive || _gameIsMinimized)
+                return false;
+
+            bool confirmed = HasConfirmedGameWindow();
+            if (_storeChildGameActive &&
+                string.Equals(_gameSessionParentKind, "store", StringComparison.OrdinalIgnoreCase))
+            {
+                _storeMinimizeState = confirmed
+                    ? StoreMinimizeState.StoreChildGameValid
+                    : StoreMinimizeState.StorePendingChild;
+            }
+
+            return confirmed && !IsGameMinimizeGraceActive();
+        }
+
+        private void DelayGameMinimizeAvailability(int delayMs = EXTERNAL_SESSION_MINIMIZE_GRACE_MS)
+        {
+            Interlocked.Exchange(ref _gameMinimizeAllowedAfterUtcTicks,
+                DateTime.UtcNow.AddMilliseconds(delayMs).Ticks);
+        }
+
+        private bool IsGameMinimizeGraceActive()
+            => Interlocked.Read(ref _gameMinimizeAllowedAfterUtcTicks) > DateTime.UtcNow.Ticks;
+
+        private void ResetGameMinimizeGrace()
+            => Interlocked.Exchange(ref _gameMinimizeAllowedAfterUtcTicks, 0);
 
         private void ClearGameFocusFallbackPrompt()
         {
@@ -7309,12 +7650,15 @@ namespace Doorpi
             _storeChildGameStoreId = bindToActiveStoreContext ? (_activeStoreId ?? "") : "";
             _storeChildGameId = bindToActiveStoreContext ? gameId : "";
             _sessionStartUtc = DateTime.UtcNow;
+            DelayGameMinimizeAvailability();
 
             if (bindToActiveStoreContext)
             {
                 MarkStoreChildGameAsPlayed(game, gameId);
                 _storeControllerActive = false;
                 _storePausedByDoorpi = false;
+                ClearStorePendingChildWindows();
+                _storeMinimizeState = StoreMinimizeState.StoreChildGameValid;
                 _storeAttachedProcessIds.Add(candidate.ProcessId);
                 _storeAttachedWindowHandles.Add(candidate.Hwnd);
                 CaptureStoreAttachedSessionArtifacts();
@@ -7368,7 +7712,8 @@ namespace Doorpi
         {
             var processName = SafeProcessName(process);
             if (string.IsNullOrWhiteSpace(processName)) return 0;
-            if (_shellProcessNames.Contains(processName)) return 0;
+            if (ShouldAlwaysIgnoreGameWindowProcess(process)) return 0;
+            if (ShouldIgnoreSteamAccountSelectionWindow(process)) return 0;
 
             var score = 0;
             var pid = SafeProcessId(process);
@@ -7376,7 +7721,6 @@ namespace Doorpi
             var exePath = SafeProcessPath(process);
             var exeName = Path.GetFileNameWithoutExtension(exePath);
             var haystack = $"{processName} {exeName} {title} {exePath}".ToLowerInvariant();
-            var isLauncher = _knownLauncherProcessNames.Contains(processName);
 
             // 1. Origem do Processo (O Jogo ser um processo NOVO é a maior pista de todas)
             if (pid == context.LaunchedProcessId) score += 50;
@@ -7428,10 +7772,6 @@ namespace Doorpi
             }
             catch (Exception ex) when (ex is UnauthorizedAccessException || ex is System.ComponentModel.Win32Exception) { }
             catch { }
-
-            // Penalidade SEVERA para evitar que os Launchers finjam ser o jogo
-            if (isLauncher) score -= 60;
-
             return Math.Max(0, score);
         }
 
@@ -9878,6 +10218,7 @@ namespace Doorpi
                 else if (action == "cancelGameLaunch")
                 {
                     _launchCancelled = true;
+                    ResetGameMinimizeGrace();
                     _lockedGameProcessName = "";  // ← NOVO
                     _gameIsMinimized = false;
                     _currentGameHwnd = IntPtr.Zero;
@@ -11689,7 +12030,10 @@ namespace Doorpi
                     _storeChildGameStoreId = bindToActiveStoreContext ? (_activeStoreId ?? "") : "";
                     _storeChildGameId = bindToActiveStoreContext ? identifier : "";
                     if (bindToActiveStoreContext)
+                    {
                         _storePausedByDoorpi = false;
+                        _storeMinimizeState = StoreMinimizeState.StorePendingChild;
+                    }
                     SuspendMainUiGamepadForGameLaunch();
 
                     var processSnapshot = SnapshotProcessIds();
@@ -11764,8 +12108,10 @@ namespace Doorpi
                                     {
                                         if (forceAccountSelection)
                                         {
+                                            _steamAccountSelectionWindowGuardActive = true;
                                             RestartSteamForAccountSelection(steamExe);
                                             launched = Process.Start(new ProcessStartInfo(game.LaunchUrl) { UseShellExecute = true });
+                                            BeginSteamAccountSelectionInput(steamExe);
                                         }
                                         else
                                         {
@@ -11783,7 +12129,11 @@ namespace Doorpi
                                     else
                                     {
                                         // Fallback caso não ache o exe da steam
+                                        if (forceAccountSelection)
+                                            _steamAccountSelectionWindowGuardActive = true;
                                         launched = Process.Start(new ProcessStartInfo(game.LaunchUrl) { UseShellExecute = true });
+                                        if (forceAccountSelection)
+                                            BeginSteamAccountSelectionInput(steamExe);
                                     }
                                 }
                                 else

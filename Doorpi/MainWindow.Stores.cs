@@ -26,11 +26,17 @@ namespace Doorpi
         private bool _storeGamepadDisabled;
         private bool _storeMouseModeRequested;
         private bool _storeMouseModeInitialized;
+        private StoreMinimizeState _storeMinimizeState = StoreMinimizeState.Opening;
+        private bool _steamAccountSelectionControlsActive;
+        private bool _steamAccountSelectionStoreSessionActive;
+        private bool _steamAccountSelectionWindowGuardActive;
         private bool _storeLauncherWindowSeen;
         private bool _storeTrayCloseInProgress;
         private bool _storeTransitionOverlayActive;
         private long _epicTrayGraceUntilUtcTicks;
         private long _epicTrayRestoreUntilUtcTicks;
+        private long _storeMinimizeAllowedAfterUtcTicks;
+        private long _storePendingChildClosedGraceUntilUtcTicks;
         private HashSet<string> _libraryKeysBeforeStore = new(StringComparer.OrdinalIgnoreCase);
         private HashSet<string> _storeKeysBeforeStore = new(StringComparer.OrdinalIgnoreCase);
         private HashSet<string> _storeKeysProcessedDuringSession = new(StringComparer.OrdinalIgnoreCase);
@@ -38,6 +44,8 @@ namespace Doorpi
         private HashSet<int> _storeProcessGroupIds = new();
         private HashSet<int> _storeAttachedProcessIds = new();
         private HashSet<IntPtr> _storeAttachedWindowHandles = new();
+        private HashSet<int> _storePendingChildProcessIds = new();
+        private HashSet<IntPtr> _storePendingChildWindowHandles = new();
         private HashSet<IntPtr> _storeWindowSnapshot = new();
         private string _storeProcessGroupRootDirectory = "";
         private string _storeProcessGroupExeName = "";
@@ -52,6 +60,16 @@ namespace Doorpi
         private readonly object _storeLibraryMonitorLock = new();
         private int _storeArtworkRefreshRunning;
         private string storesFile = "";
+
+        private enum StoreMinimizeState
+        {
+            Opening,
+            StoreValid,
+            StorePendingChild,
+            StoreChildGameValid,
+            StoreBlockedUnknown,
+            StoreReturningToValid
+        }
 
         private static readonly List<(string Id, string Name, string SgdbQuery)> StoreLauncherCatalog = new()
         {
@@ -736,7 +754,8 @@ namespace Doorpi
 
                 var processName = SafeProcessName(process);
                 if (string.IsNullOrWhiteSpace(processName)) continue;
-                if (_shellProcessNames.Contains(processName)) continue;
+                if (ShouldAlwaysIgnoreGameWindowProcess(process)) continue;
+                if (ShouldIgnoreSteamAccountSelectionWindow(process)) continue;
 
                 var processPath = SafeProcessPath(process);
                 if (!string.IsNullOrWhiteSpace(_storeLauncherExe) &&
@@ -794,7 +813,8 @@ namespace Doorpi
 
                 var processName = SafeProcessName(process);
                 if (string.IsNullOrWhiteSpace(processName)) continue;
-                if (_shellProcessNames.Contains(processName)) continue;
+                if (ShouldAlwaysIgnoreGameWindowProcess(process)) continue;
+                if (ShouldIgnoreSteamAccountSelectionWindow(process)) continue;
 
                 var processPath = SafeProcessPath(process);
                 if (!string.IsNullOrWhiteSpace(_storeLauncherExe) &&
@@ -862,6 +882,7 @@ namespace Doorpi
             var processName = SafeProcessName(process);
             var processPath = SafeProcessPath(process);
             if (string.IsNullOrWhiteSpace(processName)) return 0;
+            if (ShouldAlwaysIgnoreGameWindowProcess(process)) return 0;
 
             var exeName = Path.GetFileNameWithoutExtension(processPath);
             var haystack = $"{processName} {exeName} {processPath}".ToLowerInvariant();
@@ -922,6 +943,8 @@ namespace Doorpi
         private int ScoreStoreChildGameCandidate(GameModel game, InstalledApp app, Process process, IntPtr hWnd, RECT rect)
         {
             var processName = SafeProcessName(process);
+            if (ShouldAlwaysIgnoreGameWindowProcess(process)) return 0;
+
             var processPath = SafeProcessPath(process);
             var exeName = Path.GetFileNameWithoutExtension(processPath);
             var title = GetWindowTitle(hWnd);
@@ -1037,6 +1060,9 @@ namespace Doorpi
 
             MarkStoreChildGameAsPlayed(candidate.Game, gameId);
 
+            StopSteamAccountSelectionControlsForGame();
+            ClearStorePendingChildWindows();
+            _storeMinimizeState = StoreMinimizeState.StoreChildGameValid;
             _storeControllerActive = false;
 
             CancellationTokenSource cts;
@@ -1070,6 +1096,7 @@ namespace Doorpi
             _gameSessionParentKind = "store";
             _forceDoorpiReturnOnGameClose = false;
             _sessionStartUtc = DateTime.UtcNow;
+            DelayGameMinimizeAvailability();
 
             DiscordRpcManager.Instance.UpdateState("game", candidate.Game.Name);
             SendGameLaunchStatus("gameLaunchDone");
@@ -1105,8 +1132,19 @@ namespace Doorpi
             Process? launcherProcess = null;
             try { launcherProcess = Process.GetProcessById(candidate.ProcessId); } catch { }
 
+            CancellationTokenSource cts;
+            lock (_gameLaunchMonitorLock)
+            {
+                _gameLaunchMonitorCts?.Cancel();
+                _gameLaunchMonitorCts?.Dispose();
+                _gameLaunchMonitorCts = new CancellationTokenSource();
+                cts = _gameLaunchMonitorCts;
+            }
+
             MarkStoreChildGameAsPlayed(candidate.Game, gameId);
 
+            StopSteamAccountSelectionControlsForGame();
+            _storeMinimizeState = StoreMinimizeState.StorePendingChild;
             _storeControllerActive = false;
             _storeChildGameActive = true;
             _storeChildGameStoreId = storeId;
@@ -1136,6 +1174,76 @@ namespace Doorpi
             if (IsForegroundDoorpi())
                 ShowExecutionLockForGame();
             SendRuntimeSessionsToUI();
+            _ = Task.Run(() => MonitorStoreChildLauncherResolutionAsync(
+                candidate.Game,
+                gameId,
+                candidate.ProcessId,
+                candidate.Hwnd,
+                cts.Token));
+        }
+
+        private async Task MonitorStoreChildLauncherResolutionAsync(
+            GameModel game,
+            string gameId,
+            int launcherProcessId,
+            IntPtr launcherHwnd,
+            CancellationToken token)
+        {
+            try
+            {
+                var startedUtc = DateTime.UtcNow;
+                bool closedGraceStarted = false;
+
+                while (!token.IsCancellationRequested &&
+                       _storeChildGameActive &&
+                       _gameSessionActive &&
+                       string.Equals(_gameSessionParentKind, "store", StringComparison.OrdinalIgnoreCase) &&
+                       string.Equals(_storeChildGameId, gameId, StringComparison.OrdinalIgnoreCase) &&
+                       string.IsNullOrWhiteSpace(_lockedGameProcessName))
+                {
+                    if ((DateTime.UtcNow - startedUtc).TotalMilliseconds > STORE_CHILD_GAME_WINDOW_DETECTION_TIMEOUT_MS)
+                    {
+                        Dispatcher.Invoke(() => CancelUnresolvedGameLaunch(game));
+                        return;
+                    }
+
+                    bool launcherStillPresent = IsStoreChildLauncherStillPresent(launcherProcessId, launcherHwnd);
+                    if (!launcherStillPresent && !closedGraceStarted)
+                    {
+                        closedGraceStarted = true;
+                        Dispatcher.Invoke(() =>
+                        {
+                            DelayStorePendingChildClosedGrace();
+                            _storeMinimizeState = StoreMinimizeState.StorePendingChild;
+                            SendRuntimeSessionsToUI();
+                        });
+                    }
+
+                    await Task.Delay(300, token).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) { Debug.WriteLine("[Store] Monitor launcher filho: " + ex.Message); }
+        }
+
+        private bool IsStoreChildLauncherStillPresent(int processId, IntPtr hwnd)
+        {
+            try
+            {
+                if (processId > 0)
+                {
+                    using var process = Process.GetProcessById(processId);
+                    if (!SafeHasExited(process))
+                        return true;
+                }
+            }
+            catch { }
+
+            try
+            {
+                return hwnd != IntPtr.Zero && IsWindow(hwnd) && (IsWindowVisible(hwnd) || IsIconic(hwnd));
+            }
+            catch { return false; }
         }
 
         private void MarkStoreChildGameAsPlayed(GameModel game, string gameId)
@@ -1296,6 +1404,8 @@ namespace Doorpi
             _storeChildGameActive = false;
             _storeChildGameStoreId = "";
             _storeChildGameId = "";
+            ClearStorePendingChildWindows();
+            _storeMinimizeState = StoreMinimizeState.StoreReturningToValid;
             SendRuntimeSessionsToUI();
 
             if (_isStoreLauncherSession &&
@@ -1548,6 +1658,197 @@ namespace Doorpi
             }
 
             ExpandStoreAttachedProcessGroup();
+        }
+
+        private void CaptureStorePendingChildWindows()
+        {
+            if (!_isStoreLauncherSession || _storePausedByDoorpi || _storeChildGameActive)
+                return;
+
+            foreach (var hWnd in EnumerateTopLevelWindows())
+            {
+                try
+                {
+                    if (hWnd == IntPtr.Zero ||
+                        hWnd == _mainWindowHandle ||
+                        hWnd == GetShellWindow() ||
+                        _storeWindowSnapshot.Contains(hWnd) ||
+                        _storePendingChildWindowHandles.Contains(hWnd))
+                    {
+                        continue;
+                    }
+
+                    if (!GetWindowRect(hWnd, out var rect) || rect.Width < 120 || rect.Height < 80)
+                        continue;
+
+                    GetWindowThreadProcessId(hWnd, out uint pidRaw);
+                    int pid = (int)pidRaw;
+                    if (pid <= 0 || pid == Environment.ProcessId)
+                        continue;
+
+                    using var process = Process.GetProcessById(pid);
+                    if (SafeHasExited(process))
+                        continue;
+
+                    string processName = SafeProcessName(process);
+                    if (string.IsNullOrWhiteSpace(processName) ||
+                        _shellProcessNames.Contains(processName) ||
+                        IsProcessActiveStoreLauncher(process) ||
+                        IsStoreAuxiliaryProcessName(processName))
+                    {
+                        continue;
+                    }
+
+                    _storePendingChildWindowHandles.Add(hWnd);
+                    if (!_storeProcessSnapshot.Contains(pid))
+                        _storePendingChildProcessIds.Add(pid);
+                }
+                catch { }
+            }
+        }
+
+        private void PruneStorePendingChildWindows()
+        {
+            if (_storePendingChildWindowHandles.Count == 0 &&
+                _storePendingChildProcessIds.Count == 0)
+            {
+                return;
+            }
+
+            bool hadPending =
+                _storePendingChildWindowHandles.Count > 0 ||
+                _storePendingChildProcessIds.Count > 0;
+
+            _storePendingChildWindowHandles.RemoveWhere(hWnd =>
+            {
+                try
+                {
+                    if (hWnd == IntPtr.Zero || !IsWindow(hWnd))
+                        return true;
+
+                    GetWindowThreadProcessId(hWnd, out uint pidRaw);
+                    if (pidRaw == 0 || pidRaw == Environment.ProcessId)
+                        return true;
+
+                    using var process = Process.GetProcessById((int)pidRaw);
+                    if (SafeHasExited(process))
+                        return true;
+
+                    string processName = SafeProcessName(process);
+                    return IsProcessActiveStoreLauncher(process) ||
+                           IsStoreAuxiliaryProcessName(processName) ||
+                           (!IsWindowVisible(hWnd) && !IsIconic(hWnd));
+                }
+                catch { return true; }
+            });
+
+            _storePendingChildProcessIds.RemoveWhere(pid =>
+            {
+                try
+                {
+                    using var process = Process.GetProcessById(pid);
+                    return SafeHasExited(process) ||
+                           IsProcessActiveStoreLauncher(process) ||
+                           IsStoreAuxiliaryProcessName(SafeProcessName(process));
+                }
+                catch { return true; }
+            });
+
+            if (hadPending &&
+                _storePendingChildWindowHandles.Count == 0 &&
+                _storePendingChildProcessIds.Count == 0)
+            {
+                DelayStorePendingChildClosedGrace();
+            }
+        }
+
+        private bool HasBlockingStorePendingWindow()
+        {
+            PruneStorePendingChildWindows();
+            return _storePendingChildWindowHandles.Count > 0 ||
+                   _storePendingChildProcessIds.Count > 0;
+        }
+
+        private void ClearStorePendingChildWindows()
+        {
+            _storePendingChildWindowHandles.Clear();
+            _storePendingChildProcessIds.Clear();
+            Interlocked.Exchange(ref _storePendingChildClosedGraceUntilUtcTicks, 0);
+        }
+
+        private void DelayStoreMinimizeAvailability(int delayMs = EXTERNAL_SESSION_MINIMIZE_GRACE_MS)
+        {
+            Interlocked.Exchange(ref _storeMinimizeAllowedAfterUtcTicks,
+                DateTime.UtcNow.AddMilliseconds(delayMs).Ticks);
+        }
+
+        private bool IsStoreMinimizeGraceActive()
+            => Interlocked.Read(ref _storeMinimizeAllowedAfterUtcTicks) > DateTime.UtcNow.Ticks;
+
+        private void ResetStoreMinimizeGrace()
+            => Interlocked.Exchange(ref _storeMinimizeAllowedAfterUtcTicks, 0);
+
+        private void DelayStorePendingChildClosedGrace(int delayMs = STORE_SUSPICIOUS_WINDOW_CLOSED_GRACE_MS)
+        {
+            Interlocked.Exchange(ref _storePendingChildClosedGraceUntilUtcTicks,
+                DateTime.UtcNow.AddMilliseconds(delayMs).Ticks);
+        }
+
+        private bool IsStorePendingChildClosedGraceActive()
+            => Interlocked.Read(ref _storePendingChildClosedGraceUntilUtcTicks) > DateTime.UtcNow.Ticks;
+
+        private void RefreshStoreMinimizeState(bool? hasVisibleStoreWindow = null)
+        {
+            if (!_isStoreLauncherSession)
+            {
+                _storeMinimizeState = StoreMinimizeState.Opening;
+                ClearStorePendingChildWindows();
+                ResetStoreMinimizeGrace();
+                return;
+            }
+
+            if (_storeChildGameActive && _gameSessionActive)
+            {
+                _storeMinimizeState = HasConfirmedGameWindow()
+                    ? StoreMinimizeState.StoreChildGameValid
+                    : StoreMinimizeState.StorePendingChild;
+                return;
+            }
+
+            bool storeReady = hasVisibleStoreWindow ?? HasActiveStoreLauncherWindow();
+            if (_storeTransitionOverlayActive ||
+                _steamAccountSelectionControlsActive ||
+                !_storeLauncherWindowSeen ||
+                !storeReady)
+            {
+                _storeMinimizeState = StoreMinimizeState.Opening;
+                return;
+            }
+
+            if (IsStoreMinimizeGraceActive() || IsStorePendingChildClosedGraceActive())
+            {
+                _storeMinimizeState = StoreMinimizeState.StoreReturningToValid;
+                return;
+            }
+
+            CaptureStorePendingChildWindows();
+            bool hasPendingWindow = HasBlockingStorePendingWindow();
+            if (!hasPendingWindow)
+            {
+                _storeMinimizeState = StoreMinimizeState.StoreValid;
+                return;
+            }
+
+            _storeMinimizeState = IsForegroundOwnedByActiveStore()
+                ? StoreMinimizeState.StoreReturningToValid
+                : StoreMinimizeState.StoreBlockedUnknown;
+        }
+
+        private bool CanMinimizeStoreSession()
+        {
+            RefreshStoreMinimizeState();
+            return _storeMinimizeState == StoreMinimizeState.StoreValid &&
+                   IsForegroundOwnedByActiveStoreMainWindow();
         }
 
         private bool IsDescendantOfAnyAttachedProcess(int pid)
@@ -1964,6 +2265,9 @@ namespace Doorpi
             _storeProcessGroupRootDirectory = "";
             _storeProcessGroupExeName = "";
             _storeWindowSnapshot = SnapshotVisibleWindows();
+            _storeMinimizeState = StoreMinimizeState.Opening;
+            ResetStoreMinimizeGrace();
+            ClearStorePendingChildWindows();
             if (string.Equals(storeId, "GOG", StringComparison.OrdinalIgnoreCase))
             {
                 _gogDiagnosticLogSeen.Clear();
@@ -2945,8 +3249,11 @@ namespace Doorpi
             {
                 try
                 {
-                    _storeLauncherWindowSeen = _storeLauncherWindowSeen ||
-                        TryFindStoreWindow(_activeStoreId ?? "", _storeLauncherExe, out _, out _);
+                    bool firstWindowSeen = !_storeLauncherWindowSeen;
+                    bool hasStoreWindow = TryFindStoreWindow(_activeStoreId ?? "", _storeLauncherExe, out _, out _);
+                    _storeLauncherWindowSeen = _storeLauncherWindowSeen || hasStoreWindow;
+                    if (firstWindowSeen && hasStoreWindow)
+                        DelayStoreMinimizeAvailability();
                 }
                 catch { }
             }
@@ -3033,7 +3340,10 @@ namespace Doorpi
                             {
                                 _storeLauncherProcess = visibleProc;
                                 hasVisibleWindow = true;
+                                bool firstWindowSeen = !_storeLauncherWindowSeen;
                                 _storeLauncherWindowSeen = true;
+                                if (firstWindowSeen)
+                                    DelayStoreMinimizeAvailability();
                                 Interlocked.Exchange(ref _epicTrayGraceUntilUtcTicks, 0);
                                 Interlocked.Exchange(ref _epicTrayRestoreUntilUtcTicks, 0);
                                 missingWindowCount = 0;
@@ -3098,6 +3408,8 @@ namespace Doorpi
                             missingWindowCount = 0;
                         }
 
+                        RefreshStoreMinimizeState(hasVisibleWindow);
+
                         if (!IsForegroundDoorpi() &&
                             (_executionLockActive ||
                              _storeShortcutThread?.IsAlive != true ||
@@ -3118,6 +3430,8 @@ namespace Doorpi
         private void MinimizeStoreSessionAndShowMenu()
         {
             if (!_isStoreLauncherSession) return;
+            if (!CanMinimizeStoreSession()) return;
+
             _storePausedByDoorpi = true;
             _storeControllerActive = false;
 
@@ -3702,10 +4016,13 @@ namespace Doorpi
             _storeChildGameId = "";
             _storeAttachedProcessIds.Clear();
             _storeAttachedWindowHandles.Clear();
+            ClearStorePendingChildWindows();
             _storeControllerActive = false;
             _storeGamepadDisabled = false;
             _storeMouseModeRequested = false;
             _storeMouseModeInitialized = false;
+            _storeMinimizeState = StoreMinimizeState.Opening;
+            ResetStoreMinimizeGrace();
             _storeLauncherWindowSeen = false;
             _storeTransitionOverlayActive = false;
             Interlocked.Exchange(ref _epicTrayGraceUntilUtcTicks, 0);
@@ -3773,9 +4090,12 @@ namespace Doorpi
             _storeChildGameActive = false;
             _storeChildGameStoreId = "";
             _storeChildGameId = "";
+            ClearStorePendingChildWindows();
             _storeControllerActive = false;
             _storeMouseModeRequested = false;
             _storeMouseModeInitialized = false;
+            _storeMinimizeState = StoreMinimizeState.Opening;
+            ResetStoreMinimizeGrace();
             _storeLauncherWindowSeen = false;
             _storeTransitionOverlayActive = false;
             _storeTrayCloseInProgress = false;

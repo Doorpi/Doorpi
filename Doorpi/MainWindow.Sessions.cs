@@ -203,6 +203,8 @@ namespace Doorpi
 
         private void ClearGameWindowSession()
         {
+            ResetSteamAccountSelectionInputState();
+            ResetGameMinimizeGrace();
             try { _gameSession?.LaunchMonitorCts?.Cancel(); } catch { }
             _gameSession = null;
         }

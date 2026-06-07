@@ -192,6 +192,26 @@ const CardRenderer = (() => {
         `;
         document.head.appendChild(s);
     }
+    if (!document.getElementById('bulk-silent-card-styles')) {
+        const s = document.createElement('style');
+        s.id = 'bulk-silent-card-styles';
+        s.textContent = `
+            @keyframes doorpiBulkCardFadeIn {
+                from { opacity: 0; transform: translateY(10px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+            .card.bulk-silent-card {
+                animation: doorpiBulkCardFadeIn .65s ease both !important;
+                transition: none !important;
+            }
+            .card.bulk-silent-card::before,
+            .card.bulk-silent-card::after {
+                animation: none !important;
+                transition: none !important;
+            }
+        `;
+        document.head.appendChild(s);
+    }
 
     const LOCK_ICON_SVG = `
         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -613,10 +633,13 @@ const CardRenderer = (() => {
         }
     }
 
-    function syncDOM(channel, items, gridEl, anchorEl) {
+    function syncDOM(channel, items, gridEl, anchorEl, opts = {}) {
+        const silent = !!opts.silent;
         const existingCards = Array.from(gridEl.querySelectorAll('.card:not(.add-card):not(.loading-card)'));
         const firstPositions = new Map();
-        existingCards.forEach(c => firstPositions.set(c.dataset.id, c.getBoundingClientRect()));
+        if (!silent) {
+            existingCards.forEach(c => firstPositions.set(c.dataset.id, c.getBoundingClientRect()));
+        }
 
         const existingMap = new Map();
         existingCards.forEach(c => existingMap.set(c.dataset.id, c));
@@ -636,7 +659,11 @@ const CardRenderer = (() => {
                 gridEl.insertBefore(card, anchorEl);
             } else {
                 card = _buildCard(item, isFeatured);
-                if (isUpdate && index > 0 && !hasSkeletons) {
+                if (silent) {
+                    card.classList.add('bulk-silent-card');
+                    setTimeout(() => card.classList.remove('bulk-silent-card'), 750);
+                }
+                if (!silent && isUpdate && index > 0 && !hasSkeletons) {
                     card.classList.add('promoted-up');
                     setTimeout(() => card.classList.remove('promoted-up'), 500);
                 }
@@ -644,23 +671,25 @@ const CardRenderer = (() => {
             }
         });
 
-        existingCards.forEach(card => {
-            const newPos = card.getBoundingClientRect();
-            const oldPos = firstPositions.get(card.dataset.id);
+        if (!silent) {
+            existingCards.forEach(card => {
+                const newPos = card.getBoundingClientRect();
+                const oldPos = firstPositions.get(card.dataset.id);
 
-            if (oldPos && (oldPos.left !== newPos.left || oldPos.top !== newPos.top)) {
-                const deltaX = oldPos.left - newPos.left;
-                const deltaY = oldPos.top - newPos.top;
+                if (oldPos && (oldPos.left !== newPos.left || oldPos.top !== newPos.top)) {
+                    const deltaX = oldPos.left - newPos.left;
+                    const deltaY = oldPos.top - newPos.top;
 
-                card.style.transition = 'none';
-                card.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+                    card.style.transition = 'none';
+                    card.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
 
-                requestAnimationFrame(() => {
-                    card.style.transition = '';
-                    card.style.transform = '';
-                });
-            }
-        });
+                    requestAnimationFrame(() => {
+                        card.style.transition = '';
+                        card.style.transform = '';
+                    });
+                }
+            });
+        }
 
         gridEl.querySelectorAll('.loading-card').forEach(c => c.remove());
 

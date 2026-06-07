@@ -116,6 +116,7 @@ const STRINGS = {
         msgErrorLaunch: 'Erro ao iniciar jogo: ',
 
         loadingAddingGame: 'Adicionando jogo',
+        loadingLibrary: 'Carregando biblioteca',
         loadingFetchingCovers: 'Buscando capas e informações...',
         loadingUpdatingLibrary: 'Atualizando biblioteca',
         loadingScanningDoNotClose: 'Procurando aplicativos. NÃO FECHE o aplicativo durante este processo!',
@@ -745,6 +746,7 @@ const STRINGS = {
         msgErrorLaunch: 'Error launching game: ',
 
         loadingAddingGame: 'Adding game',
+        loadingLibrary: 'Loading library',
         loadingFetchingCovers: 'Fetching covers and info...',
         loadingUpdatingLibrary: 'Updating library',
         loadingScanningDoNotClose: 'Looking for applications. DO NOT CLOSE the app during this process!',

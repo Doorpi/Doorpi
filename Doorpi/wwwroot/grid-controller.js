@@ -44,7 +44,7 @@ window.GridController = (() => {
 
             switch (mutation.type) {
                 case 'reset':
-                    CardRenderer.syncDOM(channel, mutation.items, el, anchor);
+                    CardRenderer.syncDOM(channel, mutation.items, el, anchor, { silent: !!mutation.silent });
                     break;
 
                 case 'prepend':
@@ -65,7 +65,9 @@ window.GridController = (() => {
         });
     }
 
-    function _onFeaturedChange({ channel, id }) {
+    function _onFeaturedChange({ channel, id, silent }) {
+        if (silent) return;
+
         if (!id) {
             if (typeof clearHero === 'function') clearHero();
             return;
@@ -144,11 +146,67 @@ window.GridController = (() => {
         const grid = document.getElementById(gridId);
 
         if (!grid) return;
+        grid.querySelectorAll('.loading-card').forEach(c => c.remove());
 
         // Se já tiver skeleton, não adiciona mais para não espalhar o erro.
         // Descobre onde inserir (Logo APÓS o hero, que é a posição [1] se existir)
         const firstCard = grid.querySelector('.card:not(.add-card)');
         let insertAnchor = firstCard ? firstCard.nextSibling : grid.firstElementChild;
+
+        if (!document.getElementById('doorpi-library-loading-card-style')) {
+            const style = document.createElement('style');
+            style.id = 'doorpi-library-loading-card-style';
+            style.textContent = `
+                .card.library-loading-card {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    min-width: clamp(150px, 12vw, 220px);
+                    border: 1px solid rgba(255,255,255,.11);
+                    background: rgba(255,255,255,.035);
+                }
+                .card.library-loading-card::before { display: none !important; }
+                .library-loading-copy {
+                    width: 100%;
+                    padding: 18px;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 12px;
+                    color: rgba(255,255,255,.78);
+                    text-align: center;
+                    font-size: clamp(.72rem, .9vw, 1rem);
+                    font-weight: 600;
+                    letter-spacing: 0;
+                }
+                .library-loading-copy::before {
+                    content: '';
+                    width: 26px;
+                    height: 26px;
+                    border-radius: 50%;
+                    border: 2px solid rgba(255,255,255,.18);
+                    border-top-color: rgba(255,255,255,.72);
+                    animation: libraryLoadingSpin .9s linear infinite;
+                }
+                @keyframes libraryLoadingSpin { to { transform: rotate(360deg); } }
+            `;
+            document.head.appendChild(style);
+        }
+
+        if ((count || 0) > 3) {
+            const card = document.createElement('div');
+            card.className = 'card loading-card library-loading-card';
+            card.setAttribute('aria-live', 'polite');
+
+            const copy = document.createElement('div');
+            copy.className = 'library-loading-copy';
+            copy.textContent = typeof t === 'function' ? t('loadingLibrary') : 'Carregando biblioteca';
+            card.appendChild(copy);
+
+            grid.insertBefore(card, insertAnchor);
+            return;
+        }
 
         for (let i = 0; i < count; i++) {
             const card = document.createElement('div');

@@ -1212,6 +1212,7 @@ window.isNavMenuOpen = false;
     let _navMenuTransitionToken = 0;
     let _navMenuTransitionCleanup = null;
     let _navMenuPhase = 'closed';
+    window._navMenuPhase = _navMenuPhase;
     let _navMenuLifecycleToken = 0;
 
     // ── Estilos ────────────────────────────────────────
@@ -3443,6 +3444,7 @@ window.isNavMenuOpen = false;
         const lifecycleToken = ++_navMenuLifecycleToken;
         window.isNavMenuOpen = true;
         _navMenuPhase = 'opening';
+        window._navMenuPhase = _navMenuPhase;
 
         document.body.classList.add('nav-menu-active');
         document.body.classList.remove('nav-menu-closing');
@@ -3474,7 +3476,10 @@ window.isNavMenuOpen = false;
         requestAnimationFrame(() => {
             if (lifecycleToken !== _navMenuLifecycleToken || !window.isNavMenuOpen || _navMenuPhase !== 'opening') return;
             _runNavMenuTransition(() => {
-                if (lifecycleToken === _navMenuLifecycleToken && window.isNavMenuOpen && _navMenuPhase === 'opening') _navMenuPhase = 'open';
+                if (lifecycleToken === _navMenuLifecycleToken && window.isNavMenuOpen && _navMenuPhase === 'opening') {
+                    _navMenuPhase = 'open';
+                    window._navMenuPhase = _navMenuPhase;
+                }
             });
             _overlay.classList.add('visible');
             _selectCat(_catIdx);
@@ -3485,6 +3490,7 @@ window.isNavMenuOpen = false;
         if (!window.isNavMenuOpen || _navMenuPhase === 'closing') return;
         const lifecycleToken = ++_navMenuLifecycleToken;
         _navMenuPhase = 'closing';
+        window._navMenuPhase = _navMenuPhase;
 
         document.body.classList.remove('nav-menu-active');
         document.body.classList.add('nav-menu-closing');
@@ -3499,6 +3505,7 @@ window.isNavMenuOpen = false;
             if (lifecycleToken !== _navMenuLifecycleToken || _navMenuPhase !== 'closing') return;
             if (_overlay) _overlay.style.display = 'none';
             _navMenuPhase = 'closed';
+            window._navMenuPhase = _navMenuPhase;
             document.body.classList.remove('nav-menu-closing');
             _overlay?.classList.remove('nav-menu-input-released');
         });

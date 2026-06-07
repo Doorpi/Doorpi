@@ -132,7 +132,7 @@ window.AppStore = (() => {
         setTimeout(run, 0);
     }
 
-    function _visibleItems(channel, items) {
+    function _visibleItems(channel, items, opts = {}) {
         if (channel !== 'games' && channel !== 'media') return items;
 
         const pending = _state.pendingArtwork[channel];
@@ -142,6 +142,7 @@ window.AppStore = (() => {
         items.forEach((item, index) => {
             item._pendingIndex = index;
             if (_requiresStaticBeforeRender(channel, item)) {
+                item._silentPending = !!opts.silent;
                 pending.set(item.id, item);
                 _requestStaticArtwork(channel, item);
             } else {
@@ -151,7 +152,7 @@ window.AppStore = (() => {
         return visible;
     }
 
-    function _insertVisible(channel, item, preferredIndex = null) {
+    function _insertVisible(channel, item, preferredIndex = null, opts = {}) {
         let list = _state[channel].filter(i => i.id !== item.id);
         const index = Number.isInteger(preferredIndex)
             ? Math.max(0, Math.min(preferredIndex, list.length))
@@ -163,30 +164,59 @@ window.AppStore = (() => {
         _state[channel] = list;
         _state.featuredId[channel] = list[0]?.id ?? null;
 
-        _notify(channel, { type: 'reset', items: list });
-        _notify('featured', { channel, id: _state.featuredId[channel] });
+        _notify(channel, { type: 'reset', items: list, silent: !!opts.silent });
+        _notify('featured', { channel, id: _state.featuredId[channel], silent: !!opts.silent });
     }
 
     const mutations = {
-        setBatch(channel, rawItems) {
+        setBatch(channel, rawItems, opts = {}) {
             // Apenas repassa a lista mastigada pelo C# (que já tem max 12 itens)
-            const items = _visibleItems(channel, (rawItems || []).map(r => _normalize(r, channel)));
+            const items = _visibleItems(channel, (rawItems || []).map(r => _normalize(r, channel)), opts);
             _state[channel] = items;
             _state.featuredId[channel] = items[0]?.id ?? null;
 
-            _notify(channel, { type: 'reset', items });
-            _notify('featured', { channel, id: _state.featuredId[channel] });
+            _notify(channel, { type: 'reset', items, silent: !!opts.silent });
+            _notify('featured', { channel, id: _state.featuredId[channel], silent: !!opts.silent });
         },
 
-        addItem(channel, raw) {
+        addItem(channel, raw, opts = {}) {
             const item = _normalize(raw, channel);
             if (_requiresStaticBeforeRender(channel, item)) {
+                item._silentPending = !!opts.silent;
                 _state.pendingArtwork[channel]?.set(item.id, item);
                 _requestStaticArtwork(channel, item);
                 return;
             }
 
-            _insertVisible(channel, item);
+            _insertVisible(channel, item, null, opts);
+        },
+
+        addItems(channel, rawItems, opts = {}) {
+            const visibleToInsert = [];
+            (rawItems || []).forEach(raw => {
+                const item = _normalize(raw, channel);
+                if (_requiresStaticBeforeRender(channel, item)) {
+                    item._silentPending = !!opts.silent;
+                    _state.pendingArtwork[channel]?.set(item.id, item);
+                    _requestStaticArtwork(channel, item);
+                } else {
+                    visibleToInsert.push(item);
+                }
+            });
+
+            if (visibleToInsert.length === 0) return;
+
+            let list = _state[channel].filter(existing =>
+                !visibleToInsert.some(item => item.id === existing.id));
+            const insertAt = list.length > 0 ? 1 : 0;
+            list.splice(insertAt, 0, ...visibleToInsert);
+            if (list.length > 12) list = list.slice(0, 12);
+
+            _state[channel] = list;
+            _state.featuredId[channel] = list[0]?.id ?? null;
+
+            _notify(channel, { type: 'reset', items: list, silent: !!opts.silent });
+            _notify('featured', { channel, id: _state.featuredId[channel], silent: !!opts.silent });
         },
 
         removeItem(channel, id) {
@@ -247,7 +277,9 @@ window.AppStore = (() => {
                 _state.pendingArtwork[channel].delete(id);
                 const preferredIndex = Number.isInteger(pending._pendingIndex) ? pending._pendingIndex : null;
                 delete pending._pendingIndex;
-                _insertVisible(channel, pending, preferredIndex);
+                const silent = !!pending._silentPending;
+                delete pending._silentPending;
+                _insertVisible(channel, pending, preferredIndex, { silent });
                 window._navMenuDataChanged?.(channel);
                 return;
             }
