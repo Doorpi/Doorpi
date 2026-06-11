@@ -106,10 +106,6 @@ namespace Doorpi
         public HashSet<string> EpicFingerprint { get; set; } = new();
         public HashSet<string> GogFingerprint { get; set; } = new();
         public HashSet<string> RiotFingerprint { get; set; } = new();
-        public HashSet<string> UbisoftFingerprint { get; set; } = new();
-        public HashSet<string> EaFingerprint { get; set; } = new();
-        public HashSet<string> BattleNetFingerprint { get; set; } = new();
-        public HashSet<string> AmazonFingerprint { get; set; } = new();
         public HashSet<string> XboxFingerprint { get; set; } = new();
         public int XboxFilterVersion { get; set; }
         public List<AutoAddSuppression> AutoAddSuppressions { get; set; } = new();
@@ -119,10 +115,6 @@ namespace Doorpi
         public List<InstalledApp> EpicApps { get; set; } = new();
         public List<InstalledApp> GogApps { get; set; } = new();
         public List<InstalledApp> RiotApps { get; set; } = new();
-        public List<InstalledApp> UbisoftApps { get; set; } = new();
-        public List<InstalledApp> EaApps { get; set; } = new();
-        public List<InstalledApp> BattleNetApps { get; set; } = new();
-        public List<InstalledApp> AmazonApps { get; set; } = new();
         public List<InstalledApp> XboxApps { get; set; } = new();
     }
 
@@ -207,6 +199,12 @@ namespace Doorpi
         private int _userSwitchInProgress = 0;
         private bool _interactiveUserSessionStarted = false;
         private IntPtr _lastExternalForegroundAttachmentHwnd = IntPtr.Zero;
+        private volatile bool _gameLaunchStoreMouseModeActive = false;
+        private int _gameLaunchStoreMouseModeSessionId = 0;
+        private string _gameLaunchStoreMouseModeStoreId = "";
+        private IntPtr _gameLaunchStoreMouseModeHwnd = IntPtr.Zero;
+        private int _gameLaunchStoreMouseModeProcessId = 0;
+        private Thread? _gameLaunchStoreMouseModeThread;
 
         private readonly SemaphoreSlim _cacheLock = new SemaphoreSlim(1, 1);
         private DateTime _lastCacheBuilt = DateTime.MinValue;
@@ -253,9 +251,15 @@ namespace Doorpi
         [DllImport("user32.dll", SetLastError = true)]
         private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out int pvAttribute, int cbAttribute);
+
         private const int GWL_STYLE = -16;
+        private const int GWL_EXSTYLE = -20;
+        private const int WS_EX_TOOLWINDOW = 0x00000080;
         private const int WS_THICKFRAME = 0x00040000;
         private const int WS_MAXIMIZEBOX = 0x00010000;
+        private const int DWMWA_CLOAKED = 14;
         [DllImport("Powrprof.dll", CharSet = CharSet.Auto, ExactSpelling = true)]
         private static extern bool SetSuspendState(bool hiberate, bool forceCritical, bool disableWakeEvent);
 
@@ -949,10 +953,9 @@ namespace Doorpi
             value = value.Trim();
             return value switch
             {
-                "Battle.net" => "BattleNet",
                 "Epic Games" => "Epic",
                 "GOG Galaxy" => "GOG",
-                "EA App" => "EA",
+                "Riot Games" => "Riot",
                 _ => value
             };
         }
@@ -2596,6 +2599,227 @@ namespace Doorpi
                 StartStoreMouseModeForSession(sessionId, centerCursor: true);
         }
 
+        private bool ShouldStartMouseModeForStoreLaunch(string storeId)
+        {
+            try
+            {
+                var store = LoadStoreLaunchers().FirstOrDefault(s =>
+                    string.Equals(s.Id, storeId, StringComparison.OrdinalIgnoreCase));
+                return ShouldStartMouseMode(store);
+            }
+            catch { return false; }
+        }
+
+        private bool TryFindLaunchStoreWindow(string storeId, out Process process, out IntPtr hwnd)
+        {
+            process = null!;
+            hwnd = IntPtr.Zero;
+
+            if (string.IsNullOrWhiteSpace(storeId))
+                return false;
+
+            string? exe = ResolveStoreLauncherExe(storeId);
+            if (string.IsNullOrWhiteSpace(exe) && !storeId.Equals("Riot", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            return TryFindStoreWindow(storeId, exe ?? "", out process, out hwnd);
+        }
+
+        private bool IsForegroundOwnedByLaunchStoreWindow(string storeId)
+        {
+            try
+            {
+                if (!TryFindLaunchStoreWindow(storeId, out var storeProcess, out var storeHwnd))
+                    return false;
+
+                var foreground = GetForegroundWindow();
+                if (foreground == IntPtr.Zero)
+                    return false;
+
+                if (foreground == storeHwnd)
+                    return true;
+
+                GetWindowThreadProcessId(foreground, out uint pidRaw);
+                return pidRaw != 0 && pidRaw == (uint)storeProcess.Id;
+            }
+            catch { return false; }
+        }
+
+        private bool IsForegroundOwnedByGameLaunchStoreMouseTarget()
+        {
+            try
+            {
+                var foreground = GetForegroundWindow();
+                if (foreground == IntPtr.Zero)
+                    return false;
+
+                if (_gameLaunchStoreMouseModeHwnd != IntPtr.Zero &&
+                    foreground == _gameLaunchStoreMouseModeHwnd)
+                {
+                    return true;
+                }
+
+                if (_gameLaunchStoreMouseModeProcessId <= 0)
+                    return false;
+
+                GetWindowThreadProcessId(foreground, out uint pidRaw);
+                return pidRaw != 0 && (int)pidRaw == _gameLaunchStoreMouseModeProcessId;
+            }
+            catch { return false; }
+        }
+
+        private void StartGameLaunchStoreMouseMode(string storeId, IntPtr hwnd, bool force = false)
+        {
+            if (!force && !ShouldStartMouseModeForStoreLaunch(storeId))
+                return;
+
+            if (_gameLaunchStoreMouseModeActive &&
+                string.Equals(_gameLaunchStoreMouseModeStoreId, storeId, StringComparison.OrdinalIgnoreCase))
+            {
+                SetGameLaunchStoreMouseModeTarget(hwnd);
+                return;
+            }
+
+            StopGameLaunchStoreMouseMode(hideCursor: false);
+
+            int sessionId = Interlocked.Increment(ref _gameLaunchStoreMouseModeSessionId);
+            _gameLaunchStoreMouseModeStoreId = storeId;
+            _gameLaunchStoreMouseModeActive = true;
+            SetGameLaunchStoreMouseModeTarget(hwnd);
+
+            Dispatcher.Invoke(() =>
+            {
+                EnsureCursorVisible();
+                _mainScreenMouseVisible = true;
+                if (hwnd != IntPtr.Zero) CenterCursorOnScreen();
+                UpdateHoverStateInWebView();
+            });
+
+            _gameLaunchStoreMouseModeThread = new Thread(() =>
+                SharedGamepadControllerLoop(
+                    () => _gameLaunchStoreMouseModeActive &&
+                          _gameLaunchStoreMouseModeSessionId == sessionId &&
+                          _gameSessionActive &&
+                          string.IsNullOrWhiteSpace(_lockedGameProcessName),
+                    () => { },
+                    handleXboxButton: false,
+                    shouldAcceptInput: IsForegroundOwnedByGameLaunchStoreMouseTarget))
+            {
+                IsBackground = true
+            };
+            _gameLaunchStoreMouseModeThread.Start();
+        }
+
+        private void SetGameLaunchStoreMouseModeTarget(IntPtr hwnd)
+        {
+            _gameLaunchStoreMouseModeHwnd = hwnd;
+            _gameLaunchStoreMouseModeProcessId = 0;
+
+            if (hwnd == IntPtr.Zero)
+                return;
+
+            try
+            {
+                GetWindowThreadProcessId(hwnd, out uint pidRaw);
+                if (pidRaw != 0)
+                    _gameLaunchStoreMouseModeProcessId = (int)pidRaw;
+            }
+            catch { }
+        }
+
+        private void StopGameLaunchStoreMouseMode(bool hideCursor = true)
+        {
+            if (!_gameLaunchStoreMouseModeActive && string.IsNullOrWhiteSpace(_gameLaunchStoreMouseModeStoreId))
+                return;
+
+            _gameLaunchStoreMouseModeActive = false;
+            _gameLaunchStoreMouseModeStoreId = "";
+            _gameLaunchStoreMouseModeHwnd = IntPtr.Zero;
+            _gameLaunchStoreMouseModeProcessId = 0;
+            Interlocked.Increment(ref _gameLaunchStoreMouseModeSessionId);
+
+            if (!hideCursor)
+                return;
+
+            Dispatcher.Invoke(() =>
+            {
+                _desktopVkb?.Close();
+                _desktopVkb = null;
+                EnsureCursorHidden();
+                _mainScreenMouseVisible = false;
+                _lastKnownCursorPos = new POINT { X = 0, Y = 0 };
+                try { SetCursorPos(0, 0); } catch { }
+            });
+        }
+
+        private bool TryActivateLaunchStoreMouseModeForGame(GameModel game)
+        {
+            string storeId = StorePolicyKeyForGame(game);
+            if (string.IsNullOrWhiteSpace(storeId))
+                return false;
+
+            if (!TryFindLaunchStoreWindow(storeId, out _, out var hwnd))
+                return false;
+
+            ShowWindow(hwnd, 3);
+            FocusExternalWindow(hwnd);
+            StartGameLaunchStoreMouseMode(storeId, hwnd);
+            return true;
+        }
+
+        private void RestoreAndCenterInteractiveLauncherWindow(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero)
+                return;
+
+            ShowWindow(hwnd, 1);
+
+            try
+            {
+                if (GetWindowRect(hwnd, out RECT rect))
+                {
+                    int width = Math.Max(320, rect.Width);
+                    int height = Math.Max(240, rect.Height);
+                    int screenW = (int)SystemParameters.PrimaryScreenWidth;
+                    int screenH = (int)SystemParameters.PrimaryScreenHeight;
+                    int x = Math.Max(0, (screenW - width) / 2);
+                    int y = Math.Max(0, (screenH - height) / 2);
+                    SetWindowPos(hwnd, HWND_TOP, x, y, 0, 0, SWP_NOSIZE);
+                }
+            }
+            catch { }
+
+            FocusExternalWindow(hwnd);
+        }
+
+        private bool TryActivateDirectRiotClientInputForGame(GameModel game)
+        {
+            if (!IsDirectRiotGameLaunch(game) ||
+                !string.Equals(_gameSessionParentKind, "doorpi", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (_gameLaunchStoreMouseModeActive &&
+                string.Equals(_gameLaunchStoreMouseModeStoreId, "Riot", StringComparison.OrdinalIgnoreCase))
+            {
+                if (_gameLaunchStoreMouseModeHwnd != IntPtr.Zero &&
+                    IsWindow(_gameLaunchStoreMouseModeHwnd))
+                {
+                    return true;
+                }
+
+                StopGameLaunchStoreMouseMode(hideCursor: false);
+            }
+
+            if (!TryFindRiotWindow(out _, out var hwnd))
+                return false;
+
+            RestoreAndCenterInteractiveLauncherWindow(hwnd);
+            StartGameLaunchStoreMouseMode("Riot", hwnd, force: true);
+            return true;
+        }
+
         private void StoreExeControllerLoop(int sessionId)
         {
             SharedGamepadControllerLoop(
@@ -3065,15 +3289,11 @@ namespace Doorpi
             bool isSteamStoreLaunch =
                 _isStoreLauncherSession &&
                 IsSteamStoreWindowLookup(_activeStoreId ?? "", mediaUrl);
-            bool isBattleNetStoreLaunch =
-                _isStoreLauncherSession &&
-                IsBattleNetStoreWindowLookup(_activeStoreId ?? "", mediaUrl);
             bool isGogStoreLaunch =
                 _isStoreLauncherSession &&
                 IsGogStoreWindowLookup(_activeStoreId ?? "", mediaUrl);
-            int maxAttempts = (isSteamStoreLaunch || isBattleNetStoreLaunch || isGogStoreLaunch) ? 1800 : 600;
+            int maxAttempts = (isSteamStoreLaunch || isGogStoreLaunch) ? 1800 : 600;
             bool steamInteractiveWindowFocused = false;
-            bool battleNetInteractiveWindowFocused = false;
             bool gogInteractiveWindowFocused = false;
 
             for (int i = 0; i < maxAttempts; i++)
@@ -3088,7 +3308,6 @@ namespace Doorpi
                     bool canResolveTargetLater =
                         _isStoreLauncherSession &&
                         (IsSteamStoreWindowLookup(_activeStoreId ?? "", mediaUrl) ||
-                         IsBattleNetStoreWindowLookup(_activeStoreId ?? "", mediaUrl) ||
                          IsGogStoreWindowLookup(_activeStoreId ?? "", mediaUrl));
                     if (!canResolveTargetLater && SafeHasExited(targetProc))
                     {
@@ -3120,30 +3339,6 @@ namespace Doorpi
 
                         targetProc = steamProc;
                         hwnd = steamHwnd;
-                    }
-                    else if (_isStoreLauncherSession &&
-                             IsBattleNetStoreWindowLookup(_activeStoreId ?? "", mediaUrl))
-                    {
-                        if (!TryFindBattleNetWindow(out var battleNetProc, out var battleNetHwnd))
-                        {
-                            if (!battleNetInteractiveWindowFocused &&
-                                TryFindBattleNetInteractiveWindow(out _, out var battleNetInteractiveHwnd))
-                            {
-                                FocusExternalWindow(battleNetInteractiveHwnd);
-                                battleNetInteractiveWindowFocused = true;
-
-                                _ = Dispatcher.BeginInvoke(() =>
-                                {
-                                    EnsureCursorVisible();
-                                    _mainScreenMouseVisible = true;
-                                    UpdateHoverStateInWebView();
-                                });
-                            }
-                            continue;
-                        }
-
-                        targetProc = battleNetProc;
-                        hwnd = battleNetHwnd;
                     }
                     else if (_isStoreLauncherSession &&
                              IsGogStoreWindowLookup(_activeStoreId ?? "", mediaUrl))
@@ -5378,11 +5573,14 @@ namespace Doorpi
                 (!hasLockedGameProcess && IsPendingLaunchProcessAlive()) ||
                 IsLastVisibleWindowStillValid()
             );
+            bool closeDirectRiotClient = !preserveGameSession && IsActiveDirectRiotGameSession();
 
             if (!preserveGameSession)
             {
                 CommitActiveSession();
                 ClearGameWindowSession();
+                if (closeDirectRiotClient)
+                    _ = Task.Run(KillRiotClientProcesses);
             }
             else
             {
@@ -5593,14 +5791,12 @@ namespace Doorpi
         private static readonly HashSet<string> _knownLauncherProcessNames = new(StringComparer.OrdinalIgnoreCase)
         {
             "steam", "steamwebhelper", "epicgameslauncher", "epicwebhelper", "galaxyclient",
-            "goggalaxy", "riotclientservices", "riotclientux", "riotclientuxrender",
+            "goggalaxy", "riot client", "riotclientservices", "riotclientux", "riotclientuxrender",
             "leagueclient", "leagueclientux", "leagueclientuxrender",
-            "eadesktop", "eabackgroundservice", "origin", "battle.net", "battle.net helper",
-            "battle.net launcher", "ubisoftconnect", "upc", "rockstarservice", "rockstarlauncher",
+            "rockstarservice", "rockstarlauncher",
             "redprelauncher", "2klauncher", "t2gp", "gameoverlayui",
             "xbox", "xboxapp", "xboxpcapp", "gamingapp", "gamingservices",
             "gamingservicesnet", "gamingoverlay", "gamebar", "gamebarftserver",
-            "amazon games", "amazongames", "amazongameslauncher",
             "winstore.app", "storeexperiencehost", "storepurchaseapp", "windowsstore"
         };
 
@@ -5845,7 +6041,6 @@ namespace Doorpi
                 var alreadyProcessed = new HashSet<IntPtr>();
                 int missingChecks = 0;
                 var startedUtc = DateTime.UtcNow;
-
                 string lockedProcessName = "";
 
                 while (!token.IsCancellationRequested && !_launchCancelled)
@@ -5892,6 +6087,7 @@ namespace Doorpi
                                 _lockedGameProcessName = lockedProcessName; // ← NOVO: promove para classe
                                 _currentLauncherHwnd = IntPtr.Zero;         // ← NOVO: esquece o launcher
                                 _pendingLaunchProcess = null;               // jogo real identificado: launcher intermediário deixa de ser referência
+                                StopGameLaunchStoreMouseMode();
                                 DelayGameMinimizeAvailability();
                                 StopSteamAccountSelectionControlsForGame();
                                 if (_storeChildGameActive &&
@@ -5948,6 +6144,20 @@ namespace Doorpi
                     }
                     else if (!doorpiHidden)
                     {
+                        if (IsDirectRiotGameLaunch(game) &&
+                            string.Equals(_gameSessionParentKind, "doorpi", StringComparison.OrdinalIgnoreCase))
+                        {
+                            Dispatcher.Invoke(() => TryActivateDirectRiotClientInputForGame(game));
+                            await Task.Delay(300, token).ConfigureAwait(false);
+                            continue;
+                        }
+
+                        if (Dispatcher.Invoke(() => TryActivateLaunchStoreMouseModeForGame(game)))
+                        {
+                            await Task.Delay(300, token).ConfigureAwait(false);
+                            continue;
+                        }
+
                         // Qualquer janela nova: tenta foco + fullscreen/maximize
                         Dispatcher.Invoke(() => TryFocusAndMaximizeNewWindow(windowSnapshot, alreadyProcessed));
                     }
@@ -6013,6 +6223,10 @@ namespace Doorpi
                 string.Equals(_gameSessionParentKind, "store", StringComparison.OrdinalIgnoreCase);
 
             string storeId = hadStoreChildContext ? _storeChildGameStoreId : "";
+            bool closeDirectRiotClient =
+                !hadStoreChildContext &&
+                IsDirectRiotGameLaunch(game) &&
+                string.Equals(_gameSessionParentKind, "doorpi", StringComparison.OrdinalIgnoreCase);
 
             _launchCancelled = true;
             ResetGameMinimizeGrace();
@@ -6045,6 +6259,8 @@ namespace Doorpi
             _pendingLaunchProcess = null;
             _lockedGameProcessName = "";
             ClearGameWindowSession();
+            if (closeDirectRiotClient)
+                _ = Task.Run(KillRiotClientProcesses);
             _storeChildGameActive = false;
             _storeChildGameStoreId = "";
             _storeChildGameId = "";
@@ -6311,9 +6527,6 @@ namespace Doorpi
         private bool IsForegroundOwnedByActiveStore()
         {
             if (IsForegroundOwnedBySteamInteractiveWindow())
-                return true;
-
-            if (IsForegroundOwnedByBattleNetInteractiveWindow())
                 return true;
 
             if (IsForegroundOwnedByGogInteractiveWindow())
@@ -7026,6 +7239,11 @@ namespace Doorpi
             if (_storeTransitionOverlayActive) return false;
             if (!_isStoreLauncherSession || string.IsNullOrWhiteSpace(_activeStoreId)) return false;
             if (!IsForegroundDoorpi()) return false;
+            if (ShouldCloseRiotStoreBecauseOnlyServiceRemains())
+            {
+                CloseStoreSessionCompletely();
+                return false;
+            }
             if (IsStoreMainWindowLookupAwaited(_activeStoreId ?? "", _storeLauncherExe ?? "") &&
                 !_storeLauncherWindowSeen)
             {
@@ -7464,8 +7682,8 @@ namespace Doorpi
                 var knownStealers = new HashSet<string>
                 {
                     "steam", "steamwebhelper", "epicgameslauncher", "epicwebhelper",
-                    "eosoverlayrenderer", "gameoverlayui", "uplayoverlay", "igoproxy64",
-                    "origin", "galaxyclient", "goggalaxy", "redprelauncher", "2klauncher", "t2gp"
+                    "eosoverlayrenderer", "gameoverlayui",
+                    "galaxyclient", "goggalaxy", "redprelauncher", "2klauncher", "t2gp"
                 };
 
                 if (knownStealers.Contains(name)) return true;
@@ -7506,25 +7724,7 @@ namespace Doorpi
                 if (!string.IsNullOrWhiteSpace(game.LaunchUrl) &&
                     game.LaunchUrl.StartsWith("riot:", StringComparison.OrdinalIgnoreCase))
                 {
-                    var cmd = game.LaunchUrl.Substring(5).Trim();
-                    if (cmd.StartsWith("\""))
-                    {
-                        var endQuote = cmd.IndexOf("\"", 1, StringComparison.Ordinal);
-                        if (endQuote > 0)
-                        {
-                            var exePath = cmd.Substring(1, endQuote - 1);
-                            if (File.Exists(exePath)) return Path.GetFullPath(exePath);
-                        }
-                    }
-                    else
-                    {
-                        var exeIndex = cmd.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
-                        if (exeIndex > 0)
-                        {
-                            var exePath = cmd.Substring(0, exeIndex + 4).Trim();
-                            if (File.Exists(exePath)) return Path.GetFullPath(exePath);
-                        }
-                    }
+                    return "";
                 }
             }
             catch { }
@@ -8000,6 +8200,16 @@ namespace Doorpi
         }
         // ========================= RIOT GAMES =========================
 
+        private static bool IsRiotClientCatalogEntry(string displayName, string registryName, string commandOrProduct)
+        {
+            return displayName.Equals("Riot Client", StringComparison.OrdinalIgnoreCase) ||
+                   registryName.Equals("Riot Client", StringComparison.OrdinalIgnoreCase) ||
+                   commandOrProduct.Equals("riot_client", StringComparison.OrdinalIgnoreCase) ||
+                   commandOrProduct.Equals("-product=riot_client", StringComparison.OrdinalIgnoreCase) ||
+                   commandOrProduct.Equals("--launch-product=riot_client", StringComparison.OrdinalIgnoreCase) ||
+                   commandOrProduct.Equals("--uninstall-product=riot_client", StringComparison.OrdinalIgnoreCase);
+        }
+
         private HashSet<string> GetRiotFingerprint()
         {
             var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -8019,6 +8229,7 @@ namespace Doorpi
                                 using var sub = key.OpenSubKey(name);
                                 if (sub == null) continue;
 
+                                string displayName = sub.GetValue("DisplayName") as string ?? "";
                                 string uninstallString = sub.GetValue("UninstallString") as string ?? "";
 
                                 // É da Riot se tiver o executável e o parâmetro de produto
@@ -8054,21 +8265,15 @@ namespace Doorpi
                                 using var sub = key.OpenSubKey(name);
                                 if (sub == null) continue;
 
-                                string publisher = sub.GetValue("Publisher") as string ?? "";
-                                bool isRiot = publisher.Contains("Riot Games", StringComparison.OrdinalIgnoreCase) ||
-                                              name.StartsWith("Riot Game ", StringComparison.OrdinalIgnoreCase);
-
-                                if (!isRiot) continue;
-
                                 string displayName = sub.GetValue("DisplayName") as string ?? "";
                                 string uninstallString = sub.GetValue("UninstallString") as string ?? "";
                                 string displayIcon = sub.GetValue("DisplayIcon") as string ?? "";
 
                                 // Ignora o próprio Riot Client (é só um launcher)
-                                if (displayName.Equals("Riot Client", StringComparison.OrdinalIgnoreCase)) continue;
+                                if (IsRiotClientCatalogEntry(displayName, name, uninstallString)) continue;
                                 if (string.IsNullOrWhiteSpace(uninstallString)) continue;
 
-                                // Verifica se é um jogo suportado pelo Riot Client
+                                // Sem sufixo de launch, isso é só o Riot Client.
                                 if (!uninstallString.Contains("RiotClientServices.exe", StringComparison.OrdinalIgnoreCase) ||
                                     !uninstallString.Contains("-product=", StringComparison.OrdinalIgnoreCase))
                                     continue;
@@ -8082,6 +8287,7 @@ namespace Doorpi
                                 string product = name;
                                 var match = Regex.Match(launchCmd, @"--launch-product=([^\s]+)");
                                 if (match.Success) product = match.Groups[1].Value;
+                                if (IsRiotClientCatalogEntry(displayName, name, product)) continue;
 
                                 string iconBase64 = "";
                                 string cleanIconPath = displayIcon.Split(',')[0].Replace("\"", "").Trim();
@@ -8537,7 +8743,7 @@ namespace Doorpi
             var options = new EnumerationOptions { IgnoreInaccessible = true, RecurseSubdirectories = true, MaxRecursionDepth = 3 };
 
             var ignoredLaunchers = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    { "Steam", "Epic Games Launcher", "GOG Galaxy", "Battle.net", "Origin", "EA app", "Ubisoft Connect", "Rockstar Games Launcher", "Riot Client" };
+    { "Steam", "Epic Games Launcher", "GOG Galaxy", "Riot Client", "Xbox", "Rockstar Games Launcher" };
 
             foreach (var hive in new[] { RegistryHive.LocalMachine, RegistryHive.CurrentUser })
             {
@@ -8667,10 +8873,6 @@ namespace Doorpi
                 var epicPrint = GetEpicFingerprint();
                 var gogPrint = GetGogFingerprint();
                 var riotPrint = GetRiotFingerprint();
-                var ubisoftPrint = GetUbisoftFingerprint();
-                var eaPrint = GetEaFingerprint();
-                var battleNetPrint = GetBattleNetFingerprint();
-                var amazonPrint = GetAmazonFingerprint();
                 var xboxPrint = GetXboxFingerprint();
                 var winPrint = GetWindowsRegistryFingerprint();
 
@@ -8678,10 +8880,6 @@ namespace Doorpi
                 bool epicStale = !epicPrint.SetEquals(cache.EpicFingerprint) || !cache.EpicApps.Any();
                 bool gogStale = !gogPrint.SetEquals(cache.GogFingerprint) || !cache.GogApps.Any();
                 bool riotStale = !riotPrint.SetEquals(cache.RiotFingerprint) || !cache.RiotApps.Any();
-                bool ubisoftStale = !ubisoftPrint.SetEquals(cache.UbisoftFingerprint) || !cache.UbisoftApps.Any();
-                bool eaStale = !eaPrint.SetEquals(cache.EaFingerprint) || !cache.EaApps.Any();
-                bool battleNetStale = !battleNetPrint.SetEquals(cache.BattleNetFingerprint) || !cache.BattleNetApps.Any();
-                bool amazonStale = !amazonPrint.SetEquals(cache.AmazonFingerprint) || !cache.AmazonApps.Any();
                 bool xboxStale = !xboxPrint.SetEquals(cache.XboxFingerprint) || !cache.XboxApps.Any();
                 bool windowsStale = _windowsCacheInvalid
                                  || !winPrint.SetEquals(cache.WindowsFingerprint)
@@ -8706,26 +8904,6 @@ namespace Doorpi
                         ? (GetGOGGames().Select(a => { a.Source = "GOG"; return a; }).ToList(), true)
                         : (cache.GogApps, false));
 
-                var ubisoftTask = Task.Run(() =>
-                    ubisoftStale
-                        ? (GetUbisoftGames().Select(a => { a.Source = "Ubisoft"; return a; }).ToList(), true)
-                        : (cache.UbisoftApps, false));
-
-                var eaTask = Task.Run(() =>
-                    eaStale
-                        ? (GetEaGames().Select(a => { a.Source = "EA"; return a; }).ToList(), true)
-                        : (cache.EaApps, false));
-
-                var battleNetTask = Task.Run(() =>
-                    battleNetStale
-                        ? (GetBattleNetGames().Select(a => { a.Source = "Battle.net"; return a; }).ToList(), true)
-                        : (cache.BattleNetApps, false));
-
-                var amazonTask = Task.Run(() =>
-                    amazonStale
-                        ? (GetAmazonGames().Select(a => { a.Source = "Amazon"; return a; }).ToList(), true)
-                        : (cache.AmazonApps, false));
-
                 var xboxTask = Task.Run(() =>
                     xboxStale
                         ? (GetXboxGames().Select(a => { a.Source = "Xbox"; return a; }).ToList(), true)
@@ -8743,16 +8921,12 @@ namespace Doorpi
                     return result;
                 });
 
-                await Task.WhenAll(steamTask, epicTask, gogTask, riotTask, ubisoftTask, eaTask, battleNetTask, amazonTask, xboxTask, winTask, folderTask);
+                await Task.WhenAll(steamTask, epicTask, gogTask, riotTask, xboxTask, winTask, folderTask);
 
                 var (steamApps, steamChanged) = steamTask.Result;
                 var (epicApps, epicChanged) = epicTask.Result;
                 var (gogApps, gogChanged) = gogTask.Result;
                 var (riotApps, riotChanged) = riotTask.Result;
-                var (ubisoftApps, ubisoftChanged) = ubisoftTask.Result;
-                var (eaApps, eaChanged) = eaTask.Result;
-                var (battleNetApps, battleNetChanged) = battleNetTask.Result;
-                var (amazonApps, amazonChanged) = amazonTask.Result;
                 var (xboxApps, xboxChanged) = xboxTask.Result;
                 var (windowsApps, windowsChanged) = winTask.Result;
                 (List<InstalledApp> folderApps, Dictionary<string, long> folderTimestamps, bool folderChanged) = folderTask.Result;
@@ -8763,8 +8937,7 @@ namespace Doorpi
                     xboxChanged = true;
                 }
 
-                bool anythingChanged = steamChanged || epicChanged || gogChanged || riotChanged
-                    || ubisoftChanged || eaChanged || battleNetChanged || amazonChanged || xboxChanged
+                bool anythingChanged = steamChanged || epicChanged || gogChanged || riotChanged || xboxChanged
                     || windowsChanged || folderChanged;
 
 
@@ -8774,10 +8947,6 @@ namespace Doorpi
                     if (epicChanged) { cache.EpicApps = epicApps; cache.EpicFingerprint = epicPrint; }
                     if (gogChanged) { cache.GogApps = gogApps; cache.GogFingerprint = gogPrint; }
                     if (riotChanged) { cache.RiotApps = riotApps; cache.RiotFingerprint = riotPrint; }
-                    if (ubisoftChanged) { cache.UbisoftApps = ubisoftApps; cache.UbisoftFingerprint = ubisoftPrint; }
-                    if (eaChanged) { cache.EaApps = eaApps; cache.EaFingerprint = eaPrint; }
-                    if (battleNetChanged) { cache.BattleNetApps = battleNetApps; cache.BattleNetFingerprint = battleNetPrint; }
-                    if (amazonChanged) { cache.AmazonApps = amazonApps; cache.AmazonFingerprint = amazonPrint; }
                     if (xboxChanged) { cache.XboxApps = xboxApps; cache.XboxFingerprint = xboxPrint; }
                     if (windowsChanged)
                     {
@@ -8808,7 +8977,7 @@ namespace Doorpi
             var existingMap = BuildExistingAppsMap(); // Agora é um Map
             var finalList = BuildFinalList(
                 cache.SteamApps, cache.EpicApps, cache.GogApps, cache.RiotApps,
-                cache.UbisoftApps, cache.EaApps, cache.BattleNetApps, cache.AmazonApps, cache.XboxApps,
+                cache.XboxApps,
                 cache.WindowsApps, cache.FolderApps, existingMap);
 
             var payload = new { type = "installedAppsList", apps = finalList };
@@ -8822,10 +8991,6 @@ namespace Doorpi
                 || source.Equals("Epic", StringComparison.OrdinalIgnoreCase)
                 || source.Equals("GOG", StringComparison.OrdinalIgnoreCase)
                 || source.Equals("Riot", StringComparison.OrdinalIgnoreCase)
-                || source.Equals("Ubisoft", StringComparison.OrdinalIgnoreCase)
-                || source.Equals("EA", StringComparison.OrdinalIgnoreCase)
-                || source.Equals("Battle.net", StringComparison.OrdinalIgnoreCase)
-                || source.Equals("Amazon", StringComparison.OrdinalIgnoreCase)
                 || source.Equals("Xbox", StringComparison.OrdinalIgnoreCase);
         }
 
@@ -8870,10 +9035,6 @@ namespace Doorpi
                 .Concat(cache.EpicApps)
                 .Concat(cache.GogApps)
                 .Concat(cache.RiotApps)
-                .Concat(cache.UbisoftApps)
-                .Concat(cache.EaApps)
-                .Concat(cache.BattleNetApps)
-                .Concat(cache.AmazonApps)
                 .Concat(cache.XboxApps)
                 .Where(a => IsPlatformSource(a.Source))
                 .ToList();
@@ -8885,11 +9046,6 @@ namespace Doorpi
             return launchUrl.StartsWith("steam://", StringComparison.OrdinalIgnoreCase)
                 || launchUrl.StartsWith("com.epicgames.launcher://", StringComparison.OrdinalIgnoreCase)
                 || launchUrl.StartsWith("goggalaxy://", StringComparison.OrdinalIgnoreCase)
-                || launchUrl.StartsWith("uplay://", StringComparison.OrdinalIgnoreCase)
-                || launchUrl.StartsWith("origin2://", StringComparison.OrdinalIgnoreCase)
-                || launchUrl.StartsWith("origin://", StringComparison.OrdinalIgnoreCase)
-                || launchUrl.StartsWith("battlenet://", StringComparison.OrdinalIgnoreCase)
-                || launchUrl.StartsWith("amazon-games://", StringComparison.OrdinalIgnoreCase)
                 || launchUrl.StartsWith("xbox://", StringComparison.OrdinalIgnoreCase)
                 || launchUrl.StartsWith("ms-xbl-", StringComparison.OrdinalIgnoreCase)
                 || launchUrl.StartsWith("riotclient://", StringComparison.OrdinalIgnoreCase);
@@ -8903,11 +9059,6 @@ namespace Doorpi
             if (launchUrl.StartsWith("goggalaxy://", StringComparison.OrdinalIgnoreCase)) return "GOG";
             if (launchUrl.StartsWith("xbox://", StringComparison.OrdinalIgnoreCase) ||
                 launchUrl.StartsWith("ms-xbl-", StringComparison.OrdinalIgnoreCase)) return "Xbox";
-            if (launchUrl.StartsWith("uplay://", StringComparison.OrdinalIgnoreCase)) return "Ubisoft";
-            if (launchUrl.StartsWith("origin2://", StringComparison.OrdinalIgnoreCase) ||
-                launchUrl.StartsWith("origin://", StringComparison.OrdinalIgnoreCase)) return "EA";
-            if (launchUrl.StartsWith("battlenet://", StringComparison.OrdinalIgnoreCase)) return "BattleNet";
-            if (launchUrl.StartsWith("amazon-games://", StringComparison.OrdinalIgnoreCase)) return "Amazon";
             if (launchUrl.StartsWith("riotclient://", StringComparison.OrdinalIgnoreCase) ||
                 launchUrl.StartsWith("riot:", StringComparison.OrdinalIgnoreCase)) return "Riot";
             return "";
@@ -9115,10 +9266,6 @@ namespace Doorpi
             List<InstalledApp> epic,
             List<InstalledApp> gog,
             List<InstalledApp> riot,
-            List<InstalledApp> ubisoft,
-            List<InstalledApp> ea,
-            List<InstalledApp> battleNet,
-            List<InstalledApp> amazon,
             List<InstalledApp> xbox,
             List<InstalledApp> windows,
             List<InstalledApp> folders,
@@ -9129,10 +9276,6 @@ namespace Doorpi
             all.AddRange(epic);
             all.AddRange(gog);
             all.AddRange(riot);
-            all.AddRange(ubisoft);
-            all.AddRange(ea);
-            all.AddRange(battleNet);
-            all.AddRange(amazon);
             all.AddRange(xbox);
             all.AddRange(windows);
             all.AddRange(folders);
@@ -9207,10 +9350,6 @@ namespace Doorpi
             List<InstalledApp> epic,
             List<InstalledApp> gog,
             List<InstalledApp> riot,
-            List<InstalledApp> ubisoft,
-            List<InstalledApp> ea,
-            List<InstalledApp> battleNet,
-            List<InstalledApp> amazon,
             List<InstalledApp> xbox,
             List<InstalledApp> windows,
             List<InstalledApp> folders,
@@ -9221,10 +9360,6 @@ namespace Doorpi
             all.AddRange(epic);
             all.AddRange(gog);
             all.AddRange(riot);
-            all.AddRange(ubisoft);
-            all.AddRange(ea);
-            all.AddRange(battleNet);
-            all.AddRange(amazon);
             all.AddRange(xbox);
             all.AddRange(windows);
             all.AddRange(folders);
@@ -9313,10 +9448,6 @@ namespace Doorpi
             var lastEpic = GetEpicFingerprint();
             var lastGog = GetGogFingerprint();
             var lastRiot = GetRiotFingerprint();
-            var lastUbisoft = GetUbisoftFingerprint();
-            var lastEa = GetEaFingerprint();
-            var lastBattleNet = GetBattleNetFingerprint();
-            var lastAmazon = GetAmazonFingerprint();
             var lastXbox = GetXboxFingerprint();
             var lastWin = GetWindowsRegistryFingerprint();
 
@@ -9329,10 +9460,6 @@ namespace Doorpi
                 var curEpic = GetEpicFingerprint();
                 var curGog = GetGogFingerprint();
                 var curRiot = GetRiotFingerprint();
-                var curUbisoft = GetUbisoftFingerprint();
-                var curEa = GetEaFingerprint();
-                var curBattleNet = GetBattleNetFingerprint();
-                var curAmazon = GetAmazonFingerprint();
                 var curXbox = GetXboxFingerprint();
                 var curWin = GetWindowsRegistryFingerprint();
 
@@ -9340,10 +9467,6 @@ namespace Doorpi
                             || !curEpic.SetEquals(lastEpic)
                             || !curGog.SetEquals(lastGog)
                             || !curRiot.SetEquals(lastRiot)
-                            || !curUbisoft.SetEquals(lastUbisoft)
-                            || !curEa.SetEquals(lastEa)
-                            || !curBattleNet.SetEquals(lastBattleNet)
-                            || !curAmazon.SetEquals(lastAmazon)
                             || !curXbox.SetEquals(lastXbox)
                             || !curWin.SetEquals(lastWin);
 
@@ -9353,10 +9476,6 @@ namespace Doorpi
                     lastEpic = curEpic;
                     lastGog = curGog;
                     lastRiot = curRiot;
-                    lastUbisoft = curUbisoft;
-                    lastEa = curEa;
-                    lastBattleNet = curBattleNet;
-                    lastAmazon = curAmazon;
                     lastXbox = curXbox;
                     lastWin = curWin;
 
@@ -9365,7 +9484,7 @@ namespace Doorpi
                     var existingMap = BuildExistingAppsMap();
                     var apps = BuildFinalList(
                         cache.SteamApps, cache.EpicApps, cache.GogApps, cache.RiotApps,
-                        cache.UbisoftApps, cache.EaApps, cache.BattleNetApps, cache.AmazonApps, cache.XboxApps,
+                        cache.XboxApps,
                         cache.WindowsApps, cache.FolderApps, existingMap);
 
                     Dispatcher.Invoke(() =>
@@ -9471,19 +9590,11 @@ namespace Doorpi
                 cache.EpicApps = GetEpicGames(includeIcons: false).Select(a => { a.Source = "Epic"; return a; }).ToList();
                 cache.GogApps = GetGOGGames(includeIcons: false).Select(a => { a.Source = "GOG"; return a; }).ToList();
                 cache.RiotApps = GetRiotGames().Select(a => { a.Source = "Riot"; return a; }).ToList();
-                cache.UbisoftApps = GetUbisoftGames(includeIcons: false).Select(a => { a.Source = "Ubisoft"; return a; }).ToList();
-                cache.EaApps = GetEaGames(includeIcons: false).Select(a => { a.Source = "EA"; return a; }).ToList();
-                cache.BattleNetApps = GetBattleNetGames(includeIcons: false).Select(a => { a.Source = "Battle.net"; return a; }).ToList();
-                cache.AmazonApps = GetAmazonGames(includeIcons: false).Select(a => { a.Source = "Amazon"; return a; }).ToList();
                 cache.XboxApps = GetXboxGames(includeIcons: false).Select(a => { a.Source = "Xbox"; return a; }).ToList();
                 cache.SteamFingerprint = GetSteamFingerprint();
                 cache.EpicFingerprint = GetEpicFingerprint();
                 cache.GogFingerprint = GetGogFingerprint();
                 cache.RiotFingerprint = GetRiotFingerprint();
-                cache.UbisoftFingerprint = GetUbisoftFingerprint();
-                cache.EaFingerprint = GetEaFingerprint();
-                cache.BattleNetFingerprint = GetBattleNetFingerprint();
-                cache.AmazonFingerprint = GetAmazonFingerprint();
                 cache.XboxFingerprint = GetXboxFingerprint();
                 cache.XboxFilterVersion = 2;
                 RefreshAutoAddSuppressions(cache);
@@ -9709,10 +9820,7 @@ namespace Doorpi
                     (cache?.SteamApps?.Count ?? 0) +
                     (cache?.EpicApps?.Count ?? 0) +
                     (cache?.GogApps?.Count ?? 0) +
-                    (cache?.UbisoftApps?.Count ?? 0) +
-                    (cache?.EaApps?.Count ?? 0) +
-                    (cache?.BattleNetApps?.Count ?? 0) +
-                    (cache?.AmazonApps?.Count ?? 0) +
+                    (cache?.RiotApps?.Count ?? 0) +
                     (cache?.XboxApps?.Count ?? 0), 4, 12);
 
                 Dispatcher.Invoke(() =>
@@ -9742,10 +9850,6 @@ namespace Doorpi
                 .Concat(cache.EpicApps)
                 .Concat(cache.GogApps)
                 .Concat(cache.RiotApps)
-                .Concat(cache.UbisoftApps)
-                .Concat(cache.EaApps)
-                .Concat(cache.BattleNetApps)
-                .Concat(cache.AmazonApps)
                 .Concat(cache.XboxApps)
                 .Where(a => !string.IsNullOrWhiteSpace(a.Name))
                 .Where(a => !a.Name.Contains("Steamworks", StringComparison.OrdinalIgnoreCase))
@@ -11765,6 +11869,18 @@ namespace Doorpi
             => !string.IsNullOrWhiteSpace(launchUrl) &&
                launchUrl.StartsWith("goggalaxy://", StringComparison.OrdinalIgnoreCase);
 
+        private static bool IsRiotLaunchUrl(string? launchUrl)
+            => !string.IsNullOrWhiteSpace(launchUrl) &&
+               (launchUrl.StartsWith("riot:", StringComparison.OrdinalIgnoreCase) ||
+                launchUrl.StartsWith("riotclient://", StringComparison.OrdinalIgnoreCase));
+
+        private static bool IsDirectRiotGameLaunch(GameModel? game)
+            => IsRiotLaunchUrl(game?.LaunchUrl);
+
+        private bool IsActiveDirectRiotGameSession()
+            => string.Equals(_gameSessionParentKind, "doorpi", StringComparison.OrdinalIgnoreCase) &&
+               IsRiotLaunchUrl(_activeSessionGameId);
+
         private static bool TryStartLocalGamePath(GameModel game, out Process? launched)
         {
             launched = null;
@@ -12848,10 +12964,6 @@ namespace Doorpi
             "Epic" => 1,
             "GOG" => 1,
             "Riot" => 1,
-            "Ubisoft" => 1,
-            "EA" => 1,
-            "Battle.net" => 1,
-            "Amazon" => 1,
             "Xbox" => 1,
             "Folder" => 2,
             "Windows" => 3,

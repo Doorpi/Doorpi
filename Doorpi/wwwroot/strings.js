@@ -195,9 +195,9 @@ const STRINGS = {
         vkbSym: '&123',
         vkbAbc: 'ABC',
 
-        filterLabels: { all: 'Todos', Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Riot: 'Riot Games', Ubisoft: 'Ubisoft', EA: 'EA', BattleNet: 'Battle.net', Amazon: 'Amazon', Xbox: 'Xbox', Windows: 'Windows & Pastas' },
-        platformLabels: { Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Riot: 'Riot Games', Ubisoft: 'Ubisoft', EA: 'EA', BattleNet: 'Battle.net', Amazon: 'Amazon', Xbox: 'Xbox', Folder: 'Pasta', Windows: 'Windows' },
-        scanLibLabels: { Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Riot: 'Riot Games', Ubisoft: 'Ubisoft', EA: 'EA', BattleNet: 'Battle.net', Amazon: 'Amazon', Xbox: 'Xbox', Windows: 'Windows', Folder: 'Pastas' },
+        filterLabels: { all: 'Todos', Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Riot: 'Riot Games', Xbox: 'Xbox', Windows: 'Windows & Pastas' },
+        platformLabels: { Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Riot: 'Riot Games', Xbox: 'Xbox', Folder: 'Pasta', Windows: 'Windows' },
+        scanLibLabels: { Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Riot: 'Riot Games', Xbox: 'Xbox', Windows: 'Windows', Folder: 'Pastas' },
 
         setupEyebrow: 'Bem-vindo',
         setupStep1Title: 'Doorpi',
@@ -825,9 +825,9 @@ const STRINGS = {
         vkbSym: '&123',
         vkbAbc: 'ABC',
 
-        filterLabels: { all: 'All', Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Riot: 'Riot Games', Ubisoft: 'Ubisoft', EA: 'EA', BattleNet: 'Battle.net', Amazon: 'Amazon', Xbox: 'Xbox', Windows: 'Windows & Folders' },
-        platformLabels: { Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Riot: 'Riot Games', Ubisoft: 'Ubisoft', EA: 'EA', BattleNet: 'Battle.net', Amazon: 'Amazon', Xbox: 'Xbox', Folder: 'Folder', Windows: 'Windows' },
-        scanLibLabels: { Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Riot: 'Riot Games', Ubisoft: 'Ubisoft', EA: 'EA', BattleNet: 'Battle.net', Amazon: 'Amazon', Xbox: 'Xbox', Windows: 'Windows', Folder: 'Folders' },
+        filterLabels: { all: 'All', Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Riot: 'Riot Games', Xbox: 'Xbox', Windows: 'Windows & Folders' },
+        platformLabels: { Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Riot: 'Riot Games', Xbox: 'Xbox', Folder: 'Folder', Windows: 'Windows' },
+        scanLibLabels: { Steam: 'Steam', Epic: 'Epic', GOG: 'GOG', Riot: 'Riot Games', Xbox: 'Xbox', Windows: 'Windows', Folder: 'Folders' },
 
         whoIsPlaying: 'Who is playing?',
         welcomeBack: 'Welcome back',

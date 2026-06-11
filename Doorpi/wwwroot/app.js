@@ -1950,25 +1950,9 @@
             type: 'svg',
             icon: `<svg viewBox="0 0 24 24" fill="#eb0029" xmlns="http://www.w3.org/2000/svg"><path d="M13.458.86 0 7.093l3.353 12.761 2.552-.313-.701-8.024.838-.373 1.447 8.202 4.361-.535-.775-8.857.83-.37 1.591 9.025 4.412-.542-.849-9.708.84-.374 1.74 9.87L24 17.318V3.5Zm.316 19.356.222 1.256L24 23.14v-4.18l-10.22 1.256Z"/></svg>`
         },
-        Ubisoft: {
-            type: 'svg',
-            icon: `<svg viewBox="0 0 24 24" fill="#36a8ff" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="5" fill="#06131f"/><circle cx="14" cy="10" r="2" fill="#36a8ff"/></svg>`
-        },
-        EA: {
-            type: 'svg',
-            icon: `<svg viewBox="0 0 24 24" fill="#ff4747" xmlns="http://www.w3.org/2000/svg"><path d="M3 6h9l-1.4 3H6.8l-.6 1.2h4l-1.3 2.7h-4L4.3 14H9l-1.5 3H0zm10.2 0H17l7 11h-3.9l-1-1.7h-5.3l-1 1.7H9zm2 6.6h2.3l-1.1-2z"/></svg>`
-        },
-        'Battle.net': {
-            type: 'svg',
-            icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#62b6ff" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg"><ellipse cx="12" cy="12" rx="9" ry="3.8"/><ellipse cx="12" cy="12" rx="9" ry="3.8" transform="rotate(60 12 12)"/><ellipse cx="12" cy="12" rx="9" ry="3.8" transform="rotate(120 12 12)"/><circle cx="12" cy="12" r="1.7" fill="#62b6ff" stroke="none"/></svg>`
-        },
-        Amazon: {
-            type: 'svg',
-            icon: `<svg viewBox="0 0 24 24" fill="#ff9900" xmlns="http://www.w3.org/2000/svg"><path d="M6 7.5c1.4-1.2 3.2-1.9 5.4-1.9 3.2 0 5.2 1.7 5.2 4.8v5.4c0 .7.2 1.3.6 1.8l-3.1.7-.6-1.2c-1.2 1-2.6 1.4-4.2 1.4-2.5 0-4.2-1.5-4.2-3.7 0-2.6 2.2-4 6.4-4h1.8v-.5c0-1.1-.7-1.8-2.1-1.8-1.3 0-2.5.4-3.6 1.3zm7.3 5.6h-1.5c-2 0-3 .5-3 1.5 0 .8.7 1.3 1.7 1.3 1.1 0 2.1-.4 2.8-1.2z"/></svg>`
-        },
         Xbox: {
             type: 'svg',
-            icon: `<svg viewBox="0 0 24 24" fill="#107c10" xmlns="http://www.w3.org/2000/svg"><path d="M12 2a10 10 0 0 0-7 17.1c1.3-3 3.3-5.8 5.5-7.9C8.7 9.5 6.5 8 4.2 7.1A10 10 0 0 1 12 2zm7.8 5.1c-2.3.9-4.5 2.4-6.3 4.1 2.2 2.1 4.2 4.9 5.5 7.9a10 10 0 0 0 .8-12zM6.6 20.3a10 10 0 0 0 10.8 0c-1.1-2.4-3-5.1-5.4-7.3-2.4 2.2-4.3 4.9-5.4 7.3z"/></svg>`
+            icon: `<svg viewBox="0 0 24 24" fill="#107C10" xmlns="http://www.w3.org/2000/svg"><path d="M4.102 21.033C6.211 22.881 8.977 24 12 24c3.026 0 5.789-1.119 7.902-2.967 1.877-1.912-4.316-8.709-7.902-11.417-3.582 2.708-9.779 9.505-7.898 11.417zm11.16-14.406c2.5 2.961 7.484 10.313 6.076 12.912C23.002 17.48 24 14.861 24 12.004c0-3.34-1.365-6.362-3.57-8.536 0 0-.027-.022-.082-.042-.063-.022-.152-.045-.281-.045-.592 0-1.985.434-4.805 3.246zM3.654 3.426c-.057.02-.082.041-.086.042C1.365 5.642 0 8.664 0 12.004c0 2.854.998 5.473 2.661 7.533-1.401-2.605 3.579-9.951 6.08-12.91-2.82-2.813-4.216-3.245-4.806-3.245-.131 0-.223.021-.281.046v-.002zM12 3.551S9.055 1.828 6.755 1.746c-.903-.033-1.454.295-1.521.339C7.379.646 9.659 0 11.984 0H12c2.334 0 4.605.646 6.766 2.085-.068-.046-.615-.372-1.52-.339C14.946 1.828 12 3.545 12 3.545v.006z"/></svg>`
         },
         Folder: {
             type: 'svg',
@@ -1986,15 +1970,11 @@
         Epic: ['Epic'],
         GOG: ['GOG'],
         Riot: ['Riot'],
-        Ubisoft: ['Ubisoft'],
-        EA: ['EA'],
-        BattleNet: ['Battle.net'],
-        Amazon: ['Amazon'],
         Xbox: ['Xbox'],
         Windows: ['Windows', 'Folder'],
     };
 
-    const SCAN_LIBS = ['Steam', 'Epic', 'GOG', 'Riot', 'Ubisoft', 'EA', 'BattleNet', 'Amazon', 'Xbox', 'Windows', 'Folder'];
+    const SCAN_LIBS = ['Steam', 'Epic', 'GOG', 'Riot', 'Xbox', 'Windows', 'Folder'];
     // ── ANTI-WEB FIXES (Impede bordas brancas e força Loading na GPU corretamente) ───────────
     (function applyAntiWebFixes() {
         const s = document.createElement('style');
@@ -4369,8 +4349,7 @@ function renderFolderList(folders) {
     function getPlatformBadge(source) {
         const p = PLATFORMS[source];
         if (!p) return '';
-        const labelKey = source === 'Battle.net' ? 'BattleNet' : source;
-        const label = t('platformLabels.' + labelKey);
+        const label = t('platformLabels.' + source);
         const inner = p.type === 'url' ? `<img src="${p.icon}" alt="${label}" />` : p.icon;
         return `<span class="platform-badge" title="${label}">${inner}</span>`;
     }
