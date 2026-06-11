@@ -107,6 +107,10 @@ namespace Doorpi
         public HashSet<string> GogFingerprint { get; set; } = new();
         public HashSet<string> RiotFingerprint { get; set; } = new();
         public HashSet<string> XboxFingerprint { get; set; } = new();
+#if false
+        // Fora do beta: Microsoft Store será retomada depois com fluxo dedicado.
+        public HashSet<string> MicrosoftStoreFingerprint { get; set; } = new();
+#endif
         public int XboxFilterVersion { get; set; }
         public List<AutoAddSuppression> AutoAddSuppressions { get; set; } = new();
         public List<InstalledApp> WindowsApps { get; set; } = new();
@@ -116,6 +120,10 @@ namespace Doorpi
         public List<InstalledApp> GogApps { get; set; } = new();
         public List<InstalledApp> RiotApps { get; set; } = new();
         public List<InstalledApp> XboxApps { get; set; } = new();
+#if false
+        // Fora do beta: Microsoft Store será retomada depois com fluxo dedicado.
+        public List<InstalledApp> MicrosoftStoreApps { get; set; } = new();
+#endif
     }
 
     public class AutoAddSuppression
@@ -9632,6 +9640,7 @@ namespace Doorpi
                 {
                     return true;
                 }
+
             }
             catch
             {
@@ -9680,6 +9689,49 @@ namespace Doorpi
             if (changed) SaveGames(games);
             return changed;
         }
+
+#if false
+        // Fora do beta: Microsoft Store precisa de launch/tracking próprio antes do auto-add.
+        private Task<bool> UpsertAutoAddedMicrosoftStoreAppsAsync(List<InstalledApp> storeApps)
+        {
+            var mediaApps = LoadMediaApps();
+            bool changed = false;
+
+            foreach (var app in storeApps)
+            {
+                string key = !string.IsNullOrWhiteSpace(app.LaunchUrl) ? app.LaunchUrl : app.Path;
+                if (string.IsNullOrWhiteSpace(key)) continue;
+
+                var appKeys = AutoAddKeysForApp(app).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                if (mediaApps.Any(m => appKeys.Contains(NormalizeAutoAddKey(m.Url))))
+                    continue;
+
+                string id = "exe_" + Convert.ToHexString(
+                    MD5.HashData(Encoding.UTF8.GetBytes(key)))[..10].ToLowerInvariant();
+
+                mediaApps.Add(new MediaAppModel
+                {
+                    Id = id,
+                    Name = app.Name,
+                    Url = key,
+                    Type = "exe",
+                    MultiUser = false,
+                    OwnerUserId = currentUserId,
+                    ShareMode = "private",
+                    DateAdded = DateTime.Now
+                });
+                changed = true;
+            }
+
+            if (changed)
+            {
+                SaveMediaApps(mediaApps);
+                SendMediaAppsToUI(mediaApps);
+            }
+
+            return Task.FromResult(changed);
+        }
+#endif
 
         private async Task CacheSteamCdnImagesForExistingGamesAsync()
         {

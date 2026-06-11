@@ -2652,6 +2652,75 @@ namespace Doorpi
             return true;
         }
 
+#if false
+        // Fora do beta: Microsoft Store tem edge cases demais para loja/app/jogo UWP.
+        // Guardado para retomarmos depois com launch correto e tracking de janela.
+        private bool TryFindMicrosoftStoreWindow(out Process process, out IntPtr hwnd)
+        {
+            process = null!;
+            hwnd = IntPtr.Zero;
+
+            try
+            {
+                Process? matchedProcess = null;
+                IntPtr matchedHwnd = IntPtr.Zero;
+
+                EnumWindows((candidateHwnd, _) =>
+                {
+                    try
+                    {
+                        if ((!IsWindowVisible(candidateHwnd) && !IsIconic(candidateHwnd)) ||
+                            IsWindowCloaked(candidateHwnd))
+                        {
+                            return true;
+                        }
+
+                        string title = GetWindowTitle(candidateHwnd);
+                        if (string.IsNullOrWhiteSpace(title))
+                            return true;
+
+                        bool titleMatches =
+                            title.Contains("Microsoft Store", StringComparison.OrdinalIgnoreCase) ||
+                            title.Contains("Loja Microsoft", StringComparison.OrdinalIgnoreCase);
+                        if (!titleMatches)
+                            return true;
+
+                        GetWindowThreadProcessId(candidateHwnd, out uint pidRaw);
+                        if (pidRaw == 0)
+                            return true;
+
+                        var candidateProcess = Process.GetProcessById((int)pidRaw);
+                        string processName = SafeProcessName(candidateProcess);
+                        bool processMatches =
+                            processName.Equals("ApplicationFrameHost", StringComparison.OrdinalIgnoreCase) ||
+                            processName.Equals("WinStore.App", StringComparison.OrdinalIgnoreCase);
+                        if (!processMatches)
+                        {
+                            candidateProcess.Dispose();
+                            return true;
+                        }
+
+                        matchedProcess = candidateProcess;
+                        matchedHwnd = candidateHwnd;
+                        return false;
+                    }
+                    catch { return true; }
+                }, IntPtr.Zero);
+
+                if (matchedProcess == null || matchedHwnd == IntPtr.Zero)
+                    return false;
+
+                process = matchedProcess;
+                hwnd = matchedHwnd;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+#endif
+
         private void TerminateXboxProcessesForFreshLaunch(string? xboxExePath)
         {
             try
@@ -4752,6 +4821,274 @@ namespace Doorpi
             catch (Exception ex) { Debug.WriteLine("Erro Xbox: " + ex.Message); }
             return list.GroupBy(a => a.LaunchUrl, StringComparer.OrdinalIgnoreCase).Select(g => g.First()).ToList();
         }
+
+#if false
+        // Fora do beta: Microsoft Store exige um fluxo dedicado.
+        // Edge cases pendentes:
+        // - app pode abrir dentro da própria Microsoft Store;
+        // - pode abrir loja de jogos dentro da Store;
+        // - launch por shell:AppsFolder precisa de validação por app/janela;
+        // - tracking de janela UWP/ApplicationFrameHost precisa ser específico por AUMID.
+        private HashSet<string> GetMicrosoftStoreFingerprint()
+        {
+            try
+            {
+                return GetMicrosoftStoreApps(includeIcons: false)
+                    .SelectMany(AutoAddKeysForApp)
+                    .Where(k => !string.IsNullOrWhiteSpace(k))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("MicrosoftStoreFingerprint: " + ex.Message);
+                return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            }
+        }
+
+        private List<InstalledApp> GetMicrosoftStoreApps(bool includeIcons = true)
+        {
+            var list = new List<InstalledApp>();
+            try
+            {
+                foreach (var app in EnumerateMicrosoftStoreLaunchableApps())
+                {
+                    if (!IsLikelyMicrosoftStoreUserApp(app)) continue;
+
+                    string launchUrl = $"explorer.exe shell:AppsFolder\\{app.AppUserModelId}";
+                    string iconBase64 = "";
+                    if (includeIcons)
+                    {
+                        string? exe = FindMainExecutable(app.InstallLocation, app.DisplayName,
+                            new EnumerationOptions { IgnoreInaccessible = true, RecurseSubdirectories = true, MaxRecursionDepth = 4 });
+                        if (!string.IsNullOrWhiteSpace(exe)) iconBase64 = GetCachedIcon(exe);
+                    }
+
+                    list.Add(new InstalledApp
+                    {
+                        Name = app.DisplayName,
+                        LaunchUrl = launchUrl,
+                        Path = app.InstallLocation,
+                        Source = "MicrosoftStore",
+                        IconBase64 = iconBase64
+                    });
+                }
+            }
+            catch (Exception ex) { Debug.WriteLine("Erro Microsoft Store: " + ex.Message); }
+
+            return list
+                .GroupBy(a => a.LaunchUrl, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                .ToList();
+        }
+
+        private sealed record MicrosoftStoreAppInfo(
+            string Name,
+            string PackageFamilyName,
+            string PackageFullName,
+            string InstallLocation,
+            string Version,
+            bool IsFramework,
+            bool IsResourcePackage,
+            bool NonRemovable,
+            string SignatureKind,
+            string AppUserModelId,
+            string DisplayName);
+
+        private IEnumerable<MicrosoftStoreAppInfo> EnumerateMicrosoftStoreLaunchableApps()
+        {
+            const string script = @"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;
+$ErrorActionPreference = 'SilentlyContinue';
+$shell = New-Object -ComObject Shell.Application;
+$folder = $shell.Namespace('shell:AppsFolder');
+$launchables = @{};
+if ($folder -ne $null) {
+  foreach ($item in $folder.Items()) {
+    $aumid = [string]$item.ExtendedProperty('System.AppUserModel.ID');
+    if ([string]::IsNullOrWhiteSpace($aumid) -or $aumid -notmatch '!') { continue; }
+    $pfn = $aumid.Split('!')[0];
+    $launchables[$aumid] = [pscustomobject]@{
+      AppUserModelId = $aumid;
+      PackageFamilyName = $pfn;
+      DisplayName = [string]$item.Name
+    };
+  }
+}
+$packagesByFamily = @{};
+Get-AppxPackage | ForEach-Object { $packagesByFamily[$_.PackageFamilyName] = $_ };
+$result = foreach ($entry in $launchables.Values) {
+  $pkg = $packagesByFamily[$entry.PackageFamilyName];
+  if ($null -eq $pkg) { continue; }
+  [pscustomobject]@{
+    Name = [string]$pkg.Name;
+    PackageFamilyName = [string]$pkg.PackageFamilyName;
+    PackageFullName = [string]$pkg.PackageFullName;
+    InstallLocation = [string]$pkg.InstallLocation;
+    Version = [string]$pkg.Version;
+    IsFramework = [bool]$pkg.IsFramework;
+    IsResourcePackage = [bool]$pkg.IsResourcePackage;
+    NonRemovable = [bool]$pkg.NonRemovable;
+    SignatureKind = [string]$pkg.SignatureKind;
+    AppUserModelId = [string]$entry.AppUserModelId;
+    DisplayName = [string]$entry.DisplayName
+  };
+};
+$result | ConvertTo-Json -Compress -Depth 3";
+
+            string? output = RunPowerShell(script);
+            if (string.IsNullOrWhiteSpace(output)) yield break;
+
+            using var doc = JsonDocument.Parse(output.Trim());
+            var root = doc.RootElement;
+
+            if (root.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in root.EnumerateArray())
+                {
+                    var app = ParseMicrosoftStoreAppElement(item);
+                    if (app != null) yield return app;
+                }
+            }
+            else if (root.ValueKind == JsonValueKind.Object)
+            {
+                var app = ParseMicrosoftStoreAppElement(root);
+                if (app != null) yield return app;
+            }
+        }
+
+        private static MicrosoftStoreAppInfo? ParseMicrosoftStoreAppElement(JsonElement item)
+        {
+            static string ReadString(JsonElement element, string name)
+                => element.TryGetProperty(name, out var value) ? value.GetString() ?? "" : "";
+
+            static bool ReadBool(JsonElement element, string name)
+            {
+                if (!element.TryGetProperty(name, out var value)) return false;
+                return value.ValueKind switch
+                {
+                    JsonValueKind.True => true,
+                    JsonValueKind.False => false,
+                    JsonValueKind.String => bool.TryParse(value.GetString(), out bool parsed) && parsed,
+                    _ => false
+                };
+            }
+
+            string name = ReadString(item, "Name");
+            string pfn = ReadString(item, "PackageFamilyName");
+            string installLocation = ReadString(item, "InstallLocation");
+            string appUserModelId = ReadString(item, "AppUserModelId");
+            string displayName = ReadString(item, "DisplayName");
+
+            if (string.IsNullOrWhiteSpace(name) ||
+                string.IsNullOrWhiteSpace(pfn) ||
+                string.IsNullOrWhiteSpace(installLocation) ||
+                string.IsNullOrWhiteSpace(appUserModelId) ||
+                string.IsNullOrWhiteSpace(displayName))
+            {
+                return null;
+            }
+
+            return new MicrosoftStoreAppInfo(
+                name,
+                pfn,
+                ReadString(item, "PackageFullName"),
+                installLocation,
+                ReadString(item, "Version"),
+                ReadBool(item, "IsFramework"),
+                ReadBool(item, "IsResourcePackage"),
+                ReadBool(item, "NonRemovable"),
+                ReadString(item, "SignatureKind"),
+                appUserModelId,
+                displayName);
+        }
+
+        private static bool IsLikelyMicrosoftStoreUserApp(MicrosoftStoreAppInfo app)
+        {
+            if (app.IsFramework || app.IsResourcePackage) return false;
+            if (string.IsNullOrWhiteSpace(app.DisplayName) ||
+                app.DisplayName.StartsWith("ms-resource:", StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (string.IsNullOrWhiteSpace(app.AppUserModelId) ||
+                !app.AppUserModelId.Contains('!'))
+                return false;
+
+            string installLocation = app.InstallLocation ?? "";
+            if (installLocation.Contains(@"\Windows\SystemApps\", StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (app.NonRemovable &&
+                app.Name.StartsWith("Microsoft.", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            string[] deniedExactNames =
+            {
+                "Microsoft.WindowsStore",
+                "Microsoft.StorePurchaseApp",
+                "Microsoft.DesktopAppInstaller",
+                "Microsoft.GamingServices",
+                "Microsoft.GamingServicesNet",
+                "Microsoft.XboxIdentityProvider"
+            };
+
+            if (deniedExactNames.Any(n => string.Equals(app.Name, n, StringComparison.OrdinalIgnoreCase)))
+                return false;
+
+            string[] deniedPrefixes =
+            {
+                "Microsoft.VCLibs",
+                "Microsoft.NET.",
+                "Microsoft.UI.Xaml",
+                "Microsoft.WindowsAppRuntime",
+                "Microsoft.WinAppRuntime",
+                "Microsoft.Services.Store.Engagement",
+                "Microsoft.Windows.",
+                "Windows.",
+                "Microsoft.AAD.",
+                "Microsoft.AccountsControl",
+                "Microsoft.LockApp",
+                "Microsoft.SecHealthUI",
+                "Microsoft.PeopleExperienceHost",
+                "MicrosoftWindows.Client."
+            };
+
+            if (deniedPrefixes.Any(p => app.Name.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
+                return false;
+
+            string[] deniedFragments =
+            {
+                "Runtime",
+                "VCLibs",
+                "Framework",
+                "Extension",
+                "WebView",
+                "HEIFImageExtension",
+                "WebpImageExtension",
+                "RawImageExtension",
+                "MPEG2VideoExtension",
+                "AV1VideoExtension",
+                "VP9VideoExtensions",
+                "StorePurchase",
+                "DesktopAppInstaller",
+                "GamingServices",
+                "XboxIdentity"
+            };
+
+            if (deniedFragments.Any(f => app.Name.Contains(f, StringComparison.OrdinalIgnoreCase)))
+                return false;
+
+            string[] deniedDisplayNames =
+            {
+                "Microsoft Store",
+                "App Installer",
+                "Gaming Services",
+                "Xbox Identity Provider"
+            };
+
+            if (deniedDisplayNames.Any(n => string.Equals(app.DisplayName, n, StringComparison.OrdinalIgnoreCase)))
+                return false;
+
+            return true;
+        }
+#endif
 
         private sealed record XboxPackageInfo(string Name, string PackageFamilyName, string InstallLocation, string Version);
 
