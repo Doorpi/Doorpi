@@ -287,7 +287,9 @@ namespace Doorpi
             _ = Task.Run(async () =>
             {
                 DateTime startedAt = DateTime.UtcNow;
+                DateTime installedQuietSince = DateTime.MinValue;
                 DateTime noInstallUiSince = DateTime.MinValue;
+                const int installedQuietWindowGraceMs = 650;
                 const int closedWithoutInstallForegroundGraceMs = 7000;
 
                 while (!token.IsCancellationRequested)
@@ -296,16 +298,19 @@ namespace Doorpi
 
                     bool observedInstallWindowsStillAlive = AdoptStoreInstallProcessChain(storeId, baselineProcessIds, installerLaunchedAt);
                     bool epicBootstrapWindowStillVisible = TrackEpicInstallBootstrapWindow(storeId, baselineProcessIds, installerLaunchedAt);
-                    bool newStoreRuntimeProcessStillAlive = TrackNewStoreInstallRuntimeProcess(storeId, baselineProcessIds, installerLaunchedAt);
+                    bool newInstallProcessStillAlive = TrackNewStoreInstallRuntimeProcess(storeId, baselineProcessIds, installerLaunchedAt);
                     bool installed = IsStoreLauncherInstalled(storeId);
 
-                    if (installed && IsPendingStoreInstallerProcessFinished())
+                    if (installed &&
+                        TryFindInstalledStoreRuntime(storeId, out var runtimeProcess, out var runtimeHwnd, requireWindow: true))
                     {
                         Dispatcher.Invoke(() =>
-                        {
-                            TerminateStoreInstallRelatedProcesses(storeId);
-                            CompleteStoreInstall(openStoreAfterInstall: false, watchForRuntimeAfterClose: false);
-                        });
+                            PromoteInstalledStoreRuntimeSession(
+                                storeId,
+                                _pendingStoreInstallName,
+                                runtimeProcess,
+                                runtimeHwnd,
+                                focusStore: true));
                         return;
                     }
 
@@ -315,13 +320,14 @@ namespace Doorpi
                     bool handoffProcessAlive = HasStoreInstallHandoffProcessesAlive();
                     bool hasVisibleInstallUi = observedInstallWindowsStillAlive ||
                                                epicBootstrapWindowStillVisible ||
-                                               newStoreRuntimeProcessStillAlive ||
+                                               newInstallProcessStillAlive ||
                                                newSpawnedWindowSeen ||
                                                spawnedWindowStillVisible ||
                                                handoffProcessAlive;
 
                     if (hasVisibleInstallUi)
                     {
+                        installedQuietSince = DateTime.MinValue;
                         noInstallUiSince = DateTime.MinValue;
 
                         if (!_storeInstallInputActive)
@@ -341,8 +347,19 @@ namespace Doorpi
 
                     if (installed)
                     {
+                        if (installedQuietSince == DateTime.MinValue)
+                            installedQuietSince = DateTime.UtcNow;
+
+                        if ((DateTime.UtcNow - installedQuietSince).TotalMilliseconds >= installedQuietWindowGraceMs)
+                        {
+                            Dispatcher.Invoke(() => CompleteStoreInstall(openStoreAfterInstall: false, watchForRuntimeAfterClose: true));
+                            return;
+                        }
+
                         continue;
                     }
+
+                    installedQuietSince = DateTime.MinValue;
 
                     if (_storeInstallInputActive)
                         Dispatcher.Invoke(() => PauseStoreInstallInputMode(preserveCursor: true));
@@ -808,64 +825,6 @@ namespace Doorpi
                 TerminateStoreInstallerProcessIds(processIds, waitForExitMs: 250);
                 DeleteStoreInstallerFile(installerPathToDelete);
             });
-        }
-
-        private bool IsPendingStoreInstallerProcessFinished()
-        {
-            try
-            {
-                return _pendingStoreInstallerProcess == null || _pendingStoreInstallerProcess.HasExited;
-            }
-            catch
-            {
-                return true;
-            }
-        }
-
-        private void TerminateStoreInstallRelatedProcesses(string storeId)
-        {
-            var processIds = CaptureActiveStoreInstallerProcessIds();
-
-            lock (_storeInstallObservedProcessLock)
-            {
-                foreach (int pid in _storeInstallObservedProcessIds)
-                    processIds.Add(pid);
-            }
-
-            foreach (int pid in _storeInstallHandoffProcessIds)
-                processIds.Add(pid);
-
-            string exe = "";
-            try { exe = ResolveStoreLauncherExe(storeId) ?? ""; } catch { }
-
-            foreach (var process in Process.GetProcesses())
-            {
-                try
-                {
-                    if (process.Id == Environment.ProcessId || process.HasExited)
-                        continue;
-
-                    string name = SafeProcessName(process);
-                    string path = SafeProcessPath(process);
-                    if (IsDoorpiInstallHelperProcess(name, path))
-                        continue;
-
-                    bool relatedToStore =
-                        IsStoreInstallRuntimeOrHelperProcess(storeId, exe, name, path) ||
-                        (IsEpicStoreInstallContext(storeId, _pendingStoreInstallName) &&
-                         IsEpicInstallRelatedProcess(name, path));
-
-                    if (relatedToStore)
-                        processIds.Add(process.Id);
-                }
-                catch { }
-                finally
-                {
-                    try { process.Dispose(); } catch { }
-                }
-            }
-
-            TerminateStoreInstallerProcessIds(processIds, waitForExitMs: 350);
         }
 
         private HashSet<int> CaptureActiveStoreInstallerProcessIds()
@@ -1814,11 +1773,8 @@ namespace Doorpi
 
         private bool TrackNewStoreInstallRuntimeProcess(string storeId, HashSet<int> baselineProcessIds, DateTime launchedAtUtc)
         {
-            if (!IsStoreInstallFlowActive() || string.IsNullOrWhiteSpace(storeId))
+            if (!IsStoreInstallFlowActive())
                 return false;
-
-            string exe = "";
-            try { exe = ResolveStoreLauncherExe(storeId) ?? ""; } catch { }
 
             bool found = false;
             int currentPid = Environment.ProcessId;
@@ -1839,21 +1795,16 @@ namespace Doorpi
                     if (IsDoorpiInstallHelperProcess(name, path))
                         continue;
 
-                    bool epicInstallProcessKeepsAlive =
-                        IsEpicStoreInstallContext(storeId, _pendingStoreInstallName) &&
-                        IsEpicInstallRelatedProcess(name, path);
+                    bool alreadyObserved;
+                    lock (_storeInstallObservedProcessLock)
+                        alreadyObserved = _storeInstallObservedProcessIds.Contains(candidateProcess.Id);
 
-                    if (!epicInstallProcessKeepsAlive &&
-                        baselineProcessIds.Contains(candidateProcess.Id))
-                    {
+                    if (!alreadyObserved && baselineProcessIds.Contains(candidateProcess.Id))
                         continue;
-                    }
 
-                    if (!epicInstallProcessKeepsAlive &&
-                        !IsStoreInstallRuntimeOrHelperProcess(storeId, exe, name, path))
-                    {
+                    if (!alreadyObserved &&
+                        !ProcessStartedForStoreInstall(candidateProcess, launchedAtUtc))
                         continue;
-                    }
 
                     lock (_storeInstallObservedProcessLock)
                         _storeInstallObservedProcessIds.Add(candidateProcess.Id);
@@ -1871,47 +1822,11 @@ namespace Doorpi
             return found;
         }
 
-        private static bool IsEpicInstallRelatedProcess(string processName, string processPath)
-        {
-            string text = $"{processName} {processPath}".ToLowerInvariant();
-            return text.Contains("epic") || text.Contains("unreal");
-        }
-
         private static bool IsEpicStoreInstallContext(string storeId, string storeName)
         {
             return IsEpicStoreId(storeId) ||
                    storeId.Contains("Epic", StringComparison.OrdinalIgnoreCase) ||
                    storeName.Contains("Epic", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private bool IsEpicInstallProcessAlive(string storeId)
-        {
-            if (!IsEpicStoreInstallContext(storeId, _pendingStoreInstallName))
-                return false;
-
-            foreach (var process in Process.GetProcesses())
-            {
-                try
-                {
-                    if (process.Id == Environment.ProcessId || process.HasExited)
-                        continue;
-
-                    string name = SafeProcessName(process);
-                    string path = SafeProcessPath(process);
-                    if (IsDoorpiInstallHelperProcess(name, path))
-                        continue;
-
-                    if (IsEpicInstallRelatedProcess(name, path))
-                        return true;
-                }
-                catch { }
-                finally
-                {
-                    try { process.Dispose(); } catch { }
-                }
-            }
-
-            return false;
         }
 
         private bool HasStoreInstallHandoffProcessesAlive()
