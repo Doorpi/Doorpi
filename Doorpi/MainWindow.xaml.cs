@@ -1921,7 +1921,7 @@ namespace Doorpi
             }
         }
         // ========================= CONTROLE COMPARTILHADO (APP EXE & DIALOGS) =========================
-        private const ushort MOUSE_MODE_SHORTCUT_MASK = 0x03C0; // L3 + R3 + L1 + R1
+        private const ushort MOUSE_MODE_SHORTCUT_MASK = 0x00C0; // L3 + R3
 
         private static bool IsMouseModeShortcutPressed(ushort buttons)
             => (buttons & MOUSE_MODE_SHORTCUT_MASK) == MOUSE_MODE_SHORTCUT_MASK;
@@ -1931,7 +1931,8 @@ namespace Doorpi
             Action onExitCombo,
             bool handleXboxButton = true,
             Func<bool>? shouldAcceptInput = null,
-            Action? onMouseModeShortcut = null)
+            Action? onMouseModeShortcut = null,
+            Func<ushort, bool>? mouseModeShortcutPredicate = null)
         {
             var sw = Stopwatch.StartNew();
             ushort prevButtons = 0;
@@ -2004,9 +2005,10 @@ namespace Doorpi
                         bool Pressed(ushort m) => (btn & m) != 0 && (prevButtons & m) == 0;
                         bool Released(ushort m) => (btn & m) == 0 && (prevButtons & m) != 0;
 
+                        var shortcutPredicate = mouseModeShortcutPredicate ?? IsMouseModeShortcutPressed;
                         if (onMouseModeShortcut != null &&
-                            IsMouseModeShortcutPressed(btn) &&
-                            !IsMouseModeShortcutPressed(prevButtons))
+                            shortcutPredicate(btn) &&
+                            !shortcutPredicate(prevButtons))
                         {
                             onMouseModeShortcut.Invoke();
                             prevButtons = btn;

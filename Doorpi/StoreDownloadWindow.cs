@@ -242,11 +242,12 @@ namespace Doorpi
                 _title.Text = $"Instalando {_storeName}";
                 _subtitle.Text = "O instalador foi aberto. Conclua o setup e mantenha esta janela aberta.";
                 _stepLabel.Text = "Permissao temporaria";
-                _detailLabel.Text = "Se o Windows pedir permissao, autorize o assistente do Doorpi. Ele serve apenas para controlar instaladores elevados com o controle e sera encerrado ao final.";
+                _detailLabel.Text = "Se o Windows pedir permissao, autorize o assistente do Doorpi. Se o setup for cancelado ou travar, use Cancelar processo para voltar imediatamente.";
                 _progress.IsIndeterminate = true;
                 _progress.Value = 100;
                 _progressText.Text = "";
-                SetActionsVisible(false);
+                SetActionsVisible(true, false, "", "Cancelar processo", ActionMode.Retry);
+                _cancelButton.Focus();
             });
         }
 
@@ -810,6 +811,7 @@ namespace Doorpi
                     lastDirectionalAtUtc = DateTime.UtcNow;
                     Dispatcher.Invoke(() =>
                     {
+                        if (!IsActive) return;
                         SetFocusedAction(leftPressed ? 0 : 1);
                     });
                 }
@@ -820,6 +822,7 @@ namespace Doorpi
                     lastActionAtUtc = DateTime.UtcNow;
                     Dispatcher.Invoke(() =>
                     {
+                        if (!IsActive) return;
                         if (ReferenceEquals(FocusManager.GetFocusedElement(this), _cancelButton) ||
                             Keyboard.FocusedElement == _cancelButton)
                         {
@@ -841,6 +844,7 @@ namespace Doorpi
                     lastActionAtUtc = DateTime.UtcNow;
                     Dispatcher.Invoke(() =>
                     {
+                        if (!IsActive) return;
                         if (_actionMode == ActionMode.CancelConfirmation)
                             _retryButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                         else

@@ -343,7 +343,7 @@ const STRINGS = {
 
         gamepadControlLabel: 'Modo mouse',
         disableGamepadControlLabel: 'Iniciar com modo mouse habilitado',
-        disableGamepadControlHint: 'Quando desligado, pressione L3 + R3 + L1 + R1 durante a sessão para ativar temporariamente.',
+        disableGamepadControlHint: 'Quando desligado, pressione L3 + R3 durante a sessão para ativar temporariamente.',
 
         hintOptions: 'Opções',
         hintConfirm: 'Confirmar',
@@ -516,7 +516,7 @@ const STRINGS = {
 
         gamepadControlLabel: 'Mouse mode',
         disableGamepadControlLabel: 'Start with mouse mode enabled',
-        disableGamepadControlHint: 'When disabled, press L3 + R3 + L1 + R1 during the session to enable it temporarily.',
+        disableGamepadControlHint: 'When disabled, press L3 + R3 during the session to enable it temporarily.',
         // ---- Adições de media.js ----
         sysMediaFolders: 'Folders',
         sysMediaDownloadingCovers: 'Downloading game covers...',

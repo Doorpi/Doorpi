@@ -120,11 +120,10 @@ namespace Doorpi
         };
 
         private static bool IsStoreMouseModeDisabledByDefault(string storeId)
-            => storeId.Equals("Xbox", StringComparison.OrdinalIgnoreCase)
-            || storeId.Equals("GOG", StringComparison.OrdinalIgnoreCase);
+            => storeId.Equals("Xbox", StringComparison.OrdinalIgnoreCase);
 
         private static bool IsStoreMouseModeEnabledByDefault(string storeId)
-            => storeId.Equals("Riot", StringComparison.OrdinalIgnoreCase);
+            => !IsStoreMouseModeDisabledByDefault(storeId);
 
         private bool IsActiveXboxStoreSession()
             => _isStoreLauncherSession &&
@@ -2395,6 +2394,7 @@ namespace Doorpi
 
         private async Task OpenStoreAsync(string storeId)
         {
+            StopPostInstallStoreRuntimeWatcher();
             ResumeExecutionLockWatch();
 
             var store = StoreCatalog.FirstOrDefault(s => string.Equals(s.Id, storeId, StringComparison.OrdinalIgnoreCase));
@@ -4546,6 +4546,13 @@ namespace Doorpi
                     entry.DisableGamepadControlConfigured = true;
                     changed = true;
                 }
+                else if (string.Equals(id, "GOG", StringComparison.OrdinalIgnoreCase) &&
+                         entry.DisableGamepadControlConfigured &&
+                         entry.DisableGamepadControl)
+                {
+                    entry.DisableGamepadControl = false;
+                    changed = true;
+                }
 
                 if (string.IsNullOrEmpty(entry.GridImage) || string.IsNullOrEmpty(entry.HeroImage))
                 {
@@ -4693,14 +4700,72 @@ namespace Doorpi
 
         private static string? ResolveEpicExe()
         {
-            string[] candidates =
+            var candidates = new List<string>();
+
+            void AddCandidate(string? path)
             {
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                    "Epic", "EpicGamesLauncher", "Portal", "Binaries", "Win64", "EpicGamesLauncher.exe"),
+                if (string.IsNullOrWhiteSpace(path)) return;
+
+                string clean = Environment.ExpandEnvironmentVariables(path.Trim().Trim('"'));
+                int comma = clean.LastIndexOf(',');
+                if (comma > 2)
+                {
+                    string beforeComma = clean[..comma].Trim().Trim('"');
+                    if (beforeComma.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                        clean = beforeComma;
+                }
+
+                if (clean.EndsWith("EpicGamesLauncher.exe", StringComparison.OrdinalIgnoreCase))
+                {
+                    candidates.Add(clean);
+                    return;
+                }
+
+                candidates.Add(Path.Combine(clean, "EpicGamesLauncher.exe"));
+                candidates.Add(Path.Combine(clean, "Portal", "Binaries", "Win64", "EpicGamesLauncher.exe"));
+            }
+
+            string[] roots =
+            {
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
                     "Epic Games", "Launcher", "Portal", "Binaries", "Win64", "EpicGamesLauncher.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                    "Epic Games", "Launcher", "Portal", "Binaries", "Win64", "EpicGamesLauncher.exe"),
             };
-            return candidates.FirstOrDefault(File.Exists);
+
+            candidates.AddRange(roots);
+
+            try
+            {
+                string[] uninstallRoots =
+                {
+                    @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+                    @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+                };
+
+                foreach (string root in uninstallRoots)
+                {
+                    using var key = Registry.LocalMachine.OpenSubKey(root);
+                    if (key == null) continue;
+
+                    foreach (string subName in key.GetSubKeyNames())
+                    {
+                        using var sub = key.OpenSubKey(subName);
+                        string displayName = sub?.GetValue("DisplayName") as string ?? "";
+                        if (!displayName.Contains("Epic Games Launcher", StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        AddCandidate(sub?.GetValue("InstallLocation") as string);
+                        AddCandidate(sub?.GetValue("DisplayIcon") as string);
+                    }
+                }
+            }
+            catch { }
+
+            return candidates
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault(File.Exists);
         }
 
         private static string? ResolveGogExe()

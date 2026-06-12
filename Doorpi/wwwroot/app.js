@@ -5583,7 +5583,7 @@ function renderFolderList(folders) {
                             </span>
                             <span class="edit-toggle-label">${typeof t === 'function' ? t('disableGamepadControlLabel', 'Iniciar com modo mouse habilitado') : 'Iniciar com modo mouse habilitado'}</span>
                         </label>
-                        <span class="edit-modal-input-hint">${typeof t === 'function' ? t('disableGamepadControlHint', 'Quando desligado, use L3 + R3 + L1 + R1 durante a sessão para ativar temporariamente.') : 'Quando desligado, use L3 + R3 + L1 + R1 durante a sessão para ativar temporariamente.'}</span>
+                        <span class="edit-modal-input-hint">${typeof t === 'function' ? t('disableGamepadControlHint', 'Quando desligado, use L3 + R3 durante a sessão para ativar temporariamente.') : 'Quando desligado, use L3 + R3 durante a sessão para ativar temporariamente.'}</span>
                     </div>` : ''}
                 </div>
                 <div class="edit-modal-actions">
@@ -7151,6 +7151,7 @@ function renderFolderList(folders) {
             if (overlay._waitTimer) clearTimeout(overlay._waitTimer);
             cancelBtn.style.display = 'none';
             overlay.classList.remove('execution-lock-visible');
+            overlay.style.zIndex = '';
             clearSessionPair();
 
             errTitle.textContent = text.errTitle + (gameName ? ` "${gameName}"` : '');
@@ -7179,6 +7180,7 @@ function renderFolderList(folders) {
                 return;
             }
 
+            const isStoreInstallLock = data.kind === 'storeInstall' || data.appType === 'storeInstall';
             const nextContextKey = `${data.kind || ''}|${data.channel || ''}|${data.id || ''}|${data.url || ''}`;
             const currentContextKey = overlay.dataset.executionLockKey || '';
             const isAlreadyVisible =
@@ -7190,9 +7192,10 @@ function renderFolderList(folders) {
 
             nameEl.textContent = name;
             statusEl.textContent = 'EM EXECUÇÃO';
+            overlay.classList.toggle('store-install-lock', isStoreInstallLock);
             const closeAction = document.getElementById('executionLockClose');
             if (closeAction) {
-                closeAction.textContent = (data.kind === 'storeInstall' || data.appType === 'storeInstall')
+                closeAction.textContent = isStoreInstallLock
                     ? 'Cancelar instalação'
                     : 'Fechar processo';
             }
@@ -7208,6 +7211,7 @@ function renderFolderList(folders) {
             cancelBtn.style.display = 'none';
             cancelBtn.style.opacity = '0';
             overlay.style.pointerEvents = 'all';
+            overlay.style.zIndex = '30000';
             overlay.classList.add('visible', 'execution-lock-visible');
 
             const focusPrimary = () => {
@@ -7228,6 +7232,8 @@ function renderFolderList(folders) {
         function hideExecutionLock() {
             clearExecutionLockFocusTimers();
             overlay.classList.remove('execution-lock-visible');
+            overlay.style.zIndex = '';
+            overlay.classList.remove('store-install-lock');
             overlay.dataset.executionLockKey = '';
             clearSessionPair();
             lockActions?.querySelectorAll('button').forEach(btn => {
@@ -7240,6 +7246,8 @@ function renderFolderList(folders) {
             clearExecutionLockFocusTimers();
             cancelBtn.style.opacity = '0';
             overlay.classList.remove('execution-lock-visible', 'store-transition-visible');
+            overlay.style.zIndex = '';
+            overlay.classList.remove('store-install-lock');
             overlay.dataset.executionLockKey = '';
             clearSessionPair();
 

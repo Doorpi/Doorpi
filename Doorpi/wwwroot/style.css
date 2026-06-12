@@ -2693,7 +2693,7 @@ body {
 }
 
 #gameLaunchOverlay.execution-lock-visible {
-    z-index: 14000;
+    z-index: 30000;
 }
 
 #doorpiUserSwitchLogout {
@@ -2829,6 +2829,21 @@ body {
         height: 100%;
         object-fit: cover;
         display: block;
+    }
+
+#gameLaunchOverlay.store-install-lock .game-art {
+    width: 164px;
+    height: 164px;
+    border-radius: 12px;
+    background: rgba(0,0,0,0.24);
+    border: 1px solid rgba(255,255,255,0.10);
+    box-shadow: 0 24px 64px rgba(0,0,0,0.58);
+}
+
+    #gameLaunchOverlay.store-install-lock .game-art img {
+        object-fit: contain;
+        padding: 18%;
+        box-sizing: border-box;
     }
 
 /* Fallback quando não há arte */
