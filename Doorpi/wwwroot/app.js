@@ -1,5 +1,6 @@
     let allInstalledApps = [];
     let cachedFolders = null;
+    let supportedStores = [];
     let currentSourceFilter = ['all'];
     let isFolderOperationInProgress = false;
     window.newGameIdsThisSession = new Set();
@@ -946,11 +947,13 @@
         else if (entry.status === 'running') score += 80;
         else if (entry.status === 'minimized') score -= 40;
 
+        if (entry.kind === 'storeInstall' || entry.appType === 'storeInstall') score += 260;
         if (entry.channel === 'games') score += 300;
         else if (entry.channel === 'stores') score += 180;
         else if (entry.channel === 'media') score += 120;
 
         if (entry.kind === 'game') score += 120;
+        else if (entry.kind === 'storeInstall') score += 100;
         else if (entry.kind === 'store') score += 80;
         else if (entry.kind === 'exe') score += 60;
         else if (entry.kind === 'web') score += 40;
@@ -965,9 +968,11 @@
         const isExecutableMedia = entry.channel === 'media' && entry.kind === 'exe';
         const resolvedId = entry.id || (isExecutableMedia ? '' : (card?.dataset?.gameId || card?.dataset?.appId || ''));
         const resolvedUrl = entry.url || card?.dataset?.appUrl || '';
+        const installFallbackName = (entry.kind === 'storeInstall' || entry.appType === 'storeInstall') ? 'Instalação em andamento' : '';
         const name =
             nameFromCard ||
             entry.name ||
+            installFallbackName ||
             (entry.channel === 'games' ? 'Jogo em execução'
                 : entry.channel === 'stores' ? 'Loja em execução'
                     : 'Sessão em execução');
@@ -980,7 +985,7 @@
             channel: entry.channel || '',
             id: resolvedId,
             url: resolvedUrl,
-            appType: entry.channel === 'games' ? 'game' : (entry.kind || ''),
+            appType: entry.appType || (entry.channel === 'games' ? 'game' : (entry.kind || '')),
             name,
             heroImage: card?.dataset?.staticHero || card?.dataset?.hero || entry.heroImage || '',
             gridImage: card?.dataset?.staticVertical || card?.dataset?.vertical || card?.dataset?.staticHorizontal || card?.dataset?.horizontal || entry.gridImage || cardImg || ''
@@ -1025,6 +1030,7 @@
         };
         const fallbackName =
             payload.kind === 'game' || payload.channel === 'games' ? 'Jogo em execução' :
+                payload.kind === 'storeInstall' || payload.appType === 'storeInstall' ? 'Instalação em andamento' :
                 payload.kind === 'store' || payload.channel === 'stores' ? 'Loja em execução' :
                     'Sessão em execução';
 
@@ -3670,8 +3676,8 @@
         if (isFeatured && key === 'staticHero') switchHeroBackground(newUrl, card.dataset.staticLogo || card.dataset.logo);
     }
 
-    const _TAB_MAP = { 'apps': 0, 'media-apps': 1, 'folders': 2 };
-    const _VIEW_MAP = { 'apps': 'view-apps', 'media-apps': 'view-media-apps', 'folders': 'view-folders' };
+    const _TAB_MAP = { 'apps': 0, 'media-apps': 1, 'stores': 2, 'folders': 3 };
+    const _VIEW_MAP = { 'apps': 'view-apps', 'media-apps': 'view-media-apps', 'stores': 'view-stores', 'folders': 'view-folders' };
 
     function switchTab(tabId) {
         document.querySelectorAll('.menu-tab').forEach((btn, i) => {
@@ -3709,6 +3715,15 @@
             if (modalActions) modalActions.style.display = 'none';
             if (mediaAppActions) mediaAppActions.style.display = 'flex';
             _initMediaAppsView();
+        }
+        else if (tabId === 'stores') {
+            if (modalActions) modalActions.style.display = 'none';
+            if (mediaAppActions) mediaAppActions.style.display = 'none';
+            if (!supportedStores.length && Array.isArray(window._supportedStoresCatalog)) {
+                supportedStores = window._supportedStoresCatalog;
+            }
+            renderStoreInstallList();
+            postToHost({ action: 'requestStores' });
         }
     }
     /* Seção: Filtros e barra de filtros */
@@ -3856,6 +3871,21 @@ document.getElementById('btnAddMedia')?.addEventListener('click', () => {
     switchTab('media-apps');
     postToHost({ action: 'requestInstalledApps' });
     postToHost({ action: 'startAppPolling' });
+});
+
+document.getElementById('btnAddStore')?.addEventListener('click', () => {
+    if (window.DoorpiIntro?.isRunning?.()) {
+        window.DoorpiIntro.skip?.();
+        return;
+    }
+    isModalOpen = true;
+    _modalReady = false;
+    if (isSetupOpen) return;
+    document.getElementById('modalActions').style.display = 'none';
+    document.getElementById('mediaAppActions').style.display = 'none';
+    document.getElementById('gameGrid').style.overflowX = 'hidden';
+    document.getElementById('addGameContainer').style.display = 'flex';
+    switchTab('stores');
 });
 
     function closeModal() {
@@ -4041,6 +4071,70 @@ document.getElementById('btnAddMedia')?.addEventListener('click', () => {
     }
 
     /* Seção: Pastas */
+    function renderStoreInstallList() {
+        const list = document.getElementById('storeInstallList');
+        if (!list) return;
+
+        const stores = supportedStores || [];
+        if (!stores.length) {
+            list.innerHTML = `
+                <div class="folder-empty">
+                    <div class="folder-empty-icon">+</div>
+                    <div class="folder-empty-text">${t('storesLoading')}</div>
+                    <div class="folder-empty-hint">${t('storesLoadingHint')}</div>
+                </div>`;
+            return;
+        }
+
+        list.innerHTML = stores.map(store => {
+            const id = store.Id || store.id || '';
+            const name = store.Name || store.name || id;
+            const installed = store.installed === true || store.Installed === true;
+            const downloadUrl = store.downloadUrl || store.DownloadUrl || '';
+            const logo = store.LogoStaticImage || store.logoStaticImage || store.LogoImage || store.logoImage || '';
+            const grid = store.GridStaticImage || store.gridStaticImage || store.GridImage || store.gridImage || '';
+            const image = logo || grid;
+            const statusLabel = installed ? t('storeInstalled') : t('storeNotInstalled');
+            const actionLabel = installed ? t('storeAlreadyInstalled') : t('storeOpenSite');
+
+            return `
+                <button class="store-install-card ${installed ? 'installed' : ''}" type="button" tabindex="0"
+                        data-store-id="${escapeHtml(id)}" data-store-name="${escapeHtml(name)}" data-download-url="${escapeHtml(downloadUrl)}"
+                        ${installed || !downloadUrl ? 'aria-disabled="true"' : ''}>
+                    <span class="store-install-art">
+                        ${image ? `<img src="${escapeHtml(image)}" alt="" />` : `<span>${escapeHtml((name || '?').charAt(0).toUpperCase())}</span>`}
+                    </span>
+                    <span class="store-install-info">
+                        <strong>${escapeHtml(name)}</strong>
+                        <small>${escapeHtml(statusLabel)}</small>
+                    </span>
+                    <span class="store-install-action">${escapeHtml(actionLabel)}</span>
+                </button>`;
+        }).join('');
+
+        list.querySelectorAll('.store-install-card').forEach(card => {
+            card.addEventListener('click', () => {
+                if (card.classList.contains('installed')) return;
+                const url = card.dataset.downloadUrl || '';
+                const storeId = card.dataset.storeId || '';
+                const name = card.dataset.storeName || '';
+                if (!url) return;
+                postToHost({ action: 'openStoreDownloadSite', storeId, url, name });
+            });
+        });
+
+        requestAnimationFrame(() => {
+            _modalReady = true;
+            list.querySelector('.store-install-card:not(.installed)')?.focus();
+        });
+    }
+
+    window.setSupportedStoresForModal = function (stores) {
+        supportedStores = Array.isArray(stores) ? stores : [];
+        const activeView = document.querySelector('.view-section.active')?.id;
+        if (activeView === 'view-stores') renderStoreInstallList();
+    };
+
     function requestFolders() {
         postToHost({ action: 'requestFolders' });
     }
@@ -7075,6 +7169,7 @@ function renderFolderList(folders) {
             }
             const fallbackName =
                 data.kind === 'game' || data.channel === 'games' ? 'Jogo em execução' :
+                    data.kind === 'storeInstall' || data.appType === 'storeInstall' ? 'Instalação em andamento' :
                     data.kind === 'store' || data.channel === 'stores' ? 'Loja em execução' :
                         'Sessão em execução';
             const name = data.name || data.gameName || fallbackName;
@@ -7095,6 +7190,12 @@ function renderFolderList(folders) {
 
             nameEl.textContent = name;
             statusEl.textContent = 'EM EXECUÇÃO';
+            const closeAction = document.getElementById('executionLockClose');
+            if (closeAction) {
+                closeAction.textContent = (data.kind === 'storeInstall' || data.appType === 'storeInstall')
+                    ? 'Cancelar instalação'
+                    : 'Fechar processo';
+            }
             if (bg && (data.heroImage || !isSameContextVisible)) {
                 bg.style.backgroundImage = data.heroImage ? `url('${data.heroImage}')` : 'none';
             }

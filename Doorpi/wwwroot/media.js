@@ -336,7 +336,7 @@ function switchHomeTab(tab) {
     feat?._startInteraction?.();
 
     if (tab === 'stores') {
-        const first = document.querySelector('#storesGrid .store-card');
+        const first = document.querySelector('#storesGrid .card');
         first?.focus();
     }
 }
@@ -350,7 +350,7 @@ function cycleHomeTab(direction) {
         const activeGrid = _currentHomeTab === 'games' ? '#gameGrid'
             : (_currentHomeTab === 'media' ? '#mediaGrid' : '#storesGrid');
         const first = document.querySelector(
-            `${activeGrid} .card:not(.add-card), ${activeGrid} .store-card`);
+            `${activeGrid} .card:not(.add-card), ${activeGrid} .card.add-card`);
         first?.focus();
     }, 60);
 }

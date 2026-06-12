@@ -67,11 +67,10 @@ function updateGamepadUI(connected, type = 'generic') {
             }
         }
     });
-    const plusEl = document.querySelector('#btnAdd .plus');
-    if (plusEl) {
+    document.querySelectorAll('#btnAdd .plus, #btnAddMedia .plus, #btnAddStore .plus').forEach(plusEl => {
         if (connected) { plusEl.innerHTML = icons.start; plusEl.classList.add('is-gamepad'); }
         else { plusEl.innerHTML = '+'; plusEl.classList.remove('is-gamepad'); }
-    }
+    });
 }
 
 function canCloseProfileSelection() {
@@ -121,7 +120,7 @@ function getModalGroups() {
     const activeTabEl = document.querySelector('.view-section.active');
     const activeTab = activeTabEl ? activeTabEl.id : 'view-apps';
     const sidebar = Array.from(document.querySelectorAll('.sidebar-menu .menu-tab'));
-    let filters = [], apps = [], actions = [], folderBtns = [], subtabs = [], inputs = [];
+    let filters = [], apps = [], actions = [], folderBtns = [], subtabs = [], inputs = [], storeBtns = [];
 
     if (activeTab === 'view-apps') {
         filters = Array.from(document.querySelectorAll('.filter-bar .filter-btn'));
@@ -138,8 +137,11 @@ function getModalGroups() {
             apps = Array.from(document.querySelectorAll('#appListMedia .app-item:not(.already-added)'));
         }
         actions = Array.from(document.querySelectorAll('#mediaAppActions button'));
+    } else if (activeTab === 'view-stores') {
+        storeBtns = Array.from(document.querySelectorAll('#storeInstallList .store-install-card'));
+        actions = Array.from(document.querySelectorAll('#view-stores .action-buttons button'));
     }
-    return { sidebar, filters, apps, actions, folderBtns, subtabs, inputs, activeTab };
+    return { sidebar, filters, apps, actions, folderBtns, subtabs, inputs, storeBtns, activeTab };
 }
 
 function getNavigableItems() {
@@ -192,6 +194,7 @@ function getNavigableItems() {
     if (g.activeTab === 'view-apps') return [...g.sidebar, ...g.filters, ...g.apps, ...g.actions].filter(el => isVisible(el) && isNavigable(el));
     if (g.activeTab === 'view-folders') return [...g.sidebar, ...g.folderBtns, ...g.actions].filter(el => isVisible(el) && isNavigable(el));
     if (g.activeTab === 'view-media-apps') return [...g.sidebar, ...g.subtabs, ...g.inputs, ...g.apps, ...g.actions].filter(el => isVisible(el) && isNavigable(el));
+    if (g.activeTab === 'view-stores') return [...g.sidebar, ...g.storeBtns, ...g.actions].filter(el => isVisible(el) && isNavigable(el));
 
     return [];
 }
@@ -273,7 +276,7 @@ function findVkbCandidate(items, current, direction) {
 }
 
 function getGroupTransition(direction, groupName, groups, current) {
-    const { sidebar, filters, apps, actions, folderBtns, subtabs, inputs, activeTab } = groups;
+    const { sidebar, filters, apps, actions, folderBtns, subtabs, inputs, storeBtns, activeTab } = groups;
     const firstVisible = (arr) => arr.find(el => el.offsetWidth > 0 && el.offsetHeight > 0);
 
     const bestSidebar = () => {
@@ -381,6 +384,19 @@ function getGroupTransition(direction, groupName, groups, current) {
         if (groupName === 'sidebar') {
             if (direction === 'RIGHT' || direction === 'DOWN') return bestSubtab() || bestInput() || bestApp() || actions[0];
         }
+    } else if (activeTab === 'view-stores') {
+        const bestStoreBtn = () => firstVisible(storeBtns);
+        if (groupName === 'storeBtn') {
+            if (direction === 'LEFT') return bestSidebar();
+            if (direction === 'DOWN' || direction === 'RIGHT') return actions[0] ?? null;
+        }
+        if (groupName === 'action') {
+            if (direction === 'UP') return storeBtns[storeBtns.length - 1] ?? null;
+            if (direction === 'LEFT') return bestSidebar();
+        }
+        if (groupName === 'sidebar') {
+            if (direction === 'RIGHT' || direction === 'DOWN') return bestStoreBtn() || actions[0];
+        }
     }
     return null;
 }
@@ -431,7 +447,8 @@ function gamepadStart() {
 
     const homeTab = window.getCurrentHomeTab?.() || 'games';
     if (homeTab === 'media') document.getElementById('btnAddMedia')?.click();
-    else if (homeTab !== 'stores') document.getElementById('btnAdd')?.click();
+    else if (homeTab === 'stores') document.getElementById('btnAddStore')?.click();
+    else document.getElementById('btnAdd')?.click();
 }
 
 function gamepadTriangle() { if (isModalOpen && !window.isGlobalLoading) document.getElementById('btnSearch')?.click(); }
@@ -587,6 +604,7 @@ function moveFocus(direction) {
     if (current.classList.contains('menu-tab')) { groupName = 'sidebar'; groupItems = groups.sidebar; }
     else if (current.classList.contains('filter-btn')) { groupName = 'filter'; groupItems = groups.filters; }
     else if (current.classList.contains('app-item')) { groupName = 'app'; groupItems = groups.apps; }
+    else if (current.classList.contains('store-install-card')) { groupName = 'storeBtn'; groupItems = groups.storeBtns; }
     else if (current.classList.contains('icon-btn')) { groupName = 'folderBtn'; groupItems = groups.folderBtns; }
     else if (current.classList.contains('subtab')) { groupName = 'subtab'; groupItems = groups.subtabs; }
     else if (current.tagName === 'INPUT' || current.id === 'btnWebAppPaste') { groupName = 'input'; groupItems = groups.inputs; }

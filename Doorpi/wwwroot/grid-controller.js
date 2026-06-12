@@ -17,7 +17,7 @@ window.GridController = (() => {
             },
             stores: {
                 el: document.getElementById('storesGrid'),
-                anchor: null,
+                anchor: document.getElementById('btnAddStore'),
             },
         };
 
@@ -67,6 +67,7 @@ window.GridController = (() => {
 
     function _onFeaturedChange({ channel, id, silent }) {
         if (silent) return;
+        if (channel === 'stores') return;
 
         if (!id) {
             if (typeof clearHero === 'function') clearHero();
@@ -118,11 +119,13 @@ window.GridController = (() => {
 
     function _focusFeatured() {
         const channel = (typeof window.getCurrentHomeTab === 'function') ? window.getCurrentHomeTab() : 'games';
-        const gridId = channel === 'media' ? 'mediaGrid' : 'gameGrid';
+        const gridId = channel === 'media' ? 'mediaGrid' : (channel === 'stores' ? 'storesGrid' : 'gameGrid');
         const grid = document.getElementById(gridId);
         if (!grid) return;
 
-        const featured = grid.querySelector('.card.featured:not(.add-card)') || grid.querySelector('.card:not(.add-card)');
+        const featured = grid.querySelector('.card.featured:not(.add-card)')
+            || grid.querySelector('.card:not(.add-card)')
+            || grid.querySelector('.card.add-card');
         featured?.focus();
     }
 

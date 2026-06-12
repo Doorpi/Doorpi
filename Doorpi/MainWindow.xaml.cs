@@ -481,6 +481,16 @@ namespace Doorpi
                     return;
                 }
 
+                if (TryStartPendingInstalledStoreAutoOpen())
+                    return;
+
+                if (IsStoreInstallFlowActive())
+                {
+                    ShowExecutionLockForStoreInstall();
+                    SendRuntimeSessionsToUI();
+                    return;
+                }
+
                 if (_gameSessionActive &&
                     !_gameIsMinimized &&
                     !string.IsNullOrWhiteSpace(_activeSessionGameId))
@@ -3763,6 +3773,8 @@ namespace Doorpi
         }
         private void SendUnicodeString(string text)
         {
+            if (TrySendElevatedUnicodeString(text)) return;
+
             var inputs = new List<INPUT>();
             foreach (char c in text)
             {
@@ -4203,6 +4215,8 @@ namespace Doorpi
         }
         private void SendMouse(int dx, int dy, uint flags, uint data = 0)
         {
+            if (TrySendElevatedMouse(dx, dy, flags, data)) return;
+
             var input = new INPUT { type = INPUT_MOUSE };
             input.U.mi = new MOUSEINPUT { dx = dx, dy = dy, dwFlags = flags, mouseData = data };
             SendInput(1, new[] { input }, INPUT.Size);
@@ -4238,8 +4252,10 @@ namespace Doorpi
             return (int)Math.Round(curved * maxPixels);
         }
 
-        private static void SendVirtualKey(byte vk)
+        private void SendVirtualKey(byte vk)
         {
+            if (TrySendElevatedVirtualKey(vk)) return;
+
             const uint KEYEVENTF_KEYUP = 0x0002;
             keybd_event(vk, 0, 0, UIntPtr.Zero);
             keybd_event(vk, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
@@ -5402,6 +5418,24 @@ namespace Doorpi
                         url = _activeStoreId,
                         kind = "store",
                         status = _storePausedByDoorpi ? "minimized" : "running"
+                    });
+                }
+
+                if (IsStoreInstallFlowActive() &&
+                    !string.IsNullOrWhiteSpace(_pendingStoreInstallId))
+                {
+                    var (storeInstallHero, storeInstallGrid) = StoreInstallExecutionVisuals();
+                    running.Add(new
+                    {
+                        channel = "stores",
+                        id = _pendingStoreInstallId,
+                        url = _pendingStoreInstallUrl,
+                        kind = "storeInstall",
+                        appType = "storeInstall",
+                        status = "running",
+                        name = StoreInstallExecutionName(),
+                        heroImage = storeInstallHero,
+                        gridImage = storeInstallGrid
                     });
                 }
 
@@ -7520,6 +7554,12 @@ namespace Doorpi
                 return;
             }
 
+            if (kind == "storeInstall")
+            {
+                RestoreStoreInstallFromExecutionLock();
+                return;
+            }
+
             if (kind == "exe" && !string.IsNullOrWhiteSpace(url))
             {
                 var media = FindMediaAppByUrlOrId(url);
@@ -7620,6 +7660,12 @@ namespace Doorpi
             }
 
             ClearExecutionLock();
+
+            if (string.Equals(kind, "storeInstall", StringComparison.OrdinalIgnoreCase))
+            {
+                CancelStoreInstall();
+                return;
+            }
 
             // Blindagem: sessão de jogo com pai Doorpi nunca pode ser fechada
             // por contexto de loja que tenha "vazado" para o lock atual.
@@ -11265,11 +11311,22 @@ namespace Doorpi
                     if (!string.IsNullOrEmpty(url))
                         Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
                 }
+                else if (action == "openStoreDownloadSite")
+                {
+                    string storeId = GetStr(root, "storeId");
+                    string url = GetStr(root, "url");
+                    string name = GetStr(root, "name");
+                    _ = Dispatcher.InvokeAsync(async () => await OpenStoreDownloadSiteAsync(storeId, url, name));
+                }
                 else if (action == "openStore" && root.TryGetProperty("storeId", out var storeIdEl))
                 {
                     string storeId = storeIdEl.GetString() ?? "";
                     if (!string.IsNullOrEmpty(storeId))
                         _ = Dispatcher.InvokeAsync(async () => await OpenStoreAsync(storeId));
+                }
+                else if (action == "requestStores")
+                {
+                    SendStoresToUI(LoadStoreLaunchers());
                 }
                 else if (action == "closeStore")
                 {

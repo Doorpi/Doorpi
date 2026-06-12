@@ -17,6 +17,7 @@ const CardInteraction = (() => {
         const channel = card.dataset.channel;
         if (channel === 'media' && window.getCurrentHomeTab?.() !== 'media') return;
         if (channel === 'stores' && window.getCurrentHomeTab?.() !== 'stores') return;
+        if (channel === 'stores') return;
 
         if (currentActiveCard && currentActiveCard !== card) {
             stop(currentActiveCard);
@@ -568,6 +569,7 @@ const CardRenderer = (() => {
 
     function reorderDOM(items, gridEl, anchorEl) {
         const cardMap = new Map();
+        const isStoresGrid = gridEl?.id === 'storesGrid';
 
         gridEl.querySelectorAll('.card:not(.add-card):not(.loading-card)').forEach(c => {
             cardMap.set(c.dataset.id, c);
@@ -579,7 +581,7 @@ const CardRenderer = (() => {
         });
 
         const first = items[0];
-        if (first) {
+        if (first && !isStoresGrid) {
             cardMap.forEach((card, id) => {
                 const shouldBeFeatured = id === first.id;
                 if (card.classList.contains('featured') === shouldBeFeatured) return;
@@ -648,7 +650,7 @@ const CardRenderer = (() => {
         const hasSkeletons = gridEl.querySelectorAll('.loading-card').length > 0;
 
         items.forEach((item, index) => {
-            const isFeatured = index === 0;
+            const isFeatured = channel !== 'stores' && index === 0;
             let card = existingMap.get(item.id);
 
             if (card) {

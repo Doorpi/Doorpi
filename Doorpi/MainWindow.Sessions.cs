@@ -166,8 +166,9 @@ namespace Doorpi
                        _webAppSession is { MouseActive: true };
 
             bool store = _isStoreLauncherSession && IsActiveStoreLauncherProcessAlive();
+            bool storeInstall = IsStoreInstallFlowActive();
 
-            return game || exe || web || store;
+            return game || exe || web || store || storeInstall;
         }
 
         private bool HasAnyBlockingExternalSession()
@@ -194,8 +195,9 @@ namespace Doorpi
             bool store = _isStoreLauncherSession &&
                          !_storePausedByDoorpi &&
                          IsActiveStoreLauncherProcessAlive();
+            bool storeInstall = IsStoreInstallFlowActive();
 
-            return game || exe || web || store;
+            return game || exe || web || store || storeInstall;
         }
 
         private bool ShouldMuteDoorpiAudio()

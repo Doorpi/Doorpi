@@ -89,6 +89,15 @@ namespace Doorpi
             ["Xbox"] = true,
         };
 
+        private static readonly Dictionary<string, string> StoreDownloadUrls = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Steam"] = "https://store.steampowered.com/about/",
+            ["Epic"] = "https://store.epicgames.com/download",
+            ["GOG"] = "https://www.gog.com/galaxy",
+            ["Riot"] = "https://2xko.riotgames.com/pt-br/",
+            ["Xbox"] = "https://www.xbox.com/apps/xbox-app-for-pc"
+        };
+
         private static readonly string[] XboxDeniedPackagePrefixes =
         {
             "Windows."
@@ -4577,6 +4586,15 @@ namespace Doorpi
         private void SendStoresToUI(List<MediaAppModel> stores)
         {
             var sorted = stores.OrderBy(s => s.Name).ToList();
+            var installedById = sorted
+                .Select(s => new { s.Id, Installed = IsStoreLauncherInstalled(s.Id) })
+                .ToDictionary(s => s.Id, s => s.Installed, StringComparer.OrdinalIgnoreCase);
+            var installedStores = sorted
+                .Where(s => installedById.TryGetValue(s.Id, out bool installed) && installed)
+                .ToList();
+            var supportedInstallerStores = sorted
+                .Where(s => StoreDownloadUrls.ContainsKey(s.Id))
+                .ToList();
             var blockedStores = GetAdminBlockedStoreIds();
             bool isAdmin = IsCurrentUserAdmin();
             bool steamForceSelection = IsSteamAccountSelectionForced();
@@ -4588,7 +4606,20 @@ namespace Doorpi
                         isAdmin,
                         blockedStoreIds = blockedStores.ToList(),
                         steamForceAccountSelection = steamForceSelection,
-                        apps = sorted.Select(s => new
+                        supportedStores = supportedInstallerStores.Select(s => new
+                        {
+                            s.Id,
+                            s.Name,
+                            downloadUrl = StoreDownloadUrls.TryGetValue(s.Id, out string? downloadUrl) ? downloadUrl : "",
+                            installed = installedById.TryGetValue(s.Id, out bool installed) && installed,
+                            s.GridImage,
+                            s.GridStaticImage,
+                            s.GridHorizontalImage,
+                            s.GridHorizontalStaticImage,
+                            s.LogoImage,
+                            s.LogoStaticImage
+                        }).ToList(),
+                        apps = installedStores.Select(s => new
                         {
                             s.Id,
                             s.Name,
@@ -4611,6 +4642,19 @@ namespace Doorpi
                             steamForceAccountSelection = steamForceSelection
                         }).ToList()
                     })));
+        }
+
+        private static bool IsStoreLauncherInstalled(string storeId)
+        {
+            try
+            {
+                string? exe = ResolveStoreLauncherExe(storeId);
+                return !string.IsNullOrWhiteSpace(exe);
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private void SaveStoreGamepadControlSetting(string storeId, bool disabled)

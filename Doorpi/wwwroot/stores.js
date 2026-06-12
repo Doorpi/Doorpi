@@ -93,6 +93,10 @@ window._storesHandleMessage = (data) => {
         window._doorpiIsAdmin = !!data.isAdmin;
         window._adminBlockedStoreIds = new Set(data.blockedStoreIds || []);
         window._steamForceAccountSelection = !!data.steamForceAccountSelection;
+        window._supportedStoresCatalog = Array.isArray(data.supportedStores) ? data.supportedStores : [];
+        if (typeof window.setSupportedStoresForModal === 'function') {
+            window.setSupportedStoresForModal(window._supportedStoresCatalog);
+        }
         if (window.AppStore) window.AppStore.mutations.setBatch('stores', data.apps);
     }
 
