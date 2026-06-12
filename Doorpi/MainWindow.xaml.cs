@@ -3144,6 +3144,69 @@ namespace Doorpi
                 }
             }
             while (changed);
+
+            if (TryFindProtocolLaunchedMediaWindow(session, out var adoptedProcess, out var adoptedHwnd) &&
+                adoptedProcess != null)
+            {
+                try
+                {
+                    session.ProcessGroupIds.Add(adoptedProcess.Id);
+                    session.AttachedWindowHandles.Add(adoptedHwnd);
+                    session.Process ??= adoptedProcess;
+                }
+                catch { }
+            }
+        }
+
+        private bool TryFindProtocolLaunchedMediaWindow(ExecutableAppSession? session, out Process? process, out IntPtr hwnd)
+        {
+            process = null;
+            hwnd = IntPtr.Zero;
+
+            if (session == null || session.BaselineProcessIds.Count == 0)
+                return false;
+
+            foreach (var hWnd in EnumerateTopLevelWindows())
+            {
+                try
+                {
+                    if (!IsWindowVisible(hWnd) || IsIconic(hWnd))
+                        continue;
+
+                    GetWindowThreadProcessId(hWnd, out uint pidRaw);
+                    int pid = (int)pidRaw;
+                    if (pid <= 0 || pid == Environment.ProcessId)
+                        continue;
+
+                    if (session.BaselineProcessIds.Contains(pid))
+                        continue;
+
+                    Process candidate;
+                    try { candidate = Process.GetProcessById(pid); }
+                    catch { continue; }
+
+                    if (SafeHasExited(candidate))
+                        continue;
+
+                    string processName = SafeProcessName(candidate);
+                    if (_knownLauncherProcessNames.Contains(processName) ||
+                        IsStoreAuxiliaryProcessName(processName) ||
+                        IsProcessActiveStoreLauncher(candidate))
+                    {
+                        continue;
+                    }
+
+                    if (!GetWindowRect(hWnd, out RECT rect) || rect.Width <= 0 || rect.Height <= 0)
+                        continue;
+
+                    process = candidate;
+                    hwnd = hWnd;
+                    return true;
+                }
+                catch { }
+            }
+
+            return false;
         }
 
         private List<Process> GetMediaExeProcessGroup(string mediaUrl, Process? knownProcess)
@@ -3408,7 +3471,7 @@ namespace Doorpi
                 catch { }
             }
         }
-        private void StartMediaExeWatcher(Process proc, string mediaUrl, string appName, CancellationToken token)
+        private void StartMediaExeWatcher(Process? proc, string mediaUrl, string appName, CancellationToken token)
         {
             var session = GetExecutableAppSession(mediaUrl);
             if (session == null || session.ProcessGroupIds.Count == 0)
@@ -3437,16 +3500,47 @@ namespace Doorpi
                         }
 
                         IntPtr activeHwnd = IntPtr.Zero;
-                        var processes = Process.GetProcessesByName(exeName);
+                        Process? activeProcess = null;
+                        Process[] processes = Array.Empty<Process>();
+                        if (!string.IsNullOrWhiteSpace(exeName))
+                        {
+                            try { processes = Process.GetProcessesByName(exeName); }
+                            catch { processes = Array.Empty<Process>(); }
+                        }
 
                         foreach (var p in processes)
                         {
                             IntPtr h = FindVisibleWindowForProcess(p.Id);
-                            if (h != IntPtr.Zero) { activeHwnd = h; break; }
+                            if (h != IntPtr.Zero)
+                            {
+                                activeHwnd = h;
+                                activeProcess = p;
+                                break;
+                            }
+                        }
+
+                        if (activeHwnd == IntPtr.Zero)
+                        {
+                            session = GetExecutableAppSession(mediaUrl);
+                            if (TryFindProtocolLaunchedMediaWindow(session, out var protocolProcess, out var protocolHwnd) &&
+                                protocolProcess != null &&
+                                protocolHwnd != IntPtr.Zero)
+                            {
+                                activeHwnd = protocolHwnd;
+                                activeProcess = protocolProcess;
+                            }
                         }
 
                         if (activeHwnd != IntPtr.Zero)
                         {
+                            if (activeProcess != null)
+                            {
+                                proc = activeProcess;
+                                _mediaExeProcess = activeProcess;
+                                session = GetExecutableAppSession(mediaUrl);
+                                try { session?.ProcessGroupIds.Add(activeProcess.Id); } catch { }
+                            }
+
                             hasStarted = true;
                             SendGameLaunchStatus("gameLaunchReady");
 
@@ -11318,7 +11412,19 @@ namespace Doorpi
                     string storeId = GetStr(root, "storeId");
                     string url = GetStr(root, "url");
                     string name = GetStr(root, "name");
+                    if (HasBlockingSessionForStoreDownload())
+                    {
+                        PromptStoreDownloadBlockedBySessions(storeId, url, name);
+                        return;
+                    }
                     _ = Dispatcher.InvokeAsync(async () => await OpenStoreDownloadSiteAsync(storeId, url, name));
+                }
+                else if (action == "closeAllSessionsForStoreDownload")
+                {
+                    string storeId = GetStr(root, "storeId");
+                    string url = GetStr(root, "url");
+                    string name = GetStr(root, "name");
+                    _ = Task.Run(async () => await CloseSessionsAndOpenStoreDownloadAsync(storeId, url, name));
                 }
                 else if (action == "openStore" && root.TryGetProperty("storeId", out var storeIdEl))
                 {
@@ -11541,13 +11647,13 @@ namespace Doorpi
                                         proc = Process.Start(new ProcessStartInfo(mediaUrl) { UseShellExecute = true });
                                     }
 
-                                    if (proc != null)
+                                    if (proc != null || baselineBeforeLaunch != null)
                                     {
                                         _mediaExeMouseModeRequested = ShouldStartMouseMode(media);
                                         _mediaExeMouseModeInitialized = true;
                                         _mediaExeGamepadDisabled = !_mediaExeMouseModeRequested;
 
-                                        if (_mediaExeMouseModeRequested)
+                                        if (proc != null && _mediaExeMouseModeRequested)
                                         {
                                             EnterMediaExeMode(proc, mediaUrl, mediaName, heroImg, gridImg, baselineBeforeLaunch);
                                         }

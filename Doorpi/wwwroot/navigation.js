@@ -138,7 +138,11 @@ function getModalGroups() {
         }
         actions = Array.from(document.querySelectorAll('#mediaAppActions button'));
     } else if (activeTab === 'view-stores') {
-        storeBtns = Array.from(document.querySelectorAll('#storeInstallList .store-install-card'));
+        storeBtns = Array.from(document.querySelectorAll('#storeInstallList .store-install-card'))
+            .filter(btn =>
+                !btn.classList.contains('installed') &&
+                btn.getAttribute('aria-disabled') !== 'true' &&
+                !!btn.dataset.downloadUrl);
         actions = Array.from(document.querySelectorAll('#view-stores .action-buttons button'));
     }
     return { sidebar, filters, apps, actions, folderBtns, subtabs, inputs, storeBtns, activeTab };

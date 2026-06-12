@@ -2650,6 +2650,11 @@ namespace Doorpi
                 return TryFindRiotWindow(out process, out hwnd);
             }
 
+            if (IsEpicStoreId(storeId))
+            {
+                return TryFindEpicWindow(exePath, out process, out hwnd);
+            }
+
             var running = FindRunningStoreProcessWithWindowByExeOnly(exePath);
             if (running == null) return false;
 
@@ -2658,6 +2663,63 @@ namespace Doorpi
 
             process = running;
             hwnd = window;
+            return true;
+        }
+
+        private bool TryFindEpicWindow(string exePath, out Process process, out IntPtr hwnd)
+        {
+            process = null!;
+            hwnd = IntPtr.Zero;
+
+            Process? bestProcess = null;
+            IntPtr bestHwnd = IntPtr.Zero;
+            int bestScore = 0;
+
+            foreach (var candidateHwnd in EnumerateTopLevelWindows())
+            {
+                if (!IsWindowVisible(candidateHwnd) || IsIconic(candidateHwnd))
+                    continue;
+
+                if (!IsEpicRealStoreWindowSize(candidateHwnd))
+                    continue;
+
+                GetWindowThreadProcessId(candidateHwnd, out uint pidRaw);
+                if (pidRaw == 0 || pidRaw == Environment.ProcessId) continue;
+
+                Process candidateProcess;
+                try { candidateProcess = Process.GetProcessById((int)pidRaw); }
+                catch { continue; }
+
+                string name = SafeProcessName(candidateProcess);
+                string path = SafeProcessPath(candidateProcess);
+                if (!IsEpicLauncherProcess(name, path))
+                {
+                    candidateProcess.Dispose();
+                    continue;
+                }
+
+                int score = 50;
+                if (!string.IsNullOrWhiteSpace(path) && PathsEqual(path, exePath)) score += 80;
+                if (GetWindowRect(candidateHwnd, out RECT rect)) score += Math.Min(40, (rect.Width * rect.Height) / 50000);
+
+                if (score > bestScore)
+                {
+                    bestProcess?.Dispose();
+                    bestProcess = candidateProcess;
+                    bestHwnd = candidateHwnd;
+                    bestScore = score;
+                }
+                else
+                {
+                    candidateProcess.Dispose();
+                }
+            }
+
+            if (bestProcess == null || bestHwnd == IntPtr.Zero)
+                return false;
+
+            process = bestProcess;
+            hwnd = bestHwnd;
             return true;
         }
 
@@ -3579,6 +3641,7 @@ namespace Doorpi
                 _desktopVkb = null;
                 FocusDoorpiKeepSession();
                 webView?.CoreWebView2?.PostWebMessageAsString("{\"type\":\"hideStoreSessionMenu\"}");
+                webView?.CoreWebView2?.PostWebMessageAsString("{\"type\":\"storeSessionReturnedToDoorpi\"}");
             });
             SendRuntimeSessionsToUI();
         }
@@ -3759,6 +3822,24 @@ namespace Doorpi
 
         private static bool IsEpicStoreId(string? storeId)
             => string.Equals(storeId, "Epic", StringComparison.OrdinalIgnoreCase);
+
+        private static bool IsEpicLauncherProcess(string name, string path)
+        {
+            return string.Equals(name, "EpicGamesLauncher", StringComparison.OrdinalIgnoreCase) ||
+                   (!string.IsNullOrWhiteSpace(path) &&
+                    string.Equals(Path.GetFileName(path), "EpicGamesLauncher.exe", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool IsEpicRealStoreWindowSize(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out RECT rect))
+                return false;
+
+            // A Epic usa uma janela pequena de updater/bootstrap com o proprio
+            // EpicGamesLauncher.exe. So promovemos para loja quando a janela ja
+            // tem porte de client real.
+            return rect.Width >= 700 && rect.Height >= 420;
+        }
 
         private static bool IsRiotStoreId(string? storeId)
             => string.Equals(storeId, "Riot", StringComparison.OrdinalIgnoreCase);
@@ -4676,15 +4757,16 @@ namespace Doorpi
             SendStoresToUI(stores);
         }
 
-        private static string? ResolveStoreLauncherExe(string storeId) => storeId switch
+        private static string? ResolveStoreLauncherExe(string storeId)
         {
-            "Steam" => ResolveSteamExe(),
-            "Epic" => ResolveEpicExe(),
-            "GOG" => ResolveGogExe(),
-            "Riot" => ResolveRiotExe(),
-            "Xbox" => ResolveXboxExe(),
-            _ => null
-        };
+            string normalizedStoreId = (storeId ?? "").Trim();
+            if (normalizedStoreId.Equals("Steam", StringComparison.OrdinalIgnoreCase)) return ResolveSteamExe();
+            if (normalizedStoreId.Equals("Epic", StringComparison.OrdinalIgnoreCase)) return ResolveEpicExe();
+            if (normalizedStoreId.Equals("GOG", StringComparison.OrdinalIgnoreCase)) return ResolveGogExe();
+            if (normalizedStoreId.Equals("Riot", StringComparison.OrdinalIgnoreCase)) return ResolveRiotExe();
+            if (normalizedStoreId.Equals("Xbox", StringComparison.OrdinalIgnoreCase)) return ResolveXboxExe();
+            return null;
+        }
 
         private static string? ResolveSteamExe()
         {
@@ -4770,15 +4852,96 @@ namespace Doorpi
 
         private static string? ResolveGogExe()
         {
-            using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\GOG.com\GalaxyClient\paths");
-            if (key?.GetValue("client") is string path)
+            var candidates = new List<string>();
+
+            void AddCandidate(string? value)
             {
-                string exe = Path.Combine(path, "GalaxyClient.exe");
-                if (File.Exists(exe)) return exe;
+                if (string.IsNullOrWhiteSpace(value)) return;
+
+                string clean = Environment.ExpandEnvironmentVariables(value.Trim().Trim('"'));
+                int comma = clean.LastIndexOf(',');
+                if (comma > 2)
+                {
+                    string beforeComma = clean[..comma].Trim().Trim('"');
+                    if (beforeComma.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                        clean = beforeComma;
+                }
+
+                if (clean.EndsWith("GalaxyClient.exe", StringComparison.OrdinalIgnoreCase))
+                {
+                    candidates.Add(clean);
+                    return;
+                }
+
+                candidates.Add(Path.Combine(clean, "GalaxyClient.exe"));
+                candidates.Add(Path.Combine(clean, "GOG Galaxy", "GalaxyClient.exe"));
             }
-            string fallback = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-                "GOG Galaxy", "GalaxyClient.exe");
-            return File.Exists(fallback) ? fallback : null;
+
+            candidates.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                "GOG Galaxy", "GalaxyClient.exe"));
+            candidates.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "GOG Galaxy", "GalaxyClient.exe"));
+
+            try
+            {
+                foreach (var hive in new[] { RegistryHive.LocalMachine, RegistryHive.CurrentUser })
+                foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+                {
+                    using var baseKey = RegistryKey.OpenBaseKey(hive, view);
+
+                    using (var pathsKey = baseKey.OpenSubKey(@"SOFTWARE\GOG.com\GalaxyClient\paths"))
+                    {
+                        AddCandidate(pathsKey?.GetValue("client") as string);
+                        AddCandidate(pathsKey?.GetValue("path") as string);
+                    }
+
+                    using (var pathsKey = baseKey.OpenSubKey(@"SOFTWARE\WOW6432Node\GOG.com\GalaxyClient\paths"))
+                    {
+                        AddCandidate(pathsKey?.GetValue("client") as string);
+                        AddCandidate(pathsKey?.GetValue("path") as string);
+                    }
+
+                    string[] uninstallRoots =
+                    {
+                        @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+                        @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+                    };
+
+                    foreach (string root in uninstallRoots)
+                    {
+                        using var key = baseKey.OpenSubKey(root);
+                        if (key == null) continue;
+
+                        foreach (string subName in key.GetSubKeyNames())
+                        {
+                            using var sub = key.OpenSubKey(subName);
+                            if (sub == null) continue;
+
+                            string displayName = sub.GetValue("DisplayName") as string ?? "";
+                            string publisher = sub.GetValue("Publisher") as string ?? "";
+                            string icon = sub.GetValue("DisplayIcon") as string ?? "";
+                            string installLocation = sub.GetValue("InstallLocation") as string ?? "";
+
+                            bool isGogGalaxy =
+                                displayName.Contains("GOG Galaxy", StringComparison.OrdinalIgnoreCase) ||
+                                displayName.Contains("GOG GALAXY", StringComparison.OrdinalIgnoreCase) ||
+                                publisher.Contains("GOG", StringComparison.OrdinalIgnoreCase) ||
+                                icon.Contains("GalaxyClient.exe", StringComparison.OrdinalIgnoreCase);
+
+                            if (!isGogGalaxy) continue;
+
+                            AddCandidate(installLocation);
+                            AddCandidate(icon);
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            return candidates
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault(File.Exists);
         }
 
         private static string? ResolveRiotExe()

@@ -1458,6 +1458,16 @@
             const payload = _sessionConflictClosePayload;
             window.hideSessionConflictPopup?.(true);
             if (payload) {
+                if (payload.action === 'closeAllSessionsForStoreDownload') {
+                    postToHost({
+                        action: 'closeAllSessionsForStoreDownload',
+                        storeId: payload.storeId || '',
+                        url: payload.url || '',
+                        name: payload.name || ''
+                    });
+                    return;
+                }
+
                 postToHost({
                     action: 'closeRunningItem',
                     id: payload.id || '',
@@ -1501,7 +1511,16 @@
         }
     };
 
-    window.showSessionConflictPopup = function ({ closePayload, runningName } = {}) {
+    window.showSessionConflictPopup = function ({
+        closePayload,
+        runningName,
+        title,
+        message,
+        hint,
+        kicker,
+        confirmText,
+        cancelText
+    } = {}) {
         const overlay = _ensureSessionConflictOverlay();
         const wasVisible = overlay.classList.contains('visible');
         _sessionConflictClosePayload = closePayload || null;
@@ -1516,9 +1535,9 @@
         const cancelBtn = overlay.querySelector('#sessionConflictCancel');
         const closeBtn = overlay.querySelector('#sessionConflictClose');
 
-        const titleText = typeof t === 'function' ? t('sessionConflictTitle') : 'Processo/Jogo em andamento';
+        const titleText = title || (typeof t === 'function' ? t('sessionConflictTitle') : 'Processo/Jogo em andamento');
         const fallbackName = typeof t === 'function' ? t('sessionConflictCurrent') : 'atual';
-        const baseMessage = typeof t === 'function' ? t('sessionConflictMessage') : 'Deseja encerrar o processo/jogo {name}?';
+        const baseMessage = message || (typeof t === 'function' ? t('sessionConflictMessage') : 'Deseja encerrar o processo/jogo {name}?');
         const resolvedName = runningName || fallbackName;
         const messageText = baseMessage.replace('{name}', resolvedName);
 
@@ -1535,6 +1554,17 @@
             if (textEl) textEl.textContent = typeof t === 'function' ? t('sessionConflictClose') : 'Encerrar';
         }
 
+        if (kickerEl && kicker) kickerEl.textContent = kicker;
+        if (hintEl && hint) hintEl.textContent = hint;
+        if (cancelBtn && cancelText) {
+            const textEl = cancelBtn.querySelector('.action-text');
+            if (textEl) textEl.textContent = cancelText;
+        }
+        if (closeBtn && confirmText) {
+            const textEl = closeBtn.querySelector('.action-text');
+            if (textEl) textEl.textContent = confirmText;
+        }
+
         overlay.classList.add('visible');
         if (!wasVisible) {
             setTimeout(() => {
@@ -1542,6 +1572,36 @@
                 if (typeof updateGamepadUI === 'function') updateGamepadUI(isGamepadConnected, _controllerType);
             }, 0);
         }
+    };
+
+    window.hasStoreDownloadBlockingRuntime = function () {
+        const entries = Array.isArray(window.DoorpiRuntimeState?.running) ? window.DoorpiRuntimeState.running : [];
+        return entries.some(entry =>
+            entry &&
+            entry.kind !== 'storeInstall' &&
+            entry.appType !== 'storeInstall'
+        );
+    };
+
+    window.showStoreDownloadSessionConflict = function ({ storeId, url, name } = {}) {
+        window.showSessionConflictPopup?.({
+            closePayload: {
+                action: 'closeAllSessionsForStoreDownload',
+                storeId: storeId || '',
+                url: url || '',
+                name: name || ''
+            },
+            kicker: typeof t === 'function' ? t('storeDownloadConflictKicker', 'Loja em uso') : 'Loja em uso',
+            title: typeof t === 'function' ? t('storeDownloadConflictTitle', 'Feche as tarefas abertas') : 'Feche as tarefas abertas',
+            message: typeof t === 'function'
+                ? t('storeDownloadConflictMessage', 'Para instalar uma loja, o Doorpi precisa encerrar jogos, apps e lojas em execução.')
+                : 'Para instalar uma loja, o Doorpi precisa encerrar jogos, apps e lojas em execução.',
+            hint: typeof t === 'function'
+                ? t('storeDownloadConflictHint', 'Escolha encerrar tudo agora ou cancele para voltar.')
+                : 'Escolha encerrar tudo agora ou cancele para voltar.',
+            confirmText: typeof t === 'function' ? t('storeDownloadConflictCloseAll', 'Encerrar processos') : 'Encerrar processos',
+            cancelText: typeof t === 'function' ? t('sessionConflictCancel') : 'Cancelar'
+        });
     };
 
     window._handleSessionConflictFromLaunch = function (item, launchId) {
@@ -2471,6 +2531,13 @@
                     runningName: data.name || ''
                 });
             }
+            else if (data.type === 'storeDownloadBlockedBySessions') {
+                window.showStoreDownloadSessionConflict?.({
+                    storeId: data.storeId || '',
+                    url: data.url || '',
+                    name: data.name || ''
+                });
+            }
             else if (data.type === 'adminPolicyBlocked') {
                 const title = data.kind === 'admin-delete'
                     ? (typeof t === 'function' ? t('adminDeleteBlockedTitle', 'Conta administradora') : 'Conta administradora')
@@ -2694,6 +2761,15 @@
                 window._executionOverlayVisualKey = '';
                 GameLaunchOverlay.hide();
                 _stopExecutionOverlayRefreshLoop();
+            }
+            else if (data.type === 'storeSessionReturnedToDoorpi') {
+                const addModal = document.getElementById('addGameContainer');
+                const modalVisible = !!(addModal && addModal.style.display !== 'none');
+                if (window.isModalOpen || modalVisible) {
+                    closeModal();
+                }
+                window.hideStoreSessionMenu?.();
+                requestAnimationFrame(() => window.focusFeaturedCard?.());
             }
             else if (data.type === 'userSwitchStart') {
                 _userSwitchFadeOut(data);
@@ -4098,7 +4174,7 @@ document.getElementById('btnAddStore')?.addEventListener('click', () => {
             const actionLabel = installed ? t('storeAlreadyInstalled') : t('storeOpenSite');
 
             return `
-                <button class="store-install-card ${installed ? 'installed' : ''}" type="button" tabindex="0"
+                <button class="store-install-card ${installed ? 'installed' : ''}" type="button" tabindex="${installed || !downloadUrl ? '-1' : '0'}"
                         data-store-id="${escapeHtml(id)}" data-store-name="${escapeHtml(name)}" data-download-url="${escapeHtml(downloadUrl)}"
                         ${installed || !downloadUrl ? 'aria-disabled="true"' : ''}>
                     <span class="store-install-art">
@@ -4119,13 +4195,18 @@ document.getElementById('btnAddStore')?.addEventListener('click', () => {
                 const storeId = card.dataset.storeId || '';
                 const name = card.dataset.storeName || '';
                 if (!url) return;
+                if (window.hasStoreDownloadBlockingRuntime?.()) {
+                    window.showStoreDownloadSessionConflict?.({ storeId, url, name });
+                    return;
+                }
                 postToHost({ action: 'openStoreDownloadSite', storeId, url, name });
             });
         });
 
         requestAnimationFrame(() => {
             _modalReady = true;
-            list.querySelector('.store-install-card:not(.installed)')?.focus();
+            (list.querySelector('.store-install-card:not(.installed):not([aria-disabled="true"])')
+                || document.querySelector('#view-stores .action-buttons button'))?.focus();
         });
     }
 

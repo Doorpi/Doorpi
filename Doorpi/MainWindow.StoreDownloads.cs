@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -22,6 +23,7 @@ namespace Doorpi
         private HashSet<int> _storeInstallBaselineProcessIds = new();
         private HashSet<IntPtr> _storeInstallBaselineWindowHandles = new();
         private HashSet<int> _storeInstallObservedProcessIds = new();
+        private HashSet<int> _storeInstallHandoffProcessIds = new();
         private HashSet<IntPtr> _storeInstallObservedWindowHandles = new();
         private HashSet<int> _storeInstallerFocusedProcessIds = new();
         private HashSet<IntPtr> _storeInstallerFocusedWindowHandles = new();
@@ -40,6 +42,65 @@ namespace Doorpi
         private string _pendingInstalledStoreAutoOpenId = "";
         private string _pendingInstalledStoreAutoOpenName = "";
         private CancellationTokenSource? _postInstallStoreRuntimeWatchCts;
+
+        private bool HasBlockingSessionForStoreDownload()
+        {
+            bool game = _gameSession is { Active: true } ||
+                        (_gameSession?.PendingLaunchProcess != null &&
+                         !SafeHasExited(_gameSession.PendingLaunchProcess));
+
+            bool exe = false;
+            foreach (var session in _executableAppSessions.Values)
+            {
+                var aliveProcess = FindAliveMediaExeProcess(session.Url, session.Process);
+                if (aliveProcess != null)
+                    session.Process = aliveProcess;
+
+                if (session.ControllerActive || aliveProcess != null)
+                {
+                    exe = true;
+                    break;
+                }
+            }
+
+            bool web = _webAppSession is { Window: not null } ||
+                       _webAppSession is { WebView: not null } ||
+                       _webAppSession is { MouseActive: true };
+
+            bool store = _isStoreLauncherSession && IsActiveStoreLauncherProcessAlive();
+
+            return game || exe || web || store;
+        }
+
+        private void PromptStoreDownloadBlockedBySessions(string storeId, string url, string storeName)
+        {
+            try
+            {
+                webView?.CoreWebView2?.PostWebMessageAsString(JsonSerializer.Serialize(new
+                {
+                    type = "storeDownloadBlockedBySessions",
+                    storeId,
+                    url,
+                    name = storeName
+                }));
+            }
+            catch { }
+        }
+
+        private async Task CloseSessionsAndOpenStoreDownloadAsync(string storeId, string url, string storeName)
+        {
+            if (string.IsNullOrWhiteSpace(storeId) || string.IsNullOrWhiteSpace(url))
+                return;
+
+            List<Task> closeTasks = new();
+            await Dispatcher.InvokeAsync(() =>
+            {
+                closeTasks = BeginLogoutCurrentSessionsForUserSwitch();
+            });
+
+            await WaitForUserLogoutSessionsToCloseAsync(closeTasks).ConfigureAwait(false);
+            await OpenStoreDownloadSiteAsync(storeId, url, storeName).ConfigureAwait(false);
+        }
 
         private async Task OpenStoreDownloadSiteAsync(string storeId, string url, string storeName)
         {
@@ -60,6 +121,7 @@ namespace Doorpi
                 _storeInstallBaselineWindowHandles = new HashSet<IntPtr>();
                 lock (_storeInstallObservedProcessLock)
                     _storeInstallObservedProcessIds = new HashSet<int>();
+                _storeInstallHandoffProcessIds = new HashSet<int>();
                 lock (_storeInstallObservedWindowLock)
                     _storeInstallObservedWindowHandles = new HashSet<IntPtr>();
                 _storeInstallerFocusedProcessIds = new HashSet<int>();
@@ -217,7 +279,6 @@ namespace Doorpi
         {
             StopStoreInstallMonitor();
             string storeId = _pendingStoreInstallId;
-            var installer = _pendingStoreInstallerProcess;
             var baselineProcessIds = _storeInstallBaselineProcessIds;
             DateTime installerLaunchedAt = _storeInstallerLaunchedAtUtc;
             _storeInstallMonitorCts = new CancellationTokenSource();
@@ -226,72 +287,72 @@ namespace Doorpi
             _ = Task.Run(async () =>
             {
                 DateTime startedAt = DateTime.UtcNow;
-                DateTime noInstallerActivitySince = DateTime.MinValue;
-                DateTime installedAndInstallerClosedSince = DateTime.MinValue;
-                const int installerExitGraceMs = 90000;
-                const int installedQuietWindowGraceMs = 2200;
+                DateTime noInstallUiSince = DateTime.MinValue;
+                const int closedWithoutInstallForegroundGraceMs = 7000;
 
                 while (!token.IsCancellationRequested)
                 {
                     await Task.Delay(300, token).ConfigureAwait(false);
 
                     bool observedInstallWindowsStillAlive = AdoptStoreInstallProcessChain(storeId, baselineProcessIds, installerLaunchedAt);
+                    bool epicBootstrapWindowStillVisible = TrackEpicInstallBootstrapWindow(storeId, baselineProcessIds, installerLaunchedAt);
+                    bool newStoreRuntimeProcessStillAlive = TrackNewStoreInstallRuntimeProcess(storeId, baselineProcessIds, installerLaunchedAt);
                     bool installed = IsStoreLauncherInstalled(storeId);
-                    if (installed &&
-                        TryFindInstalledStoreRuntime(storeId, out var runtimeProcess, out var runtimeHwnd, requireWindow: true))
+
+                    if (installed && IsPendingStoreInstallerProcessFinished())
                     {
                         Dispatcher.Invoke(() =>
-                            PromoteInstalledStoreRuntimeSession(
-                                storeId,
-                                _pendingStoreInstallName,
-                                runtimeProcess,
-                                runtimeHwnd,
-                                focusStore: false));
+                        {
+                            TerminateStoreInstallRelatedProcesses(storeId);
+                            CompleteStoreInstall(openStoreAfterInstall: false, watchForRuntimeAfterClose: false);
+                        });
                         return;
                     }
 
                     bool newSpawnedWindowSeen = FocusNewStoreInstallWindowsOnce(baselineProcessIds, installerLaunchedAt);
                     bool spawnedWindowStillVisible = HasVisibleStoreInstallSpawnedWindow(baselineProcessIds, installerLaunchedAt);
                     int activeInstallerPid = FindActiveStoreInstallerProcessId(storeId, baselineProcessIds, installerLaunchedAt);
-                    bool installerActive = activeInstallerPid > 0;
-                    bool primaryInstallerExited = false;
-                    try { primaryInstallerExited = installer != null && installer.HasExited; }
-                    catch { primaryInstallerExited = true; }
+                    bool handoffProcessAlive = HasStoreInstallHandoffProcessesAlive();
+                    bool hasVisibleInstallUi = observedInstallWindowsStillAlive ||
+                                               epicBootstrapWindowStillVisible ||
+                                               newStoreRuntimeProcessStillAlive ||
+                                               newSpawnedWindowSeen ||
+                                               spawnedWindowStillVisible ||
+                                               handoffProcessAlive;
 
-                    if (installed && !installerActive && primaryInstallerExited)
+                    if (hasVisibleInstallUi)
                     {
-                        if (observedInstallWindowsStillAlive || newSpawnedWindowSeen || spawnedWindowStillVisible)
+                        noInstallUiSince = DateTime.MinValue;
+
+                        if (!_storeInstallInputActive)
                         {
-                            installedAndInstallerClosedSince = DateTime.MinValue;
-                            continue;
+                            Dispatcher.Invoke(() =>
+                            {
+                                StartStoreInstallInputMode(centerCursor: false);
+                                EnsureCursorVisible();
+                            });
                         }
 
-                        if (installedAndInstallerClosedSince == DateTime.MinValue)
-                            installedAndInstallerClosedSince = DateTime.UtcNow;
-
-                        if ((DateTime.UtcNow - installedAndInstallerClosedSince).TotalMilliseconds >= installedQuietWindowGraceMs)
-                        {
-                            Dispatcher.Invoke(() => CompleteStoreInstall(openStoreAfterInstall: false, watchForRuntimeAfterClose: true));
-                            return;
-                        }
+                        if (activeInstallerPid > 0)
+                            Dispatcher.Invoke(() => ScheduleStoreInstallerFocusOnce(activeInstallerPid));
 
                         continue;
                     }
 
-                    if (installerActive)
+                    if (installed)
                     {
-                        Dispatcher.Invoke(() => ScheduleStoreInstallerFocusOnce(activeInstallerPid));
-                        noInstallerActivitySince = DateTime.MinValue;
                         continue;
                     }
 
-                    if (noInstallerActivitySince == DateTime.MinValue)
-                        noInstallerActivitySince = DateTime.UtcNow;
+                    if (_storeInstallInputActive)
+                        Dispatcher.Invoke(() => PauseStoreInstallInputMode(preserveCursor: true));
 
-                    if (primaryInstallerExited &&
-                        (DateTime.UtcNow - noInstallerActivitySince).TotalMilliseconds >= installerExitGraceMs)
+                    if (noInstallUiSince == DateTime.MinValue)
+                        noInstallUiSince = DateTime.UtcNow;
+
+                    if ((DateTime.UtcNow - noInstallUiSince).TotalMilliseconds >= closedWithoutInstallForegroundGraceMs)
                     {
-                        Dispatcher.Invoke(() => FailStoreInstall("A instalacao foi cancelada ou nao foi concluida.", canRetry: true));
+                        Dispatcher.Invoke(() => FailStoreInstall("A instalacao foi encerrada antes da loja ser confirmada.", canRetry: true));
                         return;
                     }
 
@@ -308,6 +369,7 @@ namespace Doorpi
         {
             StopStoreInstallMonitor();
             StopStoreInstallGuideMonitor();
+            StopStoreInstallInputMode();
             _storeDownloadWindow?.ShowInstallSuccess();
             SendStoresToUI(LoadStoreLaunchers());
 
@@ -319,7 +381,6 @@ namespace Doorpi
                     string completedStoreId = _pendingStoreInstallId;
                     string completedStoreName = _pendingStoreInstallName;
                     CloseStoreDownloadWindow(markHandedOff: true);
-                    StopStoreInstallInputMode();
                     DeletePendingStoreInstaller();
                     _pendingStoreInstallerProcess = null;
                     ClearPendingStoreInstall();
@@ -432,7 +493,7 @@ namespace Doorpi
                 _storeDownloadWindow.Activate();
                 StopStoreInstallMonitor();
                 StopStoreInstallGuideMonitor();
-                StopStoreInstallInputMode(preserveCursor: true);
+                PauseStoreInstallInputMode(preserveCursor: true);
                 ClearExecutionLock();
                 SendRuntimeSessionsToUI();
                 return;
@@ -441,7 +502,7 @@ namespace Doorpi
             _storeInstallCancelConfirmationVisible = true;
             _storeDownloadWindow.ShowCancelConfirmation();
             _storeDownloadWindow.Activate();
-            StopStoreInstallInputMode(preserveCursor: true);
+            PauseStoreInstallInputMode(preserveCursor: true);
             ClearExecutionLock();
             SendRuntimeSessionsToUI();
         }
@@ -489,10 +550,11 @@ namespace Doorpi
             {
                 try
                 {
-                    if (!_pendingStoreInstallerProcess.HasExited)
+                    if (!_pendingStoreInstallerProcess.HasExited &&
+                        TryFindNewValidStoreInstallWindowForProcess(_pendingStoreInstallerProcess.Id, out _))
                         return "installer";
                 }
-                catch { return "installer"; }
+                catch { }
             }
 
             if (ResolveActiveStoreInstallerProcessId() > 0)
@@ -564,6 +626,7 @@ namespace Doorpi
             _storeInstallBaselineWindowHandles = new HashSet<IntPtr>();
             lock (_storeInstallObservedProcessLock)
                 _storeInstallObservedProcessIds = new HashSet<int>();
+            _storeInstallHandoffProcessIds = new HashSet<int>();
             lock (_storeInstallObservedWindowLock)
                 _storeInstallObservedWindowHandles = new HashSet<IntPtr>();
             _storeInstallerFocusedProcessIds = new HashSet<int>();
@@ -654,6 +717,28 @@ namespace Doorpi
             });
         }
 
+        private void PauseStoreInstallInputMode(bool preserveCursor = true)
+        {
+            _storeInstallInputActive = false;
+            Dispatcher.Invoke(() =>
+            {
+                _desktopVkb?.Close();
+                _desktopVkb = null!;
+                if (preserveCursor)
+                {
+                    EnsureCursorVisible();
+                    _mainScreenMouseVisible = true;
+                    try { GetCursorPos(out _lastKnownCursorPos); } catch { }
+                    return;
+                }
+
+                EnsureCursorHidden();
+                _mainScreenMouseVisible = false;
+                _lastKnownCursorPos = new POINT { X = 0, Y = 0 };
+                try { SetCursorPos(0, 0); } catch { }
+            });
+        }
+
         private void StartStoreInstallGuideMonitor()
         {
             if (_storeInstallGuideMonitorActive && _storeInstallGuideMonitorThread?.IsAlive == true)
@@ -725,6 +810,64 @@ namespace Doorpi
             });
         }
 
+        private bool IsPendingStoreInstallerProcessFinished()
+        {
+            try
+            {
+                return _pendingStoreInstallerProcess == null || _pendingStoreInstallerProcess.HasExited;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        private void TerminateStoreInstallRelatedProcesses(string storeId)
+        {
+            var processIds = CaptureActiveStoreInstallerProcessIds();
+
+            lock (_storeInstallObservedProcessLock)
+            {
+                foreach (int pid in _storeInstallObservedProcessIds)
+                    processIds.Add(pid);
+            }
+
+            foreach (int pid in _storeInstallHandoffProcessIds)
+                processIds.Add(pid);
+
+            string exe = "";
+            try { exe = ResolveStoreLauncherExe(storeId) ?? ""; } catch { }
+
+            foreach (var process in Process.GetProcesses())
+            {
+                try
+                {
+                    if (process.Id == Environment.ProcessId || process.HasExited)
+                        continue;
+
+                    string name = SafeProcessName(process);
+                    string path = SafeProcessPath(process);
+                    if (IsDoorpiInstallHelperProcess(name, path))
+                        continue;
+
+                    bool relatedToStore =
+                        IsStoreInstallRuntimeOrHelperProcess(storeId, exe, name, path) ||
+                        (IsEpicStoreInstallContext(storeId, _pendingStoreInstallName) &&
+                         IsEpicInstallRelatedProcess(name, path));
+
+                    if (relatedToStore)
+                        processIds.Add(process.Id);
+                }
+                catch { }
+                finally
+                {
+                    try { process.Dispose(); } catch { }
+                }
+            }
+
+            TerminateStoreInstallerProcessIds(processIds, waitForExitMs: 350);
+        }
+
         private HashSet<int> CaptureActiveStoreInstallerProcessIds()
         {
             var processIds = new HashSet<int>();
@@ -774,10 +917,7 @@ namespace Doorpi
                 {
                     try
                     {
-                        if (!IsValidStoreInstallExternalWindow(hwnd, out int pid))
-                            return true;
-
-                        if (_storeInstallBaselineWindowHandles.Contains(hwnd))
+                        if (!IsNewValidStoreInstallWindow(hwnd, baselineProcessIds, launchedAtUtc, out int pid))
                             return true;
 
                         bool shouldFocus;
@@ -814,7 +954,7 @@ namespace Doorpi
                 {
                     _storeInstallObservedWindowHandles.RemoveWhere(hwnd =>
                         !IsWindow(hwnd) ||
-                        !IsValidStoreInstallExternalWindow(hwnd, out _));
+                        !IsNewValidStoreInstallWindow(hwnd, baselineProcessIds, launchedAtUtc, out _));
 
                     return _storeInstallObservedWindowHandles.Count > 0;
                 }
@@ -853,7 +993,7 @@ namespace Doorpi
                 if (hwnd == IntPtr.Zero || !IsWindow(hwnd))
                     return false;
 
-                if (!IsWindowVisible(hwnd) && !IsIconic(hwnd))
+                if (!IsWindowVisible(hwnd))
                     return false;
 
                 if (!GetWindowRect(hwnd, out RECT rect))
@@ -876,6 +1016,93 @@ namespace Doorpi
             catch
             {
                 return false;
+            }
+        }
+
+        private bool TryFindValidStoreInstallWindowForProcess(int processId, out IntPtr hwnd)
+        {
+            hwnd = IntPtr.Zero;
+            if (processId <= 0)
+                return false;
+
+            IntPtr foundHwnd = IntPtr.Zero;
+            try
+            {
+                EnumWindows((candidate, _) =>
+                {
+                    if (IsValidStoreInstallExternalWindow(candidate, out int pid) && pid == processId)
+                    {
+                        foundHwnd = candidate;
+                        return false;
+                    }
+
+                    return true;
+                }, IntPtr.Zero);
+            }
+            catch { }
+
+            hwnd = foundHwnd;
+            return hwnd != IntPtr.Zero;
+        }
+
+        private bool TryFindNewValidStoreInstallWindowForProcess(int processId, out IntPtr hwnd)
+        {
+            hwnd = IntPtr.Zero;
+            if (processId <= 0)
+                return false;
+
+            IntPtr foundHwnd = IntPtr.Zero;
+            try
+            {
+                EnumWindows((candidate, _) =>
+                {
+                    if (IsNewValidStoreInstallWindow(candidate, _storeInstallBaselineProcessIds, _storeInstallerLaunchedAtUtc, out int pid) &&
+                        pid == processId)
+                    {
+                        foundHwnd = candidate;
+                        return false;
+                    }
+
+                    return true;
+                }, IntPtr.Zero);
+            }
+            catch { }
+
+            hwnd = foundHwnd;
+            return hwnd != IntPtr.Zero;
+        }
+
+        private bool IsNewValidStoreInstallWindow(
+            IntPtr hwnd,
+            HashSet<int> baselineProcessIds,
+            DateTime launchedAtUtc,
+            out int pid)
+        {
+            pid = 0;
+
+            if (_storeInstallBaselineWindowHandles.Contains(hwnd))
+                return false;
+
+            if (!IsValidStoreInstallExternalWindow(hwnd, out pid))
+                return false;
+
+            lock (_storeInstallObservedProcessLock)
+            {
+                if (_storeInstallObservedProcessIds.Contains(pid))
+                    return true;
+            }
+
+            if (baselineProcessIds.Contains(pid))
+                return false;
+
+            try
+            {
+                using var process = Process.GetProcessById(pid);
+                return ProcessStartedForStoreInstall(process, launchedAtUtc);
+            }
+            catch
+            {
+                return launchedAtUtc != DateTime.MinValue;
             }
         }
 
@@ -906,14 +1133,17 @@ namespace Doorpi
                     string name = process.ProcessName ?? "";
                     string title = "";
                     string path = "";
-                    try { title = process.MainWindowTitle ?? ""; } catch { }
+                    IntPtr hwnd = IntPtr.Zero;
+                    if (!TryFindNewValidStoreInstallWindowForProcess(process.Id, out hwnd))
+                        continue;
+
+                    try { title = GetWindowTitle(hwnd); } catch { }
                     try { path = process.MainModule?.FileName ?? ""; } catch { }
 
                     if (textContainsInstallActivity(name, title, path))
                         return true;
 
-                    if (FindAnyWindowForProcess(process.Id) != IntPtr.Zero)
-                        return true;
+                    return true;
                 }
                 catch { }
                 finally
@@ -948,14 +1178,21 @@ namespace Doorpi
                     string name = process.ProcessName ?? "";
                     string title = "";
                     string path = "";
-                    try { title = process.MainWindowTitle ?? ""; } catch { }
                     try { path = process.MainModule?.FileName ?? ""; } catch { }
                     if (IsDoorpiInstallHelperProcess(name, path)) continue;
 
                     bool alreadyObserved = observedSnapshot.Contains(process.Id);
                     bool childOfObserved = HasAncestorInGroup(process.Id, parentIds, observedSnapshot);
                     bool startedForThisInstall = ProcessStartedForStoreInstall(process, launchedAtUtc);
-                    bool hasWindow = FindAnyWindowForProcess(process.Id) != IntPtr.Zero;
+                    bool hasWindow = TryFindNewValidStoreInstallWindowForProcess(process.Id, out IntPtr hwnd);
+                    if (!alreadyObserved && !hasWindow)
+                        continue;
+
+                    if (hasWindow)
+                    {
+                        try { title = GetWindowTitle(hwnd); } catch { }
+                    }
+
                     bool installActivity =
                         LooksLikeStoreInstallerProcess(normalizedStore, name, title, path) ||
                         textContainsInstallActivity(name, title, path);
@@ -965,7 +1202,8 @@ namespace Doorpi
                         childOfObserved ||
                         (!baselineProcessIds.Contains(process.Id) &&
                          startedForThisInstall &&
-                         (hasWindow || installActivity));
+                         hasWindow &&
+                         installActivity);
 
                     if (!shouldAdopt)
                         continue;
@@ -1066,11 +1304,10 @@ namespace Doorpi
                         if (!IsStoreInstallFlowActive())
                             return;
 
-                        if (!IsWindowVisible(hwnd) && !IsIconic(hwnd))
+                        if (!IsWindowVisible(hwnd))
                             return;
 
-                        if (IsIconic(hwnd)) ShowWindow(hwnd, 9);
-                        else ShowWindow(hwnd, 5);
+                        ShowWindow(hwnd, 5);
                         BringWindowToTop(hwnd);
                         SetForegroundWindow(hwnd);
                     });
@@ -1102,10 +1339,10 @@ namespace Doorpi
                     {
                         Dispatcher.Invoke(() =>
                         {
-                            IntPtr hwnd = FindAnyWindowForProcess(processId);
+                            if (!TryFindNewValidStoreInstallWindowForProcess(processId, out IntPtr hwnd))
+                                return;
                             if (hwnd == IntPtr.Zero) return;
-                            if (IsIconic(hwnd)) ShowWindow(hwnd, 9);
-                            else ShowWindow(hwnd, 5);
+                            ShowWindow(hwnd, 5);
                             BringWindowToTop(hwnd);
                             SetForegroundWindow(hwnd);
                             focused = true;
@@ -1134,7 +1371,10 @@ namespace Doorpi
             try
             {
                 if (_pendingStoreInstallerProcess != null && !_pendingStoreInstallerProcess.HasExited)
-                    return _pendingStoreInstallerProcess.Id;
+                {
+                    if (TryFindNewValidStoreInstallWindowForProcess(_pendingStoreInstallerProcess.Id, out _))
+                        return _pendingStoreInstallerProcess.Id;
+                }
             }
             catch { }
 
@@ -1153,7 +1393,7 @@ namespace Doorpi
                 return false;
 
             StopStoreInstallGuideMonitor();
-            StopStoreInstallInputMode();
+            PauseStoreInstallInputMode(preserveCursor: true);
             string name = StoreInstallExecutionName();
             var (heroImage, gridImage) = StoreInstallExecutionVisuals();
 
@@ -1301,9 +1541,11 @@ namespace Doorpi
 
             EnterStoreExeMode(process, name, hero, grid, showLaunchOverlay: false);
 
+            if (runtimeHwnd != IntPtr.Zero)
+                ShowWindow(runtimeHwnd, 3);
+
             if (focusStore)
             {
-                ShowExecutionLockForStore();
                 if (runtimeHwnd != IntPtr.Zero)
                     FocusExternalWindow(runtimeHwnd);
             }
@@ -1384,17 +1626,20 @@ namespace Doorpi
             if (string.IsNullOrWhiteSpace(storeId))
                 return false;
 
-            string? exe = ResolveStoreLauncherExe(storeId);
-            if (string.IsNullOrWhiteSpace(exe))
-                return false;
+            string exe = "";
+            try { exe = ResolveStoreLauncherExe(storeId) ?? ""; } catch { }
+
+            if (requireWindow &&
+                string.Equals(storeId, "Epic", StringComparison.OrdinalIgnoreCase) &&
+                TryFindEpicInstallRuntimeWindow(exe, out process, out hwnd))
+            {
+                return true;
+            }
 
             try
             {
                 if (TryFindStoreWindow(storeId, exe, out var windowProcess, out var windowHwnd))
                 {
-                    if (requireWindow && IsInstallRuntimeWindowStillUpdating(storeId, windowProcess, windowHwnd))
-                        return false;
-
                     process = windowProcess;
                     hwnd = windowHwnd;
                     return true;
@@ -1419,28 +1664,339 @@ namespace Doorpi
             return false;
         }
 
-        private bool IsInstallRuntimeWindowStillUpdating(string storeId, Process process, IntPtr hwnd)
+        private bool TryFindEpicInstallRuntimeWindow(string exePath, out Process? process, out IntPtr hwnd)
         {
-            if (!string.Equals(storeId, "Epic", StringComparison.OrdinalIgnoreCase))
+            process = null;
+            hwnd = IntPtr.Zero;
+
+            if (!IsStoreInstallFlowActive())
                 return false;
 
-            string name = SafeProcessName(process);
-            string title = hwnd != IntPtr.Zero ? GetWindowTitle(hwnd) : "";
-            string className = hwnd != IntPtr.Zero ? GetWindowClassNameSafe(hwnd) : "";
-            string path = SafeProcessPath(process);
-            string text = $"{name} {title} {className} {path}".ToLowerInvariant();
+            Process? bestProcess = null;
+            IntPtr bestHwnd = IntPtr.Zero;
+            int bestScore = 0;
 
-            return text.Contains("setup") ||
-                   text.Contains("installer") ||
-                   text.Contains("install") ||
-                   text.Contains("bootstrap") ||
-                   text.Contains("update") ||
-                   text.Contains("updat") ||
-                   text.Contains("atualiza") ||
-                   text.Contains("baixando") ||
-                   text.Contains("download") ||
-                   text.Contains("patch") ||
-                   text.Contains("prereq");
+            try
+            {
+                EnumWindows((candidateHwnd, _) =>
+                {
+                    try
+                    {
+                        if (!IsNewValidStoreInstallWindow(
+                                candidateHwnd,
+                                _storeInstallBaselineProcessIds,
+                                _storeInstallerLaunchedAtUtc,
+                                out int pid))
+                        {
+                            return true;
+                        }
+
+                        var candidateProcess = Process.GetProcessById(pid);
+                        string name = SafeProcessName(candidateProcess);
+                        string path = SafeProcessPath(candidateProcess);
+
+                        if (!IsEpicLauncherProcess(name, path))
+                        {
+                            candidateProcess.Dispose();
+                            return true;
+                        }
+
+                        if (!IsEpicRealStoreWindowSize(candidateHwnd))
+                        {
+                            candidateProcess.Dispose();
+                            return true;
+                        }
+
+                        int score = 50;
+                        if (!string.IsNullOrWhiteSpace(path) && PathsEqual(path, exePath)) score += 80;
+                        if (GetWindowRect(candidateHwnd, out RECT rect)) score += Math.Min(40, (rect.Width * rect.Height) / 50000);
+
+                        if (score > bestScore)
+                        {
+                            bestProcess?.Dispose();
+                            bestProcess = candidateProcess;
+                            bestHwnd = candidateHwnd;
+                            bestScore = score;
+                        }
+                        else
+                        {
+                            candidateProcess.Dispose();
+                        }
+                    }
+                    catch { }
+
+                    return true;
+                }, IntPtr.Zero);
+            }
+            catch { }
+
+            if (bestProcess == null || bestHwnd == IntPtr.Zero)
+                return false;
+
+            lock (_storeInstallObservedWindowLock)
+                _storeInstallObservedWindowHandles.Add(bestHwnd);
+
+            lock (_storeInstallObservedProcessLock)
+                _storeInstallObservedProcessIds.Add(bestProcess.Id);
+
+            process = bestProcess;
+            hwnd = bestHwnd;
+            return true;
+        }
+
+        private bool TrackEpicInstallBootstrapWindow(string storeId, HashSet<int> baselineProcessIds, DateTime launchedAtUtc)
+        {
+            if (!IsEpicStoreInstallContext(storeId, _pendingStoreInstallName) ||
+                !IsStoreInstallFlowActive())
+            {
+                return false;
+            }
+
+            bool found = false;
+
+            try
+            {
+                EnumWindows((candidateHwnd, _) =>
+                {
+                    try
+                    {
+                        if (_storeInstallBaselineWindowHandles.Contains(candidateHwnd))
+                            return true;
+
+                        if (!IsValidStoreInstallExternalWindow(candidateHwnd, out int pid))
+                            return true;
+
+                        using var candidateProcess = Process.GetProcessById(pid);
+                        string name = SafeProcessName(candidateProcess);
+                        string path = SafeProcessPath(candidateProcess);
+                        if (!IsEpicLauncherProcess(name, path))
+                            return true;
+
+                        if (IsEpicRealStoreWindowSize(candidateHwnd))
+                            return true;
+
+                        bool processBelongsToInstall;
+                        lock (_storeInstallObservedProcessLock)
+                            processBelongsToInstall = _storeInstallObservedProcessIds.Contains(pid);
+
+                        if (!processBelongsToInstall)
+                        {
+                            if (baselineProcessIds.Contains(pid))
+                                return true;
+
+                            processBelongsToInstall = ProcessStartedForStoreInstall(candidateProcess, launchedAtUtc);
+                        }
+
+                        if (!processBelongsToInstall)
+                            return true;
+
+                        bool shouldFocus;
+                        lock (_storeInstallObservedWindowLock)
+                            shouldFocus = _storeInstallObservedWindowHandles.Add(candidateHwnd);
+
+                        lock (_storeInstallObservedProcessLock)
+                            _storeInstallObservedProcessIds.Add(pid);
+
+                        if (shouldFocus)
+                            ScheduleStoreInstallerWindowFocusOnce(candidateHwnd);
+
+                        found = true;
+                    }
+                    catch { }
+
+                    return true;
+                }, IntPtr.Zero);
+            }
+            catch { }
+
+            return found;
+        }
+
+        private bool TrackNewStoreInstallRuntimeProcess(string storeId, HashSet<int> baselineProcessIds, DateTime launchedAtUtc)
+        {
+            if (!IsStoreInstallFlowActive() || string.IsNullOrWhiteSpace(storeId))
+                return false;
+
+            string exe = "";
+            try { exe = ResolveStoreLauncherExe(storeId) ?? ""; } catch { }
+
+            bool found = false;
+            int currentPid = Environment.ProcessId;
+
+            _storeInstallHandoffProcessIds.RemoveWhere(pid => !IsProcessAlive(pid));
+            if (_storeInstallHandoffProcessIds.Count > 0)
+                found = true;
+
+            foreach (var candidateProcess in Process.GetProcesses())
+            {
+                try
+                {
+                    if (candidateProcess.Id == currentPid) continue;
+                    if (candidateProcess.HasExited) continue;
+
+                    string name = SafeProcessName(candidateProcess);
+                    string path = SafeProcessPath(candidateProcess);
+                    if (IsDoorpiInstallHelperProcess(name, path))
+                        continue;
+
+                    bool epicInstallProcessKeepsAlive =
+                        IsEpicStoreInstallContext(storeId, _pendingStoreInstallName) &&
+                        IsEpicInstallRelatedProcess(name, path);
+
+                    if (!epicInstallProcessKeepsAlive &&
+                        baselineProcessIds.Contains(candidateProcess.Id))
+                    {
+                        continue;
+                    }
+
+                    if (!epicInstallProcessKeepsAlive &&
+                        !IsStoreInstallRuntimeOrHelperProcess(storeId, exe, name, path))
+                    {
+                        continue;
+                    }
+
+                    lock (_storeInstallObservedProcessLock)
+                        _storeInstallObservedProcessIds.Add(candidateProcess.Id);
+
+                    _storeInstallHandoffProcessIds.Add(candidateProcess.Id);
+                    found = true;
+                }
+                catch { }
+                finally
+                {
+                    try { candidateProcess.Dispose(); } catch { }
+                }
+            }
+
+            return found;
+        }
+
+        private static bool IsEpicInstallRelatedProcess(string processName, string processPath)
+        {
+            string text = $"{processName} {processPath}".ToLowerInvariant();
+            return text.Contains("epic") || text.Contains("unreal");
+        }
+
+        private static bool IsEpicStoreInstallContext(string storeId, string storeName)
+        {
+            return IsEpicStoreId(storeId) ||
+                   storeId.Contains("Epic", StringComparison.OrdinalIgnoreCase) ||
+                   storeName.Contains("Epic", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool IsEpicInstallProcessAlive(string storeId)
+        {
+            if (!IsEpicStoreInstallContext(storeId, _pendingStoreInstallName))
+                return false;
+
+            foreach (var process in Process.GetProcesses())
+            {
+                try
+                {
+                    if (process.Id == Environment.ProcessId || process.HasExited)
+                        continue;
+
+                    string name = SafeProcessName(process);
+                    string path = SafeProcessPath(process);
+                    if (IsDoorpiInstallHelperProcess(name, path))
+                        continue;
+
+                    if (IsEpicInstallRelatedProcess(name, path))
+                        return true;
+                }
+                catch { }
+                finally
+                {
+                    try { process.Dispose(); } catch { }
+                }
+            }
+
+            return false;
+        }
+
+        private bool HasStoreInstallHandoffProcessesAlive()
+        {
+            _storeInstallHandoffProcessIds.RemoveWhere(pid => !IsProcessAlive(pid));
+            return _storeInstallHandoffProcessIds.Count > 0;
+        }
+
+        private static bool IsStoreInstallRuntimeOrHelperProcess(string storeId, string exePath, string processName, string processPath)
+        {
+            string exeName = "";
+            string exeFile = "";
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(exePath))
+                {
+                    exeName = Path.GetFileNameWithoutExtension(exePath) ?? "";
+                    exeFile = Path.GetFileName(exePath) ?? "";
+                }
+            }
+            catch { }
+
+            if (!string.IsNullOrWhiteSpace(exePath) &&
+                !string.IsNullOrWhiteSpace(processPath) &&
+                PathsEqual(processPath, exePath))
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(exeName) &&
+                string.Equals(processName, exeName, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(processPath) &&
+                !string.IsNullOrWhiteSpace(exeFile) &&
+                string.Equals(Path.GetFileName(processPath), exeFile, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (string.Equals(storeId, "Epic", StringComparison.OrdinalIgnoreCase))
+            {
+                string epicText = $"{processName} {processPath}".ToLowerInvariant();
+                return epicText.Contains("epic") ||
+                       epicText.Contains("unreal");
+            }
+
+            return LooksLikeStoreInstallHelperProcess(storeId, processName, processPath);
+        }
+
+        private static bool LooksLikeStoreInstallHelperProcess(string storeId, string processName, string processPath)
+        {
+            string normalizedStore = (storeId ?? "").Trim().ToLowerInvariant();
+            string text = $"{processName} {processPath}".ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            bool hasHelperSignal =
+                text.Contains("helper") ||
+                text.Contains("bootstrap") ||
+                text.Contains("setup") ||
+                text.Contains("installer") ||
+                text.Contains("install") ||
+                text.Contains("update") ||
+                text.Contains("updat") ||
+                text.Contains("patch") ||
+                text.Contains("download") ||
+                text.Contains("launcher") ||
+                text.Contains("client") ||
+                text.Contains("service");
+
+            if (!hasHelperSignal)
+                return false;
+
+            return normalizedStore switch
+            {
+                "epic" => text.Contains("epic") || text.Contains("unreal"),
+                "gog" => text.Contains("gog") || text.Contains("galaxy"),
+                "steam" => text.Contains("steam"),
+                "riot" => text.Contains("riot") || text.Contains("2xko"),
+                "xbox" => text.Contains("xbox") || text.Contains("gaming") || text.Contains("microsoft"),
+                _ => !string.IsNullOrWhiteSpace(normalizedStore) && text.Contains(normalizedStore)
+            };
         }
 
         private int FindActiveStoreInstallerProcessId(string storeId, HashSet<int> baselineProcessIds, DateTime launchedAtUtc)
@@ -1468,13 +2024,16 @@ namespace Doorpi
                     string name = process.ProcessName ?? "";
                     string title = "";
                     string path = "";
-                    try { title = process.MainWindowTitle ?? ""; } catch { }
+                    IntPtr hwnd = IntPtr.Zero;
+                    if (!TryFindNewValidStoreInstallWindowForProcess(process.Id, out hwnd))
+                        continue;
+
+                    try { title = GetWindowTitle(hwnd); } catch { }
                     try { path = process.MainModule?.FileName ?? ""; } catch { }
 
                     if (LooksLikeStoreInstallerProcess(normalizedStore, name, title, path))
                         return process.Id;
 
-                    IntPtr hwnd = FindVisibleWindowForProcess(process.Id);
                     if (hwnd != IntPtr.Zero && LooksLikeStoreInstallerWindow(normalizedStore, name, title, path))
                         return process.Id;
                 }
