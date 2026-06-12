@@ -39,6 +39,7 @@ namespace Doorpi
         private Thread? _storeInstallGuideMonitorThread;
         private bool _storeInstallCancelConfirmationVisible;
         private bool _storeInstallRetryScreenFromLiveInstaller;
+        private bool _storeInstallConfirmedInRegistry;
         private string _pendingInstalledStoreAutoOpenId = "";
         private string _pendingInstalledStoreAutoOpenName = "";
         private CancellationTokenSource? _postInstallStoreRuntimeWatchCts;
@@ -348,7 +349,15 @@ namespace Doorpi
                     if (installed)
                     {
                         if (installedQuietSince == DateTime.MinValue)
+                        {
                             installedQuietSince = DateTime.UtcNow;
+                            _storeInstallConfirmedInRegistry = true;
+
+                            if (_storeInstallInputActive)
+                                Dispatcher.Invoke(() => PauseStoreInstallInputMode(preserveCursor: true));
+
+                            Dispatcher.Invoke(() => _storeDownloadWindow?.ShowInstallFinalizing());
+                        }
 
                         if ((DateTime.UtcNow - installedQuietSince).TotalMilliseconds >= installedQuietWindowGraceMs)
                         {
@@ -496,6 +505,9 @@ namespace Doorpi
         private void RequestStoreInstallCancelConfirmation()
         {
             if (_storeDownloadWindow == null)
+                return;
+
+            if (_storeInstallConfirmedInRegistry)
                 return;
 
             if (_storeInstallCancelConfirmationVisible || _storeInstallRetryScreenFromLiveInstaller)
@@ -653,6 +665,7 @@ namespace Doorpi
             _storeInstallCancelPromptInputMode = "";
             _storeInstallCancelConfirmationVisible = false;
             _storeInstallRetryScreenFromLiveInstaller = false;
+            _storeInstallConfirmedInRegistry = false;
             StopStoreInstallGuideMonitor();
             StopStoreDownloadIntentTimeout();
         }
@@ -729,8 +742,7 @@ namespace Doorpi
 
                 EnsureCursorHidden();
                 _mainScreenMouseVisible = false;
-                _lastKnownCursorPos = new POINT { X = 0, Y = 0 };
-                try { SetCursorPos(0, 0); } catch { }
+                try { GetCursorPos(out _lastKnownCursorPos); } catch { }
             });
         }
 
@@ -751,8 +763,7 @@ namespace Doorpi
 
                 EnsureCursorHidden();
                 _mainScreenMouseVisible = false;
-                _lastKnownCursorPos = new POINT { X = 0, Y = 0 };
-                try { SetCursorPos(0, 0); } catch { }
+                try { GetCursorPos(out _lastKnownCursorPos); } catch { }
             });
         }
 
@@ -1520,7 +1531,7 @@ namespace Doorpi
 
             _ = Task.Run(async () =>
             {
-                DateTime deadline = DateTime.UtcNow.AddSeconds(8);
+                DateTime deadline = DateTime.UtcNow.AddSeconds(25);
                 while (!token.IsCancellationRequested && DateTime.UtcNow < deadline)
                 {
                     try

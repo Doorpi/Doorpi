@@ -251,6 +251,23 @@ namespace Doorpi
             });
         }
 
+        public void ShowInstallFinalizing()
+        {
+            Dispatcher.Invoke(() =>
+            {
+                _cancelPromptVisible = false;
+                ShowStatusPanel();
+                _title.Text = $"Finalizando {_storeName}";
+                _subtitle.Text = "A loja ja foi encontrada. O Doorpi esta fechando a instalacao com seguranca.";
+                _stepLabel.Text = "Instalacao confirmada";
+                _detailLabel.Text = "Aguarde alguns instantes enquanto verificamos se outra janela da loja ainda vai abrir.";
+                _progress.IsIndeterminate = true;
+                _progress.Value = 100;
+                _progressText.Text = "";
+                SetActionsVisible(false);
+            });
+        }
+
         public void ShowPreparingDownload()
         {
             Dispatcher.Invoke(() =>
