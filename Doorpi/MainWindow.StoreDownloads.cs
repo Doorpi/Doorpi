@@ -141,15 +141,12 @@ namespace Doorpi
             try
             {
                 string profilePath = Path.Combine(
-                    AppDomain.CurrentDomain.BaseDirectory,
-                    "Data",
-                    "browser-profiles",
+                    DoorpiPaths.BrowserProfilesFolder,
                     "store-installer",
                     SafePathSegment(storeId));
 
                 string downloadFolder = Path.Combine(
-                    AppDomain.CurrentDomain.BaseDirectory,
-                    "Data",
+                    DoorpiPaths.DataFolder,
                     "store-installers",
                     SafePathSegment(storeId));
 
@@ -682,10 +679,11 @@ namespace Doorpi
             {
                 string fullPath = Path.GetFullPath(path);
                 string expectedRoot = Path.GetFullPath(Path.Combine(
-                    AppDomain.CurrentDomain.BaseDirectory,
-                    "Data",
+                    DoorpiPaths.DataFolder,
                     "store-installers"));
 
+                expectedRoot = expectedRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                    + Path.DirectorySeparatorChar;
                 if (!fullPath.StartsWith(expectedRoot, StringComparison.OrdinalIgnoreCase))
                     return;
 

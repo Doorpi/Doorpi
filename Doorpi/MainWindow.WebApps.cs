@@ -67,8 +67,7 @@ namespace Doorpi
         private static readonly HttpClient _ytHttp = new();
         // ── EasyList ──────────────────────────────────────────────────────────────
         private static readonly HashSet<string> _easyListDomains = new(StringComparer.OrdinalIgnoreCase);
-        private static readonly string EasyListCachePath = Path.Combine(
-            AppDomain.CurrentDomain.BaseDirectory, "Data", "easylist.txt");
+        private static readonly string EasyListCachePath = Path.Combine(DoorpiPaths.DataFolder, "easylist.txt");
         private Grid RootGrid => (Grid)this.Content;
 
         // ── Controller thread ─────────────────────────────────────────────────
@@ -447,7 +446,7 @@ namespace Doorpi
         // ── Extensões Chrome ──────────────────────────────────────────────────
         private static async Task LoadExtensionsAsync(CoreWebView2 cw)
         {
-            string extBase = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "extensions");
+            string extBase = Path.Combine(DoorpiPaths.DataFolder, "extensions");
             if (!Directory.Exists(extBase)) return;
             foreach (var extFolder in Directory.GetDirectories(extBase))
             {
@@ -1277,8 +1276,7 @@ namespace Doorpi
             }
 
             string profileName = GetBrowserProfileNameForUrl(url, isYouTube);
-            string userDataPath = Path.Combine(
-                AppDomain.CurrentDomain.BaseDirectory, "Data", "browser-profiles", profileName);
+            string userDataPath = Path.Combine(DoorpiPaths.BrowserProfilesFolder, profileName);
 
             var options = new CoreWebView2EnvironmentOptions { AreBrowserExtensionsEnabled = true };
 
@@ -1618,7 +1616,7 @@ namespace Doorpi
         {
             try
             {
-                string dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "logs");
+                string dir = DoorpiPaths.LogsFolder;
                 Directory.CreateDirectory(dir);
 
                 string line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {payload}{Environment.NewLine}";

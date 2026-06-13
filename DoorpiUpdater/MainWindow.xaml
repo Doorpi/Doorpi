@@ -1,0 +1,92 @@
+<Window x:Class="DoorpiUpdater.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Doorpi Updater"
+        WindowStyle="None"
+        WindowState="Maximized"
+        ResizeMode="NoResize"
+        Background="#020309"
+        Topmost="True">
+    <Grid Background="#020309">
+        <Grid.Resources>
+            <Style x:Key="ProgressText" TargetType="TextBlock">
+                <Setter Property="Foreground" Value="#EAF4FF" />
+                <Setter Property="FontFamily" Value="Segoe UI Variable Display, Segoe UI, Arial" />
+            </Style>
+        </Grid.Resources>
+
+        <Ellipse Width="760" Height="420" Fill="#182D5A" Opacity="0.28"
+                 HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-180,-100,0,0">
+            <Ellipse.Effect>
+                <BlurEffect Radius="90" />
+            </Ellipse.Effect>
+        </Ellipse>
+        <Ellipse Width="680" Height="520" Fill="#155E75" Opacity="0.22"
+                 HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-220,-160">
+            <Ellipse.Effect>
+                <BlurEffect Radius="110" />
+            </Ellipse.Effect>
+        </Ellipse>
+
+        <Grid Width="920" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="28" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="34" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="34" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <TextBlock x:Name="EyebrowText"
+                       Style="{StaticResource ProgressText}"
+                       Text="DOORPI SYSTEM UPDATE"
+                       FontSize="14"
+                       FontWeight="SemiBold"
+                       Foreground="#7DCBFF"
+                       Opacity="0.82" />
+
+            <TextBlock x:Name="TitleText"
+                       Grid.Row="2"
+                       Style="{StaticResource ProgressText}"
+                       Text="Atualizando componentes do sistema..."
+                       FontSize="44"
+                       FontWeight="SemiBold"
+                       TextWrapping="Wrap" />
+
+            <TextBlock x:Name="StatusText"
+                       Grid.Row="4"
+                       Style="{StaticResource ProgressText}"
+                       Text="Preparando ambiente seguro de atualizacao."
+                       FontSize="18"
+                       Foreground="#B9C8D8"
+                       TextWrapping="Wrap" />
+
+            <Grid Grid.Row="6">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="16" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Border Height="8" CornerRadius="4" Background="#223044">
+                    <Grid ClipToBounds="True">
+                        <Border x:Name="ProgressFill"
+                                Width="0"
+                                HorizontalAlignment="Left"
+                                CornerRadius="4"
+                                Background="#EAF4FF" />
+                    </Grid>
+                </Border>
+
+                <TextBlock Grid.Row="2"
+                           Style="{StaticResource ProgressText}"
+                           Text="Nao desligue o sistema durante a atualizacao."
+                           FontSize="14"
+                           Foreground="#7F90A3"
+                           HorizontalAlignment="Right" />
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>

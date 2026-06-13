@@ -4085,7 +4085,7 @@ namespace Doorpi
 
         private string GetGogWindowLogPath()
         {
-            var dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "logs");
+            var dir = DoorpiPaths.LogsFolder;
             Directory.CreateDirectory(dir);
             return Path.Combine(dir, "gog-windows.log");
         }

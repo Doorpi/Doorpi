@@ -561,7 +561,8 @@ namespace Doorpi
                 catch (InvalidOperationException) { }
             };
 
-            dataFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data");
+            dataFolder = DoorpiPaths.DataFolder;
+            MigrateLegacyDataFolderIfNeeded();
             gridFolder = Path.Combine(dataFolder, "images", "grid");
             heroFolder = Path.Combine(dataFolder, "images", "hero");
             gridHorizontalFolder = Path.Combine(dataFolder, "images", "grid-horizontal");
@@ -810,6 +811,8 @@ namespace Doorpi
                 {
                     Topmost = true; Activate(); Topmost = false; webView.Focus();
                 });
+
+                BeginStartupUpdateCheck();
             };
 
             // Configurações de Produção 
@@ -884,6 +887,45 @@ namespace Doorpi
             return keys;
         }
         // ========================= WATCHERS =========================
+        private void MigrateLegacyDataFolderIfNeeded()
+        {
+            try
+            {
+                string legacy = Path.GetFullPath(DoorpiPaths.LegacyDataFolder);
+                string target = Path.GetFullPath(dataFolder);
+                if (string.Equals(legacy.TrimEnd('\\'), target.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                    return;
+                if (!Directory.Exists(legacy))
+                    return;
+
+                Directory.CreateDirectory(target);
+                CopyDirectoryContentIfMissing(legacy, target);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[DataMigration] Falha ao migrar dados locais: " + ex.Message);
+            }
+        }
+
+        private static void CopyDirectoryContentIfMissing(string source, string destination)
+        {
+            Directory.CreateDirectory(destination);
+            foreach (var directory in Directory.GetDirectories(source, "*", SearchOption.AllDirectories))
+            {
+                string relative = Path.GetRelativePath(source, directory);
+                Directory.CreateDirectory(Path.Combine(destination, relative));
+            }
+
+            foreach (var file in Directory.GetFiles(source, "*", SearchOption.AllDirectories))
+            {
+                string relative = Path.GetRelativePath(source, file);
+                string dest = Path.Combine(destination, relative);
+                Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+                if (!File.Exists(dest))
+                    File.Copy(file, dest);
+            }
+        }
+
         private void InitializeUserStorage()
         {
             Directory.CreateDirectory(dataFolder);
@@ -1182,8 +1224,7 @@ namespace Doorpi
             return SafePathSegment($"{owner}-{appKey}");
         }
 
-        private string BrowserProfilesFolder =>
-            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "browser-profiles");
+        private string BrowserProfilesFolder => DoorpiPaths.BrowserProfilesFolder;
 
         private string GetBrowserProfilePath(string profileName) =>
             Path.Combine(BrowserProfilesFolder, profileName);
@@ -1825,7 +1866,7 @@ namespace Doorpi
                             $"{safeName}-",
                             $"{safeName}_"
                         };
-                        string profilesDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "browser-profiles");
+                        string profilesDir = DoorpiPaths.BrowserProfilesFolder;
                         if (Directory.Exists(profilesDir))
                         {
                             foreach (var dir in Directory.GetDirectories(profilesDir))
@@ -10353,6 +10394,18 @@ namespace Doorpi
                 {
                     SendBootModeToUI();
                 }
+                else if (action == "requestUpdateStatus")
+                {
+                    SendCachedUpdateStatusToUI();
+                }
+                else if (action == "checkSystemUpdates")
+                {
+                    _ = Task.Run(() => CheckForUpdatesAsync(userInitiated: true));
+                }
+                else if (action == "startSystemUpdate")
+                {
+                    _ = Task.Run(StartSystemUpdateAsync);
+                }
                 else if (action == "setBootMode" && root.TryGetProperty("mode", out var modeEl))
                 {
                     SetBootMode(modeEl.GetInt32());
@@ -10976,7 +11029,7 @@ namespace Doorpi
                                     if (nativeApp != default && nativeApp.Id != "youtube")
                                     {
                                         string profileName = nativeApp.MultiUser ? $"shared-{nativeApp.Id}" : $"{currentUserId}-{nativeApp.Id}";
-                                        string cachePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "browser-profiles", profileName);
+                                        string cachePath = Path.Combine(DoorpiPaths.BrowserProfilesFolder, profileName);
 
                                         if (Directory.Exists(cachePath))
                                         {
@@ -11168,7 +11221,7 @@ namespace Doorpi
                         {
                             try
                             {
-                                string profilesDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "browser-profiles");
+                                string profilesDir = DoorpiPaths.BrowserProfilesFolder;
                                 if (Directory.Exists(profilesDir))
                                 {
                                     foreach (var dir in Directory.GetDirectories(profilesDir))

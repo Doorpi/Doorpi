@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DoorpiInputBridge\DoorpiInputBridge.csproj" ReferenceOutputAssembly="false" OutputItemType="Content" CopyToOutputDirectory="PreserveNewest" />
+    <ProjectReference Include="..\Doorpi.UpdateCore\Doorpi.UpdateCore.csproj" />
   </ItemGroup>
 
   <ItemGroup>

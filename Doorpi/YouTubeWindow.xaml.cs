@@ -29,7 +29,7 @@ namespace Doorpi
 
         // Caminho do perfil dedicado do YouTube TV
         private static readonly string _ytProfilePath = Path.Combine(
-            AppDomain.CurrentDomain.BaseDirectory, "Data", "browser-profiles", "youtube-tv");
+            DoorpiPaths.BrowserProfilesFolder, "youtube-tv");
 
         public YouTubeWindow()
         {

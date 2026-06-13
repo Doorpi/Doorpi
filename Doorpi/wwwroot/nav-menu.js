@@ -867,6 +867,29 @@ window.isNavMenuOpen = false;
                 </button>
             </div>
 
+            <div class="nav-update-panel" id="systemUpdatePanel" style="margin:22px 0 18px;padding:16px 18px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.035);border-radius:10px;">
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:18px;">
+                    <div style="min-width:0;">
+                        <div id="systemUpdateBadge" style="display:inline-flex;margin-bottom:8px;padding:3px 8px;border-radius:999px;background:rgba(125,203,255,.14);color:#7dcbff;font-size:.68rem;font-weight:800;letter-spacing:.12em;">ATUALIZADO</div>
+                        <h3 id="systemUpdateTitle" style="font-size:1.1rem;font-weight:600;color:#fff;margin:0 0 5px;">Atualizacoes do sistema</h3>
+                        <p id="systemUpdateSub" style="margin:0;color:rgba(255,255,255,.56);line-height:1.35;">Atualizacoes ainda nao verificadas.</p>
+                    </div>
+                    <div id="systemUpdateVersions" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;color:rgba(255,255,255,.62);font-size:.84rem;white-space:nowrap;"></div>
+                </div>
+                <ul id="systemUpdateChangelog" style="margin:12px 0 0;padding-left:18px;color:rgba(255,255,255,.48);font-size:.86rem;line-height:1.45;"></ul>
+            </div>
+
+            <div class="nav-suggestions-grid" id="navUpdateActionsGrid" style="margin-bottom:18px;">
+                <button class="nav-suggestion-card visible" id="navCardCheckUpdates" tabindex="-1">
+                    <div class="nav-suggestion-card-btn">Verificar agora</div>
+                    <span class="nav-suggestion-card-text">Consulta o manifesto remoto e mostra versoes, changelog e obrigatoriedade.</span>
+                </button>
+                <button class="nav-suggestion-card" id="navCardStartUpdate" tabindex="-1" style="display:none;">
+                    <div class="nav-suggestion-card-btn">Atualizar</div>
+                    <span class="nav-suggestion-card-text">Baixa o pacote validado, atualiza componentes e reinicia o Doorpi se necessario.</span>
+                </button>
+            </div>
+
             <div class="nav-suggestions-grid" id="navSuggestionsGrid">
                 <button class="nav-suggestion-card" id="navCardSignIn" tabindex="-1">
                     <div class="nav-suggestion-card-btn">${_t('sysBootNoticeBtn', 'Opções de Entrada')}</div>
@@ -907,6 +930,8 @@ window.isNavMenuOpen = false;
             _contentItems = [
                 body.querySelector('#setBackSystem'),
                 ...Array.from(body.querySelectorAll('.nav-radio-btn')),
+                body.querySelector('#navCardCheckUpdates'),
+                body.querySelector('#navCardStartUpdate'),
                 body.querySelector('#navCardSignIn'),
                 body.querySelector('#navCardTaskbar'),
                 body.querySelector('#navCardGameBar'),
@@ -923,6 +948,8 @@ window.isNavMenuOpen = false;
         };
 
         window._updateBootModeUI();
+        _updateSystemUpdateUI();
+        if (typeof postToHost === 'function') postToHost({ action: 'requestUpdateStatus' });
 
         body.querySelector('#setBackSystem')?.addEventListener('click', () => {
             _settingsSubView = null;
@@ -963,6 +990,18 @@ window.isNavMenuOpen = false;
             _showDesktopWarning('settings', () => {
                 if (typeof postToHost === 'function') postToHost({ action: 'openXboxGameBarSettings' });
             });
+        });
+
+        body.querySelector('#navCardCheckUpdates')?.addEventListener('click', () => {
+            _systemUpdateStatus = { ..._systemUpdateStatus, status: 'checking', message: 'Verificando atualizacoes...' };
+            _updateSystemUpdateUI();
+            if (typeof postToHost === 'function') postToHost({ action: 'checkSystemUpdates' });
+        });
+
+        body.querySelector('#navCardStartUpdate')?.addEventListener('click', () => {
+            _systemUpdateStatus = { ..._systemUpdateStatus, status: 'installing', message: 'Preparando atualizacao...' };
+            _updateSystemUpdateUI();
+            if (typeof postToHost === 'function') postToHost({ action: 'startSystemUpdate' });
         });
 
         body.querySelector('#btnEnterDesktop')?.addEventListener('click', () => {
@@ -1206,6 +1245,19 @@ window.isNavMenuOpen = false;
     let _sharingFocusStoreId = 'Steam';
     let _preserveSettingsSubViewOnce = false;
     let _autoStartEnabled = false;
+    let _systemUpdateStatus = {
+        status: 'idle',
+        message: 'Atualizacoes ainda nao verificadas.',
+        localDoorpiVersion: '',
+        localUpdaterVersion: '',
+        remoteDoorpiVersion: '',
+        remoteUpdaterVersion: '',
+        doorpiUpdateAvailable: false,
+        updaterUpdateAvailable: false,
+        forceUpdate: false,
+        lastCheckedAt: '',
+        changelog: []
+    };
     const NAV_MENU_TRANSITION_MS = 600;
     let _navMenuTransitionTimer = 0;
     let _navMenuTransitionToken = 0;
@@ -2063,6 +2115,68 @@ window.isNavMenuOpen = false;
         if (desc) desc.textContent = _autoStartEnabled
             ? _t('autoStartOn', 'Ativo — o app inicia automaticamente com o Windows')
             : _t('autoStartOff', 'Desativado — não inicia automaticamente');
+    }
+
+    function _updateSystemUpdateUI() {
+        const status = _systemUpdateStatus || {};
+        const badge = document.getElementById('systemUpdateBadge');
+        const title = document.getElementById('systemUpdateTitle');
+        const sub = document.getElementById('systemUpdateSub');
+        const versions = document.getElementById('systemUpdateVersions');
+        const changelog = document.getElementById('systemUpdateChangelog');
+        const startBtn = document.getElementById('navCardStartUpdate');
+
+        const hasUpdate = !!(status.doorpiUpdateAvailable || status.updaterUpdateAvailable);
+        const isChecking = status.status === 'checking';
+        const isError = status.status === 'error';
+        const isNotConfigured = status.status === 'not-configured';
+
+        if (badge) {
+            badge.textContent = status.forceUpdate
+                ? 'OBRIGATORIA'
+                : isChecking
+                    ? 'VERIFICANDO'
+                    : hasUpdate
+                        ? 'DISPONIVEL'
+                        : isError
+                            ? 'ERRO'
+                            : isNotConfigured
+                                ? 'CONFIGURAR'
+                                : 'ATUALIZADO';
+            badge.dataset.state = status.status || 'idle';
+        }
+
+        if (title) {
+            title.textContent = hasUpdate
+                ? _t('sysUpdateAvailableTitle', 'Atualizacao disponivel')
+                : _t('sysUpdateTitle', 'Atualizacoes do sistema');
+        }
+
+        if (sub) {
+            sub.textContent = status.message || _t('sysUpdateIdle', 'Atualizacoes ainda nao verificadas.');
+        }
+
+        if (versions) {
+            const remoteDoorpi = status.remoteDoorpiVersion ? ` -> ${status.remoteDoorpiVersion}` : '';
+            const remoteUpdater = status.remoteUpdaterVersion ? ` -> ${status.remoteUpdaterVersion}` : '';
+            versions.innerHTML = `
+                <span>Doorpi ${status.localDoorpiVersion || '--'}${remoteDoorpi}</span>
+                <span>Updater ${status.localUpdaterVersion || '--'}${remoteUpdater}</span>
+            `;
+        }
+
+        if (changelog) {
+            const first = Array.isArray(status.changelog) ? status.changelog[0] : null;
+            const items = first?.items || [];
+            changelog.innerHTML = items.length
+                ? items.slice(0, 3).map(item => `<li>${_esc(item)}</li>`).join('')
+                : `<li>${_t('sysUpdateNoChangelog', 'Notas da versao aparecerao aqui quando o manifesto estiver configurado.')}</li>`;
+        }
+
+        if (startBtn) {
+            startBtn.classList.toggle('visible', hasUpdate);
+            startBtn.style.display = hasUpdate ? '' : 'none';
+        }
     }
 
     function _renderSettingsAccountHub(body) {
@@ -3931,6 +4045,14 @@ window.isNavMenuOpen = false;
                 if (data.type === 'bootModeState') {
                     window._doorpiBootMode = data.mode || 0;
                     if (typeof window._updateBootModeUI === 'function') {
+                        window._updateBootModeUI();
+                    }
+                }
+
+                if (data.type === 'systemUpdateStatus') {
+                    _systemUpdateStatus = { ..._systemUpdateStatus, ...data };
+                    _updateSystemUpdateUI();
+                    if (_settingsSubView === 'system' && typeof window._updateBootModeUI === 'function') {
                         window._updateBootModeUI();
                     }
                 }
