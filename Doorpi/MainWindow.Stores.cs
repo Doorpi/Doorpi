@@ -3041,6 +3041,76 @@ namespace Doorpi
             return true;
         }
 
+        private bool TryFindNewSteamInteractiveWindow(HashSet<IntPtr> alreadyFocused, out IntPtr hwnd)
+        {
+            hwnd = IntPtr.Zero;
+            IntPtr bestHwnd = IntPtr.Zero;
+            int bestScore = 0;
+
+            foreach (var candidateHwnd in EnumerateTopLevelWindows())
+            {
+                if (alreadyFocused.Contains(candidateHwnd))
+                    continue;
+
+                if (!TryScoreSteamInteractiveWindow(candidateHwnd, out int score))
+                    continue;
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestHwnd = candidateHwnd;
+                }
+            }
+
+            if (bestHwnd == IntPtr.Zero || bestScore < 35)
+                return false;
+
+            hwnd = bestHwnd;
+            return true;
+        }
+
+        private bool TryScoreSteamInteractiveWindow(IntPtr candidateHwnd, out int score)
+        {
+            score = 0;
+
+            if (!IsWindowVisible(candidateHwnd) || IsIconic(candidateHwnd))
+                return false;
+
+            GetWindowThreadProcessId(candidateHwnd, out uint pidRaw);
+            if (pidRaw == 0 || pidRaw == Environment.ProcessId)
+                return false;
+
+            Process candidateProcess;
+            try { candidateProcess = Process.GetProcessById((int)pidRaw); }
+            catch { return false; }
+
+            string processName = SafeProcessName(candidateProcess);
+            bool isSteamProcess = string.Equals(processName, "steam", StringComparison.OrdinalIgnoreCase);
+            bool isSteamWebHelper = string.Equals(processName, "steamwebhelper", StringComparison.OrdinalIgnoreCase);
+            if (!isSteamProcess && !isSteamWebHelper)
+                return false;
+
+            string title = GetWindowTitle(candidateHwnd).Trim();
+            string className = GetWindowClassNameSafe(candidateHwnd);
+
+            if (isSteamProcess) score += 40;
+            if (isSteamWebHelper) score += 35;
+            if (!string.IsNullOrWhiteSpace(title)) score += 20;
+            if (title.Contains("Steam", StringComparison.OrdinalIgnoreCase)) score += 35;
+            if (string.Equals(className, "BootstrapUpdateUIClass", StringComparison.OrdinalIgnoreCase)) score += 45;
+            if (title.Contains("iniciar a sessÃƒÂ£o", StringComparison.OrdinalIgnoreCase) ||
+                title.Contains("iniciando sessÃƒÂ£o", StringComparison.OrdinalIgnoreCase) ||
+                title.Contains("sessÃƒÂ£o no steam", StringComparison.OrdinalIgnoreCase) ||
+                title.Contains("sign in", StringComparison.OrdinalIgnoreCase) ||
+                title.Contains("signing in", StringComparison.OrdinalIgnoreCase) ||
+                title.Contains("login", StringComparison.OrdinalIgnoreCase))
+            {
+                score += 45;
+            }
+
+            return score >= 35;
+        }
+
         private bool TryFindGogWindow(string exePath, out Process process, out IntPtr hwnd)
         {
             process = null!;

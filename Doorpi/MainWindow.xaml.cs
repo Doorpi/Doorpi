@@ -3376,7 +3376,7 @@ namespace Doorpi
                 _isStoreLauncherSession &&
                 IsGogStoreWindowLookup(_activeStoreId ?? "", mediaUrl);
             int maxAttempts = (isSteamStoreLaunch || isGogStoreLaunch) ? 1800 : 600;
-            bool steamInteractiveWindowFocused = false;
+            var focusedSteamInteractiveWindows = new HashSet<IntPtr>();
             bool gogInteractiveWindowFocused = false;
 
             for (int i = 0; i < maxAttempts; i++)
@@ -3404,11 +3404,10 @@ namespace Doorpi
                     {
                         if (!TryFindSteamWindow(out var steamProc, out var steamHwnd))
                         {
-                            if (!steamInteractiveWindowFocused &&
-                                TryFindSteamInteractiveWindow(out _, out var steamInteractiveHwnd))
+                            if (TryFindNewSteamInteractiveWindow(focusedSteamInteractiveWindows, out var steamInteractiveHwnd))
                             {
-                                FocusExternalWindow(steamInteractiveHwnd);
-                                steamInteractiveWindowFocused = true;
+                                focusedSteamInteractiveWindows.Add(steamInteractiveHwnd);
+                                FocusExternalWindowGracefullyDuringStoreLaunch(steamInteractiveHwnd, token);
 
                                 _ = Dispatcher.BeginInvoke(() =>
                                 {
@@ -3471,6 +3470,37 @@ namespace Doorpi
                 catch { }
             }
         }
+
+        private void FocusExternalWindowGracefullyDuringStoreLaunch(IntPtr hwnd, CancellationToken token)
+        {
+            if (hwnd == IntPtr.Zero)
+                return;
+
+            FocusExternalWindow(hwnd);
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(350, token).ConfigureAwait(false);
+                    if (token.IsCancellationRequested)
+                        return;
+
+                    if (GetForegroundWindow() == hwnd)
+                        return;
+
+                    if (!IsForegroundDoorpi())
+                        return;
+
+                    if (!IsWindowVisible(hwnd))
+                        return;
+
+                    FocusExternalWindow(hwnd);
+                }
+                catch { }
+            }, token);
+        }
+
         private void StartMediaExeWatcher(Process? proc, string mediaUrl, string appName, CancellationToken token)
         {
             var session = GetExecutableAppSession(mediaUrl);
