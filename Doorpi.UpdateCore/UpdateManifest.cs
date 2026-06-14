@@ -24,6 +24,9 @@ public sealed class UpdateManifest
 
     [JsonPropertyName("changelog")]
     public List<ChangelogEntry> Changelog { get; set; } = new();
+
+    [JsonPropertyName("signature")]
+    public ManifestSignature? Signature { get; set; }
 }
 
 public sealed class ComponentRelease
@@ -57,4 +60,16 @@ public sealed class ChangelogEntry
 
     [JsonPropertyName("items")]
     public List<string> Items { get; set; } = new();
+}
+
+public sealed class ManifestSignature
+{
+    [JsonPropertyName("algorithm")]
+    public string Algorithm { get; set; } = "RSA-SHA256-PKCS1";
+
+    [JsonPropertyName("keyId")]
+    public string KeyId { get; set; } = "";
+
+    [JsonPropertyName("value")]
+    public string Value { get; set; } = "";
 }

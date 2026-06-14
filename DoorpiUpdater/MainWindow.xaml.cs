@@ -16,24 +16,24 @@ public partial class MainWindow : Window
         InitializeComponent();
         _options = UpdaterLaunchOptions.Parse(Environment.GetCommandLineArgs().Skip(1));
         Loaded += OnLoaded;
-        SizeChanged += (_, _) => UpdateProgress(0.12);
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         Activate();
         Focus();
-        UpdateProgress(0.12);
+        SetStatus("Atualizando componentes do sistema...", "Preparando ambiente seguro de atualizacao.", 0.12);
 
         if (_options.Mode.Equals("update-doorpi", StringComparison.OrdinalIgnoreCase))
         {
-            TitleText.Text = "Atualizando Doorpi...";
-            StatusText.Text = "Aguardando o Doorpi finalizar para aplicar o pacote com seguranca.";
+            SetStatus("Atualizando Doorpi...",
+                "Aguardando o Doorpi finalizar para aplicar o pacote com seguranca.",
+                0.12);
             _ = RunDoorpiUpdateAsync();
         }
         else
         {
-            StatusText.Text = "Nenhuma operacao de update foi informada.";
+            SetStatus("Doorpi Updater", "Nenhuma operacao de update foi informada.", 0);
         }
 
         SignalReady();
@@ -43,6 +43,7 @@ public partial class MainWindow : Window
     {
         var stateStore = new UpdateStateStore(Path.Combine(DoorpiRuntimePaths.UpdatesFolder, "state.json"));
         UpdateOperationState? state = null;
+        Process? launchedDoorpi = null;
 
         try
         {
@@ -94,21 +95,36 @@ public partial class MainWindow : Window
             installer.ApplyFromStaging(state.StagingFolder, installFolder, state.BackupFolder);
 
             state.Phase = "doorpi-applied-pending-health-check";
+            state.HealthSignalPath = Path.Combine(DoorpiRuntimePaths.UpdatesFolder, $"doorpi-health-{Guid.NewGuid():N}.signal");
+            if (File.Exists(state.HealthSignalPath))
+                File.Delete(state.HealthSignalPath);
             stateStore.Save(state);
-            SetStatus("Concluido. Reiniciando Doorpi...", 0.96);
+            SetStatus("Concluido. Reiniciando Doorpi para validacao...", 0.92);
 
             await Task.Delay(900);
             if (!File.Exists(doorpiExe))
                 throw new FileNotFoundException("Doorpi.exe nao encontrado apos update.", doorpiExe);
 
-            Process.Start(new ProcessStartInfo
+            var startInfo = new ProcessStartInfo
             {
                 FileName = doorpiExe,
                 WorkingDirectory = installFolder,
                 UseShellExecute = false,
                 CreateNoWindow = true
-            });
+            };
+            startInfo.Environment["DOORPI_UPDATE_HEALTH_SIGNAL"] = state.HealthSignalPath;
+            launchedDoorpi = Process.Start(startInfo);
 
+            SetStatus("Aguardando o Doorpi confirmar inicializacao saudavel...", 0.96);
+            bool healthy = await WaitForHealthSignalAsync(state.HealthSignalPath, launchedDoorpi, TimeSpan.FromSeconds(30));
+            if (!healthy)
+                throw new InvalidDataException("O Doorpi atualizado nao confirmou inicializacao saudavel.");
+
+            state.Phase = "succeeded";
+            stateStore.Save(state);
+            stateStore.Clear();
+
+            SetStatus("Atualizacao concluida.", 1);
             await Task.Delay(800);
             Dispatcher.Invoke(() => Application.Current.Shutdown());
         }
@@ -116,6 +132,13 @@ public partial class MainWindow : Window
         {
             try
             {
+                if (launchedDoorpi is { HasExited: false })
+                {
+                    SetStatus("Falha no health check. Encerrando Doorpi para rollback...", 0.78);
+                    launchedDoorpi.Kill(entireProcessTree: true);
+                    await launchedDoorpi.WaitForExitAsync();
+                }
+
                 if (state != null)
                 {
                     state.Phase = "rollback";
@@ -128,6 +151,18 @@ public partial class MainWindow : Window
                         new ComponentInstaller(["Data", "updates", "Updater"])
                             .Rollback(state.BackupFolder, state.InstallFolder);
                     }
+
+                    string restoredDoorpi = Path.Combine(state.InstallFolder, "Doorpi.exe");
+                    if (File.Exists(restoredDoorpi))
+                    {
+                        Process.Start(new ProcessStartInfo
+                        {
+                            FileName = restoredDoorpi,
+                            WorkingDirectory = state.InstallFolder,
+                            UseShellExecute = false,
+                            CreateNoWindow = true
+                        });
+                    }
                 }
             }
             catch (Exception rollbackEx)
@@ -137,6 +172,23 @@ public partial class MainWindow : Window
 
             SetStatus("Nao foi possivel concluir a atualizacao: " + ex.Message, 1);
         }
+    }
+
+    private static async Task<bool> WaitForHealthSignalAsync(string healthSignalPath, Process? process, TimeSpan timeout)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(timeout);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            if (File.Exists(healthSignalPath))
+                return true;
+
+            if (process != null && process.HasExited)
+                return false;
+
+            await Task.Delay(250);
+        }
+
+        return File.Exists(healthSignalPath);
     }
 
     private string ResolveInstallFolder()
@@ -184,19 +236,14 @@ public partial class MainWindow : Window
         }
     }
 
-    private void UpdateProgress(double value)
-    {
-        value = Math.Clamp(value, 0, 1);
-        double width = ActualWidth > 0 ? Math.Min(920, ActualWidth * 0.72) : 920;
-        ProgressFill.Width = width * value;
-    }
-
     private void SetStatus(string message, double progress)
+        => SetStatus("Atualizando Doorpi...", message, progress);
+
+    private void SetStatus(string title, string message, double progress)
     {
         Dispatcher.Invoke(() =>
         {
-            StatusText.Text = message;
-            UpdateProgress(progress);
+            UpdateView.SetStatus(title, message, progress);
         });
     }
 }

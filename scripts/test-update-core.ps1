@@ -37,10 +37,17 @@ Set-Content -Path (Join-Path $packageSource "wwwroot\index.html") -Value "new-ui
 Compress-Archive -Path (Join-Path $packageSource "*") -DestinationPath $zip -Force
 
 dotnet new console -n Tester -o $tester --force | Out-Null
-dotnet add (Join-Path $tester "Tester.csproj") reference (Join-Path $root "Doorpi.UpdateCore\Doorpi.UpdateCore.csproj") | Out-Null
+$testerProject = Join-Path $tester "Tester.csproj"
+(Get-Content $testerProject) -replace "<TargetFramework>.*?</TargetFramework>", "<TargetFramework>net8.0-windows</TargetFramework>" | Set-Content $testerProject -Encoding UTF8
+dotnet add $testerProject reference (Join-Path $root "Doorpi.UpdateCore\Doorpi.UpdateCore.csproj") | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    throw "dotnet add reference falhou com codigo $LASTEXITCODE."
+}
 
 @'
 using Doorpi.UpdateCore;
+using System.Security.Cryptography;
+using System.Text;
 
 string work = args[0];
 string zip = Path.Combine(work, "doorpi-test.zip");
@@ -61,7 +68,66 @@ if (data != "keep-user-data") throw new Exception("Data foi sobrescrito.");
 if (updater != "keep-updater") throw new Exception("Updater foi sobrescrito.");
 if (ui != "new-ui") throw new Exception("wwwroot nao foi atualizado.");
 
+using RSA rsa = RSA.Create(3072);
+var manifest = new UpdateManifest
+{
+    SchemaVersion = 1,
+    Channel = "beta",
+    PublishedAt = DateTimeOffset.FromUnixTimeSeconds(1234567890),
+    MinimumSupportedManifestVersion = 1,
+    Doorpi = new ComponentRelease
+    {
+        Version = "9.9.9-test",
+        DownloadUrl = "file:///doorpi.zip",
+        Sha256 = "abc",
+        SizeBytes = 123,
+        MinUpdaterVersion = "1.0.0",
+        ForceUpdate = true
+    },
+    Updater = new ComponentRelease
+    {
+        Version = "1.0.1-test",
+        DownloadUrl = "file:///updater.zip",
+        Sha256 = "def",
+        SizeBytes = 456,
+        ForceUpdate = true
+    },
+    Changelog =
+    {
+        new ChangelogEntry
+        {
+            Version = "9.9.9-test",
+            Title = "Teste",
+            Items = { "Assinatura validada" }
+        }
+    }
+};
+
+byte[] payload = Encoding.UTF8.GetBytes(ManifestSignatureVerifier.BuildSigningPayload(manifest));
+manifest.Signature = new ManifestSignature
+{
+    Algorithm = ManifestSignatureVerifier.SupportedAlgorithm,
+    KeyId = "test",
+    Value = Convert.ToBase64String(rsa.SignData(payload, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1))
+};
+
+string publicKey = rsa.ToXmlString(false);
+ManifestSignatureVerifier.Verify(manifest, publicKey);
+
+manifest.Doorpi.Version = "9.9.10-test";
+try
+{
+    ManifestSignatureVerifier.Verify(manifest, publicKey);
+    throw new Exception("Manifesto adulterado foi aceito.");
+}
+catch (InvalidDataException)
+{
+}
+
 Console.WriteLine("Update core simulation passed.");
 '@ | Set-Content -Path (Join-Path $tester "Program.cs") -Encoding UTF8
 
-dotnet run --project (Join-Path $tester "Tester.csproj") -- $work
+dotnet run --project $testerProject -- $work
+if ($LASTEXITCODE -ne 0) {
+    throw "dotnet run falhou com codigo $LASTEXITCODE."
+}

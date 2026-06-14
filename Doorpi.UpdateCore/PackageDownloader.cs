@@ -1,3 +1,5 @@
+using System.Net.Http;
+
 namespace Doorpi.UpdateCore;
 
 public sealed class PackageDownloader

@@ -6,7 +6,10 @@ param(
     [string]$Configuration = "Release",
     [string]$Runtime = "win-x64",
     [bool]$SelfContained = $true,
-    [string]$BaseDownloadUrl = "https://example.com/doorpi/updates"
+    [string]$BaseDownloadUrl = "https://example.com/doorpi/updates",
+    [string]$ManifestPrivateKeyPath = "",
+    [switch]$GenerateManifestKeyIfMissing,
+    [switch]$ForceUpdate
 )
 
 $ErrorActionPreference = "Stop"
@@ -49,6 +52,93 @@ function Invoke-Checked([string]$file, [string[]]$arguments) {
     & $file @arguments
     if ($LASTEXITCODE -ne 0) {
         throw "$file falhou com codigo $LASTEXITCODE."
+    }
+}
+
+function Add-SigningLine([System.Text.StringBuilder]$builder, [string]$name, [object]$value) {
+    $text = if ($null -eq $value) { "" } else { [string]$value }
+    $text = $text.Replace("`r", "\r").Replace("`n", "\n")
+    [void]$builder.Append($name)
+    [void]$builder.Append("=")
+    [void]$builder.Append($text)
+    [void]$builder.Append("`n")
+}
+
+function Get-ManifestUnixTime([object]$value) {
+    $publishedAt = [DateTimeOffset]::Parse([string]$value)
+    $epoch = [DateTimeOffset]::new(1970, 1, 1, 0, 0, 0, [TimeSpan]::Zero)
+    return [int64][Math]::Floor(($publishedAt.ToUniversalTime() - $epoch).TotalSeconds)
+}
+
+function Add-ReleaseSigningPayload([System.Text.StringBuilder]$builder, [string]$prefix, [object]$release) {
+    Add-SigningLine $builder "$prefix.version" $release.version
+    Add-SigningLine $builder "$prefix.downloadUrl" $release.downloadUrl
+    Add-SigningLine $builder "$prefix.sha256" $release.sha256
+    Add-SigningLine $builder "$prefix.sizeBytes" $release.sizeBytes
+    Add-SigningLine $builder "$prefix.minUpdaterVersion" $release.minUpdaterVersion
+    Add-SigningLine $builder "$prefix.forceUpdate" ($(if ($release.forceUpdate) { "true" } else { "false" }))
+}
+
+function Get-ManifestSigningPayload([object]$manifest) {
+    $builder = [System.Text.StringBuilder]::new()
+    Add-SigningLine $builder "schemaVersion" $manifest.schemaVersion
+    Add-SigningLine $builder "channel" $manifest.channel
+    Add-SigningLine $builder "publishedAtUnix" (Get-ManifestUnixTime $manifest.publishedAt)
+    Add-SigningLine $builder "minimumSupportedManifestVersion" $manifest.minimumSupportedManifestVersion
+    Add-ReleaseSigningPayload $builder "doorpi" $manifest.doorpi
+    Add-ReleaseSigningPayload $builder "updater" $manifest.updater
+
+    for ($i = 0; $i -lt $manifest.changelog.Count; $i++) {
+        $entry = $manifest.changelog[$i]
+        Add-SigningLine $builder "changelog.$i.version" $entry.version
+        Add-SigningLine $builder "changelog.$i.title" $entry.title
+        for ($itemIndex = 0; $itemIndex -lt $entry.items.Count; $itemIndex++) {
+            Add-SigningLine $builder "changelog.$i.items.$itemIndex" $entry.items[$itemIndex]
+        }
+    }
+
+    return $builder.ToString()
+}
+
+function Ensure-SigningKey([string]$privateKeyPath) {
+    if ([string]::IsNullOrWhiteSpace($privateKeyPath)) {
+        return $null
+    }
+
+    if (!(Test-Path $privateKeyPath)) {
+        if (!$GenerateManifestKeyIfMissing) {
+            throw "Chave privada nao encontrada: $privateKeyPath"
+        }
+
+        $rsa = New-Object System.Security.Cryptography.RSACryptoServiceProvider -ArgumentList 3072
+        $rsa.PersistKeyInCsp = $false
+        $privateXml = $rsa.ToXmlString($true)
+        $publicXml = $rsa.ToXmlString($false)
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $privateKeyPath) | Out-Null
+        Set-Content -Path $privateKeyPath -Value $privateXml -Encoding UTF8
+        Set-Content -Path ([System.IO.Path]::ChangeExtension($privateKeyPath, ".public.xml")) -Value $publicXml -Encoding UTF8
+        return $rsa
+    }
+
+    $rsa = New-Object System.Security.Cryptography.RSACryptoServiceProvider
+    $rsa.PersistKeyInCsp = $false
+    $rsa.FromXmlString((Get-Content $privateKeyPath -Raw))
+    return $rsa
+}
+
+function Add-ManifestSignature([object]$manifest, [System.Security.Cryptography.RSA]$rsa) {
+    $payload = Get-ManifestSigningPayload $manifest
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
+    $signatureBytes = $rsa.SignData($bytes, [System.Security.Cryptography.CryptoConfig]::MapNameToOID("SHA256"))
+    $publicXml = $rsa.ToXmlString($false)
+    $keyBytes = [System.Text.Encoding]::UTF8.GetBytes($publicXml)
+    $keyHash = ([System.Security.Cryptography.SHA256]::Create()).ComputeHash($keyBytes)
+    $keyId = ([BitConverter]::ToString($keyHash)).Replace("-", "").Substring(0, 16).ToLowerInvariant()
+
+    $manifest["signature"] = [ordered]@{
+        algorithm = "RSA-SHA256-PKCS1"
+        keyId = $keyId
+        value = [Convert]::ToBase64String($signatureBytes)
     }
 }
 
@@ -107,14 +197,14 @@ $draftManifest = [ordered]@{
         sha256 = $doorpiHash
         sizeBytes = $doorpiSize
         minUpdaterVersion = $UpdaterVersion
-        forceUpdate = $false
+        forceUpdate = [bool]$ForceUpdate
     }
     updater = [ordered]@{
         version = $UpdaterVersion
         downloadUrl = "$BaseDownloadUrl/updater-$UpdaterVersion-$Runtime.zip"
         sha256 = $updaterHash
         sizeBytes = $updaterSize
-        forceUpdate = $false
+        forceUpdate = [bool]$ForceUpdate
     }
     changelog = @(
         [ordered]@{
@@ -123,6 +213,11 @@ $draftManifest = [ordered]@{
             items = @("Descreva as mudancas desta versao.")
         }
     )
+}
+
+$signingKey = Ensure-SigningKey $ManifestPrivateKeyPath
+if ($null -ne $signingKey) {
+    Add-ManifestSignature $draftManifest $signingKey
 }
 
 $draftManifestPath = Join-Path $releaseRoot "manifest-beta.draft.json"
