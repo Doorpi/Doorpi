@@ -2131,6 +2131,536 @@
         `;
         document.head.appendChild(s);
     })();
+
+    (function initSystemUpdatePrompt() {
+        const DISMISSED_KEY = 'doorpi.updatePrompt.dismissedTarget';
+        let latestStatus = null;
+        let retryTimer = 0;
+        let isVisible = false;
+
+        function esc(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function hasUpdate(status) {
+            return !!(status && (status.doorpiUpdateAvailable || status.updaterUpdateAvailable));
+        }
+
+        function targetKey(status) {
+            if (!hasUpdate(status)) return '';
+            const doorpi = status.remoteDoorpiVersion || status.localDoorpiVersion || '';
+            const updater = status.remoteUpdaterVersion || status.localUpdaterVersion || '';
+            return `${doorpi}|${updater}|${status.doorpiUpdateAvailable ? 'doorpi' : ''}|${status.updaterUpdateAvailable ? 'updater' : ''}`;
+        }
+
+        function dismissedTarget() {
+            try { return localStorage.getItem(DISMISSED_KEY) || ''; }
+            catch { return ''; }
+        }
+
+        function dismissCurrentTarget() {
+            const key = targetKey(latestStatus);
+            if (!key) return;
+            try { localStorage.setItem(DISMISSED_KEY, key); }
+            catch { }
+        }
+
+        function clearDismissalIfResolved(status) {
+            if (hasUpdate(status)) return;
+            if (status?.status !== 'up-to-date') return;
+            try { localStorage.removeItem(DISMISSED_KEY); }
+            catch { }
+        }
+
+        function isLaunchOverlayVisible() {
+            const overlay = document.getElementById('gameLaunchOverlay');
+            return !!(overlay && overlay.classList.contains('visible'));
+        }
+
+        function hasRuntimeSession() {
+            try {
+                if (typeof _hasAnyRuntimeSession === 'function' && _hasAnyRuntimeSession()) return true;
+            } catch { }
+
+            const running = window.DoorpiRuntimeState?.running;
+            return Array.isArray(running) && running.length > 0;
+        }
+
+        function shouldDeferAutoPrompt() {
+            if (isVisible) return false;
+            if (!window._isIntroComplete) return true;
+            if (window._isExternalAppRunning) return true;
+            if (hasRuntimeSession()) return true;
+            if (window.isDoorpiSessionTransitionActive?.()) return true;
+            if (window.isGlobalLoading) return true;
+            if (window.isNavMenuOpen || ['opening', 'closing'].includes(window._navMenuPhase || 'closed')) return true;
+            if (window.isModalOpen || window.isSetupOpen || window._vkbIsOpen) return true;
+            if (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) return true;
+            if (typeof isEditModalOpen !== 'undefined' && isEditModalOpen) return true;
+            if (window.isDoorpiOverlayOpen?.()) return true;
+            if (isLaunchOverlayVisible()) return true;
+            return false;
+        }
+
+        function scheduleEvaluate(delay = 1200) {
+            if (retryTimer) clearTimeout(retryTimer);
+            retryTimer = setTimeout(() => {
+                retryTimer = 0;
+                evaluate();
+            }, delay);
+        }
+
+        function ensureBadge() {
+            let badge = document.getElementById('doorpiUpdateBadge');
+            if (badge) return badge;
+
+            badge = document.createElement('button');
+            badge.id = 'doorpiUpdateBadge';
+            badge.className = 'doorpi-update-badge';
+            badge.type = 'button';
+            badge.tabIndex = 0;
+            badge.innerHTML = `
+                <span class="doorpi-update-badge-dot"></span>
+                <span class="doorpi-update-badge-text">Atualizacao</span>
+            `;
+            badge.addEventListener('click', () => show(true));
+            badge.addEventListener('keydown', (e) => {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                e.preventDefault();
+                show(true);
+            });
+
+            const profile = document.getElementById('btnTopProfile');
+            if (profile && profile.parentNode) {
+                profile.insertAdjacentElement('afterend', badge);
+            } else {
+                document.body.appendChild(badge);
+            }
+            return badge;
+        }
+
+        function updateBadge() {
+            const badge = ensureBadge();
+            const available = hasUpdate(latestStatus);
+            badge.classList.toggle('is-visible', available);
+            badge.classList.toggle('is-force', !!latestStatus?.forceUpdate);
+            badge.title = available
+                ? 'Atualizacao do sistema disponivel'
+                : 'Nenhuma atualizacao pendente';
+        }
+
+        function ensurePrompt() {
+            let prompt = document.getElementById('doorpiUpdatePrompt');
+            if (prompt) return prompt;
+
+            prompt = document.createElement('div');
+            prompt.id = 'doorpiUpdatePrompt';
+            prompt.className = 'doorpi-update-prompt';
+            prompt.setAttribute('role', 'dialog');
+            prompt.setAttribute('aria-modal', 'true');
+            prompt.setAttribute('aria-labelledby', 'doorpiUpdatePromptTitle');
+            prompt.innerHTML = `
+                <div class="doorpi-update-shell">
+                    <div class="doorpi-update-orb orb-a"></div>
+                    <div class="doorpi-update-orb orb-b"></div>
+                    <div class="doorpi-update-kicker">Atualizacao do sistema</div>
+                    <h2 id="doorpiUpdatePromptTitle">Nova versao disponivel</h2>
+                    <p id="doorpiUpdatePromptSubtitle" class="doorpi-update-subtitle"></p>
+                    <div class="doorpi-update-version-row" id="doorpiUpdateVersionRow"></div>
+                    <ul id="doorpiUpdateChangelog" class="doorpi-update-changelog"></ul>
+                    <div class="doorpi-update-warning">Nao desligue o computador durante a instalacao.</div>
+                    <div class="doorpi-update-actions">
+                        <button id="doorpiUpdateStartBtn" class="doorpi-update-primary" type="button">Atualizar agora</button>
+                        <button id="doorpiUpdateLaterBtn" class="doorpi-update-secondary" type="button">Depois</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(prompt);
+
+            prompt.querySelector('#doorpiUpdateStartBtn')?.addEventListener('click', () => {
+                hide(false);
+                if (typeof postToHost === 'function') {
+                    postToHost({ action: 'startSystemUpdate' });
+                }
+            });
+
+            prompt.querySelector('#doorpiUpdateLaterBtn')?.addEventListener('click', () => {
+                dismissCurrentTarget();
+                hide(true);
+            });
+
+            prompt.addEventListener('keydown', (e) => {
+                if (!isVisible) return;
+                const buttons = Array.from(prompt.querySelectorAll('button'));
+                const current = buttons.indexOf(document.activeElement);
+                if (e.key === 'Escape' || e.key === 'Backspace') {
+                    e.preventDefault();
+                    dismissCurrentTarget();
+                    hide(true);
+                    return;
+                }
+                if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+                    e.preventDefault();
+                    const dir = (e.key === 'ArrowLeft' || e.key === 'ArrowUp') ? -1 : 1;
+                    const next = buttons[(Math.max(0, current) + dir + buttons.length) % buttons.length];
+                    next?.focus();
+                }
+            });
+
+            return prompt;
+        }
+
+        function changelogItems(status) {
+            const entries = Array.isArray(status?.changelog) ? status.changelog : [];
+            const items = [];
+            entries.forEach(entry => {
+                if (Array.isArray(entry?.items)) {
+                    entry.items.forEach(item => {
+                        if (items.length < 6 && item) items.push(String(item));
+                    });
+                }
+            });
+            return items;
+        }
+
+        function renderPrompt() {
+            const prompt = ensurePrompt();
+            const title = prompt.querySelector('#doorpiUpdatePromptTitle');
+            const sub = prompt.querySelector('#doorpiUpdatePromptSubtitle');
+            const versions = prompt.querySelector('#doorpiUpdateVersionRow');
+            const changelog = prompt.querySelector('#doorpiUpdateChangelog');
+
+            const status = latestStatus || {};
+            const parts = [];
+            if (status.doorpiUpdateAvailable) parts.push('Doorpi');
+            if (status.updaterUpdateAvailable) parts.push('componentes do sistema');
+            const scope = parts.length ? parts.join(' + ') : 'Doorpi';
+
+            if (title) title.textContent = `Atualizacao disponivel para ${scope}`;
+            if (sub) {
+                sub.textContent = 'Voce pode instalar agora ou deixar para depois. O aviso fica salvo na Home para atualizar quando quiser.';
+            }
+
+            if (versions) {
+                const doorpi = status.doorpiUpdateAvailable
+                    ? `<span>Doorpi ${esc(status.localDoorpiVersion || '--')} -> ${esc(status.remoteDoorpiVersion || '--')}</span>`
+                    : '';
+                const updater = status.updaterUpdateAvailable
+                    ? `<span>Updater ${esc(status.localUpdaterVersion || '--')} -> ${esc(status.remoteUpdaterVersion || '--')}</span>`
+                    : '';
+                versions.innerHTML = [doorpi, updater].filter(Boolean).join('');
+            }
+
+            if (changelog) {
+                const items = changelogItems(status);
+                changelog.innerHTML = items.length
+                    ? items.map(item => `<li>${esc(item)}</li>`).join('')
+                    : '<li>Notas da versao ainda nao informadas no manifesto.</li>';
+            }
+        }
+
+        function show(manual = false) {
+            if (!hasUpdate(latestStatus)) return;
+            if (latestStatus?.forceUpdate) return;
+
+            if (!manual) {
+                if (targetKey(latestStatus) === dismissedTarget()) return;
+                if (shouldDeferAutoPrompt()) {
+                    scheduleEvaluate(1500);
+                    return;
+                }
+            }
+
+            renderPrompt();
+            const prompt = ensurePrompt();
+            isVisible = true;
+            prompt.classList.add('is-visible');
+            window.DoorpiUiSound?.play('confirm');
+            requestAnimationFrame(() => {
+                prompt.querySelector('#doorpiUpdateStartBtn')?.focus();
+            });
+        }
+
+        function hide(refocus = false) {
+            const prompt = document.getElementById('doorpiUpdatePrompt');
+            isVisible = false;
+            prompt?.classList.remove('is-visible');
+            if (refocus) setTimeout(() => recoverGlobalFocus?.(), 60);
+        }
+
+        function evaluate() {
+            if (!hasUpdate(latestStatus)) {
+                hide(false);
+                return;
+            }
+            updateBadge();
+            show(false);
+        }
+
+        function setStatus(status) {
+            latestStatus = { ...(latestStatus || {}), ...(status || {}) };
+            clearDismissalIfResolved(latestStatus);
+            updateBadge();
+            evaluate();
+        }
+
+        function injectStyles() {
+            if (document.getElementById('doorpi-update-prompt-styles')) return;
+            const style = document.createElement('style');
+            style.id = 'doorpi-update-prompt-styles';
+            style.textContent = `
+                .doorpi-update-badge {
+                    position: fixed;
+                    top: clamp(82px, 9.6vh, 112px);
+                    left: clamp(96px, 8.2vw, 150px);
+                    z-index: 8001;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 9px;
+                    height: 34px;
+                    padding: 0 14px;
+                    border: 1px solid rgba(255,255,255,0.18);
+                    border-radius: 999px;
+                    background: rgba(12, 22, 38, 0.72);
+                    color: rgba(255,255,255,0.88);
+                    font-size: 12px;
+                    font-weight: 700;
+                    letter-spacing: 0.04em;
+                    text-transform: uppercase;
+                    box-shadow: 0 14px 35px rgba(0,0,0,0.28);
+                    backdrop-filter: blur(16px);
+                    cursor: pointer;
+                    opacity: 0;
+                    transform: translateY(-8px);
+                    pointer-events: none;
+                    transition: opacity .25s ease, transform .25s ease, border-color .2s ease;
+                }
+                .doorpi-update-badge.is-visible {
+                    opacity: 1;
+                    transform: translateY(0);
+                    pointer-events: auto;
+                }
+                .doorpi-update-badge:focus,
+                .doorpi-update-badge:hover {
+                    border-color: rgba(255,255,255,0.65);
+                    outline: none;
+                }
+                .doorpi-update-badge-dot {
+                    width: 8px;
+                    height: 8px;
+                    border-radius: 50%;
+                    background: #58d9ff;
+                    box-shadow: 0 0 16px rgba(88,217,255,0.95);
+                }
+                .doorpi-update-badge.is-force .doorpi-update-badge-dot {
+                    background: #ff6d6d;
+                    box-shadow: 0 0 16px rgba(255,109,109,0.95);
+                }
+                .doorpi-update-prompt {
+                    position: fixed;
+                    inset: 0;
+                    z-index: 9500;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 42px;
+                    background: rgba(1, 5, 15, 0.55);
+                    backdrop-filter: blur(24px);
+                    opacity: 0;
+                    pointer-events: none;
+                    transition: opacity .22s ease;
+                }
+                .doorpi-update-prompt.is-visible {
+                    opacity: 1;
+                    pointer-events: auto;
+                }
+                .doorpi-update-shell {
+                    position: relative;
+                    width: min(860px, 92vw);
+                    overflow: hidden;
+                    padding: 42px;
+                    border: 1px solid rgba(255,255,255,0.14);
+                    border-radius: 8px;
+                    background:
+                        radial-gradient(circle at 22% 10%, rgba(78,158,255,0.24), transparent 30%),
+                        radial-gradient(circle at 84% 86%, rgba(63,228,255,0.18), transparent 34%),
+                        rgba(7, 13, 28, 0.92);
+                    box-shadow: 0 36px 90px rgba(0,0,0,0.48);
+                    color: #fff;
+                    transform: translateY(16px) scale(.985);
+                    transition: transform .22s ease;
+                }
+                .doorpi-update-prompt.is-visible .doorpi-update-shell {
+                    transform: translateY(0) scale(1);
+                }
+                .doorpi-update-orb {
+                    position: absolute;
+                    border-radius: 50%;
+                    filter: blur(24px);
+                    opacity: .36;
+                    pointer-events: none;
+                }
+                .doorpi-update-orb.orb-a {
+                    width: 220px;
+                    height: 220px;
+                    right: -76px;
+                    top: -82px;
+                    background: #267bff;
+                }
+                .doorpi-update-orb.orb-b {
+                    width: 180px;
+                    height: 180px;
+                    left: -70px;
+                    bottom: -76px;
+                    background: #20d4ff;
+                }
+                .doorpi-update-kicker {
+                    position: relative;
+                    margin-bottom: 14px;
+                    color: #82dbff;
+                    font-size: 13px;
+                    font-weight: 800;
+                    letter-spacing: 0.12em;
+                    text-transform: uppercase;
+                }
+                .doorpi-update-shell h2 {
+                    position: relative;
+                    margin: 0;
+                    max-width: 760px;
+                    font-size: clamp(32px, 4vw, 52px);
+                    line-height: 1.03;
+                    font-weight: 800;
+                }
+                .doorpi-update-subtitle {
+                    position: relative;
+                    margin: 18px 0 0;
+                    max-width: 720px;
+                    color: rgba(255,255,255,0.72);
+                    font-size: 18px;
+                    line-height: 1.45;
+                }
+                .doorpi-update-version-row {
+                    position: relative;
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 10px;
+                    margin: 26px 0 0;
+                }
+                .doorpi-update-version-row span {
+                    padding: 9px 13px;
+                    border-radius: 999px;
+                    border: 1px solid rgba(255,255,255,0.14);
+                    background: rgba(255,255,255,0.07);
+                    color: rgba(255,255,255,0.86);
+                    font-size: 14px;
+                }
+                .doorpi-update-changelog {
+                    position: relative;
+                    display: grid;
+                    gap: 9px;
+                    margin: 24px 0 0;
+                    padding: 0;
+                    list-style: none;
+                    color: rgba(255,255,255,0.8);
+                    font-size: 15px;
+                    line-height: 1.38;
+                }
+                .doorpi-update-changelog li {
+                    padding-left: 18px;
+                    position: relative;
+                }
+                .doorpi-update-changelog li::before {
+                    content: '';
+                    position: absolute;
+                    left: 0;
+                    top: .62em;
+                    width: 5px;
+                    height: 5px;
+                    border-radius: 50%;
+                    background: #58d9ff;
+                }
+                .doorpi-update-warning {
+                    position: relative;
+                    margin-top: 26px;
+                    padding: 13px 16px;
+                    border-radius: 8px;
+                    border: 1px solid rgba(255,255,255,0.12);
+                    background: rgba(255,255,255,0.07);
+                    color: rgba(255,255,255,0.78);
+                    font-size: 14px;
+                }
+                .doorpi-update-actions {
+                    position: relative;
+                    display: flex;
+                    justify-content: flex-end;
+                    gap: 12px;
+                    margin-top: 30px;
+                }
+                .doorpi-update-actions button {
+                    min-width: 170px;
+                    height: 52px;
+                    border-radius: 8px;
+                    border: 1px solid rgba(255,255,255,0.18);
+                    color: #fff;
+                    font-size: 15px;
+                    font-weight: 800;
+                    cursor: pointer;
+                    outline: none;
+                    transition: transform .16s ease, border-color .16s ease, background .16s ease;
+                }
+                .doorpi-update-primary {
+                    background: rgba(70, 166, 255, 0.86);
+                    box-shadow: 0 14px 32px rgba(31,132,255,0.28);
+                }
+                .doorpi-update-secondary {
+                    background: rgba(255,255,255,0.08);
+                }
+                .doorpi-update-actions button:focus,
+                .doorpi-update-actions button:hover {
+                    transform: translateY(-1px);
+                    border-color: rgba(255,255,255,0.8);
+                }
+                @media (max-width: 720px) {
+                    .doorpi-update-prompt { padding: 18px; }
+                    .doorpi-update-shell { padding: 28px; }
+                    .doorpi-update-actions { flex-direction: column; }
+                    .doorpi-update-actions button { width: 100%; }
+                    .doorpi-update-badge {
+                        top: clamp(76px, 9vh, 98px);
+                        left: clamp(24px, 4vw, 60px);
+                    }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        injectStyles();
+        ensureBadge();
+
+        window.DoorpiUpdatePrompt = {
+            setStatus,
+            evaluate,
+            show: () => show(true),
+            hide: () => hide(true),
+            refreshBadge: updateBadge
+        };
+
+        window.addEventListener('message', (event) => {
+            const data = event.data;
+            const type = typeof data === 'string' ? data : data?.type;
+            if (type === 'doorpi:intro:complete') scheduleEvaluate(120);
+        });
+
+        window.addEventListener('focus', () => scheduleEvaluate(220));
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) scheduleEvaluate(220);
+        });
+    })();
     
 
     setInterval(() => {
@@ -2488,6 +3018,9 @@
                     if (name) name.textContent = u?.Name ?? '';
                 }
                 if (typeof clearHero === 'function') clearHero();
+            }
+            else if (data.type === 'systemUpdateStatus') {
+                window.DoorpiUpdatePrompt?.setStatus(data);
             }
             else if (data.type === 'updateFeaturedCard') {
                 // 🔹 Avisa o Store: ele reordena o carrossel E atualiza o hero automaticamente
@@ -3597,7 +4130,7 @@
     window.openCreateUserDialog = openCreateUserDialog;
 
     window.isDoorpiOverlayOpen = function () {
-        return Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay, .doorpi-pin-panel'))
+        return Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay, .doorpi-pin-panel, .doorpi-update-prompt.is-visible'))
             .some(el => el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
     };
 

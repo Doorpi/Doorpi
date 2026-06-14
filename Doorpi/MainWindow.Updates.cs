@@ -281,15 +281,6 @@ namespace Doorpi
             _startupUpdateCheckStarted = true;
             CompletePendingDoorpiHealthCheck();
 
-            string manifestUrl = GetConfiguredManifestUrl();
-            if (!string.IsNullOrWhiteSpace(manifestUrl)
-                && !manifestUrl.Contains("example.com", StringComparison.OrdinalIgnoreCase))
-            {
-                ShowUpdateProgress("Verificando atualizacoes",
-                    "Conferindo se existe uma atualizacao obrigatoria antes de liberar o sistema.",
-                    0.02);
-            }
-
             _ = Task.Run(() => CheckForUpdatesAsync(userInitiated: false));
         }
 

@@ -2,10 +2,15 @@ param(
     [string]$DoorpiOldVersion = "0.0.1-test",
     [string]$DoorpiNewVersion = "0.0.2-test",
     [string]$UpdaterOldVersion = "0.1.0-test",
-    [string]$UpdaterNewVersion = "0.1.1-test"
+    [string]$UpdaterNewVersion = "0.1.1-test",
+    [switch]$ForceUpdate
 )
 
 $ErrorActionPreference = "Stop"
+trap {
+    try { Stop-Transcript | Out-Null } catch { }
+    throw
+}
 
 $root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $testRoot = Join-Path $root ".manual-update-test"
@@ -15,9 +20,49 @@ $keysRoot = Join-Path $testRoot "keys"
 $privateKeyPath = Join-Path $keysRoot "manifest.private.xml"
 $logPath = Join-Path $testRoot "test-full-update.log"
 
+function Stop-TestProcessesInRoot([string]$path) {
+    if ([string]::IsNullOrWhiteSpace($path)) { return }
+
+    $resolvedRoot = [System.IO.Path]::GetFullPath($path).TrimEnd('\') + '\'
+    Get-CimInstance Win32_Process |
+        Where-Object {
+            ($_.Name -eq 'Doorpi.exe' -or $_.Name -eq 'Updater.exe') -and
+            $_.ExecutablePath -and
+            [System.IO.Path]::GetFullPath($_.ExecutablePath).StartsWith($resolvedRoot, [System.StringComparison]::OrdinalIgnoreCase)
+        } |
+        ForEach-Object {
+            try {
+                Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop
+                Start-Sleep -Milliseconds 250
+            } catch {
+                Write-Warning "Nao foi possivel encerrar processo de teste PID $($_.ProcessId): $($_.Exception.Message)"
+            }
+        }
+}
+
 function Reset-Directory([string]$path) {
+    try { Stop-Transcript | Out-Null } catch { }
+
     if (Test-Path $path) {
-        Remove-Item -LiteralPath $path -Recurse -Force
+        for ($attempt = 1; $attempt -le 5; $attempt++) {
+            try {
+                Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
+                break
+            } catch {
+                if ($attempt -eq 5) {
+                    $quarantine = "$path.locked.$(Get-Date -Format 'yyyyMMddHHmmss')"
+                    try {
+                        Rename-Item -LiteralPath $path -NewName (Split-Path $quarantine -Leaf) -ErrorAction Stop
+                        Write-Warning "A pasta antiga estava travada e foi movida para: $quarantine"
+                        break
+                    } catch {
+                        throw "Nao foi possivel limpar '$path'. Feche qualquer Doorpi/Updater de teste aberto e tente de novo. Detalhe: $($_.Exception.Message)"
+                    }
+                }
+
+                Start-Sleep -Milliseconds (350 * $attempt)
+            }
+        }
     }
     New-Item -ItemType Directory -Path $path | Out-Null
 }
@@ -32,8 +77,10 @@ function Invoke-Checked([string]$file, [string[]]$arguments) {
 Write-Host ""
 Write-Host "Doorpi - teste completo de update"
 Write-Host "================================="
+Write-Host "Modo: $(if ($ForceUpdate) { 'obrigatorio / forceUpdate' } else { 'opcional / sem forceUpdate' })"
 Write-Host ""
 Write-Host "1/6 Limpando ambiente de teste..."
+Stop-TestProcessesInRoot $testRoot
 Reset-Directory $testRoot
 Start-Transcript -Path $logPath -Force | Out-Null
 New-Item -ItemType Directory -Path $keysRoot | Out-Null
@@ -66,7 +113,7 @@ $userData = Join-Path $appDataRoot "Doorpi\Data"
 New-Item -ItemType Directory -Force -Path $userData | Out-Null
 Set-Content -Path (Join-Path $userData "update-test-user-data.txt") -Value "NAO APAGAR - dado do usuario preservado" -Encoding UTF8
 
-Write-Host "4/6 Gerando pacotes novos assinados e obrigatorios..."
+Write-Host "4/6 Gerando pacotes novos assinados..."
 $artifactsRoot = Join-Path $root "artifacts"
 $releaseRoot = Join-Path $root "artifacts\release"
 New-Item -ItemType Directory -Force -Path $artifactsRoot | Out-Null
@@ -74,14 +121,19 @@ $releaseUri = (New-Object System.Uri((Join-Path $artifactsRoot "release"))).Abso
 
 & (Join-Path $root "scripts\create-signing-key.ps1") -PrivateKeyPath $privateKeyPath
 
-& (Join-Path $root "scripts\build-release.ps1") `
-    -DoorpiVersion $DoorpiNewVersion `
-    -UpdaterVersion $UpdaterNewVersion `
-    -BaseDownloadUrl $releaseUri `
-    -ManifestPrivateKeyPath $privateKeyPath `
-    -ManifestVersion 1 `
-    -DevUpdatePolicy `
-    -ForceUpdate
+$buildReleaseArgs = @{
+    DoorpiVersion = $DoorpiNewVersion
+    UpdaterVersion = $UpdaterNewVersion
+    BaseDownloadUrl = $releaseUri
+    ManifestPrivateKeyPath = $privateKeyPath
+    ManifestVersion = 1
+    DevUpdatePolicy = $true
+}
+if ($ForceUpdate) {
+    $buildReleaseArgs.ForceUpdate = $true
+}
+
+& (Join-Path $root "scripts\build-release.ps1") @buildReleaseArgs
 
 if ($LASTEXITCODE -ne 0) {
     throw "build-release.ps1 falhou com codigo $LASTEXITCODE."
@@ -102,13 +154,21 @@ if (!(Test-Path $settingsPath)) {
     throw "Falha ao criar update-settings.json em $settingsPath"
 }
 
-Write-Host "6/6 Abrindo o Doorpi velho. Ele deve atualizar Updater + Doorpi sozinho."
+Write-Host "6/6 Abrindo o Doorpi velho."
 Write-Host ""
 Write-Host "O que voce deve ver:"
 Write-Host "- Doorpi abre"
-Write-Host "- tela fullscreen de update aparece"
-Write-Host "- Updater tambem aparece fullscreen"
-Write-Host "- Doorpi reabre no final"
+if ($ForceUpdate) {
+    Write-Host "- tela fullscreen de update aparece automaticamente"
+    Write-Host "- Updater tambem aparece fullscreen"
+    Write-Host "- Doorpi reabre no final"
+} else {
+    Write-Host "- Doorpi NAO deve atualizar sozinho"
+    Write-Host "- depois da intro, deve aparecer o popup de atualizacao"
+    Write-Host "- clique em Depois para confirmar que o badge fica na Home"
+    Write-Host "- clique no badge Atualizacao para abrir o popup de novo"
+    Write-Host "- clique em Atualizar agora para aplicar Updater + Doorpi"
+}
 Write-Host ""
 Write-Host "Pasta da instalacao fake:"
 Write-Host $installRoot
