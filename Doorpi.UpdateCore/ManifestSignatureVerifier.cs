@@ -13,7 +13,9 @@ public static class ManifestSignatureVerifier
         var builder = new StringBuilder();
         Append(builder, "schemaVersion", manifest.SchemaVersion.ToString(CultureInfo.InvariantCulture));
         Append(builder, "channel", manifest.Channel);
+        Append(builder, "manifestVersion", manifest.ManifestVersion.ToString(CultureInfo.InvariantCulture));
         Append(builder, "publishedAtUnix", manifest.PublishedAt.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture));
+        Append(builder, "expiresAtUnix", manifest.ExpiresAt.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture));
         Append(builder, "minimumSupportedManifestVersion", manifest.MinimumSupportedManifestVersion.ToString(CultureInfo.InvariantCulture));
         AppendRelease(builder, "doorpi", manifest.Doorpi);
         AppendRelease(builder, "updater", manifest.Updater);
@@ -68,6 +70,7 @@ public static class ManifestSignatureVerifier
         Append(builder, $"{prefix}.sizeBytes", release.SizeBytes?.ToString(CultureInfo.InvariantCulture) ?? "");
         Append(builder, $"{prefix}.minUpdaterVersion", release.MinUpdaterVersion);
         Append(builder, $"{prefix}.forceUpdate", release.ForceUpdate ? "true" : "false");
+        Append(builder, $"{prefix}.allowRollback", release.AllowRollback ? "true" : "false");
     }
 
     private static void Append(StringBuilder builder, string name, string? value)

@@ -7,4 +7,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(DoorpiAllowDevUpdatePolicy)' == 'true'">
+    <DefineConstants>$(DefineConstants);DOORPI_DEV_UPDATE_POLICY</DefineConstants>
+  </PropertyGroup>
+
 </Project>

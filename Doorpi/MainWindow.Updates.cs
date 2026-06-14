@@ -13,7 +13,6 @@ namespace Doorpi
 {
     public partial class MainWindow
     {
-        private const string DefaultUpdateManifestUrl = "https://example.com/doorpi/manifest-beta.json";
         private static readonly HttpClient updateHttpClient = new HttpClient();
         private readonly SemaphoreSlim _updateCheckLock = new(1, 1);
         private UpdateDecision? _lastUpdateDecision;
@@ -24,6 +23,7 @@ namespace Doorpi
 
         private string ManifestCachePath => Path.Combine(DoorpiRuntimePaths.UpdatesFolder, "manifest-cache.json");
         private string UpdateStatePath => Path.Combine(DoorpiRuntimePaths.UpdatesFolder, "state.json");
+        private string ManifestStatePath => Path.Combine(DoorpiRuntimePaths.UpdatesFolder, "manifest-state.json");
 
         private string DoorpiVersion =>
             Assembly.GetExecutingAssembly()
@@ -57,6 +57,10 @@ namespace Doorpi
 
         private static string GetConfiguredManifestUrl()
         {
+            var policy = UpdateSecurityPolicy.Current;
+            if (!policy.AllowTrustSettingsOverride)
+                return policy.DefaultManifestUrl;
+
             string envUrl = Environment.GetEnvironmentVariable("DOORPI_UPDATE_MANIFEST_URL") ?? "";
             if (!string.IsNullOrWhiteSpace(envUrl)) return envUrl.Trim();
 
@@ -82,15 +86,19 @@ namespace Doorpi
                 }
             }
 
-            return DefaultUpdateManifestUrl;
+            return policy.DefaultManifestUrl;
         }
 
         private static UpdateTrustSettings GetUpdateTrustSettings(string manifestUrl, bool isLocalManifest)
         {
+            var policy = UpdateSecurityPolicy.Current;
             var settings = new UpdateTrustSettings
             {
-                RequireManifestSignature = !isLocalManifest
+                RequireManifestSignature = policy.RequireManifestSignature || !isLocalManifest
             };
+
+            if (!policy.AllowTrustSettingsOverride)
+                return settings;
 
             foreach (string path in new[]
             {
@@ -128,6 +136,18 @@ namespace Doorpi
                 settings.RequireManifestSignature = true;
 
             return settings;
+        }
+
+        private static string ResolveManifestPublicKey(UpdateManifest manifest, UpdateTrustSettings trust, string baseFolder)
+        {
+            if (!UpdateSecurityPolicy.Current.AllowTrustSettingsOverride)
+                return TrustedUpdateKeys.ResolveProductionKey(manifest.Signature?.KeyId ?? "");
+
+            string configuredKey = trust.ResolvePublicKeyXml(baseFolder);
+            if (!string.IsNullOrWhiteSpace(configuredKey))
+                return configuredKey;
+
+            return TrustedUpdateKeys.ResolveProductionKey(manifest.Signature?.KeyId ?? "");
         }
 
         private static bool TryGetManifestFilePath(string manifestUrl, out string path)
@@ -173,6 +193,10 @@ namespace Doorpi
 
                 UpdateManifest manifest;
                 bool isLocalManifest = TryGetManifestFilePath(manifestUrl, out string manifestFilePath);
+                var policy = UpdateSecurityPolicy.Current;
+                if (isLocalManifest && !policy.AllowLocalManifest)
+                    throw new InvalidDataException("Manifesto local nao permitido em build de producao.");
+
                 if (isLocalManifest)
                 {
                     manifest = UpdateManifestClient.LoadFromFile(manifestFilePath);
@@ -192,11 +216,28 @@ namespace Doorpi
                     string baseFolder = isLocalManifest
                         ? Path.GetDirectoryName(manifestFilePath) ?? AppDomain.CurrentDomain.BaseDirectory
                         : AppDomain.CurrentDomain.BaseDirectory;
-                    ManifestSignatureVerifier.Verify(manifest, trust.ResolvePublicKeyXml(baseFolder));
+                    ManifestSignatureVerifier.Verify(manifest, ResolveManifestPublicKey(manifest, trust, baseFolder));
                 }
+
+                var manifestStateStore = new UpdateManifestStateStore(ManifestStatePath);
+                UpdateManifestState? previousManifestState = manifestStateStore.Load();
+                UpdateManifestValidator.Validate(
+                    manifest,
+                    policy,
+                    previousManifestState,
+                    DateTimeOffset.UtcNow);
+                UpdateManifestValidator.ValidateNoUnsignedDowngrade(manifest.Doorpi, DoorpiVersion, "Doorpi");
+                UpdateManifestValidator.ValidateNoUnsignedDowngrade(manifest.Updater, UpdaterVersion, "Updater");
 
                 Directory.CreateDirectory(DoorpiRuntimePaths.UpdatesFolder);
                 UpdateManifestClient.SaveToFile(manifest, ManifestCachePath);
+                manifestStateStore.Save(new UpdateManifestState
+                {
+                    Channel = manifest.Channel,
+                    HighestManifestVersion = Math.Max(
+                        manifest.ManifestVersion,
+                        previousManifestState?.HighestManifestVersion ?? 0)
+                });
 
                 var decision = UpdatePlanner.Decide(manifest, DoorpiVersion, UpdaterVersion);
                 _lastUpdateDecision = decision;

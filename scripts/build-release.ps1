@@ -6,10 +6,14 @@ param(
     [string]$Configuration = "Release",
     [string]$Runtime = "win-x64",
     [bool]$SelfContained = $true,
-    [string]$BaseDownloadUrl = "https://example.com/doorpi/updates",
+    [string]$BaseDownloadUrl = "",
     [string]$ManifestPrivateKeyPath = "",
-    [switch]$GenerateManifestKeyIfMissing,
-    [switch]$ForceUpdate
+    [long]$ManifestVersion = 0,
+    [int]$ExpiresInDays = 14,
+    [string]$ReleaseNotesPath = "",
+    [switch]$ForceUpdate,
+    [switch]$AllowRollback,
+    [switch]$DevUpdatePolicy
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,6 +24,14 @@ $publishRoot = Join-Path $artifacts "publish"
 $releaseRoot = Join-Path $artifacts "release"
 $doorpiPublish = Join-Path $publishRoot "Doorpi"
 $updaterPublish = Join-Path $publishRoot "Updater"
+
+if ([string]::IsNullOrWhiteSpace($BaseDownloadUrl)) {
+    $BaseDownloadUrl = "https://github.com/Doorpi/Doorpi/releases/download/v$DoorpiVersion"
+}
+
+if ($ManifestVersion -le 0) {
+    $ManifestVersion = [long](Get-Date -Format "yyyyMMddHHmm")
+}
 
 function Reset-Directory([string]$path) {
     if (Test-Path $path) {
@@ -77,13 +89,16 @@ function Add-ReleaseSigningPayload([System.Text.StringBuilder]$builder, [string]
     Add-SigningLine $builder "$prefix.sizeBytes" $release.sizeBytes
     Add-SigningLine $builder "$prefix.minUpdaterVersion" $release.minUpdaterVersion
     Add-SigningLine $builder "$prefix.forceUpdate" ($(if ($release.forceUpdate) { "true" } else { "false" }))
+    Add-SigningLine $builder "$prefix.allowRollback" ($(if ($release.allowRollback) { "true" } else { "false" }))
 }
 
 function Get-ManifestSigningPayload([object]$manifest) {
     $builder = [System.Text.StringBuilder]::new()
     Add-SigningLine $builder "schemaVersion" $manifest.schemaVersion
     Add-SigningLine $builder "channel" $manifest.channel
+    Add-SigningLine $builder "manifestVersion" $manifest.manifestVersion
     Add-SigningLine $builder "publishedAtUnix" (Get-ManifestUnixTime $manifest.publishedAt)
+    Add-SigningLine $builder "expiresAtUnix" (Get-ManifestUnixTime $manifest.expiresAt)
     Add-SigningLine $builder "minimumSupportedManifestVersion" $manifest.minimumSupportedManifestVersion
     Add-ReleaseSigningPayload $builder "doorpi" $manifest.doorpi
     Add-ReleaseSigningPayload $builder "updater" $manifest.updater
@@ -102,22 +117,11 @@ function Get-ManifestSigningPayload([object]$manifest) {
 
 function Ensure-SigningKey([string]$privateKeyPath) {
     if ([string]::IsNullOrWhiteSpace($privateKeyPath)) {
-        return $null
+        throw "Informe -ManifestPrivateKeyPath para gerar um release assinado."
     }
 
     if (!(Test-Path $privateKeyPath)) {
-        if (!$GenerateManifestKeyIfMissing) {
-            throw "Chave privada nao encontrada: $privateKeyPath"
-        }
-
-        $rsa = New-Object System.Security.Cryptography.RSACryptoServiceProvider -ArgumentList 3072
-        $rsa.PersistKeyInCsp = $false
-        $privateXml = $rsa.ToXmlString($true)
-        $publicXml = $rsa.ToXmlString($false)
-        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $privateKeyPath) | Out-Null
-        Set-Content -Path $privateKeyPath -Value $privateXml -Encoding UTF8
-        Set-Content -Path ([System.IO.Path]::ChangeExtension($privateKeyPath, ".public.xml")) -Value $publicXml -Encoding UTF8
-        return $rsa
+        throw "Chave privada nao encontrada: $privateKeyPath. Use scripts\create-signing-key.ps1 uma unica vez para cria-la."
     }
 
     $rsa = New-Object System.Security.Cryptography.RSACryptoServiceProvider
@@ -146,8 +150,9 @@ Reset-Directory $publishRoot
 Reset-Directory $releaseRoot
 
 $selfContainedArg = if ($SelfContained) { "true" } else { "false" }
+$devPolicyArgs = if ($DevUpdatePolicy) { @("-p:DoorpiAllowDevUpdatePolicy=true") } else { @() }
 
-Invoke-Checked "dotnet" @(
+$doorpiPublishArgs = @(
     "publish", (Join-Path $root "Doorpi\Doorpi.csproj"),
     "-c", $Configuration,
     "-r", $Runtime,
@@ -155,9 +160,10 @@ Invoke-Checked "dotnet" @(
     "-p:PublishSingleFile=false",
     "-p:Version=$DoorpiVersion",
     "-o", $doorpiPublish
-)
+) + $devPolicyArgs
+Invoke-Checked "dotnet" $doorpiPublishArgs
 
-Invoke-Checked "dotnet" @(
+$updaterPublishArgs = @(
     "publish", (Join-Path $root "DoorpiUpdater\DoorpiUpdater.csproj"),
     "-c", $Configuration,
     "-r", $Runtime,
@@ -165,7 +171,8 @@ Invoke-Checked "dotnet" @(
     "-p:PublishSingleFile=false",
     "-p:Version=$UpdaterVersion",
     "-o", $updaterPublish
-)
+) + $devPolicyArgs
+Invoke-Checked "dotnet" $updaterPublishArgs
 
 $publishedData = Join-Path $doorpiPublish "Data"
 if (Test-Path $publishedData) {
@@ -185,11 +192,27 @@ $doorpiHash = (Get-FileHash $doorpiZip -Algorithm SHA256).Hash.ToLowerInvariant(
 $updaterHash = (Get-FileHash $updaterZip -Algorithm SHA256).Hash.ToLowerInvariant()
 $doorpiSize = (Get-Item $doorpiZip).Length
 $updaterSize = (Get-Item $updaterZip).Length
+$publishedAt = (Get-Date).ToUniversalTime()
+$expiresAt = $publishedAt.AddDays($ExpiresInDays)
+
+$releaseTitle = "Doorpi $DoorpiVersion"
+$releaseItems = @("Descreva as mudancas desta versao.")
+if (![string]::IsNullOrWhiteSpace($ReleaseNotesPath) -and (Test-Path $ReleaseNotesPath)) {
+    $notes = Get-Content $ReleaseNotesPath -Raw | ConvertFrom-Json
+    if ($notes.title) {
+        $releaseTitle = [string]$notes.title
+    }
+    if ($notes.items) {
+        $releaseItems = @($notes.items | ForEach-Object { [string]$_ })
+    }
+}
 
 $draftManifest = [ordered]@{
     schemaVersion = 1
     channel = "beta"
-    publishedAt = (Get-Date).ToUniversalTime().ToString("O")
+    manifestVersion = $ManifestVersion
+    publishedAt = $publishedAt.ToString("O")
+    expiresAt = $expiresAt.ToString("O")
     minimumSupportedManifestVersion = 1
     doorpi = [ordered]@{
         version = $DoorpiVersion
@@ -198,6 +221,7 @@ $draftManifest = [ordered]@{
         sizeBytes = $doorpiSize
         minUpdaterVersion = $UpdaterVersion
         forceUpdate = [bool]$ForceUpdate
+        allowRollback = [bool]$AllowRollback
     }
     updater = [ordered]@{
         version = $UpdaterVersion
@@ -205,12 +229,13 @@ $draftManifest = [ordered]@{
         sha256 = $updaterHash
         sizeBytes = $updaterSize
         forceUpdate = [bool]$ForceUpdate
+        allowRollback = [bool]$AllowRollback
     }
     changelog = @(
         [ordered]@{
             version = $DoorpiVersion
-            title = "Doorpi $DoorpiVersion"
-            items = @("Descreva as mudancas desta versao.")
+            title = $releaseTitle
+            items = $releaseItems
         }
     )
 }
@@ -220,8 +245,8 @@ if ($null -ne $signingKey) {
     Add-ManifestSignature $draftManifest $signingKey
 }
 
-$draftManifestPath = Join-Path $releaseRoot "manifest-beta.draft.json"
-$draftManifest | ConvertTo-Json -Depth 10 | Set-Content -Path $draftManifestPath -Encoding UTF8
+$manifestPath = Join-Path $releaseRoot "manifest-beta.json"
+$draftManifest | ConvertTo-Json -Depth 10 | Set-Content -Path $manifestPath -Encoding UTF8
 
 Write-Host ""
 Write-Host "Release gerado em: $releaseRoot"
@@ -229,4 +254,4 @@ Write-Host "Doorpi ZIP:  $doorpiZip"
 Write-Host "Doorpi SHA:  $doorpiHash"
 Write-Host "Updater ZIP: $updaterZip"
 Write-Host "Updater SHA: $updaterHash"
-Write-Host "Manifesto:   $draftManifestPath"
+Write-Host "Manifesto:   $manifestPath"

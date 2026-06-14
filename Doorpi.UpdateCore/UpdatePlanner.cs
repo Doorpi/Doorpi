@@ -4,8 +4,8 @@ public static class UpdatePlanner
 {
     public static UpdateDecision Decide(UpdateManifest manifest, string localDoorpiVersion, string localUpdaterVersion)
     {
-        bool doorpiAvailable = UpdateVersionComparer.IsRemoteNewer(manifest.Doorpi.Version, localDoorpiVersion);
-        bool updaterAvailable = UpdateVersionComparer.IsRemoteNewer(manifest.Updater.Version, localUpdaterVersion);
+        bool doorpiAvailable = IsApplicable(manifest.Doorpi, localDoorpiVersion);
+        bool updaterAvailable = IsApplicable(manifest.Updater, localUpdaterVersion);
 
         return new UpdateDecision
         {
@@ -17,5 +17,11 @@ public static class UpdatePlanner
                 || (updaterAvailable && manifest.Updater.ForceUpdate),
             Manifest = manifest
         };
+    }
+
+    private static bool IsApplicable(ComponentRelease release, string localVersion)
+    {
+        int comparison = UpdateVersionComparer.Compare(release.Version, localVersion);
+        return comparison > 0 || (comparison < 0 && release.AllowRollback);
     }
 }

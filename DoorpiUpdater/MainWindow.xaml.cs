@@ -2,6 +2,7 @@ using Doorpi.UpdateCore;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
+using System.Text.Json;
 using System.Windows;
 
 namespace DoorpiUpdater;
@@ -57,6 +58,8 @@ public partial class MainWindow : Window
                 throw new FileNotFoundException("Manifesto cacheado nao encontrado.", _options.ManifestCachePath);
 
             var manifest = UpdateManifestClient.LoadFromFile(_options.ManifestCachePath);
+            ValidateCachedManifest(manifest, installFolder);
+
             var release = manifest.Doorpi;
             if (string.IsNullOrWhiteSpace(release.Version))
                 throw new InvalidDataException("Manifesto sem versao do Doorpi.");
@@ -172,6 +175,84 @@ public partial class MainWindow : Window
 
             SetStatus("Nao foi possivel concluir a atualizacao: " + ex.Message, 1);
         }
+    }
+
+    private static void ValidateCachedManifest(UpdateManifest manifest, string installFolder)
+    {
+        var trust = GetUpdaterTrustSettings(installFolder);
+        if (trust.RequireManifestSignature || manifest.Signature != null)
+        {
+            string key = ResolveManifestPublicKey(manifest, trust, installFolder);
+            ManifestSignatureVerifier.Verify(manifest, key);
+        }
+
+        var manifestStateStore = new UpdateManifestStateStore(Path.Combine(DoorpiRuntimePaths.UpdatesFolder, "manifest-state.json"));
+        UpdateManifestValidator.Validate(
+            manifest,
+            UpdateSecurityPolicy.Current,
+            manifestStateStore.Load(),
+            DateTimeOffset.UtcNow);
+
+        string localDoorpiVersion = GetExecutableVersion(Path.Combine(installFolder, "Doorpi.exe"));
+        UpdateManifestValidator.ValidateNoUnsignedDowngrade(manifest.Doorpi, localDoorpiVersion, "Doorpi");
+    }
+
+    private static UpdateTrustSettings GetUpdaterTrustSettings(string installFolder)
+    {
+        var policy = UpdateSecurityPolicy.Current;
+        var settings = new UpdateTrustSettings
+        {
+            RequireManifestSignature = policy.RequireManifestSignature
+        };
+
+        if (!policy.AllowTrustSettingsOverride)
+            return settings;
+
+        string settingsPath = Path.Combine(installFolder, "update-settings.json");
+        if (!File.Exists(settingsPath))
+            return settings;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(settingsPath));
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("requireManifestSignature", out var requireEl)
+                && (requireEl.ValueKind == JsonValueKind.True || requireEl.ValueKind == JsonValueKind.False))
+                settings.RequireManifestSignature = requireEl.GetBoolean();
+
+            if (root.TryGetProperty("manifestPublicKeyXml", out var keyEl))
+                settings.ManifestPublicKeyXml = keyEl.GetString() ?? "";
+
+            if (root.TryGetProperty("manifestPublicKeyPath", out var pathEl))
+                settings.ManifestPublicKeyPath = pathEl.GetString() ?? "";
+        }
+        catch
+        {
+            // Invalid test settings are treated as missing settings.
+        }
+
+        return settings;
+    }
+
+    private static string ResolveManifestPublicKey(UpdateManifest manifest, UpdateTrustSettings trust, string installFolder)
+    {
+        if (!UpdateSecurityPolicy.Current.AllowTrustSettingsOverride)
+            return TrustedUpdateKeys.ResolveProductionKey(manifest.Signature?.KeyId ?? "");
+
+        string configuredKey = trust.ResolvePublicKeyXml(installFolder);
+        if (!string.IsNullOrWhiteSpace(configuredKey))
+            return configuredKey;
+
+        return TrustedUpdateKeys.ResolveProductionKey(manifest.Signature?.KeyId ?? "");
+    }
+
+    private static string GetExecutableVersion(string path)
+    {
+        if (!File.Exists(path)) return "0.0.0";
+
+        var info = FileVersionInfo.GetVersionInfo(path);
+        return (info.ProductVersion ?? info.FileVersion ?? "0.0.0").Split('+')[0];
     }
 
     private static async Task<bool> WaitForHealthSignalAsync(string healthSignalPath, Process? process, TimeSpan timeout)

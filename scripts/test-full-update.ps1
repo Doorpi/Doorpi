@@ -13,6 +13,7 @@ $installRoot = Join-Path $testRoot "Install"
 $appDataRoot = Join-Path $testRoot "AppData"
 $keysRoot = Join-Path $testRoot "keys"
 $privateKeyPath = Join-Path $keysRoot "manifest.private.xml"
+$logPath = Join-Path $testRoot "test-full-update.log"
 
 function Reset-Directory([string]$path) {
     if (Test-Path $path) {
@@ -34,6 +35,7 @@ Write-Host "================================="
 Write-Host ""
 Write-Host "1/6 Limpando ambiente de teste..."
 Reset-Directory $testRoot
+Start-Transcript -Path $logPath -Force | Out-Null
 New-Item -ItemType Directory -Path $keysRoot | Out-Null
 
 Write-Host "2/6 Publicando instalacao velha fake..."
@@ -43,6 +45,7 @@ Invoke-Checked "dotnet" @(
     "-r", "win-x64",
     "--self-contained", "true",
     "-p:PublishSingleFile=false",
+    "-p:DoorpiAllowDevUpdatePolicy=true",
     "-p:Version=$DoorpiOldVersion",
     "-o", $installRoot
 )
@@ -53,6 +56,7 @@ Invoke-Checked "dotnet" @(
     "-r", "win-x64",
     "--self-contained", "true",
     "-p:PublishSingleFile=false",
+    "-p:DoorpiAllowDevUpdatePolicy=true",
     "-p:Version=$UpdaterOldVersion",
     "-o", (Join-Path $installRoot "Updater")
 )
@@ -68,12 +72,15 @@ $releaseRoot = Join-Path $root "artifacts\release"
 New-Item -ItemType Directory -Force -Path $artifactsRoot | Out-Null
 $releaseUri = (New-Object System.Uri((Join-Path $artifactsRoot "release"))).AbsoluteUri
 
+& (Join-Path $root "scripts\create-signing-key.ps1") -PrivateKeyPath $privateKeyPath
+
 & (Join-Path $root "scripts\build-release.ps1") `
     -DoorpiVersion $DoorpiNewVersion `
     -UpdaterVersion $UpdaterNewVersion `
     -BaseDownloadUrl $releaseUri `
     -ManifestPrivateKeyPath $privateKeyPath `
-    -GenerateManifestKeyIfMissing `
+    -ManifestVersion 1 `
+    -DevUpdatePolicy `
     -ForceUpdate
 
 if ($LASTEXITCODE -ne 0) {
@@ -81,15 +88,19 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "5/6 Configurando a instalacao fake para confiar no manifesto assinado..."
-$manifestPath = Join-Path $releaseRoot "manifest-beta.draft.json"
+$manifestPath = Join-Path $releaseRoot "manifest-beta.json"
 $publicKeyPath = [System.IO.Path]::ChangeExtension($privateKeyPath, ".public.xml")
+$settingsPath = Join-Path $installRoot "update-settings.json"
 
 $settings = [ordered]@{
-    manifestUrl = ([System.Uri](Resolve-Path $manifestPath)).AbsoluteUri
+    manifestUrl = (New-Object System.Uri((Resolve-Path $manifestPath).Path)).AbsoluteUri
     requireManifestSignature = $true
     manifestPublicKeyPath = $publicKeyPath
 }
-$settings | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $installRoot "update-settings.json") -Encoding UTF8
+$settings | ConvertTo-Json -Depth 5 | Set-Content -Path $settingsPath -Encoding UTF8
+if (!(Test-Path $settingsPath)) {
+    throw "Falha ao criar update-settings.json em $settingsPath"
+}
 
 Write-Host "6/6 Abrindo o Doorpi velho. Ele deve atualizar Updater + Doorpi sozinho."
 Write-Host ""
@@ -106,8 +117,29 @@ Write-Host "Dado preservado para conferir depois:"
 Write-Host (Join-Path $userData "update-test-user-data.txt")
 Write-Host ""
 
-$env:DOORPI_APPDATA_ROOT = $appDataRoot
-Start-Process -FilePath (Join-Path $installRoot "Doorpi.exe") -WorkingDirectory $installRoot
+$doorpiExe = Join-Path $installRoot "Doorpi.exe"
+if (!(Test-Path $doorpiExe)) {
+    throw "Doorpi.exe de teste nao encontrado: $doorpiExe"
+}
+
+$startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+$startInfo.FileName = $doorpiExe
+$startInfo.WorkingDirectory = $installRoot
+$startInfo.UseShellExecute = $false
+$startInfo.EnvironmentVariables["DOORPI_APPDATA_ROOT"] = $appDataRoot
+
+$process = [System.Diagnostics.Process]::Start($startInfo)
+if ($null -eq $process) {
+    throw "Nao foi possivel iniciar o Doorpi de teste."
+}
+
+Start-Sleep -Seconds 5
+if ($process.HasExited) {
+    throw "Doorpi de teste fechou logo apos abrir. ExitCode: $($process.ExitCode). Log: $logPath"
+}
 
 Write-Host "Teste iniciado. Pode fechar esta janela depois que o Doorpi abrir."
+Write-Host "PID do Doorpi de teste: $($process.Id)"
+Write-Host "Log do teste: $logPath"
 Read-Host "Pressione Enter para fechar"
+Stop-Transcript | Out-Null

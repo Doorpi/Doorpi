@@ -10,8 +10,14 @@ public sealed class UpdateManifest
     [JsonPropertyName("channel")]
     public string Channel { get; set; } = "beta";
 
+    [JsonPropertyName("manifestVersion")]
+    public long ManifestVersion { get; set; } = 1;
+
     [JsonPropertyName("publishedAt")]
     public DateTimeOffset PublishedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    [JsonPropertyName("expiresAt")]
+    public DateTimeOffset ExpiresAt { get; set; } = DateTimeOffset.UtcNow.AddDays(14);
 
     [JsonPropertyName("minimumSupportedManifestVersion")]
     public int MinimumSupportedManifestVersion { get; set; } = 1;
@@ -48,6 +54,9 @@ public sealed class ComponentRelease
 
     [JsonPropertyName("forceUpdate")]
     public bool ForceUpdate { get; set; }
+
+    [JsonPropertyName("allowRollback")]
+    public bool AllowRollback { get; set; }
 }
 
 public sealed class ChangelogEntry
