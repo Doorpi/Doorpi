@@ -870,9 +870,9 @@ window.isNavMenuOpen = false;
             <div class="nav-update-panel" id="systemUpdatePanel" style="margin:22px 0 18px;padding:16px 18px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.035);border-radius:10px;">
                 <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:18px;">
                     <div style="min-width:0;">
-                        <div id="systemUpdateBadge" style="display:inline-flex;margin-bottom:8px;padding:3px 8px;border-radius:999px;background:rgba(125,203,255,.14);color:#7dcbff;font-size:.68rem;font-weight:800;letter-spacing:.12em;">ATUALIZADO</div>
-                        <h3 id="systemUpdateTitle" style="font-size:1.1rem;font-weight:600;color:#fff;margin:0 0 5px;">Atualizacoes do sistema</h3>
-                        <p id="systemUpdateSub" style="margin:0;color:rgba(255,255,255,.56);line-height:1.35;">Atualizacoes ainda nao verificadas.</p>
+                        <div id="systemUpdateBadge" style="display:inline-flex;margin-bottom:8px;padding:3px 8px;border-radius:999px;background:rgba(125,203,255,.14);color:#7dcbff;font-size:.68rem;font-weight:800;letter-spacing:.12em;">${_t('sysUpdateBadgeUpdated', 'ATUALIZADO')}</div>
+                        <h3 id="systemUpdateTitle" style="font-size:1.1rem;font-weight:600;color:#fff;margin:0 0 5px;">${_t('sysUpdateTitle', 'Atualizacoes do sistema')}</h3>
+                        <p id="systemUpdateSub" style="margin:0;color:rgba(255,255,255,.56);line-height:1.35;">${_t('sysUpdateIdle', 'Atualizacoes ainda nao verificadas.')}</p>
                     </div>
                     <div id="systemUpdateVersions" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;color:rgba(255,255,255,.62);font-size:.84rem;white-space:nowrap;"></div>
                 </div>
@@ -881,12 +881,12 @@ window.isNavMenuOpen = false;
 
             <div class="nav-suggestions-grid" id="navUpdateActionsGrid" style="margin-bottom:18px;">
                 <button class="nav-suggestion-card visible" id="navCardCheckUpdates" tabindex="-1">
-                    <div class="nav-suggestion-card-btn">Verificar agora</div>
-                    <span class="nav-suggestion-card-text">Consulta o manifesto remoto e mostra versoes, changelog e obrigatoriedade.</span>
+                    <div class="nav-suggestion-card-btn">${_t('sysUpdateCheckNow', 'Verificar agora')}</div>
+                    <span class="nav-suggestion-card-text">${_t('sysUpdateCheckNowDesc', 'Consulta o manifesto remoto e mostra versoes, changelog e obrigatoriedade.')}</span>
                 </button>
                 <button class="nav-suggestion-card" id="navCardStartUpdate" tabindex="-1" style="display:none;">
-                    <div class="nav-suggestion-card-btn">Atualizar</div>
-                    <span class="nav-suggestion-card-text">Baixa o pacote validado, atualiza componentes e reinicia o Doorpi se necessario.</span>
+                    <div class="nav-suggestion-card-btn">${_t('sysUpdateStart', 'Atualizar')}</div>
+                    <span class="nav-suggestion-card-text">${_t('sysUpdateStartDesc', 'Baixa o pacote validado, atualiza componentes e reinicia o Doorpi se necessario.')}</span>
                 </button>
             </div>
 
@@ -2170,7 +2170,7 @@ window.isNavMenuOpen = false;
             const items = first?.items || [];
             changelog.innerHTML = items.length
                 ? items.slice(0, 3).map(item => `<li>${_esc(item)}</li>`).join('')
-                : `<li>${_t('sysUpdateNoChangelog', 'Notas da versao aparecerao aqui quando o manifesto estiver configurado.')}</li>`;
+                : `<li>${_t('sysUpdateNoChangelog', '')}</li>`;
         }
 
         if (startBtn) {

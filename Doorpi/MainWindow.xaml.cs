@@ -1,4 +1,4 @@
-﻿using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.Core;
 using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
@@ -156,6 +156,10 @@ namespace Doorpi
     {
         private static readonly HttpClient httpClient = new HttpClient();
         private static readonly HttpClient downloadClient = new HttpClient();
+        private static readonly JsonSerializerOptions IndentedJsonOptions = new()
+        {
+            WriteIndented = true
+        };
 
         private readonly string dataFolder;
         private readonly string gridFolder;
@@ -323,6 +327,9 @@ namespace Doorpi
         [DllImport("user32.dll")]
         private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
+        private static uint GetWindowProcessId(IntPtr hWnd, out uint processId) =>
+            GetWindowThreadProcessId(hWnd, out processId);
+
         [DllImport("user32.dll")]
         private static extern bool IsWindow(IntPtr hWnd);
 
@@ -347,8 +354,8 @@ namespace Doorpi
 
         // ========================= TECLADO TOUCH (COM INTEROP) =========================
 
-        [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
-        private static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr FindWindow(string? lpClassName, string? lpWindowName);
         [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT lpPoint);
 
         [DllImport("xinput1_4.dll", EntryPoint = "XInputGetState")]
@@ -374,6 +381,7 @@ namespace Doorpi
         }
 
         // ========================= WIN32 SENDINPUT (NOVO MOUSE/TECLADO) =========================
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         [DllImport("user32.dll", SetLastError = true)]
         private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
@@ -403,7 +411,6 @@ namespace Doorpi
         private const ushort VK_MENU = 0x12;
         private const ushort VK_TAB = 0x09;
 
-        private long _userShellInteractionUntil = 0;
 
 
 
@@ -614,7 +621,7 @@ namespace Doorpi
                 IntPtr hwnd = GetForegroundWindow();
                 if (hwnd == IntPtr.Zero) return false;
 
-                GetWindowThreadProcessId(hwnd, out uint pid);
+                GetWindowProcessId(hwnd, out uint pid);
                 var proc = Process.GetProcessById((int)pid);
                 string name = proc.ProcessName.ToLowerInvariant();
 
@@ -817,7 +824,7 @@ namespace Doorpi
 
             // Configurações de Produção 
 
-            timeBeginPeriod(1);
+            _ = timeBeginPeriod(1);
             StartWatchers();
             _ = Task.Run(WatchWindowsRegistry);
         }
@@ -1066,7 +1073,7 @@ namespace Doorpi
         {
             EnsureOneAdmin(users);
             var storageUsers = users.Select(CloneUserProfileForStorage).ToList();
-            File.WriteAllText(profilesFile, JsonSerializer.Serialize(storageUsers, new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(profilesFile, JsonSerializer.Serialize(storageUsers, IndentedJsonOptions));
         }
 
         private static string MakeUserId(string name)
@@ -1157,7 +1164,7 @@ namespace Doorpi
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.WriteAllText(path, JsonSerializer.Serialize(CloneUserProfileForStorage(profile),
-                new JsonSerializerOptions { WriteIndented = true }));
+                IndentedJsonOptions));
         }
 
         private string GetUserProfileToken(string userId, IReadOnlyList<UserProfile>? users = null)
@@ -1370,7 +1377,7 @@ namespace Doorpi
                 if (File.Exists(mediaFile))
                 {
                     File.WriteAllText(Path.Combine(dataFolder, "media.json"),
-                        JsonSerializer.Serialize(LoadMediaApps(), new JsonSerializerOptions { WriteIndented = true }));
+                        JsonSerializer.Serialize(LoadMediaApps(), IndentedJsonOptions));
                 }
             }
             catch (Exception ex) { Debug.WriteLine("[Users] Falha ao espelhar dados atuais: " + ex.Message); }
@@ -1454,7 +1461,7 @@ namespace Doorpi
 
             LoadGamesIntoUI();
             var apps = LoadMediaApps();
-            if (apps.Any()) SendMediaAppsToUI(apps);
+            if (apps.Count > 0) SendMediaAppsToUI(apps);
             _ = Task.Run(InitializeStoreLaunchersAsync);
             ResumePendingPlatformArtworkIfNeeded();
             bool bootstrapStarted = StartLibraryBootstrapIfNeeded();
@@ -1647,7 +1654,7 @@ namespace Doorpi
             {
                 if (_currentGameHwnd != IntPtr.Zero)
                 {
-                    GetWindowThreadProcessId(_currentGameHwnd, out uint pidRaw);
+                    GetWindowProcessId(_currentGameHwnd, out uint pidRaw);
                     if (pidRaw != 0)
                         Kill(Process.GetProcessById((int)pidRaw));
                 }
@@ -1933,7 +1940,7 @@ namespace Doorpi
             }
         }
         private const uint KEYEVENTF_UNICODE = 0x0004;
-        private DesktopVkbWindow _desktopVkb;
+        private DesktopVkbWindow? _desktopVkb;
 
         private const int MINIMUM_LAUNCH_ANIMATION_MS = 3000;
         private const int GAME_WINDOW_DETECTION_TIMEOUT_MS = 4 * 60 * 1000;
@@ -2057,7 +2064,7 @@ namespace Doorpi
                             continue;
                         }
 
-                        // ── Botão Xbox = Voltar/Minimizar Modo Mídia Exe/Dialog ──
+                        // -- Botão Xbox = Voltar/Minimizar Modo Mídia Exe/Dialog --
                         bool xboxBtn = (btn & 0x0400) != 0;
                         if (handleXboxButton && xboxBtn)
                         {
@@ -2086,8 +2093,8 @@ namespace Doorpi
                             {
                                 bool isDown = (btn & mask) != 0 || analogActive;
                                 bool wasDown = (prevButtons & mask) != 0 || prevAnalogActive[action];
-                                if (isDown && !wasDown) Dispatcher.Invoke(() => _desktopVkb.BeginHold(action));
-                                else if (!isDown && wasDown) Dispatcher.Invoke(() => _desktopVkb.EndHold(action));
+                                if (isDown && !wasDown) Dispatcher.Invoke(() => _desktopVkb?.BeginHold(action));
+                                else if (!isDown && wasDown) Dispatcher.Invoke(() => _desktopVkb?.EndHold(action));
                                 prevAnalogActive[action] = isDown;
                             }
 
@@ -2099,8 +2106,8 @@ namespace Doorpi
                             HandleHold(0x0200, false, VkbHoldAction.CursorRight);
                             HandleHold(0, ltAnalog, VkbHoldAction.ToggleLayer);
 
-                            if (Pressed(0x1000)) Dispatcher.Invoke(() => _desktopVkb.BeginHold(VkbHoldAction.Press));
-                            if (Released(0x1000)) Dispatcher.Invoke(() => _desktopVkb.EndHold(VkbHoldAction.Press));
+                            if (Pressed(0x1000)) Dispatcher.Invoke(() => _desktopVkb?.BeginHold(VkbHoldAction.Press));
+                            if (Released(0x1000)) Dispatcher.Invoke(() => _desktopVkb?.EndHold(VkbHoldAction.Press));
 
                             // B fecha o VKB
                             if (Pressed(0x2000))
@@ -2111,7 +2118,7 @@ namespace Doorpi
 
                             if (Pressed(0x8000)) SendUnicodeString(" ");  // Y = espaço
                             if (Pressed(0x0010)) SendVirtualKey(0x0D);    // Start = Enter
-                            if (Pressed(0x0040)) Dispatcher.Invoke(() => _desktopVkb.ToggleShift()); // L3
+                            if (Pressed(0x0040)) Dispatcher.Invoke(() => _desktopVkb?.ToggleShift()); // L3
 
                             // X = backspace com hold repeat
                             bool curX = (btn & 0x4000) != 0;
@@ -2130,7 +2137,7 @@ namespace Doorpi
                         }
                         else
                         {
-                            // ── MODO MOUSE ──────────────────────────────────────────────────
+                            // -- MODO MOUSE --------------------------------------------------
 
                             // Analógico esquerdo = mover mouse
                             double mlx = gp.sThumbLX / 32767.0;
@@ -2236,8 +2243,8 @@ namespace Doorpi
                             if (Pressed(0x8000)) OpenMediaExeVkb(autoPositioned: false);
 
                             // LB/RB = navegar cursor em campos de texto
-                            if (Pressed(0x0100)) SendVirtualKey(0x25); // cursor ←
-                            if (Pressed(0x0200)) SendVirtualKey(0x27); // cursor →
+                            if (Pressed(0x0100)) SendVirtualKey(0x25); // cursor ?
+                            if (Pressed(0x0200)) SendVirtualKey(0x27); // cursor ?
                         }
 
                         prevButtons = btn;
@@ -2700,7 +2707,7 @@ namespace Doorpi
                 if (foreground == storeHwnd)
                     return true;
 
-                GetWindowThreadProcessId(foreground, out uint pidRaw);
+                GetWindowProcessId(foreground, out uint pidRaw);
                 return pidRaw != 0 && pidRaw == (uint)storeProcess.Id;
             }
             catch { return false; }
@@ -2723,7 +2730,7 @@ namespace Doorpi
                 if (_gameLaunchStoreMouseModeProcessId <= 0)
                     return false;
 
-                GetWindowThreadProcessId(foreground, out uint pidRaw);
+                GetWindowProcessId(foreground, out uint pidRaw);
                 return pidRaw != 0 && (int)pidRaw == _gameLaunchStoreMouseModeProcessId;
             }
             catch { return false; }
@@ -2781,7 +2788,7 @@ namespace Doorpi
 
             try
             {
-                GetWindowThreadProcessId(hwnd, out uint pidRaw);
+                GetWindowProcessId(hwnd, out uint pidRaw);
                 if (pidRaw != 0)
                     _gameLaunchStoreMouseModeProcessId = (int)pidRaw;
             }
@@ -2978,7 +2985,7 @@ namespace Doorpi
             IntPtr result = IntPtr.Zero;
             EnumWindows((hWnd, _) =>
             {
-                GetWindowThreadProcessId(hWnd, out uint wpid);
+                GetWindowProcessId(hWnd, out uint wpid);
                 if ((int)wpid == pid && IsWindowVisible(hWnd))
                 {
                     // Verifica se a janela tem um título (janelas de sistema/renderização Electron geralmente não têm)
@@ -3067,7 +3074,7 @@ namespace Doorpi
             return parents;
         }
 
-        private static bool HasAncestorInGroup(int pid, IReadOnlyDictionary<int, int> parentIds, ISet<int> groupIds)
+        private static bool HasAncestorInGroup(int pid, Dictionary<int, int> parentIds, HashSet<int> groupIds)
         {
             var seen = new HashSet<int>();
             int current = pid;
@@ -3214,7 +3221,7 @@ namespace Doorpi
                     if (!IsWindowVisible(hWnd) || IsIconic(hWnd))
                         continue;
 
-                    GetWindowThreadProcessId(hWnd, out uint pidRaw);
+                    GetWindowProcessId(hWnd, out uint pidRaw);
                     int pid = (int)pidRaw;
                     if (pid <= 0 || pid == Environment.ProcessId)
                         continue;
@@ -3286,7 +3293,7 @@ namespace Doorpi
             return result;
         }
 
-        private IEnumerable<Process> EnumerateMediaExeProcesses(string mediaUrl, Process? knownProcess)
+        private List<Process> EnumerateMediaExeProcesses(string mediaUrl, Process? knownProcess)
         {
             var result = new List<Process>();
             var seen = new HashSet<int>();
@@ -3407,8 +3414,8 @@ namespace Doorpi
         private async Task TryMaximizeExternalWindowAsync(
             Process proc,
             string mediaUrl,
-            CancellationToken token = default,
-            bool requireControllerActive = true)
+            bool requireControllerActive = true,
+            CancellationToken token = default)
         {
             bool isSteamStoreLaunch =
                 _isStoreLauncherSession &&
@@ -3425,7 +3432,7 @@ namespace Doorpi
                 // CRÍTICO: Para imediatamente se saímos do modo (botão Xbox)
                 if (token.IsCancellationRequested || (requireControllerActive && !_mediaExeModeActive)) return;
 
-                await Task.Delay(200);
+                await Task.Delay(200, token);
                 try
                 {
                     Process? targetProc = proc;
@@ -3705,7 +3712,7 @@ namespace Doorpi
                     }
                 }
                 catch (Exception ex) { Debug.WriteLine($"[Watcher] {ex.Message}"); }
-            });
+            }, token);
         }
 
         private void FinalizeMediaExeTraySession(string mediaUrl)
@@ -3753,7 +3760,7 @@ namespace Doorpi
             int capturedSession = _mediaExeSessionId;
             string capturedUrl = _mediaExeCurrentUrl;
 
-            // ── Para imediatamente a Thread do Mouse, mas MANTÉM as variáveis de processo VIVAS ──
+            // -- Para imediatamente a Thread do Mouse, mas MANTÉM as variáveis de processo VIVAS --
             _mediaExeModeActive = false;
             _mediaExeGamepadDisabled = !_mediaExeMouseModeRequested;
             _doorpiSuspendedForMedia = false;
@@ -3916,7 +3923,7 @@ namespace Doorpi
             });
 
             SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg, "app");
-            _ = TryMaximizeExternalWindowAsync(proc, url, _mediaExeWatcherCts.Token);
+            _ = TryMaximizeExternalWindowAsync(proc, url, token: _mediaExeWatcherCts.Token);
             StartMediaExeWatcher(proc, url, appName, _mediaExeWatcherCts.Token);
             EnsureMediaExeShortcutThread(sessionId);
 
@@ -3955,7 +3962,7 @@ namespace Doorpi
                 up.U.ki = new KEYBDINPUT { wScan = c, dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP };
                 inputs.Add(up);
             }
-            SendInput((uint)inputs.Count, inputs.ToArray(), INPUT.Size);
+            SendInputs(inputs.ToArray());
         }
         private void EnterDesktopMode()
         {
@@ -4025,7 +4032,6 @@ namespace Doorpi
                 prevButtons = initialState.Gamepad.wButtons;
             }
 
-            double speedMult = 1.0;
             double remainderX = 0, remainderY = 0;
 
             bool aWasOnTextField = false;
@@ -4139,8 +4145,8 @@ namespace Doorpi
                                 bool isDown = (btn & btnMask) != 0 || isAnalogActive;
                                 bool wasDown = (prevButtons & btnMask) != 0 || prevAnalogActive[action];
 
-                                if (isDown && !wasDown) Dispatcher.Invoke(() => _desktopVkb.BeginHold(action));
-                                else if (!isDown && wasDown) Dispatcher.Invoke(() => _desktopVkb.EndHold(action));
+                                if (isDown && !wasDown) Dispatcher.Invoke(() => _desktopVkb?.BeginHold(action));
+                                else if (!isDown && wasDown) Dispatcher.Invoke(() => _desktopVkb?.EndHold(action));
 
                                 prevAnalogActive[action] = isDown;
                             }
@@ -4154,8 +4160,8 @@ namespace Doorpi
                             HandleHold(0x0200, false, VkbHoldAction.CursorRight);
                             HandleHold(0, ltAnalog, VkbHoldAction.ToggleLayer);
 
-                            if (Pressed(0x1000)) Dispatcher.Invoke(() => _desktopVkb.BeginHold(VkbHoldAction.Press));
-                            if (Released(0x1000)) Dispatcher.Invoke(() => _desktopVkb.EndHold(VkbHoldAction.Press));
+                            if (Pressed(0x1000)) Dispatcher.Invoke(() => _desktopVkb?.BeginHold(VkbHoldAction.Press));
+                            if (Released(0x1000)) Dispatcher.Invoke(() => _desktopVkb?.EndHold(VkbHoldAction.Press));
 
                             if (Pressed(0x2000))
                             {
@@ -4169,8 +4175,8 @@ namespace Doorpi
 
                             if (Pressed(0x8000)) SendUnicodeString(" ");
                             if (Pressed(0x0010)) SendVirtualKey(0x0D);
-                            if (Pressed(0x0040)) Dispatcher.Invoke(() => _desktopVkb.ToggleShift());
-                            if (Pressed(0x0080)) Dispatcher.Invoke(() => _desktopVkb.TogglePosition());
+                            if (Pressed(0x0040)) Dispatcher.Invoke(() => _desktopVkb?.ToggleShift());
+                            if (Pressed(0x0080)) Dispatcher.Invoke(() => _desktopVkb?.TogglePosition());
 
                             bool currentX = (btn & 0x4000) != 0;
                             if (currentX && (prevButtons & 0x4000) == 0)
@@ -4386,7 +4392,7 @@ namespace Doorpi
 
             var input = new INPUT { type = INPUT_MOUSE };
             input.U.mi = new MOUSEINPUT { dx = dx, dy = dy, dwFlags = flags, mouseData = data };
-            SendInput(1, new[] { input }, INPUT.Size);
+            SendInputs(new[] { input });
         }
 
         private void SyncKey(bool pressed, bool released, ushort vk)
@@ -4395,13 +4401,13 @@ namespace Doorpi
             {
                 var input = new INPUT { type = INPUT_KEYBOARD };
                 input.U.ki = new KEYBDINPUT { wVk = vk };
-                SendInput(1, new[] { input }, INPUT.Size);
+                SendInputs(new[] { input });
             }
             else if (released)
             {
                 var input = new INPUT { type = INPUT_KEYBOARD };
                 input.U.ki = new KEYBDINPUT { wVk = vk, dwFlags = KEYEVENTF_KEYUP };
-                SendInput(1, new[] { input }, INPUT.Size);
+                SendInputs(new[] { input });
             }
         }
 
@@ -4863,7 +4869,7 @@ namespace Doorpi
                     string.Equals(file, fallbackFile, StringComparison.OrdinalIgnoreCase) &&
                     apps.Count > 0)
                 {
-                    try { SafeWriteAllText(mediaFile, JsonSerializer.Serialize(apps, new JsonSerializerOptions { WriteIndented = true })); } catch { }
+                    try { SafeWriteAllText(mediaFile, JsonSerializer.Serialize(apps, IndentedJsonOptions)); } catch { }
                 }
 
                 return apps;
@@ -4920,12 +4926,12 @@ namespace Doorpi
 
             // USANDO O SAFE WRITE:
             SafeWriteAllText(targetMediaFile,
-                JsonSerializer.Serialize(apps, new JsonSerializerOptions { WriteIndented = true }));
+                JsonSerializer.Serialize(apps, IndentedJsonOptions));
 
             if (targetUserId == currentUserId)
             {
                 SafeWriteAllText(Path.Combine(dataFolder, "media.json"),
-                    JsonSerializer.Serialize(LoadMediaApps(), new JsonSerializerOptions { WriteIndented = true }));
+                    JsonSerializer.Serialize(LoadMediaApps(), IndentedJsonOptions));
             }
         }
 
@@ -4988,7 +4994,7 @@ namespace Doorpi
         private void SaveBrowserExtensions(List<BrowserExtensionModel> extensions)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(extensionsFile)!);
-            File.WriteAllText(extensionsFile, JsonSerializer.Serialize(extensions, new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(extensionsFile, JsonSerializer.Serialize(extensions, IndentedJsonOptions));
         }
 
         private static string ParseChromeExtensionId(string input)
@@ -5077,7 +5083,7 @@ namespace Doorpi
 
                     if (updateCheck != null)
                     {
-                        string availableVersion = updateCheck.Attribute("version")?.Value;
+                        string? availableVersion = updateCheck.Attribute("version")?.Value;
                         if (!string.IsNullOrEmpty(availableVersion) && IsNewerVersion(availableVersion, currentVersion))
                         {
                             updates[ext.Id] = availableVersion;
@@ -5351,7 +5357,7 @@ namespace Doorpi
 
             if (string.IsNullOrWhiteSpace(id) || id == "none")
             {
-                File.WriteAllText(ActiveIntroFile, JsonSerializer.Serialize(new { enabled = false }, new JsonSerializerOptions { WriteIndented = true }));
+                File.WriteAllText(ActiveIntroFile, JsonSerializer.Serialize(new { enabled = false }, IndentedJsonOptions));
                 return;
             }
 
@@ -5359,7 +5365,7 @@ namespace Doorpi
             {
                 enabled = true,
                 manifest = $"{id}/manifest.json"
-            }, new JsonSerializerOptions { WriteIndented = true }));
+            }, IndentedJsonOptions));
         }
 
         private void SendMediaAppsToUI(List<MediaAppModel> apps)
@@ -6111,7 +6117,7 @@ namespace Doorpi
                 // Ignora processos com "Launcher" no nome
                 try
                 {
-                    GetWindowThreadProcessId(hWnd, out uint pid);
+                    GetWindowProcessId(hWnd, out uint pid);
                     var proc = Process.GetProcessById((int)pid);
                     if (ShouldIgnoreSteamAccountSelectionWindow(proc) ||
                         ShouldAlwaysIgnoreGameWindowProcess(proc) ||
@@ -6163,7 +6169,7 @@ namespace Doorpi
             _gameIsMinimized = false;
             _currentGameHwnd = IntPtr.Zero;
             _currentLauncherHwnd = IntPtr.Zero;
-            _lockedGameProcessName = "";  // ← NOVO: limpa sessão anterior
+            _lockedGameProcessName = "";  // ? NOVO: limpa sessão anterior
 
             // Fotografa as janelas existentes ANTES do jogo abrir qualquer coisa.
             var windowSnapshot = SnapshotVisibleWindows();
@@ -6189,7 +6195,7 @@ namespace Doorpi
                 // 1. TRAVA GLOBAL DE LAUNCHER
                 try
                 {
-                    GetWindowThreadProcessId(hWnd, out uint pid);
+                    GetWindowProcessId(hWnd, out uint pid);
                     var proc = Process.GetProcessById((int)pid);
                     string procName = SafeProcessName(proc);
                     string procPath = SafeProcessPath(proc);
@@ -6290,11 +6296,11 @@ namespace Doorpi
                         {
                             try
                             {
-                                GetWindowThreadProcessId(candidates[0], out uint pidRaw);
+                                GetWindowProcessId(candidates[0], out uint pidRaw);
                                 var proc = Process.GetProcessById((int)pidRaw);
                                 lockedProcessName = SafeProcessName(proc);
-                                _lockedGameProcessName = lockedProcessName; // ← NOVO: promove para classe
-                                _currentLauncherHwnd = IntPtr.Zero;         // ← NOVO: esquece o launcher
+                                _lockedGameProcessName = lockedProcessName; // ? NOVO: promove para classe
+                                _currentLauncherHwnd = IntPtr.Zero;         // ? NOVO: esquece o launcher
                                 _pendingLaunchProcess = null;               // jogo real identificado: launcher intermediário deixa de ser referência
                                 StopGameLaunchStoreMouseMode();
                                 DelayGameMinimizeAvailability();
@@ -6491,7 +6497,7 @@ namespace Doorpi
                 "timeout");
             SendRuntimeSessionsToUI();
         }
-        // ── Session tracking ──────────────────────────────────────────────────────
+        // -- Session tracking ------------------------------------------------------
         private void CommitActiveSession()
         {
             if (_sessionStartUtc == DateTime.MinValue || string.IsNullOrEmpty(_activeSessionGameId))
@@ -6586,7 +6592,7 @@ namespace Doorpi
                 if (foreground == IntPtr.Zero) return false;
                 if (foreground == _mainWindowHandle) return true;
 
-                GetWindowThreadProcessId(foreground, out var pidRaw);
+                GetWindowProcessId(foreground, out var pidRaw);
                 return pidRaw == Environment.ProcessId;
             }
             catch { return false; }
@@ -6632,7 +6638,7 @@ namespace Doorpi
                 if (!IsWindowVisible(foreground))
                     return;
 
-                GetWindowThreadProcessId(foreground, out var pidRaw);
+                GetWindowProcessId(foreground, out var pidRaw);
                 int pid = (int)pidRaw;
                 if (pid <= 0 || pid == Environment.ProcessId)
                     return;
@@ -6680,7 +6686,7 @@ namespace Doorpi
             {
                 var foreground = GetForegroundWindow();
                 if (foreground == IntPtr.Zero) return false;
-                GetWindowThreadProcessId(foreground, out var pidRaw);
+                GetWindowProcessId(foreground, out var pidRaw);
                 if (pidRaw == 0) return false;
 
                 using var process = Process.GetProcessById((int)pidRaw);
@@ -6708,7 +6714,7 @@ namespace Doorpi
                 if (!IsWindowVisible(foreground) || IsIconic(foreground)) return false;
                 if (!GetWindowRect(foreground, out RECT rect) || rect.Width < 80 || rect.Height < 80) return false;
 
-                GetWindowThreadProcessId(foreground, out var pidRaw);
+                GetWindowProcessId(foreground, out var pidRaw);
                 if (pidRaw == 0 || pidRaw == Environment.ProcessId) return false;
 
                 process = Process.GetProcessById((int)pidRaw);
@@ -6761,7 +6767,7 @@ namespace Doorpi
                     var foreground = GetForegroundWindow();
                     if (foreground == storeHwnd) return true;
 
-                    GetWindowThreadProcessId(foreground, out var pidRaw);
+                    GetWindowProcessId(foreground, out var pidRaw);
                     if (pidRaw != 0 && pidRaw == (uint)storeProc.Id) return true;
                 }
                 catch { }
@@ -6797,7 +6803,7 @@ namespace Doorpi
                     if (foreground == storeHwnd)
                         return true;
 
-                    GetWindowThreadProcessId(foreground, out var pidRaw);
+                    GetWindowProcessId(foreground, out var pidRaw);
                     return pidRaw != 0 && pidRaw == (uint)storeProc.Id;
                 }
 
@@ -6855,7 +6861,7 @@ namespace Doorpi
 
             try
             {
-                GetWindowThreadProcessId(hwnd, out uint pidRaw);
+                GetWindowProcessId(hwnd, out uint pidRaw);
                 if (pidRaw == 0 || pidRaw == Environment.ProcessId)
                     return false;
 
@@ -6917,7 +6923,7 @@ namespace Doorpi
                 if (_currentGameHwnd != IntPtr.Zero && foreground == _currentGameHwnd)
                     return true;
 
-                GetWindowThreadProcessId(foreground, out var pidRaw);
+                GetWindowProcessId(foreground, out var pidRaw);
                 if (pidRaw == 0) return false;
 
                 using var process = Process.GetProcessById((int)pidRaw);
@@ -6961,7 +6967,7 @@ namespace Doorpi
                 if (hWnd == IntPtr.Zero || hWnd == GetShellWindow())
                     return true;
 
-                GetWindowThreadProcessId(hWnd, out var pidRaw);
+                GetWindowProcessId(hWnd, out var pidRaw);
                 if (pidRaw == 0) return true;
 
                 using var process = Process.GetProcessById((int)pidRaw);
@@ -7132,7 +7138,17 @@ namespace Doorpi
         private static void SendKey(ushort key, bool keyUp = false)
         {
             var inputs = new[] { KeyboardInput(key, keyUp) };
-            SendInput((uint)inputs.Length, inputs, INPUT.Size);
+            SendInputs(inputs);
+        }
+
+        private static void SendInputs(INPUT[] inputs)
+        {
+            uint sent = SendInput((uint)inputs.Length, inputs, INPUT.Size);
+            if (sent != inputs.Length)
+            {
+                int error = Marshal.GetLastWin32Error();
+                Debug.WriteLine($"[Input] SendInput enviou {sent}/{inputs.Length} eventos. Win32Error={error}");
+            }
         }
 
         private void BeginManualGameWindowRestore()
@@ -7819,7 +7835,6 @@ namespace Doorpi
 
             if (shouldCloseStoreChildGame)
             {
-                kind = "game";
                 channel = "games";
                 appType = "game";
                 id = _activeSessionGameId;
@@ -7871,7 +7886,7 @@ namespace Doorpi
                     {
                         var input = new INPUT { type = INPUT_KEYBOARD };
                         input.U.ki = new KEYBDINPUT { wVk = vk, dwFlags = KEYEVENTF_KEYUP };
-                        SendInput(1, new[] { input }, INPUT.Size);
+                        SendInputs(new[] { input });
                     }
                 }
             }
@@ -7889,7 +7904,7 @@ namespace Doorpi
                 var doorpi = _mainWindowHandle;
                 if (doorpi != IntPtr.Zero && foreground == doorpi) return false;
 
-                GetWindowThreadProcessId(foreground, out var pidRaw);
+                GetWindowProcessId(foreground, out var pidRaw);
                 if (pidRaw == 0) return true;
                 if (pidRaw == gamePid) return false; // O próprio jogo está focado
 
@@ -7976,7 +7991,7 @@ namespace Doorpi
 
             foreach (var hWnd in EnumerateTopLevelWindows())
             {
-                GetWindowThreadProcessId(hWnd, out var pidRaw);
+                GetWindowProcessId(hWnd, out var pidRaw);
                 var pid = (int)pidRaw;
                 if (pid <= 0 || pid == Environment.ProcessId) continue;
 
@@ -8112,7 +8127,7 @@ namespace Doorpi
             return true;
         }
 
-        private IEnumerable<IntPtr> EnumerateTopLevelWindows()
+        private List<IntPtr> EnumerateTopLevelWindows()
         {
             var windows = new List<IntPtr>();
             var shell = GetShellWindow();
@@ -8227,7 +8242,7 @@ namespace Doorpi
             {
                 var length = Math.Max(GetWindowTextLength(hWnd), 0);
                 var builder = new System.Text.StringBuilder(length + 1);
-                GetWindowText(hWnd, builder, builder.Capacity);
+                _ = GetWindowText(hWnd, builder, builder.Capacity);
                 return builder.ToString();
             }
             catch { return ""; }
@@ -8239,7 +8254,7 @@ namespace Doorpi
             {
                 var foreground = GetForegroundWindow();
                 if (foreground == IntPtr.Zero) return false;
-                GetWindowThreadProcessId(foreground, out var foregroundPid);
+                GetWindowProcessId(foreground, out var foregroundPid);
                 return foregroundPid == processId;
             }
             catch { return false; }
@@ -8255,7 +8270,7 @@ namespace Doorpi
                 var doorpi = _mainWindowHandle;
                 if (doorpi != IntPtr.Zero && foreground == doorpi) return false;
 
-                GetWindowThreadProcessId(foreground, out var pidRaw);
+                GetWindowProcessId(foreground, out var pidRaw);
                 if (pidRaw == 0) return true;
 
                 try
@@ -8377,7 +8392,7 @@ namespace Doorpi
                                                         !f.Name.Contains("redist", StringComparison.OrdinalIgnoreCase))
                                             .ToList();
 
-                                        if (exeFiles.Any())
+                                        if (exeFiles.Count > 0)
                                         {
                                             string cleanGameName = NormalizeGameName(name);
                                             string cleanFolderName = NormalizeGameName(installDir);
@@ -8612,7 +8627,7 @@ namespace Doorpi
                                        !fn.Contains("manual") && !fn.Contains("support");
                             }).ToList();
 
-                        if (shortcuts.Any())
+                        if (shortcuts.Count > 0)
                         {
                             finalPath = shortcuts.FirstOrDefault(s =>
                                 Path.GetFileName(s).StartsWith("Launch", StringComparison.OrdinalIgnoreCase))
@@ -8628,7 +8643,7 @@ namespace Doorpi
                                           .Replace("\"", "").Trim();
 
                         if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath) &&
-                            !exePath.ToLower().Contains("unins"))
+                            !exePath.Contains("unins", StringComparison.OrdinalIgnoreCase))
                             finalPath = exePath;
                     }
 
@@ -8701,8 +8716,8 @@ namespace Doorpi
 
         private void SaveFoldersData(List<FolderStats> folders)
         {
-            File.WriteAllText(foldersFile, JsonSerializer.Serialize(folders, new JsonSerializerOptions { WriteIndented = true }));
-            File.WriteAllText(Path.Combine(dataFolder, "folders.json"), JsonSerializer.Serialize(folders, new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(foldersFile, JsonSerializer.Serialize(folders, IndentedJsonOptions));
+            File.WriteAllText(Path.Combine(dataFolder, "folders.json"), JsonSerializer.Serialize(folders, IndentedJsonOptions));
         }
 
         private List<string> GetWatchedFolderPaths()
@@ -8996,7 +9011,7 @@ namespace Doorpi
                                 if (folder.Contains(@"\steamapps\", StringComparison.OrdinalIgnoreCase)) continue;
 
                                 // CHAMA A FUNÇÃO INTELIGENTE
-                                string exePath = FindMainExecutable(folder, displayName, options);
+                                string? exePath = FindMainExecutable(folder, displayName, options);
                                 if (exePath == null) continue;
 
                                 list.Add(new InstalledApp
@@ -9020,7 +9035,7 @@ namespace Doorpi
         private void SaveAppCache(AppCacheModel cache)
         {
             File.WriteAllText(appCacheFile, JsonSerializer.Serialize(cache,
-                new JsonSerializerOptions { WriteIndented = true }));
+                IndentedJsonOptions));
         }
 
         private AppCacheModel? LoadAppCache()
@@ -9097,14 +9112,14 @@ namespace Doorpi
                 var xboxPrint = GetXboxFingerprint();
                 var winPrint = GetWindowsRegistryFingerprint();
 
-                bool steamStale = !steamPrint.SetEquals(cache.SteamFingerprint) || !cache.SteamApps.Any();
-                bool epicStale = !epicPrint.SetEquals(cache.EpicFingerprint) || !cache.EpicApps.Any();
-                bool gogStale = !gogPrint.SetEquals(cache.GogFingerprint) || !cache.GogApps.Any();
-                bool riotStale = !riotPrint.SetEquals(cache.RiotFingerprint) || !cache.RiotApps.Any();
-                bool xboxStale = !xboxPrint.SetEquals(cache.XboxFingerprint) || !cache.XboxApps.Any();
+                bool steamStale = !steamPrint.SetEquals(cache.SteamFingerprint) || cache.SteamApps.Count == 0;
+                bool epicStale = !epicPrint.SetEquals(cache.EpicFingerprint) || cache.EpicApps.Count == 0;
+                bool gogStale = !gogPrint.SetEquals(cache.GogFingerprint) || cache.GogApps.Count == 0;
+                bool riotStale = !riotPrint.SetEquals(cache.RiotFingerprint) || cache.RiotApps.Count == 0;
+                bool xboxStale = !xboxPrint.SetEquals(cache.XboxFingerprint) || cache.XboxApps.Count == 0;
                 bool windowsStale = _windowsCacheInvalid
                                  || !winPrint.SetEquals(cache.WindowsFingerprint)
-                                 || !cache.WindowsApps.Any();
+                                 || cache.WindowsApps.Count == 0;
                 var riotTask = Task.Run(() =>
     riotStale
         ? (GetRiotGames(), true)
@@ -9508,7 +9523,7 @@ namespace Doorpi
                 app.AdminLockReason = app.IsAdminLocked ? "blocked-store" : "";
 
                 // Reutiliza sua chave original IsAdded e alimenta o AddedTo
-                if (appKeys.Select(k => existingMap.TryGetValue(k, out string addedToType) ? addedToType : null)
+                if (appKeys.Select(k => existingMap.TryGetValue(k, out var mappedType) ? mappedType : null)
                     .FirstOrDefault(v => !string.IsNullOrEmpty(v)) is string addedToType)
                 {
                     app.IsAdded = true;
@@ -9731,7 +9746,7 @@ namespace Doorpi
         {
             try
             {
-                File.WriteAllText(libraryBootstrapFile, JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true }));
+                File.WriteAllText(libraryBootstrapFile, JsonSerializer.Serialize(state, IndentedJsonOptions));
             }
             catch (Exception ex) { Debug.WriteLine("[Bootstrap] Falha ao salvar estado: " + ex.Message); }
         }
@@ -10582,7 +10597,7 @@ namespace Doorpi
                 else if (action == "addSelectedGames" && root.TryGetProperty("games", out var gamesElement))
                 {
                     var selectedApps = JsonSerializer.Deserialize<List<InstalledApp>>(gamesElement.GetRawText());
-                    if (selectedApps != null && selectedApps.Any())
+                    if (selectedApps != null && selectedApps.Count > 0)
                     {
 
                         webView.CoreWebView2.PostWebMessageAsString(
@@ -10600,7 +10615,7 @@ namespace Doorpi
                 {
                     _launchCancelled = true;
                     ResetGameMinimizeGrace();
-                    _lockedGameProcessName = "";  // ← NOVO
+                    _lockedGameProcessName = "";  // ? NOVO
                     _gameIsMinimized = false;
                     _currentGameHwnd = IntPtr.Zero;
 
@@ -10638,7 +10653,7 @@ namespace Doorpi
                 else if (action == "addSelectedMediaApps" && root.TryGetProperty("apps", out var mediaAppsEl))
                 {
                     var selectedApps = JsonSerializer.Deserialize<List<InstalledApp>>(mediaAppsEl.GetRawText());
-                    if (selectedApps != null && selectedApps.Any())
+                    if (selectedApps != null && selectedApps.Count > 0)
                         _ = Task.Run(async () => await AddMultipleMediaAppsAsync(selectedApps));
                 }
                 else if (action == "browseManualMedia")
@@ -10916,7 +10931,7 @@ namespace Doorpi
 
                     if (!string.IsNullOrEmpty(gameId) && !string.IsNullOrEmpty(base64))
                     {
-                        string cleanBase64 = base64.Contains(",") ? base64.Split(',')[1] : base64;
+                        string cleanBase64 = base64.Contains(',') ? base64.Split(',')[1] : base64;
                         byte[] imageBytes = Convert.FromBase64String(cleanBase64);
 
                         var games = LoadGames();
@@ -11138,7 +11153,7 @@ namespace Doorpi
                         File.WriteAllText(Path.Combine(userDir, "media.json"), "[]");
                         File.WriteAllText(Path.Combine(userDir, "folders.json"),
                             JsonSerializer.Serialize(folders.Select(p => new FolderStats { Path = p }).ToList(),
-                                new JsonSerializerOptions { WriteIndented = true }));
+                                IndentedJsonOptions));
 
                         savedProfiles.Add((profile, folders));
                     }
@@ -11166,7 +11181,7 @@ namespace Doorpi
 
                                 await Task.WhenAll(initTasks).ConfigureAwait(false);
 
-                                Dispatcher.BeginInvoke(() =>
+                                _ = Dispatcher.BeginInvoke(() =>
                                 {
                                     LoadCurrentUserIntoUI();
                                     webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideSystemLoading\"}");
@@ -11175,7 +11190,7 @@ namespace Doorpi
                             catch (Exception ex)
                             {
                                 Debug.WriteLine("[SetupBatch] Erro: " + ex.Message);
-                                Dispatcher.BeginInvoke(() =>
+                                _ = Dispatcher.BeginInvoke(() =>
                                     webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideSystemLoading\"}"));
                             }
                         });
@@ -11604,7 +11619,7 @@ namespace Doorpi
                             }));
 
 
-                            Dispatcher.InvokeAsync(() => SendMediaAppsToUI(LoadMediaApps()));
+                            _ = Dispatcher.InvokeAsync(() => SendMediaAppsToUI(LoadMediaApps()));
                         }
 
                         if (media != null)
@@ -11620,7 +11635,7 @@ namespace Doorpi
                             }));
 
 
-                            Dispatcher.InvokeAsync(() => SendMediaAppsToUI(LoadMediaApps()));
+                            _ = Dispatcher.InvokeAsync(() => SendMediaAppsToUI(LoadMediaApps()));
                         }
 
 
@@ -11657,7 +11672,7 @@ namespace Doorpi
                                     string heroImg = media?.HeroImage ?? "";
                                     string gridImg = media?.GridImage ?? "";
 
-                                    // ── Já está rodando? Restaura em vez de relançar ─────────────
+                                    // -- Já está rodando? Restaura em vez de relançar -------------
                                     Process? existingProc = null;
 
                                     if (_mediaExeProcess != null && !SafeHasExited(_mediaExeProcess) &&
@@ -11680,7 +11695,7 @@ namespace Doorpi
                                             InitializeMediaExeMouseModeForSession(media);
                                             _mediaExeGamepadDisabled = !_mediaExeMouseModeRequested;
 
-                                            // ── MÁGICA: Zera o temporizador de segurança para pular os 3 segundos de carregamento artificial ──
+                                            // -- MÁGICA: Zera o temporizador de segurança para pular os 3 segundos de carregamento artificial --
                                             _launchAnimationStartedUtc = DateTime.MinValue;
 
                                             // Restaura e foca
@@ -11706,7 +11721,7 @@ namespace Doorpi
                                         }
                                     }
 
-                                    // ── Lança um processo novo ────────────────────────────────────
+                                    // -- Lança um processo novo ------------------------------------
                                     if (_mediaExeModeActive) _mediaExeModeActive = false;
                                     _mediaExeWatcherCts?.Cancel();
 
@@ -11913,7 +11928,7 @@ namespace Doorpi
                     continue;
 
                 string? steamAppId = null;
-                if (!string.IsNullOrEmpty(app.LaunchUrl) && app.LaunchUrl.StartsWith("steam://run/"))
+                if (!string.IsNullOrEmpty(app.LaunchUrl) && app.LaunchUrl.StartsWith("steam://run/", StringComparison.OrdinalIgnoreCase))
                     steamAppId = app.LaunchUrl.Replace("steam://run/", "").Trim();
 
 
@@ -11952,10 +11967,10 @@ namespace Doorpi
             if (dbChanged)
             {
                 SaveGames(existingGames);
-                Dispatcher.BeginInvoke(() => LoadGamesIntoUI());
+                _ = Dispatcher.BeginInvoke(() => LoadGamesIntoUI());
             }
 
-            Dispatcher.BeginInvoke(() =>
+            _ = Dispatcher.BeginInvoke(() =>
                 webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"clearLoadingCards\"}"));
         }
         // ========================= STEAMGRID =========================
@@ -11963,7 +11978,7 @@ namespace Doorpi
         private string PrepareSearchName(string name)
         {
             if (string.IsNullOrWhiteSpace(name)) return name;
-            if (name.Trim().Contains(" ")) return name.Trim();
+            if (name.Trim().Contains(' ')) return name.Trim();
 
             string result = Regex.Replace(name, @"([a-z])([A-Z])", "$1 $2");
             result = Regex.Replace(result, @"([A-Z])([A-Z][a-z])", "$1 $2");
@@ -12267,7 +12282,7 @@ namespace Doorpi
                         return;
                     }
 
-                    // ── Verifica estado atual da sessão ────────────────────────────────────
+                    // -- Verifica estado atual da sessão ------------------------------------
                     bool gameAlive = IsLockedGameProcessAlive();
                     bool isSameGame = (_gameSessionActive || gameAlive)
                         && string.Equals(_activeSessionGameId, identifier, StringComparison.OrdinalIgnoreCase);
@@ -12314,7 +12329,7 @@ namespace Doorpi
                         id = identifier
                     }));
 
-                    // ── Restauração: mesmo jogo ainda está vivo ────────────────────────────
+                    // -- Restauração: mesmo jogo ainda está vivo ----------------------------
                     if (isSameGame)
                     {
                         Debug.WriteLine($"\n[RESTORE] Restaurando: {game.Name}");
@@ -12353,7 +12368,7 @@ namespace Doorpi
                                     {
                                         try
                                         {
-                                            var h = FindAnyWindowForProcess(p.Id); // ← sem exigência de título
+                                            var h = FindAnyWindowForProcess(p.Id); // ? sem exigência de título
                                             if (h == IntPtr.Zero) h = p.MainWindowHandle;
                                             if (h != IntPtr.Zero) { hwndToRestore = h; _currentGameHwnd = h; break; }
                                         }
@@ -12384,7 +12399,7 @@ namespace Doorpi
                                     RestoreGameCleanly(hwndToRestore);
                                     DiscordRpcManager.Instance.UpdateState("game", game.Name);
 
-                                    _gameIsMinimized = false;          // ← permite monitor continuar rastreando
+                                    _gameIsMinimized = false;          // ? permite monitor continuar rastreando
 
                                     if (string.IsNullOrWhiteSpace(_lockedGameProcessName))
                                     {
@@ -12403,7 +12418,7 @@ namespace Doorpi
                                 {
                                     IntPtr fb = _lastVisibleWindowBeforeMinimize;
                                     RestoreGameCleanly(fb);
-                                    _gameIsMinimized = false;          // ← idem
+                                    _gameIsMinimized = false;          // ? idem
                                     if (string.IsNullOrWhiteSpace(_lockedGameProcessName))
                                     {
                                         _gameIsRunningAndDoorpiHidden = false;
@@ -12421,7 +12436,7 @@ namespace Doorpi
                                 {
                                     // Processo não encontrado — pode ter crashado.
                                     // Reseta o flag para o monitor detectar a morte e chamar ForceFocus.
-                                    _gameIsMinimized = false;          // ← monitor retoma e detecta crash em ~1.2 s
+                                    _gameIsMinimized = false;          // ? monitor retoma e detecta crash em ~1.2 s
                                     _gameIsRunningAndDoorpiHidden = false;
                                     SendGameLaunchStatus("gameLaunching", game.Name,
                                         game.HeroImage ?? "", game.GridImage ?? "", "restore");
@@ -12474,9 +12489,9 @@ namespace Doorpi
                                 string exePath = "";
                                 string args = "";
 
-                                if (cmd.StartsWith("\""))
+                                if (cmd.StartsWith('"'))
                                 {
-                                    int endQuote = cmd.IndexOf("\"", 1);
+                                    int endQuote = cmd.IndexOf('"', 1);
                                     if (endQuote > 0)
                                     {
                                         exePath = cmd.Substring(1, endQuote - 1);
@@ -12625,7 +12640,7 @@ namespace Doorpi
                 if (!IsWindowVisible(_lastVisibleWindowBeforeMinimize) && !IsIconic(_lastVisibleWindowBeforeMinimize))
                     return false;
 
-                GetWindowThreadProcessId(_lastVisibleWindowBeforeMinimize, out uint pidRaw);
+                GetWindowProcessId(_lastVisibleWindowBeforeMinimize, out uint pidRaw);
                 if (pidRaw == 0) return false;
 
                 if (!string.IsNullOrWhiteSpace(_lockedGameProcessName))
@@ -12650,7 +12665,7 @@ namespace Doorpi
 
             EnumWindows((hWnd, _) =>
             {
-                GetWindowThreadProcessId(hWnd, out uint wpid);
+                GetWindowProcessId(hWnd, out uint wpid);
                 if ((int)wpid != pid || !IsWindowVisible(hWnd)) return true;
 
                 if (GetWindowTextLength(hWnd) > 0)
@@ -12745,8 +12760,8 @@ namespace Doorpi
                 var deadline = DateTime.UtcNow.AddSeconds(10);
                 while (DateTime.UtcNow < deadline)
                 {
-                    bool alive = Process.GetProcessesByName("steam").Any() ||
-                                 Process.GetProcessesByName("steamwebhelper").Any();
+                    bool alive = Process.GetProcessesByName("steam").Length > 0 ||
+                                 Process.GetProcessesByName("steamwebhelper").Length > 0;
                     if (!alive) break;
                     System.Threading.Thread.Sleep(150);
                 }
@@ -12772,7 +12787,7 @@ namespace Doorpi
         {
             lock (_gamesFileLock)
             {
-                string json = JsonSerializer.Serialize(games, new JsonSerializerOptions { WriteIndented = true });
+                string json = JsonSerializer.Serialize(games, IndentedJsonOptions);
                 SafeWriteAllText(gamesFile, json);
                 SafeWriteAllText(Path.Combine(dataFolder, "games.json"), json);
             }
@@ -12920,7 +12935,7 @@ namespace Doorpi
                 using var key = Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam");
                 string exePath = key?.GetValue("SteamExe") as string ?? "";
 
-                if (!string.IsNullOrEmpty(exePath) && !exePath.Contains(@"\"))
+                if (!string.IsNullOrEmpty(exePath) && !exePath.Contains('\\'))
                 {
                     var installPath = key?.GetValue("SteamPath") as string;
                     if (!string.IsNullOrEmpty(installPath))
@@ -13050,7 +13065,7 @@ namespace Doorpi
             {
                 if (foreground != IntPtr.Zero)
                 {
-                    GetWindowThreadProcessId(foreground, out var pidRaw);
+                    GetWindowProcessId(foreground, out var pidRaw);
                     if (pidRaw == Environment.ProcessId)
                         return true;
                 }
@@ -13253,7 +13268,7 @@ namespace Doorpi
             // 4. Limpa recursos de hardware (seu código original)
             StopMainScreenMouseWatch();
             ReleaseAllStuckKeys();
-            timeEndPeriod(1);
+            _ = timeEndPeriod(1);
 
             // (Opcional) Se quiser garantir que processos executáveis de mídia morram junto:
             // try { if (_mediaExeProcess != null && !_mediaExeProcess.HasExited) _mediaExeProcess.Kill(true); } catch { }

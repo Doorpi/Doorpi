@@ -48,7 +48,7 @@ public sealed class ComponentInstaller
         }
     }
 
-    private void BackupExistingFile(string destination, string backupFolder, string relative)
+    private static void BackupExistingFile(string destination, string backupFolder, string relative)
     {
         if (!File.Exists(destination)) return;
 

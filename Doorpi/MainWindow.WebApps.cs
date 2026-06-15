@@ -417,7 +417,7 @@ namespace Doorpi
                     if (popup == null) return;
 
                     popup.Focus();
-                    popup.CoreWebView2.ExecuteScriptAsync("window.focus();");
+                    _ = popup.CoreWebView2.ExecuteScriptAsync("window.focus();");
                     try
                     {
                         string currentUrl = popup.CoreWebView2.Source;
@@ -1326,7 +1326,7 @@ namespace Doorpi
                     _vkbHasFocus = false;
                 }
 
-                string currentUri = e.Uri?.TrimEnd('/');
+                string? currentUri = e.Uri?.TrimEnd('/');
                 if (currentUri == "https://www.steamgriddb.com")
                 {
                     e.Cancel = true;
@@ -1464,7 +1464,8 @@ namespace Doorpi
         // ── Fechar app ────────────────────────────────────────────────────────
         public void CloseYouTubeInline(bool skipStoreCompletion = false)
         {
-            if (_ytClosing || _ytWebView == null) return;
+            var ytWebView = _ytWebView;
+            if (_ytClosing || ytWebView == null) return;
             _ytClosing = true;
 
             bool shouldFinalizeStoreFromThisWebClose =
@@ -1482,24 +1483,32 @@ namespace Doorpi
             _popupWindow = null;
             _popupWebView = null;
 
+            var coreWebView = ytWebView.CoreWebView2;
+
             try
             {
-                _ytWebView.CoreWebView2?.ExecuteScriptAsync(
-                    "try{document.querySelectorAll('video').forEach(v=>v.pause());}catch(e){}");
+                if (coreWebView != null)
+                {
+                    _ = coreWebView.ExecuteScriptAsync(
+                        "try{document.querySelectorAll('video').forEach(v=>v.pause());}catch(e){}");
+                }
             }
             catch { }
 
-            _ytWebView.KeyDown -= YtOnKeyDown;
-            _ytWebView.CoreWebView2.WebResourceRequested -= YtOnWebResourceRequested;
-            _ytWebView.CoreWebView2.WebMessageReceived -= YtOnWebMessageReceived;
-            _ytWebView.CoreWebView2.NewWindowRequested -= OnNewWindowRequested;
+            ytWebView.KeyDown -= YtOnKeyDown;
+            if (coreWebView != null)
+            {
+                coreWebView.WebResourceRequested -= YtOnWebResourceRequested;
+                coreWebView.WebMessageReceived -= YtOnWebMessageReceived;
+                coreWebView.NewWindowRequested -= OnNewWindowRequested;
+            }
 
             try { _webAppWindow?.Close(); } catch { }
             _webAppWindow = null;
 
-            RootGrid.Children.Remove(_ytWebView);
+            RootGrid.Children.Remove(ytWebView);
 
-            try { _ytWebView.Dispose(); } catch { }
+            try { ytWebView.Dispose(); } catch { }
             _ytWebView = null;
             ClearWebAppSession();
 

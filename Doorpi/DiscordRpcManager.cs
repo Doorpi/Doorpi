@@ -35,7 +35,7 @@ namespace Doorpi
 
                 // Eventos informativos — falhas são silenciosas para o usuário final
                 _client.OnReady += (_, e) =>
-                    Debug.WriteLine($"[Discord] RPC conectado como: {e.User.Username}#{e.User.Discriminator}");
+                    Debug.WriteLine($"[Discord] RPC conectado como: {e.User.Username}");
                 _client.OnError += (_, e) =>
                     Debug.WriteLine($"[Discord] Erro RPC: {e.Message}");
                 _client.OnConnectionFailed += (_, _) =>
@@ -69,7 +69,7 @@ namespace Doorpi
             _nativeAppsRef = apps;
         }
 
-        private (bool IsNative, string Id, string Name) ResolveApp(string url)
+        private static (bool IsNative, string Id, string Name) ResolveApp(string url)
         {
             if (string.IsNullOrWhiteSpace(url))
                 return (false, "", "Mídia");

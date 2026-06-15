@@ -10,6 +10,8 @@ public static class ManifestSignatureVerifier
 
     public static string BuildSigningPayload(UpdateManifest manifest)
     {
+        ArgumentNullException.ThrowIfNull(manifest);
+
         var builder = new StringBuilder();
         Append(builder, "schemaVersion", manifest.SchemaVersion.ToString(CultureInfo.InvariantCulture));
         Append(builder, "channel", manifest.Channel);
@@ -34,6 +36,8 @@ public static class ManifestSignatureVerifier
 
     public static void Verify(UpdateManifest manifest, string publicKeyXml)
     {
+        ArgumentNullException.ThrowIfNull(manifest);
+
         if (manifest.Signature == null)
             throw new InvalidDataException("Manifesto sem assinatura.");
 
@@ -77,7 +81,9 @@ public static class ManifestSignatureVerifier
     {
         builder.Append(name);
         builder.Append('=');
-        builder.Append((value ?? "").Replace("\r", "\\r").Replace("\n", "\\n"));
+        builder.Append((value ?? "")
+            .Replace("\r", "\\r", StringComparison.Ordinal)
+            .Replace("\n", "\\n", StringComparison.Ordinal));
         builder.Append('\n');
     }
 }

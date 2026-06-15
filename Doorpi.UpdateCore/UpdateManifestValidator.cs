@@ -8,6 +8,9 @@ public static class UpdateManifestValidator
         UpdateManifestState? previousState,
         DateTimeOffset now)
     {
+        ArgumentNullException.ThrowIfNull(manifest);
+        ArgumentNullException.ThrowIfNull(policy);
+
         if (manifest.SchemaVersion < manifest.MinimumSupportedManifestVersion)
             throw new InvalidDataException("Versao de manifesto nao suportada.");
 
@@ -37,6 +40,8 @@ public static class UpdateManifestValidator
         string localVersion,
         string componentName)
     {
+        ArgumentNullException.ThrowIfNull(release);
+
         int comparison = UpdateVersionComparer.Compare(release.Version, localVersion);
         if (comparison < 0 && !release.AllowRollback)
             throw new InvalidDataException($"{componentName} rejeitou downgrade sem allowRollback assinado.");

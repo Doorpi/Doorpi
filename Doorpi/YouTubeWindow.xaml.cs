@@ -24,7 +24,6 @@ namespace Doorpi
 
         private const string YT_TV_URL = "https://www.youtube.com/tv";
         private static readonly HttpClient _http = new();
-        private bool _profileHackDone = false;
         private bool _profileClearDone = false;
 
         // Caminho do perfil dedicado do YouTube TV
@@ -130,7 +129,6 @@ namespace Doorpi
                 _profileClearDone = true;
 
                 // Fecha a janela atual para liberar o lock na pasta do perfil
-                _profileHackDone = false;
                 this.Close();
 
                 // Aguarda o processo liberar os arquivos
@@ -171,7 +169,6 @@ namespace Doorpi
             var msg = e.TryGetWebMessageAsString();
             if (msg == "player_loaded") ytWebView.ZoomFactor = 1.0;
             else if (msg == "close_app") CloseYouTube();
-            else if (msg == "doorpi_profile_hacked_done") _profileHackDone = true;
             else if (msg == "check_accounts") Debug.WriteLine("[Doorpi] YouTube account check ignorado; contas salvas nunca devem ser apagadas automaticamente.");
         }
 
@@ -940,7 +937,6 @@ namespace Doorpi
                 "try{document.querySelectorAll('video').forEach(v=>v.pause());}catch(e){}");
             }
             catch { }
-            _profileHackDone = false;
             _profileClearDone = false;
             this.Close();
         }

@@ -967,7 +967,7 @@ namespace Doorpi
                 if (!GetWindowRect(hwnd, out RECT rect))
                     return false;
 
-                GetWindowThreadProcessId(hwnd, out uint pidRaw);
+                GetWindowProcessId(hwnd, out uint pidRaw);
                 pid = (int)pidRaw;
                 if (pid <= 0 || pid == Environment.ProcessId)
                     return false;

@@ -26,6 +26,8 @@ public sealed class UpdateManifestStateStore
 
     public void Save(UpdateManifestState state)
     {
+        ArgumentNullException.ThrowIfNull(state);
+
         state.UpdatedAt = DateTimeOffset.UtcNow;
         Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
         string tempPath = _path + ".tmp";

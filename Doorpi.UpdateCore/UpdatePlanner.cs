@@ -4,6 +4,8 @@ public static class UpdatePlanner
 {
     public static UpdateDecision Decide(UpdateManifest manifest, string localDoorpiVersion, string localUpdaterVersion)
     {
+        ArgumentNullException.ThrowIfNull(manifest);
+
         bool doorpiAvailable = IsApplicable(manifest.Doorpi, localDoorpiVersion);
         bool updaterAvailable = IsApplicable(manifest.Updater, localUpdaterVersion);
 

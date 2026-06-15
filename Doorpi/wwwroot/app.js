@@ -759,11 +759,11 @@
         const storeVisual = _buildExecutionLockDataFromRuntimeEntry(bestStore) || {};
 
         const game = {
-            name: gameVisual.name || lockData.name || 'Jogo',
+            name: gameVisual.name || lockData.name || t('genericGameName'),
             image: gameVisual.gridImage || gameVisual.heroImage || lockData.gridImage || lockData.heroImage || ''
         };
         const store = {
-            name: storeVisual.name || 'Loja',
+            name: storeVisual.name || t('genericStoreName'),
             image: storeVisual.gridImage || storeVisual.heroImage || ''
         };
         return { game, store };
@@ -968,14 +968,16 @@
         const isExecutableMedia = entry.channel === 'media' && entry.kind === 'exe';
         const resolvedId = entry.id || (isExecutableMedia ? '' : (card?.dataset?.gameId || card?.dataset?.appId || ''));
         const resolvedUrl = entry.url || card?.dataset?.appUrl || '';
-        const installFallbackName = (entry.kind === 'storeInstall' || entry.appType === 'storeInstall') ? 'Instalação em andamento' : '';
+        const installFallbackName = (entry.kind === 'storeInstall' || entry.appType === 'storeInstall')
+            ? t('storeInstallRunning')
+            : '';
         const name =
             nameFromCard ||
             entry.name ||
             installFallbackName ||
-            (entry.channel === 'games' ? 'Jogo em execução'
-                : entry.channel === 'stores' ? 'Loja em execução'
-                    : 'Sessão em execução');
+            (entry.channel === 'games' ? t('runningGameName')
+                : entry.channel === 'stores' ? t('runningStoreName')
+                    : t('runningSessionName'));
 
         // Sem alvo acionável (id/url), não promovemos para evitar overlay "órfão".
         if (!resolvedId && !resolvedUrl) return null;
@@ -1029,10 +1031,10 @@
             gridImage: raw.gridImage || ''
         };
         const fallbackName =
-            payload.kind === 'game' || payload.channel === 'games' ? 'Jogo em execução' :
-                payload.kind === 'storeInstall' || payload.appType === 'storeInstall' ? 'Instalação em andamento' :
-                payload.kind === 'store' || payload.channel === 'stores' ? 'Loja em execução' :
-                    'Sessão em execução';
+            payload.kind === 'game' || payload.channel === 'games' ? t('runningGameName') :
+                payload.kind === 'storeInstall' || payload.appType === 'storeInstall' ? t('storeInstallRunning') :
+                payload.kind === 'store' || payload.channel === 'stores' ? t('runningStoreName') :
+                    t('runningSessionName');
 
         const needsVisualContext = !payload.name || (!payload.heroImage && !payload.gridImage);
         if (!needsVisualContext) return payload;
@@ -1426,21 +1428,21 @@
         const overlay = document.createElement('div');
         overlay.id = 'sessionConflictOverlay';
         overlay.innerHTML = `
-            <div id="sessionConflictCard" role="dialog" aria-modal="true" aria-label="Conflito de sessão">
+            <div id="sessionConflictCard" role="dialog" aria-modal="true" aria-label="${typeof t === 'function' ? t('sessionConflictAriaLabel') : 'Conflito de sessao'}">
                 <div id="sessionConflictAccent" aria-hidden="true"></div>
                 <div id="sessionConflictBody">
-                    <div id="sessionConflictKicker">Sessão ativa</div>
+                    <div id="sessionConflictKicker">${typeof t === 'function' ? t('sessionConflictActiveKicker') : 'Sessao ativa'}</div>
                     <div id="sessionConflictCopy">
-                        <h3 id="sessionConflictTitle">Sessão em andamento</h3>
-                        <p id="sessionConflictMessage">Uma sessão já está ativa. Encerre a sessão atual para iniciar outra.</p>
-                        <p id="sessionConflictHint">O Doorpi mantém uma sessão por vez para evitar sobreposição de janelas.</p>
+                        <h3 id="sessionConflictTitle">${typeof t === 'function' ? t('sessionConflictTitle') : 'Sessao em andamento'}</h3>
+                        <p id="sessionConflictMessage">${typeof t === 'function' ? t('sessionConflictDefaultMessage') : 'Uma sessao ja esta ativa. Encerre a sessao atual para iniciar outra.'}</p>
+                        <p id="sessionConflictHint">${typeof t === 'function' ? t('sessionConflictHint') : 'O Doorpi mantem uma sessao por vez para evitar sobreposicao de janelas.'}</p>
                     </div>
                     <div id="sessionConflictActions">
                         <button id="sessionConflictClose" class="conflict-action primary" type="button" tabindex="0">
-                            <span class="action-text">Encerrar</span>
+                            <span class="action-text">${typeof t === 'function' ? t('sessionConflictClose') : 'Encerrar'}</span>
                         </button>
                         <button id="sessionConflictCancel" class="conflict-action secondary" type="button" tabindex="0">
-                            <span class="action-text">Cancelar</span>
+                            <span class="action-text">${typeof t === 'function' ? t('sessionConflictCancel') : 'Cancelar'}</span>
                         </button>
                     </div>
                 </div>
@@ -2226,7 +2228,7 @@
             badge.tabIndex = 0;
             badge.innerHTML = `
                 <span class="doorpi-update-badge-dot"></span>
-                <span class="doorpi-update-badge-text">Atualizacao</span>
+                <span class="doorpi-update-badge-text">${t('updateBadgeText')}</span>
             `;
             badge.addEventListener('click', () => show(true));
             badge.addEventListener('keydown', (e) => {
@@ -2250,8 +2252,8 @@
             badge.classList.toggle('is-visible', available);
             badge.classList.toggle('is-force', !!latestStatus?.forceUpdate);
             badge.title = available
-                ? 'Atualizacao do sistema disponivel'
-                : 'Nenhuma atualizacao pendente';
+                ? t('updateBadgeAvailableTitle')
+                : t('updateBadgeIdleTitle');
         }
 
         function ensurePrompt() {
@@ -2268,15 +2270,15 @@
                 <div class="doorpi-update-shell">
                     <div class="doorpi-update-orb orb-a"></div>
                     <div class="doorpi-update-orb orb-b"></div>
-                    <div class="doorpi-update-kicker">Atualizacao do sistema</div>
-                    <h2 id="doorpiUpdatePromptTitle">Nova versao disponivel</h2>
+                    <div class="doorpi-update-kicker">${t('updatePromptKicker')}</div>
+                    <h2 id="doorpiUpdatePromptTitle">${t('updatePromptInitialTitle')}</h2>
                     <p id="doorpiUpdatePromptSubtitle" class="doorpi-update-subtitle"></p>
                     <div class="doorpi-update-version-row" id="doorpiUpdateVersionRow"></div>
                     <ul id="doorpiUpdateChangelog" class="doorpi-update-changelog"></ul>
-                    <div class="doorpi-update-warning">Nao desligue o computador durante a instalacao.</div>
+                    <div class="doorpi-update-warning">${t('updatePromptWarning')}</div>
                     <div class="doorpi-update-actions">
-                        <button id="doorpiUpdateStartBtn" class="doorpi-update-primary" type="button">Atualizar agora</button>
-                        <button id="doorpiUpdateLaterBtn" class="doorpi-update-secondary" type="button">Depois</button>
+                        <button id="doorpiUpdateStartBtn" class="doorpi-update-primary" type="button">${t('updatePromptStart')}</button>
+                        <button id="doorpiUpdateLaterBtn" class="doorpi-update-secondary" type="button">${t('updatePromptLater')}</button>
                     </div>
                 </div>
             `;
@@ -2338,12 +2340,12 @@
             const status = latestStatus || {};
             const parts = [];
             if (status.doorpiUpdateAvailable) parts.push('Doorpi');
-            if (status.updaterUpdateAvailable) parts.push('componentes do sistema');
+            if (status.updaterUpdateAvailable) parts.push(t('updatePromptSystemComponents'));
             const scope = parts.length ? parts.join(' + ') : 'Doorpi';
 
-            if (title) title.textContent = `Atualizacao disponivel para ${scope}`;
+            if (title) title.textContent = t('updatePromptTitle', scope);
             if (sub) {
-                sub.textContent = 'Voce pode instalar agora ou deixar para depois. O aviso fica salvo na Home para atualizar quando quiser.';
+                sub.textContent = t('updatePromptSubtitle');
             }
 
             if (versions) {
@@ -2360,7 +2362,7 @@
                 const items = changelogItems(status);
                 changelog.innerHTML = items.length
                     ? items.map(item => `<li>${esc(item)}</li>`).join('')
-                    : '<li>Notas da versao ainda nao informadas no manifesto.</li>';
+                    : `<li>${esc(t('updatePromptNoChangelog'))}</li>`;
             }
         }
 
@@ -2841,7 +2843,8 @@
                 window._syncSystemAudioFromRuntime(shouldMuteDoorpiAudio);
             }
             else if (data.type === 'scanProgress') {
-                window.setInlineScanStatus?.(true, `Lendo: ${data.folderName}...`);
+                const folderName = data.folderName || '';
+                window.setInlineScanStatus?.(true, t('inlineScanReadingFolder', folderName));
             }
             else if (data.type === 'runtimeSessionsChanged') {
                 window.DoorpiRuntimeState.running = Array.isArray(data.running) ? data.running : [];
@@ -4338,7 +4341,7 @@
     /* Seção: Filtros e barra de filtros */
     currentSourceFilter = ['all'];
 window.isBackgroundScanning = false;
-window.lastScanText = "Buscando..."; // Memória para não perder o texto ao trocar de aba
+window.lastScanText = t('inlineScanIdle'); // Memória para não perder o texto ao trocar de aba
 
 window.setInlineScanStatus = function (isScanning, text) {
     window.isBackgroundScanning = isScanning;
@@ -4377,7 +4380,7 @@ function buildFilterBar(apps) {
     html += `
             <div class="inline-scan-status ${window.isBackgroundScanning ? 'visible' : ''}" id="inlineScanStatus">
                 <div class="inline-scan-spinner"></div>
-                <span id="inlineScanText">${window.lastScanText}</span>
+                <span id="inlineScanText">${typeof escapeHtml === 'function' ? escapeHtml(window.lastScanText) : window.lastScanText}</span>
             </div>
         `;
 
@@ -4451,10 +4454,10 @@ document.getElementById('btnAdd').addEventListener('click', () => {
     document.getElementById('modalActions').style.display = 'none';
     document.getElementById('gameGrid').style.overflowX = 'hidden';
     document.getElementById('addGameContainer').style.display = 'flex';
-    document.getElementById('modalTitle').innerText = typeof t === 'function' ? t('detectingLibrary') : 'Buscando...';
+    document.getElementById('modalTitle').innerText = t('detectingLibrary');
 
 
-    window.setInlineScanStatus(true, "Buscando jogos...");
+    window.setInlineScanStatus(true, t('inlineScanSearchingGames'));
 
     switchTab('apps');
     postToHost({ action: 'requestInstalledApps' });
@@ -4472,10 +4475,10 @@ document.getElementById('btnAddMedia')?.addEventListener('click', () => {
     document.getElementById('modalActions').style.display = 'none';
     document.getElementById('gameGrid').style.overflowX = 'hidden';
     document.getElementById('addGameContainer').style.display = 'flex';
-    document.getElementById('modalTitle').innerText = typeof t === 'function' ? t('detectingLibrary') : 'Buscando...';
+    document.getElementById('modalTitle').innerText = t('detectingLibrary');
 
     // SUBSTITUIÇÃO: Aciona o loading no canto superior da tela!
-    window.setInlineScanStatus(true, "Buscando apps...");
+    window.setInlineScanStatus(true, t('inlineScanSearchingApps'));
 
     switchTab('media-apps');
     postToHost({ action: 'requestInstalledApps' });
@@ -4543,7 +4546,7 @@ document.getElementById('btnAddStore')?.addEventListener('click', () => {
             }
 
            
-            window.setInlineScanStatus?.(true, "Aguardando o Windows...");
+            window.setInlineScanStatus?.(true, t('inlineScanWaitingWindows'));
             postToHost({
                 action: 'browseManual',
                 dialogTitle: t('dlgBrowseTitle'),
@@ -4555,7 +4558,7 @@ document.getElementById('btnAddStore')?.addEventListener('click', () => {
         });
 
         rebind('btnScanFolder', () => {
-            window.setInlineScanStatus?.(true, "Aguardando o Windows...");
+            window.setInlineScanStatus?.(true, t('inlineScanWaitingWindows'));
             postToHost({
                 action: 'pickFolder',
                 dialogTitle: t('dlgFolderTitle'),
@@ -4797,7 +4800,7 @@ function renderFolderList(folders) {
     list.querySelectorAll('.edit-btn').forEach(btn =>
         btn.addEventListener('click', e => {
             e.stopPropagation();
-            window.setInlineScanStatus?.(true, "Aguardando o Windows...");
+            window.setInlineScanStatus?.(true, t('inlineScanWaitingWindows'));
             postToHost({
                 action: 'editFolder',
                 path: btn.dataset.path.replace(/\\\\/g, '\\'),
@@ -4812,7 +4815,7 @@ function renderFolderList(folders) {
     list.querySelectorAll('.delete-btn').forEach(btn =>
         btn.addEventListener('click', e => {
             e.stopPropagation();
-            window.setInlineScanStatus?.(true, "Atualizando lista...");
+            window.setInlineScanStatus?.(true, t('inlineScanUpdatingList'));
             postToHost({ action: 'deleteFolder', path: btn.dataset.path.replace(/\\\\/g, '\\') });
         })
     );
@@ -5741,13 +5744,13 @@ function renderFolderList(folders) {
         el.innerHTML = `
             <div class="ctx-game-name" id="ctxGameName"></div>
             <button class="ctx-item ctx-primary-action" id="ctxRuntimeAction" role="menuitem">
-                <span class="ctx-icon">▶</span> <span id="ctxRuntimeActionText">Iniciar</span>
+                <span class="ctx-icon">▶</span> <span id="ctxRuntimeActionText">${t('ctxStart')}</span>
             </button>
             <button class="ctx-item ctx-toggle-item" id="ctxStoreGamepadControl" role="menuitem">
-                <span class="ctx-icon"></span> <span id="ctxStoreGamepadControlText">Iniciar com modo mouse habilitado</span>
+                <span class="ctx-icon"></span> <span id="ctxStoreGamepadControlText">${t('storeDisableGamepadControl')}</span>
             </button>
             <button class="ctx-item ctx-toggle-item" id="ctxStoreAutoAdd" role="menuitem">
-                <span class="ctx-icon"></span> <span id="ctxStoreAutoAddText">Adicionar jogos automaticamente</span>
+                <span class="ctx-icon"></span> <span id="ctxStoreAutoAddText">${t('storeAutoAddQuickToggle')}</span>
             </button>
             <div class="ctx-separator"></div>
             <button class="ctx-item" id="ctxExtensions" role="menuitem">
@@ -5839,9 +5842,7 @@ function renderFolderList(folders) {
             ctxStoreGamepadBtn.style.display = isStoreCard ? 'flex' : 'none';
             ctxStoreGamepadBtn.classList.toggle('on', !disabled);
             ctxStoreGamepadBtn.querySelector('.ctx-icon').textContent = !disabled ? '\u2713' : '';
-            ctxStoreGamepadText.textContent = typeof t === 'function'
-                ? t('storeDisableGamepadControl', 'Iniciar com modo mouse habilitado')
-                : 'Iniciar com modo mouse habilitado';
+            ctxStoreGamepadText.textContent = t('storeDisableGamepadControl');
         }
         if (ctxStoreAutoAddBtn && ctxStoreAutoAddText) {
             if (isStoreCard && typeof postToHost === 'function' && !window._storeAutoAddSettings) {
@@ -5852,9 +5853,7 @@ function renderFolderList(folders) {
             ctxStoreAutoAddBtn.style.display = isStoreCard ? 'flex' : 'none';
             ctxStoreAutoAddBtn.classList.toggle('on', autoAdd);
             ctxStoreAutoAddBtn.querySelector('.ctx-icon').textContent = autoAdd ? '\u2713' : '';
-            ctxStoreAutoAddText.textContent = typeof t === 'function'
-                ? t('storeAutoAddQuickToggle', 'Adicionar jogos automaticamente')
-                : 'Adicionar jogos automaticamente';
+            ctxStoreAutoAddText.textContent = t('storeAutoAddQuickToggle');
         }
         const isBrowserMedia = (card.hasAttribute('data-app-id') || card.closest('#mediaGrid')) &&
             ['browser', 'webview'].includes((card.dataset.appType || 'browser').toLowerCase());
@@ -7244,7 +7243,7 @@ function renderFolderList(folders) {
 
         document.getElementById('btnCancelAddMedia').addEventListener('click', closeModal);
         document.getElementById('btnSearchMedia').addEventListener('click', () => {
-            window.setInlineScanStatus?.(true, "Aguardando o Windows...");
+            window.setInlineScanStatus?.(true, t('inlineScanWaitingWindows'));
             postToHost({
                 action: 'browseManualMedia',
                 dialogTitle: t('dlgBrowseTitle'),
@@ -7531,8 +7530,8 @@ function renderFolderList(folders) {
             lockActions = document.createElement('div');
             lockActions.id = 'executionLockActions';
             lockActions.innerHTML = `
-                <button id="executionLockRestore" class="lock-action" tabindex="0">Retomar</button>
-                <button id="executionLockClose" class="lock-action danger" tabindex="0">Fechar processo</button>
+                <button id="executionLockRestore" class="lock-action" tabindex="0">${t('executionLockRestore')}</button>
+                <button id="executionLockClose" class="lock-action danger" tabindex="0">${t('executionLockCloseProcess')}</button>
             `;
 
             lockActions.querySelector('#executionLockRestore')?.addEventListener('click', () => {
@@ -7585,11 +7584,11 @@ function renderFolderList(folders) {
 
             const roleEl = document.createElement('div');
             roleEl.className = 'pair-role';
-            roleEl.textContent = role === 'game' ? 'Jogo' : 'Loja';
+            roleEl.textContent = role === 'game' ? t('pairRoleGame') : t('pairRoleStore');
 
             const name = document.createElement('div');
             name.className = 'pair-name';
-            name.textContent = visual?.name || (role === 'game' ? 'Jogo' : 'Loja');
+            name.textContent = visual?.name || (role === 'game' ? t('genericGameName') : t('genericStoreName'));
 
             meta.appendChild(roleEl);
             meta.appendChild(name);
@@ -7783,10 +7782,10 @@ function renderFolderList(folders) {
                 return;
             }
             const fallbackName =
-                data.kind === 'game' || data.channel === 'games' ? 'Jogo em execução' :
-                    data.kind === 'storeInstall' || data.appType === 'storeInstall' ? 'Instalação em andamento' :
-                    data.kind === 'store' || data.channel === 'stores' ? 'Loja em execução' :
-                        'Sessão em execução';
+                data.kind === 'game' || data.channel === 'games' ? t('runningGameName') :
+                    data.kind === 'storeInstall' || data.appType === 'storeInstall' ? t('storeInstallRunning') :
+                    data.kind === 'store' || data.channel === 'stores' ? t('runningStoreName') :
+                        t('runningSessionName');
             const name = data.name || data.gameName || fallbackName;
             const hasContext = name || data.id || data.url;
             if (!hasContext || Date.now() < (window._doorpiOfficialReturnSuppressUntil || 0)) {
@@ -7805,13 +7804,13 @@ function renderFolderList(folders) {
             overlay.dataset.executionLockKey = nextContextKey;
 
             nameEl.textContent = name;
-            statusEl.textContent = 'EM EXECUÇÃO';
+            statusEl.textContent = t('executionLockStatusRunning');
             overlay.classList.toggle('store-install-lock', isStoreInstallLock);
             const closeAction = document.getElementById('executionLockClose');
             if (closeAction) {
                 closeAction.textContent = isStoreInstallLock
-                    ? 'Cancelar instalação'
-                    : 'Fechar processo';
+                    ? t('executionLockCancelInstall')
+                    : t('executionLockCloseProcess');
             }
             if (bg && (data.heroImage || !isSameContextVisible)) {
                 bg.style.backgroundImage = data.heroImage ? `url('${data.heroImage}')` : 'none';

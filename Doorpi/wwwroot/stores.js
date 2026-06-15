@@ -62,7 +62,7 @@ function showStoreSessionMenu(data) {
     _storeMenuDisableGamepadControl = !!data.disableGamepadControl;
 
     const title = document.getElementById('storeMenuTitle');
-    if (title) title.textContent = data.storeName || data.storeId || 'Loja';
+    if (title) title.textContent = data.storeName || data.storeId || (typeof t === 'function' ? t('genericStoreName') : 'Loja');
 
     const toggle = document.getElementById('storeMenuGamepadControl');
     const icon = document.getElementById('storeMenuGamepadIcon');
