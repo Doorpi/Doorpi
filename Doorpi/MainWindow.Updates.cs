@@ -13,15 +13,17 @@ namespace Doorpi
 {
     public partial class MainWindow
     {
-        private const string DefaultUpdateManifestUrl = "https://example.com/doorpi/manifest-beta.json";
         private static readonly HttpClient updateHttpClient = new HttpClient();
         private readonly SemaphoreSlim _updateCheckLock = new(1, 1);
         private UpdateDecision? _lastUpdateDecision;
         private DateTimeOffset _lastUpdateCheckUtc = DateTimeOffset.MinValue;
         private bool _startupUpdateCheckStarted;
+        private bool _forceUpdateStarted;
+        private UpdateProgressWindow? _updateProgressWindow;
 
         private string ManifestCachePath => Path.Combine(DoorpiRuntimePaths.UpdatesFolder, "manifest-cache.json");
         private string UpdateStatePath => Path.Combine(DoorpiRuntimePaths.UpdatesFolder, "state.json");
+        private string ManifestStatePath => Path.Combine(DoorpiRuntimePaths.UpdatesFolder, "manifest-state.json");
 
         private string DoorpiVersion =>
             Assembly.GetExecutingAssembly()
@@ -55,6 +57,10 @@ namespace Doorpi
 
         private static string GetConfiguredManifestUrl()
         {
+            var policy = UpdateSecurityPolicy.Current;
+            if (!policy.AllowTrustSettingsOverride)
+                return policy.DefaultManifestUrl;
+
             string envUrl = Environment.GetEnvironmentVariable("DOORPI_UPDATE_MANIFEST_URL") ?? "";
             if (!string.IsNullOrWhiteSpace(envUrl)) return envUrl.Trim();
 
@@ -80,7 +86,68 @@ namespace Doorpi
                 }
             }
 
-            return DefaultUpdateManifestUrl;
+            return policy.DefaultManifestUrl;
+        }
+
+        private static UpdateTrustSettings GetUpdateTrustSettings(string manifestUrl, bool isLocalManifest)
+        {
+            var policy = UpdateSecurityPolicy.Current;
+            var settings = new UpdateTrustSettings
+            {
+                RequireManifestSignature = policy.RequireManifestSignature || !isLocalManifest
+            };
+
+            if (!policy.AllowTrustSettingsOverride)
+                return settings;
+
+            foreach (string path in new[]
+            {
+                Path.Combine(DoorpiRuntimePaths.AppDataFolder, "update-settings.json"),
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "update-settings.json")
+            })
+            {
+                try
+                {
+                    if (!File.Exists(path)) continue;
+                    using var doc = JsonDocument.Parse(File.ReadAllText(path));
+                    var root = doc.RootElement;
+
+                    if (root.TryGetProperty("requireManifestSignature", out var requireEl)
+                        && (requireEl.ValueKind == JsonValueKind.True || requireEl.ValueKind == JsonValueKind.False))
+                        settings.RequireManifestSignature = requireEl.GetBoolean();
+
+                    if (root.TryGetProperty("manifestPublicKeyXml", out var keyEl))
+                        settings.ManifestPublicKeyXml = keyEl.GetString() ?? settings.ManifestPublicKeyXml;
+
+                    if (root.TryGetProperty("manifestPublicKeyPath", out var pathEl))
+                        settings.ManifestPublicKeyPath = pathEl.GetString() ?? settings.ManifestPublicKeyPath;
+                }
+                catch
+                {
+                    // Configuracao invalida apenas cai nas regras padrao.
+                }
+            }
+
+            string envKeyPath = Environment.GetEnvironmentVariable("DOORPI_UPDATE_PUBLIC_KEY_PATH") ?? "";
+            if (!string.IsNullOrWhiteSpace(envKeyPath))
+                settings.ManifestPublicKeyPath = envKeyPath.Trim();
+
+            if (manifestUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                settings.RequireManifestSignature = true;
+
+            return settings;
+        }
+
+        private static string ResolveManifestPublicKey(UpdateManifest manifest, UpdateTrustSettings trust, string baseFolder)
+        {
+            if (!UpdateSecurityPolicy.Current.AllowTrustSettingsOverride)
+                return TrustedUpdateKeys.ResolveProductionKey(manifest.Signature?.KeyId ?? "");
+
+            string configuredKey = trust.ResolvePublicKeyXml(baseFolder);
+            if (!string.IsNullOrWhiteSpace(configuredKey))
+                return configuredKey;
+
+            return TrustedUpdateKeys.ResolveProductionKey(manifest.Signature?.KeyId ?? "");
         }
 
         private static bool TryGetManifestFilePath(string manifestUrl, out string path)
@@ -125,7 +192,12 @@ namespace Doorpi
                 }
 
                 UpdateManifest manifest;
-                if (TryGetManifestFilePath(manifestUrl, out string manifestFilePath))
+                bool isLocalManifest = TryGetManifestFilePath(manifestUrl, out string manifestFilePath);
+                var policy = UpdateSecurityPolicy.Current;
+                if (isLocalManifest && !policy.AllowLocalManifest)
+                    throw new InvalidDataException("Manifesto local nao permitido em build de producao.");
+
+                if (isLocalManifest)
                 {
                     manifest = UpdateManifestClient.LoadFromFile(manifestFilePath);
                 }
@@ -137,8 +209,35 @@ namespace Doorpi
                     var client = new UpdateManifestClient(updateHttpClient);
                     manifest = await client.GetManifestAsync(manifestUri).ConfigureAwait(false);
                 }
+
+                var trust = GetUpdateTrustSettings(manifestUrl, isLocalManifest);
+                if (trust.RequireManifestSignature || manifest.Signature != null)
+                {
+                    string baseFolder = isLocalManifest
+                        ? Path.GetDirectoryName(manifestFilePath) ?? AppDomain.CurrentDomain.BaseDirectory
+                        : AppDomain.CurrentDomain.BaseDirectory;
+                    ManifestSignatureVerifier.Verify(manifest, ResolveManifestPublicKey(manifest, trust, baseFolder));
+                }
+
+                var manifestStateStore = new UpdateManifestStateStore(ManifestStatePath);
+                UpdateManifestState? previousManifestState = manifestStateStore.Load();
+                UpdateManifestValidator.Validate(
+                    manifest,
+                    policy,
+                    previousManifestState,
+                    DateTimeOffset.UtcNow);
+                UpdateManifestValidator.ValidateNoUnsignedDowngrade(manifest.Doorpi, DoorpiVersion, "Doorpi");
+                UpdateManifestValidator.ValidateNoUnsignedDowngrade(manifest.Updater, UpdaterVersion, "Updater");
+
                 Directory.CreateDirectory(DoorpiRuntimePaths.UpdatesFolder);
                 UpdateManifestClient.SaveToFile(manifest, ManifestCachePath);
+                manifestStateStore.Save(new UpdateManifestState
+                {
+                    Channel = manifest.Channel,
+                    HighestManifestVersion = Math.Max(
+                        manifest.ManifestVersion,
+                        previousManifestState?.HighestManifestVersion ?? 0)
+                });
 
                 var decision = UpdatePlanner.Decide(manifest, DoorpiVersion, UpdaterVersion);
                 _lastUpdateDecision = decision;
@@ -149,6 +248,19 @@ namespace Doorpi
                     ? "Atualizacao disponivel."
                     : "Sistema atualizado.";
                 SendUpdateStatusToUI(status, message, decision);
+
+                if (decision.ForceUpdate && decision.HasAnyUpdate && !_forceUpdateStarted)
+                {
+                    _forceUpdateStarted = true;
+                    ShowUpdateProgress("Atualizacao obrigatoria",
+                        "O Doorpi precisa aplicar uma atualizacao antes de continuar.",
+                        0.08);
+                    _ = Task.Run(() => StartSystemUpdateAsync());
+                }
+                else if (!decision.ForceUpdate)
+                {
+                    CloseUpdateProgress();
+                }
             }
             catch (Exception ex)
             {
@@ -168,6 +280,7 @@ namespace Doorpi
             if (_startupUpdateCheckStarted) return;
             _startupUpdateCheckStarted = true;
             CompletePendingDoorpiHealthCheck();
+
             _ = Task.Run(() => CheckForUpdatesAsync(userInitiated: false));
         }
 
@@ -197,6 +310,9 @@ namespace Doorpi
                 }
 
                 SendUpdateStatusToUI("complete", "Componentes do sistema atualizados.", decision);
+                ShowUpdateProgress("Atualizacao concluida", "Componentes do sistema atualizados.", 1);
+                await Task.Delay(900).ConfigureAwait(false);
+                CloseUpdateProgress();
             }
             catch (Exception ex)
             {
@@ -208,6 +324,9 @@ namespace Doorpi
         private async Task InstallUpdaterUpdateAsync(ComponentRelease release)
         {
             SendUpdateStatusToUI("downloading", "Baixando atualizacao do Updater...", _lastUpdateDecision);
+            ShowUpdateProgress("Atualizando componentes do sistema...",
+                "Baixando atualizacao do Updater...",
+                0.16);
 
             Directory.CreateDirectory(DoorpiRuntimePaths.UpdatesFolder);
             var stateStore = new UpdateStateStore(UpdateStatePath);
@@ -226,6 +345,9 @@ namespace Doorpi
                 release,
                 DoorpiRuntimePaths.DownloadsFolder,
                 fileName,
+                new Progress<double>(p => ShowUpdateProgress("Atualizando componentes do sistema...",
+                    "Baixando atualizacao do Updater...",
+                    0.16 + (p * 0.34))),
                 cancellationToken: CancellationToken.None).ConfigureAwait(false);
 
             state.PackagePath = packagePath;
@@ -235,10 +357,16 @@ namespace Doorpi
             stateStore.Save(state);
 
             PackageExtractor.ExtractAndValidate(packagePath, state.StagingFolder, "updater", release.Version);
+            ShowUpdateProgress("Atualizando componentes do sistema...",
+                "Validando e preparando novo Updater...",
+                0.62);
 
             state.Phase = "applying";
             stateStore.Save(state);
             SendUpdateStatusToUI("installing", "Instalando novo Updater...", _lastUpdateDecision);
+            ShowUpdateProgress("Atualizando componentes do sistema...",
+                "Instalando novo Updater...",
+                0.78);
 
             var installer = new ComponentInstaller();
             installer.ApplyFromStaging(state.StagingFolder, state.InstallFolder, state.BackupFolder);
@@ -246,6 +374,9 @@ namespace Doorpi
             state.Phase = "succeeded";
             stateStore.Save(state);
             stateStore.Clear();
+            ShowUpdateProgress("Atualizando componentes do sistema...",
+                "Updater atualizado com sucesso.",
+                0.92);
         }
 
         private async Task LaunchUpdaterForDoorpiAsync(UpdateDecision decision)
@@ -264,6 +395,9 @@ namespace Doorpi
             Directory.CreateDirectory(DoorpiRuntimePaths.UpdatesFolder);
 
             SendUpdateStatusToUI("handoff", "Abrindo atualizador do sistema...", decision);
+            ShowUpdateProgress("Atualizando Doorpi...",
+                "Abrindo atualizador do sistema...",
+                0.10);
 
             var startInfo = new ProcessStartInfo
             {
@@ -311,6 +445,23 @@ namespace Doorpi
                 if (string.Equals(state.Component, "doorpi", StringComparison.OrdinalIgnoreCase)
                     && string.Equals(state.Phase, "doorpi-applied-pending-health-check", StringComparison.OrdinalIgnoreCase))
                 {
+                    bool healthyVersion = !UpdateVersionComparer.IsRemoteNewer(state.TargetVersion, DoorpiVersion);
+                    if (!healthyVersion)
+                    {
+                        state.Error = $"Versao iniciada ({DoorpiVersion}) nao corresponde ao alvo ({state.TargetVersion}).";
+                        state.Phase = "doorpi-health-check-failed";
+                        stateStore.Save(state);
+                        return;
+                    }
+
+                    string healthSignal = Environment.GetEnvironmentVariable("DOORPI_UPDATE_HEALTH_SIGNAL") ?? "";
+                    if (!string.IsNullOrWhiteSpace(healthSignal))
+                    {
+                        Directory.CreateDirectory(Path.GetDirectoryName(healthSignal)!);
+                        File.WriteAllText(healthSignal, DateTimeOffset.UtcNow.ToString("O"));
+                        return;
+                    }
+
                     state.Phase = "succeeded";
                     stateStore.Save(state);
                     stateStore.Clear();
@@ -366,6 +517,43 @@ namespace Doorpi
             }
 
             SendUpdateStatusToUI("idle", "Atualizacoes ainda nao verificadas.", null);
+        }
+
+        private void ShowUpdateProgress(string title, string message, double progress, string? tip = null)
+        {
+            try
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    _updateProgressWindow ??= new UpdateProgressWindow { Owner = this };
+                    _updateProgressWindow.SetStatus(title, message, progress, tip);
+                    if (!_updateProgressWindow.IsVisible)
+                        _updateProgressWindow.Show();
+
+                    _updateProgressWindow.Activate();
+                });
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[Updates] Falha ao exibir tela fullscreen: " + ex.Message);
+            }
+        }
+
+        private void CloseUpdateProgress()
+        {
+            try
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    if (_updateProgressWindow == null) return;
+                    _updateProgressWindow.Close();
+                    _updateProgressWindow = null;
+                });
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[Updates] Falha ao fechar tela fullscreen: " + ex.Message);
+            }
         }
     }
 }

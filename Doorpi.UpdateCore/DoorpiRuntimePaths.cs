@@ -2,8 +2,13 @@ namespace Doorpi.UpdateCore;
 
 public static class DoorpiRuntimePaths
 {
+    public static string AppDataRoot =>
+        Environment.GetEnvironmentVariable("DOORPI_APPDATA_ROOT") is { Length: > 0 } overrideRoot
+            ? overrideRoot
+            : Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+
     public static string AppDataFolder =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Doorpi");
+        Path.Combine(AppDataRoot, "Doorpi");
 
     public static string DataFolder => Path.Combine(AppDataFolder, "Data");
 

@@ -28,6 +28,9 @@ public sealed class UpdateOperationState
     [JsonPropertyName("backupFolder")]
     public string BackupFolder { get; set; } = "";
 
+    [JsonPropertyName("healthSignalPath")]
+    public string HealthSignalPath { get; set; } = "";
+
     [JsonPropertyName("error")]
     public string Error { get; set; } = "";
 
