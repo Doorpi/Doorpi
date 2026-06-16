@@ -48,6 +48,7 @@ namespace Doorpi
         public string HeroStaticImage { get; set; } = "";
         public string LogoImage { get; set; } = "";
         public string LogoStaticImage { get; set; } = "";
+        public string AssetQuery { get; set; } = "";
         public bool DisableGamepadControlConfigured { get; set; } = false;
 
         public DateTime LastPlayed { get; set; } = DateTime.MinValue;

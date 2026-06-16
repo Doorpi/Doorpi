@@ -76,7 +76,7 @@ namespace Doorpi
             ("Steam", "Steam", "Steam (Platform)"),
             ("Epic", "Epic Games", "Epic Games (Platform)"),
             ("GOG", "GOG", "GOG Galaxy (Platform)"),
-            ("Riot", "Riot Games", "Riot Games (Platform)"),
+            ("Riot", "Riot Games", "Riot Client"),
             ("Xbox", "Xbox", "Xbox (Platform)"),
         };
 
@@ -94,7 +94,7 @@ namespace Doorpi
             ["Steam"] = "https://store.steampowered.com/about/",
             ["Epic"] = "https://store.epicgames.com/download",
             ["GOG"] = "https://www.gog.com/galaxy",
-            ["Riot"] = "https://2xko.riotgames.com/pt-br/",
+            ["Riot"] = "https://2xko.riotgames.com/pc-download",
             ["Xbox"] = "https://www.xbox.com/apps/xbox-app-for-pc"
         };
 
@@ -2385,7 +2385,7 @@ namespace Doorpi
                 ResetGogWindowLog();
             }
             _libraryKeysBeforeStore = BuildLibraryKeySet();
-            _storeKeysBeforeStore = BuildStoreAppKeySet(storeId);
+            _storeKeysBeforeStore = ConsumePendingStoreInstallSnapshot(storeId) ?? BuildStoreAppKeySet(storeId);
             lock (_storeLibraryMonitorLock)
                 _storeKeysProcessedDuringSession = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             StartStoreLibraryMonitor(storeId);
@@ -4705,7 +4705,11 @@ namespace Doorpi
                     changed = true;
                 }
 
-                if (string.IsNullOrEmpty(entry.GridImage) || string.IsNullOrEmpty(entry.HeroImage))
+                bool refreshRiotClientArt =
+                    string.Equals(id, "Riot", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(entry.AssetQuery, sgdbQuery, StringComparison.OrdinalIgnoreCase);
+
+                if (string.IsNullOrEmpty(entry.GridImage) || string.IsNullOrEmpty(entry.HeroImage) || refreshRiotClientArt)
                 {
                     try
                     {
@@ -4717,10 +4721,16 @@ namespace Doorpi
                         var tLogo = logoUrl != null ? DownloadImageAsync(logoUrl, logoFolder, safeName + "_logo") : Task.FromResult<string?>(null);
                         await Task.WhenAll(tGrid, tHoriz, tHero, tLogo).ConfigureAwait(false);
 
-                        if (tGrid.Result != null) { entry.GridImage = $"https://data.local/images/grid/{Path.GetFileName(tGrid.Result)}"; changed = true; }
-                        if (tHoriz.Result != null) { entry.GridHorizontalImage = $"https://data.local/images/grid-horizontal/{Path.GetFileName(tHoriz.Result)}"; changed = true; }
-                        if (tHero.Result != null) { entry.HeroImage = $"https://data.local/images/hero/{Path.GetFileName(tHero.Result)}"; changed = true; }
-                        if (tLogo.Result != null) { entry.LogoImage = $"https://data.local/images/logo/{Path.GetFileName(tLogo.Result)}"; changed = true; }
+                        bool downloadedAnyAsset = false;
+                        if (tGrid.Result != null) { entry.GridImage = $"https://data.local/images/grid/{Path.GetFileName(tGrid.Result)}"; changed = true; downloadedAnyAsset = true; }
+                        if (tHoriz.Result != null) { entry.GridHorizontalImage = $"https://data.local/images/grid-horizontal/{Path.GetFileName(tHoriz.Result)}"; changed = true; downloadedAnyAsset = true; }
+                        if (tHero.Result != null) { entry.HeroImage = $"https://data.local/images/hero/{Path.GetFileName(tHero.Result)}"; changed = true; downloadedAnyAsset = true; }
+                        if (tLogo.Result != null) { entry.LogoImage = $"https://data.local/images/logo/{Path.GetFileName(tLogo.Result)}"; changed = true; downloadedAnyAsset = true; }
+                        if (downloadedAnyAsset)
+                        {
+                            entry.AssetQuery = sgdbQuery;
+                            changed = true;
+                        }
                     }
                     catch (Exception ex) { Debug.WriteLine($"[Store] Arte {id}: {ex.Message}"); }
                 }

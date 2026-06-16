@@ -1238,6 +1238,28 @@ body {
     color: rgba(255,255,255,0.46);
 }
 
+.store-install-note {
+    color: rgba(255,255,255,0.66) !important;
+}
+
+.store-install-pair {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 2px;
+}
+
+.store-install-pair span {
+    padding: 4px 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.07);
+    color: rgba(255,255,255,0.72);
+    font-size: clamp(0.66rem, 0.68vw, 0.78rem);
+    font-weight: 700;
+    line-height: 1;
+}
+
 .store-install-action {
     min-width: clamp(112px, 8vw, 160px);
     padding: 10px 14px;

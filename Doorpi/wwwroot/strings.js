@@ -190,6 +190,7 @@ const STRINGS = {
         storeNotInstalled: 'Não instalada',
         storeAlreadyInstalled: 'Instalada',
         storeOpenSite: 'Abrir site',
+        storeInstallRiotNote: 'O Riot Client será instalado pela página de download do 2XKO.',
 
         foldersTitle: 'Pastas Monitoradas',
         foldersSubtitle: 'O sistema varre estes diretórios sempre que você abre esta tela. Evite adicionar unidades inteiras (ex: C:\\).',
@@ -887,6 +888,7 @@ const STRINGS = {
         storeNotInstalled: 'Not installed',
         storeAlreadyInstalled: 'Installed',
         storeOpenSite: 'Open site',
+        storeInstallRiotNote: 'Riot Client will be installed through the 2XKO download page.',
 
         foldersTitle: 'Monitored Folders',
         foldersSubtitle: 'The system scans these directories every time you open this screen. Avoid adding entire drives (e.g., C:\\).',

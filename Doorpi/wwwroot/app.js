@@ -4708,6 +4708,14 @@ document.getElementById('btnAddStore')?.addEventListener('click', () => {
             const image = logo || grid;
             const statusLabel = installed ? t('storeInstalled') : t('storeNotInstalled');
             const actionLabel = installed ? t('storeAlreadyInstalled') : t('storeOpenSite');
+            const isRiot = String(id).toLowerCase() === 'riot';
+            const riotInstallHint = isRiot && !installed
+                ? `<small class="store-install-note">${escapeHtml(t('storeInstallRiotNote'))}</small>
+                   <span class="store-install-pair" aria-hidden="true">
+                       <span>Riot Client</span>
+                       <span>2XKO</span>
+                   </span>`
+                : '';
 
             return `
                 <button class="store-install-card ${installed ? 'installed' : ''}" type="button" tabindex="${installed || !downloadUrl ? '-1' : '0'}"
@@ -4719,6 +4727,7 @@ document.getElementById('btnAddStore')?.addEventListener('click', () => {
                     <span class="store-install-info">
                         <strong>${escapeHtml(name)}</strong>
                         <small>${escapeHtml(statusLabel)}</small>
+                        ${riotInstallHint}
                     </span>
                     <span class="store-install-action">${escapeHtml(actionLabel)}</span>
                 </button>`;
