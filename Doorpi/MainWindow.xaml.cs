@@ -758,6 +758,9 @@ namespace Doorpi
             return _systemControllerActive ||
                    _mediaExeModeActive ||
                    _isStoreLauncherSession ||
+                   _ytWebView != null ||
+                   _webAppWindow != null ||
+                   _popupWindow != null ||
                    _gameSessionActive;
         }
 
@@ -4673,6 +4676,7 @@ namespace Doorpi
             ("netflix",     "Netflix",      "Netflix (Website)",         "https://www.netflix.com",      "browser", true ),
             ("twitch",      "Twitch",       "Twitch (Website)",          "https://www.twitch.tv",        "browser", false),
             ("kick",        "Kick",         "Kick (Website)",            "https://www.kick.com",         "browser", false),
+            (DoorpiBrowserAppId, "Browser", "Google Chrome (Browser)",   "https://www.google.com",       "browser", false),
             ("disneyplus",  "Disney +",      "Disney + (Website)",     "https://www.disneyplus.com",   "browser", true ),
             ("primevideo",  "Prime Vídeo",  "Prime Video (Website)",     "https://www.primevideo.com",   "browser", true ),
             ("appletv",     "Apple TV",    "Apple TV (Website)",   "https://tv.apple.com",         "browser", true ),
@@ -11659,7 +11663,8 @@ namespace Doorpi
                                 _mainScreenMouseVisible = true;
                                 CenterCursorOnScreen();
                             });
-                            _ = Dispatcher.InvokeAsync(async () => await OpenWebViewInlineAsync(mediaUrl, mediaUrl.Contains("youtube.com"), mediaName, heroImg, gridImg));
+                            bool isGenericBrowser = string.Equals(media?.Id, DoorpiBrowserAppId, StringComparison.OrdinalIgnoreCase);
+                            _ = Dispatcher.InvokeAsync(async () => await OpenWebViewInlineAsync(mediaUrl, mediaUrl.Contains("youtube.com"), mediaName, heroImg, gridImg, isGenericBrowser));
                         }
                         else if (appType == "exe")
                         {
