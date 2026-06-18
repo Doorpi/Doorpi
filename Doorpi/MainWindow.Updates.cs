@@ -20,10 +20,13 @@ namespace Doorpi
         private bool _startupUpdateCheckStarted;
         private bool _forceUpdateStarted;
         private UpdateProgressWindow? _updateProgressWindow;
+        private WindowsUpdateManager? _windowsUpdateManager;
 
         private string ManifestCachePath => Path.Combine(DoorpiRuntimePaths.UpdatesFolder, "manifest-cache.json");
         private string UpdateStatePath => Path.Combine(DoorpiRuntimePaths.UpdatesFolder, "state.json");
         private string ManifestStatePath => Path.Combine(DoorpiRuntimePaths.UpdatesFolder, "manifest-state.json");
+        private string WindowsUpdateStatePath => Path.Combine(DoorpiRuntimePaths.UpdatesFolder, "windows-update-state.json");
+        private WindowsUpdateManager WindowsUpdates => _windowsUpdateManager ??= new WindowsUpdateManager(WindowsUpdateStatePath);
 
         private string DoorpiVersion =>
             Assembly.GetExecutingAssembly()
@@ -282,6 +285,7 @@ namespace Doorpi
             CompletePendingDoorpiHealthCheck();
 
             _ = Task.Run(() => CheckForUpdatesAsync(userInitiated: false));
+            _ = Task.Run(() => RefreshWindowsUpdateStatusAsync(scan: false));
         }
 
         private async Task StartSystemUpdateAsync()
@@ -517,6 +521,63 @@ namespace Doorpi
             }
 
             SendUpdateStatusToUI("idle", "Atualizacoes ainda nao verificadas.", null);
+        }
+
+        private async Task RefreshWindowsUpdateStatusAsync(bool scan)
+        {
+            var progress = new Progress<WindowsUpdateStatus>(SendWindowsUpdateStatusToUI);
+            var status = await WindowsUpdates.GetStatusAsync(scan, progress).ConfigureAwait(false);
+            SendWindowsUpdateStatusToUI(status);
+        }
+
+        private async Task StartWindowsUpdateInstallAsync()
+        {
+            var progress = new Progress<WindowsUpdateStatus>(SendWindowsUpdateStatusToUI);
+            var status = await WindowsUpdates.DownloadAndInstallAsync(progress).ConfigureAwait(false);
+            SendWindowsUpdateStatusToUI(status);
+        }
+
+        private void SendCachedWindowsUpdateStatusToUI()
+        {
+            SendWindowsUpdateStatusToUI(WindowsUpdates.LoadStatus());
+        }
+
+        private void SendWindowsUpdateStatusToUI(WindowsUpdateStatus status)
+        {
+            try
+            {
+                var payload = new
+                {
+                    type = "windowsUpdateStatus",
+                    status = status.Status,
+                    message = status.Message,
+                    lastCheckedAt = status.LastCheckedAt == DateTimeOffset.MinValue
+                        ? ""
+                        : status.LastCheckedAt.ToString("O"),
+                    rebootRequired = status.RebootRequired,
+                    error = status.Error,
+                    lastInstallResultCode = status.LastInstallResultCode,
+                    lastInstallHResult = status.LastInstallHResult,
+                    updates = status.Updates.Select(update => new
+                    {
+                        updateId = update.UpdateId,
+                        revisionNumber = update.RevisionNumber,
+                        title = update.Title,
+                        description = update.Description,
+                        msrcSeverity = update.MsrcSeverity,
+                        isDownloaded = update.IsDownloaded,
+                        rebootBehavior = update.RebootBehavior,
+                        sizeBytes = update.SizeBytes
+                    }).ToList()
+                };
+
+                Dispatcher.Invoke(() =>
+                    webView?.CoreWebView2?.PostWebMessageAsString(JsonSerializer.Serialize(payload)));
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[WindowsUpdate] Falha ao enviar status para UI: " + ex.Message);
+            }
         }
 
         private void ShowUpdateProgress(string title, string message, double progress, string? tip = null)

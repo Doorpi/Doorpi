@@ -34,6 +34,7 @@ const GAMEPAD_ICONS = {
         cancel: `<span class="gp-btn gp-circle">◯</span>`,
         triangle: `<span class="gp-btn gp-triangle">△</span>`,
         start: `<span class="gp-btn gp-options">≡</span>`,
+        select: `<span class="gp-btn gp-options">▣</span>`,
         square: `<span class="gp-btn gp-square">□</span>`,
     },
     xbox: {
@@ -41,6 +42,7 @@ const GAMEPAD_ICONS = {
         cancel: `<span class="gp-btn gp-b">B</span>`,
         triangle: `<span class="gp-btn gp-y">Y</span>`,
         start: `<span class="gp-btn gp-menu">☰</span>`,
+        select: `<span class="gp-btn gp-menu">☷</span>`,
         square: `<span class="gp-btn gp-x">X</span>`,
     },
 };
@@ -565,7 +567,20 @@ function moveFocus(direction) {
     }
 
     if (!isModalOpen) {
-        if (current.closest('#mediaGrid, #gameGrid, #storesGrid')) {
+        if (current?.id === 'btnTopProfile' && direction === 'LEFT' && window.DoorpiQuickPanel?.open) {
+            window.DoorpiQuickPanel.open();
+            return;
+        }
+
+        const homeGrid = current.closest('#mediaGrid, #gameGrid, #storesGrid');
+        if (homeGrid) {
+            if (direction === 'LEFT') {
+                const gridItems = items.filter(el => homeGrid.contains(el));
+                if (gridItems[0] === current && window.DoorpiQuickPanel?.open) {
+                    window.DoorpiQuickPanel.open();
+                    return;
+                }
+            }
             if (direction === 'UP') {
                 const activeTab = document.querySelector('.home-tab.active');
                 if (activeTab) { activeTab.focus(); return; }
@@ -831,7 +846,13 @@ document.addEventListener('keydown', e => {
     if (window.isGlobalLoading) { e.preventDefault(); return; }
     if (window.isDoorpiOverlayOpen?.() && !window._vkbIsOpen) {
         const dirMapOverlay = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' };
-        if (dirMapOverlay[e.key]) { e.preventDefault(); moveFocus(dirMapOverlay[e.key]); return; }
+        if (dirMapOverlay[e.key]) {
+            e.preventDefault();
+            const dir = dirMapOverlay[e.key];
+            if (window.DoorpiQuickPanel?.handleDirection?.(dir)) return;
+            moveFocus(dir);
+            return;
+        }
 
         if (e.key === 'Enter') {
             e.preventDefault();
@@ -1002,6 +1023,22 @@ window.requestDoorpiBackAction = function () {
         window.hideGameFocusFallbackPopup?.(true);
         window.DoorpiUiSound?.play('back');
         return true;
+    }
+
+    if (window.DoorpiQuickPanel?.isOpen?.()) {
+        window.DoorpiQuickPanel.back?.();
+        window.DoorpiUiSound?.play('back');
+        return true;
+    }
+
+    const userPicker = document.getElementById('doorpiUserPicker');
+    const userPickerOpen = userPicker && userPicker.style.display !== 'none' && userPicker.offsetWidth > 0 && userPicker.offsetHeight > 0;
+    if (userPickerOpen && userPicker.dataset.returnToQuickPanel === 'true') {
+        if (window._doorpiCloseUserPicker?.()) {
+            window.DoorpiUiSound?.play('back');
+            return true;
+        }
+        return false;
     }
 
     if (window.isDoorpiOverlayOpen?.()) {

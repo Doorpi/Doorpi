@@ -398,6 +398,7 @@ const STRINGS = {
         hintConfirm: 'Confirmar',
         hintBack: 'Voltar',
         hintAdd: 'Adicionar',
+        hintMenu: 'Menu',
         hintStartBtn: 'START',
 
         powerExit: 'Sair',
@@ -571,6 +572,7 @@ const STRINGS = {
         hintConfirm: 'Confirm',
         hintBack: 'Back',
         hintAdd: 'Add',
+        hintMenu: 'Menu',
         hintStartBtn: 'START',
 
         gamepadControlLabel: 'Mouse mode',

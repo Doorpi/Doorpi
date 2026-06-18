@@ -2078,7 +2078,17 @@
         btn.id = 'btnTopProfile';
         btn.className = 'top-profile-btn';
         btn.tabIndex = 0;
-        btn.innerHTML = `<div class="doorpi-avatar"></div><span class="top-profile-name"></span>`;
+        btn.innerHTML = `
+            <span class="top-quick-menu-cue" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path d="M5 7h14" stroke-linecap="round"/>
+                    <path d="M5 12h14" stroke-linecap="round"/>
+                    <path d="M5 17h14" stroke-linecap="round"/>
+                </svg>
+                <span class="top-quick-menu-label">MENU</span>
+            </span>
+            <div class="doorpi-avatar"></div>
+            <span class="top-profile-name"></span>`;
         document.body.appendChild(btn);
 
         btn.addEventListener('click', () => {
@@ -2090,21 +2100,72 @@
             .top-profile-btn {
                 position: fixed;
                 top: clamp(20px, 3vh, 40px);
-                left: clamp(24px, 4vw, 60px);
+                left: clamp(12px, 1.3vw, 22px);
                 display: flex;
                 align-items: center;
-                gap: 18px;
+                gap: 14px;
                 background: none;
                 border: none;
                 cursor: pointer;
                 outline: none;
-                z-index: 8000;
+                z-index: 17000;
                 padding: 0;
             }
-
+            .top-quick-menu-cue {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 42px;
+                height: 42px;
+                padding: 0;
+                border-radius: 0 10px 10px 0;
+                border: 0;
+                border-left: 2px solid rgba(255,255,255,.42);
+                background: linear-gradient(90deg, rgba(255,255,255,.11), rgba(255,255,255,.025));
+                color: rgba(255,255,255,.76);
+                filter: drop-shadow(0 2px 8px rgba(0,0,0,.45));
+                transition: width .18s ease, padding .18s ease, background .18s ease, border-color .18s ease;
+            }
+            .top-quick-menu-cue svg {
+                width: 22px;
+                height: 22px;
+                stroke-width: 2.1;
+            }
+            .top-quick-menu-label {
+                display: none;
+                font-size: 15px;
+                font-weight: 600;
+                letter-spacing: 0;
+                color: rgba(255,255,255,.88);
+                white-space: nowrap;
+            }
+            body.quick-panel-open .top-profile-btn {
+                pointer-events: none;
+            }
+            body.user-picker-open .top-profile-btn,
+            body.quick-menu-unavailable .top-profile-btn {
+                opacity: 0;
+                pointer-events: none;
+            }
+            body.quick-panel-open .top-quick-menu-cue {
+                width: auto;
+                padding: 0 14px 0 10px;
+                gap: 10px;
+                background: transparent;
+                border-left-color: rgba(255,255,255,.72);
+                filter: none;
+            }
+            body.quick-panel-open .top-quick-menu-label {
+                display: inline;
+            }
+            body.quick-panel-open .top-profile-btn .doorpi-avatar,
+            body.quick-panel-open .top-profile-name {
+                opacity: 0;
+            }
             .top-profile-btn .doorpi-avatar {
                 width: clamp(58px, 4.5vw, 74px);
                 height: clamp(58px, 4.5vw, 74px);
+                margin-left: clamp(10px, 1.7vw, 34px);
                 border-radius: 50%;
                 background: rgb(255 255 255 / 0%);
                 border: 2px solid rgba(255,255,255,0.15);
@@ -2890,6 +2951,9 @@
                     postToHost({ action: 'requestUsers' });
                 }
             }
+            else if (data.type === 'openQuickPanel') {
+                window.DoorpiQuickPanel?.toggle?.();
+            }
             else if (data.type === 'extensionsList' || data.type === 'extensionUpdatesList') {
                 if (data.type === 'extensionUpdatesList') {
                     window._pendingExtensionUpdates = data.updates || {};
@@ -3005,6 +3069,7 @@
                     closeUserPinPrompt();
                     const picker = document.getElementById('doorpiUserPicker');
                     if (picker) picker.style.display = 'none';
+                    document.body.classList.remove('user-picker-open');
                     window._pendingUserSwitchId = '';
                     window.DoorpiIntro?.finishHandoff?.();
                 }
@@ -3024,6 +3089,10 @@
             }
             else if (data.type === 'systemUpdateStatus') {
                 window.DoorpiUpdatePrompt?.setStatus(data);
+                window.DoorpiQuickPanel?.setDoorpiUpdateStatus?.(data);
+            }
+            else if (data.type === 'windowsUpdateStatus') {
+                window.DoorpiQuickPanel?.setWindowsUpdateStatus?.(data);
             }
             else if (data.type === 'updateFeaturedCard') {
                 // 🔹 Avisa o Store: ele reordena o carrossel E atualiza o hero automaticamente
@@ -3705,6 +3774,51 @@
         }
         `;
         document.head.appendChild(s);
+
+        const isVisible = (el) => !!(el && el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
+        window.isDoorpiQuickMenuBlocked = function () {
+            const body = document.body;
+            const quickPanel = document.getElementById('doorpiQuickPanel');
+            const quickPanelOpen = quickPanel?.classList.contains('visible') && isVisible(quickPanel);
+            if (quickPanelOpen) return false;
+
+            if (window.isDoorpiSessionTransitionActive?.() || window.DoorpiIntro?.isRunning?.()) return true;
+            if (window.isNavMenuOpen || body.classList.contains('nav-menu-active') || body.classList.contains('nav-menu-closing')) return true;
+            if (window.isModalOpen || window.isSetupOpen || window._vkbIsOpen || window.isGlobalLoading) return true;
+            if (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) return true;
+            if (typeof isEditModalOpen !== 'undefined' && isEditModalOpen) return true;
+            if (window.isStoreSessionMenuOpen?.() || window.isGameFocusFallbackPopupOpen?.()) return true;
+
+            const blockingSelectors = [
+                '#addGameContainer',
+                '#sessionConflictOverlay.visible',
+                '#gameFocusFallbackOverlay.visible',
+                '#doorpiUserSwitchLogout.visible',
+                '#gameLaunchOverlay.visible',
+                '#gameLaunchOverlay.execution-lock-visible',
+                '.doorpi-update-prompt.is-visible',
+                '.doorpi-pin-panel',
+                '.edit-modal-overlay',
+                '#globalLoadingOverlay'
+            ];
+            if (blockingSelectors.some(selector => Array.from(document.querySelectorAll(selector)).some(isVisible))) return true;
+
+            return Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay'))
+                .some(el => el.id !== 'doorpiQuickPanel' && isVisible(el));
+        };
+
+        let quickMenuVisibilityRaf = 0;
+        window.updateDoorpiQuickMenuAvailability = function () {
+            if (quickMenuVisibilityRaf) return;
+            quickMenuVisibilityRaf = requestAnimationFrame(() => {
+                quickMenuVisibilityRaf = 0;
+                document.body.classList.toggle('quick-menu-unavailable', !!window.isDoorpiQuickMenuBlocked?.());
+            });
+        };
+        new MutationObserver(() => window.updateDoorpiQuickMenuAvailability?.())
+            .observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'] });
+        document.addEventListener('focusin', () => window.updateDoorpiQuickMenuAvailability?.());
+        window.updateDoorpiQuickMenuAvailability();
     }
 
     function renderDoorpiChoice(id, options, value, disabled = false) {
@@ -3997,6 +4111,8 @@
             document.body.appendChild(overlay);
         }
         overlay.dataset.required = requireSelection ? 'true' : 'false';
+        overlay.dataset.returnToQuickPanel = (window._doorpiUserPickerReturnToQuickPanel && !requireSelection) ? 'true' : 'false';
+        window._doorpiUserPickerReturnToQuickPanel = false;
         if (overlay.dataset.introPickerClasses) {
             overlay.classList.remove(...overlay.dataset.introPickerClasses.split(/\s+/).filter(Boolean));
         }
@@ -4046,12 +4162,18 @@
 
         if (typeof applyI18n === 'function') applyI18n();
         overlay.style.display = 'flex';
+        document.body.classList.add('user-picker-open');
 
         if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
 
         const hidePicker = () => {
             overlay.style.display = 'none';
+            document.body.classList.remove('user-picker-open');
             window.DoorpiIntro?.finishHandoff?.();
+            if (overlay.dataset.returnToQuickPanel === 'true' && overlay.dataset.required !== 'true') {
+                overlay.dataset.returnToQuickPanel = 'false';
+                window.DoorpiQuickPanel?.openMenu?.();
+            }
         };
 
         overlay.querySelectorAll('[data-user-id]').forEach(btn => {
@@ -4070,6 +4192,11 @@
             openCreateUserDialog();
         });
         overlay.querySelector('#doorpiCloseUsers')?.addEventListener('click', hidePicker);
+        window._doorpiCloseUserPicker = function () {
+            if (overlay.dataset.required === 'true') return false;
+            hidePicker();
+            return true;
+        };
 
         overlay.querySelector('#doorpiExitApp')?.addEventListener('click', () => postToHost({ action: 'exitApp' }));
         overlay.querySelector('#doorpiSuspend')?.addEventListener('click', () => postToHost({ action: 'suspendSystem' }));
@@ -4085,6 +4212,681 @@
             openSetup(true);
         }
     }
+
+    window.DoorpiQuickPanel = (() => {
+        let doorpiStatus = null;
+        let windowsStatus = null;
+        let section = null;
+        let updateView = 'hub';
+        let depth = 'menu';
+
+        function ensureStyles() {
+            if (document.getElementById('doorpiQuickPanelStyles')) return;
+            const s = document.createElement('style');
+            s.id = 'doorpiQuickPanelStyles';
+            s.textContent = `
+                .doorpi-quick-panel {
+                    position: fixed;
+                    inset: 0;
+                    z-index: 16000;
+                    display: none;
+                    align-items: stretch;
+                    justify-content: flex-start;
+                    background: linear-gradient(90deg, rgba(2,3,9,.96) 0%, rgba(2,3,9,.88) 36%, rgba(2,3,9,.62) 100%);
+                    backdrop-filter: blur(22px) brightness(.78);
+                    -webkit-backdrop-filter: blur(22px) brightness(.78);
+                    color: #fff;
+                    font-family: inherit;
+                    padding: 0;
+                    box-sizing: border-box;
+                }
+                .doorpi-quick-panel.visible { display: flex; }
+                .doorpi-quick-panel.has-opened .dq-sidebar {
+                    animation: none;
+                }
+                .doorpi-quick-panel.is-menu-only {
+                    background: transparent;
+                    backdrop-filter: none;
+                    -webkit-backdrop-filter: none;
+                    pointer-events: none;
+                }
+                .dq-sidebar {
+                    width: clamp(300px, 24vw, 380px);
+                    padding: clamp(34px, 4.5vh, 58px) clamp(24px, 2vw, 34px);
+                    border-right: 1px solid rgba(255,255,255,.09);
+                background: #060710;
+                backdrop-filter: none;
+                -webkit-backdrop-filter: none;
+                    box-shadow: 24px 0 80px rgba(0,0,0,.28);
+                    display: flex;
+                    flex-direction: column;
+                    gap: 18px;
+                    transform-origin: left center;
+                    animation: dqSidebarIn .22s cubic-bezier(.2, .9, .2, 1) both;
+                    pointer-events: auto;
+                }
+                @keyframes dqSidebarIn {
+                    from { opacity: 0; transform: translateX(-24px) scaleX(.92); }
+                    to { opacity: 1; transform: translateX(0) scaleX(1); }
+                }
+                .dq-brand { min-height:42px; margin-bottom:10px; }
+                .dq-burger { width:30px; height:24px; display:grid; gap:6px; flex:0 0 auto; }
+                .dq-burger span { display:block; height:2px; border-radius:99px; background:rgba(255,255,255,.78); }
+                .dq-title { font-size: clamp(1.18rem, 1.45vw, 1.65rem); font-weight: 500; letter-spacing: 0; }
+                .dq-menu { display:flex; flex-direction:column; gap:10px; margin-top:10px; }
+                .dq-menu-btn {
+                    min-height: 64px;
+                    border: 1px solid transparent;
+                    border-radius: 8px;
+                    background: transparent;
+                    color: rgba(255,255,255,.72);
+                    font: inherit;
+                    text-align: left;
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 14px;
+                    padding: 0 16px;
+                    outline: none;
+                    cursor: pointer;
+                }
+                .dq-menu-btn.active { background: rgba(255,255,255,.08); color:#fff; border-color: rgba(255,255,255,.12); }
+                .dq-menu-btn.nav-focused-el, .dq-menu-btn:focus {
+                    background: rgba(255,255,255,.16);
+                    border-color: rgba(255,255,255,.7);
+                    box-shadow: 0 0 0 2px rgba(255,255,255,.14), 0 12px 28px rgba(0,0,0,.32);
+                }
+                .dq-menu-label { display:flex; align-items:center; gap:14px; min-width:0; font-size:1.02rem; font-weight:560; }
+                .dq-menu-ico { width:28px; height:28px; display:flex; align-items:center; justify-content:center; color:rgba(255,255,255,.84); flex:0 0 auto; }
+                .dq-menu-ico svg { width:26px; height:26px; stroke-width:1.85; }
+                .dq-dot { width:8px; height:8px; border-radius:50%; background:#7dcbff; box-shadow:0 0 16px rgba(125,203,255,.75); }
+                .dq-content {
+                    flex: 1;
+                    min-width: 0;
+                    padding: clamp(42px, 5vh, 72px) clamp(38px, 4.5vw, 86px);
+                    display: flex;
+                    flex-direction: column;
+                    gap: 18px;
+                    animation: dqContentIn .22s ease both;
+                }
+                @keyframes dqContentIn { from { opacity:.35; transform:translateX(-10px); } to { opacity:1; transform:none; } }
+                .dq-kicker { color:rgba(255,255,255,.42); font-size:.78rem; font-weight:700; letter-spacing:.14em; text-transform:uppercase; }
+                .dq-heading { margin:0; font-size:clamp(2.2rem, 3.25vw, 4rem); line-height:1.02; font-weight:340; letter-spacing:0; }
+                .dq-sub { margin:0; max-width:720px; color:rgba(255,255,255,.60); line-height:1.48; font-size:clamp(.96rem, 1vw, 1.12rem); }
+                .dq-grid { display:grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap:16px; max-width:880px; margin-top:12px; }
+                .dq-card, .dq-action {
+                    border:1px solid rgba(255,255,255,.10);
+                    border-radius:8px;
+                    background:rgba(255,255,255,.045);
+                    color:#fff;
+                    font:inherit;
+                    text-align:left;
+                    outline:none;
+                    cursor:pointer;
+                    transition:transform .18s, background .18s, border-color .18s, box-shadow .18s;
+                }
+                .dq-card { min-height:178px; padding:22px; display:flex; flex-direction:column; justify-content:space-between; gap:22px; }
+                .dq-action { min-height:60px; padding:0 18px; display:flex; align-items:center; justify-content:space-between; gap:14px; }
+                .dq-card.nav-focused-el, .dq-action.nav-focused-el, .dq-card:focus, .dq-action:focus {
+                    transform:translateY(-2px);
+                    background:rgba(255,255,255,.12);
+                    border-color:rgba(255,255,255,.72);
+                    box-shadow:0 0 0 2px rgba(255,255,255,.15), 0 18px 42px rgba(0,0,0,.38);
+                }
+                .dq-card h3 { margin:0; font-size:1.22rem; font-weight:650; line-height:1.2; }
+                .dq-card p { margin:7px 0 0; color:rgba(255,255,255,.58); line-height:1.38; max-width:32ch; }
+                .dq-pill { display:inline-flex; align-self:flex-start; padding:4px 9px; border-radius:999px; background:rgba(125,203,255,.12); color:#9dd8ff; font-size:.68rem; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
+                .dq-pill.warn { background:rgba(255,205,90,.13); color:#ffd872; }
+                .dq-pill.err { background:rgba(255,90,90,.13); color:#ff9696; }
+                .dq-panel { max-width:880px; border:1px solid rgba(255,255,255,.10); border-radius:8px; background:rgba(255,255,255,.04); padding:20px; }
+                .dq-tabs { display:flex; gap:8px; margin:4px 0 2px; }
+                .dq-tab { min-width:132px; min-height:42px; border-radius:8px; border:1px solid rgba(255,255,255,.10); background:rgba(255,255,255,.035); color:rgba(255,255,255,.74); font:inherit; outline:none; cursor:pointer; }
+                .dq-tab.active { color:#fff; background:rgba(125,203,255,.10); border-color:rgba(125,203,255,.36); }
+                .dq-tab.nav-focused-el, .dq-tab:focus { border-color:#fff; background:rgba(255,255,255,.15); box-shadow:0 0 0 2px rgba(255,255,255,.16); }
+                .dq-meta { display:flex; flex-wrap:wrap; gap:10px 18px; color:rgba(255,255,255,.55); font-size:.9rem; margin-top:10px; }
+                .dq-list { display:grid; gap:8px; margin-top:12px; }
+                .dq-update-row { display:flex; justify-content:space-between; gap:14px; padding:9px 0; border-top:1px solid rgba(255,255,255,.07); color:rgba(255,255,255,.72); }
+                .dq-actions { display:grid; grid-template-columns: repeat(2, minmax(230px, 1fr)); gap:12px; max-width:740px; margin-top:6px; }
+                .dq-actions.windows-update-actions {
+                    grid-template-areas:
+                        "verify install"
+                        "manual restart";
+                    align-items: stretch;
+                }
+                .dq-action.verify { grid-area: verify; }
+                .dq-action.manual { grid-area: manual; }
+                .dq-action.install { grid-area: install; }
+                .dq-action.restart { grid-area: restart; }
+                .dq-action-label { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+                .dq-action-ico { width:22px; height:22px; flex:0 0 auto; display:flex; align-items:center; justify-content:center; }
+                .dq-action-ico svg { width:22px; height:22px; stroke-width:1.9; }
+                .dq-spin { animation: dqSpin .9s linear infinite; }
+                @keyframes dqSpin { to { transform: rotate(360deg); } }
+                .dq-action.primary { background:rgba(255,255,255,.88); color:#090914; }
+                .dq-action.danger { border-color:rgba(255,120,120,.28); color:#ffc4c4; }
+                .dq-action[disabled] { opacity:.38; cursor:default; pointer-events:none; }
+                .dq-action[data-busy="true"] { opacity:.72; cursor:default; }
+                @media (max-width: 900px) {
+                    .dq-sidebar { width: 230px; padding-inline:18px; }
+                    .dq-content { padding-inline:26px; }
+                    .dq-grid, .dq-actions { grid-template-columns:1fr; }
+                    .dq-actions.windows-update-actions { grid-template-areas: none; }
+                    .dq-action.verify, .dq-action.manual, .dq-action.install, .dq-action.restart { grid-area: auto; }
+                }
+            `;
+            document.head.appendChild(s);
+        }
+
+        function esc(value) {
+            return typeof escapeHtml === 'function'
+                ? escapeHtml(String(value ?? ''))
+                : String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+        }
+
+        function canOpen() {
+            if (window.isDoorpiQuickMenuBlocked?.()) return false;
+            if (window.isDoorpiSessionTransitionActive?.()) return false;
+            if (window.isNavMenuOpen || window.isModalOpen || window.isSetupOpen || window._vkbIsOpen) return false;
+            if (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) return false;
+            if (typeof isEditModalOpen !== 'undefined' && isEditModalOpen) return false;
+            const launchOverlay = document.getElementById('gameLaunchOverlay');
+            if (launchOverlay?.classList.contains('visible')) return false;
+            return true;
+        }
+
+        function ensure() {
+            ensureStyles();
+            let overlay = document.getElementById('doorpiQuickPanel');
+            if (overlay) return overlay;
+            overlay = document.createElement('div');
+            overlay.id = 'doorpiQuickPanel';
+            overlay.className = 'doorpi-quick-panel doorpi-manager-overlay';
+            overlay.dataset.required = 'false';
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) close();
+            });
+            document.body.appendChild(overlay);
+            return overlay;
+        }
+
+        function statusPill(kind, status) {
+            if (kind === 'doorpi') {
+                const available = !!(status?.doorpiUpdateAvailable || status?.updaterUpdateAvailable);
+                if (available) return `<span class="dq-pill warn">Disponível</span>`;
+                if (status?.status === 'error') return `<span class="dq-pill err">Erro</span>`;
+                if (status?.status === 'checking') return `<span class="dq-pill">Verificando</span>`;
+                return `<span class="dq-pill">Atualizado</span>`;
+            }
+            const updates = Array.isArray(status?.updates) ? status.updates : [];
+            if (status?.rebootRequired) return `<span class="dq-pill warn">Reiniciar</span>`;
+            if (updates.length) return `<span class="dq-pill warn">Disponível</span>`;
+            if (status?.status === 'error') return `<span class="dq-pill err">Erro</span>`;
+            if (status?.status === 'checking' || status?.status === 'downloading') return `<span class="dq-pill">Processando</span>`;
+            return `<span class="dq-pill">Atualizado</span>`;
+        }
+
+        function dateText(value) {
+            if (!value) return 'Nunca';
+            const d = new Date(value);
+            if (Number.isNaN(d.getTime())) return 'Nunca';
+            return d.toLocaleDateString(undefined, { day: '2-digit', month: '2-digit' }) + ' ' +
+                d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function sizeText(bytes) {
+            const value = Number(bytes || 0);
+            if (!Number.isFinite(value) || value <= 0) return '';
+            if (value >= 1024 * 1024 * 1024) return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+            if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(0)} MB`;
+            return `${Math.max(1, Math.round(value / 1024))} KB`;
+        }
+
+        function iconSvg(id, cls = '') {
+            const icons = {
+                updates: '<path d="M21 12a9 9 0 0 1-15.5 6.2"/><path d="M3 12A9 9 0 0 1 18.5 5.8"/><path d="M18.5 2.8v3h-3"/><path d="M5.5 21.2v-3h3"/>',
+                users: '<path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.85"/><path d="M16 3.15a4 4 0 0 1 0 7.7"/>',
+                power: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>',
+                settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.72l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/>',
+                arrowRight: '<path d="M5 12h14"/><path d="m13 6 6 6-6 6"/>',
+                refresh: '<path d="M21 12a9 9 0 0 1-15.5 6.2"/><path d="M3 12A9 9 0 0 1 18.5 5.8"/><path d="M18.5 2.8v3h-3"/>',
+                external: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/>',
+                sleep: '<path d="M20.5 14.5A8.5 8.5 0 1 1 9.5 3.5 7 7 0 0 0 20.5 14.5Z"/>',
+                shutdown: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>',
+                close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'
+            };
+            return `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[id] || icons.arrowRight}</svg>`;
+        }
+
+        function sidebar() {
+            const hasDoorpiUpdate = !!(doorpiStatus?.doorpiUpdateAvailable || doorpiStatus?.updaterUpdateAvailable);
+            const hasWindowsUpdate = !!windowsStatus?.rebootRequired || ((windowsStatus?.updates || []).length > 0);
+            const updateDot = hasDoorpiUpdate || hasWindowsUpdate ? '<span class="dq-dot"></span>' : '';
+            const items = [
+                ['updates', 'Atualizações', updateDot],
+                ['users', 'Trocar usuário', ''],
+                ['power', 'Energia', ''],
+                ['settings', 'Configurações', '']
+            ];
+            return `
+                <aside class="dq-sidebar">
+                    <div class="dq-brand" aria-hidden="true"></div>
+                    <div class="dq-menu">
+                        ${items.map(([id, label, badge]) => `
+                            <button class="dq-menu-btn ${section === id ? 'active' : ''}" data-section="${id}" tabindex="0">
+                                <span class="dq-menu-label">
+                                    <span class="dq-menu-ico">${iconSvg(id)}</span>
+                                    <span>${label}</span>
+                                </span>
+                                ${badge}
+                            </button>
+                        `).join('')}
+                    </div>
+                </aside>
+            `;
+        }
+
+        function updatesHub() {
+            return `
+                <section class="dq-content">
+                    <div class="dq-kicker">Painel rápido</div>
+                    <h1 class="dq-heading">Atualizações</h1>
+                    <p class="dq-sub">Verifique o Doorpi e o Windows sem sair da experiência de console.</p>
+                    <div class="dq-grid">
+                        <button class="dq-card" data-update-view="doorpi" tabindex="0">
+                            ${statusPill('doorpi', doorpiStatus)}
+                            <div><h3>Doorpi</h3><p>Aplicativo, updater e manifesto assinado.</p></div>
+                        </button>
+                        <button class="dq-card" data-update-view="windows" tabindex="0">
+                            ${statusPill('windows', windowsStatus)}
+                            <div><h3>Windows</h3><p>Windows Update, instalação em segundo plano e reinício.</p></div>
+                        </button>
+                    </div>
+                </section>
+            `;
+        }
+
+        function doorpiDetail() {
+            const s = doorpiStatus || {};
+            const hasUpdate = !!(s.doorpiUpdateAvailable || s.updaterUpdateAvailable);
+            const active = s.status === 'checking' || s.status === 'downloading' || s.status === 'installing';
+            const changelog = Array.isArray(s.changelog) && s.changelog[0]?.items
+                ? s.changelog[0].items.slice(0, 4)
+                : [];
+            return `
+                <section class="dq-content">
+                    <div class="dq-kicker">Atualizações</div>
+                    <h1 class="dq-heading">Doorpi</h1>
+                    <p class="dq-sub">${esc(s.message || 'Atualizações ainda não verificadas.')}</p>
+                    <div class="dq-tabs">
+                        <button class="dq-tab active" data-update-view="doorpi" tabindex="0">Doorpi</button>
+                        <button class="dq-tab" data-update-view="windows" tabindex="0">Windows</button>
+                    </div>
+                    <div class="dq-panel">
+                        ${statusPill('doorpi', s)}
+                        <div class="dq-meta">
+                            <span>Doorpi ${esc(s.localDoorpiVersion || '--')}${s.remoteDoorpiVersion ? ' -> ' + esc(s.remoteDoorpiVersion) : ''}</span>
+                            <span>Updater ${esc(s.localUpdaterVersion || '--')}${s.remoteUpdaterVersion ? ' -> ' + esc(s.remoteUpdaterVersion) : ''}</span>
+                            <span>Última verificação: ${esc(dateText(s.lastCheckedAt))}</span>
+                        </div>
+                        <div class="dq-list">
+                            ${changelog.length ? changelog.map(item => `<div class="dq-update-row"><span>${esc(item)}</span></div>`).join('') : '<div class="dq-update-row"><span>Nenhuma nota de versão carregada.</span></div>'}
+                        </div>
+                    </div>
+                    <div class="dq-actions">
+                        <button class="dq-action" data-action="check-doorpi" tabindex="0" ${active ? 'data-busy="true"' : ''}><span class="dq-action-label">${active ? 'Verificando' : 'Verificar Doorpi'}</span><span class="dq-action-ico">${iconSvg('refresh', active ? 'dq-spin' : '')}</span></button>
+                        <button class="dq-action primary" data-action="install-doorpi" tabindex="0" ${(hasUpdate && !active) ? '' : 'disabled'}><span class="dq-action-label">Atualizar Doorpi</span><span class="dq-action-ico">${iconSvg('arrowRight')}</span></button>
+                    </div>
+                </section>
+            `;
+        }
+
+        function windowsDetail() {
+            const s = windowsStatus || {};
+            const updates = Array.isArray(s.updates) ? s.updates : [];
+            const active = s.status === 'checking' || s.status === 'downloading' || s.status === 'installing';
+            return `
+                <section class="dq-content">
+                    <div class="dq-kicker">Atualizações</div>
+                    <h1 class="dq-heading">Windows</h1>
+                    <p class="dq-sub">${esc(s.message || 'Atualizações do Windows ainda não verificadas.')}</p>
+                    <div class="dq-tabs">
+                        <button class="dq-tab" data-update-view="doorpi" tabindex="0">Doorpi</button>
+                        <button class="dq-tab active" data-update-view="windows" tabindex="0">Windows</button>
+                    </div>
+                    <div class="dq-panel">
+                        ${statusPill('windows', s)}
+                        <div class="dq-meta">
+                            <span>${updates.length} pacote(s)</span>
+                            <span>Última verificação: ${esc(dateText(s.lastCheckedAt))}</span>
+                        </div>
+                        <div class="dq-list">
+                            ${updates.length ? updates.slice(0, 5).map(update => {
+                                const size = sizeText(update.sizeBytes);
+                                return `<div class="dq-update-row"><span>${esc(update.title || 'Atualização do Windows')}</span><span>${esc(size)}</span></div>`;
+                            }).join('') : '<div class="dq-update-row"><span>Nenhuma atualização listada.</span></div>'}
+                        </div>
+                    </div>
+                    <div class="dq-actions windows-update-actions">
+                        <button class="dq-action verify" data-action="check-windows" tabindex="0" ${active ? 'data-busy="true"' : ''}><span class="dq-action-label">${active ? 'Verificando' : 'Verificar Windows'}</span><span class="dq-action-ico">${iconSvg('refresh', active ? 'dq-spin' : '')}</span></button>
+                        <button class="dq-action manual" data-action="open-windows-update" tabindex="0"><span class="dq-action-label">Abrir Windows Update</span><span class="dq-action-ico">${iconSvg('external')}</span></button>
+                        <button class="dq-action primary install" data-action="install-windows" tabindex="0" ${(updates.length && !s.rebootRequired && !active) ? '' : 'disabled'}><span class="dq-action-label">Baixar e instalar</span><span class="dq-action-ico">${iconSvg('arrowRight')}</span></button>
+                        <button class="dq-action primary restart" data-action="restart" tabindex="0" ${s.rebootRequired ? '' : 'disabled'}><span class="dq-action-label">Reiniciar agora</span><span class="dq-action-ico">${iconSvg('shutdown')}</span></button>
+                    </div>
+                </section>
+            `;
+        }
+
+        function powerContent() {
+            return `
+                <section class="dq-content">
+                    <div class="dq-kicker">Sistema</div>
+                    <h1 class="dq-heading">Energia</h1>
+                    <p class="dq-sub">Comandos diretos para controlar o computador.</p>
+                    <div class="dq-actions">
+                        <button class="dq-action" data-action="suspend" tabindex="0"><span class="dq-action-label">Suspender</span><span class="dq-action-ico">${iconSvg('sleep')}</span></button>
+                        <button class="dq-action" data-action="restart" tabindex="0"><span class="dq-action-label">Reiniciar</span><span class="dq-action-ico">${iconSvg('refresh')}</span></button>
+                        <button class="dq-action danger" data-action="shutdown" tabindex="0"><span class="dq-action-label">Desligar</span><span class="dq-action-ico">${iconSvg('shutdown')}</span></button>
+                        <button class="dq-action" data-action="exit" tabindex="0"><span class="dq-action-label">Sair do Doorpi</span><span class="dq-action-ico">${iconSvg('close')}</span></button>
+                    </div>
+                </section>
+            `;
+        }
+
+        function simpleContent(title, sub, actionLabel) {
+            return `
+                <section class="dq-content">
+                    <div class="dq-kicker">Painel rápido</div>
+                    <h1 class="dq-heading">${title}</h1>
+                    <p class="dq-sub">${sub}</p>
+                    <div class="dq-actions">
+                        <button class="dq-action primary" data-action="${actionLabel === 'Trocar usuário' ? 'open-users' : 'open-settings'}" tabindex="0"><span class="dq-action-label">${actionLabel}</span><span class="dq-action-ico">${iconSvg('arrowRight')}</span></button>
+                    </div>
+                </section>
+            `;
+        }
+
+        function content() {
+            if (!section) return '';
+            if (section === 'updates') {
+                if (updateView === 'doorpi') return doorpiDetail();
+                if (updateView === 'windows') return windowsDetail();
+                return updatesHub();
+            }
+            if (section === 'users') return simpleContent('Trocar usuário', 'Abra o seletor de perfis e escolha outra sessão.', 'Trocar usuário');
+            if (section === 'power') return powerContent();
+            return simpleContent('Configurações', 'Abre o menu completo de configurações e biblioteca.', 'Abrir configurações');
+        }
+
+        function contentFocusFor(sectionId) {
+            if (!sectionId) return '.dq-menu-btn';
+            if (sectionId === 'updates') {
+                if (updateView === 'doorpi' || updateView === 'windows') return `[data-update-view="${updateView}"]`;
+                return '.dq-card';
+            }
+            if (sectionId === 'power') return '.dq-action';
+            return `.dq-menu-btn[data-section="${sectionId}"]`;
+        }
+
+        function currentFocusSelector() {
+            const el = document.activeElement;
+            if (!el?.closest?.('#doorpiQuickPanel')) return null;
+            if (el.dataset?.action) return `[data-action="${el.dataset.action}"]`;
+            if (el.dataset?.updateView) return `[data-update-view="${el.dataset.updateView}"]`;
+            if (el.dataset?.section) return `.dq-menu-btn[data-section="${el.dataset.section}"]`;
+            if (el.classList.contains('dq-card')) return '.dq-card';
+            if (el.classList.contains('dq-action')) return '.dq-action';
+            return null;
+        }
+
+        function openNavSettings() {
+            close();
+            if (typeof window._navMenuOpenSettings === 'function') window._navMenuOpenSettings();
+            else window.openNavMenu?.(2);
+        }
+
+        function enterSection(sectionId = section) {
+            const sameSection = section === sectionId;
+            section = sectionId || 'updates';
+            if (section === 'users') {
+                window._doorpiUserPickerReturnToQuickPanel = true;
+                close();
+                postToHost?.({ action: 'requestUsers' });
+                return;
+            }
+            if (section === 'settings') {
+                openNavSettings();
+                return;
+            }
+            if (section === 'updates' && !sameSection) updateView = 'hub';
+            depth = 'content';
+            if (sameSection && depth === 'content') {
+                const target = document.getElementById('doorpiQuickPanel')?.querySelector(contentFocusFor(section));
+                if (target) {
+                    target.focus();
+                    return;
+                }
+            }
+            render(contentFocusFor(section));
+        }
+
+        function render(focusSelector) {
+            const overlay = ensure();
+            overlay.classList.toggle('is-menu-only', !section);
+            overlay.innerHTML = `${sidebar()}${content()}`;
+            wire(overlay);
+            const sidebarEl = overlay.querySelector('.dq-sidebar');
+            if (sidebarEl && overlay.style.display !== 'none' && overlay.classList.contains('visible') && !overlay.classList.contains('has-opened')) {
+                sidebarEl.addEventListener('animationend', () => overlay.classList.add('has-opened'), { once: true });
+            }
+            const target = focusSelector ? overlay.querySelector(focusSelector) : overlay.querySelector('.dq-menu-btn.active, button');
+            requestAnimationFrame(() => target?.focus());
+        }
+
+        function setBusyAction(btn, message) {
+            btn.dataset.busy = 'true';
+            const label = btn.querySelector('.dq-action-label');
+            const icon = btn.querySelector('.dq-action-ico');
+            if (label) label.textContent = 'Verificando';
+            if (icon) icon.innerHTML = iconSvg('refresh', 'dq-spin');
+            const sub = document.getElementById('doorpiQuickPanel')?.querySelector('.dq-sub');
+            if (sub && message) sub.textContent = message;
+            btn.focus();
+        }
+
+        function patchCheckingStatus(kind, status) {
+            if (status?.status !== 'checking') return false;
+            if (section !== 'updates' || updateView !== kind) return false;
+            const action = kind === 'windows' ? 'check-windows' : 'check-doorpi';
+            const btn = document.getElementById('doorpiQuickPanel')?.querySelector(`[data-action="${action}"]`);
+            if (!btn) return false;
+            const fallback = kind === 'windows'
+                ? 'Verificando atualizações do Windows...'
+                : 'Verificando atualizações do Doorpi...';
+            setBusyAction(btn, status.message || fallback);
+            return true;
+        }
+
+        function hasContentTargetToLeft(active) {
+            const contentEl = active?.closest?.('#doorpiQuickPanel .dq-content');
+            if (!contentEl) return false;
+            const ar = active.getBoundingClientRect();
+            const activeCenterY = ar.top + ar.height / 2;
+            return Array.from(contentEl.querySelectorAll('button, input, select, [tabindex="0"]'))
+                .filter(el => el !== active && !el.disabled && el.offsetWidth > 0 && el.offsetHeight > 0)
+                .some(el => {
+                    const r = el.getBoundingClientRect();
+                    const centerX = r.left + r.width / 2;
+                    const centerY = r.top + r.height / 2;
+                    const verticalOverlap = Math.abs(centerY - activeCenterY) <= Math.max(ar.height, r.height) * 0.9;
+                    return centerX < ar.left && verticalOverlap;
+                });
+        }
+
+        function wire(overlay) {
+            overlay.querySelectorAll('[data-section]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    enterSection(btn.dataset.section || 'updates');
+                });
+            });
+            overlay.querySelectorAll('[data-update-view]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    section = 'updates';
+                    depth = 'content';
+                    const nextView = btn.dataset.updateView || 'hub';
+                    if (updateView === nextView) {
+                        btn.focus();
+                        return;
+                    }
+                    updateView = nextView;
+                    render(`[data-update-view="${updateView}"]`);
+                });
+            });
+            overlay.querySelectorAll('[data-action]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const action = btn.dataset.action;
+                    if (action === 'check-doorpi') {
+                        if (btn.dataset.busy === 'true') return;
+                        const message = 'Verificando atualizações do Doorpi...';
+                        doorpiStatus = { ...(doorpiStatus || {}), status: 'checking', message };
+                        setBusyAction(btn, message);
+                        postToHost?.({ action: 'checkSystemUpdates' });
+                    }
+                    else if (action === 'install-doorpi') postToHost?.({ action: 'startSystemUpdate' });
+                    else if (action === 'check-windows') {
+                        if (btn.dataset.busy === 'true') return;
+                        const message = 'Verificando atualizações do Windows...';
+                        windowsStatus = { ...(windowsStatus || {}), status: 'checking', message };
+                        setBusyAction(btn, message);
+                        postToHost?.({ action: 'checkWindowsUpdates' });
+                    }
+                    else if (action === 'install-windows') postToHost?.({ action: 'startWindowsUpdateInstall' });
+                    else if (action === 'open-windows-update') { close(); postToHost?.({ action: 'openWindowsUpdateSettings' }); }
+                    else if (action === 'restart') postToHost?.({ action: 'restartSystem' });
+                    else if (action === 'suspend') postToHost?.({ action: 'suspendSystem' });
+                    else if (action === 'shutdown') postToHost?.({ action: 'shutdownSystem' });
+                    else if (action === 'exit') postToHost?.({ action: 'exitApp' });
+                    else if (action === 'open-users') {
+                        window._doorpiUserPickerReturnToQuickPanel = true;
+                        close();
+                        postToHost?.({ action: 'requestUsers' });
+                    }
+                    else if (action === 'open-settings') openNavSettings();
+                });
+            });
+        }
+
+        function open() {
+            if (!canOpen()) return;
+            section = null;
+            updateView = 'hub';
+            depth = 'menu';
+            const overlay = ensure();
+            overlay.classList.remove('has-opened');
+            overlay.classList.add('visible');
+            overlay.style.display = 'flex';
+            document.body.classList.remove('quick-menu-unavailable');
+            document.body.classList.add('quick-panel-open');
+            postToHost?.({ action: 'requestUpdateStatus' });
+            postToHost?.({ action: 'requestWindowsUpdateStatus' });
+            render('.dq-menu-btn');
+        }
+
+        function openMenu() {
+            if (!canOpen()) return;
+            section = null;
+            updateView = 'hub';
+            depth = 'menu';
+            const overlay = ensure();
+            overlay.classList.add('visible', 'has-opened');
+            overlay.style.display = 'flex';
+            document.body.classList.remove('quick-menu-unavailable');
+            document.body.classList.add('quick-panel-open');
+            postToHost?.({ action: 'requestUpdateStatus' });
+            postToHost?.({ action: 'requestWindowsUpdateStatus' });
+            render('.dq-menu-btn');
+        }
+
+        function toggle() {
+            if (api.isOpen()) close();
+            else open();
+        }
+
+        function close() {
+            const overlay = document.getElementById('doorpiQuickPanel');
+            if (overlay) {
+                overlay.classList.remove('visible');
+                overlay.style.display = 'none';
+            }
+            document.body.classList.remove('quick-panel-open');
+            window.updateDoorpiQuickMenuAvailability?.();
+            window.focusFeaturedCard?.();
+        }
+
+        function back() {
+            if (section === 'updates' && updateView !== 'hub') {
+                updateView = 'hub';
+                depth = 'content';
+                render('.dq-card');
+                return true;
+            }
+            if (depth === 'content') {
+                depth = 'menu';
+                const focusSelector = section ? `.dq-menu-btn[data-section="${section}"]` : '.dq-menu-btn';
+                section = null;
+                updateView = 'hub';
+                render(focusSelector);
+                return true;
+            }
+            close();
+            return true;
+        }
+
+        function handleDirection(direction) {
+            if (!api.isOpen()) return false;
+            const active = document.activeElement;
+            if (active?.closest?.('#doorpiQuickPanel .dq-content') && direction === 'LEFT') {
+                if (hasContentTargetToLeft(active)) return false;
+                depth = 'menu';
+                const focusSelector = section ? `.dq-menu-btn[data-section="${section}"]` : '.dq-menu-btn';
+                section = null;
+                updateView = 'hub';
+                render(focusSelector);
+                return true;
+            }
+            if (active?.closest?.('#doorpiQuickPanel .dq-sidebar') && direction === 'RIGHT') {
+                close();
+                return true;
+            }
+            return false;
+        }
+
+        const api = {
+            open,
+            openMenu,
+            close,
+            toggle,
+            back,
+            handleDirection,
+            isOpen: () => {
+                const overlay = document.getElementById('doorpiQuickPanel');
+                return !!(overlay && overlay.style.display !== 'none' && overlay.offsetWidth > 0);
+            },
+            setDoorpiUpdateStatus(status) {
+                const focusSelector = currentFocusSelector();
+                doorpiStatus = status;
+                if (this.isOpen() && patchCheckingStatus('doorpi', status)) return;
+                if (this.isOpen()) render(focusSelector || contentFocusFor(section));
+            },
+            setWindowsUpdateStatus(status) {
+                const focusSelector = currentFocusSelector();
+                windowsStatus = status;
+                if (this.isOpen() && patchCheckingStatus('windows', status)) return;
+                if (this.isOpen()) render(focusSelector || contentFocusFor(section));
+            }
+        };
+        return api;
+    })();
+
     window.openExtensionsManager = function () {
         if (window.isDoorpiSessionTransitionActive?.()) return;
         // Se o Nav Menu estiver fechado, manda abrir
@@ -4168,8 +4970,19 @@
         const top = overlays.at(-1);
         if (!force && top?.dataset.required === 'true') return;
         if (top) {
+            if (top.id === 'doorpiQuickPanel' && window.DoorpiQuickPanel?.back && !force) {
+                window.DoorpiQuickPanel.back();
+                return;
+            }
+            if (top.id === 'doorpiQuickPanel' && window.DoorpiQuickPanel?.close) {
+                window.DoorpiQuickPanel.close();
+                return;
+            }
             top.style.display = 'none';
-            if (top.id === 'doorpiUserPicker') window.DoorpiIntro?.finishHandoff?.();
+            if (top.id === 'doorpiUserPicker') {
+                document.body.classList.remove('user-picker-open');
+                window.DoorpiIntro?.finishHandoff?.();
+            }
         }
     };
 
@@ -4449,6 +5262,7 @@ document.getElementById('btnAdd').addEventListener('click', () => {
         return;
     }
     isModalOpen = true;
+    window.updateDoorpiQuickMenuAvailability?.();
     _modalReady = false;
     if (isSetupOpen) return;
     document.getElementById('modalActions').style.display = 'none';
@@ -4470,6 +5284,7 @@ document.getElementById('btnAddMedia')?.addEventListener('click', () => {
         return;
     }
     isModalOpen = true;
+    window.updateDoorpiQuickMenuAvailability?.();
     _modalReady = false;
     if (isSetupOpen) return;
     document.getElementById('modalActions').style.display = 'none';
@@ -4491,6 +5306,7 @@ document.getElementById('btnAddStore')?.addEventListener('click', () => {
         return;
     }
     isModalOpen = true;
+    window.updateDoorpiQuickMenuAvailability?.();
     _modalReady = false;
     if (isSetupOpen) return;
     document.getElementById('modalActions').style.display = 'none';
@@ -4505,6 +5321,7 @@ document.getElementById('btnAddStore')?.addEventListener('click', () => {
         document.getElementById('gameGrid').style.overflowX = 'auto';
         document.getElementById('selectionCounter')?.classList.remove('visible');
         isModalOpen = false;
+        window.updateDoorpiQuickMenuAvailability?.();
         hideGlobalLoading();
 
         postToHost({ action: 'stopAppPolling' });
@@ -5333,10 +6150,35 @@ function renderFolderList(folders) {
         opacity: 0;
         pointer-events: none;
         transition: opacity 0.3s ease;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        color: rgba(255,255,255,.58);
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: .05em;
+        text-transform: uppercase;
     }
     #navHintDown.visible { opacity: 1; }
     #navHintDown.nav-open { bottom: auto; top: 2rem; }
     #navHintDown.nav-open svg { transform: rotate(180deg); }
+    .nav-hint-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 28px;
+        padding: 0 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,.12);
+        background: rgba(8,9,18,.34);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+    }
+    .nav-hint-chip svg {
+        width: 18px;
+        height: 18px;
+        flex: 0 0 auto;
+    }
         .context-menu {
             position: fixed;
             z-index: 9999;
@@ -6707,7 +7549,10 @@ function renderFolderList(folders) {
                 (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) ||
                 (typeof isEditModalOpen !== 'undefined' && isEditModalOpen);
 
-            if (isOverlayOpen) { hint.classList.remove('visible'); return; }
+            if (isOverlayOpen) {
+                hint.classList.remove('visible');
+                return;
+            }
             hint.classList.toggle('visible', !!(isCard && inGrid));
         };
 

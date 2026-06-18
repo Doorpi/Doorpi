@@ -10426,10 +10426,63 @@ namespace Doorpi
                 {
                     _ = Task.Run(StartSystemUpdateAsync);
                 }
+                else if (action == "requestWindowsUpdateStatus")
+                {
+                    SendCachedWindowsUpdateStatusToUI();
+                }
+                else if (action == "checkWindowsUpdates")
+                {
+                    _ = Task.Run(() => RefreshWindowsUpdateStatusAsync(scan: true));
+                }
+                else if (action == "startWindowsUpdateInstall")
+                {
+                    _ = Task.Run(StartWindowsUpdateInstallAsync);
+                }
                 else if (action == "setBootMode" && root.TryGetProperty("mode", out var modeEl))
                 {
                     SetBootMode(modeEl.GetInt32());
                     SendBootModeToUI();
+                }
+                else if (action == "openWindowsUpdateSettings")
+                {
+                    try
+                    {
+                        Process.Start(new ProcessStartInfo("ms-settings:windowsupdate") { UseShellExecute = true });
+                        Dispatcher.Invoke(EnterDesktopMode);
+
+                        _ = Task.Run(async () =>
+                        {
+                            for (int i = 0; i < 20; i++)
+                            {
+                                await Task.Delay(500);
+                                if (Process.GetProcessesByName("SystemSettings").Length > 0)
+                                {
+                                    Dispatcher.Invoke(() =>
+                                    {
+                                        IntPtr fgHwnd = GetForegroundWindow();
+                                        if (fgHwnd != IntPtr.Zero) ShowWindow(fgHwnd, 3);
+                                        int safeX = (int)SystemParameters.PrimaryScreenWidth - 20;
+                                        int safeY = (int)SystemParameters.PrimaryScreenHeight / 2;
+                                        SetCursorPos(safeX, safeY);
+                                        SendMouse(0, 0, 0x0002);
+                                        SendMouse(0, 0, 0x0004);
+                                    });
+                                    break;
+                                }
+                            }
+
+                            while (_systemControllerActive)
+                            {
+                                await Task.Delay(1000);
+                                if (Process.GetProcessesByName("SystemSettings").Length == 0)
+                                {
+                                    Dispatcher.Invoke(() => { if (_systemControllerActive) ExitDesktopMode(); });
+                                    break;
+                                }
+                            }
+                        });
+                    }
+                    catch (Exception ex) { Debug.WriteLine($"Erro ao abrir Windows Update: {ex.Message}"); }
                 }
                 else if (action == "openTaskbarSettings")
                 {
@@ -13209,7 +13262,7 @@ namespace Doorpi
 
                     bool BtnPressed(ushort m) => (btn & m) != 0 && (prevButtons & m) == 0;
 
-                    // Abre o seletor apenas com o botão Select
+                    // Abre o painel rapido apenas com o botao Select
                     if (DateTime.UtcNow.Ticks > Interlocked.Read(ref _returnFromExternalModeSuppressUntil))
                     {
                         if (BtnPressed(0x0020))
@@ -13217,7 +13270,7 @@ namespace Doorpi
                             Dispatcher.BeginInvoke(() =>
                             {
                                 if (webView?.CoreWebView2 != null)
-                                    webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"openUserPicker\"}");
+                                    webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"openQuickPanel\"}");
                             });
                         }
                     }
