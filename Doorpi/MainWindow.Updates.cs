@@ -534,7 +534,9 @@ namespace Doorpi
         private async Task StartWindowsUpdateInstallAsync()
         {
             var progress = new Progress<WindowsUpdateStatus>(SendWindowsUpdateStatusToUI);
-            var status = await WindowsUpdates.DownloadAndInstallAsync(progress).ConfigureAwait(false);
+            var status = await WindowsUpdates.DownloadAndInstallAsync(
+                RunElevatedWindowsUpdateInstallAsync,
+                progress).ConfigureAwait(false);
             SendWindowsUpdateStatusToUI(status);
         }
 
@@ -559,6 +561,24 @@ namespace Doorpi
                     error = status.Error,
                     lastInstallResultCode = status.LastInstallResultCode,
                     lastInstallHResult = status.LastInstallHResult,
+                    lastInstallPhase = status.LastInstallPhase,
+                    overallPercent = status.OverallPercent,
+                    packageProgress = status.PackageProgress.Select(package => new
+                    {
+                        updateId = package.UpdateId,
+                        title = package.Title,
+                        status = package.Status,
+                        percent = package.Percent,
+                        rebootRequired = package.RebootRequired
+                    }).ToList(),
+                    packageResults = status.PackageResults.Select(result => new
+                    {
+                        updateId = result.UpdateId,
+                        title = result.Title,
+                        resultCode = result.ResultCode,
+                        hResult = result.HResult,
+                        rebootRequired = result.RebootRequired
+                    }).ToList(),
                     updates = status.Updates.Select(update => new
                     {
                         updateId = update.UpdateId,

@@ -4470,6 +4470,13 @@
                 .dq-meta { display:flex; flex-wrap:wrap; gap:10px 18px; color:rgba(255,255,255,.55); font-size:.9rem; margin-top:10px; }
                 .dq-list { display:grid; gap:8px; margin-top:12px; }
                 .dq-update-row { display:flex; justify-content:space-between; gap:14px; padding:9px 0; border-top:1px solid rgba(255,255,255,.07); color:rgba(255,255,255,.72); }
+                .dq-update-progress { display:grid; gap:7px; padding:10px 0; border-top:1px solid rgba(255,255,255,.07); }
+                .dq-update-progress-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; color:rgba(255,255,255,.74); }
+                .dq-update-progress-title { min-width:0; line-height:1.35; }
+                .dq-update-progress-state { flex:0 0 auto; color:rgba(255,255,255,.52); font-size:.82rem; }
+                .dq-update-progress-state.restart { color:#ffd872; }
+                .dq-progress-track { height:4px; overflow:hidden; border-radius:2px; background:rgba(255,255,255,.10); }
+                .dq-progress-fill { height:100%; width:var(--progress); background:#7dcbff; transition:width .18s linear; }
                 .dq-actions { display:grid; grid-template-columns: repeat(2, minmax(230px, 1fr)); gap:12px; max-width:740px; margin-top:6px; }
                 .dq-actions.windows-update-actions {
                     grid-template-areas:
@@ -4533,6 +4540,9 @@
                 .dq-gpu-guidance { max-width:880px; display:grid; gap:8px; padding-left:14px; border-left:2px solid rgba(125,203,255,.48); }
                 .dq-gpu-guidance p { margin:0; color:rgba(255,255,255,.56); font-size:.86rem; line-height:1.42; }
                 .dq-gpu-guidance strong { color:rgba(255,255,255,.84); font-weight:650; }
+                .dq-windows-guidance { max-width:880px; padding-left:14px; border-left:2px solid rgba(125,203,255,.48); }
+                .dq-windows-guidance p { margin:0; color:rgba(255,255,255,.58); font-size:.86rem; line-height:1.42; }
+                .dq-windows-guidance strong { color:rgba(255,255,255,.86); font-weight:650; }
                 @media (max-width: 900px) {
                     .dq-sidebar { width: 230px; padding-inline:18px; }
                     .dq-content { padding-inline:26px; }
@@ -4594,9 +4604,9 @@
             }
             const updates = Array.isArray(status?.updates) ? status.updates : [];
             if (status?.rebootRequired) return `<span class="dq-pill warn">Reiniciar</span>`;
-            if (updates.length) return `<span class="dq-pill warn">Disponível</span>`;
             if (status?.status === 'error') return `<span class="dq-pill err">Erro</span>`;
-            if (status?.status === 'checking' || status?.status === 'downloading') return `<span class="dq-pill">Processando</span>`;
+            if (status?.status === 'checking' || status?.status === 'downloading' || status?.status === 'installing') return `<span class="dq-pill">Processando</span>`;
+            if (updates.length) return `<span class="dq-pill warn">Disponível</span>`;
             return `<span class="dq-pill">Atualizado</span>`;
         }
 
@@ -4614,6 +4624,48 @@
             if (value >= 1024 * 1024 * 1024) return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB`;
             if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(0)} MB`;
             return `${Math.max(1, Math.round(value / 1024))} KB`;
+        }
+
+        function windowsActionLabel(status) {
+            if (status === 'installing') return t('windowsUpdateInstalling');
+            if (status === 'downloading') return t('windowsUpdateDownloading');
+            if (status === 'checking') return 'Verificando';
+            return 'Verificar Windows';
+        }
+
+        function windowsPackageState(item) {
+            if (item?.rebootRequired || item?.status === 'reboot-required')
+                return { text: t('windowsUpdateRebootPending'), cls: 'restart' };
+            const keys = {
+                pending: 'windowsUpdatePending',
+                downloading: 'windowsUpdateDownloading',
+                downloaded: 'windowsUpdateDownloaded',
+                installing: 'windowsUpdateInstalling',
+                installed: 'windowsUpdateInstalled',
+                error: 'windowsUpdatePackageError'
+            };
+            return { text: t(keys[item?.status] || 'windowsUpdatePending'), cls: '' };
+        }
+
+        function windowsUpdateRows(status, updates) {
+            const progress = Array.isArray(status?.packageProgress) ? status.packageProgress : [];
+            if (!progress.length) {
+                return updates.length
+                    ? updates.map(update => `<div class="dq-update-row"><span>${esc(update.title || 'Atualiza\u00e7\u00e3o do Windows')}</span><span>${esc(sizeText(update.sizeBytes))}</span></div>`).join('')
+                    : '<div class="dq-update-row"><span>Nenhuma atualiza\u00e7\u00e3o listada.</span></div>';
+            }
+
+            const updatesById = new Map(updates.map(update => [String(update.updateId || '').toLowerCase(), update]));
+            return progress.map(item => {
+                const update = updatesById.get(String(item.updateId || '').toLowerCase());
+                const state = windowsPackageState(item);
+                const percent = Math.max(0, Math.min(100, Number(item.percent) || 0));
+                const detail = [state.text, `${Math.round(percent)}%`, sizeText(update?.sizeBytes)].filter(Boolean).join(' - ');
+                return `<div class="dq-update-progress">
+                    <div class="dq-update-progress-head"><span class="dq-update-progress-title">${esc(item.title || update?.title || 'Atualiza\u00e7\u00e3o do Windows')}</span><span class="dq-update-progress-state ${state.cls}">${esc(detail)}</span></div>
+                    <div class="dq-progress-track"><div class="dq-progress-fill" style="--progress:${percent}%"></div></div>
+                </div>`;
+            }).join('');
         }
 
         function iconSvg(id, cls = '') {
@@ -4723,6 +4775,7 @@
         function windowsDetail() {
             const s = windowsStatus || {};
             const updates = Array.isArray(s.updates) ? s.updates : [];
+            const packageProgress = Array.isArray(s.packageProgress) ? s.packageProgress : [];
             const active = s.status === 'checking' || s.status === 'downloading' || s.status === 'installing';
             return `
                 <section class="dq-content">
@@ -4737,18 +4790,19 @@
                     <div class="dq-panel">
                         ${statusPill('windows', s)}
                         <div class="dq-meta">
-                            <span>${updates.length} pacote(s)</span>
+                            <span>${packageProgress.length || updates.length} pacote(s)</span>
+                            ${active ? `<span>${Math.max(0, Math.min(100, Number(s.overallPercent) || 0))}% geral</span>` : ''}
                             <span>Última verificação: ${esc(dateText(s.lastCheckedAt))}</span>
                         </div>
                         <div class="dq-list">
-                            ${updates.length ? updates.slice(0, 5).map(update => {
-                                const size = sizeText(update.sizeBytes);
-                                return `<div class="dq-update-row"><span>${esc(update.title || 'Atualização do Windows')}</span><span>${esc(size)}</span></div>`;
-                            }).join('') : '<div class="dq-update-row"><span>Nenhuma atualização listada.</span></div>'}
+                            ${windowsUpdateRows(s, updates)}
                         </div>
                     </div>
+                    <div class="dq-windows-guidance">
+                        <p><strong>${esc(t('windowsUpdateAdminNoticeTitle'))}</strong> ${esc(t('windowsUpdateAdminNoticeText'))}</p>
+                    </div>
                     <div class="dq-actions windows-update-actions">
-                        <button class="dq-action verify" data-action="check-windows" tabindex="0" ${active ? 'data-busy="true"' : ''}><span class="dq-action-label">${active ? 'Verificando' : 'Verificar Windows'}</span><span class="dq-action-ico">${iconSvg('refresh', active ? 'dq-spin' : '')}</span></button>
+                        <button class="dq-action verify" data-action="check-windows" tabindex="0" ${active ? 'data-busy="true"' : ''}><span class="dq-action-label">${esc(windowsActionLabel(s.status))}</span><span class="dq-action-ico">${iconSvg('refresh', active ? 'dq-spin' : '')}</span></button>
                         <button class="dq-action manual" data-action="open-windows-update" tabindex="0"><span class="dq-action-label">Abrir Windows Update</span><span class="dq-action-ico">${iconSvg('external')}</span></button>
                         <button class="dq-action primary install" data-action="install-windows" tabindex="0" ${(updates.length && !s.rebootRequired && !active) ? '' : 'disabled'}><span class="dq-action-label">Baixar e instalar</span><span class="dq-action-ico">${iconSvg('arrowRight')}</span></button>
                         <button class="dq-action primary restart" data-action="restart" tabindex="0" ${s.rebootRequired ? '' : 'disabled'}><span class="dq-action-label">Reiniciar agora</span><span class="dq-action-ico">${iconSvg('shutdown')}</span></button>

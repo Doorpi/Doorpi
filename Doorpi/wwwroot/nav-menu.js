@@ -902,6 +902,10 @@ window.isNavMenuOpen = false;
                 <div id="windowsUpdateList" style="display:grid;gap:7px;margin:12px 0 0;color:rgba(255,255,255,.62);font-size:.86rem;line-height:1.35;"></div>
             </div>
 
+            <div style="display:grid;gap:7px;margin:0 0 18px;padding-left:14px;border-left:2px solid rgba(125,203,255,.48);">
+                <p style="margin:0;color:rgba(255,255,255,.56);font-size:.84rem;line-height:1.42;"><strong style="color:rgba(255,255,255,.84);font-weight:650;">${_t('windowsUpdateAdminNoticeTitle', 'Permiss\u00e3o administrativa necess\u00e1ria.')}</strong> ${_t('windowsUpdateAdminNoticeText', 'O Windows solicitar\u00e1 autoriza\u00e7\u00e3o antes de baixar e instalar os pacotes selecionados.')}</p>
+            </div>
+
             <div class="nav-suggestions-grid" id="windowsUpdateActionsGrid" style="margin-bottom:18px;">
                 <button class="nav-suggestion-card visible" id="navCardCheckWindowsUpdates" tabindex="-1">
                     <div class="nav-suggestion-card-btn">Verificar Windows</div>
@@ -1042,6 +1046,7 @@ window.isNavMenuOpen = false;
         });
 
         body.querySelector('#navCardCheckWindowsUpdates')?.addEventListener('click', () => {
+            if (['checking', 'downloading', 'installing'].includes(_windowsUpdateStatus.status)) return;
             _windowsUpdateStatus = { ..._windowsUpdateStatus, status: 'checking', message: 'Verificando atualizacoes do Windows...' };
             _updateWindowsUpdateUI();
             if (typeof postToHost === 'function') postToHost({ action: 'checkWindowsUpdates' });
@@ -1319,6 +1324,10 @@ window.isNavMenuOpen = false;
                 <div id="windowsUpdateList" style="display:grid;gap:7px;margin:12px 0 0;color:rgba(255,255,255,.62);font-size:.86rem;line-height:1.35;"></div>
             </div>
 
+            <div style="display:${windowsActive ? 'grid' : 'none'};gap:7px;margin:0 0 18px;padding-left:14px;border-left:2px solid rgba(125,203,255,.48);">
+                <p style="margin:0;color:rgba(255,255,255,.56);font-size:.84rem;line-height:1.42;"><strong style="color:rgba(255,255,255,.84);font-weight:650;">${_t('windowsUpdateAdminNoticeTitle', 'Permiss\u00e3o administrativa necess\u00e1ria.')}</strong> ${_t('windowsUpdateAdminNoticeText', 'O Windows solicitar\u00e1 autoriza\u00e7\u00e3o antes de baixar e instalar os pacotes selecionados.')}</p>
+            </div>
+
             <div class="nav-suggestions-grid" id="windowsUpdateActionsGrid" style="display:${windowsActive ? 'flex' : 'none'};flex-direction:column;margin-bottom:18px;">
                 <button class="nav-suggestion-card visible" id="navCardCheckWindowsUpdates" tabindex="-1">
                     <div class="nav-suggestion-card-btn">Verificar Windows</div>
@@ -1406,6 +1415,7 @@ window.isNavMenuOpen = false;
             postToHost?.({ action: 'startSystemUpdate' });
         });
         body.querySelector('#navCardCheckWindowsUpdates')?.addEventListener('click', () => {
+            if (['checking', 'downloading', 'installing'].includes(_windowsUpdateStatus.status)) return;
             _windowsUpdateStatus = { ..._windowsUpdateStatus, status: 'checking', message: 'Verificando atualizações do Windows...' };
             _updateWindowsUpdateUI();
             postToHost?.({ action: 'checkWindowsUpdates' });
@@ -1689,6 +1699,7 @@ window.isNavMenuOpen = false;
         lastCheckedAt: '',
         rebootRequired: false,
         updates: [],
+        packageProgress: [],
         error: ''
     };
     let _gpuUpdateStatus = {
@@ -2648,6 +2659,68 @@ window.isNavMenuOpen = false;
             + date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
     }
 
+    function _windowsUpdateActionLabel(status) {
+        if (status === 'installing') return _t('windowsUpdateInstalling', 'Instalando');
+        if (status === 'downloading') return _t('windowsUpdateDownloading', 'Baixando');
+        if (status === 'checking') return 'Verificando';
+        return 'Verificar Windows';
+    }
+
+    function _windowsUpdatePackageState(item) {
+        if (item?.rebootRequired || item?.status === 'reboot-required') {
+            return { text: _t('windowsUpdateRebootPending', 'Reinicialização pendente'), color: '#ffd872' };
+        }
+        const keys = {
+            pending: ['windowsUpdatePending', 'Pendente'],
+            downloading: ['windowsUpdateDownloading', 'Baixando'],
+            downloaded: ['windowsUpdateDownloaded', 'Baixado'],
+            installing: ['windowsUpdateInstalling', 'Instalando'],
+            installed: ['windowsUpdateInstalled', 'Instalado'],
+            error: ['windowsUpdatePackageError', 'Falha']
+        };
+        const [key, fallback] = keys[item?.status] || keys.pending;
+        return { text: _t(key, fallback), color: 'rgba(255,255,255,.48)' };
+    }
+
+    function _renderWindowsUpdatePackages(status, updates) {
+        const progress = Array.isArray(status.packageProgress) ? status.packageProgress : [];
+        if (!progress.length) {
+            if (!updates.length)
+                return `<div style="padding-top:4px;color:rgba(255,255,255,.42);">Nenhuma atualização listada.</div>`;
+            return updates.map(update => {
+                const size = _formatWindowsUpdateSize(update.sizeBytes);
+                const downloaded = update.isDownloaded
+                    ? _t('windowsUpdateDownloaded', 'Baixado')
+                    : _t('windowsUpdatePending', 'Pendente');
+                return `
+                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:7px 0;border-top:1px solid rgba(255,255,255,.06);">
+                        <span style="min-width:0;color:rgba(255,255,255,.72);">${_esc(update.title || 'Atualização do Windows')}</span>
+                        <span style="flex:0 0 auto;color:rgba(255,255,255,.42);">${_esc([downloaded, size].filter(Boolean).join(' - '))}</span>
+                    </div>`;
+            }).join('');
+        }
+
+        const updatesById = new Map(updates.map(update => [String(update.updateId || '').toLowerCase(), update]));
+        return progress.map(item => {
+            const update = updatesById.get(String(item.updateId || '').toLowerCase());
+            const state = _windowsUpdatePackageState(item);
+            const percent = Math.max(0, Math.min(100, Number(item.percent) || 0));
+            const detail = [state.text, `${Math.round(percent)}%`, _formatWindowsUpdateSize(update?.sizeBytes)]
+                .filter(Boolean)
+                .join(' - ');
+            return `
+                <div style="display:grid;gap:7px;padding:10px 0;border-top:1px solid rgba(255,255,255,.06);">
+                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;">
+                        <span style="min-width:0;color:rgba(255,255,255,.72);line-height:1.35;">${_esc(item.title || update?.title || 'Atualização do Windows')}</span>
+                        <span style="flex:0 0 auto;color:${state.color};font-size:.8rem;">${_esc(detail)}</span>
+                    </div>
+                    <div style="height:4px;overflow:hidden;border-radius:2px;background:rgba(255,255,255,.10);">
+                        <div style="height:100%;width:${percent}%;background:#7dcbff;transition:width .18s linear;"></div>
+                    </div>
+                </div>`;
+        }).join('');
+    }
+
     function _updateWindowsUpdateUI() {
         const status = _windowsUpdateStatus || {};
         const updates = Array.isArray(status.updates) ? status.updates : [];
@@ -2656,6 +2729,7 @@ window.isNavMenuOpen = false;
         const sub = document.getElementById('windowsUpdateSub');
         const meta = document.getElementById('windowsUpdateMeta');
         const list = document.getElementById('windowsUpdateList');
+        const checkBtn = document.getElementById('navCardCheckWindowsUpdates');
         const startBtn = document.getElementById('navCardStartWindowsUpdate');
         const restartBtn = document.getElementById('navCardRestartWindows');
 
@@ -2690,29 +2764,25 @@ window.isNavMenuOpen = false;
         }
 
         if (meta) {
+            const visiblePackageCount = Array.isArray(status.packageProgress) && status.packageProgress.length
+                ? status.packageProgress.length
+                : updates.length;
             meta.innerHTML = `
-                <span>${updates.length} pacote(s)</span>
+                <span>${visiblePackageCount} pacote(s)</span>
+                ${active ? `<span>${Math.max(0, Math.min(100, Number(status.overallPercent) || 0))}% geral</span>` : ''}
                 <span>Ultima verificacao: ${_esc(_formatWindowsUpdateDate(status.lastCheckedAt))}</span>
             `;
         }
 
         if (list) {
-            if (updates.length) {
-                list.innerHTML = updates.slice(0, 5).map(update => {
-                    const size = _formatWindowsUpdateSize(update.sizeBytes);
-                    const downloaded = update.isDownloaded ? 'Baixado' : 'Pendente';
-                    return `
-                        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:7px 0;border-top:1px solid rgba(255,255,255,.06);">
-                            <span style="min-width:0;color:rgba(255,255,255,.72);">${_esc(update.title || 'Atualizacao do Windows')}</span>
-                            <span style="flex:0 0 auto;color:rgba(255,255,255,.42);">${_esc([downloaded, size].filter(Boolean).join(' - '))}</span>
-                        </div>
-                    `;
-                }).join('') + (updates.length > 5
-                    ? `<div style="color:rgba(255,255,255,.38);padding-top:4px;">+${updates.length - 5} outra(s) atualizacao(oes)</div>`
-                    : '');
-            } else {
-                list.innerHTML = `<div style="padding-top:4px;color:rgba(255,255,255,.42);">Nenhuma atualizacao listada.</div>`;
-            }
+            list.innerHTML = _renderWindowsUpdatePackages(status, updates);
+        }
+
+        if (checkBtn) {
+            const label = checkBtn.querySelector('.nav-suggestion-card-btn');
+            if (label) label.textContent = _windowsUpdateActionLabel(status.status);
+            checkBtn.dataset.busy = active ? 'true' : 'false';
+            checkBtn.setAttribute('aria-disabled', active ? 'true' : 'false');
         }
 
         if (startBtn) {

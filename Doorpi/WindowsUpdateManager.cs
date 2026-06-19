@@ -77,6 +77,7 @@ internal sealed class WindowsUpdateManager
             checking.Status = "checking";
             checking.Message = "Verificando atualizacoes do Windows...";
             checking.Error = "";
+            checking.PackageProgress = new List<WindowsUpdatePackageProgress>();
             progress?.Report(checking);
             SaveStatus(checking);
 
@@ -119,7 +120,9 @@ internal sealed class WindowsUpdateManager
         }
     }
 
-    public async Task<WindowsUpdateStatus> DownloadAndInstallAsync(IProgress<WindowsUpdateStatus>? progress = null)
+    public async Task<WindowsUpdateStatus> DownloadAndInstallAsync(
+        Func<IReadOnlyCollection<WindowsUpdateItem>, IProgress<WindowsUpdateStatus>?, Task<WindowsUpdateInstallResult>> elevatedInstaller,
+        IProgress<WindowsUpdateStatus>? progress = null)
     {
         await _operationLock.WaitAsync().ConfigureAwait(false);
         try
@@ -155,19 +158,34 @@ internal sealed class WindowsUpdateManager
                 Message = "Baixando atualizacoes do Windows...",
                 LastCheckedAt = DateTimeOffset.UtcNow,
                 Updates = updates,
-                RebootRequired = IsRebootRequired()
+                RebootRequired = IsRebootRequired(),
+                PackageProgress = updates.Select(update => new WindowsUpdatePackageProgress
+                {
+                    UpdateId = update.UpdateId,
+                    Title = update.Title,
+                    Status = update.IsDownloaded ? "downloaded" : "pending",
+                    Percent = update.IsDownloaded ? 100 : 0
+                }).ToList()
             };
             progress?.Report(downloading);
             SaveStatus(downloading);
 
-            var installResult = await Task.Run(() => DownloadAndInstallCore(updates)).ConfigureAwait(false);
+            var installResult = await elevatedInstaller(updates, progress).ConfigureAwait(false);
             if (installResult.ResultCode is not OrcSucceeded and not OrcSucceededWithErrors)
             {
                 var failed = LoadStatus();
                 failed.Status = "error";
-                failed.Message = "O Windows Update nao concluiu a instalacao automaticamente.";
+                failed.Message = installResult.Phase == "download"
+                    ? "O Windows Update nao conseguiu baixar um ou mais pacotes."
+                    : installResult.Phase == "cancelled"
+                        ? "A permissao administrativa foi cancelada."
+                        : "O Windows Update nao concluiu a instalacao automaticamente.";
                 failed.LastInstallResultCode = installResult.ResultCode;
                 failed.LastInstallHResult = installResult.HResult;
+                failed.LastInstallPhase = installResult.Phase;
+                failed.Error = installResult.Error;
+                failed.PackageResults = installResult.Packages;
+                failed.PackageProgress = BuildFinalPackageProgress(updates, installResult.Packages, failed: true);
                 SaveStatus(failed);
                 progress?.Report(failed);
                 return failed;
@@ -189,7 +207,11 @@ internal sealed class WindowsUpdateManager
                 RebootRequired = rebootRequired,
                 Updates = finalUpdates,
                 LastInstallResultCode = installResult.ResultCode,
-                LastInstallHResult = installResult.HResult
+                LastInstallHResult = installResult.HResult,
+                LastInstallPhase = installResult.Phase,
+                PackageResults = installResult.Packages,
+                PackageProgress = BuildFinalPackageProgress(updates, installResult.Packages, failed: false),
+                OverallPercent = 100
             };
 
             SaveStatus(status);
@@ -268,6 +290,32 @@ internal sealed class WindowsUpdateManager
         };
     }
 
+    private static List<WindowsUpdatePackageProgress> BuildFinalPackageProgress(
+        IReadOnlyCollection<WindowsUpdateItem> updates,
+        IReadOnlyCollection<WindowsUpdatePackageResult> results,
+        bool failed)
+    {
+        var resultById = results
+            .Where(result => !string.IsNullOrWhiteSpace(result.UpdateId))
+            .ToDictionary(result => result.UpdateId, StringComparer.OrdinalIgnoreCase);
+
+        return updates.Select(update =>
+        {
+            resultById.TryGetValue(update.UpdateId, out var result);
+            bool packageFailed = result != null && result.ResultCode is not OrcSucceeded and not OrcSucceededWithErrors;
+            return new WindowsUpdatePackageProgress
+            {
+                UpdateId = update.UpdateId,
+                Title = update.Title,
+                Status = result?.RebootRequired == true
+                    ? "reboot-required"
+                    : packageFailed || (failed && result == null) ? "error" : "installed",
+                Percent = packageFailed ? 0 : 100,
+                RebootRequired = result?.RebootRequired == true
+            };
+        }).ToList();
+    }
+
     private static List<WindowsUpdateItem> SearchAvailableUpdates()
     {
         dynamic session = CreateUpdateSession();
@@ -289,71 +337,12 @@ internal sealed class WindowsUpdateManager
             .ToList();
     }
 
-    private static WindowsUpdateInstallResult DownloadAndInstallCore(IReadOnlyCollection<WindowsUpdateItem> expectedUpdates)
-    {
-        dynamic session = CreateUpdateSession();
-        dynamic searcher = session.CreateUpdateSearcher();
-        dynamic result = searcher.Search("IsInstalled=0 and IsHidden=0 and Type='Software'");
-        dynamic foundUpdates = result.Updates;
-        dynamic installCollection = CreateUpdateCollection();
-
-        var expectedIds = expectedUpdates
-            .Select(u => u.UpdateId)
-            .Where(id => !string.IsNullOrWhiteSpace(id))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        int count = (int)foundUpdates.Count;
-        for (int i = 0; i < count; i++)
-        {
-            dynamic update = foundUpdates.Item(i);
-            string updateId = SafeString(() => update.Identity.UpdateID);
-            if (expectedIds.Count > 0 && !expectedIds.Contains(updateId)) continue;
-
-            TryAcceptEula(update);
-            installCollection.Add(update);
-        }
-
-        if ((int)installCollection.Count == 0)
-        {
-            return new WindowsUpdateInstallResult { ResultCode = OrcSucceeded };
-        }
-
-        dynamic downloader = session.CreateUpdateDownloader();
-        downloader.Updates = installCollection;
-        dynamic downloadResult = downloader.Download();
-        int downloadCode = (int)downloadResult.ResultCode;
-        if (downloadCode is not OrcSucceeded and not OrcSucceededWithErrors)
-        {
-            return new WindowsUpdateInstallResult
-            {
-                ResultCode = downloadCode,
-                HResult = SafeInt(() => downloadResult.HResult)
-            };
-        }
-
-        dynamic installer = session.CreateUpdateInstaller();
-        installer.Updates = installCollection;
-        dynamic installResult = installer.Install();
-        return new WindowsUpdateInstallResult
-        {
-            ResultCode = (int)installResult.ResultCode,
-            HResult = SafeInt(() => installResult.HResult),
-            RebootRequired = (bool)installResult.RebootRequired
-        };
-    }
-
     private static dynamic CreateUpdateSession()
     {
         var type = Type.GetTypeFromProgID("Microsoft.Update.Session", throwOnError: true)!;
         dynamic session = Activator.CreateInstance(type)!;
         session.ClientApplicationID = "Doorpi";
         return session;
-    }
-
-    private static dynamic CreateUpdateCollection()
-    {
-        var type = Type.GetTypeFromProgID("Microsoft.Update.UpdateColl", throwOnError: true)!;
-        return Activator.CreateInstance(type)!;
     }
 
     private static WindowsUpdateItem MapUpdate(dynamic update)
@@ -369,19 +358,6 @@ internal sealed class WindowsUpdateManager
             RebootBehavior = SafeInt(() => update.InstallationBehavior.RebootBehavior),
             SizeBytes = SafeLong(() => update.MaxDownloadSize)
         };
-    }
-
-    private static void TryAcceptEula(dynamic update)
-    {
-        try
-        {
-            if (!SafeBool(() => update.EulaAccepted))
-                update.AcceptEula();
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine("[WindowsUpdate] Nao foi possivel aceitar EULA automaticamente: " + ex.Message);
-        }
     }
 
     private static string SafeString(Func<dynamic> read)
@@ -439,12 +415,6 @@ internal sealed class WindowsUpdateManager
         @"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired"
     };
 
-    private sealed class WindowsUpdateInstallResult
-    {
-        public int ResultCode { get; set; }
-        public int HResult { get; set; }
-        public bool RebootRequired { get; set; }
-    }
 }
 
 internal sealed class WindowsUpdateStatus
@@ -457,6 +427,10 @@ internal sealed class WindowsUpdateStatus
     public string Error { get; set; } = "";
     public int LastInstallResultCode { get; set; }
     public int LastInstallHResult { get; set; }
+    public string LastInstallPhase { get; set; } = "";
+    public List<WindowsUpdatePackageResult> PackageResults { get; set; } = new();
+    public int OverallPercent { get; set; }
+    public List<WindowsUpdatePackageProgress> PackageProgress { get; set; } = new();
 }
 
 internal sealed class WindowsUpdateItem
@@ -469,4 +443,32 @@ internal sealed class WindowsUpdateItem
     public bool IsDownloaded { get; set; }
     public int RebootBehavior { get; set; }
     public long SizeBytes { get; set; }
+}
+
+internal sealed class WindowsUpdateInstallResult
+{
+    public string Phase { get; set; } = "";
+    public int ResultCode { get; set; }
+    public int HResult { get; set; }
+    public bool RebootRequired { get; set; }
+    public string Error { get; set; } = "";
+    public List<WindowsUpdatePackageResult> Packages { get; set; } = new();
+}
+
+internal sealed class WindowsUpdatePackageResult
+{
+    public string UpdateId { get; set; } = "";
+    public string Title { get; set; } = "";
+    public int ResultCode { get; set; }
+    public int HResult { get; set; }
+    public bool RebootRequired { get; set; }
+}
+
+internal sealed class WindowsUpdatePackageProgress
+{
+    public string UpdateId { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string Status { get; set; } = "pending";
+    public int Percent { get; set; }
+    public bool RebootRequired { get; set; }
 }
