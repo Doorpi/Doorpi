@@ -7,11 +7,17 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Runtime.InteropServices;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Animation;
+using ShapePath = System.Windows.Shapes.Path;
 
 namespace Doorpi
 {
@@ -64,13 +70,809 @@ namespace Doorpi
 
         private const string YT_UA = "Mozilla/5.0 (PS4; Leanback Shell) Cobalt/26.lts.0-qa; compatible; Doorpi/1.6.1";
         private const string YT_TV_URL = "https://www.youtube.com/tv";
+        private const string DoorpiBrowserAppId = "doorpi-browser";
+        private const string DoorpiBrowserHomeUrl = "https://www.google.com";
         private static readonly HttpClient _ytHttp = new();
         // ── EasyList ──────────────────────────────────────────────────────────────
         private static readonly HashSet<string> _easyListDomains = new(StringComparer.OrdinalIgnoreCase);
         private static readonly string EasyListCachePath = Path.Combine(DoorpiPaths.DataFolder, "easylist.txt");
+        private static readonly Dictionary<string, string> _loadedExtensionIdsByPath = new(StringComparer.OrdinalIgnoreCase);
         private Grid RootGrid => (Grid)this.Content;
+        private Grid? _genericBrowserShell;
+        private RowDefinition? _genericBrowserToolbarRow;
+        private Border? _genericBrowserToolbar;
+        private TextBox? _genericBrowserAddressBox;
+        private Button? _genericBrowserBackButton;
+        private Button? _genericBrowserForwardButton;
+        private Border? _genericBrowserWidgetsPanel;
+        private Popup? _genericBrowserWidgetsPopup;
+        private bool _isGenericBrowserMode;
+        private DateTime _genericBrowserVkbSuppressUntilUtc = DateTime.MinValue;
+        private bool _genericBrowserVkbSuppressAUntilRelease;
+        private TextBlock? _genericBrowserAddressPlaceholder;
+        private GenericBrowserKeyboardTarget _genericBrowserKeyboardTarget = GenericBrowserKeyboardTarget.None;
+
+        private enum GenericBrowserKeyboardTarget
+        {
+            None,
+            AddressBar,
+            WebInput
+        }
+
+        private static string UserDownloadsFolder
+        {
+            get
+            {
+                string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                string downloads = Path.Combine(userProfile, "Downloads");
+                return string.IsNullOrWhiteSpace(userProfile)
+                    ? Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)
+                    : downloads;
+            }
+        }
+
+        private static string NormalizeGenericBrowserInput(string input)
+        {
+            string value = (input ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(value)) return DoorpiBrowserHomeUrl;
+
+            if (Uri.TryCreate(value, UriKind.Absolute, out var absolute) &&
+                (absolute.Scheme == Uri.UriSchemeHttp || absolute.Scheme == Uri.UriSchemeHttps))
+            {
+                return absolute.ToString();
+            }
+
+            bool looksLikeHost = value.Contains('.') && !value.Contains(' ');
+            if (looksLikeHost &&
+                Uri.TryCreate("https://" + value, UriKind.Absolute, out var hostUri))
+            {
+                return hostUri.ToString();
+            }
+
+            return "https://www.google.com/search?q=" + Uri.EscapeDataString(value);
+        }
+
+        private static string AvailableDownloadPath(string folder, string fileName)
+        {
+            Directory.CreateDirectory(folder);
+            string safeName = Path.GetFileName(fileName);
+            if (string.IsNullOrWhiteSpace(safeName)) safeName = "download";
+
+            string candidate = Path.Combine(folder, safeName);
+            if (!File.Exists(candidate)) return candidate;
+
+            string stem = Path.GetFileNameWithoutExtension(safeName);
+            string ext = Path.GetExtension(safeName);
+            for (int i = 1; i < 1000; i++)
+            {
+                candidate = Path.Combine(folder, $"{stem} ({i}){ext}");
+                if (!File.Exists(candidate)) return candidate;
+            }
+
+            return Path.Combine(folder, $"{stem}-{DateTime.Now:yyyyMMddHHmmss}{ext}");
+        }
+
+        private static string NormalizeExtensionPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return "";
+            return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+
+        private static void RememberLoadedExtensionId(string path, string id)
+        {
+            if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(id)) return;
+            _loadedExtensionIdsByPath[NormalizeExtensionPath(path)] = id;
+        }
+
+        private static string GetLoadedExtensionId(BrowserExtensionModel ext, string manifestPath)
+        {
+            string installedPath = NormalizeExtensionPath(ext.InstalledPath);
+            if (_loadedExtensionIdsByPath.TryGetValue(installedPath, out string? idFromRoot))
+                return idFromRoot;
+
+            string manifestFolder = NormalizeExtensionPath(Path.GetDirectoryName(manifestPath) ?? "");
+            if (_loadedExtensionIdsByPath.TryGetValue(manifestFolder, out string? idFromManifest))
+                return idFromManifest;
+
+            return ext.Id;
+        }
+
+        private static ShapePath CreateBrowserIcon(string data, double size = 20)
+        {
+            return new ShapePath
+            {
+                Data = Geometry.Parse(data),
+                Width = size,
+                Height = size,
+                Stretch = Stretch.Uniform,
+                Stroke = Brushes.White,
+                StrokeThickness = 1.8,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+                StrokeLineJoin = PenLineJoin.Round,
+                Fill = Brushes.Transparent,
+                Opacity = 0.92
+            };
+        }
+
+        private static Style CreateBrowserToolbarButtonStyle()
+        {
+            var template = new ControlTemplate(typeof(Button));
+
+            var chrome = new FrameworkElementFactory(typeof(Border));
+            chrome.SetValue(Border.CornerRadiusProperty, new CornerRadius(10));
+            chrome.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+            chrome.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty));
+            chrome.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Control.BorderThicknessProperty));
+
+            var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+            presenter.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+            presenter.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
+            presenter.SetValue(ContentPresenter.RecognizesAccessKeyProperty, true);
+            chrome.AppendChild(presenter);
+
+            template.VisualTree = chrome;
+
+            var style = new Style(typeof(Button));
+            style.Setters.Add(new Setter(Control.TemplateProperty, template));
+            style.Setters.Add(new Setter(Control.BackgroundProperty, new SolidColorBrush(Color.FromArgb(18, 255, 255, 255))));
+            style.Setters.Add(new Setter(Control.BorderBrushProperty, new SolidColorBrush(Color.FromArgb(34, 255, 255, 255))));
+            style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
+            style.Setters.Add(new Setter(Control.ForegroundProperty, Brushes.White));
+            style.Setters.Add(new Setter(Control.FontSizeProperty, 15.0));
+            style.Setters.Add(new Setter(Control.FontWeightProperty, FontWeights.SemiBold));
+            style.Setters.Add(new Setter(FrameworkElement.CursorProperty, Cursors.Hand));
+            style.Setters.Add(new Setter(FrameworkElement.FocusVisualStyleProperty, null));
+
+            var hover = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
+            hover.Setters.Add(new Setter(Control.BackgroundProperty, new SolidColorBrush(Color.FromArgb(32, 255, 255, 255))));
+            hover.Setters.Add(new Setter(Control.BorderBrushProperty, new SolidColorBrush(Color.FromArgb(58, 255, 255, 255))));
+            style.Triggers.Add(hover);
+
+            var pressed = new Trigger { Property = ButtonBase.IsPressedProperty, Value = true };
+            pressed.Setters.Add(new Setter(Control.BackgroundProperty, new SolidColorBrush(Color.FromArgb(48, 255, 255, 255))));
+            style.Triggers.Add(pressed);
+
+            var disabled = new Trigger { Property = UIElement.IsEnabledProperty, Value = false };
+            disabled.Setters.Add(new Setter(UIElement.OpacityProperty, 0.38));
+            disabled.Setters.Add(new Setter(Control.BackgroundProperty, new SolidColorBrush(Color.FromArgb(10, 255, 255, 255))));
+            style.Triggers.Add(disabled);
+
+            return style;
+        }
+
+        private void OpenGenericBrowserKeyboard(GenericBrowserKeyboardTarget target, int? targetScreenY = null)
+        {
+            if (target == GenericBrowserKeyboardTarget.AddressBar && _genericBrowserAddressBox == null) return;
+            if (target == GenericBrowserKeyboardTarget.WebInput &&
+                DateTime.UtcNow < _genericBrowserVkbSuppressUntilUtc)
+            {
+                return;
+            }
+
+            Dispatcher.Invoke(() =>
+            {
+                _genericBrowserKeyboardTarget = target;
+                _vkbIsOpen = true;
+                _vkbOwnerView = _ytWebView;
+                _vkbHasFocus = true;
+                _genericBrowserVkbSuppressAUntilRelease = true;
+
+                if (_desktopVkb == null)
+                {
+                    _desktopVkb = new DesktopVkbWindow();
+                    _desktopVkb.SetLocalization(_vkbStrBackspace, _vkbStrEnter, _vkbStrClose,
+                                                _vkbStrShift, _vkbStrSpace, _vkbStrSym, _vkbStrAbc);
+                    _desktopVkb.OnKeyPressed += HandleGenericBrowserKeyboardKey;
+                    _desktopVkb.OnCloseRequested += () =>
+                    {
+                        bool notifyWeb = _genericBrowserKeyboardTarget == GenericBrowserKeyboardTarget.WebInput;
+                        CloseGenericBrowserKeyboard(notifyWeb);
+                    };
+                }
+
+                if (targetScreenY.HasValue) _desktopVkb.AutoPosition(targetScreenY.Value);
+                else if (GetCursorPos(out var pt)) _desktopVkb.AutoPosition(pt.Y);
+                else _desktopVkb.SetFixedPosition();
+
+                if (!_desktopVkb.IsVisible)
+                    _desktopVkb.Show();
+
+                if (target == GenericBrowserKeyboardTarget.AddressBar && _genericBrowserAddressBox != null)
+                {
+                    _genericBrowserAddressBox.Focus();
+                    Keyboard.Focus(_genericBrowserAddressBox);
+                }
+                else
+                {
+                    _ytWebView?.Focus();
+                    _ = _ytWebView?.CoreWebView2?.ExecuteScriptAsync("try{window.focus();}catch(e){}");
+                }
+            });
+        }
+
+        private void CloseGenericBrowserKeyboard(bool notifyWeb)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                if (notifyWeb)
+                    _ = _ytWebView?.CoreWebView2?.ExecuteScriptAsync("try{window.__doorpiNativeVkbClose?.();}catch(e){}");
+
+                _genericBrowserVkbSuppressUntilUtc = DateTime.UtcNow.AddMilliseconds(650);
+                try { _desktopVkb?.Close(); } catch { }
+                _desktopVkb = null;
+                _genericBrowserKeyboardTarget = GenericBrowserKeyboardTarget.None;
+                _vkbIsOpen = false;
+                _vkbOwnerView = null;
+                _vkbHasFocus = false;
+                _genericBrowserVkbSuppressAUntilRelease = false;
+            });
+        }
+
+        private void OpenGenericBrowserAddressKeyboard() =>
+            OpenGenericBrowserKeyboard(GenericBrowserKeyboardTarget.AddressBar);
+
+        private void OpenGenericBrowserWebKeyboard(int targetScreenY) =>
+            OpenGenericBrowserKeyboard(GenericBrowserKeyboardTarget.WebInput, targetScreenY);
+
+        private int GenericBrowserWebYToScreen(double webY)
+        {
+            if (_ytWebView == null)
+            {
+                return GetCursorPos(out var pt) ? pt.Y : (int)(SystemParameters.PrimaryScreenHeight * 0.55);
+            }
+
+            try
+            {
+                var screenPoint = _ytWebView.PointToScreen(new Point(0, Math.Max(0, webY)));
+                return (int)Math.Round(screenPoint.Y);
+            }
+            catch
+            {
+                return GetCursorPos(out var pt) ? pt.Y : (int)(SystemParameters.PrimaryScreenHeight * 0.55);
+            }
+        }
+
+        private void HandleGenericBrowserKeyboardKey(string key)
+        {
+            if (_genericBrowserKeyboardTarget == GenericBrowserKeyboardTarget.WebInput)
+            {
+                HandleGenericBrowserWebKeyboardKey(key);
+                return;
+            }
+
+            HandleGenericBrowserAddressKeyboardKey(key);
+        }
+
+        private void HandleGenericBrowserWebKeyboardKey(string key)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                if (key == "CANCEL")
+                {
+                    CloseGenericBrowserKeyboard(true);
+                    _ytWebView?.Focus();
+                    return;
+                }
+
+                string json = System.Text.Json.JsonSerializer.Serialize(key);
+                _ = _ytWebView?.CoreWebView2?.ExecuteScriptAsync($"try{{window.__doorpiNativeVkbKey?.({json});}}catch(e){{}}");
+                _ytWebView?.Focus();
+            });
+        }
+
+        private void HandleGenericBrowserAddressKeyboardKey(string key)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                if (_genericBrowserAddressBox == null) return;
+
+                if (key == "CANCEL")
+                {
+                    CloseGenericBrowserKeyboard(false);
+                    _ytWebView?.Focus();
+                    return;
+                }
+
+                if (key == "ENTER")
+                {
+                    string target = NormalizeGenericBrowserInput(_genericBrowserAddressBox.Text);
+                    _ytWebView?.CoreWebView2?.Navigate(target);
+                    CloseGenericBrowserKeyboard(false);
+                    _ytWebView?.Focus();
+                    return;
+                }
+
+                if (key == "CURSOR_LEFT")
+                {
+                    if (_genericBrowserAddressBox.SelectionLength > 0)
+                    {
+                        _genericBrowserAddressBox.SelectionLength = 0;
+                    }
+                    else if (_genericBrowserAddressBox.CaretIndex > 0)
+                    {
+                        _genericBrowserAddressBox.CaretIndex--;
+                    }
+                    return;
+                }
+
+                if (key == "CURSOR_RIGHT")
+                {
+                    if (_genericBrowserAddressBox.SelectionLength > 0)
+                    {
+                        _genericBrowserAddressBox.CaretIndex += _genericBrowserAddressBox.SelectionLength;
+                        _genericBrowserAddressBox.SelectionLength = 0;
+                    }
+                    else if (_genericBrowserAddressBox.CaretIndex < _genericBrowserAddressBox.Text.Length)
+                    {
+                        _genericBrowserAddressBox.CaretIndex++;
+                    }
+                    return;
+                }
+
+                if (key == "BKSP")
+                {
+                    int start = _genericBrowserAddressBox.SelectionStart;
+                    if (_genericBrowserAddressBox.SelectionLength > 0)
+                    {
+                        _genericBrowserAddressBox.Text = _genericBrowserAddressBox.Text.Remove(start, _genericBrowserAddressBox.SelectionLength);
+                        _genericBrowserAddressBox.CaretIndex = start;
+                    }
+                    else if (start > 0)
+                    {
+                        _genericBrowserAddressBox.Text = _genericBrowserAddressBox.Text.Remove(start - 1, 1);
+                        _genericBrowserAddressBox.CaretIndex = start - 1;
+                    }
+                    return;
+                }
+
+                string text = key == "SPACE" ? " " : key;
+                int caret = _genericBrowserAddressBox.SelectionStart;
+                if (_genericBrowserAddressBox.SelectionLength > 0)
+                {
+                    _genericBrowserAddressBox.Text = _genericBrowserAddressBox.Text.Remove(caret, _genericBrowserAddressBox.SelectionLength);
+                }
+
+                _genericBrowserAddressBox.Text = _genericBrowserAddressBox.Text.Insert(caret, text);
+                _genericBrowserAddressBox.CaretIndex = caret + text.Length;
+            });
+        }
+
+        private Grid BuildGenericBrowserShell(WebView2 browser)
+        {
+            browser.PreviewMouseDown += (_, _) =>
+            {
+                if (_genericBrowserKeyboardTarget == GenericBrowserKeyboardTarget.AddressBar)
+                    CloseGenericBrowserKeyboard(false);
+            };
+
+            var shell = new Grid
+            {
+                Background = new SolidColorBrush(Color.FromRgb(4, 7, 14))
+            };
+            shell.PreviewMouseDown += (_, _) =>
+            {
+                if (_genericBrowserKeyboardTarget == GenericBrowserKeyboardTarget.AddressBar &&
+                    _genericBrowserAddressBox?.IsMouseOver != true)
+                {
+                    CloseGenericBrowserKeyboard(false);
+                }
+            };
+            _genericBrowserToolbarRow = new RowDefinition { Height = new GridLength(64) };
+            shell.RowDefinitions.Add(_genericBrowserToolbarRow);
+            shell.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+            var toolbar = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(10, 14, 24)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(34, 255, 255, 255)),
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Padding = new Thickness(14, 10, 14, 10)
+            };
+            _genericBrowserToolbar = toolbar;
+
+            var row = new Grid();
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            Button MakeButton(object content, string tooltip, double minWidth = 44)
+            {
+                return new Button
+                {
+                    Content = content,
+                    ToolTip = tooltip,
+                    MinWidth = minWidth,
+                    Height = 42,
+                    Margin = new Thickness(0, 0, 8, 0),
+                    Padding = new Thickness(10, 0, 10, 0),
+                    Style = CreateBrowserToolbarButtonStyle()
+                };
+            }
+
+            _genericBrowserBackButton = MakeButton(CreateBrowserIcon("M15 6 L9 12 L15 18"), "Voltar");
+            _genericBrowserBackButton.Click += (_, _) =>
+            {
+                if (browser.CoreWebView2?.CanGoBack == true) browser.CoreWebView2.GoBack();
+            };
+            Grid.SetColumn(_genericBrowserBackButton, 0);
+            row.Children.Add(_genericBrowserBackButton);
+
+            _genericBrowserForwardButton = MakeButton(CreateBrowserIcon("M9 6 L15 12 L9 18"), "Avancar");
+            _genericBrowserForwardButton.Click += (_, _) =>
+            {
+                if (browser.CoreWebView2?.CanGoForward == true) browser.CoreWebView2.GoForward();
+            };
+            Grid.SetColumn(_genericBrowserForwardButton, 1);
+            row.Children.Add(_genericBrowserForwardButton);
+
+            var reloadButton = MakeButton(CreateBrowserIcon("M20 11 A8 8 0 1 1 17.7 5.4 M20 5 V11 H14"), "Recarregar");
+            reloadButton.Click += (_, _) => browser.CoreWebView2?.Reload();
+            Grid.SetColumn(reloadButton, 2);
+            row.Children.Add(reloadButton);
+
+            var homeButton = MakeButton(CreateBrowserIcon("M4 11 L12 4 L20 11 M6 10 V20 H18 V10 M10 20 V14 H14 V20"), "Google");
+            homeButton.Click += (_, _) => browser.CoreWebView2?.Navigate(DoorpiBrowserHomeUrl);
+            Grid.SetColumn(homeButton, 3);
+            row.Children.Add(homeButton);
+
+            _genericBrowserAddressBox = new TextBox
+            {
+                Height = 44,
+                Margin = new Thickness(6, 0, 12, 0),
+                Padding = new Thickness(16, 10, 16, 8),
+                Background = new SolidColorBrush(Color.FromRgb(18, 23, 35)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(46, 255, 255, 255)),
+                Foreground = Brushes.White,
+                FontSize = 16,
+                Text = DoorpiBrowserHomeUrl
+            };
+            _genericBrowserAddressPlaceholder = new TextBlock
+            {
+                Text = "pesquisar no google",
+                Margin = new Thickness(22, 0, 12, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = new SolidColorBrush(Color.FromArgb(118, 255, 255, 255)),
+                FontSize = 16,
+                IsHitTestVisible = false,
+                Visibility = Visibility.Collapsed
+            };
+            void UpdateAddressPlaceholder()
+            {
+                if (_genericBrowserAddressPlaceholder != null)
+                {
+                    _genericBrowserAddressPlaceholder.Visibility =
+                        string.IsNullOrWhiteSpace(_genericBrowserAddressBox.Text)
+                            ? Visibility.Visible
+                            : Visibility.Collapsed;
+                }
+            }
+            _genericBrowserAddressBox.PreviewMouseDown += (_, e) =>
+            {
+                if (!_genericBrowserAddressBox.IsKeyboardFocusWithin)
+                {
+                    e.Handled = true;
+                    _genericBrowserAddressBox.Focus();
+                    _genericBrowserAddressBox.SelectAll();
+                }
+
+                OpenGenericBrowserAddressKeyboard();
+            };
+            _genericBrowserAddressBox.GotKeyboardFocus += (_, _) =>
+            {
+                _genericBrowserAddressBox.SelectAll();
+                OpenGenericBrowserAddressKeyboard();
+            };
+            _genericBrowserAddressBox.LostKeyboardFocus += (_, _) =>
+            {
+                if (_genericBrowserKeyboardTarget == GenericBrowserKeyboardTarget.AddressBar)
+                    CloseGenericBrowserKeyboard(false);
+            };
+            _genericBrowserAddressBox.TextChanged += (_, _) => UpdateAddressPlaceholder();
+            _genericBrowserAddressBox.KeyDown += (_, e) =>
+            {
+                if (e.Key != Key.Enter) return;
+                e.Handled = true;
+                string target = NormalizeGenericBrowserInput(_genericBrowserAddressBox.Text);
+                browser.CoreWebView2?.Navigate(target);
+            };
+            var addressHost = new Grid();
+            addressHost.Children.Add(_genericBrowserAddressBox);
+            addressHost.Children.Add(_genericBrowserAddressPlaceholder);
+            UpdateAddressPlaceholder();
+            Grid.SetColumn(addressHost, 4);
+            row.Children.Add(addressHost);
+
+            var widgetsButton = MakeButton(
+                CreateBrowserIcon("M20 13.5 V20 H13.5 C13.5 18.6 12.4 17.5 11 17.5 C9.6 17.5 8.5 18.6 8.5 20 H4 V15.5 C5.4 15.5 6.5 14.4 6.5 13 C6.5 11.6 5.4 10.5 4 10.5 V4 H10.5 C10.5 5.4 11.6 6.5 13 6.5 C14.4 6.5 15.5 5.4 15.5 4 H20 V8.5 C18.6 8.5 17.5 9.6 17.5 11 C17.5 12.4 18.6 13.5 20 13.5 Z", 21),
+                "Ver widgets instalados",
+                42);
+            widgetsButton.Click += (_, _) => ToggleGenericBrowserWidgetsPanel();
+            Grid.SetColumn(widgetsButton, 5);
+            row.Children.Add(widgetsButton);
+
+            var copyButton = MakeButton(CreateBrowserIcon("M9 9 H20 V20 H9 Z M4 4 H15 V15 H4 Z"), "Copiar link", 42);
+            copyButton.Margin = new Thickness(0);
+            copyButton.Click += (_, _) =>
+            {
+                try
+                {
+                    string source = browser.CoreWebView2?.Source ?? "";
+                    if (!string.IsNullOrWhiteSpace(source))
+                    {
+                        Clipboard.SetText(source);
+                        ShowGenericBrowserCopyFeedback(source);
+                    }
+                }
+                catch { }
+            };
+            Grid.SetColumn(copyButton, 6);
+            row.Children.Add(copyButton);
+
+            toolbar.Child = row;
+            Grid.SetRow(toolbar, 0);
+            shell.Children.Add(toolbar);
+
+            Grid.SetRow(browser, 1);
+            shell.Children.Add(browser);
+
+            _genericBrowserWidgetsPanel = new Border
+            {
+                Width = 360,
+                MaxHeight = 420,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, 12, 16, 0),
+                Background = new SolidColorBrush(Color.FromArgb(246, 12, 16, 28)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(46, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(16),
+                Visibility = Visibility.Collapsed
+            };
+            _genericBrowserWidgetsPopup = new Popup
+            {
+                PlacementTarget = widgetsButton,
+                Placement = PlacementMode.Bottom,
+                HorizontalOffset = -318,
+                VerticalOffset = 10,
+                StaysOpen = false,
+                AllowsTransparency = true,
+                Child = _genericBrowserWidgetsPanel
+            };
+
+            _genericBrowserShell = shell;
+            return shell;
+        }
+
+        private void ToggleGenericBrowserWidgetsPanel()
+        {
+            if (_genericBrowserWidgetsPanel == null || _genericBrowserWidgetsPopup == null) return;
+
+            if (_genericBrowserWidgetsPopup.IsOpen)
+            {
+                _genericBrowserWidgetsPopup.IsOpen = false;
+                return;
+            }
+
+            var stack = new StackPanel { Orientation = Orientation.Vertical };
+            stack.Children.Add(new TextBlock
+            {
+                Text = "Widgets instalados",
+                Foreground = Brushes.White,
+                FontSize = 18,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 10)
+            });
+
+            var extensions = LoadBrowserExtensions();
+            if (extensions.Count == 0)
+            {
+                stack.Children.Add(new TextBlock
+                {
+                    Text = "Nenhum widget instalado ainda.",
+                    Foreground = new SolidColorBrush(Color.FromArgb(166, 255, 255, 255)),
+                    FontSize = 14,
+                    TextWrapping = TextWrapping.Wrap
+                });
+            }
+            else
+            {
+                foreach (var ext in extensions.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase))
+                {
+                    string version = GetExtensionVersion(ext);
+                    string frontendUrl = ResolveExtensionFrontendUrl(ext);
+                    var item = new Border
+                    {
+                        Margin = new Thickness(0, 0, 0, 8),
+                        Padding = new Thickness(10),
+                        CornerRadius = new CornerRadius(6),
+                        Background = new SolidColorBrush(Color.FromArgb(18, 255, 255, 255)),
+                        Cursor = string.IsNullOrWhiteSpace(frontendUrl) ? Cursors.Arrow : Cursors.Hand,
+                        ToolTip = string.IsNullOrWhiteSpace(frontendUrl)
+                            ? "Este widget nao informou uma tela de configuracao."
+                            : "Abrir configuracoes do widget"
+                    };
+                    item.Child = new StackPanel
+                    {
+                        Children =
+                        {
+                            new TextBlock
+                            {
+                                Text = string.IsNullOrWhiteSpace(ext.Name) ? ext.Id : ext.Name,
+                                Foreground = Brushes.White,
+                                FontSize = 14,
+                                FontWeight = FontWeights.SemiBold,
+                                TextTrimming = TextTrimming.CharacterEllipsis
+                            },
+                            new TextBlock
+                            {
+                                Text = string.IsNullOrWhiteSpace(frontendUrl)
+                                    ? (string.IsNullOrWhiteSpace(version) ? $"{ext.Id} - sem painel" : $"{ext.Id} - v{version} - sem painel")
+                                    : (string.IsNullOrWhiteSpace(version) ? ext.Id : $"{ext.Id} - v{version}"),
+                                Foreground = new SolidColorBrush(Color.FromArgb(138, 255, 255, 255)),
+                                FontSize = 12,
+                                TextTrimming = TextTrimming.CharacterEllipsis
+                            }
+                        }
+                    };
+                    if (!string.IsNullOrWhiteSpace(frontendUrl))
+                    {
+                        item.MouseLeftButtonUp += (_, _) =>
+                        {
+                            _ytWebView?.CoreWebView2?.Navigate(frontendUrl);
+                            if (_genericBrowserWidgetsPopup != null)
+                                _genericBrowserWidgetsPopup.IsOpen = false;
+                        };
+                    }
+                    stack.Children.Add(item);
+                }
+            }
+
+            _genericBrowserWidgetsPanel.Child = new ScrollViewer
+            {
+                Content = stack,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+            };
+            _genericBrowserWidgetsPanel.Visibility = Visibility.Visible;
+            _genericBrowserWidgetsPopup.IsOpen = true;
+        }
+
+        private static string ResolveExtensionFrontendUrl(BrowserExtensionModel ext)
+        {
+            try
+            {
+                string manifestPath = Path.Combine(ext.InstalledPath, "manifest.json");
+                if (!File.Exists(manifestPath))
+                {
+                    var versionFolder = Directory.GetDirectories(ext.InstalledPath)
+                        .FirstOrDefault(d => File.Exists(Path.Combine(d, "manifest.json")));
+                    if (versionFolder != null) manifestPath = Path.Combine(versionFolder, "manifest.json");
+                }
+
+                if (!File.Exists(manifestPath))
+                    return "";
+
+                var manifest = JsonNode.Parse(File.ReadAllText(manifestPath));
+                string page =
+                    manifest?["options_ui"]?["page"]?.ToString() ??
+                    manifest?["options_page"]?.ToString() ??
+                    manifest?["action"]?["default_popup"]?.ToString() ??
+                    manifest?["browser_action"]?["default_popup"]?.ToString() ??
+                    "";
+
+                page = page.Trim().TrimStart('/');
+                string extensionId = GetLoadedExtensionId(ext, manifestPath);
+                return string.IsNullOrWhiteSpace(page) || string.IsNullOrWhiteSpace(extensionId)
+                    ? ""
+                    : $"chrome-extension://{extensionId}/{page}";
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
+        private void UpdateGenericBrowserChrome()
+        {
+            if (!_isGenericBrowserMode || _ytWebView?.CoreWebView2 == null) return;
+
+            string source = _ytWebView.CoreWebView2.Source ?? "";
+            if (_genericBrowserAddressBox != null && !_genericBrowserAddressBox.IsKeyboardFocusWithin)
+                _genericBrowserAddressBox.Text = source;
+
+            if (_genericBrowserBackButton != null)
+                _genericBrowserBackButton.IsEnabled = _ytWebView.CoreWebView2.CanGoBack;
+
+            if (_genericBrowserForwardButton != null)
+                _genericBrowserForwardButton.IsEnabled = _ytWebView.CoreWebView2.CanGoForward;
+        }
+
+        private void OnGenericBrowserDownloadStarting(object? sender, CoreWebView2DownloadStartingEventArgs e)
+        {
+            try
+            {
+                string suggestedName = Path.GetFileName(e.ResultFilePath);
+                string targetPath = AvailableDownloadPath(UserDownloadsFolder, suggestedName);
+                e.ResultFilePath = targetPath;
+                e.Handled = false;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[DoorpiBrowser] Falha ao preparar download: " + ex.Message);
+            }
+        }
 
         // ── Controller thread ─────────────────────────────────────────────────
+
+        private void OnGenericBrowserContainsFullScreenElementChanged(object? sender, object e)
+        {
+            if (!_isGenericBrowserMode || _ytWebView?.CoreWebView2 == null) return;
+            bool isFullScreen = _ytWebView.CoreWebView2.ContainsFullScreenElement;
+            Dispatcher.Invoke(() => SetGenericBrowserToolbarVisible(!isFullScreen));
+        }
+
+        private void SetGenericBrowserToolbarVisible(bool visible)
+        {
+            if (_genericBrowserToolbar == null || _genericBrowserToolbarRow == null) return;
+
+            if (visible)
+            {
+                _genericBrowserToolbar.Visibility = Visibility.Visible;
+                _genericBrowserToolbarRow.Height = new GridLength(64);
+                _genericBrowserToolbar.BeginAnimation(OpacityProperty,
+                    new DoubleAnimation(1, TimeSpan.FromMilliseconds(140)));
+                return;
+            }
+
+            _genericBrowserWidgetsPopup?.SetCurrentValue(Popup.IsOpenProperty, false);
+            if (_genericBrowserKeyboardTarget != GenericBrowserKeyboardTarget.None)
+                CloseGenericBrowserKeyboard(_genericBrowserKeyboardTarget == GenericBrowserKeyboardTarget.WebInput);
+
+            _genericBrowserToolbar.BeginAnimation(OpacityProperty,
+                new DoubleAnimation(0, TimeSpan.FromMilliseconds(120)));
+            _genericBrowserToolbar.Visibility = Visibility.Collapsed;
+            _genericBrowserToolbarRow.Height = new GridLength(0);
+        }
+
+        private async void ShowGenericBrowserCopyFeedback(string copiedSource)
+        {
+            if (_genericBrowserAddressBox == null) return;
+
+            var originalForeground = _genericBrowserAddressBox.Foreground;
+            var background = _genericBrowserAddressBox.Background as SolidColorBrush;
+            Color? originalBackground = background?.Color;
+
+            if (background != null)
+            {
+                background.BeginAnimation(SolidColorBrush.ColorProperty,
+                    new ColorAnimation(Color.FromRgb(23, 80, 70), TimeSpan.FromMilliseconds(130)));
+            }
+
+            _genericBrowserAddressBox.Foreground = new SolidColorBrush(Color.FromRgb(170, 255, 226));
+            _genericBrowserAddressBox.Text = "copiado";
+            _genericBrowserAddressBox.CaretIndex = _genericBrowserAddressBox.Text.Length;
+
+            await Task.Delay(850);
+
+            if (_genericBrowserAddressBox == null) return;
+
+            if (string.Equals(_genericBrowserAddressBox.Text, "copiado", StringComparison.OrdinalIgnoreCase))
+            {
+                _genericBrowserAddressBox.Text = copiedSource;
+            }
+
+            _genericBrowserAddressBox.Foreground = originalForeground;
+            if (background != null && originalBackground.HasValue)
+            {
+                background.BeginAnimation(SolidColorBrush.ColorProperty,
+                    new ColorAnimation(originalBackground.Value, TimeSpan.FromMilliseconds(180)));
+            }
+        }
 
         private void StartMediaControllerMode()
         {
@@ -106,6 +908,17 @@ namespace Doorpi
             bool xWasHeld = false;
             long xHoldStartMs = 0;
             long xLastRepeat = 0;
+            var nativeVkbHoldActive = new Dictionary<VkbHoldAction, bool>
+            {
+                { VkbHoldAction.MoveUp, false },
+                { VkbHoldAction.MoveDown, false },
+                { VkbHoldAction.MoveLeft, false },
+                { VkbHoldAction.MoveRight, false },
+                { VkbHoldAction.CursorLeft, false },
+                { VkbHoldAction.CursorRight, false },
+                { VkbHoldAction.ToggleLayer, false },
+                { VkbHoldAction.Press, false }
+            };
 
             while (_mediaMouseActive)
             {
@@ -187,7 +1000,7 @@ namespace Doorpi
                         if (lx != 0 || ly != 0)
                         {
                             speedMult = Math.Min(speedMult + (0.8 * dt), 2.5);
-                            const double SENSE = 700.0;
+                            const double SENSE = 700.0 * CONTROLLER_MOUSE_SENSITIVITY_SCALE;
 
                             if (exactX < 0)
                                 Dispatcher.Invoke(() => { if (GetCursorPos(out var pt)) { exactX = pt.X; exactY = pt.Y; } });
@@ -213,6 +1026,84 @@ namespace Doorpi
                     // ════════════════════════════════════════════════════════
                     if (_vkbIsOpen)
                     {
+                        if (_isGenericBrowserMode && _desktopVkb != null)
+                        {
+                            double nativeAlx = gp.sThumbLX / 32767.0;
+                            double nativeAly = gp.sThumbLY / 32767.0;
+                            const double NativeAnaDead = 0.5;
+
+                            void HandleNativeVkbHold(VkbHoldAction action, bool isDown)
+                            {
+                                bool wasDown = nativeVkbHoldActive[action];
+                                if (isDown && !wasDown)
+                                {
+                                    nativeVkbHoldActive[action] = true;
+                                    Dispatcher.Invoke(() => _desktopVkb?.BeginHold(action));
+                                }
+                                else if (!isDown && wasDown)
+                                {
+                                    nativeVkbHoldActive[action] = false;
+                                    Dispatcher.Invoke(() => _desktopVkb?.EndHold(action));
+                                }
+                            }
+
+                            HandleNativeVkbHold(VkbHoldAction.MoveUp, Held(XI_DPAD_UP) || nativeAly > NativeAnaDead);
+                            HandleNativeVkbHold(VkbHoldAction.MoveDown, Held(XI_DPAD_DOWN) || nativeAly < -NativeAnaDead);
+                            HandleNativeVkbHold(VkbHoldAction.MoveLeft, Held(XI_DPAD_LEFT) || nativeAlx < -NativeAnaDead);
+                            HandleNativeVkbHold(VkbHoldAction.MoveRight, Held(XI_DPAD_RIGHT) || nativeAlx > NativeAnaDead);
+                            HandleNativeVkbHold(VkbHoldAction.CursorLeft, Held(XI_L1));
+                            HandleNativeVkbHold(VkbHoldAction.CursorRight, Held(XI_R1));
+                            HandleNativeVkbHold(VkbHoldAction.ToggleLayer, false);
+
+                            if (_genericBrowserVkbSuppressAUntilRelease && !Held(XI_A))
+                                _genericBrowserVkbSuppressAUntilRelease = false;
+
+                            HandleNativeVkbHold(
+                                VkbHoldAction.Press,
+                                Held(XI_A) && !_genericBrowserVkbSuppressAUntilRelease);
+
+                            if (Pressed(XI_B))
+                            {
+                                bool notifyWeb = _genericBrowserKeyboardTarget == GenericBrowserKeyboardTarget.WebInput;
+                                Dispatcher.Invoke(() => CloseGenericBrowserKeyboard(notifyWeb));
+                            }
+
+                            if (Pressed(XI_Y))
+                                Dispatcher.Invoke(() => HandleGenericBrowserKeyboardKey("SPACE"));
+
+                            if (Pressed(XI_START))
+                                Dispatcher.Invoke(() => HandleGenericBrowserKeyboardKey("ENTER"));
+
+                            if (Pressed(XI_L3))
+                                Dispatcher.Invoke(() => _desktopVkb?.ToggleShift());
+
+                            bool xNow = Held(XI_X);
+                            if (xNow)
+                            {
+                                if (!xWasHeld)
+                                {
+                                    xWasHeld = true;
+                                    xHoldStartMs = nowMs;
+                                    xLastRepeat = nowMs;
+                                    Dispatcher.Invoke(() => HandleGenericBrowserKeyboardKey("BKSP"));
+                                }
+                                else if ((nowMs - xHoldStartMs) > VKB_INITIAL_MS &&
+                                         (nowMs - xLastRepeat) > VKB_REPEAT_MS)
+                                {
+                                    xLastRepeat = nowMs;
+                                    Dispatcher.Invoke(() => HandleGenericBrowserKeyboardKey("BKSP"));
+                                }
+                            }
+                            else
+                            {
+                                xWasHeld = false;
+                            }
+
+                            prevButtons = btn;
+                            Thread.Sleep(12);
+                            continue;
+                        }
+
                         ushort dirBtn = 0;
                         string dirName = "";
 
@@ -326,6 +1217,13 @@ namespace Doorpi
         private void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
         {
             e.Handled = true;
+
+            if (_isGenericBrowserMode && !string.IsNullOrWhiteSpace(e.Uri))
+            {
+                _ytWebView?.CoreWebView2?.Navigate(e.Uri);
+                return;
+            }
+
             var deferral = e.GetDeferral();
 
             Dispatcher.Invoke(async () =>
@@ -417,7 +1315,7 @@ namespace Doorpi
                     if (popup == null) return;
 
                     popup.Focus();
-                    popup.CoreWebView2.ExecuteScriptAsync("window.focus();");
+                    _ = popup.CoreWebView2.ExecuteScriptAsync("window.focus();");
                     try
                     {
                         string currentUrl = popup.CoreWebView2.Source;
@@ -461,8 +1359,10 @@ namespace Doorpi
                         if (versionFolder == null) { Debug.WriteLine($"[Extension] manifest.json não encontrado em: {extFolder}"); continue; }
                         loadPath = versionFolder;
                     }
-                    await cw.Profile.AddBrowserExtensionAsync(loadPath);
-                    Debug.WriteLine($"[Extension] Carregada: {Path.GetFileName(extFolder)}");
+                    var loadedExtension = await cw.Profile.AddBrowserExtensionAsync(loadPath);
+                    RememberLoadedExtensionId(extFolder, loadedExtension.Id);
+                    RememberLoadedExtensionId(loadPath, loadedExtension.Id);
+                    Debug.WriteLine($"[Extension] Carregada: {Path.GetFileName(extFolder)} ({loadedExtension.Id})");
                 }
                 catch (Exception ex) { Debug.WriteLine($"[Extension] Falha: {Path.GetFileName(extFolder)} — {ex.Message}"); }
             }
@@ -552,7 +1452,7 @@ namespace Doorpi
             }
             catch { return false; }
         }
-        private async Task YtInjectGenericSiteAsync(CoreWebView2 cw)
+        private async Task YtInjectGenericSiteAsync(CoreWebView2 cw, bool useNativeDoorpiKeyboard = false)
         {
             string script = $@"
 (function() {{
@@ -802,6 +1702,7 @@ namespace Doorpi
     // 6. VKB — VIRTUAL KEYBOARD
     // ─────────────────────────────────────────────────────────────────────────
     window._vkbIsOpen = false;
+    const __doorpiUseNativeKeyboard = {(useNativeDoorpiKeyboard ? "true" : "false")};
     let _installedExtIds = new Set();
     function isInput(el) {{
         if (!el) return false;
@@ -817,6 +1718,223 @@ namespace Doorpi
         const t = (el.type||'').toLowerCase();
         const mode = (el.getAttribute('inputmode')||'').toLowerCase();
         return t === 'number' || mode === 'numeric' || mode === 'decimal' || el.dataset?.vkbMode === 'numeric';
+    }}
+    function deepActiveElement(root = document) {{
+        let active = root.activeElement;
+        while (active && active.shadowRoot && active.shadowRoot.activeElement)
+            active = active.shadowRoot.activeElement;
+        return active;
+    }}
+    function inputFromEvent(e) {{
+        const path = e.composedPath?.() || [];
+        for (const item of path) {{
+            if (isInput(item)) return item;
+        }}
+        return isInput(e.target) ? e.target : null;
+    }}
+    function eventPathHasClass(e, className) {{
+        const path = e.composedPath?.() || [];
+        return path.some(item => item?.classList?.contains?.(className));
+    }}
+
+    if (__doorpiUseNativeKeyboard) {{
+        let _nativeVkbInputEl = null;
+        let _nativeVkbSuppressUntil = 0;
+
+        function _nativeSetCaretHidden(el, hidden) {{
+            return;
+        }}
+
+        function _setNativeValue(el, val) {{
+            const proto  = el.tagName === 'INPUT' ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
+            const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+            if (setter) setter.call(el, val); else el.value = val;
+        }}
+
+        function _nativeVkbPostOpen(el) {{
+            if (Date.now() < _nativeVkbSuppressUntil) return;
+            if (!isInput(el)) return;
+            if (window._vkbIsOpen && _nativeVkbInputEl === el) return;
+            if (_nativeVkbInputEl && _nativeVkbInputEl !== el) _nativeSetCaretHidden(_nativeVkbInputEl, false);
+            _nativeVkbInputEl = el;
+            _nativeSetCaretHidden(el, true);
+            window._vkbIsOpen = true;
+            const rect = el.getBoundingClientRect();
+            const payload = {{
+                top: rect.top,
+                bottom: rect.bottom,
+                left: rect.left,
+                right: rect.right,
+                viewportHeight: window.innerHeight,
+                numeric: isNumericInput(el)
+            }};
+            try {{ window.chrome.webview.postMessage('native_vkb_open:' + encodeURIComponent(JSON.stringify(payload))); }} catch(_) {{}}
+        }}
+
+        function _nativeVkbClose(notify = true, blurInput = true) {{
+            _nativeVkbSuppressUntil = Date.now() + 650;
+            const active = deepActiveElement();
+            const currentInput = _nativeVkbInputEl || (isInput(active) ? active : null);
+            window._vkbIsOpen = false;
+            _nativeVkbInputEl = null;
+            _nativeSetCaretHidden(currentInput, false);
+            if (blurInput && currentInput) {{
+                try {{ currentInput.blur(); }} catch(_) {{}}
+                try {{ document.body?.focus?.({{ preventScroll: true }}); }} catch(_) {{}}
+            }}
+            if (notify) {{
+                try {{ window.chrome.webview.postMessage('native_vkb_closed'); }} catch(_) {{}}
+            }}
+        }}
+
+        function _nativeActiveInput() {{
+            if (_nativeVkbInputEl && document.contains(_nativeVkbInputEl) && isInput(_nativeVkbInputEl))
+                return _nativeVkbInputEl;
+            const active = deepActiveElement();
+            if (isInput(active)) {{
+                _nativeVkbInputEl = active;
+                return active;
+            }}
+            return null;
+        }}
+
+        function _nativeCursorPos(el) {{
+            if (el.isContentEditable || el.tagName === 'DIV') return (el.textContent || '').length;
+            let pos = null;
+            try {{ pos = el.selectionStart; }} catch(_) {{}}
+            return pos ?? (el.value || '').length;
+        }}
+
+        function _nativeInsert(text) {{
+            const el = _nativeActiveInput();
+            if (!el) return;
+            el.focus({{ preventScroll: true }});
+            const isEditable = el.isContentEditable || el.tagName === 'DIV';
+            if (isEditable) {{
+                const dt = new DataTransfer(); dt.setData('text/plain', text);
+                const ev = new ClipboardEvent('paste', {{ clipboardData: dt, bubbles: true, cancelable: true, composed: true }});
+                if (!el.dispatchEvent(ev)) document.execCommand('insertText', false, text);
+                el.dispatchEvent(new Event('input', {{ bubbles: true, composed: true }}));
+                return;
+            }}
+
+            const val = el.value || '';
+            const start = _nativeCursorPos(el);
+            let end = start;
+            try {{ end = el.selectionEnd ?? start; }} catch(_) {{}}
+            const maxLen = parseInt(el.getAttribute('maxlength') || '', 10);
+            if (Number.isFinite(maxLen) && maxLen > 0 && val.length - (end - start) + text.length > maxLen) return;
+            _setNativeValue(el, val.slice(0, start) + text + val.slice(end));
+            try {{ el.setSelectionRange(start + text.length, start + text.length); }} catch(_) {{}}
+            el.dispatchEvent(new Event('input',  {{ bubbles: true, composed: true }}));
+            el.dispatchEvent(new Event('change', {{ bubbles: true, composed: true }}));
+        }}
+
+        function _nativeBackspace() {{
+            const el = _nativeActiveInput();
+            if (!el) return;
+            el.focus({{ preventScroll: true }});
+            const isEditable = el.isContentEditable || el.tagName === 'DIV';
+            if (isEditable) {{
+                document.execCommand('delete', false, null);
+                el.dispatchEvent(new Event('input', {{ bubbles: true, composed: true }}));
+                return;
+            }}
+
+            const val = el.value || '';
+            const start = _nativeCursorPos(el);
+            let end = start;
+            try {{ end = el.selectionEnd ?? start; }} catch(_) {{}}
+            if (start === 0 && end === 0) return;
+
+            const removeStart = start === end ? Math.max(0, start - 1) : start;
+            _setNativeValue(el, val.slice(0, removeStart) + val.slice(end));
+            try {{ el.setSelectionRange(removeStart, removeStart); }} catch(_) {{}}
+            el.dispatchEvent(new Event('input',  {{ bubbles: true, composed: true }}));
+            el.dispatchEvent(new Event('change', {{ bubbles: true, composed: true }}));
+        }}
+
+        function _nativeMoveCursor(delta) {{
+            const el = _nativeActiveInput();
+            if (!el) return;
+            el.focus({{ preventScroll: true }});
+            if (el.isContentEditable || el.tagName === 'DIV') {{
+                const key = delta < 0 ? 'ArrowLeft' : 'ArrowRight';
+                const kc = delta < 0 ? 37 : 39;
+                el.dispatchEvent(new KeyboardEvent('keydown', {{ bubbles: true, cancelable: true, key, keyCode: kc, which: kc, composed: true }}));
+                el.dispatchEvent(new KeyboardEvent('keyup', {{ bubbles: true, key, keyCode: kc, which: kc, composed: true }}));
+                return;
+            }}
+
+            const pos = Math.max(0, Math.min((el.value || '').length, _nativeCursorPos(el) + delta));
+            try {{ el.setSelectionRange(pos, pos); }} catch(_) {{}}
+        }}
+
+        function _nativeEnter() {{
+            const el = _nativeActiveInput();
+            if (!el) return;
+            el.focus({{ preventScroll: true }});
+            const down = new KeyboardEvent('keydown', {{ bubbles: true, cancelable: true, key: 'Enter', code: 'Enter', keyCode: 13, which: 13, composed: true }});
+            const allowed = el.dispatchEvent(down);
+            el.dispatchEvent(new KeyboardEvent('keypress', {{ bubbles: true, cancelable: true, key: 'Enter', code: 'Enter', keyCode: 13, which: 13, composed: true }}));
+            el.dispatchEvent(new KeyboardEvent('keyup', {{ bubbles: true, key: 'Enter', code: 'Enter', keyCode: 13, which: 13, composed: true }}));
+            if (el.tagName === 'TEXTAREA' || el.isContentEditable) {{
+                if (allowed) _nativeInsert('\n');
+                return;
+            }}
+            const form = el.form || el.closest?.('form');
+            if (allowed && form) {{
+                if (typeof form.requestSubmit === 'function') form.requestSubmit();
+                else form.submit?.();
+            }}
+        }}
+
+        window.__doorpiNativeVkbKey = (key) => {{
+            if (key === 'BKSP') _nativeBackspace();
+            else if (key === 'ENTER') _nativeEnter();
+            else if (key === 'CURSOR_LEFT') _nativeMoveCursor(-1);
+            else if (key === 'CURSOR_RIGHT') _nativeMoveCursor(1);
+            else if (key === 'SPACE') _nativeInsert(' ');
+            else _nativeInsert(key);
+        }};
+
+        window.__doorpiNativeVkbClose = () => _nativeVkbClose(false, true);
+        window.__doorpiVkbMove        = () => {{}};
+        window.__doorpiVkbConfirm     = () => {{}};
+        window.__doorpiVkbClose       = () => _nativeVkbClose(true, true);
+        window.__doorpiVkbBackspace   = () => _nativeBackspace();
+        window.__doorpiVkbSpace       = () => _nativeInsert(' ');
+        window.__doorpiVkbCursorLeft  = () => _nativeMoveCursor(-1);
+        window.__doorpiVkbCursorRight = () => _nativeMoveCursor(1);
+        window.__doorpiVkbToggleShift = () => {{}};
+        window.__doorpiSetInstalledExtensions = (exts) => {{
+            _installedExtIds = new Set((exts || []).map(e => e.id));
+            window.__doorpiUpdateExtBtn?.(true);
+        }};
+
+        document.addEventListener('focusin', e => {{
+            if (Date.now() < _nativeVkbSuppressUntil) return;
+            const el = inputFromEvent(e) || deepActiveElement();
+            if (!isInput(el)) return;
+            setTimeout(() => {{ if (deepActiveElement() === el) _nativeVkbPostOpen(el); }}, 30);
+        }}, true);
+
+        document.addEventListener('mousedown', e => {{
+            if (Date.now() < _nativeVkbSuppressUntil) return;
+            const el = inputFromEvent(e);
+            if (el) setTimeout(() => _nativeVkbPostOpen(el), 30);
+        }}, true);
+
+        document.addEventListener('click', e => {{
+            if (window._vkbIsOpen && !inputFromEvent(e)) _nativeVkbClose(true, true);
+        }}, true);
+
+        (function init() {{
+            if (!document.body) {{ setTimeout(init, 16); return; }}
+            injectChromeWebStoreBtn();
+        }})();
+
+        return;
     }}
 
     // ── Estilos ───────────────────────────────────────────────────────────────
@@ -927,7 +2045,7 @@ namespace Doorpi
         const grid = _vkbEl.querySelector('.doorpi-vkb-grid');
         if (!grid) return;
         const rows = _vkbMode === 'numeric' ? NUMERIC_KEY_ROWS : KEY_ROWS;
-        grid.innerHTML = '';
+        while (grid.firstChild) grid.removeChild(grid.firstChild);
         rows.flat().forEach(k => {{
             const btn = document.createElement('button');
             btn.className = 'doorpi-vkb-key';
@@ -1141,10 +2259,10 @@ namespace Doorpi
 // DEPOIS
     document.addEventListener('focusin', e => {{
         if (_vkbClosing) return;
-        const el = e.target;
+        const el = inputFromEvent(e) || deepActiveElement();
         if (!isInput(el)) return;
         if (!window._vkbIsOpen) {{
-            setTimeout(() => {{ if (!_vkbClosing && document.activeElement === el) _vkbOpen(el); }}, 50);
+            setTimeout(() => {{ if (!_vkbClosing && deepActiveElement() === el) _vkbOpen(el); }}, 50);
         }} else if (el !== _vkbInputEl) {{
             // Segue o foco quando pula entre inputs (ex: campos OTP que avançam sozinhos)
             _vkbOpen(el);
@@ -1152,12 +2270,13 @@ namespace Doorpi
     }}, true);
 
     document.addEventListener('mousedown', e => {{
-        if (e.target.closest?.('.doorpi-vkb-overlay')) {{ e.preventDefault(); return; }}
-        if (isInput(e.target) && !window._vkbIsOpen && !_vkbClosing) _vkbOpen(e.target);
+        if (eventPathHasClass(e, 'doorpi-vkb-overlay')) {{ e.preventDefault(); return; }}
+        const el = inputFromEvent(e);
+        if (el && !window._vkbIsOpen && !_vkbClosing) _vkbOpen(el);
     }}, true);
 
     document.addEventListener('click', e => {{
-        if (window._vkbIsOpen && !isInput(e.target) && !e.target.closest?.('.doorpi-vkb-overlay'))
+        if (window._vkbIsOpen && !inputFromEvent(e) && !eventPathHasClass(e, 'doorpi-vkb-overlay'))
             _vkbClose();
     }}, true);
 
@@ -1170,7 +2289,7 @@ namespace Doorpi
             await cw.AddScriptToExecuteOnDocumentCreatedAsync(script);
         }
 
-        private async Task OpenWebViewInlineAsync(string url, bool isYouTube = false, string appName = "", string heroImg = "", string gridImg = "")
+        private async Task OpenWebViewInlineAsync(string url, bool isYouTube = false, string appName = "", string heroImg = "", string gridImg = "", bool isGenericBrowser = false)
         {
             // Corrige a URL logo de cara se a abertura já for apontando para a home
             if (url.TrimEnd('/') == "https://www.steamgriddb.com")
@@ -1229,6 +2348,7 @@ namespace Doorpi
 
             _ytClosing = false;
             _isCurrentSiteYouTube = isYouTube;
+            _isGenericBrowserMode = isGenericBrowser;
             _vkbIsOpen = false;
             _vkbOwnerView = null;
 
@@ -1256,7 +2376,9 @@ namespace Doorpi
                     ShowInTaskbar = false
                 };
 
-                _webAppWindow.Content = _ytWebView;
+                _webAppWindow.Content = isGenericBrowser
+                    ? BuildGenericBrowserShell(_ytWebView)
+                    : _ytWebView;
 
                 _webAppWindow.Closed += (s, e) =>
                 {
@@ -1297,6 +2419,19 @@ namespace Doorpi
             _ytWebView.CoreWebView2.Settings.AreHostObjectsAllowed = false;
             _ytWebView.CoreWebView2.Settings.IsZoomControlEnabled = false;
 
+            if (isGenericBrowser)
+            {
+                try
+                {
+                    Directory.CreateDirectory(UserDownloadsFolder);
+                    _ytWebView.CoreWebView2.Profile.DefaultDownloadFolderPath = UserDownloadsFolder;
+                }
+                catch { }
+
+                _ytWebView.CoreWebView2.DownloadStarting += OnGenericBrowserDownloadStarting;
+                _ytWebView.CoreWebView2.ContainsFullScreenElementChanged += OnGenericBrowserContainsFullScreenElementChanged;
+            }
+
             _ytWebView.CoreWebView2.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
             _ytWebView.CoreWebView2.WebResourceRequested += YtOnWebResourceRequested;
             _ytWebView.CoreWebView2.WebMessageReceived += YtOnWebMessageReceived;
@@ -1326,7 +2461,7 @@ namespace Doorpi
                     _vkbHasFocus = false;
                 }
 
-                string currentUri = e.Uri?.TrimEnd('/');
+                string? currentUri = e.Uri?.TrimEnd('/');
                 if (currentUri == "https://www.steamgriddb.com")
                 {
                     e.Cancel = true;
@@ -1348,11 +2483,13 @@ namespace Doorpi
             }
             else
             {
-                await YtInjectGenericSiteAsync(_ytWebView.CoreWebView2);
+                await YtInjectGenericSiteAsync(_ytWebView.CoreWebView2, isGenericBrowser);
             }
 
             _ytWebView.CoreWebView2.NavigationCompleted += async (s, e) =>
             {
+                if (isGenericBrowser)
+                    Dispatcher.Invoke(UpdateGenericBrowserChrome);
                 // Utilitários (SteamGridDB, Chrome Web Store): garante cursor visível após qualquer navegação
                 if (isUtility)
                 {
@@ -1380,6 +2517,8 @@ namespace Doorpi
             _ytWebView.CoreWebView2.SourceChanged += async (s, args) =>
             {
                 string newUrl = _ytWebView.CoreWebView2.Source;
+                if (isGenericBrowser)
+                    Dispatcher.Invoke(UpdateGenericBrowserChrome);
 
                 if (newUrl.Contains("chromewebstore.google.com/detail/"))
                     await InjectInstalledExtensionsAsync(_ytWebView.CoreWebView2);
@@ -1392,6 +2531,9 @@ namespace Doorpi
             }
             if (!isYouTube)
                 EnsureCursorVisible();
+
+            if (isGenericBrowser)
+                _ytWebView.Focus();
 
             StartMediaControllerMode();
             SendRuntimeSessionsToUI();
@@ -1464,7 +2606,8 @@ namespace Doorpi
         // ── Fechar app ────────────────────────────────────────────────────────
         public void CloseYouTubeInline(bool skipStoreCompletion = false)
         {
-            if (_ytClosing || _ytWebView == null) return;
+            var ytWebView = _ytWebView;
+            if (_ytClosing || ytWebView == null) return;
             _ytClosing = true;
 
             bool shouldFinalizeStoreFromThisWebClose =
@@ -1482,25 +2625,54 @@ namespace Doorpi
             _popupWindow = null;
             _popupWebView = null;
 
+            var coreWebView = ytWebView.CoreWebView2;
+
             try
             {
-                _ytWebView.CoreWebView2?.ExecuteScriptAsync(
-                    "try{document.querySelectorAll('video').forEach(v=>v.pause());}catch(e){}");
+                if (coreWebView != null)
+                {
+                    _ = coreWebView.ExecuteScriptAsync(
+                        "try{document.querySelectorAll('video').forEach(v=>v.pause());}catch(e){}");
+                }
             }
             catch { }
 
-            _ytWebView.KeyDown -= YtOnKeyDown;
-            _ytWebView.CoreWebView2.WebResourceRequested -= YtOnWebResourceRequested;
-            _ytWebView.CoreWebView2.WebMessageReceived -= YtOnWebMessageReceived;
-            _ytWebView.CoreWebView2.NewWindowRequested -= OnNewWindowRequested;
+            ytWebView.KeyDown -= YtOnKeyDown;
+            if (coreWebView != null)
+            {
+                coreWebView.WebResourceRequested -= YtOnWebResourceRequested;
+                coreWebView.WebMessageReceived -= YtOnWebMessageReceived;
+                coreWebView.NewWindowRequested -= OnNewWindowRequested;
+                coreWebView.DownloadStarting -= OnGenericBrowserDownloadStarting;
+                coreWebView.ContainsFullScreenElementChanged -= OnGenericBrowserContainsFullScreenElementChanged;
+            }
+
+            if (_genericBrowserKeyboardTarget != GenericBrowserKeyboardTarget.None)
+                CloseGenericBrowserKeyboard(false);
 
             try { _webAppWindow?.Close(); } catch { }
             _webAppWindow = null;
+            try
+            {
+                if (_genericBrowserWidgetsPopup != null)
+                    _genericBrowserWidgetsPopup.IsOpen = false;
+            }
+            catch { }
 
-            RootGrid.Children.Remove(_ytWebView);
+            RootGrid.Children.Remove(ytWebView);
 
-            try { _ytWebView.Dispose(); } catch { }
+            try { ytWebView.Dispose(); } catch { }
             _ytWebView = null;
+            _genericBrowserShell = null;
+            _genericBrowserToolbarRow = null;
+            _genericBrowserToolbar = null;
+            _genericBrowserAddressBox = null;
+            _genericBrowserAddressPlaceholder = null;
+            _genericBrowserBackButton = null;
+            _genericBrowserForwardButton = null;
+            _genericBrowserWidgetsPanel = null;
+            _genericBrowserWidgetsPopup = null;
+            _isGenericBrowserMode = false;
             ClearWebAppSession();
 
             webView.Visibility = Visibility.Visible;
@@ -1541,6 +2713,37 @@ namespace Doorpi
 
             bool isPopup = (_popupWebView != null && sender == _popupWebView.CoreWebView2);
             WebView2 senderView = isPopup ? _popupWebView! : _ytWebView!;
+
+            if (_isGenericBrowserMode && !isPopup && msg.StartsWith("native_vkb_open:"))
+            {
+                if (DateTime.UtcNow < _genericBrowserVkbSuppressUntilUtc)
+                    return;
+
+                try
+                {
+                    string payload = Uri.UnescapeDataString(msg["native_vkb_open:".Length..]);
+                    var node = JsonNode.Parse(payload);
+                    double bottom = node?["bottom"]?.GetValue<double>() ?? 0;
+                    double top = node?["top"]?.GetValue<double>() ?? bottom;
+                    int screenY = GenericBrowserWebYToScreen(bottom > 0 ? bottom : top);
+                    Dispatcher.Invoke(() => OpenGenericBrowserWebKeyboard(screenY));
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[DoorpiBrowser] Falha ao abrir VKB nativo: " + ex.Message);
+                }
+                return;
+            }
+
+            if (_isGenericBrowserMode && !isPopup && msg == "native_vkb_closed")
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    if (_genericBrowserKeyboardTarget == GenericBrowserKeyboardTarget.WebInput)
+                        CloseGenericBrowserKeyboard(false);
+                });
+                return;
+            }
 
             if (msg == "vkb_opened")
             {

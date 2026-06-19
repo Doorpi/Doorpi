@@ -167,8 +167,9 @@ namespace Doorpi
 
             bool store = _isStoreLauncherSession && IsActiveStoreLauncherProcessAlive();
             bool storeInstall = IsStoreInstallFlowActive();
+            bool gpuUpdater = IsGpuUpdaterSessionActive();
 
-            return game || exe || web || store || storeInstall;
+            return game || exe || web || store || storeInstall || gpuUpdater;
         }
 
         private bool HasAnyBlockingExternalSession()
@@ -196,8 +197,9 @@ namespace Doorpi
                          !_storePausedByDoorpi &&
                          IsActiveStoreLauncherProcessAlive();
             bool storeInstall = IsStoreInstallFlowActive();
+            bool gpuUpdater = IsGpuUpdaterSessionActive();
 
-            return game || exe || web || store || storeInstall;
+            return game || exe || web || store || storeInstall || gpuUpdater;
         }
 
         private bool ShouldMuteDoorpiAudio()

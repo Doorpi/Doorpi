@@ -187,10 +187,20 @@ body:not(.nav-menu-active) #heroImage {
 
 
 
+.gp-hint:has(.gp-select), .gp-select,
+[data-gamepad-hint="select"] .gp-hint {
+    background: #fff !important;
+    color: #000 !important;
+}
+
 .gp-start svg {
     width: 12px;
     height: 12px;
-    fill: currentColor;
+}
+
+.gp-select svg {
+    width: 16px;
+    height: 16px;
 }
 
 *, *::before, *::after {
@@ -1236,6 +1246,28 @@ body {
 .store-install-info small {
     font-size: clamp(0.78rem, 0.82vw, 1rem);
     color: rgba(255,255,255,0.46);
+}
+
+.store-install-note {
+    color: rgba(255,255,255,0.66) !important;
+}
+
+.store-install-pair {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 2px;
+}
+
+.store-install-pair span {
+    padding: 4px 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.07);
+    color: rgba(255,255,255,0.72);
+    font-size: clamp(0.66rem, 0.68vw, 0.78rem);
+    font-weight: 700;
+    line-height: 1;
 }
 
 .store-install-action {
@@ -2683,7 +2715,7 @@ body {
 #gameLaunchOverlay {
     position: fixed;
     inset: 0;
-    z-index: 9998;
+    z-index: 30000;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2841,6 +2873,21 @@ body {
 }
 
     #gameLaunchOverlay.store-install-lock .game-art img {
+        object-fit: contain;
+        padding: 18%;
+        box-sizing: border-box;
+    }
+
+#gameLaunchOverlay.gpu-updater-lock .game-art {
+    width: 164px;
+    height: 164px;
+    border-radius: 12px;
+    background: rgba(0,0,0,0.24);
+    border: 1px solid rgba(255,255,255,0.10);
+    box-shadow: 0 24px 64px rgba(0,0,0,0.58);
+}
+
+    #gameLaunchOverlay.gpu-updater-lock .game-art img {
         object-fit: contain;
         padding: 18%;
         box-sizing: border-box;

@@ -8,7 +8,7 @@ public static class PackageVerifier
     {
         await using var stream = File.OpenRead(filePath);
         byte[] hash = await SHA256.HashDataAsync(stream, cancellationToken).ConfigureAwait(false);
-        return Convert.ToHexString(hash).ToLowerInvariant();
+        return Convert.ToHexString(hash).ToUpperInvariant();
     }
 
     public static async Task VerifySha256Async(string filePath, string expectedSha256, CancellationToken cancellationToken = default)

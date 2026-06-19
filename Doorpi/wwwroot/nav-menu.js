@@ -844,7 +844,7 @@ window.isNavMenuOpen = false;
             <h3 style="font-size:1.1rem;font-weight:500;color:#fff;margin-bottom:12px;">${_t('sysBootBehavior', 'Comportamento de Inicialização')}</h3>
 
             <div class="nav-radio-group">
-                <button class="nav-radio-btn" data-mode="0" tabindex="-1">
+                <button class="nav-radio-btn" id="bootModeNone" data-mode="0" tabindex="-1">
                     <div class="nav-radio-circle"></div>
                     <div class="nav-radio-text">
                         <strong>${_t('sysBootNoneTitle', 'Não Iniciar Automaticamente')}</strong>
@@ -870,9 +870,9 @@ window.isNavMenuOpen = false;
             <div class="nav-update-panel" id="systemUpdatePanel" style="margin:22px 0 18px;padding:16px 18px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.035);border-radius:10px;">
                 <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:18px;">
                     <div style="min-width:0;">
-                        <div id="systemUpdateBadge" style="display:inline-flex;margin-bottom:8px;padding:3px 8px;border-radius:999px;background:rgba(125,203,255,.14);color:#7dcbff;font-size:.68rem;font-weight:800;letter-spacing:.12em;">ATUALIZADO</div>
-                        <h3 id="systemUpdateTitle" style="font-size:1.1rem;font-weight:600;color:#fff;margin:0 0 5px;">Atualizacoes do sistema</h3>
-                        <p id="systemUpdateSub" style="margin:0;color:rgba(255,255,255,.56);line-height:1.35;">Atualizacoes ainda nao verificadas.</p>
+                        <div id="systemUpdateBadge" style="display:inline-flex;margin-bottom:8px;padding:3px 8px;border-radius:999px;background:rgba(125,203,255,.14);color:#7dcbff;font-size:.68rem;font-weight:800;letter-spacing:.12em;">${_t('sysUpdateBadgeUpdated', 'ATUALIZADO')}</div>
+                        <h3 id="systemUpdateTitle" style="font-size:1.1rem;font-weight:600;color:#fff;margin:0 0 5px;">${_t('sysUpdateTitle', 'Atualizacoes do sistema')}</h3>
+                        <p id="systemUpdateSub" style="margin:0;color:rgba(255,255,255,.56);line-height:1.35;">${_t('sysUpdateIdle', 'Atualizacoes ainda nao verificadas.')}</p>
                     </div>
                     <div id="systemUpdateVersions" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;color:rgba(255,255,255,.62);font-size:.84rem;white-space:nowrap;"></div>
                 </div>
@@ -881,12 +881,43 @@ window.isNavMenuOpen = false;
 
             <div class="nav-suggestions-grid" id="navUpdateActionsGrid" style="margin-bottom:18px;">
                 <button class="nav-suggestion-card visible" id="navCardCheckUpdates" tabindex="-1">
-                    <div class="nav-suggestion-card-btn">Verificar agora</div>
-                    <span class="nav-suggestion-card-text">Consulta o manifesto remoto e mostra versoes, changelog e obrigatoriedade.</span>
+                    <div class="nav-suggestion-card-btn">${_t('sysUpdateCheckNow', 'Verificar agora')}</div>
+                    <span class="nav-suggestion-card-text">${_t('sysUpdateCheckNowDesc', 'Consulta o manifesto remoto e mostra versoes, changelog e obrigatoriedade.')}</span>
                 </button>
                 <button class="nav-suggestion-card" id="navCardStartUpdate" tabindex="-1" style="display:none;">
-                    <div class="nav-suggestion-card-btn">Atualizar</div>
-                    <span class="nav-suggestion-card-text">Baixa o pacote validado, atualiza componentes e reinicia o Doorpi se necessario.</span>
+                    <div class="nav-suggestion-card-btn">${_t('sysUpdateStart', 'Atualizar')}</div>
+                    <span class="nav-suggestion-card-text">${_t('sysUpdateStartDesc', 'Baixa o pacote validado, atualiza componentes e reinicia o Doorpi se necessario.')}</span>
+                </button>
+            </div>
+
+            <div class="nav-update-panel" id="windowsUpdatePanel" style="margin:22px 0 18px;padding:16px 18px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.035);border-radius:10px;">
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:18px;">
+                    <div style="min-width:0;">
+                        <div id="windowsUpdateBadge" style="display:inline-flex;margin-bottom:8px;padding:3px 8px;border-radius:999px;background:rgba(125,203,255,.14);color:#7dcbff;font-size:.68rem;font-weight:800;letter-spacing:.12em;">WINDOWS</div>
+                        <h3 id="windowsUpdateTitle" style="font-size:1.1rem;font-weight:600;color:#fff;margin:0 0 5px;">Windows Update</h3>
+                        <p id="windowsUpdateSub" style="margin:0;color:rgba(255,255,255,.56);line-height:1.35;">Atualizacoes do Windows ainda nao verificadas.</p>
+                    </div>
+                    <div id="windowsUpdateMeta" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;color:rgba(255,255,255,.62);font-size:.84rem;white-space:nowrap;"></div>
+                </div>
+                <div id="windowsUpdateList" style="display:grid;gap:7px;margin:12px 0 0;color:rgba(255,255,255,.62);font-size:.86rem;line-height:1.35;"></div>
+            </div>
+
+            <div class="nav-suggestions-grid" id="windowsUpdateActionsGrid" style="margin-bottom:18px;">
+                <button class="nav-suggestion-card visible" id="navCardCheckWindowsUpdates" tabindex="-1">
+                    <div class="nav-suggestion-card-btn">Verificar Windows</div>
+                    <span class="nav-suggestion-card-text">Consulta o Windows Update e lista os pacotes encontrados.</span>
+                </button>
+                <button class="nav-suggestion-card" id="navCardStartWindowsUpdate" tabindex="-1" style="display:none;">
+                    <div class="nav-suggestion-card-btn">Baixar e instalar</div>
+                    <span class="nav-suggestion-card-text">Usa a API do Windows Update para baixar e instalar em segundo plano.</span>
+                </button>
+                <button class="nav-suggestion-card" id="navCardRestartWindows" tabindex="-1" style="display:none;">
+                    <div class="nav-suggestion-card-btn">Reiniciar agora</div>
+                    <span class="nav-suggestion-card-text">Reinicia o computador para concluir atualizacoes pendentes.</span>
+                </button>
+                <button class="nav-suggestion-card visible" id="navCardOpenWindowsUpdate" tabindex="-1">
+                    <div class="nav-suggestion-card-btn">Abrir Windows Update</div>
+                    <span class="nav-suggestion-card-text">Abre a tela nativa do Windows com mouse e teclado pelo controle.</span>
                 </button>
             </div>
 
@@ -932,6 +963,10 @@ window.isNavMenuOpen = false;
                 ...Array.from(body.querySelectorAll('.nav-radio-btn')),
                 body.querySelector('#navCardCheckUpdates'),
                 body.querySelector('#navCardStartUpdate'),
+                body.querySelector('#navCardCheckWindowsUpdates'),
+                body.querySelector('#navCardStartWindowsUpdate'),
+                body.querySelector('#navCardRestartWindows'),
+                body.querySelector('#navCardOpenWindowsUpdate'),
                 body.querySelector('#navCardSignIn'),
                 body.querySelector('#navCardTaskbar'),
                 body.querySelector('#navCardGameBar'),
@@ -949,7 +984,9 @@ window.isNavMenuOpen = false;
 
         window._updateBootModeUI();
         _updateSystemUpdateUI();
+        _updateWindowsUpdateUI();
         if (typeof postToHost === 'function') postToHost({ action: 'requestUpdateStatus' });
+        if (typeof postToHost === 'function') postToHost({ action: 'requestWindowsUpdateStatus' });
 
         body.querySelector('#setBackSystem')?.addEventListener('click', () => {
             _settingsSubView = null;
@@ -1004,10 +1041,396 @@ window.isNavMenuOpen = false;
             if (typeof postToHost === 'function') postToHost({ action: 'startSystemUpdate' });
         });
 
+        body.querySelector('#navCardCheckWindowsUpdates')?.addEventListener('click', () => {
+            _windowsUpdateStatus = { ..._windowsUpdateStatus, status: 'checking', message: 'Verificando atualizacoes do Windows...' };
+            _updateWindowsUpdateUI();
+            if (typeof postToHost === 'function') postToHost({ action: 'checkWindowsUpdates' });
+        });
+
+        body.querySelector('#navCardStartWindowsUpdate')?.addEventListener('click', () => {
+            _windowsUpdateStatus = { ..._windowsUpdateStatus, status: 'downloading', message: 'Baixando e instalando atualizacoes do Windows...' };
+            _updateWindowsUpdateUI();
+            if (typeof postToHost === 'function') postToHost({ action: 'startWindowsUpdateInstall' });
+        });
+
+        body.querySelector('#navCardRestartWindows')?.addEventListener('click', () => {
+            if (typeof postToHost === 'function') postToHost({ action: 'restartSystem' });
+        });
+
+        body.querySelector('#navCardOpenWindowsUpdate')?.addEventListener('click', () => {
+            _showDesktopWarning('settings', () => {
+                if (typeof postToHost === 'function') postToHost({ action: 'openWindowsUpdateSettings' });
+            });
+        });
+
         body.querySelector('#btnEnterDesktop')?.addEventListener('click', () => {
             _showDesktopWarning('desktop', () => {
                 if (typeof postToHost === 'function') postToHost({ action: 'enterDesktopMode' });
             });
+        });
+    }
+
+    function _wireSystemItems(body, selectors) {
+        _contentItems = selectors
+            .flatMap(selector => Array.from(body.querySelectorAll(selector)))
+            .filter(el => el && el.offsetParent !== null);
+
+        _contentItems.forEach((el, idx) => {
+            el.onmouseenter = () => {
+                _topbarFocus = false;
+                _contentIdx = idx;
+                _updateContentFocus();
+            };
+        });
+    }
+
+    function _renderSettingsSystemV2(body) {
+        if (_systemSubView === 'startup') { _renderSettingsSystemStartupV2(body); return; }
+        if (_systemSubView === 'updates') { _renderSettingsSystemUpdatesV2(body); return; }
+
+        const svgPower = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>`;
+        const svgUpdate = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v6h-6"/><path d="M12 8v5l3 2"/></svg>`;
+
+        body.innerHTML = `
+        <div class="nav-settings-subheader">
+            <button class="nav-back-btn" id="setBackSystemHub" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
+            <h2>${_t('navSetSystem', 'Sistema e Inicialização')}</h2>
+        </div>
+        <div class="nav-settings-grid">
+            <button class="nav-settings-card" id="setSystemStartup" tabindex="-1">
+                <div class="settings-card-icon">${svgPower}</div>
+                <div class="settings-card-info">
+                    <h3>Inicialização</h3>
+                    <p>Comportamento de boot, modo console e atalhos para ajustes essenciais.</p>
+                </div>
+            </button>
+            <button class="nav-settings-card" id="setSystemUpdates" tabindex="-1">
+                <div class="settings-card-icon">${svgUpdate}</div>
+                <div class="settings-card-info">
+                    <h3>Atualizações</h3>
+                    <p>Doorpi, Updater e Windows Update reunidos em uma área dedicada.</p>
+                </div>
+            </button>
+        </div>`;
+
+        _wireSystemItems(body, ['#setBackSystemHub', '#setSystemStartup', '#setSystemUpdates']);
+
+        body.querySelector('#setBackSystemHub')?.addEventListener('click', () => {
+            _settingsSubView = null;
+            _systemSubView = null;
+            _contentIdx = 0;
+            _renderContent('settings');
+            _updateContentFocus();
+        });
+        body.querySelector('#setSystemStartup')?.addEventListener('click', () => {
+            _systemSubView = 'startup';
+            _contentIdx = 0;
+            _renderContent('settings');
+            _updateContentFocus();
+        });
+        body.querySelector('#setSystemUpdates')?.addEventListener('click', () => {
+            _systemSubView = 'updates';
+            _systemUpdatesSubView = 'doorpi';
+            _contentIdx = 0;
+            _renderContent('settings');
+            _updateContentFocus();
+        });
+    }
+
+    function _renderSettingsSystemStartupV2(body) {
+        if (typeof postToHost === 'function') postToHost({ action: 'requestBootMode' });
+        const svgDesktop = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:20px;height:20px;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`;
+
+        body.innerHTML = `
+        <div class="nav-settings-subheader">
+            <button class="nav-back-btn" id="setBackSystemStartup" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
+            <h2>Inicialização</h2>
+        </div>
+
+        <div style="max-width: 900px;">
+            <h3 style="font-size:1.1rem;font-weight:500;color:#fff;margin-bottom:12px;">${_t('sysBootBehavior', 'Comportamento de Inicialização')}</h3>
+
+            <div class="nav-radio-group">
+                <button class="nav-radio-btn" id="bootModeNone" data-mode="0" tabindex="-1">
+                    <div class="nav-radio-circle"></div>
+                    <div class="nav-radio-text">
+                        <strong>${_t('sysBootNoneTitle', 'Não Iniciar Automaticamente')}</strong>
+                        <span>${_t('sysBootNoneDesc', 'O aplicativo deve ser aberto manualmente pelo usuário.')}</span>
+                    </div>
+                </button>
+                <button class="nav-radio-btn" id="bootModeRun" data-mode="1" tabindex="-1">
+                    <div class="nav-radio-circle"></div>
+                    <div class="nav-radio-text">
+                        <strong>${_t('sysBootRunTitle', 'Iniciar com Windows (Padrão)')}</strong>
+                        <span>${_t('sysBootRunDesc', 'Inicia junto com o sistema operacional, mantendo a Área de Trabalho acessível ao fundo.')}</span>
+                    </div>
+                </button>
+                <button class="nav-radio-btn" id="bootModeShell" data-mode="2" tabindex="-1">
+                    <div class="nav-radio-circle"></div>
+                    <div class="nav-radio-text">
+                        <strong>${_t('sysBootShellTitle', 'Modo Console (Imersivo)')}</strong>
+                        <span>${_t('sysBootShellDesc', 'Substitui a Área de Trabalho e silencia o boot do Windows, criando uma experiência contínua e dedicada para a sua sala.')}</span>
+                    </div>
+                </button>
+            </div>
+
+            <div class="nav-suggestions-grid" id="navSuggestionsGrid" style="display:flex;flex-direction:column;">
+                <button class="nav-suggestion-card" id="navCardSignIn" tabindex="-1">
+                    <div class="nav-suggestion-card-btn">${_t('sysBootNoticeBtn', 'Opções de Entrada')}</div>
+                    <span class="nav-suggestion-card-text">${_t('sysBootNoticeText', 'Desative a senha de login para iniciar direto no Doorpi sem teclado.')}</span>
+                </button>
+                <button class="nav-suggestion-card" id="navCardTaskbar" tabindex="-1">
+                    <div class="nav-suggestion-card-btn">${_t('sysTaskbarNoticeBtn', 'Barra de Tarefas')}</div>
+                    <span class="nav-suggestion-card-text">${_t('sysTaskbarNoticeText', 'Configure a Barra de Tarefas para ocultar automaticamente — sem distrações visuais no Modo Console.')}</span>
+                </button>
+                <button class="nav-suggestion-card" id="navCardGameBar" tabindex="-1">
+                    <div class="nav-suggestion-card-btn">${_t('sysGameBarNoticeBtn', 'Xbox Game Bar')}</div>
+                    <span class="nav-suggestion-card-text">${_t('sysGameBarNoticeText', 'Desative o atalho do botão Xbox para não abrir a overlay durante o uso do Doorpi.')}</span>
+                </button>
+            </div>
+
+            <h3 style="font-size:1.1rem;font-weight:500;color:#fff;margin:18px 0 12px;">${_t('sysActionsHeader', 'Ações do Sistema')}</h3>
+
+            <button class="nav-settings-card" id="btnEnterDesktop" tabindex="-1" style="width:100%;">
+                <div class="settings-card-icon" style="width:36px;height:36px;">${svgDesktop}</div>
+                <div class="settings-card-info">
+                    <h3>${_t('sysActionDesktopTitle', 'Acessar Área de Trabalho')}</h3>
+                    <p>${_t('sysActionDesktopDesc', 'O controle assume a função de mouse e teclado com uma disposição de botões específica para este modo. Acesse a interface padrão do Windows para gerenciamento do sistema.')}</p>
+                </div>
+            </button>
+        </div>`;
+
+        window._updateBootModeUI = () => {
+            const currentMode = window._doorpiBootMode || 0;
+            body.querySelectorAll('.nav-radio-btn').forEach(r =>
+                r.classList.toggle('active', parseInt(r.dataset.mode) === currentMode));
+            body.querySelector('#navCardSignIn')?.classList.toggle('visible', currentMode === 2);
+            body.querySelector('#navCardTaskbar')?.classList.toggle('visible', currentMode === 1 || currentMode === 2);
+            body.querySelector('#navCardGameBar')?.classList.toggle('visible', currentMode === 1 || currentMode === 2);
+            _wireSystemItems(body, [
+                '#setBackSystemStartup',
+                '#bootModeNone',
+                '#bootModeRun',
+                '#bootModeShell',
+                '#navCardSignIn',
+                '#navCardTaskbar',
+                '#navCardGameBar',
+                '#btnEnterDesktop'
+            ]);
+        };
+
+        window._updateBootModeUI();
+
+        body.querySelector('#setBackSystemStartup')?.addEventListener('click', () => {
+            _systemSubView = null;
+            _contentIdx = 0;
+            _renderContent('settings');
+            _updateContentFocus();
+        });
+        body.querySelectorAll('.nav-radio-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const mode = parseInt(btn.dataset.mode);
+                if (typeof postToHost === 'function') postToHost({ action: 'setBootMode', mode });
+                window._doorpiBootMode = mode;
+                window._updateBootModeUI();
+                _contentIdx = Math.max(0, _contentItems.indexOf(btn));
+                _updateContentFocus();
+            });
+        });
+        body.querySelector('#navCardSignIn')?.addEventListener('click', () => {
+            _showDesktopWarning('settings', () => postToHost?.({ action: 'openSignInOptions' }));
+        });
+        body.querySelector('#navCardTaskbar')?.addEventListener('click', () => {
+            _showDesktopWarning('settings', () => postToHost?.({ action: 'openTaskbarSettings' }));
+        });
+        body.querySelector('#navCardGameBar')?.addEventListener('click', () => {
+            _showDesktopWarning('settings', () => postToHost?.({ action: 'openXboxGameBarSettings' }));
+        });
+        body.querySelector('#btnEnterDesktop')?.addEventListener('click', () => {
+            _showDesktopWarning('desktop', () => postToHost?.({ action: 'enterDesktopMode' }));
+        });
+    }
+
+    function _renderSettingsSystemUpdatesV2(body) {
+        const active = _systemUpdatesSubView || 'doorpi';
+        const doorpiActive = active === 'doorpi';
+        const windowsActive = active === 'windows';
+        const gpuActive = active === 'gpu';
+        if (!document.getElementById('nav-system-update-tabs-styles')) {
+            const s = document.createElement('style');
+            s.id = 'nav-system-update-tabs-styles';
+            s.textContent = `
+                .nav-system-tabs { max-width: 900px; display: flex; gap: 8px; margin: 0 0 16px; }
+                .nav-system-tab { min-height: 42px; min-width: 150px; padding: 0 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.035); color: rgba(255,255,255,.74); font: inherit; outline: none; cursor: pointer; }
+                .nav-system-tab.active { background: rgba(120,190,255,.10); border-color: rgba(120,190,255,.36); color: #fff; }
+                .nav-system-tab.nav-focused-el { background: rgba(255,255,255,.15); border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,.18), 0 8px 20px rgba(0,0,0,.30); }
+                .nav-gpu-guidance { display:grid; gap:7px; margin:0 0 18px; padding-left:14px; border-left:2px solid rgba(125,203,255,.48); }
+                .nav-gpu-guidance p { margin:0; color:rgba(255,255,255,.56); font-size:.84rem; line-height:1.42; }
+                .nav-gpu-guidance strong { color:rgba(255,255,255,.84); font-weight:650; }
+            `;
+            document.head.appendChild(s);
+        }
+
+        body.innerHTML = `
+        <div class="nav-settings-subheader">
+            <button class="nav-back-btn" id="setBackSystemUpdates" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
+            <h2>Atualizações</h2>
+        </div>
+
+        <div style="max-width: 900px;">
+            <div class="nav-system-tabs">
+                <button class="nav-system-tab ${doorpiActive ? 'active' : ''}" id="updatesTabDoorpi" data-updates-tab="doorpi" tabindex="-1">Doorpi</button>
+                <button class="nav-system-tab ${windowsActive ? 'active' : ''}" id="updatesTabWindows" data-updates-tab="windows" tabindex="-1">Windows</button>
+                <button class="nav-system-tab ${gpuActive ? 'active' : ''}" id="updatesTabGpu" data-updates-tab="gpu" tabindex="-1">Placa de vídeo</button>
+            </div>
+
+            <div class="nav-update-panel" id="systemUpdatePanel" style="display:${doorpiActive ? 'block' : 'none'};margin:0 0 18px;padding:16px 18px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.035);border-radius:10px;">
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:18px;">
+                    <div style="min-width:0;">
+                        <div id="systemUpdateBadge" style="display:inline-flex;margin-bottom:8px;padding:3px 8px;border-radius:999px;background:rgba(125,203,255,.14);color:#7dcbff;font-size:.68rem;font-weight:800;letter-spacing:.12em;">${_t('sysUpdateBadgeUpdated', 'ATUALIZADO')}</div>
+                        <h3 id="systemUpdateTitle" style="font-size:1.1rem;font-weight:600;color:#fff;margin:0 0 5px;">Doorpi</h3>
+                        <p id="systemUpdateSub" style="margin:0;color:rgba(255,255,255,.56);line-height:1.35;">${_t('sysUpdateIdle', 'Atualizacoes ainda nao verificadas.')}</p>
+                    </div>
+                    <div id="systemUpdateVersions" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;color:rgba(255,255,255,.62);font-size:.84rem;white-space:nowrap;"></div>
+                </div>
+                <ul id="systemUpdateChangelog" style="margin:12px 0 0;padding-left:18px;color:rgba(255,255,255,.48);font-size:.86rem;line-height:1.45;"></ul>
+            </div>
+
+            <div class="nav-suggestions-grid" id="navUpdateActionsGrid" style="display:${doorpiActive ? 'flex' : 'none'};flex-direction:column;margin-bottom:18px;">
+                <button class="nav-suggestion-card visible" id="navCardCheckUpdates" tabindex="-1">
+                    <div class="nav-suggestion-card-btn">Verificar Doorpi</div>
+                    <span class="nav-suggestion-card-text">Consulta atualizações do Doorpi, Updater e changelog.</span>
+                </button>
+                <button class="nav-suggestion-card" id="navCardStartUpdate" tabindex="-1" style="display:none;">
+                    <div class="nav-suggestion-card-btn">Atualizar Doorpi</div>
+                    <span class="nav-suggestion-card-text">Baixa o pacote validado, atualiza componentes e reinicia o Doorpi se necessário.</span>
+                </button>
+            </div>
+
+            <div class="nav-update-panel" id="windowsUpdatePanel" style="display:${windowsActive ? 'block' : 'none'};margin:0 0 18px;padding:16px 18px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.035);border-radius:10px;">
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:18px;">
+                    <div style="min-width:0;">
+                        <div id="windowsUpdateBadge" style="display:inline-flex;margin-bottom:8px;padding:3px 8px;border-radius:999px;background:rgba(125,203,255,.14);color:#7dcbff;font-size:.68rem;font-weight:800;letter-spacing:.12em;">WINDOWS</div>
+                        <h3 id="windowsUpdateTitle" style="font-size:1.1rem;font-weight:600;color:#fff;margin:0 0 5px;">Windows Update</h3>
+                        <p id="windowsUpdateSub" style="margin:0;color:rgba(255,255,255,.56);line-height:1.35;">Atualizações do Windows ainda não verificadas.</p>
+                    </div>
+                    <div id="windowsUpdateMeta" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;color:rgba(255,255,255,.62);font-size:.84rem;white-space:nowrap;"></div>
+                </div>
+                <div id="windowsUpdateList" style="display:grid;gap:7px;margin:12px 0 0;color:rgba(255,255,255,.62);font-size:.86rem;line-height:1.35;"></div>
+            </div>
+
+            <div class="nav-suggestions-grid" id="windowsUpdateActionsGrid" style="display:${windowsActive ? 'flex' : 'none'};flex-direction:column;margin-bottom:18px;">
+                <button class="nav-suggestion-card visible" id="navCardCheckWindowsUpdates" tabindex="-1">
+                    <div class="nav-suggestion-card-btn">Verificar Windows</div>
+                    <span class="nav-suggestion-card-text">Consulta o Windows Update e lista os pacotes encontrados.</span>
+                </button>
+                <button class="nav-suggestion-card" id="navCardStartWindowsUpdate" tabindex="-1" style="display:none;">
+                    <div class="nav-suggestion-card-btn">Baixar e instalar</div>
+                    <span class="nav-suggestion-card-text">Usa a API do Windows Update para baixar e instalar em segundo plano.</span>
+                </button>
+                <button class="nav-suggestion-card" id="navCardRestartWindows" tabindex="-1" style="display:none;">
+                    <div class="nav-suggestion-card-btn">Reiniciar agora</div>
+                    <span class="nav-suggestion-card-text">Reinicia o computador para concluir atualizações pendentes.</span>
+                </button>
+                <button class="nav-suggestion-card visible" id="navCardOpenWindowsUpdate" tabindex="-1">
+                    <div class="nav-suggestion-card-btn">Abrir Windows Update</div>
+                    <span class="nav-suggestion-card-text">Abre a tela nativa do Windows com mouse e teclado pelo controle.</span>
+                </button>
+            </div>
+
+            <div class="nav-update-panel" id="gpuUpdatePanel" style="display:${gpuActive ? 'block' : 'none'};margin:0 0 18px;padding:16px 18px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.035);border-radius:10px;">
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:18px;">
+                    <div style="min-width:0;">
+                        <div id="gpuUpdateBadge" style="display:inline-flex;margin-bottom:8px;padding:3px 8px;border-radius:999px;background:rgba(125,203,255,.14);color:#7dcbff;font-size:.68rem;font-weight:800;letter-spacing:.12em;">GPU</div>
+                        <h3 id="gpuUpdateTitle" style="font-size:1.1rem;font-weight:600;color:#fff;margin:0 0 5px;">Placa de vídeo</h3>
+                        <p id="gpuUpdateSub" style="margin:0;color:rgba(255,255,255,.56);line-height:1.35;">Dados de placa de vídeo ainda não carregados.</p>
+                    </div>
+                    <div id="gpuUpdateMeta" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;color:rgba(255,255,255,.62);font-size:.84rem;white-space:nowrap;"></div>
+                </div>
+                <div id="gpuAdapterList" style="display:grid;gap:7px;margin:12px 0 0;color:rgba(255,255,255,.62);font-size:.86rem;line-height:1.35;"></div>
+            </div>
+
+            <div class="nav-gpu-guidance" style="display:${gpuActive ? 'grid' : 'none'};">
+                <p><strong>${_t('gpuUpdaterAdminNoticeTitle', 'Permiss\u00e3o tempor\u00e1ria.')}</strong> ${_t('gpuUpdaterAdminNoticeText', 'Se o Windows pedir permiss\u00e3o, autorize o assistente do Doorpi para controlar instaladores elevados.')}</p>
+                <p><strong>${_t('gpuUpdaterSessionNoticeTitle', 'Durante a atualiza\u00e7\u00e3o.')}</strong> ${_t('gpuUpdaterSessionNoticeText', 'N\u00e3o feche nem minimize o atualizador. Ao final, o Doorpi ser\u00e1 reiniciado para restaurar o renderizador.')}</p>
+            </div>
+
+            <div class="nav-suggestions-grid" id="gpuUpdateActionsGrid" style="display:${gpuActive ? 'flex' : 'none'};flex-direction:column;margin-bottom:18px;"></div>
+        </div>`;
+
+        const refreshItems = () => _wireSystemItems(body, [
+            '#setBackSystemUpdates',
+            '#updatesTabDoorpi',
+            '#updatesTabWindows',
+            '#updatesTabGpu',
+            '#navCardCheckUpdates',
+            '#navCardStartUpdate',
+            '#navCardCheckWindowsUpdates',
+            '#navCardStartWindowsUpdate',
+            '#navCardRestartWindows',
+            '#navCardOpenWindowsUpdate',
+            '#gpuUpdateActionsGrid .nav-gpu-app-card'
+        ]);
+
+        window._updateBootModeUI = refreshItems;
+        refreshItems();
+        _updateSystemUpdateUI();
+        _updateWindowsUpdateUI();
+        _updateGpuUpdateUI();
+        if (typeof postToHost === 'function') postToHost({ action: 'requestUpdateStatus' });
+        if (typeof postToHost === 'function') postToHost({ action: 'requestWindowsUpdateStatus' });
+        if (typeof postToHost === 'function') postToHost({ action: 'requestGpuUpdateStatus' });
+
+        body.querySelector('#setBackSystemUpdates')?.addEventListener('click', () => {
+            _systemSubView = null;
+            _contentIdx = 0;
+            _renderContent('settings');
+            _updateContentFocus();
+        });
+        body.querySelectorAll('[data-updates-tab]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                _systemUpdatesSubView = btn.dataset.updatesTab || 'doorpi';
+                _contentIdx = _systemUpdatesSubView === 'gpu' ? 3 : (_systemUpdatesSubView === 'windows' ? 2 : 1);
+                _renderContent('settings');
+                _updateContentFocus();
+            });
+        });
+        body.querySelector('#navCardCheckUpdates')?.addEventListener('click', () => {
+            _systemUpdateStatus = { ..._systemUpdateStatus, status: 'checking', message: 'Verificando atualizações...' };
+            _updateSystemUpdateUI();
+            postToHost?.({ action: 'checkSystemUpdates' });
+        });
+        body.querySelector('#navCardStartUpdate')?.addEventListener('click', () => {
+            _systemUpdateStatus = { ..._systemUpdateStatus, status: 'installing', message: 'Preparando atualização...' };
+            _updateSystemUpdateUI();
+            postToHost?.({ action: 'startSystemUpdate' });
+        });
+        body.querySelector('#navCardCheckWindowsUpdates')?.addEventListener('click', () => {
+            _windowsUpdateStatus = { ..._windowsUpdateStatus, status: 'checking', message: 'Verificando atualizações do Windows...' };
+            _updateWindowsUpdateUI();
+            postToHost?.({ action: 'checkWindowsUpdates' });
+        });
+        body.querySelector('#navCardStartWindowsUpdate')?.addEventListener('click', () => {
+            _windowsUpdateStatus = { ..._windowsUpdateStatus, status: 'downloading', message: 'Baixando e instalando atualizações do Windows...' };
+            _updateWindowsUpdateUI();
+            postToHost?.({ action: 'startWindowsUpdateInstall' });
+        });
+        body.querySelector('#navCardRestartWindows')?.addEventListener('click', () => {
+            postToHost?.({ action: 'restartSystem' });
+        });
+        body.querySelector('#navCardOpenWindowsUpdate')?.addEventListener('click', () => {
+            _showDesktopWarning('settings', () => postToHost?.({ action: 'openWindowsUpdateSettings' }));
+        });
+        body.querySelector('#gpuUpdateActionsGrid')?.addEventListener('click', (event) => {
+            const card = event.target.closest?.('.nav-gpu-app-card');
+            if (!card) return;
+            const action = card.dataset.gpuAction || '';
+            const updaterId = card.dataset.updaterId || '';
+            if (action === 'open') {
+                if (updaterId) postToHost?.({ action: 'openGpuUpdater', updaterId });
+            } else if (action === 'add') {
+                postToHost?.({ action: 'addGpuUpdater' });
+            }
         });
     }
 
@@ -1240,6 +1663,8 @@ window.isNavMenuOpen = false;
     let _bgRaf = null;
     let _lastFocus = null;
     let _settingsSubView = null;
+    let _systemSubView = null;
+    let _systemUpdatesSubView = 'doorpi';
     let _sharingFocusAppId = '';
     let _sharingSubView = 'apps';
     let _sharingFocusStoreId = 'Steam';
@@ -1257,6 +1682,21 @@ window.isNavMenuOpen = false;
         forceUpdate: false,
         lastCheckedAt: '',
         changelog: []
+    };
+    let _windowsUpdateStatus = {
+        status: 'idle',
+        message: 'Atualizacoes do Windows ainda nao verificadas.',
+        lastCheckedAt: '',
+        rebootRequired: false,
+        updates: [],
+        error: ''
+    };
+    let _gpuUpdateStatus = {
+        status: 'idle',
+        message: 'Dados de placa de vídeo ainda não carregados.',
+        lastCheckedAt: '',
+        adapters: [],
+        updaters: []
     };
     const NAV_MENU_TRANSITION_MS = 600;
     let _navMenuTransitionTimer = 0;
@@ -1623,6 +2063,18 @@ window.isNavMenuOpen = false;
 .nav-suggestion-card.nav-focused-el .nav-suggestion-card-btn { background: rgba(255,255,255,0.2); border-color: rgba(255,255,255,0.5); }
 .nav-suggestion-card-text { font-size: 0.78rem; color: rgba(255,255,255,0.75); line-height: 1.45; }
 .nav-suggestion-card.nav-focused-el .nav-suggestion-card-text { color: #fff; }
+.nav-gpu-app-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:12px; width:100%; }
+.nav-gpu-app-card { min-height:168px; border:1px solid rgba(255,255,255,.12); border-radius:10px; background:linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.035)); color:#fff; outline:none; cursor:pointer; padding:14px; display:flex; flex-direction:column; justify-content:space-between; gap:12px; text-align:left; transition:all .2s cubic-bezier(.25,1,.5,1); }
+.nav-gpu-app-card.nav-focused-el { transform:translateY(-3px) scale(1.02); background:rgba(255,255,255,.09); border-color:rgba(255,255,255,.48); box-shadow:0 15px 35px rgba(0,0,0,.4); }
+.nav-gpu-app-art { height:78px; border-radius:8px; background:radial-gradient(circle at 25% 20%, rgba(125,203,255,.24), transparent 34%), rgba(255,255,255,.06); display:flex; align-items:center; justify-content:center; overflow:hidden; }
+.nav-gpu-app-art img { width:46px; height:46px; object-fit:contain; filter:drop-shadow(0 8px 18px rgba(0,0,0,.34)); }
+.nav-gpu-app-cover { width:100%; height:100%; background-size:cover; background-position:center; }
+.nav-gpu-app-fallback { width:46px; height:46px; border-radius:12px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,.12); color:#fff; font-weight:800; letter-spacing:.04em; }
+.nav-gpu-app-name { color:#fff; font-size:.95rem; font-weight:700; line-height:1.22; min-height:2.4em; overflow:hidden; }
+.nav-gpu-app-meta { margin-top:4px; color:rgba(255,255,255,.58); font-size:.74rem; line-height:1.35; }
+.nav-gpu-app-footer { display:flex; align-items:center; justify-content:flex-start; gap:10px; }
+.nav-gpu-app-open { padding:4px 9px; border-radius:999px; background:rgba(125,203,255,.13); color:#9dd8ff; font-size:.66rem; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+.nav-gpu-app-add { align-items:center; text-align:center; justify-content:center; border-style:dashed; }
 
 @media (max-width: 1366px), (max-height: 780px) {
 
@@ -2052,7 +2504,7 @@ window.isNavMenuOpen = false;
         if (_settingsSubView === 'account') { _renderSettingsAccount(body); return; }
         if (_settingsSubView === 'extensions') { _renderSettingsExtensions(body); return; }
         if (_settingsSubView === 'sharing') { _renderSettingsSharing(body); return; }
-        if (_settingsSubView === 'system') { _renderSettingsSystem(body); return; }
+        if (_settingsSubView === 'system') { _renderSettingsSystemV2(body); return; }
         const svgUser = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
         const svgSys = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`;
         const svgExt = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`;
@@ -2094,7 +2546,7 @@ window.isNavMenuOpen = false;
         });
 
         body.querySelector('#setSystem')?.addEventListener('click', () => {
-            _settingsSubView = 'system'; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
+            _settingsSubView = 'system'; _systemSubView = null; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
         });
 
         body.querySelector('#setExt')?.addEventListener('click', () => {
@@ -2170,7 +2622,7 @@ window.isNavMenuOpen = false;
             const items = first?.items || [];
             changelog.innerHTML = items.length
                 ? items.slice(0, 3).map(item => `<li>${_esc(item)}</li>`).join('')
-                : `<li>${_t('sysUpdateNoChangelog', 'Notas da versao aparecerao aqui quando o manifesto estiver configurado.')}</li>`;
+                : `<li>${_t('sysUpdateNoChangelog', '')}</li>`;
         }
 
         if (startBtn) {
@@ -2178,6 +2630,214 @@ window.isNavMenuOpen = false;
             startBtn.style.display = hasUpdate ? '' : 'none';
         }
     }
+
+    function _formatWindowsUpdateSize(bytes) {
+        const value = Number(bytes || 0);
+        if (!Number.isFinite(value) || value <= 0) return '';
+        if (value >= 1024 * 1024 * 1024) return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+        if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(0)} MB`;
+        return `${Math.max(1, Math.round(value / 1024))} KB`;
+    }
+
+    function _formatWindowsUpdateDate(value) {
+        if (!value) return 'Nunca';
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return 'Nunca';
+        return date.toLocaleDateString(undefined, { day: '2-digit', month: '2-digit' })
+            + ' '
+            + date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function _updateWindowsUpdateUI() {
+        const status = _windowsUpdateStatus || {};
+        const updates = Array.isArray(status.updates) ? status.updates : [];
+        const badge = document.getElementById('windowsUpdateBadge');
+        const title = document.getElementById('windowsUpdateTitle');
+        const sub = document.getElementById('windowsUpdateSub');
+        const meta = document.getElementById('windowsUpdateMeta');
+        const list = document.getElementById('windowsUpdateList');
+        const startBtn = document.getElementById('navCardStartWindowsUpdate');
+        const restartBtn = document.getElementById('navCardRestartWindows');
+
+        const active = ['checking', 'downloading', 'installing'].includes(status.status);
+        const hasUpdates = updates.length > 0;
+
+        if (badge) {
+            badge.textContent = status.rebootRequired
+                ? 'REINICIAR'
+                : active
+                    ? 'PROCESSANDO'
+                    : hasUpdates
+                        ? 'DISPONIVEL'
+                        : status.status === 'error'
+                            ? 'ERRO'
+                            : status.status === 'access-denied'
+                                ? 'WINDOWS'
+                                : 'ATUALIZADO';
+            badge.dataset.state = status.status || 'idle';
+        }
+
+        if (title) {
+            title.textContent = status.rebootRequired
+                ? 'Windows Update - reinicio pendente'
+                : hasUpdates
+                    ? 'Windows Update - atualizacoes encontradas'
+                    : 'Windows Update';
+        }
+
+        if (sub) {
+            sub.textContent = status.message || 'Atualizacoes do Windows ainda nao verificadas.';
+        }
+
+        if (meta) {
+            meta.innerHTML = `
+                <span>${updates.length} pacote(s)</span>
+                <span>Ultima verificacao: ${_esc(_formatWindowsUpdateDate(status.lastCheckedAt))}</span>
+            `;
+        }
+
+        if (list) {
+            if (updates.length) {
+                list.innerHTML = updates.slice(0, 5).map(update => {
+                    const size = _formatWindowsUpdateSize(update.sizeBytes);
+                    const downloaded = update.isDownloaded ? 'Baixado' : 'Pendente';
+                    return `
+                        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:7px 0;border-top:1px solid rgba(255,255,255,.06);">
+                            <span style="min-width:0;color:rgba(255,255,255,.72);">${_esc(update.title || 'Atualizacao do Windows')}</span>
+                            <span style="flex:0 0 auto;color:rgba(255,255,255,.42);">${_esc([downloaded, size].filter(Boolean).join(' - '))}</span>
+                        </div>
+                    `;
+                }).join('') + (updates.length > 5
+                    ? `<div style="color:rgba(255,255,255,.38);padding-top:4px;">+${updates.length - 5} outra(s) atualizacao(oes)</div>`
+                    : '');
+            } else {
+                list.innerHTML = `<div style="padding-top:4px;color:rgba(255,255,255,.42);">Nenhuma atualizacao listada.</div>`;
+            }
+        }
+
+        if (startBtn) {
+            const visible = hasUpdates && !active && !status.rebootRequired;
+            startBtn.classList.toggle('visible', visible);
+            startBtn.style.display = visible ? '' : 'none';
+        }
+
+        if (restartBtn) {
+            const visible = !!status.rebootRequired;
+            restartBtn.classList.toggle('visible', visible);
+            restartBtn.style.display = visible ? '' : 'none';
+        }
+
+        if (window._updateBootModeUI && document.getElementById('windowsUpdatePanel')) {
+            window._updateBootModeUI();
+        }
+    }
+
+    function _gpuVendorName(vendor) {
+        const v = String(vendor || '').toLowerCase();
+        if (v === 'nvidia') return 'NVIDIA';
+        if (v === 'amd') return 'AMD';
+        if (v === 'intel') return 'Intel';
+        return vendor || 'GPU';
+    }
+
+    function _gpuUpdaterInitials(app) {
+        const base = _gpuVendorName(_readGpuProp(app, 'vendor')) || _readGpuProp(app, 'name') || 'APP';
+        return String(base).replace(/[^a-z0-9]/gi, '').slice(0, 3).toUpperCase() || 'APP';
+    }
+
+    function _readGpuProp(obj, key) {
+        if (!obj) return '';
+        const pascal = key.charAt(0).toUpperCase() + key.slice(1);
+        return obj[key] ?? obj[pascal] ?? '';
+    }
+
+    function _updateGpuUpdateUI() {
+        const status = _gpuUpdateStatus || {};
+        const adapters = Array.isArray(status.adapters) ? status.adapters : [];
+        const updaters = Array.isArray(status.updaters) ? status.updaters : [];
+        const badge = document.getElementById('gpuUpdateBadge');
+        const title = document.getElementById('gpuUpdateTitle');
+        const sub = document.getElementById('gpuUpdateSub');
+        const meta = document.getElementById('gpuUpdateMeta');
+        const list = document.getElementById('gpuAdapterList');
+        const actions = document.getElementById('gpuUpdateActionsGrid');
+
+        if (badge) {
+            badge.textContent = status.status === 'error'
+                ? 'ERRO'
+                : !adapters.length
+                    ? 'SEM GPU'
+                    : !updaters.length
+                        ? 'SEM APP'
+                        : 'DETECTADO';
+        }
+
+        if (title) title.textContent = 'Placa de vídeo';
+        if (sub) sub.textContent = status.message || 'Dados de placa de vídeo ainda não carregados.';
+
+        if (meta) {
+            meta.innerHTML = `
+                <span>${adapters.length} adaptador(es)</span>
+                <span>${updaters.length} app(s) configurado(s)</span>
+                <span>Última leitura: ${_esc(_formatWindowsUpdateDate(status.lastCheckedAt))}</span>
+            `;
+        }
+
+        if (list) {
+            list.innerHTML = adapters.length
+                ? adapters.map(adapter => `
+                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:7px 0;border-top:1px solid rgba(255,255,255,.06);">
+                        <span style="min-width:0;color:rgba(255,255,255,.72);">${_esc(_readGpuProp(adapter, 'name') || _gpuVendorName(_readGpuProp(adapter, 'vendor')))}</span>
+                        <span style="flex:0 0 auto;color:rgba(255,255,255,.42);">${_esc([_gpuVendorName(_readGpuProp(adapter, 'vendor')), _readGpuProp(adapter, 'driverVersion') || '--'].filter(Boolean).join(' - '))}</span>
+                    </div>
+                `).join('')
+                : `<div style="padding-top:4px;color:rgba(255,255,255,.42);">Nenhum driver de vídeo detectado.</div>`;
+        }
+
+        if (actions) {
+            actions.innerHTML = `
+                <div class="nav-gpu-app-grid">
+                    ${updaters.map(app => {
+                        const id = _readGpuProp(app, 'id');
+                        const name = _readGpuProp(app, 'name') || 'Atualizador';
+                        const vendor = _readGpuProp(app, 'vendor');
+                        const source = _readGpuProp(app, 'source');
+                        const imageUrl = _readGpuProp(app, 'imageUrl');
+                        const iconDataUrl = _readGpuProp(app, 'iconDataUrl');
+                        return `
+                        <div class="nav-gpu-app-card" data-gpu-action="open" data-updater-id="${_esc(id)}" data-gpu-updater-card="true" tabindex="-1" role="button">
+                            <div class="nav-gpu-app-art">
+                                ${imageUrl ? `<div class="nav-gpu-app-cover" style="background-image:url('${_esc(imageUrl)}')"></div>` : (iconDataUrl ? `<img src="${_esc(iconDataUrl)}" alt="">` : `<div class="nav-gpu-app-fallback">${_esc(_gpuUpdaterInitials(app))}</div>`)}
+                            </div>
+                            <div>
+                                <div class="nav-gpu-app-name">${_esc(name)}</div>
+                                <div class="nav-gpu-app-meta">${_esc(_gpuVendorName(vendor))} · ${_esc(source === 'manual' ? 'Adicionado manualmente' : 'Detectado automaticamente')}</div>
+                            </div>
+                            <div class="nav-gpu-app-footer">
+                                <span class="nav-gpu-app-open">Abrir</span>
+                            </div>
+                        </div>
+                    `}).join('')}
+                    <div class="nav-gpu-app-card nav-gpu-app-add" data-gpu-action="add" tabindex="-1" role="button">
+                        <div class="nav-gpu-app-art"><div class="nav-gpu-app-fallback">+</div></div>
+                        <div>
+                            <div class="nav-gpu-app-name">Adicionar app</div>
+                            <div class="nav-gpu-app-meta">Escolha outro atualizador instalado no Windows.</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        if (window._updateBootModeUI && document.getElementById('gpuUpdatePanel')) {
+            window._updateBootModeUI();
+        }
+    }
+
+    window._navMenuSetGpuUpdateStatus = function (status) {
+        _gpuUpdateStatus = { ..._gpuUpdateStatus, ...(status || {}) };
+        _updateGpuUpdateUI();
+    };
 
     function _renderSettingsAccountHub(body) {
         const svgProfile = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
@@ -3556,6 +4216,10 @@ window.isNavMenuOpen = false;
     // ── Abrir / Fechar ────────────────────────────────────────────────────────
     async function open(startIdx = 0) {
         if (window.isNavMenuOpen || _navMenuPhase !== 'closed' || window.isDoorpiSessionTransitionActive?.()) return;
+        const requestedIdx = Number(startIdx);
+        if (arguments.length > 0 && Number.isFinite(requestedIdx)) {
+            _catIdx = Math.max(0, Math.min(CATS.length - 1, requestedIdx));
+        }
         const lifecycleToken = ++_navMenuLifecycleToken;
         window.isNavMenuOpen = true;
         _navMenuPhase = 'opening';
@@ -3672,6 +4336,12 @@ window.isNavMenuOpen = false;
     };
 
     document.addEventListener('keydown', e => {
+        // O popup de conflito possui prioridade no controlador global de navegacao.
+        if (window.isSessionConflictPopupOpen?.()) return;
+        const executionOverlay = document.getElementById('gameLaunchOverlay');
+        if (executionOverlay?.classList.contains('visible') &&
+            executionOverlay.classList.contains('execution-lock-visible')) return;
+
         if (window.isDoorpiSessionTransitionActive?.()) {
             e.preventDefault();
             e.stopImmediatePropagation();
@@ -3929,54 +4599,90 @@ window.isNavMenuOpen = false;
 
         if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'system') {
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
-                const items = _contentItems;
-                const radios = items.filter(el => el.classList.contains('nav-radio-btn'));
-                const cards = items.filter(el => el.classList.contains('nav-suggestion-card'));
-                const btnDesktop = items.find(el => el.id === 'btnEnterDesktop');
+                if (!_systemSubView) {
+                    if (key === 'ArrowUp') {
+                        if (_contentIdx <= 0) {
+                            _setTopbarFocus(true);
+                            return;
+                        }
+                        _contentIdx = 0;
+                    } else if (key === 'ArrowDown') {
+                        if (_contentIdx === 0) _contentIdx = 1;
+                    } else if (key === 'ArrowLeft') {
+                        if (_contentIdx === 2) _contentIdx = 1;
+                        else if (_contentIdx === 1) _contentIdx = 0;
+                        else {
+                            _setTopbarFocus(true);
+                            return;
+                        }
+                    } else if (key === 'ArrowRight') {
+                        if (_contentIdx === 1) _contentIdx = 2;
+                    }
 
-                const backIdx = 0;
-                const firstRadioIdx = items.indexOf(radios[0]);
-                const lastRadioIdx = items.indexOf(radios[radios.length - 1]);
-                const firstCardIdx = cards.length > 0 ? items.indexOf(cards[0]) : -1;
-                const lastCardIdx = cards.length > 0 ? items.indexOf(cards[cards.length - 1]) : -1;
-                const desktopIdx = items.indexOf(btnDesktop);
-
-                const inCards = firstCardIdx !== -1 && _contentIdx >= firstCardIdx && _contentIdx <= lastCardIdx;
-
-                if (key === 'ArrowUp') {
-                    if (_contentIdx === backIdx) {
-                        _setTopbarFocus(true);
-                        return;
-                    } else if (_contentIdx === firstRadioIdx) {
-                        _contentIdx = backIdx;
-                    } else if (_contentIdx > firstRadioIdx && _contentIdx <= lastRadioIdx) {
-                        _contentIdx--; 
-                    } else if (inCards) {
-                        _contentIdx = lastRadioIdx; 
-                    } else if (_contentIdx === desktopIdx) {
-                        _contentIdx = firstCardIdx !== -1 ? firstCardIdx : lastRadioIdx;
-                    }
-                } else if (key === 'ArrowDown') {
-                    if (_contentIdx === backIdx) {
-                        _contentIdx = firstRadioIdx;
-                    } else if (_contentIdx >= firstRadioIdx && _contentIdx < lastRadioIdx) {
-                        _contentIdx++;
-                    } else if (_contentIdx === lastRadioIdx) {
-                        _contentIdx = firstCardIdx !== -1 ? firstCardIdx : desktopIdx;
-                    } else if (inCards) {
-                        _contentIdx = desktopIdx;
-                    }
-                } else if (key === 'ArrowLeft') {
-                    if (inCards && _contentIdx > firstCardIdx) {
-                        _contentIdx--;
-                    }
-                } else if (key === 'ArrowRight') {
-                    if (inCards && _contentIdx < lastCardIdx) {
-                        _contentIdx++;
-                    }
+                    _contentIdx = Math.max(0, Math.min(total - 1, _contentIdx));
+                    _updateContentFocus();
+                    return;
                 }
 
-                _contentIdx = Math.max(0, Math.min(items.length - 1, _contentIdx));
+                if (_systemSubView === 'updates') {
+                    const tabDoorpiIdx = _contentItems.findIndex(el => el?.id === 'updatesTabDoorpi');
+                    const tabWindowsIdx = _contentItems.findIndex(el => el?.id === 'updatesTabWindows');
+                    const tabGpuIdx = _contentItems.findIndex(el => el?.id === 'updatesTabGpu');
+                    const activeTabIdx = _systemUpdatesSubView === 'gpu'
+                        ? tabGpuIdx
+                        : (_systemUpdatesSubView === 'windows' ? tabWindowsIdx : tabDoorpiIdx);
+                    const firstActionIdx = _contentItems.findIndex(el =>
+                        el?.classList?.contains('nav-suggestion-card') ||
+                        el?.classList?.contains('nav-gpu-app-card'));
+                    const onTabs = _contentIdx === tabDoorpiIdx || _contentIdx === tabWindowsIdx || _contentIdx === tabGpuIdx;
+
+                    if (key === 'ArrowUp') {
+                        if (_contentIdx <= 0) {
+                            _setTopbarFocus(true);
+                            return;
+                        }
+                        if (onTabs) _contentIdx = 0;
+                        else if (_contentIdx === firstActionIdx) _contentIdx = activeTabIdx;
+                        else _contentIdx--;
+                    } else if (key === 'ArrowDown') {
+                        if (_contentIdx === 0) _contentIdx = activeTabIdx;
+                        else if (onTabs && firstActionIdx !== -1) _contentIdx = firstActionIdx;
+                        else if (_contentIdx < total - 1) _contentIdx++;
+                    } else if (key === 'ArrowLeft') {
+                        if (_contentIdx === tabGpuIdx) _contentIdx = tabWindowsIdx;
+                        else if (_contentIdx === tabWindowsIdx) _contentIdx = tabDoorpiIdx;
+                    } else if (key === 'ArrowRight') {
+                        if (_contentIdx === tabDoorpiIdx) _contentIdx = tabWindowsIdx;
+                        else if (_contentIdx === tabWindowsIdx) _contentIdx = tabGpuIdx;
+                    }
+
+                    _contentIdx = Math.max(0, Math.min(total - 1, _contentIdx));
+                    _updateContentFocus();
+                    return;
+                }
+
+                if (key === 'ArrowUp') {
+                    if (_contentIdx <= 0) {
+                        _setTopbarFocus(true);
+                        return;
+                    }
+                    _contentIdx--;
+                } else if (key === 'ArrowDown') {
+                    if (_contentIdx < total - 1) {
+                        _contentIdx++;
+                    }
+                } else if (key === 'ArrowLeft') {
+                    if (_contentIdx > 0) {
+                        _contentIdx--;
+                    } else {
+                        _setTopbarFocus(true);
+                        return;
+                    }
+                } else if (key === 'ArrowRight') {
+                    return true;
+                }
+
+                _contentIdx = Math.max(0, Math.min(total - 1, _contentIdx));
                 _updateContentFocus();
                 return;
             }
@@ -4011,7 +4717,12 @@ window.isNavMenuOpen = false;
             case 'Escape':
             case 'Backspace':
                 if (CATS[_catIdx]?.id === 'settings' && _settingsSubView) {
-                    _settingsSubView = (_settingsSubView === 'account' || _settingsSubView === 'sharing') ? 'accountHub' : null;
+                    if (_settingsSubView === 'system' && _systemSubView) {
+                        _systemSubView = null;
+                    } else {
+                        _settingsSubView = (_settingsSubView === 'account' || _settingsSubView === 'sharing') ? 'accountHub' : null;
+                        if (_settingsSubView !== 'system') _systemSubView = null;
+                    }
                     _contentIdx = 0;
                     _renderContent('settings');
                     _updateContentFocus();
@@ -4055,6 +4766,16 @@ window.isNavMenuOpen = false;
                     if (_settingsSubView === 'system' && typeof window._updateBootModeUI === 'function') {
                         window._updateBootModeUI();
                     }
+                }
+
+                if (data.type === 'windowsUpdateStatus') {
+                    _windowsUpdateStatus = { ..._windowsUpdateStatus, ...data };
+                    _updateWindowsUpdateUI();
+                }
+
+                if (data.type === 'gpuUpdateStatus') {
+                    _gpuUpdateStatus = { ..._gpuUpdateStatus, ...data };
+                    _updateGpuUpdateUI();
                 }
                 
                 if (data.type === 'autoStartState') {
@@ -4107,7 +4828,12 @@ window.isNavMenuOpen = false;
     window._navMenuTriggerCtxMenu = function () {
         if (!window.isNavMenuOpen) return;
         const catId = CATS[_catIdx]?.id;
-        if (catId !== 'games' && catId !== 'media') return;
+        const allowGpuUpdaterContext =
+            catId === 'settings' &&
+            _settingsSubView === 'system' &&
+            _systemSubView === 'updates' &&
+            _systemUpdatesSubView === 'gpu';
+        if (catId !== 'games' && catId !== 'media' && !allowGpuUpdaterContext) return;
 
         // Ao usar Virtual Rendering, a referencia O(1) correta no DOM é essa:
         let focused = null;
@@ -4118,6 +4844,7 @@ window.isNavMenuOpen = false;
         }
         
         if (!focused) return;
+        if (allowGpuUpdaterContext && focused.dataset?.gpuUpdaterCard !== 'true') return;
 
         const r = focused.getBoundingClientRect();
         window._ctxMenuOpen?.(focused, r.right + 2, r.top);
@@ -4126,6 +4853,21 @@ window.isNavMenuOpen = false;
     // ── Expose ────────────────────────────────────────────────────────────────
     window.openNavMenu = open;
     window.closeNavMenu = close;
+    window._navMenuOpenSettings = async function () {
+        _catIdx = 2;
+        _settingsSubView = null;
+        if (!window.isNavMenuOpen) {
+            await open(2);
+            requestAnimationFrame(() => _setTopbarFocus(false));
+            return;
+        }
+        document.querySelectorAll('.nav-cat-item').forEach((el, i) => el.classList.toggle('active', i === _catIdx));
+        _updateTopbarFocusVisual();
+        _contentIdx = 0;
+        _renderContent('settings');
+        _setTopbarFocus(false);
+        _updateContentFocus();
+    };
     window._navMenuCurrentUserChanged = function (user, currentUserId, userChanged = false) {
         _setMenuUserContext(user || {}, currentUserId || '', !!userChanged);
     };

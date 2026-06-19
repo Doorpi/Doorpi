@@ -76,7 +76,7 @@ namespace Doorpi
             ("Steam", "Steam", "Steam (Platform)"),
             ("Epic", "Epic Games", "Epic Games (Platform)"),
             ("GOG", "GOG", "GOG Galaxy (Platform)"),
-            ("Riot", "Riot Games", "Riot Games (Platform)"),
+            ("Riot", "Riot Games", "Riot Client"),
             ("Xbox", "Xbox", "Xbox (Platform)"),
         };
 
@@ -94,7 +94,7 @@ namespace Doorpi
             ["Steam"] = "https://store.steampowered.com/about/",
             ["Epic"] = "https://store.epicgames.com/download",
             ["GOG"] = "https://www.gog.com/galaxy",
-            ["Riot"] = "https://2xko.riotgames.com/pt-br/",
+            ["Riot"] = "https://2xko.riotgames.com/pc-download",
             ["Xbox"] = "https://www.xbox.com/apps/xbox-app-for-pc"
         };
 
@@ -726,7 +726,7 @@ namespace Doorpi
             {
                 if (!IsGameplayWindow(hWnd)) continue;
 
-                GetWindowThreadProcessId(hWnd, out uint pidRaw);
+                GetWindowProcessId(hWnd, out uint pidRaw);
                 if (pidRaw == 0 || pidRaw == Environment.ProcessId) continue;
 
                 Process process;
@@ -785,7 +785,7 @@ namespace Doorpi
                 if (!IsWindowVisible(hWnd) || IsIconic(hWnd)) continue;
                 if (!GetWindowRect(hWnd, out RECT rect) || rect.Width < 300 || rect.Height < 240) continue;
 
-                GetWindowThreadProcessId(hWnd, out uint pidRaw);
+                GetWindowProcessId(hWnd, out uint pidRaw);
                 if (pidRaw == 0 || pidRaw == Environment.ProcessId) continue;
 
                 Process process;
@@ -1172,8 +1172,8 @@ namespace Doorpi
         {
             try
             {
-                var startedUtc = DateTime.UtcNow;
                 bool closedGraceStarted = false;
+                DateTime launcherMissingSinceUtc = DateTime.MinValue;
 
                 while (!token.IsCancellationRequested &&
                        _storeChildGameActive &&
@@ -1182,22 +1182,28 @@ namespace Doorpi
                        string.Equals(_storeChildGameId, gameId, StringComparison.OrdinalIgnoreCase) &&
                        string.IsNullOrWhiteSpace(_lockedGameProcessName))
                 {
-                    if ((DateTime.UtcNow - startedUtc).TotalMilliseconds > STORE_CHILD_GAME_WINDOW_DETECTION_TIMEOUT_MS)
-                    {
-                        Dispatcher.Invoke(() => CancelUnresolvedGameLaunch(game));
-                        return;
-                    }
-
                     bool launcherStillPresent = IsStoreChildLauncherStillPresent(launcherProcessId, launcherHwnd);
-                    if (!launcherStillPresent && !closedGraceStarted)
+                    if (launcherStillPresent)
+                    {
+                        closedGraceStarted = false;
+                        launcherMissingSinceUtc = DateTime.MinValue;
+                    }
+                    else if (!closedGraceStarted)
                     {
                         closedGraceStarted = true;
+                        launcherMissingSinceUtc = DateTime.UtcNow;
                         Dispatcher.Invoke(() =>
                         {
                             DelayStorePendingChildClosedGrace();
                             _storeMinimizeState = StoreMinimizeState.StorePendingChild;
                             SendRuntimeSessionsToUI();
                         });
+                    }
+                    else if (launcherMissingSinceUtc != DateTime.MinValue &&
+                             (DateTime.UtcNow - launcherMissingSinceUtc).TotalMilliseconds >= STORE_SUSPICIOUS_WINDOW_CLOSED_GRACE_MS)
+                    {
+                        Dispatcher.Invoke(() => CancelUnresolvedGameLaunch(game));
+                        return;
                     }
 
                     await Task.Delay(300, token).ConfigureAwait(false);
@@ -1664,7 +1670,7 @@ namespace Doorpi
                     if (!GetWindowRect(hWnd, out var rect) || rect.Width < 120 || rect.Height < 80)
                         continue;
 
-                    GetWindowThreadProcessId(hWnd, out uint pidRaw);
+                    GetWindowProcessId(hWnd, out uint pidRaw);
                     int pid = (int)pidRaw;
                     if (pid <= 0 || pid == Environment.ProcessId)
                         continue;
@@ -1719,7 +1725,7 @@ namespace Doorpi
                     if (!GetWindowRect(hWnd, out var rect) || rect.Width < 120 || rect.Height < 80)
                         continue;
 
-                    GetWindowThreadProcessId(hWnd, out uint pidRaw);
+                    GetWindowProcessId(hWnd, out uint pidRaw);
                     int pid = (int)pidRaw;
                     if (pid <= 0 || pid == Environment.ProcessId)
                         continue;
@@ -1764,7 +1770,7 @@ namespace Doorpi
                     if (hWnd == IntPtr.Zero || !IsWindow(hWnd))
                         return true;
 
-                    GetWindowThreadProcessId(hWnd, out uint pidRaw);
+                    GetWindowProcessId(hWnd, out uint pidRaw);
                     if (pidRaw == 0 || pidRaw == Environment.ProcessId)
                         return true;
 
@@ -2025,7 +2031,7 @@ namespace Doorpi
                         continue;
                     }
 
-                    GetWindowThreadProcessId(hWnd, out uint pidRaw);
+                    GetWindowProcessId(hWnd, out uint pidRaw);
                     if (pidRaw == 0 || pidRaw == Environment.ProcessId)
                         continue;
 
@@ -2189,7 +2195,7 @@ namespace Doorpi
             }
             catch (Exception ex)
             {
-                Debug.WriteLine("[Store] Falha ao relanÃ§ar Riot Client: " + ex.Message);
+                Debug.WriteLine("[Store] Falha ao relançar Riot Client: " + ex.Message);
                 return;
             }
 
@@ -2385,7 +2391,7 @@ namespace Doorpi
                 ResetGogWindowLog();
             }
             _libraryKeysBeforeStore = BuildLibraryKeySet();
-            _storeKeysBeforeStore = BuildStoreAppKeySet(storeId);
+            _storeKeysBeforeStore = ConsumePendingStoreInstallSnapshot(storeId) ?? BuildStoreAppKeySet(storeId);
             lock (_storeLibraryMonitorLock)
                 _storeKeysProcessedDuringSession = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             StartStoreLibraryMonitor(storeId);
@@ -2491,7 +2497,7 @@ namespace Doorpi
 
                     for (int i = 0; i < 20; i++)
                     {
-                        var visible = FindRunningStoreProcessWithWindow(_storeLauncherExe);
+                        var visible = FindRunningStoreProcessWithWindow(_storeLauncherExe!);
                         if (visible != null)
                         {
                             proc = visible;
@@ -2683,7 +2689,7 @@ namespace Doorpi
                 if (!IsEpicRealStoreWindowSize(candidateHwnd))
                     continue;
 
-                GetWindowThreadProcessId(candidateHwnd, out uint pidRaw);
+                GetWindowProcessId(candidateHwnd, out uint pidRaw);
                 if (pidRaw == 0 || pidRaw == Environment.ProcessId) continue;
 
                 Process candidateProcess;
@@ -2756,7 +2762,7 @@ namespace Doorpi
                         if (!titleMatches)
                             return true;
 
-                        GetWindowThreadProcessId(candidateHwnd, out uint pidRaw);
+                        GetWindowProcessId(candidateHwnd, out uint pidRaw);
                         if (pidRaw == 0)
                             return true;
 
@@ -2858,7 +2864,7 @@ namespace Doorpi
 
             foreach (var candidateHwnd in EnumerateTopLevelWindows())
             {
-                GetWindowThreadProcessId(candidateHwnd, out uint pidRaw);
+                GetWindowProcessId(candidateHwnd, out uint pidRaw);
                 if (pidRaw == 0 || pidRaw == Environment.ProcessId) continue;
 
                 Process candidateProcess;
@@ -2940,7 +2946,7 @@ namespace Doorpi
 
             foreach (var candidateHwnd in EnumerateTopLevelWindows())
             {
-                GetWindowThreadProcessId(candidateHwnd, out uint pidRaw);
+                GetWindowProcessId(candidateHwnd, out uint pidRaw);
                 if (pidRaw == 0 || pidRaw == Environment.ProcessId) continue;
 
                 Process candidateProcess;
@@ -2994,7 +3000,7 @@ namespace Doorpi
                 if (!IsWindowVisible(candidateHwnd) || IsIconic(candidateHwnd))
                     continue;
 
-                GetWindowThreadProcessId(candidateHwnd, out uint pidRaw);
+                GetWindowProcessId(candidateHwnd, out uint pidRaw);
                 if (pidRaw == 0 || pidRaw == Environment.ProcessId) continue;
 
                 Process candidateProcess;
@@ -3015,9 +3021,9 @@ namespace Doorpi
                 if (!string.IsNullOrWhiteSpace(title)) score += 20;
                 if (title.Contains("Steam", StringComparison.OrdinalIgnoreCase)) score += 35;
                 if (string.Equals(className, "BootstrapUpdateUIClass", StringComparison.OrdinalIgnoreCase)) score += 45;
-                if (title.Contains("iniciar a sessÃ£o", StringComparison.OrdinalIgnoreCase) ||
-                    title.Contains("iniciando sessÃ£o", StringComparison.OrdinalIgnoreCase) ||
-                    title.Contains("sessÃ£o no steam", StringComparison.OrdinalIgnoreCase) ||
+                if (title.Contains("iniciar a sessão", StringComparison.OrdinalIgnoreCase) ||
+                    title.Contains("iniciando sessão", StringComparison.OrdinalIgnoreCase) ||
+                    title.Contains("sessão no steam", StringComparison.OrdinalIgnoreCase) ||
                     title.Contains("sign in", StringComparison.OrdinalIgnoreCase) ||
                     title.Contains("signing in", StringComparison.OrdinalIgnoreCase) ||
                     title.Contains("login", StringComparison.OrdinalIgnoreCase))
@@ -3076,7 +3082,7 @@ namespace Doorpi
             if (!IsWindowVisible(candidateHwnd) || IsIconic(candidateHwnd))
                 return false;
 
-            GetWindowThreadProcessId(candidateHwnd, out uint pidRaw);
+            GetWindowProcessId(candidateHwnd, out uint pidRaw);
             if (pidRaw == 0 || pidRaw == Environment.ProcessId)
                 return false;
 
@@ -3098,9 +3104,9 @@ namespace Doorpi
             if (!string.IsNullOrWhiteSpace(title)) score += 20;
             if (title.Contains("Steam", StringComparison.OrdinalIgnoreCase)) score += 35;
             if (string.Equals(className, "BootstrapUpdateUIClass", StringComparison.OrdinalIgnoreCase)) score += 45;
-            if (title.Contains("iniciar a sessÃƒÂ£o", StringComparison.OrdinalIgnoreCase) ||
-                title.Contains("iniciando sessÃƒÂ£o", StringComparison.OrdinalIgnoreCase) ||
-                title.Contains("sessÃƒÂ£o no steam", StringComparison.OrdinalIgnoreCase) ||
+            if (title.Contains("iniciar a sessão", StringComparison.OrdinalIgnoreCase) ||
+                title.Contains("iniciando sessão", StringComparison.OrdinalIgnoreCase) ||
+                title.Contains("sessão no steam", StringComparison.OrdinalIgnoreCase) ||
                 title.Contains("sign in", StringComparison.OrdinalIgnoreCase) ||
                 title.Contains("signing in", StringComparison.OrdinalIgnoreCase) ||
                 title.Contains("login", StringComparison.OrdinalIgnoreCase))
@@ -3121,7 +3127,7 @@ namespace Doorpi
 
             foreach (var candidateHwnd in EnumerateTopLevelWindows())
             {
-                GetWindowThreadProcessId(candidateHwnd, out uint pidRaw);
+                GetWindowProcessId(candidateHwnd, out uint pidRaw);
                 if (pidRaw == 0 || pidRaw == Environment.ProcessId) continue;
 
                 Process candidateProcess;
@@ -3172,7 +3178,7 @@ namespace Doorpi
                 if (!IsWindowVisible(candidateHwnd) || IsIconic(candidateHwnd))
                     continue;
 
-                GetWindowThreadProcessId(candidateHwnd, out uint pidRaw);
+                GetWindowProcessId(candidateHwnd, out uint pidRaw);
                 if (pidRaw == 0 || pidRaw == Environment.ProcessId) continue;
 
                 Process candidateProcess;
@@ -3230,7 +3236,7 @@ namespace Doorpi
                 if (!IsWindowVisible(candidateHwnd) && !IsIconic(candidateHwnd))
                     continue;
 
-                GetWindowThreadProcessId(candidateHwnd, out uint pidRaw);
+                GetWindowProcessId(candidateHwnd, out uint pidRaw);
                 if (pidRaw == 0 || pidRaw == Environment.ProcessId) continue;
 
                 Process candidateProcess;
@@ -3393,7 +3399,7 @@ namespace Doorpi
                 if (!IsWindowVisible(foreground) || IsIconic(foreground))
                     return false;
 
-                GetWindowThreadProcessId(foreground, out var pidRaw);
+                GetWindowProcessId(foreground, out var pidRaw);
                 if (pidRaw == 0 || pidRaw == Environment.ProcessId)
                     return false;
 
@@ -3425,7 +3431,7 @@ namespace Doorpi
                 if (!IsWindowVisible(foreground) || IsIconic(foreground))
                     return false;
 
-                GetWindowThreadProcessId(foreground, out var pidRaw);
+                GetWindowProcessId(foreground, out var pidRaw);
                 if (pidRaw == 0 || pidRaw == Environment.ProcessId)
                     return false;
 
@@ -3491,8 +3497,8 @@ namespace Doorpi
                 await TryMaximizeExternalWindowAsync(
                     proc,
                     url,
-                    watcherToken,
-                    requireControllerActive: false).ConfigureAwait(false);
+                    requireControllerActive: false,
+                    token: watcherToken).ConfigureAwait(false);
                 if (!watcherToken.IsCancellationRequested && showLaunchOverlay)
                     SendGameLaunchStatus("gameLaunchDone");
             });
@@ -3665,7 +3671,7 @@ namespace Doorpi
                 }
                 catch (OperationCanceledException) { }
                 catch (Exception ex) { Debug.WriteLine("[Store] Watcher launcher: " + ex.Message); }
-            });
+            }, token);
         }
 
         private void MinimizeStoreSessionAndShowMenu()
@@ -3722,7 +3728,7 @@ namespace Doorpi
             {
                 EnumWindows((hWnd, _) =>
                 {
-                    GetWindowThreadProcessId(hWnd, out uint pid);
+                    GetWindowProcessId(hWnd, out uint pid);
                     if (pid != (uint)proc.Id || !IsWindowVisible(hWnd)) return true;
                     if (GetWindowTextLength(hWnd) <= 0) return true;
                     ShowWindow(hWnd, 6);
@@ -3931,7 +3937,7 @@ namespace Doorpi
                             return true;
                         }
 
-                        GetWindowThreadProcessId(candidateHwnd, out uint pidRaw);
+                        GetWindowProcessId(candidateHwnd, out uint pidRaw);
                         if (pidRaw == 0 || pidRaw == Environment.ProcessId)
                             return true;
 
@@ -4668,7 +4674,7 @@ namespace Doorpi
         private void SaveStoreLaunchers(List<MediaAppModel> stores)
         {
             if (string.IsNullOrEmpty(storesFile)) return;
-            SafeWriteAllText(storesFile, JsonSerializer.Serialize(stores, new JsonSerializerOptions { WriteIndented = true }));
+            SafeWriteAllText(storesFile, JsonSerializer.Serialize(stores, IndentedJsonOptions));
         }
 
         private async Task InitializeStoreLaunchersAsync()
@@ -4705,7 +4711,11 @@ namespace Doorpi
                     changed = true;
                 }
 
-                if (string.IsNullOrEmpty(entry.GridImage) || string.IsNullOrEmpty(entry.HeroImage))
+                bool refreshRiotClientArt =
+                    string.Equals(id, "Riot", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(entry.AssetQuery, sgdbQuery, StringComparison.OrdinalIgnoreCase);
+
+                if (string.IsNullOrEmpty(entry.GridImage) || string.IsNullOrEmpty(entry.HeroImage) || refreshRiotClientArt)
                 {
                     try
                     {
@@ -4717,10 +4727,16 @@ namespace Doorpi
                         var tLogo = logoUrl != null ? DownloadImageAsync(logoUrl, logoFolder, safeName + "_logo") : Task.FromResult<string?>(null);
                         await Task.WhenAll(tGrid, tHoriz, tHero, tLogo).ConfigureAwait(false);
 
-                        if (tGrid.Result != null) { entry.GridImage = $"https://data.local/images/grid/{Path.GetFileName(tGrid.Result)}"; changed = true; }
-                        if (tHoriz.Result != null) { entry.GridHorizontalImage = $"https://data.local/images/grid-horizontal/{Path.GetFileName(tHoriz.Result)}"; changed = true; }
-                        if (tHero.Result != null) { entry.HeroImage = $"https://data.local/images/hero/{Path.GetFileName(tHero.Result)}"; changed = true; }
-                        if (tLogo.Result != null) { entry.LogoImage = $"https://data.local/images/logo/{Path.GetFileName(tLogo.Result)}"; changed = true; }
+                        bool downloadedAnyAsset = false;
+                        if (tGrid.Result != null) { entry.GridImage = $"https://data.local/images/grid/{Path.GetFileName(tGrid.Result)}"; changed = true; downloadedAnyAsset = true; }
+                        if (tHoriz.Result != null) { entry.GridHorizontalImage = $"https://data.local/images/grid-horizontal/{Path.GetFileName(tHoriz.Result)}"; changed = true; downloadedAnyAsset = true; }
+                        if (tHero.Result != null) { entry.HeroImage = $"https://data.local/images/hero/{Path.GetFileName(tHero.Result)}"; changed = true; downloadedAnyAsset = true; }
+                        if (tLogo.Result != null) { entry.LogoImage = $"https://data.local/images/logo/{Path.GetFileName(tLogo.Result)}"; changed = true; downloadedAnyAsset = true; }
+                        if (downloadedAnyAsset)
+                        {
+                            entry.AssetQuery = sgdbQuery;
+                            changed = true;
+                        }
                     }
                     catch (Exception ex) { Debug.WriteLine($"[Store] Arte {id}: {ex.Message}"); }
                 }
@@ -5019,7 +5035,7 @@ namespace Doorpi
             static string CleanPath(string value)
             {
                 value = (value ?? "").Trim();
-                if (value.StartsWith("\"", StringComparison.Ordinal))
+                if (value.StartsWith('"'))
                 {
                     int endQuote = value.IndexOf('"', 1);
                     if (endQuote > 1) return value.Substring(1, endQuote - 1);

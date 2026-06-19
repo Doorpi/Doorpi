@@ -40,6 +40,6 @@ internal sealed class UpdaterLaunchOptions
         };
     }
 
-    private static string Get(IReadOnlyDictionary<string, string> values, string key)
+    private static string Get(Dictionary<string, string> values, string key)
         => values.TryGetValue(key, out string? value) ? value : "";
 }

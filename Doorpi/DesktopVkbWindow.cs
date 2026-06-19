@@ -14,11 +14,11 @@ namespace Doorpi
 
     public class VkbKey
     {
-        public string Value { get; set; }
-        public string Display { get; set; }
+        public string Value { get; set; } = "";
+        public string Display { get; set; } = "";
         public double Width { get; set; }
         public bool IsAction { get; set; }
-        public string ControllerIcon { get; set; }
+        public string? ControllerIcon { get; set; }
     }
 
     public enum VkbHoldAction
@@ -61,7 +61,7 @@ namespace Doorpi
         [DllImport("user32.dll")]
         private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
-        private DispatcherTimer _topmostTimer;
+        private DispatcherTimer? _topmostTimer;
 
         protected override void OnSourceInitialized(EventArgs e)
         {
@@ -101,8 +101,8 @@ namespace Doorpi
         public void SetFixedPosition() => this.Top = SystemParameters.PrimaryScreenHeight - Height - 50;
         public void TogglePosition() => this.Top = this.Top < 100 ? SystemParameters.PrimaryScreenHeight - Height - 50 : 50;
 
-        private VkbKey[][] _alphaKeys;
-        private VkbKey[][] _specialKeys;
+        private VkbKey[][] _alphaKeys = Array.Empty<VkbKey[]>();
+        private VkbKey[][] _specialKeys = Array.Empty<VkbKey[]>();
         private VkbKey[][] CurrentKeys => _layer == VkbLayer.Alpha ? _alphaKeys : _specialKeys;
 
         private VkbLayer _layer = VkbLayer.Alpha;
@@ -111,20 +111,20 @@ namespace Doorpi
         private bool _shifted = false;
 
         // ── Variável de estado para a Acentuação (Dead Keys) ──
-        private string _pendingAccent = null;
+        private string? _pendingAccent = null;
 
-        private Grid _grid;
-        private Border[][] _uiKeys;
+        private Grid _grid = null!;
+        private Border[][] _uiKeys = null!;
 
         private readonly DispatcherTimer _holdTimer = new DispatcherTimer();
-        private Action _pendingRepeat;
+        private Action? _pendingRepeat;
         private bool _initialFired;
 
         private const int HOLD_INITIAL_MS = 380;
         private const int HOLD_REPEAT_MS = 75;
 
-        public event Action<string> OnKeyPressed;
-        public event Action OnCloseRequested;
+        public event Action<string>? OnKeyPressed;
+        public event Action? OnCloseRequested;
 
         public DesktopVkbWindow()
         {
@@ -171,7 +171,7 @@ namespace Doorpi
             const double U2 = 138;
             const double U7 = 503;
 
-            VkbKey K(string val, string disp = null, double w = U1, bool act = false, string icon = null) =>
+            VkbKey K(string val, string? disp = null, double w = U1, bool act = false, string? icon = null) =>
                 new VkbKey { Value = val, Display = disp ?? val, Width = w, IsAction = act, ControllerIcon = icon };
 
             _alphaKeys = new[]
@@ -198,7 +198,7 @@ namespace Doorpi
             };
         }
 
-        private UIElement CreateControllerIcon(string iconType)
+        private static Border? CreateControllerIcon(string? iconType)
         {
             if (string.IsNullOrEmpty(iconType)) return null;
 
@@ -249,7 +249,7 @@ namespace Doorpi
         public void BeginHold(VkbHoldAction action)
         {
             StopHold();
-            Action act = BuildAction(action);
+            Action? act = BuildAction(action);
             _pendingRepeat = act;
             _initialFired = false;
             _holdTimer.Interval = TimeSpan.FromMilliseconds(HOLD_INITIAL_MS);
@@ -257,10 +257,10 @@ namespace Doorpi
             act?.Invoke();
         }
 
-        public void EndHold(VkbHoldAction action) => StopHold();
+        public void EndHold(VkbHoldAction _) => StopHold();
         public void StopHold() { _holdTimer.Stop(); _pendingRepeat = null; }
 
-        private Action BuildAction(VkbHoldAction action)
+        private Action? BuildAction(VkbHoldAction action)
         {
             switch (action)
             {
@@ -348,7 +348,7 @@ namespace Doorpi
         // ─────────────────────────────────────────────────────────────────────────
         // LÓGICA DE PROCESSAMENTO DO ACENTO (Dead Keys)
         // ─────────────────────────────────────────────────────────────────────────
-        private string GetAccentedCharacter(string accent, string letter)
+        private static string? GetAccentedCharacter(string accent, string letter)
         {
             bool isUpper = char.IsUpper(letter[0]);
             letter = letter.ToLower();
@@ -495,7 +495,7 @@ namespace Doorpi
                     {
                         if (toSend.Length == 1 && char.IsLetter(toSend[0]))
                         {
-                            string accented = GetAccentedCharacter(_pendingAccent, toSend);
+                            string? accented = GetAccentedCharacter(_pendingAccent, toSend);
                             if (accented != null)
                             {
                                 // Combinação funcionou (ex: ´ + A = Á)

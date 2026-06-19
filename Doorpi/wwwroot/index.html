@@ -85,6 +85,16 @@
                                 </span>
                                 <span class="gp-hint-label" data-i18n="hintAdd"></span>
                             </span>
+                            <span class="gp-hint-sep"></span>
+                            <span class="gp-hint-item">
+                                <span class="gp-face-btn gp-select">
+                                    <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <rect x="5.5" y="3.5" width="7" height="5.5" rx="1" stroke="currentColor" stroke-width="1.35" />
+                                        <rect x="3.5" y="7" width="7" height="5.5" rx="1" stroke="currentColor" stroke-width="1.35" />
+                                    </svg>
+                                </span>
+                                <span class="gp-hint-label" data-i18n="hintMenu"></span>
+                            </span>
                         </div>
                     </div>
 
@@ -303,21 +313,21 @@
                     </svg>
                 </div>
 
-                <div class="game-name" id="overlayGameName">Carregando…</div>
+                <div class="game-name" id="overlayGameName" data-i18n="launchOpening">Carregando…</div>
 
                 <div class="status-row status-loading">
-                    <span class="status-text" id="overlayStatusText">Abrindo</span>
+                    <span class="status-text" id="overlayStatusText" data-i18n="launchOpening">Abrindo</span>
                     <div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
                 </div>
 
                 <div class="status-row status-running">
-                    <span class="status-text" id="overlayRunningText">Em execução</span>
+                    <span class="status-text" id="overlayRunningText" data-i18n="launchRunning">Em execução</span>
                 </div>
 
                 <div class="error-block">
                     <div class="error-icon">✕</div>
-                    <div class="error-title" id="overlayErrorTitle">Não foi possível abrir</div>
-                    <div class="error-sub" id="overlayErrorSub">Verifique se o executável do jogo está correto.</div>
+                    <div class="error-title" id="overlayErrorTitle" data-i18n="launchErrTitle">Não foi possível abrir</div>
+                    <div class="error-sub" id="overlayErrorSub" data-i18n="launchErrGeneric">Verifique se o executável do jogo está correto.</div>
                     <button class="dismiss-btn" id="overlayDismissBtn" onclick="GameLaunchOverlay.hide()">
                         <span class="btn-hint">A</span> OK
                     </button>

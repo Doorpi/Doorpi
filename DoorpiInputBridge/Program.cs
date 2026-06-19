@@ -14,6 +14,7 @@ namespace DoorpiInputBridge
         private const uint KEYEVENTF_KEYUP = 0x0002;
         private const uint KEYEVENTF_UNICODE = 0x0004;
 
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         [DllImport("user32.dll", SetLastError = true)]
         private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
@@ -117,7 +118,7 @@ namespace DoorpiInputBridge
         {
             var input = new INPUT { type = INPUT_MOUSE };
             input.U.mi = new MOUSEINPUT { dx = dx, dy = dy, dwFlags = flags, mouseData = data };
-            SendInput(1, new[] { input }, INPUT.Size);
+            SendInputs(new[] { input });
         }
 
         private static void SendVirtualKey(ushort vk)
@@ -128,7 +129,7 @@ namespace DoorpiInputBridge
             var up = new INPUT { type = INPUT_KEYBOARD };
             up.U.ki = new KEYBDINPUT { wVk = vk, dwFlags = KEYEVENTF_KEYUP };
 
-            SendInput(2, new[] { down, up }, INPUT.Size);
+            SendInputs(new[] { down, up });
         }
 
         private static void SendUnicodeString(string text)
@@ -146,7 +147,17 @@ namespace DoorpiInputBridge
             }
 
             if (inputs.Count > 0)
-                SendInput((uint)inputs.Count, inputs.ToArray(), INPUT.Size);
+                SendInputs(inputs.ToArray());
+        }
+
+        private static void SendInputs(INPUT[] inputs)
+        {
+            uint sent = SendInput((uint)inputs.Length, inputs, INPUT.Size);
+            if (sent != inputs.Length)
+            {
+                int error = Marshal.GetLastWin32Error();
+                Console.Error.WriteLine($"SendInput enviou {sent}/{inputs.Length} eventos. Win32Error={error}");
+            }
         }
     }
 }

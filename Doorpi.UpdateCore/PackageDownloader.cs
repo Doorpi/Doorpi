@@ -18,6 +18,8 @@ public sealed class PackageDownloader
         IProgress<double>? progress = null,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(release);
+
         if (string.IsNullOrWhiteSpace(release.DownloadUrl))
             throw new InvalidDataException("URL de download vazia.");
 
@@ -35,8 +37,11 @@ public sealed class PackageDownloader
             return finalPath;
         }
 
+        if (!Uri.TryCreate(release.DownloadUrl, UriKind.Absolute, out var downloadUri))
+            throw new InvalidDataException("URL de download invalida.");
+
         using var response = await _httpClient.GetAsync(
-            release.DownloadUrl,
+            downloadUri,
             HttpCompletionOption.ResponseHeadersRead,
             cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();

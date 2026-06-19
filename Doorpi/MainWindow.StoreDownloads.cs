@@ -43,6 +43,8 @@ namespace Doorpi
         private string _pendingInstalledStoreAutoOpenId = "";
         private string _pendingInstalledStoreAutoOpenName = "";
         private CancellationTokenSource? _postInstallStoreRuntimeWatchCts;
+        private string _pendingStoreInstallSnapshotStoreId = "";
+        private HashSet<string> _pendingStoreInstallStoreKeys = new(StringComparer.OrdinalIgnoreCase);
 
         private bool HasBlockingSessionForStoreDownload()
         {
@@ -116,6 +118,15 @@ namespace Doorpi
                 _pendingStoreInstallId = storeId;
                 _pendingStoreInstallName = string.IsNullOrWhiteSpace(storeName) ? storeId : storeName;
                 _pendingStoreInstallUrl = url;
+                _pendingStoreInstallSnapshotStoreId = storeId;
+                try
+                {
+                    _pendingStoreInstallStoreKeys = BuildStoreAppKeySet(storeId);
+                }
+                catch
+                {
+                    _pendingStoreInstallStoreKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                }
                 _pendingStoreInstallerPath = "";
                 _pendingStoreInstallerProcess = null;
                 _storeInstallBaselineProcessIds = new HashSet<int>();
@@ -284,7 +295,6 @@ namespace Doorpi
 
             _ = Task.Run(async () =>
             {
-                DateTime startedAt = DateTime.UtcNow;
                 DateTime installedQuietSince = DateTime.MinValue;
                 DateTime noInstallUiSince = DateTime.MinValue;
                 const int installedQuietWindowGraceMs = 650;
@@ -379,11 +389,6 @@ namespace Doorpi
                         return;
                     }
 
-                    if ((DateTime.UtcNow - startedAt).TotalMinutes >= 20)
-                    {
-                        Dispatcher.Invoke(() => FailStoreInstall("A instalacao demorou demais para ser confirmada.", canRetry: true));
-                        return;
-                    }
                 }
             }, token);
         }
@@ -392,7 +397,7 @@ namespace Doorpi
         {
             StopStoreInstallMonitor();
             StopStoreInstallGuideMonitor();
-            StopStoreInstallInputMode();
+            StopStoreInstallInputModeForDoorpiReturn();
             _storeDownloadWindow?.ShowInstallSuccess();
             SendStoresToUI(LoadStoreLaunchers());
 
@@ -485,9 +490,10 @@ namespace Doorpi
             catch { }
 
             _storeDownloadWindow = null;
-            StopStoreInstallInputMode();
+            StopStoreInstallInputModeForDoorpiReturn();
             DeletePendingStoreInstaller();
             ClearPendingStoreInstall();
+            DiscardPendingStoreInstallSnapshot();
             ClearExecutionLock();
             SendRuntimeSessionsToUI();
             ForceFocus();
@@ -667,6 +673,26 @@ namespace Doorpi
             StopStoreDownloadIntentTimeout();
         }
 
+        private HashSet<string>? ConsumePendingStoreInstallSnapshot(string storeId)
+        {
+            if (string.IsNullOrWhiteSpace(storeId) ||
+                !string.Equals(_pendingStoreInstallSnapshotStoreId, storeId, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            var snapshot = new HashSet<string>(_pendingStoreInstallStoreKeys, StringComparer.OrdinalIgnoreCase);
+            _pendingStoreInstallSnapshotStoreId = "";
+            _pendingStoreInstallStoreKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            return snapshot;
+        }
+
+        private void DiscardPendingStoreInstallSnapshot()
+        {
+            _pendingStoreInstallSnapshotStoreId = "";
+            _pendingStoreInstallStoreKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
         private void DeletePendingStoreInstaller()
         {
             DeleteStoreInstallerFile(_pendingStoreInstallerPath);
@@ -741,6 +767,21 @@ namespace Doorpi
                 EnsureCursorHidden();
                 _mainScreenMouseVisible = false;
                 try { GetCursorPos(out _lastKnownCursorPos); } catch { }
+            });
+        }
+
+        private void StopStoreInstallInputModeForDoorpiReturn()
+        {
+            _storeInstallInputActive = false;
+            StopElevatedInputBridge();
+            Dispatcher.Invoke(() =>
+            {
+                _desktopVkb?.Close();
+                _desktopVkb = null!;
+                EnsureCursorVisible();
+                _mainScreenMouseVisible = true;
+                try { GetCursorPos(out _lastKnownCursorPos); } catch { }
+                _mouseIdleTimer?.Change(MOUSE_IDLE_MS, Timeout.Infinite);
             });
         }
 
@@ -967,7 +1008,7 @@ namespace Doorpi
                 if (!GetWindowRect(hwnd, out RECT rect))
                     return false;
 
-                GetWindowThreadProcessId(hwnd, out uint pidRaw);
+                GetWindowProcessId(hwnd, out uint pidRaw);
                 pid = (int)pidRaw;
                 if (pid <= 0 || pid == Environment.ProcessId)
                     return false;
