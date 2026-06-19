@@ -492,6 +492,17 @@ namespace Doorpi
                 if (TryStartPendingInstalledStoreAutoOpen())
                     return;
 
+                if (IsGpuUpdaterSessionActive())
+                {
+                    webView?.Focus();
+                    Keyboard.Focus(webView);
+                    webView?.CoreWebView2?.PostWebMessageAsString(
+                        "{\"type\":\"gpuUpdaterDoorpiActivated\"}");
+                    ShowGpuUpdaterExecutionLock(focusActions: true);
+                    SendRuntimeSessionsToUI();
+                    return;
+                }
+
                 if (IsStoreInstallFlowActive())
                 {
                     ShowExecutionLockForStoreInstall();
@@ -761,7 +772,8 @@ namespace Doorpi
                    _ytWebView != null ||
                    _webAppWindow != null ||
                    _popupWindow != null ||
-                   _gameSessionActive;
+                   _gameSessionActive ||
+                   IsGpuUpdaterSessionActive();
         }
 
         private void StopMainScreenMouseWatch()
@@ -795,6 +807,7 @@ namespace Doorpi
             await webView.EnsureCoreWebView2Async(environment);
             webView.CoreWebView2.Settings.AreHostObjectsAllowed = false;
             webView.CoreWebView2.PermissionRequested += OnWebViewPermissionRequested;
+            webView.CoreWebView2.ProcessFailed += OnMainWebViewProcessFailed;
             string folderPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot");
 
             webView.CoreWebView2.SetVirtualHostNameToFolderMapping(
@@ -1948,7 +1961,6 @@ namespace Doorpi
 
         private const int MINIMUM_LAUNCH_ANIMATION_MS = 3000;
         private const int GAME_WINDOW_DETECTION_TIMEOUT_MS = 4 * 60 * 1000;
-        private const int STORE_CHILD_GAME_WINDOW_DETECTION_TIMEOUT_MS = 90 * 1000;
         private const int EXTERNAL_SESSION_MINIMIZE_GRACE_MS = 2500;
         private const int STORE_SUSPICIOUS_WINDOW_CLOSED_GRACE_MS = 6000;
         private DateTime _launchAnimationStartedUtc = DateTime.MinValue;
@@ -1974,6 +1986,7 @@ namespace Doorpi
         }
         // ========================= CONTROLE COMPARTILHADO (APP EXE & DIALOGS) =========================
         private const ushort MOUSE_MODE_SHORTCUT_MASK = 0x00C0; // L3 + R3
+        private const double CONTROLLER_MOUSE_SENSITIVITY_SCALE = 0.64;
 
         private static bool IsMouseModeShortcutPressed(ushort buttons)
             => (buttons & MOUSE_MODE_SHORTCUT_MASK) == MOUSE_MODE_SHORTCUT_MASK;
@@ -2172,7 +2185,7 @@ namespace Doorpi
                             // Movimento do mouse
                             if (mlx != 0 || mly != 0)
                             {
-                                const double BASE = 1800.0;
+                                const double BASE = 1800.0 * CONTROLLER_MOUSE_SENSITIVITY_SCALE;
                                 double cx = Math.Sign(mlx) * Math.Pow(Math.Abs(mlx), 2.2);
                                 double cy = Math.Sign(mly) * Math.Pow(Math.Abs(mly), 2.2);
                                 double mx = cx * BASE * dt + remainderX;
@@ -4257,7 +4270,7 @@ namespace Doorpi
 
                             if (mlx != 0 || mly != 0)
                             {
-                                const double BASE_SENSITIVITY = 1800.0;
+                                const double BASE_SENSITIVITY = 1800.0 * CONTROLLER_MOUSE_SENSITIVITY_SCALE;
                                 double curveX = Math.Sign(mlx) * Math.Pow(Math.Abs(mlx), 2.2);
                                 double curveY = Math.Sign(mly) * Math.Pow(Math.Abs(mly), 2.2);
                                 double moveX = curveX * BASE_SENSITIVITY * dt + remainderX;
@@ -5617,6 +5630,10 @@ namespace Doorpi
                     });
                 }
 
+                var gpuUpdaterRuntime = BuildGpuUpdaterRuntimeSession();
+                if (gpuUpdaterRuntime != null)
+                    running.Add(gpuUpdaterRuntime);
+
                 webView?.CoreWebView2?.PostWebMessageAsString(JsonSerializer.Serialize(new
                 {
                     type = "runtimeSessionsChanged",
@@ -6282,13 +6299,6 @@ namespace Doorpi
                         continue;
                     }
 
-                    if (!doorpiHidden &&
-                        (DateTime.UtcNow - startedUtc).TotalMilliseconds > GAME_WINDOW_DETECTION_TIMEOUT_MS)
-                    {
-                        Dispatcher.Invoke(() => CancelUnresolvedGameLaunch(game));
-                        return;
-                    }
-
                     var candidates = FindGameplayWindows(windowSnapshot);
 
                     if (candidates.Count > 0)
@@ -6367,19 +6377,40 @@ namespace Doorpi
                         if (IsDirectRiotGameLaunch(game) &&
                             string.Equals(_gameSessionParentKind, "doorpi", StringComparison.OrdinalIgnoreCase))
                         {
-                            Dispatcher.Invoke(() => TryActivateDirectRiotClientInputForGame(game));
-                            await Task.Delay(300, token).ConfigureAwait(false);
-                            continue;
+                            bool riotUiActive = Dispatcher.Invoke(() => TryActivateDirectRiotClientInputForGame(game));
+                            if (riotUiActive)
+                            {
+                                startedUtc = DateTime.UtcNow;
+                                await Task.Delay(300, token).ConfigureAwait(false);
+                                continue;
+                            }
                         }
 
                         if (Dispatcher.Invoke(() => TryActivateLaunchStoreMouseModeForGame(game)))
                         {
+                            startedUtc = DateTime.UtcNow;
                             await Task.Delay(300, token).ConfigureAwait(false);
                             continue;
                         }
 
                         // Qualquer janela nova: tenta foco + fullscreen/maximize
                         Dispatcher.Invoke(() => TryFocusAndMaximizeNewWindow(windowSnapshot, alreadyProcessed));
+
+                        bool hasIntermediateLaunchUi =
+                            _gameLaunchStoreMouseModeActive ||
+                            alreadyProcessed.Any(hwnd =>
+                                IsWindow(hwnd) && (IsWindowVisible(hwnd) || IsIconic(hwnd)));
+                        if (hasIntermediateLaunchUi)
+                        {
+                            // Um launcher/dialogo valido ja iniciou. Timeout volta a ser
+                            // relevante apenas se toda a UI intermediaria desaparecer.
+                            startedUtc = DateTime.UtcNow;
+                        }
+                        else if ((DateTime.UtcNow - startedUtc).TotalMilliseconds > GAME_WINDOW_DETECTION_TIMEOUT_MS)
+                        {
+                            Dispatcher.Invoke(() => CancelUnresolvedGameLaunch(game));
+                            return;
+                        }
                     }
                     else if (doorpiHidden)
                     {
@@ -7606,6 +7637,14 @@ namespace Doorpi
             if (_executionLockActive)
                 return;
 
+            bool wantsGpuUpdater = string.Equals(kind, "gpuUpdater", StringComparison.OrdinalIgnoreCase) ||
+                                   string.Equals(channel, "gpu", StringComparison.OrdinalIgnoreCase);
+            if (wantsGpuUpdater && IsGpuUpdaterSessionActive())
+            {
+                ShowGpuUpdaterExecutionLock();
+                return;
+            }
+
             bool wantsGame = string.Equals(kind, "game", StringComparison.OrdinalIgnoreCase) ||
                              string.Equals(channel, "games", StringComparison.OrdinalIgnoreCase);
             bool wantsStore = string.Equals(kind, "store", StringComparison.OrdinalIgnoreCase) ||
@@ -7706,6 +7745,13 @@ namespace Doorpi
             string kind = _executionLockKind;
             string id = _executionLockId;
             string url = _executionLockUrl;
+
+            if (string.Equals(kind, "gpuUpdater", StringComparison.OrdinalIgnoreCase))
+            {
+                RestoreGpuUpdaterFromExecutionLock();
+                return;
+            }
+
             ClearExecutionLock();
 
             if (kind == "game" && !string.IsNullOrWhiteSpace(id))
@@ -7844,6 +7890,13 @@ namespace Doorpi
                 appType = "game";
                 id = _activeSessionGameId;
                 url = "";
+            }
+
+            if (string.Equals(kind, "gpuUpdater", StringComparison.OrdinalIgnoreCase))
+            {
+                ClearExecutionLock();
+                CloseGpuUpdaterFromExecutionLock();
+                return;
             }
 
             ClearExecutionLock();
@@ -10437,6 +10490,33 @@ namespace Doorpi
                 else if (action == "startWindowsUpdateInstall")
                 {
                     _ = Task.Run(StartWindowsUpdateInstallAsync);
+                }
+                else if (action == "requestGpuUpdateStatus")
+                {
+                    SendCachedGpuUpdateStatusToUI();
+                }
+                else if (action == "openGpuUpdater")
+                {
+                    string updaterId = GetStr(root, "updaterId");
+                    _ = Task.Run(() => OpenGpuUpdater(updaterId));
+                }
+                else if (action == "closeAllSessionsForGpuUpdater")
+                {
+                    string updaterId = GetStr(root, "updaterId");
+                    _ = Task.Run(() => CloseSessionsAndOpenGpuUpdaterAsync(updaterId));
+                }
+                else if (action == "gpuUpdaterRestartNoticeRendered")
+                {
+                    ConfirmGpuRestartNoticeRendered();
+                }
+                else if (action == "addGpuUpdater")
+                {
+                    _ = AddGpuUpdaterFromDialogAsync();
+                }
+                else if (action == "removeGpuUpdater")
+                {
+                    string updaterId = GetStr(root, "updaterId");
+                    _ = Task.Run(() => RemoveGpuUpdater(updaterId));
                 }
                 else if (action == "setBootMode" && root.TryGetProperty("mode", out var modeEl))
                 {

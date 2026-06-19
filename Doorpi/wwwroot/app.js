@@ -1098,7 +1098,7 @@
 
     function _shouldKeepExecutionOverlay() {
         if (Date.now() < (window._doorpiOfficialReturnSuppressUntil || 0)) return false;
-        return _hasAnyRuntimeSession();
+        return _hasAnyRuntimeSession() || _isGpuUpdaterExecutionLockOwned();
     }
 
     function _ensureExecutionOverlayForActiveSession() {
@@ -1109,6 +1109,7 @@
             launchOverlay.classList.contains('execution-lock-visible'));
         if (isVisibleExecution) {
             if (!_hasAnyRuntimeSession()) {
+                if (_isGpuUpdaterExecutionLockOwned()) return true;
                 GameLaunchOverlay.hide();
                 return false;
             }
@@ -1122,6 +1123,14 @@
         return !!(launchOverlay &&
             launchOverlay.classList.contains('visible') &&
             launchOverlay.classList.contains('execution-lock-visible'));
+    }
+
+    function _isGpuUpdaterExecutionLockOwned() {
+        if (!_isExecutionOverlayVisible()) return false;
+        const lock = window._lastExecutionLockData || {};
+        return lock.kind === 'gpuUpdater' ||
+            lock.appType === 'gpuUpdater' ||
+            lock.channel === 'gpu';
     }
 
     function _isWaitingForValidGameWindowOverlayVisible() {
@@ -1230,7 +1239,7 @@
             #sessionConflictOverlay {
                 position: fixed;
                 inset: 0;
-                z-index: 13500;
+                z-index: 40000;
                 display: none;
                 align-items: center;
                 justify-content: center;
@@ -1453,6 +1462,39 @@
         const cancelBtn = overlay.querySelector('#sessionConflictCancel');
         const closeBtn = overlay.querySelector('#sessionConflictClose');
 
+        const movePopupFocus = (direction) => {
+            const items = window.getSessionConflictPopupItems?.() || [];
+            if (!items.length) return false;
+
+            const currentIndex = items.indexOf(document.activeElement);
+            const step = direction === 'RIGHT' || direction === 'DOWN' ? 1 : -1;
+            const nextIndex = currentIndex < 0
+                ? 0
+                : (currentIndex + step + items.length) % items.length;
+            items[nextIndex]?.focus();
+            return true;
+        };
+
+        window.moveSessionConflictPopupFocus = movePopupFocus;
+        window.cancelSessionConflictPopup = function () {
+            if (!window.isSessionConflictPopupOpen?.()) return false;
+            cancelBtn?.click();
+            return true;
+        };
+        window.activateSessionConflictPopup = function () {
+            if (!window.isSessionConflictPopupOpen?.()) return false;
+            const active = document.activeElement;
+            if (active && overlay.contains(active) && typeof active.click === 'function') active.click();
+            else closeBtn?.click();
+            return true;
+        };
+
+        document.addEventListener('focusin', (event) => {
+            if (!overlay.classList.contains('visible') || overlay.contains(event.target)) return;
+            event.stopImmediatePropagation();
+            queueMicrotask(() => closeBtn?.focus());
+        }, true);
+
         cancelBtn?.addEventListener('click', () => {
             window.hideSessionConflictPopup?.(true);
         });
@@ -1466,6 +1508,13 @@
                         storeId: payload.storeId || '',
                         url: payload.url || '',
                         name: payload.name || ''
+                    });
+                    return;
+                }
+                if (payload.action === 'closeAllSessionsForGpuUpdater') {
+                    postToHost({
+                        action: 'closeAllSessionsForGpuUpdater',
+                        updaterId: payload.updaterId || ''
                     });
                     return;
                 }
@@ -1569,10 +1618,10 @@
 
         overlay.classList.add('visible');
         if (!wasVisible) {
-            setTimeout(() => {
+            requestAnimationFrame(() => requestAnimationFrame(() => {
                 closeBtn?.focus();
                 if (typeof updateGamepadUI === 'function') updateGamepadUI(isGamepadConnected, _controllerType);
-            }, 0);
+            }));
         }
     };
 
@@ -1603,6 +1652,22 @@
                 : 'Escolha encerrar tudo agora ou cancele para voltar.',
             confirmText: typeof t === 'function' ? t('storeDownloadConflictCloseAll', 'Encerrar processos') : 'Encerrar processos',
             cancelText: typeof t === 'function' ? t('sessionConflictCancel') : 'Cancelar'
+        });
+    };
+
+    window.showGpuUpdaterSessionConflict = function ({ updaterId, name } = {}) {
+        window.showSessionConflictPopup?.({
+            closePayload: {
+                action: 'closeAllSessionsForGpuUpdater',
+                updaterId: updaterId || ''
+            },
+            kicker: t('gpuUpdaterConflictKicker'),
+            title: t('gpuUpdaterConflictTitle'),
+            message: t('gpuUpdaterConflictMessage'),
+            hint: t('gpuUpdaterConflictHint'),
+            confirmText: t('gpuUpdaterConflictCloseAll'),
+            cancelText: t('sessionConflictCancel'),
+            runningName: name || ''
         });
     };
 
@@ -2921,6 +2986,10 @@
                     _ensureExecutionOverlayRefreshLoop();
                     _refreshExecutionOverlayFromRuntime();
                 } else if (_isExecutionOverlayVisible()) {
+                    if (_isGpuUpdaterExecutionLockOwned()) {
+                        _clearExecutionOverlayCloseTimer();
+                        return;
+                    }
                     _clearExecutionOverlayCloseTimer();
                     window._executionOverlayCloseTimer = setTimeout(() => {
                         window._executionOverlayCloseTimer = 0;
@@ -3094,6 +3163,10 @@
             else if (data.type === 'windowsUpdateStatus') {
                 window.DoorpiQuickPanel?.setWindowsUpdateStatus?.(data);
             }
+            else if (data.type === 'gpuUpdateStatus') {
+                window.DoorpiQuickPanel?.setGpuUpdateStatus?.(data);
+                window._navMenuSetGpuUpdateStatus?.(data);
+            }
             else if (data.type === 'updateFeaturedCard') {
                 // 🔹 Avisa o Store: ele reordena o carrossel E atualiza o hero automaticamente
                 if (window.AppStore) window.AppStore.mutations.trackOpened(data.id);
@@ -3140,6 +3213,12 @@
                 window.showStoreDownloadSessionConflict?.({
                     storeId: data.storeId || '',
                     url: data.url || '',
+                    name: data.name || ''
+                });
+            }
+            else if (data.type === 'gpuUpdaterBlockedBySessions') {
+                window.showGpuUpdaterSessionConflict?.({
+                    updaterId: data.updaterId || '',
                     name: data.name || ''
                 });
             }
@@ -3253,6 +3332,29 @@
                 const isRestore = reason === 'restore' || reason === 'storeRestore';
                 GameLaunchOverlay.show(data.gameName, data.heroImage, data.gridImage, isRestore, launchKind);
             }
+            else if (data.type === 'gpuUpdaterRestarting') {
+                window._isExternalAppRunning = true;
+                window._stopSystemAudio();
+                window.isMediaAppActive = true;
+                GameLaunchOverlay.showGpuRestarting?.(data);
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    postToHost({ action: 'gpuUpdaterRestartNoticeRendered' });
+                }));
+            }
+            else if (data.type === 'gpuUpdaterSessionEnded') {
+                window._isExternalAppRunning = false;
+                window._isDoorpiFocused = true;
+                window.isMediaAppActive = false;
+                window.isGameLaunchActive = false;
+                GameLaunchOverlay.hide();
+                window._startSystemAudio(true);
+            }
+            else if (data.type === 'gpuUpdaterDoorpiActivated') {
+                // O clique que trouxe o Doorpi para frente deve apenas restaurar o foco.
+                // Confirmacoes disparadas pela navegacao usam HTMLElement.click() e nao
+                // sao eventos confiaveis, portanto continuam liberadas durante a guarda.
+                window._gpuUpdaterPointerGuardUntil = Date.now() + 350;
+            }
             else if (data.type === 'storeTransition') {
                 window._isExternalAppRunning = true;
                 window._stopSystemAudio();
@@ -3315,6 +3417,9 @@
                     (hydrated.name || '') === (currentLock.name || '') &&
                     (hydrated.heroImage || '') === (currentLock.heroImage || '') &&
                     (hydrated.gridImage || '') === (currentLock.gridImage || '')) {
+                    if (data.focusActions === true) {
+                        GameLaunchOverlay.focusExecutionLockActions?.();
+                    }
                     return;
                 }
                 const currentIsGame = currentLock.channel === 'games' || currentLock.kind === 'game';
@@ -3342,6 +3447,10 @@
             }
             else if (data.type === 'executionLockCleared') {
                 _clearExecutionOverlayCloseTimer();
+                // O monitor de GPU possui o ciclo de vida deste lock. Um clear
+                // generico pode chegar durante trocas de janela, mas somente o
+                // evento gpuUpdaterSessionEnded deve desmontar sua interface.
+                if (_isGpuUpdaterExecutionLockOwned()) return;
                 if (_hasAnyRuntimeSession()) {
                     _ensureExecutionOverlayRefreshLoop();
                     _refreshExecutionOverlayFromRuntime();
@@ -3397,17 +3506,25 @@
             else if (data.type === 'gameLaunchDone') {
                 window.isGameLaunchActive = false;
                 window._doorpiGameInputSuppressedUntil = 0;
+                const hasGpuUpdaterSession = (window.DoorpiRuntimeState?.running || []).some(entry =>
+                    entry?.kind === 'gpuUpdater' ||
+                    entry?.appType === 'gpuUpdater' ||
+                    entry?.channel === 'gpu') || _isGpuUpdaterExecutionLockOwned();
                 const shouldMuteDoorpiAudio = _readDoorpiAudioMuteFlag(
                     data,
                     window.DoorpiRuntimeState.running.length > 0
                 );
                 window._syncSystemAudioFromRuntime(shouldMuteDoorpiAudio);
                 const launchOverlay = document.getElementById('gameLaunchOverlay');
-                if (!launchOverlay?.classList.contains('execution-lock-visible') &&
+                const isExecutionLockVisible = !!(launchOverlay &&
+                    launchOverlay.classList.contains('visible') &&
+                    launchOverlay.classList.contains('execution-lock-visible'));
+                if (!hasGpuUpdaterSession &&
+                    !isExecutionLockVisible &&
                     !launchOverlay?.classList.contains('store-transition-visible')) {
                     GameLaunchOverlay.hide();
                 }
-                if (!window._vkbIsOpen && !isExecutionLockVisible) {
+                if (!hasGpuUpdaterSession && !window._vkbIsOpen && !isExecutionLockVisible) {
                     recoverGlobalFocus();
                 }
             }
@@ -3457,6 +3574,12 @@
         } catch (e) { console.error('[bridge] Erro:', e); }
     });
     function recoverGlobalFocus() {
+        const executionOverlay = document.getElementById('gameLaunchOverlay');
+        if (executionOverlay?.classList.contains('visible') &&
+            executionOverlay.classList.contains('execution-lock-visible')) {
+            GameLaunchOverlay.focusExecutionLockActions?.();
+            return;
+        }
         // 1. Prioridade: Se tem um Modal de Adicionar aberto, foca nos botões dele
         if (window.isModalOpen) {
             const btn = document.querySelector('#btnAddWebApp') || document.querySelector('#btnConfirmAdd') || document.querySelector('#btnConfirmAddMedia');
@@ -4216,6 +4339,7 @@
     window.DoorpiQuickPanel = (() => {
         let doorpiStatus = null;
         let windowsStatus = null;
+        let gpuStatus = null;
         let section = null;
         let updateView = 'hub';
         let depth = 'menu';
@@ -4313,7 +4437,7 @@
                 .dq-kicker { color:rgba(255,255,255,.42); font-size:.78rem; font-weight:700; letter-spacing:.14em; text-transform:uppercase; }
                 .dq-heading { margin:0; font-size:clamp(2.2rem, 3.25vw, 4rem); line-height:1.02; font-weight:340; letter-spacing:0; }
                 .dq-sub { margin:0; max-width:720px; color:rgba(255,255,255,.60); line-height:1.48; font-size:clamp(.96rem, 1vw, 1.12rem); }
-                .dq-grid { display:grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap:16px; max-width:880px; margin-top:12px; }
+                .dq-grid { display:grid; grid-template-columns: repeat(3, minmax(260px, 1fr)); gap:16px; max-width:980px; margin-top:12px; }
                 .dq-card, .dq-action {
                     border:1px solid rgba(255,255,255,.10);
                     border-radius:8px;
@@ -4364,8 +4488,51 @@
                 @keyframes dqSpin { to { transform: rotate(360deg); } }
                 .dq-action.primary { background:rgba(255,255,255,.88); color:#090914; }
                 .dq-action.danger { border-color:rgba(255,120,120,.28); color:#ffc4c4; }
+                .dq-action.compact { min-height:48px; font-size:.92rem; }
                 .dq-action[disabled] { opacity:.38; cursor:default; pointer-events:none; }
                 .dq-action[data-busy="true"] { opacity:.72; cursor:default; }
+                .dq-app-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:14px; max-width:880px; margin-top:4px; }
+                .dq-app-card {
+                    min-height:176px;
+                    border:1px solid rgba(255,255,255,.10);
+                    border-radius:8px;
+                    background:linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.035));
+                    color:#fff;
+                    outline:none;
+                    cursor:pointer;
+                    padding:16px;
+                    display:flex;
+                    flex-direction:column;
+                    justify-content:space-between;
+                    gap:14px;
+                    text-align:left;
+                    transition:transform .18s, background .18s, border-color .18s, box-shadow .18s;
+                }
+                .dq-app-card.nav-focused-el, .dq-app-card:focus {
+                    transform:translateY(-2px);
+                    background:rgba(255,255,255,.12);
+                    border-color:rgba(255,255,255,.72);
+                    box-shadow:0 0 0 2px rgba(255,255,255,.15), 0 18px 42px rgba(0,0,0,.38);
+                }
+                .dq-app-art {
+                    height:86px;
+                    border-radius:7px;
+                    background:radial-gradient(circle at 24% 18%, rgba(125,203,255,.22), transparent 34%), rgba(255,255,255,.06);
+                    display:flex;
+                    align-items:center;
+                    justify-content:center;
+                    overflow:hidden;
+                }
+                .dq-app-art img { width:48px; height:48px; object-fit:contain; filter:drop-shadow(0 8px 18px rgba(0,0,0,.36)); }
+                .dq-app-cover { width:100%; height:100%; background-size:cover; background-position:center; }
+                .dq-app-fallback { width:48px; height:48px; border-radius:12px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,.12); font-weight:800; letter-spacing:.04em; }
+                .dq-app-name { font-size:1rem; font-weight:650; line-height:1.22; min-height:2.44em; overflow:hidden; }
+                .dq-app-meta { color:rgba(255,255,255,.54); font-size:.78rem; line-height:1.35; }
+                .dq-app-footer { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+                .dq-app-add { align-items:center; text-align:center; justify-content:center; border-style:dashed; }
+                .dq-gpu-guidance { max-width:880px; display:grid; gap:8px; padding-left:14px; border-left:2px solid rgba(125,203,255,.48); }
+                .dq-gpu-guidance p { margin:0; color:rgba(255,255,255,.56); font-size:.86rem; line-height:1.42; }
+                .dq-gpu-guidance strong { color:rgba(255,255,255,.84); font-weight:650; }
                 @media (max-width: 900px) {
                     .dq-sidebar { width: 230px; padding-inline:18px; }
                     .dq-content { padding-inline:26px; }
@@ -4410,6 +4577,14 @@
         }
 
         function statusPill(kind, status) {
+            if (kind === 'gpu') {
+                const adapters = Array.isArray(status?.adapters) ? status.adapters : [];
+                const updaters = Array.isArray(status?.updaters) ? status.updaters : [];
+                if (status?.status === 'error') return `<span class="dq-pill err">Erro</span>`;
+                if (!adapters.length) return `<span class="dq-pill warn">Sem GPU</span>`;
+                if (!updaters.length) return `<span class="dq-pill warn">Sem app</span>`;
+                return `<span class="dq-pill">Detectado</span>`;
+            }
             if (kind === 'doorpi') {
                 const available = !!(status?.doorpiUpdateAvailable || status?.updaterUpdateAvailable);
                 if (available) return `<span class="dq-pill warn">Disponível</span>`;
@@ -4500,6 +4675,10 @@
                             ${statusPill('windows', windowsStatus)}
                             <div><h3>Windows</h3><p>Windows Update, instalação em segundo plano e reinício.</p></div>
                         </button>
+                        <button class="dq-card" data-update-view="gpu" tabindex="0">
+                            ${statusPill('gpu', gpuStatus)}
+                            <div><h3>Placa de vídeo</h3><p>Versão atual dos drivers e apps de atualização.</p></div>
+                        </button>
                     </div>
                 </section>
             `;
@@ -4520,6 +4699,7 @@
                     <div class="dq-tabs">
                         <button class="dq-tab active" data-update-view="doorpi" tabindex="0">Doorpi</button>
                         <button class="dq-tab" data-update-view="windows" tabindex="0">Windows</button>
+                        <button class="dq-tab" data-update-view="gpu" tabindex="0">Placa de vídeo</button>
                     </div>
                     <div class="dq-panel">
                         ${statusPill('doorpi', s)}
@@ -4552,6 +4732,7 @@
                     <div class="dq-tabs">
                         <button class="dq-tab" data-update-view="doorpi" tabindex="0">Doorpi</button>
                         <button class="dq-tab active" data-update-view="windows" tabindex="0">Windows</button>
+                        <button class="dq-tab" data-update-view="gpu" tabindex="0">Placa de vídeo</button>
                     </div>
                     <div class="dq-panel">
                         ${statusPill('windows', s)}
@@ -4571,6 +4752,93 @@
                         <button class="dq-action manual" data-action="open-windows-update" tabindex="0"><span class="dq-action-label">Abrir Windows Update</span><span class="dq-action-ico">${iconSvg('external')}</span></button>
                         <button class="dq-action primary install" data-action="install-windows" tabindex="0" ${(updates.length && !s.rebootRequired && !active) ? '' : 'disabled'}><span class="dq-action-label">Baixar e instalar</span><span class="dq-action-ico">${iconSvg('arrowRight')}</span></button>
                         <button class="dq-action primary restart" data-action="restart" tabindex="0" ${s.rebootRequired ? '' : 'disabled'}><span class="dq-action-label">Reiniciar agora</span><span class="dq-action-ico">${iconSvg('shutdown')}</span></button>
+                    </div>
+                </section>
+            `;
+        }
+
+        function vendorName(vendor) {
+            const v = String(vendor || '').toLowerCase();
+            if (v === 'nvidia') return 'NVIDIA';
+            if (v === 'amd') return 'AMD';
+            if (v === 'intel') return 'Intel';
+            return vendor || 'GPU';
+        }
+
+        function updaterInitials(app) {
+            const base = vendorName(readGpuProp(app, 'vendor')) || readGpuProp(app, 'name') || 'APP';
+            return String(base).replace(/[^a-z0-9]/gi, '').slice(0, 3).toUpperCase() || 'APP';
+        }
+
+        function readGpuProp(obj, key) {
+            if (!obj) return '';
+            const pascal = key.charAt(0).toUpperCase() + key.slice(1);
+            return obj[key] ?? obj[pascal] ?? '';
+        }
+
+        function gpuDetail() {
+            const s = gpuStatus || {};
+            const adapters = Array.isArray(s.adapters) ? s.adapters : [];
+            const updaters = Array.isArray(s.updaters) ? s.updaters : [];
+            return `
+                <section class="dq-content">
+                    <div class="dq-kicker">Atualizações</div>
+                    <h1 class="dq-heading">Placa de vídeo</h1>
+                    <p class="dq-sub">${esc(s.message || 'Dados de placa de vídeo ainda não carregados.')}</p>
+                    <div class="dq-tabs">
+                        <button class="dq-tab" data-update-view="doorpi" tabindex="0">Doorpi</button>
+                        <button class="dq-tab" data-update-view="windows" tabindex="0">Windows</button>
+                        <button class="dq-tab active" data-update-view="gpu" tabindex="0">Placa de vídeo</button>
+                    </div>
+                    <div class="dq-panel">
+                        ${statusPill('gpu', s)}
+                        <div class="dq-meta">
+                            <span>${adapters.length} adaptador(es)</span>
+                            <span>${updaters.length} app(s) configurado(s)</span>
+                            <span>Última leitura: ${esc(dateText(s.lastCheckedAt))}</span>
+                        </div>
+                        <div class="dq-list">
+                            ${adapters.length ? adapters.map(adapter => `
+                                <div class="dq-update-row">
+                                    <span>${esc(readGpuProp(adapter, 'name') || vendorName(readGpuProp(adapter, 'vendor')))}</span>
+                                    <span>${esc([vendorName(readGpuProp(adapter, 'vendor')), readGpuProp(adapter, 'driverVersion') || '--'].filter(Boolean).join(' - '))}</span>
+                                </div>
+                            `).join('') : '<div class="dq-update-row"><span>Nenhum driver de vídeo detectado.</span></div>'}
+                        </div>
+                    </div>
+                    <div class="dq-gpu-guidance">
+                        <p><strong>${esc(t('gpuUpdaterAdminNoticeTitle'))}</strong> ${esc(t('gpuUpdaterAdminNoticeText'))}</p>
+                        <p><strong>${esc(t('gpuUpdaterSessionNoticeTitle'))}</strong> ${esc(t('gpuUpdaterSessionNoticeText'))}</p>
+                    </div>
+                    <div class="dq-app-grid">
+                        ${updaters.map(app => {
+                            const id = readGpuProp(app, 'id');
+                            const name = readGpuProp(app, 'name') || 'Atualizador';
+                            const vendor = readGpuProp(app, 'vendor');
+                            const source = readGpuProp(app, 'source');
+                            const imageUrl = readGpuProp(app, 'imageUrl');
+                            const iconDataUrl = readGpuProp(app, 'iconDataUrl');
+                            return `
+                            <div class="dq-app-card" data-action="open-gpu-updater" data-updater-id="${esc(id)}" data-gpu-updater-card="true" tabindex="0" role="button">
+                                <div class="dq-app-art">
+                                    ${imageUrl ? `<div class="dq-app-cover" style="background-image:url('${esc(imageUrl)}')"></div>` : (iconDataUrl ? `<img src="${esc(iconDataUrl)}" alt="">` : `<div class="dq-app-fallback">${esc(updaterInitials(app))}</div>`)}
+                                </div>
+                                <div>
+                                    <div class="dq-app-name">${esc(name)}</div>
+                                    <div class="dq-app-meta">${esc(vendorName(vendor))} · ${esc(source === 'manual' ? 'Adicionado manualmente' : 'Detectado automaticamente')}</div>
+                                </div>
+                                <div class="dq-app-footer">
+                                    <span class="dq-pill">Abrir</span>
+                                </div>
+                            </div>
+                        `}).join('')}
+                        <div class="dq-app-card dq-app-add" data-action="add-gpu-updater" tabindex="0" role="button">
+                            <div class="dq-app-art"><div class="dq-app-fallback">+</div></div>
+                            <div>
+                                <div class="dq-app-name">Adicionar app</div>
+                                <div class="dq-app-meta">Escolha outro atualizador instalado no Windows.</div>
+                            </div>
+                        </div>
                     </div>
                 </section>
             `;
@@ -4610,6 +4878,7 @@
             if (section === 'updates') {
                 if (updateView === 'doorpi') return doorpiDetail();
                 if (updateView === 'windows') return windowsDetail();
+                if (updateView === 'gpu') return gpuDetail();
                 return updatesHub();
             }
             if (section === 'users') return simpleContent('Trocar usuário', 'Abra o seletor de perfis e escolha outra sessão.', 'Trocar usuário');
@@ -4620,7 +4889,7 @@
         function contentFocusFor(sectionId) {
             if (!sectionId) return '.dq-menu-btn';
             if (sectionId === 'updates') {
-                if (updateView === 'doorpi' || updateView === 'windows') return `[data-update-view="${updateView}"]`;
+                if (updateView === 'doorpi' || updateView === 'windows' || updateView === 'gpu') return `[data-update-view="${updateView}"]`;
                 return '.dq-card';
             }
             if (sectionId === 'power') return '.dq-action';
@@ -4635,6 +4904,7 @@
             if (el.dataset?.section) return `.dq-menu-btn[data-section="${el.dataset.section}"]`;
             if (el.classList.contains('dq-card')) return '.dq-card';
             if (el.classList.contains('dq-action')) return '.dq-action';
+            if (el.classList.contains('dq-app-card')) return '.dq-app-card';
             return null;
         }
 
@@ -4679,7 +4949,11 @@
                 sidebarEl.addEventListener('animationend', () => overlay.classList.add('has-opened'), { once: true });
             }
             const target = focusSelector ? overlay.querySelector(focusSelector) : overlay.querySelector('.dq-menu-btn.active, button');
-            requestAnimationFrame(() => target?.focus());
+            requestAnimationFrame(() => {
+                const executionLockOpen = document.getElementById('gameLaunchOverlay')
+                    ?.classList.contains('execution-lock-visible');
+                if (!window.isSessionConflictPopupOpen?.() && !executionLockOpen) target?.focus();
+            });
         }
 
         function setBusyAction(btn, message) {
@@ -4742,7 +5016,8 @@
                 });
             });
             overlay.querySelectorAll('[data-action]').forEach(btn => {
-                btn.addEventListener('click', () => {
+                btn.addEventListener('click', (event) => {
+                    event.stopPropagation();
                     const action = btn.dataset.action;
                     if (action === 'check-doorpi') {
                         if (btn.dataset.busy === 'true') return;
@@ -4761,6 +5036,9 @@
                     }
                     else if (action === 'install-windows') postToHost?.({ action: 'startWindowsUpdateInstall' });
                     else if (action === 'open-windows-update') { close(); postToHost?.({ action: 'openWindowsUpdateSettings' }); }
+                    else if (action === 'open-gpu-updater') { postToHost?.({ action: 'openGpuUpdater', updaterId: btn.dataset.updaterId || '' }); }
+                    else if (action === 'add-gpu-updater') postToHost?.({ action: 'addGpuUpdater' });
+                    else if (action === 'remove-gpu-updater') postToHost?.({ action: 'removeGpuUpdater', updaterId: btn.dataset.updaterId || '' });
                     else if (action === 'restart') postToHost?.({ action: 'restartSystem' });
                     else if (action === 'suspend') postToHost?.({ action: 'suspendSystem' });
                     else if (action === 'shutdown') postToHost?.({ action: 'shutdownSystem' });
@@ -4788,6 +5066,7 @@
             document.body.classList.add('quick-panel-open');
             postToHost?.({ action: 'requestUpdateStatus' });
             postToHost?.({ action: 'requestWindowsUpdateStatus' });
+            postToHost?.({ action: 'requestGpuUpdateStatus' });
             render('.dq-menu-btn');
         }
 
@@ -4803,6 +5082,7 @@
             document.body.classList.add('quick-panel-open');
             postToHost?.({ action: 'requestUpdateStatus' });
             postToHost?.({ action: 'requestWindowsUpdateStatus' });
+            postToHost?.({ action: 'requestGpuUpdateStatus' });
             render('.dq-menu-btn');
         }
 
@@ -4882,6 +5162,11 @@
                 windowsStatus = status;
                 if (this.isOpen() && patchCheckingStatus('windows', status)) return;
                 if (this.isOpen()) render(focusSelector || contentFocusFor(section));
+            },
+            setGpuUpdateStatus(status) {
+                const focusSelector = currentFocusSelector();
+                gpuStatus = status;
+                if (this.isOpen()) render(focusSelector || contentFocusFor(section));
             }
         };
         return api;
@@ -4940,6 +5225,23 @@
     };
 
     document.addEventListener('focusin', (e) => {
+        if (window.isSessionConflictPopupOpen?.()) {
+            const conflictOverlay = document.getElementById('sessionConflictOverlay');
+            if (conflictOverlay && !conflictOverlay.contains(e.target)) {
+                e.stopImmediatePropagation();
+                queueMicrotask(() => document.getElementById('sessionConflictClose')?.focus());
+            }
+            return;
+        }
+        const executionOverlay = document.getElementById('gameLaunchOverlay');
+        if (executionOverlay?.classList.contains('visible') &&
+            executionOverlay.classList.contains('execution-lock-visible')) {
+            if (!executionOverlay.contains(e.target)) {
+                e.stopImmediatePropagation();
+                queueMicrotask(() => GameLaunchOverlay.focusExecutionLockActions?.());
+            }
+            return;
+        }
         if (e.target?.closest?.('.vkb-overlay, .doorpi-vkb-overlay')) return;
         if (window.isDoorpiOverlayOpen && window.isDoorpiOverlayOpen()) {
             const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay, .doorpi-pin-panel'))
@@ -6181,7 +6483,7 @@ function renderFolderList(folders) {
     }
         .context-menu {
             position: fixed;
-            z-index: 9999;
+            z-index: 26000;
             display: none;
             flex-direction: column;
             background: rgb(13 13 43 / 95%);
@@ -6666,6 +6968,7 @@ function renderFolderList(folders) {
 
         const gameId = card.dataset.gameId || card.dataset.appId || card.dataset.appUrl;
         const isYoutube = (gameId && gameId.toLowerCase().includes('youtube'));
+        const isGpuUpdaterCard = card.dataset.gpuUpdaterCard === 'true';
 
         const ctxEditBtn = _ctxMenu.querySelector('#ctxEdit');
         const ctxDeleteBtn = _ctxMenu.querySelector('#ctxDelete');
@@ -6681,7 +6984,9 @@ function renderFolderList(folders) {
         const isRunning = window.isCardRuntimeRunning?.(card) === true;
         if (ctxRuntimeBtn && ctxRuntimeText) {
             ctxRuntimeBtn.classList.toggle('ctx-danger', isRunning);
-            ctxRuntimeText.textContent = isStoreCard && !isRunning
+            ctxRuntimeText.textContent = isGpuUpdaterCard
+                ? 'Abrir'
+                : isStoreCard && !isRunning
                 ? (typeof t === 'function' ? t('storeOpenBtn') : 'Abrir')
                 : (isRunning
                     ? (typeof t === 'function' ? t('ctxCloseRunning') : 'Fechar')
@@ -6735,7 +7040,23 @@ function renderFolderList(folders) {
             _ctxMenu.appendChild(ctxCloseBtn);
         }
 
-        if (isStoreCard) {
+        if (isGpuUpdaterCard) {
+            if (ctxRuntimeBtn) ctxRuntimeBtn.style.display = 'flex';
+            if (ctxStoreGamepadBtn) ctxStoreGamepadBtn.style.display = 'none';
+            if (ctxStoreAutoAddBtn) ctxStoreAutoAddBtn.style.display = 'none';
+            if (ctxEditBtn) ctxEditBtn.style.display = 'none';
+            if (ctxExtensionsBtn) ctxExtensionsBtn.style.display = 'none';
+            if (ctxSharingBtn) ctxSharingBtn.style.display = 'none';
+            if (ctxDeleteBtn) {
+                ctxDeleteBtn.style.display = 'flex';
+                const text = ctxDeleteBtn.querySelector('[data-i18n], span:last-child');
+                if (text) text.textContent = 'Remover atualizador';
+            }
+            ctxCloseBtn.style.display = 'none';
+            _ctxMenu.querySelector('#ctxGameName').textContent =
+                card.querySelector('.dq-app-name, .nav-gpu-app-name')?.innerText?.trim() || 'Atualizador';
+        } else if (isStoreCard) {
+            if (ctxRuntimeBtn) ctxRuntimeBtn.style.display = 'flex';
             if (ctxEditBtn) ctxEditBtn.style.display = 'none';
             if (ctxExtensionsBtn) ctxExtensionsBtn.style.display = 'none';
             if (ctxSharingBtn) ctxSharingBtn.style.display = 'none';
@@ -6743,6 +7064,7 @@ function renderFolderList(folders) {
             ctxCloseBtn.style.display = 'none';
             _ctxMenu.querySelector('#ctxGameName').textContent = card.querySelector('.title, .nav-vertical-card-title')?.innerText?.trim() || '';
         } else if (isYoutube) {
+            if (ctxRuntimeBtn) ctxRuntimeBtn.style.display = 'flex';
             if (ctxEditBtn) ctxEditBtn.style.display = 'none';
             if (ctxExtensionsBtn) ctxExtensionsBtn.style.display = isBrowserMedia ? 'flex' : 'none';
             if (ctxSharingBtn) ctxSharingBtn.style.display = isBrowserMedia ? 'flex' : 'none';
@@ -6750,10 +7072,15 @@ function renderFolderList(folders) {
             ctxCloseBtn.style.display = 'flex';
             _ctxMenu.querySelector('#ctxGameName').textContent = t('systemAppLabel');
         } else {
+            if (ctxRuntimeBtn) ctxRuntimeBtn.style.display = 'flex';
             if (ctxEditBtn) ctxEditBtn.style.display = 'flex';
             if (ctxExtensionsBtn) ctxExtensionsBtn.style.display = isBrowserMedia ? 'flex' : 'none';
             if (ctxSharingBtn) ctxSharingBtn.style.display = isBrowserMedia ? 'flex' : 'none';
-            if (ctxDeleteBtn) ctxDeleteBtn.style.display = 'flex';
+            if (ctxDeleteBtn) {
+                ctxDeleteBtn.style.display = 'flex';
+                const text = ctxDeleteBtn.querySelector('[data-i18n], span:last-child');
+                if (text) text.textContent = t('ctxRemoveGame');
+            }
             ctxCloseBtn.style.display = 'none';
             _ctxMenu.querySelector('#ctxGameName').textContent = card.querySelector('.title, .nav-vertical-card-title')?.innerText?.trim() || '';
         }
@@ -6861,7 +7188,9 @@ function renderFolderList(folders) {
         _closeCtxMenu();
         if (!card) return;
 
-        if (isRunning) {
+        if (card.dataset.gpuUpdaterCard === 'true') {
+            card.click();
+        } else if (isRunning) {
             postToHost({
                 action: 'closeRunningItem',
                 id: card.dataset.gameId || card.dataset.appId || card.dataset.id || '',
@@ -6876,7 +7205,13 @@ function renderFolderList(folders) {
 
     document.getElementById('ctxDelete').addEventListener('click', () => {
         const card = _ctxCard; _closeCtxMenu();
-        if (card) _executeDelete(card);
+        if (!card) return;
+        if (card.dataset.gpuUpdaterCard === 'true') {
+            const updaterId = card.dataset.updaterId || '';
+            if (updaterId) postToHost?.({ action: 'removeGpuUpdater', updaterId });
+            return;
+        }
+        _executeDelete(card);
     });
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -8388,10 +8723,22 @@ function renderFolderList(folders) {
                 <button id="executionLockClose" class="lock-action danger" tabindex="0">${t('executionLockCloseProcess')}</button>
             `;
 
-            lockActions.querySelector('#executionLockRestore')?.addEventListener('click', () => {
+            const consumeGpuUpdaterReturnClick = event => {
+                const isGpuUpdaterLock = window._lastExecutionLockData?.kind === 'gpuUpdater';
+                if (!isGpuUpdaterLock || !event.isTrusted ||
+                    Date.now() >= (window._gpuUpdaterPointerGuardUntil || 0)) return false;
+
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                return true;
+            };
+
+            lockActions.querySelector('#executionLockRestore')?.addEventListener('click', event => {
+                if (consumeGpuUpdaterReturnClick(event)) return;
                 postToHost({ action: 'restoreExecutionLock' });
             });
-            lockActions.querySelector('#executionLockClose')?.addEventListener('click', () => {
+            lockActions.querySelector('#executionLockClose')?.addEventListener('click', event => {
+                if (consumeGpuUpdaterReturnClick(event)) return;
                 postToHost({ action: 'closeExecutionLock' });
             });
 
@@ -8598,10 +8945,33 @@ function renderFolderList(folders) {
             overlay.classList.add('visible', 'store-transition-visible');
         }
 
-        function setRunning() {
+        function showGpuRestarting(data = {}) {
+            if (overlay._waitTimer) {
+                clearTimeout(overlay._waitTimer);
+                overlay._waitTimer = 0;
+            }
+            clearExecutionLockFocusTimers();
+            clearSessionPair();
+            overlay.classList.remove('execution-lock-visible', 'store-transition-visible', 'store-install-lock');
+            overlay.dataset.executionLockKey = '';
+
+            nameEl.textContent = data.name || '';
+            statusEl.textContent = t('gpuUpdaterRestarting');
+            if (bg) bg.style.backgroundImage = data.imageUrl ? `url('${data.imageUrl}')` : 'none';
+            setArt(data.imageUrl || '');
+            setState('loading');
+
+            cancelBtn.style.display = 'none';
+            cancelBtn.style.opacity = '0';
+            overlay.style.pointerEvents = 'all';
+            overlay.style.zIndex = '30000';
+            overlay.classList.add('visible');
+        }
+
+        function setRunning(message = '') {
             const text = getI18n();
             const el = document.getElementById('overlayRunningText');
-            if (el) el.textContent = text.running;
+            if (el) el.textContent = message || text.running;
 
 
             const cancelBtn = document.getElementById('overlayCancelLaunchBtn');
@@ -8611,6 +8981,24 @@ function renderFolderList(folders) {
             }
 
             setState('running');
+        }
+
+        function setLaunchStatus(stage, message) {
+            if (!overlay.classList.contains('visible')) return;
+            if (overlay._waitTimer) {
+                clearTimeout(overlay._waitTimer);
+                overlay._waitTimer = 0;
+            }
+
+            if (stage === 'running') {
+                setRunning(message);
+                return;
+            }
+
+            setState('loading');
+            statusEl.textContent = message || (stage === 'findingWindow' ? 'Procurando janela...' : getI18n().opening);
+            cancelBtn.style.display = 'none';
+            cancelBtn.style.opacity = '0';
         }
 
         function setError(gameName, reason) {
@@ -8648,6 +9036,7 @@ function renderFolderList(folders) {
             }
 
             const isStoreInstallLock = data.kind === 'storeInstall' || data.appType === 'storeInstall';
+            const isGpuUpdaterLock = data.kind === 'gpuUpdater' || data.appType === 'gpuUpdater';
             const nextContextKey = `${data.kind || ''}|${data.channel || ''}|${data.id || ''}|${data.url || ''}`;
             const currentContextKey = overlay.dataset.executionLockKey || '';
             const isAlreadyVisible =
@@ -8660,6 +9049,7 @@ function renderFolderList(folders) {
             nameEl.textContent = name;
             statusEl.textContent = t('executionLockStatusRunning');
             overlay.classList.toggle('store-install-lock', isStoreInstallLock);
+            overlay.classList.toggle('gpu-updater-lock', isGpuUpdaterLock);
             const closeAction = document.getElementById('executionLockClose');
             if (closeAction) {
                 closeAction.textContent = isStoreInstallLock
@@ -8696,11 +9086,23 @@ function renderFolderList(folders) {
             }, 220);
         }
 
+        function focusExecutionLockActions() {
+            if (!overlay.classList.contains('visible') ||
+                !overlay.classList.contains('execution-lock-visible')) return false;
+
+            clearExecutionLockFocusTimers();
+            const primary = document.getElementById('executionLockRestore');
+            if (!primary || primary.offsetWidth <= 0 || primary.offsetHeight <= 0) return false;
+            requestAnimationFrame(() => requestAnimationFrame(() => primary.focus()));
+            return true;
+        }
+
         function hideExecutionLock() {
             clearExecutionLockFocusTimers();
             overlay.classList.remove('execution-lock-visible');
             overlay.style.zIndex = '';
             overlay.classList.remove('store-install-lock');
+            overlay.classList.remove('gpu-updater-lock');
             overlay.dataset.executionLockKey = '';
             clearSessionPair();
             lockActions?.querySelectorAll('button').forEach(btn => {
@@ -8715,6 +9117,7 @@ function renderFolderList(folders) {
             overlay.classList.remove('execution-lock-visible', 'store-transition-visible');
             overlay.style.zIndex = '';
             overlay.classList.remove('store-install-lock');
+            overlay.classList.remove('gpu-updater-lock');
             overlay.dataset.executionLockKey = '';
             clearSessionPair();
 
@@ -8741,7 +9144,7 @@ function renderFolderList(folders) {
             }, 400);
         }
 
-        return { show, showStoreTransition, setRunning, setError, hide, showExecutionLock, hideExecutionLock };
+        return { show, showStoreTransition, showGpuRestarting, setRunning, setLaunchStatus, setError, hide, showExecutionLock, focusExecutionLockActions, hideExecutionLock };
     })();
 
 

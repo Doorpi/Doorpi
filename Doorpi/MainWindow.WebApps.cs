@@ -1000,7 +1000,7 @@ namespace Doorpi
                         if (lx != 0 || ly != 0)
                         {
                             speedMult = Math.Min(speedMult + (0.8 * dt), 2.5);
-                            const double SENSE = 700.0;
+                            const double SENSE = 700.0 * CONTROLLER_MOUSE_SENSITIVITY_SCALE;
 
                             if (exactX < 0)
                                 Dispatcher.Invoke(() => { if (GetCursorPos(out var pt)) { exactX = pt.X; exactY = pt.Y; } });

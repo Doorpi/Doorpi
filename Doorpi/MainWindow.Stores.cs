@@ -1172,8 +1172,8 @@ namespace Doorpi
         {
             try
             {
-                var startedUtc = DateTime.UtcNow;
                 bool closedGraceStarted = false;
+                DateTime launcherMissingSinceUtc = DateTime.MinValue;
 
                 while (!token.IsCancellationRequested &&
                        _storeChildGameActive &&
@@ -1182,22 +1182,28 @@ namespace Doorpi
                        string.Equals(_storeChildGameId, gameId, StringComparison.OrdinalIgnoreCase) &&
                        string.IsNullOrWhiteSpace(_lockedGameProcessName))
                 {
-                    if ((DateTime.UtcNow - startedUtc).TotalMilliseconds > STORE_CHILD_GAME_WINDOW_DETECTION_TIMEOUT_MS)
-                    {
-                        Dispatcher.Invoke(() => CancelUnresolvedGameLaunch(game));
-                        return;
-                    }
-
                     bool launcherStillPresent = IsStoreChildLauncherStillPresent(launcherProcessId, launcherHwnd);
-                    if (!launcherStillPresent && !closedGraceStarted)
+                    if (launcherStillPresent)
+                    {
+                        closedGraceStarted = false;
+                        launcherMissingSinceUtc = DateTime.MinValue;
+                    }
+                    else if (!closedGraceStarted)
                     {
                         closedGraceStarted = true;
+                        launcherMissingSinceUtc = DateTime.UtcNow;
                         Dispatcher.Invoke(() =>
                         {
                             DelayStorePendingChildClosedGrace();
                             _storeMinimizeState = StoreMinimizeState.StorePendingChild;
                             SendRuntimeSessionsToUI();
                         });
+                    }
+                    else if (launcherMissingSinceUtc != DateTime.MinValue &&
+                             (DateTime.UtcNow - launcherMissingSinceUtc).TotalMilliseconds >= STORE_SUSPICIOUS_WINDOW_CLOSED_GRACE_MS)
+                    {
+                        Dispatcher.Invoke(() => CancelUnresolvedGameLaunch(game));
+                        return;
                     }
 
                     await Task.Delay(300, token).ConfigureAwait(false);

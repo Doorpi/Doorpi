@@ -104,6 +104,11 @@ function triggerContextMenu() {
     if (window.isNavMenuOpen) { window._navMenuTriggerCtxMenu?.(); return; }
 
     const focused = document.activeElement;
+    if (focused?.dataset?.gpuUpdaterCard === 'true') {
+        const r = focused.getBoundingClientRect();
+        window._ctxMenuOpen?.(focused, r.right + 2, r.top);
+        return;
+    }
     if (!focused?.classList.contains('card') || focused.classList.contains('add-card')) return;
     const r = focused.getBoundingClientRect();
     window._ctxMenuOpen?.(focused, r.right + 2, r.top);
@@ -412,6 +417,8 @@ let _sessionConflictSuppressKeyNavUntil = 0;
 let _sessionConflictLastKeyNavAt = 0;
 
 function moveSessionConflictFocus(direction) {
+    if (window.moveSessionConflictPopupFocus?.(direction)) return;
+
     const items = window.getSessionConflictPopupItems?.() || [];
     if (!items.length) return;
 
@@ -430,6 +437,23 @@ function moveSessionConflictFocus(direction) {
     }
 
     if (next && next !== current) next.focus();
+}
+
+function moveExecutionLockFocus(direction) {
+    const items = Array.from(document.querySelectorAll('#executionLockActions .lock-action'))
+        .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0 && !el.disabled);
+    if (!items.length) return;
+
+    const current = document.activeElement;
+    if (!items.includes(current)) {
+        items[0]?.focus();
+        return;
+    }
+
+    const index = items.indexOf(current);
+    const step = direction === 'RIGHT' || direction === 'DOWN' ? 1 : -1;
+    const nextIndex = Math.max(0, Math.min(items.length - 1, index + step));
+    items[nextIndex]?.focus();
 }
 
 document.addEventListener('focusin', () => {
@@ -740,13 +764,14 @@ function smoothHorizontalScroll(element, onDone) {
 document.addEventListener('keydown', e => {
     // ── NOVO: Cancelar launch via teclado (Esc ou Backspace) ──
     const launchOverlay = document.getElementById('gameLaunchOverlay');
-    const isExecutionLock = launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('execution-lock-visible');
+    const isSessionConflict = window.isSessionConflictPopupOpen?.() === true;
+    const isExecutionLock = !isSessionConflict && launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('execution-lock-visible');
         if (isExecutionLock) {
             const dirMapLock = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' };
             if (dirMapLock[e.key]) {
                 e.preventDefault();
                 e.stopImmediatePropagation();
-                moveFocus(dirMapLock[e.key]);
+                moveExecutionLockFocus(dirMapLock[e.key]);
                 return;
             }
             if (e.key === 'Enter') {
@@ -978,8 +1003,9 @@ function isDoorpiGameInputSuppressed() {
 
 window.requestDoorpiBackAction = function () {
     const launchOverlay = document.getElementById('gameLaunchOverlay');
-    const isExecutionLock = launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('execution-lock-visible');
-    const isWaitingLaunch = launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('state-loading');
+    const isSessionConflict = window.isSessionConflictPopupOpen?.() === true;
+    const isExecutionLock = !isSessionConflict && launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('execution-lock-visible');
+    const isWaitingLaunch = !isSessionConflict && launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('state-loading');
 
     if (window.isDesktopWarningOpen) {
         window._dwAction?.('CANCEL');
@@ -1128,10 +1154,10 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         const gamepad = _gamepadIndex !== null ? navigator.getGamepads()[_gamepadIndex] : null;
         if (!gamepad) return;
 
-        const launchOverlay = document.getElementById('gameLaunchOverlay');
-        const isExecutionLock = launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('execution-lock-visible');
-        const isWaitingLaunch = launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('state-loading');
         const isSessionConflict = window.isSessionConflictPopupOpen?.() === true;
+        const launchOverlay = document.getElementById('gameLaunchOverlay');
+        const isExecutionLock = !isSessionConflict && launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('execution-lock-visible');
+        const isWaitingLaunch = !isSessionConflict && launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('state-loading');
         const isGameFocusFallback = window.isGameFocusFallbackPopupOpen?.() === true;
 
         if (window.isDoorpiSessionTransitionActive?.()) return;
@@ -1167,8 +1193,8 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             }
 
             if (lockDir) {
-                if (_executionLockHeldDir === null) {
-                    moveFocus(lockDir);
+                if (_executionLockHeldDir !== lockDir) {
+                    moveExecutionLockFocus(lockDir);
                     _executionLockHeldDir = lockDir;
                 }
             } else {
@@ -1206,7 +1232,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             }
 
             if (conflictDir) {
-                if (_sessionConflictHeldDir === null) {
+                if (_sessionConflictHeldDir !== conflictDir) {
                     const nowNav = performance.now();
                     if (nowNav - _sessionConflictLastKeyNavAt > 90) {
                         _sessionConflictSuppressKeyNavUntil = nowNav + 90;
@@ -1222,12 +1248,10 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             _moveState = 0;
 
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
-                const active = document.activeElement;
-                if (active && active.closest?.('#sessionConflictActions')) active.click();
-                else document.getElementById('sessionConflictClose')?.focus();
+                window.activateSessionConflictPopup?.();
             }
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
-                if (window.requestDoorpiBackAction?.()) return;
+                window.cancelSessionConflictPopup?.();
             }
             return;
         }

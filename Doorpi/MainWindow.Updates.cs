@@ -286,6 +286,7 @@ namespace Doorpi
 
             _ = Task.Run(() => CheckForUpdatesAsync(userInitiated: false));
             _ = Task.Run(() => RefreshWindowsUpdateStatusAsync(scan: false));
+            _ = Task.Run(RefreshGpuUpdateStatus);
         }
 
         private async Task StartSystemUpdateAsync()

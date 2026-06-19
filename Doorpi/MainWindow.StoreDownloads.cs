@@ -295,7 +295,6 @@ namespace Doorpi
 
             _ = Task.Run(async () =>
             {
-                DateTime startedAt = DateTime.UtcNow;
                 DateTime installedQuietSince = DateTime.MinValue;
                 DateTime noInstallUiSince = DateTime.MinValue;
                 const int installedQuietWindowGraceMs = 650;
@@ -390,11 +389,6 @@ namespace Doorpi
                         return;
                     }
 
-                    if ((DateTime.UtcNow - startedAt).TotalMinutes >= 20)
-                    {
-                        Dispatcher.Invoke(() => FailStoreInstall("A instalacao demorou demais para ser confirmada.", canRetry: true));
-                        return;
-                    }
                 }
             }, token);
         }

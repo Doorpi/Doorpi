@@ -2715,7 +2715,7 @@ body {
 #gameLaunchOverlay {
     position: fixed;
     inset: 0;
-    z-index: 9998;
+    z-index: 30000;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2873,6 +2873,21 @@ body {
 }
 
     #gameLaunchOverlay.store-install-lock .game-art img {
+        object-fit: contain;
+        padding: 18%;
+        box-sizing: border-box;
+    }
+
+#gameLaunchOverlay.gpu-updater-lock .game-art {
+    width: 164px;
+    height: 164px;
+    border-radius: 12px;
+    background: rgba(0,0,0,0.24);
+    border: 1px solid rgba(255,255,255,0.10);
+    box-shadow: 0 24px 64px rgba(0,0,0,0.58);
+}
+
+    #gameLaunchOverlay.gpu-updater-lock .game-art img {
         object-fit: contain;
         padding: 18%;
         box-sizing: border-box;

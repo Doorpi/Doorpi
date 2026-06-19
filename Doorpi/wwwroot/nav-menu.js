@@ -1072,7 +1072,7 @@ window.isNavMenuOpen = false;
 
     function _wireSystemItems(body, selectors) {
         _contentItems = selectors
-            .map(selector => body.querySelector(selector))
+            .flatMap(selector => Array.from(body.querySelectorAll(selector)))
             .filter(el => el && el.offsetParent !== null);
 
         _contentItems.forEach((el, idx) => {
@@ -1255,6 +1255,7 @@ window.isNavMenuOpen = false;
         const active = _systemUpdatesSubView || 'doorpi';
         const doorpiActive = active === 'doorpi';
         const windowsActive = active === 'windows';
+        const gpuActive = active === 'gpu';
         if (!document.getElementById('nav-system-update-tabs-styles')) {
             const s = document.createElement('style');
             s.id = 'nav-system-update-tabs-styles';
@@ -1263,6 +1264,9 @@ window.isNavMenuOpen = false;
                 .nav-system-tab { min-height: 42px; min-width: 150px; padding: 0 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.035); color: rgba(255,255,255,.74); font: inherit; outline: none; cursor: pointer; }
                 .nav-system-tab.active { background: rgba(120,190,255,.10); border-color: rgba(120,190,255,.36); color: #fff; }
                 .nav-system-tab.nav-focused-el { background: rgba(255,255,255,.15); border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,.18), 0 8px 20px rgba(0,0,0,.30); }
+                .nav-gpu-guidance { display:grid; gap:7px; margin:0 0 18px; padding-left:14px; border-left:2px solid rgba(125,203,255,.48); }
+                .nav-gpu-guidance p { margin:0; color:rgba(255,255,255,.56); font-size:.84rem; line-height:1.42; }
+                .nav-gpu-guidance strong { color:rgba(255,255,255,.84); font-weight:650; }
             `;
             document.head.appendChild(s);
         }
@@ -1277,6 +1281,7 @@ window.isNavMenuOpen = false;
             <div class="nav-system-tabs">
                 <button class="nav-system-tab ${doorpiActive ? 'active' : ''}" id="updatesTabDoorpi" data-updates-tab="doorpi" tabindex="-1">Doorpi</button>
                 <button class="nav-system-tab ${windowsActive ? 'active' : ''}" id="updatesTabWindows" data-updates-tab="windows" tabindex="-1">Windows</button>
+                <button class="nav-system-tab ${gpuActive ? 'active' : ''}" id="updatesTabGpu" data-updates-tab="gpu" tabindex="-1">Placa de vídeo</button>
             </div>
 
             <div class="nav-update-panel" id="systemUpdatePanel" style="display:${doorpiActive ? 'block' : 'none'};margin:0 0 18px;padding:16px 18px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.035);border-radius:10px;">
@@ -1332,26 +1337,49 @@ window.isNavMenuOpen = false;
                     <span class="nav-suggestion-card-text">Abre a tela nativa do Windows com mouse e teclado pelo controle.</span>
                 </button>
             </div>
+
+            <div class="nav-update-panel" id="gpuUpdatePanel" style="display:${gpuActive ? 'block' : 'none'};margin:0 0 18px;padding:16px 18px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.035);border-radius:10px;">
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:18px;">
+                    <div style="min-width:0;">
+                        <div id="gpuUpdateBadge" style="display:inline-flex;margin-bottom:8px;padding:3px 8px;border-radius:999px;background:rgba(125,203,255,.14);color:#7dcbff;font-size:.68rem;font-weight:800;letter-spacing:.12em;">GPU</div>
+                        <h3 id="gpuUpdateTitle" style="font-size:1.1rem;font-weight:600;color:#fff;margin:0 0 5px;">Placa de vídeo</h3>
+                        <p id="gpuUpdateSub" style="margin:0;color:rgba(255,255,255,.56);line-height:1.35;">Dados de placa de vídeo ainda não carregados.</p>
+                    </div>
+                    <div id="gpuUpdateMeta" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;color:rgba(255,255,255,.62);font-size:.84rem;white-space:nowrap;"></div>
+                </div>
+                <div id="gpuAdapterList" style="display:grid;gap:7px;margin:12px 0 0;color:rgba(255,255,255,.62);font-size:.86rem;line-height:1.35;"></div>
+            </div>
+
+            <div class="nav-gpu-guidance" style="display:${gpuActive ? 'grid' : 'none'};">
+                <p><strong>${_t('gpuUpdaterAdminNoticeTitle', 'Permiss\u00e3o tempor\u00e1ria.')}</strong> ${_t('gpuUpdaterAdminNoticeText', 'Se o Windows pedir permiss\u00e3o, autorize o assistente do Doorpi para controlar instaladores elevados.')}</p>
+                <p><strong>${_t('gpuUpdaterSessionNoticeTitle', 'Durante a atualiza\u00e7\u00e3o.')}</strong> ${_t('gpuUpdaterSessionNoticeText', 'N\u00e3o feche nem minimize o atualizador. Ao final, o Doorpi ser\u00e1 reiniciado para restaurar o renderizador.')}</p>
+            </div>
+
+            <div class="nav-suggestions-grid" id="gpuUpdateActionsGrid" style="display:${gpuActive ? 'flex' : 'none'};flex-direction:column;margin-bottom:18px;"></div>
         </div>`;
 
         const refreshItems = () => _wireSystemItems(body, [
             '#setBackSystemUpdates',
             '#updatesTabDoorpi',
             '#updatesTabWindows',
+            '#updatesTabGpu',
             '#navCardCheckUpdates',
             '#navCardStartUpdate',
             '#navCardCheckWindowsUpdates',
             '#navCardStartWindowsUpdate',
             '#navCardRestartWindows',
-            '#navCardOpenWindowsUpdate'
+            '#navCardOpenWindowsUpdate',
+            '#gpuUpdateActionsGrid .nav-gpu-app-card'
         ]);
 
         window._updateBootModeUI = refreshItems;
         refreshItems();
         _updateSystemUpdateUI();
         _updateWindowsUpdateUI();
+        _updateGpuUpdateUI();
         if (typeof postToHost === 'function') postToHost({ action: 'requestUpdateStatus' });
         if (typeof postToHost === 'function') postToHost({ action: 'requestWindowsUpdateStatus' });
+        if (typeof postToHost === 'function') postToHost({ action: 'requestGpuUpdateStatus' });
 
         body.querySelector('#setBackSystemUpdates')?.addEventListener('click', () => {
             _systemSubView = null;
@@ -1362,7 +1390,7 @@ window.isNavMenuOpen = false;
         body.querySelectorAll('[data-updates-tab]').forEach(btn => {
             btn.addEventListener('click', () => {
                 _systemUpdatesSubView = btn.dataset.updatesTab || 'doorpi';
-                _contentIdx = _systemUpdatesSubView === 'windows' ? 2 : 1;
+                _contentIdx = _systemUpdatesSubView === 'gpu' ? 3 : (_systemUpdatesSubView === 'windows' ? 2 : 1);
                 _renderContent('settings');
                 _updateContentFocus();
             });
@@ -1392,6 +1420,17 @@ window.isNavMenuOpen = false;
         });
         body.querySelector('#navCardOpenWindowsUpdate')?.addEventListener('click', () => {
             _showDesktopWarning('settings', () => postToHost?.({ action: 'openWindowsUpdateSettings' }));
+        });
+        body.querySelector('#gpuUpdateActionsGrid')?.addEventListener('click', (event) => {
+            const card = event.target.closest?.('.nav-gpu-app-card');
+            if (!card) return;
+            const action = card.dataset.gpuAction || '';
+            const updaterId = card.dataset.updaterId || '';
+            if (action === 'open') {
+                if (updaterId) postToHost?.({ action: 'openGpuUpdater', updaterId });
+            } else if (action === 'add') {
+                postToHost?.({ action: 'addGpuUpdater' });
+            }
         });
     }
 
@@ -1651,6 +1690,13 @@ window.isNavMenuOpen = false;
         rebootRequired: false,
         updates: [],
         error: ''
+    };
+    let _gpuUpdateStatus = {
+        status: 'idle',
+        message: 'Dados de placa de vídeo ainda não carregados.',
+        lastCheckedAt: '',
+        adapters: [],
+        updaters: []
     };
     const NAV_MENU_TRANSITION_MS = 600;
     let _navMenuTransitionTimer = 0;
@@ -2017,6 +2063,18 @@ window.isNavMenuOpen = false;
 .nav-suggestion-card.nav-focused-el .nav-suggestion-card-btn { background: rgba(255,255,255,0.2); border-color: rgba(255,255,255,0.5); }
 .nav-suggestion-card-text { font-size: 0.78rem; color: rgba(255,255,255,0.75); line-height: 1.45; }
 .nav-suggestion-card.nav-focused-el .nav-suggestion-card-text { color: #fff; }
+.nav-gpu-app-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:12px; width:100%; }
+.nav-gpu-app-card { min-height:168px; border:1px solid rgba(255,255,255,.12); border-radius:10px; background:linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.035)); color:#fff; outline:none; cursor:pointer; padding:14px; display:flex; flex-direction:column; justify-content:space-between; gap:12px; text-align:left; transition:all .2s cubic-bezier(.25,1,.5,1); }
+.nav-gpu-app-card.nav-focused-el { transform:translateY(-3px) scale(1.02); background:rgba(255,255,255,.09); border-color:rgba(255,255,255,.48); box-shadow:0 15px 35px rgba(0,0,0,.4); }
+.nav-gpu-app-art { height:78px; border-radius:8px; background:radial-gradient(circle at 25% 20%, rgba(125,203,255,.24), transparent 34%), rgba(255,255,255,.06); display:flex; align-items:center; justify-content:center; overflow:hidden; }
+.nav-gpu-app-art img { width:46px; height:46px; object-fit:contain; filter:drop-shadow(0 8px 18px rgba(0,0,0,.34)); }
+.nav-gpu-app-cover { width:100%; height:100%; background-size:cover; background-position:center; }
+.nav-gpu-app-fallback { width:46px; height:46px; border-radius:12px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,.12); color:#fff; font-weight:800; letter-spacing:.04em; }
+.nav-gpu-app-name { color:#fff; font-size:.95rem; font-weight:700; line-height:1.22; min-height:2.4em; overflow:hidden; }
+.nav-gpu-app-meta { margin-top:4px; color:rgba(255,255,255,.58); font-size:.74rem; line-height:1.35; }
+.nav-gpu-app-footer { display:flex; align-items:center; justify-content:flex-start; gap:10px; }
+.nav-gpu-app-open { padding:4px 9px; border-radius:999px; background:rgba(125,203,255,.13); color:#9dd8ff; font-size:.66rem; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+.nav-gpu-app-add { align-items:center; text-align:center; justify-content:center; border-style:dashed; }
 
 @media (max-width: 1366px), (max-height: 780px) {
 
@@ -2673,6 +2731,113 @@ window.isNavMenuOpen = false;
             window._updateBootModeUI();
         }
     }
+
+    function _gpuVendorName(vendor) {
+        const v = String(vendor || '').toLowerCase();
+        if (v === 'nvidia') return 'NVIDIA';
+        if (v === 'amd') return 'AMD';
+        if (v === 'intel') return 'Intel';
+        return vendor || 'GPU';
+    }
+
+    function _gpuUpdaterInitials(app) {
+        const base = _gpuVendorName(_readGpuProp(app, 'vendor')) || _readGpuProp(app, 'name') || 'APP';
+        return String(base).replace(/[^a-z0-9]/gi, '').slice(0, 3).toUpperCase() || 'APP';
+    }
+
+    function _readGpuProp(obj, key) {
+        if (!obj) return '';
+        const pascal = key.charAt(0).toUpperCase() + key.slice(1);
+        return obj[key] ?? obj[pascal] ?? '';
+    }
+
+    function _updateGpuUpdateUI() {
+        const status = _gpuUpdateStatus || {};
+        const adapters = Array.isArray(status.adapters) ? status.adapters : [];
+        const updaters = Array.isArray(status.updaters) ? status.updaters : [];
+        const badge = document.getElementById('gpuUpdateBadge');
+        const title = document.getElementById('gpuUpdateTitle');
+        const sub = document.getElementById('gpuUpdateSub');
+        const meta = document.getElementById('gpuUpdateMeta');
+        const list = document.getElementById('gpuAdapterList');
+        const actions = document.getElementById('gpuUpdateActionsGrid');
+
+        if (badge) {
+            badge.textContent = status.status === 'error'
+                ? 'ERRO'
+                : !adapters.length
+                    ? 'SEM GPU'
+                    : !updaters.length
+                        ? 'SEM APP'
+                        : 'DETECTADO';
+        }
+
+        if (title) title.textContent = 'Placa de vídeo';
+        if (sub) sub.textContent = status.message || 'Dados de placa de vídeo ainda não carregados.';
+
+        if (meta) {
+            meta.innerHTML = `
+                <span>${adapters.length} adaptador(es)</span>
+                <span>${updaters.length} app(s) configurado(s)</span>
+                <span>Última leitura: ${_esc(_formatWindowsUpdateDate(status.lastCheckedAt))}</span>
+            `;
+        }
+
+        if (list) {
+            list.innerHTML = adapters.length
+                ? adapters.map(adapter => `
+                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:7px 0;border-top:1px solid rgba(255,255,255,.06);">
+                        <span style="min-width:0;color:rgba(255,255,255,.72);">${_esc(_readGpuProp(adapter, 'name') || _gpuVendorName(_readGpuProp(adapter, 'vendor')))}</span>
+                        <span style="flex:0 0 auto;color:rgba(255,255,255,.42);">${_esc([_gpuVendorName(_readGpuProp(adapter, 'vendor')), _readGpuProp(adapter, 'driverVersion') || '--'].filter(Boolean).join(' - '))}</span>
+                    </div>
+                `).join('')
+                : `<div style="padding-top:4px;color:rgba(255,255,255,.42);">Nenhum driver de vídeo detectado.</div>`;
+        }
+
+        if (actions) {
+            actions.innerHTML = `
+                <div class="nav-gpu-app-grid">
+                    ${updaters.map(app => {
+                        const id = _readGpuProp(app, 'id');
+                        const name = _readGpuProp(app, 'name') || 'Atualizador';
+                        const vendor = _readGpuProp(app, 'vendor');
+                        const source = _readGpuProp(app, 'source');
+                        const imageUrl = _readGpuProp(app, 'imageUrl');
+                        const iconDataUrl = _readGpuProp(app, 'iconDataUrl');
+                        return `
+                        <div class="nav-gpu-app-card" data-gpu-action="open" data-updater-id="${_esc(id)}" data-gpu-updater-card="true" tabindex="-1" role="button">
+                            <div class="nav-gpu-app-art">
+                                ${imageUrl ? `<div class="nav-gpu-app-cover" style="background-image:url('${_esc(imageUrl)}')"></div>` : (iconDataUrl ? `<img src="${_esc(iconDataUrl)}" alt="">` : `<div class="nav-gpu-app-fallback">${_esc(_gpuUpdaterInitials(app))}</div>`)}
+                            </div>
+                            <div>
+                                <div class="nav-gpu-app-name">${_esc(name)}</div>
+                                <div class="nav-gpu-app-meta">${_esc(_gpuVendorName(vendor))} · ${_esc(source === 'manual' ? 'Adicionado manualmente' : 'Detectado automaticamente')}</div>
+                            </div>
+                            <div class="nav-gpu-app-footer">
+                                <span class="nav-gpu-app-open">Abrir</span>
+                            </div>
+                        </div>
+                    `}).join('')}
+                    <div class="nav-gpu-app-card nav-gpu-app-add" data-gpu-action="add" tabindex="-1" role="button">
+                        <div class="nav-gpu-app-art"><div class="nav-gpu-app-fallback">+</div></div>
+                        <div>
+                            <div class="nav-gpu-app-name">Adicionar app</div>
+                            <div class="nav-gpu-app-meta">Escolha outro atualizador instalado no Windows.</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        if (window._updateBootModeUI && document.getElementById('gpuUpdatePanel')) {
+            window._updateBootModeUI();
+        }
+    }
+
+    window._navMenuSetGpuUpdateStatus = function (status) {
+        _gpuUpdateStatus = { ..._gpuUpdateStatus, ...(status || {}) };
+        _updateGpuUpdateUI();
+    };
 
     function _renderSettingsAccountHub(body) {
         const svgProfile = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
@@ -4171,6 +4336,12 @@ window.isNavMenuOpen = false;
     };
 
     document.addEventListener('keydown', e => {
+        // O popup de conflito possui prioridade no controlador global de navegacao.
+        if (window.isSessionConflictPopupOpen?.()) return;
+        const executionOverlay = document.getElementById('gameLaunchOverlay');
+        if (executionOverlay?.classList.contains('visible') &&
+            executionOverlay.classList.contains('execution-lock-visible')) return;
+
         if (window.isDoorpiSessionTransitionActive?.()) {
             e.preventDefault();
             e.stopImmediatePropagation();
@@ -4456,9 +4627,14 @@ window.isNavMenuOpen = false;
                 if (_systemSubView === 'updates') {
                     const tabDoorpiIdx = _contentItems.findIndex(el => el?.id === 'updatesTabDoorpi');
                     const tabWindowsIdx = _contentItems.findIndex(el => el?.id === 'updatesTabWindows');
+                    const tabGpuIdx = _contentItems.findIndex(el => el?.id === 'updatesTabGpu');
+                    const activeTabIdx = _systemUpdatesSubView === 'gpu'
+                        ? tabGpuIdx
+                        : (_systemUpdatesSubView === 'windows' ? tabWindowsIdx : tabDoorpiIdx);
                     const firstActionIdx = _contentItems.findIndex(el =>
-                        el?.classList?.contains('nav-suggestion-card'));
-                    const onTabs = _contentIdx === tabDoorpiIdx || _contentIdx === tabWindowsIdx;
+                        el?.classList?.contains('nav-suggestion-card') ||
+                        el?.classList?.contains('nav-gpu-app-card'));
+                    const onTabs = _contentIdx === tabDoorpiIdx || _contentIdx === tabWindowsIdx || _contentIdx === tabGpuIdx;
 
                     if (key === 'ArrowUp') {
                         if (_contentIdx <= 0) {
@@ -4466,16 +4642,18 @@ window.isNavMenuOpen = false;
                             return;
                         }
                         if (onTabs) _contentIdx = 0;
-                        else if (_contentIdx === firstActionIdx) _contentIdx = _systemUpdatesSubView === 'windows' ? tabWindowsIdx : tabDoorpiIdx;
+                        else if (_contentIdx === firstActionIdx) _contentIdx = activeTabIdx;
                         else _contentIdx--;
                     } else if (key === 'ArrowDown') {
-                        if (_contentIdx === 0) _contentIdx = _systemUpdatesSubView === 'windows' ? tabWindowsIdx : tabDoorpiIdx;
+                        if (_contentIdx === 0) _contentIdx = activeTabIdx;
                         else if (onTabs && firstActionIdx !== -1) _contentIdx = firstActionIdx;
                         else if (_contentIdx < total - 1) _contentIdx++;
                     } else if (key === 'ArrowLeft') {
-                        if (_contentIdx === tabWindowsIdx) _contentIdx = tabDoorpiIdx;
+                        if (_contentIdx === tabGpuIdx) _contentIdx = tabWindowsIdx;
+                        else if (_contentIdx === tabWindowsIdx) _contentIdx = tabDoorpiIdx;
                     } else if (key === 'ArrowRight') {
                         if (_contentIdx === tabDoorpiIdx) _contentIdx = tabWindowsIdx;
+                        else if (_contentIdx === tabWindowsIdx) _contentIdx = tabGpuIdx;
                     }
 
                     _contentIdx = Math.max(0, Math.min(total - 1, _contentIdx));
@@ -4594,6 +4772,11 @@ window.isNavMenuOpen = false;
                     _windowsUpdateStatus = { ..._windowsUpdateStatus, ...data };
                     _updateWindowsUpdateUI();
                 }
+
+                if (data.type === 'gpuUpdateStatus') {
+                    _gpuUpdateStatus = { ..._gpuUpdateStatus, ...data };
+                    _updateGpuUpdateUI();
+                }
                 
                 if (data.type === 'autoStartState') {
                     _autoStartEnabled = !!data.enabled;
@@ -4645,7 +4828,12 @@ window.isNavMenuOpen = false;
     window._navMenuTriggerCtxMenu = function () {
         if (!window.isNavMenuOpen) return;
         const catId = CATS[_catIdx]?.id;
-        if (catId !== 'games' && catId !== 'media') return;
+        const allowGpuUpdaterContext =
+            catId === 'settings' &&
+            _settingsSubView === 'system' &&
+            _systemSubView === 'updates' &&
+            _systemUpdatesSubView === 'gpu';
+        if (catId !== 'games' && catId !== 'media' && !allowGpuUpdaterContext) return;
 
         // Ao usar Virtual Rendering, a referencia O(1) correta no DOM é essa:
         let focused = null;
@@ -4656,6 +4844,7 @@ window.isNavMenuOpen = false;
         }
         
         if (!focused) return;
+        if (allowGpuUpdaterContext && focused.dataset?.gpuUpdaterCard !== 'true') return;
 
         const r = focused.getBoundingClientRect();
         window._ctxMenuOpen?.(focused, r.right + 2, r.top);
