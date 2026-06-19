@@ -1051,6 +1051,12 @@ window.requestDoorpiBackAction = function () {
         return true;
     }
 
+    if (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) {
+        closeCtxMenu();
+        window.DoorpiUiSound?.play('back');
+        return true;
+    }
+
     if (window.DoorpiQuickPanel?.isOpen?.()) {
         window.DoorpiQuickPanel.back?.();
         window.DoorpiUiSound?.play('back');
@@ -1070,12 +1076,6 @@ window.requestDoorpiBackAction = function () {
     if (window.isDoorpiOverlayOpen?.()) {
         if (!canCloseProfileSelection()) return false;
         window.closeDoorpiTopOverlay?.();
-        window.DoorpiUiSound?.play('back');
-        return true;
-    }
-
-    if (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) {
-        closeCtxMenu();
         window.DoorpiUiSound?.play('back');
         return true;
     }
@@ -1323,6 +1323,19 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
                 window._gpNavigating = false;
             }, NAV.GAMEPAD.REPEAT_DELAY + 50);
         }
+        if (isCtxMenuOpen) {
+            _currentDirection = null;
+            _moveState = 0;
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
+                document.activeElement?.click();
+            }
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
+                closeCtxMenu();
+                window.DoorpiUiSound?.play('back');
+            }
+            return;
+        }
+
         if (window.isDesktopWarningOpen) {
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) window._dwAction?.('CONFIRM');
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
@@ -1350,6 +1363,9 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
                 if (window.requestDoorpiBackAction?.()) return;
                 if (!canCloseProfileSelection()) return;
                 window.closeDoorpiTopOverlay?.();
+            }
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) {
+                triggerContextMenu();
             }
             return;
         }

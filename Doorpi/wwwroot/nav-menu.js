@@ -4337,6 +4337,7 @@ window.isNavMenuOpen = false;
 
     function close() {
         if (!window.isNavMenuOpen || _navMenuPhase === 'closing') return;
+        if (document.querySelector('.context-menu.visible')) window._ctxMenuClose?.();
         const lifecycleToken = ++_navMenuLifecycleToken;
         _navMenuPhase = 'closing';
         window._navMenuPhase = _navMenuPhase;
@@ -4705,6 +4706,22 @@ window.isNavMenuOpen = false;
                         el?.classList?.contains('nav-suggestion-card') ||
                         el?.classList?.contains('nav-gpu-app-card'));
                     const onTabs = _contentIdx === tabDoorpiIdx || _contentIdx === tabWindowsIdx || _contentIdx === tabGpuIdx;
+                    const gpuCardIndices = _contentItems
+                        .map((el, idx) => el?.classList?.contains('nav-gpu-app-card') ? idx : -1)
+                        .filter(idx => idx >= 0);
+                    const gpuCardPosition = gpuCardIndices.indexOf(_contentIdx);
+
+                    if (_systemUpdatesSubView === 'gpu' && gpuCardPosition >= 0) {
+                        if (key === 'ArrowLeft') {
+                            _contentIdx = gpuCardIndices[(gpuCardPosition - 1 + gpuCardIndices.length) % gpuCardIndices.length];
+                        } else if (key === 'ArrowRight') {
+                            _contentIdx = gpuCardIndices[(gpuCardPosition + 1) % gpuCardIndices.length];
+                        } else if (key === 'ArrowUp') {
+                            _contentIdx = tabGpuIdx;
+                        }
+                        _updateContentFocus();
+                        return;
+                    }
 
                     if (key === 'ArrowUp') {
                         if (_contentIdx <= 0) {

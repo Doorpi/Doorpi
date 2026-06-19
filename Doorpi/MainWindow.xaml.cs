@@ -1986,6 +1986,8 @@ namespace Doorpi
         }
         // ========================= CONTROLE COMPARTILHADO (APP EXE & DIALOGS) =========================
         private const ushort MOUSE_MODE_SHORTCUT_MASK = 0x00C0; // L3 + R3
+        private const double CONTROLLER_MOUSE_BASE_SPEED = 700.0;
+        private const double CONTROLLER_NATIVE_MOUSE_BASE_SPEED = 900.0;
         private const double CONTROLLER_MOUSE_SENSITIVITY_SCALE = 0.64;
 
         private static bool IsMouseModeShortcutPressed(ushort buttons)
@@ -2185,7 +2187,7 @@ namespace Doorpi
                             // Movimento do mouse
                             if (mlx != 0 || mly != 0)
                             {
-                                const double BASE = 1800.0 * CONTROLLER_MOUSE_SENSITIVITY_SCALE;
+                                const double BASE = CONTROLLER_NATIVE_MOUSE_BASE_SPEED * CONTROLLER_MOUSE_SENSITIVITY_SCALE;
                                 double cx = Math.Sign(mlx) * Math.Pow(Math.Abs(mlx), 2.2);
                                 double cy = Math.Sign(mly) * Math.Pow(Math.Abs(mly), 2.2);
                                 double mx = cx * BASE * dt + remainderX;
@@ -4270,7 +4272,7 @@ namespace Doorpi
 
                             if (mlx != 0 || mly != 0)
                             {
-                                const double BASE_SENSITIVITY = 1800.0 * CONTROLLER_MOUSE_SENSITIVITY_SCALE;
+                                const double BASE_SENSITIVITY = CONTROLLER_NATIVE_MOUSE_BASE_SPEED * CONTROLLER_MOUSE_SENSITIVITY_SCALE;
                                 double curveX = Math.Sign(mlx) * Math.Pow(Math.Abs(mlx), 2.2);
                                 double curveY = Math.Sign(mly) * Math.Pow(Math.Abs(mly), 2.2);
                                 double moveX = curveX * BASE_SENSITIVITY * dt + remainderX;

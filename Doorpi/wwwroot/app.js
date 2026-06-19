@@ -5050,6 +5050,39 @@
                 });
         }
 
+        function getQuickPanelContentItems() {
+            const contentEl = document.querySelector('#doorpiQuickPanel .dq-content');
+            if (!contentEl) return [];
+            return Array.from(contentEl.querySelectorAll('button, input, select, [tabindex="0"]'))
+                .filter(el => !el.disabled && el.offsetWidth > 0 && el.offsetHeight > 0);
+        }
+
+        function findContentTargetToRight(active, items) {
+            if (!active || !items.length) return null;
+            const activeRect = active.getBoundingClientRect();
+            const activeCenterX = activeRect.left + activeRect.width / 2;
+            const activeCenterY = activeRect.top + activeRect.height / 2;
+            let best = null;
+            let bestScore = Number.POSITIVE_INFINITY;
+
+            items.forEach(item => {
+                if (item === active) return;
+                const rect = item.getBoundingClientRect();
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+                if (centerX <= activeCenterX) return;
+                const verticalOverlap = Math.min(activeRect.bottom, rect.bottom) - Math.max(activeRect.top, rect.top);
+                if (verticalOverlap <= -10) return;
+                const score = (centerX - activeCenterX) + Math.abs(centerY - activeCenterY) * 0.25;
+                if (score < bestScore) {
+                    best = item;
+                    bestScore = score;
+                }
+            });
+
+            return best;
+        }
+
         function wire(overlay) {
             overlay.querySelectorAll('[data-section]').forEach(btn => {
                 btn.addEventListener('click', () => {
@@ -5146,6 +5179,7 @@
         }
 
         function close() {
+            if (document.querySelector('.context-menu.visible')) window._ctxMenuClose?.();
             const overlay = document.getElementById('doorpiQuickPanel');
             if (overlay) {
                 overlay.classList.remove('visible');
@@ -5178,16 +5212,31 @@
         function handleDirection(direction) {
             if (!api.isOpen()) return false;
             const active = document.activeElement;
-            if (active?.closest?.('#doorpiQuickPanel .dq-content') && direction === 'LEFT') {
-                if (hasContentTargetToLeft(active)) return false;
-                depth = 'menu';
-                const focusSelector = section ? `.dq-menu-btn[data-section="${section}"]` : '.dq-menu-btn';
-                section = null;
-                updateView = 'hub';
-                render(focusSelector);
-                return true;
+            if (active?.closest?.('#doorpiQuickPanel .dq-content')) {
+                if (direction === 'LEFT') {
+                    if (hasContentTargetToLeft(active)) return false;
+                    depth = 'menu';
+                    const sidebarTarget = document.querySelector(
+                        `#doorpiQuickPanel .dq-menu-btn[data-section="${section}"]`);
+                    sidebarTarget?.focus();
+                    return true;
+                }
+                if (direction === 'RIGHT') {
+                    const contentItems = getQuickPanelContentItems();
+                    const target = findContentTargetToRight(active, contentItems) || contentItems[0];
+                    target?.focus();
+                    return true;
+                }
             }
             if (active?.closest?.('#doorpiQuickPanel .dq-sidebar') && direction === 'RIGHT') {
+                const contentItems = getQuickPanelContentItems();
+                if (section && contentItems.length) {
+                    depth = 'content';
+                    const preferred = document.querySelector(
+                        `#doorpiQuickPanel ${contentFocusFor(section)}`);
+                    (preferred && contentItems.includes(preferred) ? preferred : contentItems[0])?.focus();
+                    return true;
+                }
                 close();
                 return true;
             }
@@ -5296,7 +5345,7 @@
             }
             return;
         }
-        if (e.target?.closest?.('.vkb-overlay, .doorpi-vkb-overlay')) return;
+        if (e.target?.closest?.('.vkb-overlay, .doorpi-vkb-overlay, .context-menu.visible')) return;
         if (window.isDoorpiOverlayOpen && window.isDoorpiOverlayOpen()) {
             const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay, .doorpi-pin-panel'))
                 .filter(el => el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
@@ -6555,6 +6604,21 @@ function renderFolderList(folders) {
         .context-menu.visible {
             opacity: 1; transform: scale(1) translateY(0); pointer-events: all;
         }
+        .context-menu.gpu-updater-context {
+            min-width: 280px;
+            padding: 8px;
+            background: rgba(8,9,18,.98);
+            border-color: rgba(255,255,255,.15);
+        }
+        .context-menu.gpu-updater-context .ctx-game-name {
+            padding: 9px 12px 8px;
+            max-width: 260px;
+            color: rgba(255,255,255,.48);
+        }
+        .context-menu.gpu-updater-context .ctx-item {
+            min-height: 46px;
+            padding: 0 12px;
+        }
         .ctx-game-name {
             padding: 8px 14px 4px;
             font-size: 10.5px;
@@ -6987,28 +7051,19 @@ function renderFolderList(folders) {
 
     function _syncCtxMenuSeparators() {
         const children = Array.from(_ctxMenu.children);
-        for (let i = 0; i < children.length; i++) {
-            const el = children[i];
-            if (!el.classList?.contains('ctx-separator')) continue;
+        const separators = children.filter(child => child.classList?.contains('ctx-separator'));
+        separators.forEach(separator => { separator.style.display = 'none'; });
 
-            let prevVisible = false;
-            let nextVisible = false;
-
-            for (let p = i - 1; p >= 0; p--) {
-                const prev = children[p];
-                if (prev.classList?.contains('ctx-separator')) continue;
-                prevVisible = _isCtxItemVisible(prev);
-                if (prevVisible) break;
-            }
-
-            for (let n = i + 1; n < children.length; n++) {
-                const next = children[n];
-                if (next.classList?.contains('ctx-separator')) continue;
-                nextVisible = _isCtxItemVisible(next);
-                if (nextVisible) break;
-            }
-
-            el.style.display = prevVisible && nextVisible ? 'block' : 'none';
+        const visibleItems = children.filter(child =>
+            child.classList?.contains('ctx-item') && _isCtxItemVisible(child));
+        for (let i = 1; i < visibleItems.length; i++) {
+            const previousIndex = children.indexOf(visibleItems[i - 1]);
+            const currentIndex = children.indexOf(visibleItems[i]);
+            const separator = children
+                .slice(previousIndex + 1, currentIndex)
+                .filter(child => child.classList?.contains('ctx-separator'))
+                .at(-1);
+            if (separator) separator.style.display = 'block';
         }
     }
 
@@ -7023,6 +7078,7 @@ function renderFolderList(folders) {
         const gameId = card.dataset.gameId || card.dataset.appId || card.dataset.appUrl;
         const isYoutube = (gameId && gameId.toLowerCase().includes('youtube'));
         const isGpuUpdaterCard = card.dataset.gpuUpdaterCard === 'true';
+        _ctxMenu.classList.toggle('gpu-updater-context', isGpuUpdaterCard);
 
         const ctxEditBtn = _ctxMenu.querySelector('#ctxEdit');
         const ctxDeleteBtn = _ctxMenu.querySelector('#ctxDelete');
