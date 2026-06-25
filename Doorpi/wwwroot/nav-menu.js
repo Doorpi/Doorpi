@@ -1095,11 +1095,12 @@ window.isNavMenuOpen = false;
 
         const svgPower = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>`;
         const svgUpdate = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v6h-6"/><path d="M12 8v5l3 2"/></svg>`;
+        const svgConnectivity = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 8a7 7 0 0 1 10 0"/><path d="M9.8 10.8a3.1 3.1 0 0 1 4.4 0"/><circle cx="12" cy="14" r="1" fill="currentColor" stroke="none"/><path d="m17 4 4 4-3 2.5 3 2.5-4 4V4Z"/></svg>`;
 
         body.innerHTML = `
         <div class="nav-settings-subheader">
             <button class="nav-back-btn" id="setBackSystemHub" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
-            <h2>${_t('navSetSystem', 'Sistema e Inicialização')}</h2>
+            <h2>${_t('navSetSystem', 'Sistema')}</h2>
         </div>
         <div class="nav-settings-grid">
             <button class="nav-settings-card" id="setSystemStartup" tabindex="-1">
@@ -1116,9 +1117,16 @@ window.isNavMenuOpen = false;
                     <p>Doorpi, Updater e Windows Update reunidos em uma área dedicada.</p>
                 </div>
             </button>
+            <button class="nav-settings-card" id="setSystemConnectivity" tabindex="-1">
+                <div class="settings-card-icon">${svgConnectivity}</div>
+                <div class="settings-card-info">
+                    <h3>${_t('navSetConnectivity', 'Conectividade')}</h3>
+                    <p>${_t('navSetConnectivityDesc', 'Bluetooth, dispositivos e conexões sem fio')}</p>
+                </div>
+            </button>
         </div>`;
 
-        _wireSystemItems(body, ['#setBackSystemHub', '#setSystemStartup', '#setSystemUpdates']);
+        _wireSystemItems(body, ['#setBackSystemHub', '#setSystemStartup', '#setSystemUpdates', '#setSystemConnectivity']);
 
         body.querySelector('#setBackSystemHub')?.addEventListener('click', () => {
             _settingsSubView = null;
@@ -1136,6 +1144,13 @@ window.isNavMenuOpen = false;
         body.querySelector('#setSystemUpdates')?.addEventListener('click', () => {
             _systemSubView = 'updates';
             _systemUpdatesSubView = 'doorpi';
+            _contentIdx = 0;
+            _renderContent('settings');
+            _updateContentFocus();
+        });
+        body.querySelector('#setSystemConnectivity')?.addEventListener('click', () => {
+            _settingsSubView = 'connectivityHub';
+            _systemSubView = 'connectivity';
             _contentIdx = 0;
             _renderContent('settings');
             _updateContentFocus();
@@ -2013,6 +2028,7 @@ window.isNavMenuOpen = false;
 
 /* ── Dashboard de Configurações ── */
 .nav-settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(200px, 22vw, 320px), 1fr)); gap: clamp(12px, 1.5vh, 24px); animation: fadeInTop 0.4s ease; max-width: 1400px; }
+.nav-settings-grid.nav-connectivity-grid { grid-template-columns: repeat(2, minmax(240px, 340px)); max-width: 740px; }
 .nav-settings-card {
     background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 16px;
     padding: clamp(16px, 2.5vh, 30px) clamp(16px, 1.8vw, 24px); display: flex; align-items: flex-start; gap: clamp(12px, 1.5vw, 20px); cursor: pointer; outline: none;
@@ -2536,7 +2552,6 @@ window.isNavMenuOpen = false;
         const svgUser = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
         const svgSys = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`;
         const svgExt = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`;
-        const svgConnectivity = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 7.5a7 7 0 0 1 10 0"/><path d="M9.7 10.2a3.3 3.3 0 0 1 4.6 0"/><circle cx="12" cy="13" r=".7" fill="currentColor"/><path d="m16.5 3 4 4-3 2.5 3 2.5-4 4V3Z"/></svg>`;
 
         body.innerHTML = `
         <div class="nav-settings-grid">
@@ -2550,15 +2565,8 @@ window.isNavMenuOpen = false;
             <button class="nav-settings-card" id="setSystem" tabindex="-1">
                 <div class="settings-card-icon">${svgSys}</div>
                 <div class="settings-card-info">
-                    <h3>${_t('navSetSystem', 'Sistema e Inicialização')}</h3>
+                    <h3>${_t('navSetSystem', 'Sistema')}</h3>
                     <p>${_t('navSetSystemDesc', 'Ajustes de inicialização do console e acesso à área de trabalho')}</p>
-                </div>
-            </button>
-            <button class="nav-settings-card" id="setConnectivity" tabindex="-1">
-                <div class="settings-card-icon">${svgConnectivity}</div>
-                <div class="settings-card-info">
-                    <h3>${_t('navSetConnectivity', 'Conectividade')}</h3>
-                    <p>${_t('navSetConnectivityDesc', 'Bluetooth, dispositivos e conexões sem fio')}</p>
                 </div>
             </button>
             <button class="nav-settings-card" id="setExt" tabindex="-1">
@@ -2574,7 +2582,6 @@ window.isNavMenuOpen = false;
         _contentItems = [
             body.querySelector('#setAccount'),
             body.querySelector('#setSystem'),
-            body.querySelector('#setConnectivity'),
             body.querySelector('#setExt')
         ].filter(Boolean);
 
@@ -2588,10 +2595,6 @@ window.isNavMenuOpen = false;
 
         body.querySelector('#setExt')?.addEventListener('click', () => {
             window.openExtensionsManager?.();
-        });
-
-        body.querySelector('#setConnectivity')?.addEventListener('click', () => {
-            _settingsSubView = 'connectivityHub'; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
         });
 
         _contentItems.forEach((btn, idx) => {
@@ -2673,14 +2676,14 @@ window.isNavMenuOpen = false;
     }
 
     function _renderSettingsConnectivityHub(body) {
-        const svgBluetooth = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m10 2 7 7-5 3 5 3-7 7V2Z"/><path d="m5 6 12 12M5 18 17 6"/></svg>`;
+        const svgBluetooth = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v20l6-6-6-4 6-4-6-6Z"/><path d="M6.5 6.5 12 12l-5.5 5.5"/></svg>`;
         const svgWifi = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.5 8.5a12 12 0 0 1 17 0"/><path d="M6.7 11.7a7.5 7.5 0 0 1 10.6 0"/><path d="M9.8 14.8a3.1 3.1 0 0 1 4.4 0"/><circle cx="12" cy="18" r="1" fill="currentColor" stroke="none"/></svg>`;
         body.innerHTML = `
             <div class="nav-settings-subheader">
                 <button class="nav-back-btn" id="setBackConnectivity" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
                 <h2>${_t('navSetConnectivity', 'Conectividade')}</h2>
             </div>
-            <div class="nav-settings-grid">
+            <div class="nav-settings-grid nav-connectivity-grid">
                 <button class="nav-settings-card" id="setBluetooth" tabindex="-1">
                     <div class="settings-card-icon">${svgBluetooth}</div>
                     <div class="settings-card-info">
@@ -2702,7 +2705,7 @@ window.isNavMenuOpen = false;
             _topbarFocus = false; _contentIdx = idx; _updateContentFocus();
         }));
         body.querySelector('#setBackConnectivity')?.addEventListener('click', () => {
-            _settingsSubView = null; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
+            _settingsSubView = 'system'; _systemSubView = null; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
         });
         body.querySelector('#setBluetooth')?.addEventListener('click', () => {
             _settingsSubView = 'bluetooth'; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
@@ -4935,14 +4938,14 @@ window.isNavMenuOpen = false;
                     } else if (key === 'ArrowDown') {
                         if (_contentIdx === 0) _contentIdx = 1;
                     } else if (key === 'ArrowLeft') {
-                        if (_contentIdx === 2) _contentIdx = 1;
+                        if (_contentIdx > 1) _contentIdx--;
                         else if (_contentIdx === 1) _contentIdx = 0;
                         else {
                             _setTopbarFocus(true);
                             return;
                         }
                     } else if (key === 'ArrowRight') {
-                        if (_contentIdx === 1) _contentIdx = 2;
+                        if (_contentIdx >= 1 && _contentIdx < total - 1) _contentIdx++;
                     }
 
                     _contentIdx = Math.max(0, Math.min(total - 1, _contentIdx));
@@ -5030,6 +5033,33 @@ window.isNavMenuOpen = false;
             }
         }
 
+        if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'connectivityHub') {
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
+                if (key === 'ArrowUp') {
+                    if (_contentIdx <= 0) {
+                        _setTopbarFocus(true);
+                        return;
+                    }
+                    _contentIdx = 0;
+                } else if (key === 'ArrowDown') {
+                    if (_contentIdx === 0) _contentIdx = 1;
+                } else if (key === 'ArrowLeft') {
+                    if (_contentIdx === 2) _contentIdx = 1;
+                    else if (_contentIdx === 1) _contentIdx = 0;
+                    else {
+                        _setTopbarFocus(true);
+                        return;
+                    }
+                } else if (key === 'ArrowRight') {
+                    if (_contentIdx === 1) _contentIdx = 2;
+                }
+
+                _contentIdx = Math.max(0, Math.min(total - 1, _contentIdx));
+                _updateContentFocus();
+                return;
+            }
+        }
+
         // Navegação Comum Padrão (Sem Lazy Load)
         switch (key) {
             case 'ArrowLeft':
@@ -5076,7 +5106,8 @@ window.isNavMenuOpen = false;
                     } else if (_settingsSubView === 'wifi') {
                         _settingsSubView = 'connectivityHub';
                     } else if (_settingsSubView === 'connectivityHub') {
-                        _settingsSubView = null;
+                        _settingsSubView = 'system';
+                        _systemSubView = null;
                     } else if (_settingsSubView === 'system' && _systemSubView) {
                         _systemSubView = null;
                     } else {
