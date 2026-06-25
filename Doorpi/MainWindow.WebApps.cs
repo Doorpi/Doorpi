@@ -2067,7 +2067,24 @@ namespace Doorpi
             '.doorpi-vkb-overlay.numeric .doorpi-vkb-key[data-key=ENTER],.doorpi-vkb-overlay.numeric .doorpi-vkb-key[data-key=BKSP]{{grid-column:span 1!important;width:clamp(64px,5.6vw,120px)!important;height:clamp(54px,5.2vw,86px)!important;}}',
             '.doorpi-vkb-overlay.numeric .doorpi-vkb-key[data-key=CANCEL]{{grid-column:span 3!important;width:100%!important;height:clamp(54px,5.2vw,86px)!important;}}',
             '.doorpi-vkb-key[data-key=SHIFT]{{font-size:clamp(15px,1.6vw,22px);}}',
-            '.doorpi-vkb-key[data-key=SHIFT].shifted{{background:rgba(255,255,255,0.2);border-color:rgba(255,255,255,0.3);color:#fff;}}'
+            '.doorpi-vkb-key[data-key=SHIFT].shifted{{background:rgba(255,255,255,0.2);border-color:rgba(255,255,255,0.3);color:#fff;}}',
+            '.doorpi-vkb-overlay{{top:50%;left:50%;right:auto;bottom:auto;width:min(1080px,calc(100vw - 32px));',
+            'padding:clamp(10px,1.2vh,16px);background:rgba(8,9,15,.96);border:1px solid rgba(255,255,255,.13);',
+            'border-radius:clamp(14px,1.1vw,20px);box-shadow:0 28px 90px rgba(0,0,0,.72),0 0 0 1px rgba(255,255,255,.04) inset;',
+            'backdrop-filter:blur(22px) saturate(1.25);opacity:0;transform:translate(-50%,10px) scale(.985);transition:opacity .16s ease,transform .16s ease;}}',
+            '.doorpi-vkb-overlay.visible{{opacity:1;transform:translate(-50%,0) scale(1);}}',
+            '.doorpi-vkb-preview-wrap{{gap:clamp(8px,.8vw,14px);margin-bottom:clamp(8px,1vh,14px);}}',
+            '.doorpi-vkb-preview-label{{font-size:clamp(9px,.72vw,12px);}}',
+            '.doorpi-vkb-preview-text{{font-size:clamp(14px,1.05vw,20px);padding:clamp(7px,.8vh,10px) clamp(10px,1vw,16px);min-height:clamp(34px,4vh,48px);}}',
+            '.doorpi-vkb-grid{{display:grid;grid-template-columns:repeat(13,minmax(0,1fr));gap:clamp(5px,.55vh,8px) clamp(5px,.45vw,8px);width:auto;margin:0;}}',
+            '.doorpi-vkb-key{{height:clamp(36px,3.2vw,58px);border-bottom-width:2px;font-size:clamp(12px,.95vw,17px);}}',
+            '.doorpi-vkb-key.focused{{transform:scale(1.06) translateY(-2px);}}',
+            '.doorpi-vkb-key[data-controller-hint]::after{{top:4px;right:5px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:rgba(255,255,255,.12);font-size:8px;display:flex;align-items:center;justify-content:center;}}',
+            '.doorpi-vkb-key[data-key=SPACE]{{height:clamp(42px,3.6vw,62px);font-size:clamp(11px,.82vw,14px);}}',
+            '.doorpi-vkb-key[data-key=CANCEL],.doorpi-vkb-key[data-key=ENTER],.doorpi-vkb-key[data-key=BKSP],.doorpi-vkb-key[data-key=SHIFT]{{font-size:clamp(11px,.85vw,15px);}}',
+            '.doorpi-vkb-overlay.numeric{{width:min(360px,calc(100vw - 32px))!important;}}',
+            '.doorpi-vkb-overlay.numeric .doorpi-vkb-grid{{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;}}',
+            '.doorpi-vkb-overlay.numeric .doorpi-vkb-key{{min-width:0;height:clamp(44px,4.2vw,68px);font-size:clamp(16px,1.3vw,24px);font-weight:650;}}'
         ].join('');
         try {{ const sh = new CSSStyleSheet(); sh.replaceSync(css); document.adoptedStyleSheets = [...document.adoptedStyleSheets, sh]; }}
         catch(e) {{ const s = document.createElement('style'); s.id = 'doorpi-vkb-style'; s.textContent = css; document.head.appendChild(s); }}
@@ -2177,6 +2194,27 @@ namespace Doorpi
             cur,
             document.createTextNode(txt.slice(pos).replace(/ /g,'\u00A0'))
         );
+    }}
+
+    function _vkbPosition() {{
+        if (!_vkbEl || !_vkbInputEl || _vkbEl.style.display === 'none') return;
+        let rect;
+        try {{ rect = _vkbInputEl.getBoundingClientRect(); }} catch(e) {{ rect = null; }}
+        if (!rect) return;
+        const margin = 14;
+        const numeric = _vkbMode === 'numeric';
+        const width = numeric
+            ? Math.min(360, Math.max(280, window.innerWidth - 32))
+            : Math.min(window.innerWidth - 32, Math.max(620, Math.min(1080, window.innerWidth * 0.72)));
+        _vkbEl.style.width = Math.round(width) + 'px';
+        const measured = _vkbEl.getBoundingClientRect();
+        const height = measured.height || 300;
+        const center = Math.max(16 + width / 2, Math.min(window.innerWidth - 16 - width / 2, rect.left + rect.width / 2));
+        const above = rect.top - height - margin;
+        const below = rect.bottom + margin;
+        const top = above >= 12 ? above : Math.min(Math.max(12, below), Math.max(12, window.innerHeight - height - 12));
+        _vkbEl.style.left = Math.round(center) + 'px';
+        _vkbEl.style.top = Math.round(top) + 'px';
     }}
 
     function _vkbSetShift(on) {{
@@ -2342,6 +2380,7 @@ namespace Doorpi
             _vkbCursorPos = isEditable ? (targetEl.textContent||'').length : (sel ?? (targetEl.value||'').length);
             _vkbInputEl.addEventListener('input', _vkbRenderPreview);
             _vkbRenderPreview();
+            _vkbPosition();
             return;
         }}
 
@@ -2356,8 +2395,10 @@ namespace Doorpi
         if (_vkbMode === 'text') _vkbSetShift(_vkbShifted);
         _vkbRenderPreview();
         _vkbInputEl.addEventListener('input', _vkbRenderPreview);
+        _vkbPosition();
 
         requestAnimationFrame(() => {{
+            _vkbPosition();
             _vkbEl.classList.add('visible');
             window._vkbIsOpen = true;
             _vkbSetFocus(_vkbMode === 'numeric' ? '1' : 'q');
@@ -2397,6 +2438,7 @@ namespace Doorpi
     window.__doorpiVkbToggleShift = ()    => _vkbSetShift(!_vkbShifted);
     window.__doorpiVkbToggleLayer = ()    => _vkbPressKey(_vkbMode === 'special' ? 'ABC' : 'SYM');
     window.__doorpiVkbEnter       = ()    => _vkbPressKey('ENTER');
+    window.addEventListener('resize', () => {{ if (window._vkbIsOpen) _vkbPosition(); }});
 
 // DEPOIS
     document.addEventListener('focusin', e => {{

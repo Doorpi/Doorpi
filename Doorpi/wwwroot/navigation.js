@@ -26,7 +26,7 @@ const NAV = {
     },
     KEYS: { UP: 'ArrowUp', DOWN: 'ArrowDown', LEFT: 'ArrowLeft', RIGHT: 'ArrowRight', CONFIRM: 'Enter', CANCEL: 'Escape' },
 };
-const VKB_BOTTOM_KEYS = ['space', 'cancel', 'ok'];
+const VKB_BOTTOM_KEYS = ['SYM', 'ABC', 'CURSOR_LEFT', 'SPACE', 'CURSOR_RIGHT', '.com'];
 
 const GAMEPAD_ICONS = {
     ps: {
@@ -253,9 +253,9 @@ function findWrapCandidate(items, current, direction) {
 
 function findVkbCandidate(items, current, direction) {
     const curKey = current.dataset?.key;
-    const hasTextBottomRow = items.some(el => el.dataset?.key === 'space');
+    const hasTextBottomRow = items.some(el => el.dataset?.key === 'SPACE');
     if (hasTextBottomRow && VKB_BOTTOM_KEYS.includes(curKey) && (direction === 'LEFT' || direction === 'RIGHT')) {
-        const order = ['space', 'cancel', 'ok'];
+        const order = VKB_BOTTOM_KEYS.filter(key => items.some(el => el.dataset?.key === key));
         const idx = order.indexOf(curKey);
         const nextIdx = direction === 'RIGHT' ? idx + 1 : idx - 1;
         if (nextIdx >= 0 && nextIdx < order.length) {
@@ -1433,6 +1433,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             });
 
             if (buttonJustPressed(buttons[GAMEPAD.BTN_L3], GAMEPAD.BTN_L3)) window._vkbToggleShift?.();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_L2], GAMEPAD.BTN_L2)) window._vkbToggleLayer?.();
             if (buttonJustPressed(buttons[GAMEPAD.BTN_TRIANGLE], GAMEPAD.BTN_TRIANGLE)) window._vkbPhysicalKey?.(' ');
 
             const sqPressed = buttons[GAMEPAD.BTN_SQUARE]?.pressed;

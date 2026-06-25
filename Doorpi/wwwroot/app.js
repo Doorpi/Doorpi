@@ -7025,7 +7025,7 @@ function renderFolderList(folders) {
             padding: 0;
             background: rgba(255,255,255,0.08);
             border: 1px solid rgba(255,255,255,0.11);
-            border-bottom: 3px solid rgba(0,0,0,0.45);
+            border-bottom: 0;
             border-radius: clamp(7px, 0.6vw, 10px);
             color: rgba(255,255,255,0.88);
             font-size: clamp(13px, 1.2vw, 18px);
@@ -7059,12 +7059,6 @@ function renderFolderList(folders) {
             width: 100%;
         }
         .vkb-key[data-key="space"]:focus { color: rgba(0,0,0,0.65); }
-        .vkb-key[data-key="accents"],
-        .vkb-key[data-key="accentBack"] {
-            color: rgba(170,205,255,0.95);
-            font-size: clamp(12px, 1.1vw, 16px);
-            font-weight: 650;
-        }
         .vkb-key[data-key="cancel"] {
             grid-column: span 2;
             height: clamp(52px, 4.8vw, 70px);
@@ -7103,6 +7097,93 @@ function renderFolderList(folders) {
             color: #fff;
         }
         .vkb-key[data-key="shift"].shifted:focus { background: rgba(255,255,255,0.97); color: #080810; }
+
+        .vkb-overlay {
+            top: 50%; left: 50%; right: auto; bottom: auto;
+            z-index: 10005;
+            display: none;
+            padding: clamp(10px, 1.2vh, 16px);
+            background: rgba(8, 9, 15, 0.96);
+            border: 1px solid rgba(255,255,255,0.13);
+            border-radius: clamp(14px, 1.1vw, 20px);
+            box-shadow: 0 28px 90px rgba(0,0,0,0.72), 0 0 0 1px rgba(255,255,255,0.04) inset;
+            backdrop-filter: blur(22px) saturate(1.25);
+            opacity: 0;
+            transform: translate(-50%, 10px) scale(0.985);
+            transition: opacity 0.16s ease, transform 0.16s ease;
+        }
+        .vkb-overlay.visible { opacity: 1; transform: translate(-50%, 0) scale(1); }
+        .vkb-preview-wrap { gap: clamp(8px, 0.8vw, 14px); margin-bottom: clamp(8px, 1vh, 14px); }
+        .vkb-preview-label { font-size: clamp(9px, 0.72vw, 12px); }
+        .vkb-preview-text {
+            font-size: clamp(14px, 1.05vw, 20px);
+            padding: clamp(7px, 0.8vh, 10px) clamp(10px, 1vw, 16px);
+            min-height: clamp(34px, 4vh, 48px);
+        }
+        .vkb-pending-accent { margin-left: 8px; color: rgba(255,185,90,0.96); font-weight: 800; }
+        .vkb-grid { display: flex; flex-direction: column; gap: clamp(5px, 0.55vh, 8px); width: auto; margin: 0; }
+        .vkb-row { display: flex; justify-content: center; gap: clamp(5px, 0.45vw, 8px); }
+        .vkb-key {
+            position: relative;
+            width: auto;
+            flex: var(--vkb-unit, 1) 1 0;
+            min-width: clamp(34px, 2.4vw, 58px);
+            height: clamp(36px, 3.2vw, 58px);
+            border-bottom-width: 0;
+            font-size: clamp(12px, 0.95vw, 17px);
+        }
+        .vkb-key:focus { transform: scale(1.06) translateY(-2px); }
+        .vkb-key-label { pointer-events: none; white-space: nowrap; }
+        .vkb-pad-icon {
+            position: absolute; top: 4px; right: 5px;
+            min-width: 16px; height: 16px; padding: 0 4px;
+            border-radius: 8px; background: rgba(255,255,255,0.12);
+            color: rgba(255,255,255,0.75);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 8px; line-height: 1; font-weight: 850; letter-spacing: 0;
+        }
+        .vkb-pad-icon.start { min-width: 20px; border-radius: 5px; }
+        .vkb-key.space-key {
+            height: clamp(42px, 3.6vw, 62px);
+            font-size: clamp(11px, 0.82vw, 14px);
+            letter-spacing: 0.08em;
+            color: rgba(255,255,255,0.45);
+        }
+        .vkb-key.space-key:focus { color: rgba(0,0,0,0.65); }
+        .vkb-key[data-key="CANCEL"] { color: rgba(255,255,255,0.6); font-size: clamp(11px, 0.85vw, 15px); font-weight: 500; }
+        .vkb-key[data-key="ENTER"] {
+            background: rgba(50,110,255,0.32);
+            border-color: rgba(50,110,255,0.55);
+            color: rgba(170,205,255,0.95);
+            font-weight: 650;
+            font-size: clamp(11px, 0.85vw, 15px);
+        }
+        .vkb-key[data-key="ENTER"]:focus {
+            background: rgb(50,110,255); color: #fff; border-color: transparent;
+            box-shadow: 0 8px 28px rgba(50,110,255,0.55), 0 0 0 2px rgba(50,110,255,0.4);
+        }
+        .vkb-key[data-key="BKSP"] { color: rgba(255,110,110,0.85); font-size: clamp(11px, 0.85vw, 15px); }
+        .vkb-key[data-key="BKSP"]:focus { color: #b00; }
+        .vkb-key[data-key="SHIFT"] { font-size: clamp(11px, 0.85vw, 15px); }
+        .vkb-key[data-key="SHIFT"].shifted {
+            background: rgba(255,255,255,0.2);
+            border-color: rgba(255,255,255,0.3);
+            color: #fff;
+        }
+        .vkb-key[data-key="SHIFT"].shifted:focus { background: rgba(255,255,255,0.97); color: #080810; }
+        .vkb-key.accent-pending {
+            background: rgba(255,145,45,0.34);
+            border-color: rgba(255,180,90,0.78);
+            color: #fff;
+        }
+        .vkb-overlay.numeric { width: min(360px, calc(100vw - 32px)) !important; }
+        .vkb-overlay.numeric .vkb-row { gap: 7px; }
+        .vkb-overlay.numeric .vkb-key {
+            min-width: 0;
+            height: clamp(44px, 4.2vw, 68px);
+            font-size: clamp(16px, 1.3vw, 24px);
+            font-weight: 650;
+        }
 
         @keyframes editOverlayIn { from{opacity:0} to{opacity:1} }
         @keyframes editModalIn   { from{opacity:0;transform:scale(0.93) translateY(10px)} to{opacity:1;transform:scale(1) translateY(0)} }
@@ -7925,83 +8006,144 @@ function renderFolderList(folders) {
     window._vkbIsOpen = false;
 
     const VKB = (() => {
-        const FLAT_KEYS = [
-            '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
-            'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p',
-            'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', '⌫',
-            'shift', 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.',
-            'accents', 'space', 'cancel', 'ok',
+        const ALPHA_ROWS = [
+            ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', 'BKSP'],
+            ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '´', 'ENTER'],
+            ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'ç', '~', 'CANCEL'],
+            ['SHIFT', 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '^', '?'],
+            ['SYM', 'CURSOR_LEFT', 'SPACE', 'CURSOR_RIGHT', '.com']
         ];
-        const NUMERIC_KEYS = [
-            '1', '2', '3',
-            '4', '5', '6',
-            '7', '8', '9',
-            '⌫', '0', 'ok',
-            'cancel'
+        const SPECIAL_ROWS = [
+            ['!', '@', '#', '$', '%', '&', '*', '(', ')', '_', '+', 'BKSP'],
+            ['/', '\\', '|', '=', '÷', '×', '{', '}', '[', ']', '`', 'ENTER'],
+            [':', ';', '"', "'", '€', '£', '¥', '©', '®', '°', '¨', 'CANCEL'],
+            ['SHIFT', '<', '>', '¿', '¡', '~', '´', '^', ',', '.', '?', '-'],
+            ['ABC', 'CURSOR_LEFT', 'SPACE', 'CURSOR_RIGHT', '.com']
         ];
-        const ACCENT_KEYS = [
-            'á', 'à', 'â', 'ã', 'é', 'ê', 'í', 'ó', 'ô', 'õ',
-            'ú', 'ü', 'ç', '-', '_', '@', '/', ':', ';', 'accentBack',
-            'space', 'cancel', 'ok'
+        const NUMERIC_ROWS = [
+            ['1', '2', '3'],
+            ['4', '5', '6'],
+            ['7', '8', '9'],
+            ['BKSP', '0', 'ENTER'],
+            ['CANCEL']
         ];
+        const ACCENT_KEYS = new Set(['´', '~', '^', '`', '¨']);
+        const CONTROLLER_HINTS = {
+            BKSP: 'X',
+            ENTER: 'START',
+            CANCEL: 'B',
+            SHIFT: 'L3',
+            SYM: 'LT',
+            ABC: 'LT',
+            SPACE: 'Y',
+            CURSOR_LEFT: 'LB',
+            CURSOR_RIGHT: 'RB'
+        };
+        const KEY_UNITS = {
+            BKSP: 2,
+            ENTER: 2,
+            CANCEL: 2,
+            SHIFT: 2,
+            SYM: 2,
+            ABC: 2,
+            SPACE: 7,
+            CURSOR_LEFT: 1,
+            CURSOR_RIGHT: 1,
+            '.com': 2
+        };
 
         let _el = null;
         let _callbacks = {};
         let _returnFocusEl = null;
-        let _shifted = true;
+        let _shifted = false;
         let _inputEl = null;
         let _cursorPos = 0;
         let _mode = 'text';
+        let _pendingAccent = null;
+
+        function _rowsForMode() {
+            if (_mode === 'numeric') return NUMERIC_ROWS;
+            return _mode === 'special' ? SPECIAL_ROWS : ALPHA_ROWS;
+        }
+
+        function _labelForKey(key) {
+            switch (key) {
+                case 'BKSP': return t('vkbBackspace');
+                case 'ENTER': return t('vkbEnter');
+                case 'CANCEL': return t('vkbClose');
+                case 'SHIFT': return t('vkbShift');
+                case 'SYM': return t('vkbSym');
+                case 'ABC': return t('vkbAbc');
+                case 'SPACE': return t('vkbSpace');
+                case 'CURSOR_LEFT': return '←';
+                case 'CURSOR_RIGHT': return '→';
+                default:
+                    if (_mode === 'text' && key.length === 1 && /[a-zç]/i.test(key)) {
+                        return _shifted ? key.toLocaleUpperCase() : key.toLocaleLowerCase();
+                    }
+                    return key;
+            }
+        }
+
+        function _buttonHtml(key, row, col) {
+            const label = _labelForKey(key);
+            const hint = CONTROLLER_HINTS[key] || '';
+            const isAction = !!hint || ['BKSP', 'ENTER', 'CANCEL', 'SHIFT', 'SYM', 'ABC', 'SPACE', 'CURSOR_LEFT', 'CURSOR_RIGHT'].includes(key);
+            const classes = ['vkb-key'];
+            if (isAction) classes.push('action');
+            if (key === 'SPACE') classes.push('space-key');
+            if (key === _pendingAccent) classes.push('accent-pending');
+            if (key === 'SHIFT' && _shifted) classes.push('shifted');
+            return `<button class="${classes.join(' ')}" data-key="${_esc(key)}" data-row="${row}" data-col="${col}" style="--vkb-unit:${KEY_UNITS[key] || 1}" tabindex="0">
+                <span class="vkb-key-label">${_esc(label)}</span>
+                ${hint ? `<span class="vkb-pad-icon ${hint === 'START' ? 'start' : ''}">${_esc(hint)}</span>` : ''}
+            </button>`;
+        }
 
         function _build() {
             if (_el) return;
             _el = document.createElement('div');
             _el.className = 'vkb-overlay';
-
-            const dynamicLabels = { '⌫': '⌫', shift: '⇧', accents: t('vkbAccents'), accentBack: t('vkbLetters'), space: t('vkbSpace'), cancel: t('vkbCancel'), ok: t('vkbOk') };
-
-            const keysHtml = FLAT_KEYS.map(k => {
-                const lbl = dynamicLabels[k] ?? k;
-                return `<button class="vkb-key" data-key="${k}" tabindex="0">${lbl}</button>`;
-            }).join('');
-
             _el.innerHTML = `
                 <div class="vkb-preview-wrap">
                     <span class="vkb-preview-label">${t('vkbPreviewLabel')}</span>
                     <div class="vkb-preview-text" id="vkbPreview"></div>
                 </div>
-                <div class="vkb-grid">${keysHtml}</div>
+                <div class="vkb-grid"></div>
             `;
             document.body.appendChild(_el);
+        }
 
-            _el.querySelectorAll('.vkb-key').forEach(btn => {
+        function _wireKeys() {
+            _el?.querySelectorAll('.vkb-key').forEach(btn => {
                 btn.addEventListener('click', (e) => {
                     e.preventDefault();
+                    e.stopPropagation();
                     _pressKey(btn.dataset.key);
                 });
             });
         }
 
-        function _renderKeys(mode) {
+        function _renderKeys(mode, preferredFocusKey = '') {
             if (!_el) return;
-            _mode = mode === 'numeric' ? 'numeric' : mode === 'accents' ? 'accents' : 'text';
+            _mode = mode === 'numeric' ? 'numeric' : mode === 'special' ? 'special' : 'text';
             _el.classList.toggle('numeric', _mode === 'numeric');
-            _el.classList.toggle('accents', _mode === 'accents');
+            _el.classList.toggle('special', _mode === 'special');
             const grid = _el.querySelector('.vkb-grid');
             if (!grid) return;
 
-            const dynamicLabels = { '⌫': '⌫', shift: '⇧', accents: t('vkbAccents'), accentBack: t('vkbLetters'), space: t('vkbSpace'), cancel: t('vkbCancel'), ok: t('vkbOk') };
-            const keys = _mode === 'numeric' ? NUMERIC_KEYS : _mode === 'accents' ? ACCENT_KEYS : FLAT_KEYS;
-            grid.innerHTML = keys.map(k => {
-                const lbl = dynamicLabels[k] ?? k;
-                return `<button class="vkb-key" data-key="${k}" tabindex="0">${lbl}</button>`;
-            }).join('');
+            const rows = _rowsForMode();
+            grid.innerHTML = rows.map((row, r) =>
+                `<div class="vkb-row">${row.map((key, c) => _buttonHtml(key, r, c)).join('')}</div>`
+            ).join('');
+            _wireKeys();
+            _setShiftVisual(_shifted, false);
+            _syncAccentVisual();
 
-            grid.querySelectorAll('.vkb-key').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    _pressKey(btn.dataset.key);
-                });
+            const focusKey = preferredFocusKey || (_mode === 'numeric' ? '1' : rows[0][0]);
+            requestAnimationFrame(() => {
+                _el?.querySelector(`[data-key="${CSS.escape(focusKey)}"]`)?.focus();
+                _positionOverlay();
             });
         }
 
@@ -8010,55 +8152,122 @@ function renderFolderList(folders) {
             try { _inputEl.setSelectionRange(_cursorPos, _cursorPos); } catch (_) { }
         }
 
-        function _insertText(text) {
+        function _dispatchInputChange() {
             if (!_inputEl) return;
-            let val = _inputEl.value;
+            _inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+            _inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        function _insertText(text) {
+            if (!_inputEl || text == null) return;
+            const val = _inputEl.value || '';
             const maxLen = Number.parseInt(_inputEl.getAttribute('maxlength') || '', 10);
             if (Number.isFinite(maxLen) && maxLen > 0 && val.length + text.length > maxLen) return;
             _inputEl.value = val.substring(0, _cursorPos) + text + val.substring(_cursorPos);
             _cursorPos += text.length;
             _syncCursorToInput();
+            _dispatchInputChange();
         }
 
         function _deleteText() {
-            if (!_inputEl || _cursorPos <= 0) return;
-            let val = _inputEl.value;
+            if (!_inputEl) return;
+            if (_pendingAccent) {
+                _pendingAccent = null;
+                _syncAccentVisual();
+                _renderPreview();
+                return;
+            }
+            if (_cursorPos <= 0) return;
+            const val = _inputEl.value || '';
             _inputEl.value = val.substring(0, _cursorPos - 1) + val.substring(_cursorPos);
             _cursorPos--;
             _syncCursorToInput();
+            _dispatchInputChange();
+        }
+
+        function _getAccentedCharacter(accent, letter) {
+            if (!letter || letter.length !== 1) return null;
+            const upper = letter === letter.toLocaleUpperCase() && letter !== letter.toLocaleLowerCase();
+            const base = letter.toLocaleLowerCase();
+            const map = {
+                '´': { a: 'á', e: 'é', i: 'í', o: 'ó', u: 'ú', c: 'ç' },
+                '~': { a: 'ã', o: 'õ', n: 'ñ' },
+                '^': { a: 'â', e: 'ê', i: 'î', o: 'ô', u: 'û' },
+                '`': { a: 'à', e: 'è', i: 'ì', o: 'ò', u: 'ù' },
+                '¨': { a: 'ä', e: 'ë', i: 'ï', o: 'ö', u: 'ü', y: 'ÿ' }
+            };
+            const result = map[accent]?.[base];
+            return result ? (upper ? result.toLocaleUpperCase() : result) : null;
+        }
+
+        function _flushPendingAccent() {
+            if (!_pendingAccent) return;
+            const accent = _pendingAccent;
+            _pendingAccent = null;
+            _insertText(accent);
+            _syncAccentVisual();
+        }
+
+        function _syncAccentVisual() {
+            _el?.querySelectorAll('.vkb-key').forEach(btn => {
+                btn.classList.toggle('accent-pending', !!_pendingAccent && btn.dataset.key === _pendingAccent);
+            });
+        }
+
+        function _inputCharacter(raw) {
+            if (!_inputEl || raw == null) return;
+            let value = raw;
+            if (_mode === 'numeric' && !/^\d$/.test(value)) return;
+            if (_mode === 'text' && value.length === 1 && /[a-zç]/i.test(value)) {
+                value = _shifted ? value.toLocaleUpperCase() : value.toLocaleLowerCase();
+            }
+
+            if (_pendingAccent) {
+                const composed = value.length === 1 ? _getAccentedCharacter(_pendingAccent, value) : null;
+                if (composed) _insertText(composed);
+                else {
+                    const accent = _pendingAccent;
+                    _pendingAccent = null;
+                    _insertText(accent);
+                    _insertText(value);
+                }
+                _pendingAccent = null;
+                _syncAccentVisual();
+            } else {
+                _insertText(value);
+            }
         }
 
         function _pressKey(key) {
-            if (!_inputEl) return;
-            if (_mode === 'numeric' && !/^\d$/.test(key) && key !== '⌫' && key !== 'ok' && key !== 'cancel') return;
+            if (!_inputEl || !key) return;
+            if (_mode === 'numeric' && !/^\d$/.test(key) && !['BKSP', 'ENTER', 'CANCEL'].includes(key)) return;
 
-            if (key === '⌫') { _deleteText(); }
-            else if (key === 'shift') { _setShiftVisual(!_shifted); return; }
-            else if (key === 'accents') { _renderKeys('accents'); _el.querySelector('[data-key="á"]')?.focus(); return; }
-            else if (key === 'accentBack') { _renderKeys('text'); _setShiftVisual(_shifted); _el.querySelector('[data-key="accents"]')?.focus(); return; }
-            else if (key === 'space') { _insertText(' '); }
-            else if (key === 'ok') {
-                const fn = _callbacks.onOk ?? window._editModalSave;
-                _forceClose();
-                fn?.();
-                return;
-            }
-            else if (key === 'cancel') {
-                const fn = _callbacks.onCancel ?? window._editModalClose;
-                _forceClose();
-                fn?.();
-                return;
-            }
-            else {
-                _insertText(_shifted ? key.toLocaleUpperCase() : key);
-                if (_mode === 'accents') {
-                    _renderKeys('text');
-                    _setShiftVisual(_shifted);
-                    _el.querySelector('[data-key="accents"]')?.focus();
+            if (ACCENT_KEYS.has(key)) {
+                if (_pendingAccent === key) {
+                    _insertText(key);
+                    _pendingAccent = null;
+                } else {
+                    _pendingAccent = key;
                 }
+                _syncAccentVisual();
+                _renderPreview();
+                return;
             }
 
-            _inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+            if (key === 'BKSP') _deleteText();
+            else if (key === 'SHIFT') { _setShiftVisual(!_shifted); return; }
+            else if (key === 'SYM') { _flushPendingAccent(); _renderKeys('special', '!'); return; }
+            else if (key === 'ABC') { _flushPendingAccent(); _renderKeys('text', 'q'); return; }
+            else if (key === 'CURSOR_LEFT') { _flushPendingAccent(); _moveCursor(-1); return; }
+            else if (key === 'CURSOR_RIGHT') { _flushPendingAccent(); _moveCursor(1); return; }
+            else if (key === 'SPACE') {
+                if (_pendingAccent) _flushPendingAccent();
+                else _insertText(' ');
+            }
+            else if (key === 'ENTER') { _submitEnter(); return; }
+            else if (key === 'CANCEL') { _pendingAccent = null; _cancelWithCallback(); return; }
+            else _inputCharacter(key);
+
             _renderPreview();
         }
 
@@ -8070,55 +8279,75 @@ function renderFolderList(folders) {
             const formatHtml = (text) => _esc(text).replace(/ /g, '&nbsp;');
             const left = previewVal.substring(0, _cursorPos);
             const right = previewVal.substring(_cursorPos);
-            el.innerHTML = `${formatHtml(left)}<span class="vkb-cursor"></span>${formatHtml(right)}`;
+            const accent = _pendingAccent ? `<span class="vkb-pending-accent">${_esc(_pendingAccent)}</span>` : '';
+            el.innerHTML = `${formatHtml(left)}<span class="vkb-cursor"></span>${formatHtml(right)}${accent}`;
         }
 
         function _moveCursor(dir) {
             if (!_inputEl) return;
-            let newPos = _cursorPos + dir;
-            if (newPos >= 0 && newPos <= _inputEl.value.length) _cursorPos = newPos;
+            _flushPendingAccent();
+            const newPos = _cursorPos + dir;
+            if (newPos >= 0 && newPos <= (_inputEl.value || '').length) _cursorPos = newPos;
             _syncCursorToInput();
             _renderPreview();
         }
 
-        function _setShiftVisual(on) {
-            _shifted = on;
-            const btn = _el?.querySelector('[data-key="shift"]');
-            btn?.classList.toggle('shifted', on);
+        function _setShiftVisual(on, rerender = true) {
+            _shifted = !!on;
+            _el?.querySelector('[data-key="SHIFT"]')?.classList.toggle('shifted', _shifted);
             _el?.querySelectorAll('.vkb-key').forEach(k => {
                 const key = k.dataset.key;
-                if (key && key.length === 1 && key >= 'a' && key <= 'z')
-                    k.textContent = on ? key.toUpperCase() : key;
+                const label = k.querySelector('.vkb-key-label');
+                if (label && key && _mode === 'text' && key.length === 1 && /[a-zç]/i.test(key)) {
+                    label.textContent = _shifted ? key.toLocaleUpperCase() : key.toLocaleLowerCase();
+                }
             });
+            if (rerender) _renderPreview();
+        }
+
+        function _positionOverlay() {
+            if (!_el || !_inputEl || _el.style.display === 'none') return;
+            const rect = _inputEl.getBoundingClientRect();
+            const margin = 14;
+            const numeric = _mode === 'numeric';
+            const width = numeric
+                ? Math.min(360, Math.max(280, window.innerWidth - 32))
+                : Math.min(window.innerWidth - 32, Math.max(620, Math.min(1080, window.innerWidth * 0.72)));
+            _el.style.width = `${Math.round(width)}px`;
+            const measured = _el.getBoundingClientRect();
+            const height = measured.height || 300;
+            const center = Math.max(16 + width / 2, Math.min(window.innerWidth - 16 - width / 2, rect.left + rect.width / 2));
+            const above = rect.top - height - margin;
+            const below = rect.bottom + margin;
+            const top = above >= 12 ? above : Math.min(Math.max(12, below), Math.max(12, window.innerHeight - height - 12));
+            _el.style.left = `${Math.round(center)}px`;
+            _el.style.top = `${Math.round(top)}px`;
         }
 
         function _open(targetInput, callbacks = {}) {
-            _callbacks = callbacks;
+            if (_inputEl && _inputEl !== targetInput) _inputEl.classList.remove('vkb-active');
+            _callbacks = callbacks || {};
             _returnFocusEl = targetInput?._doorpiVkbReturnFocus || targetInput || document.activeElement;
             _inputEl = targetInput || document.getElementById('editNameInput');
-
             if (!_inputEl) return;
+
+            _pendingAccent = null;
             _build();
-            _renderKeys(callbacks.mode || (window._vkbIsNumericInput?.(_inputEl) ? 'numeric' : 'text'));
+            _renderKeys(_callbacks.mode || (window._vkbIsNumericInput?.(_inputEl) ? 'numeric' : 'text'));
+            _el.querySelector('.vkb-preview-label').textContent = t('vkbPreviewLabel');
 
-            if (_el) {
-                _el.querySelector('.vkb-preview-label').textContent = t('vkbPreviewLabel');
-                const spaceKey = _el.querySelector('[data-key="space"]');
-                if (spaceKey) spaceKey.textContent = t('vkbSpace');
-                _el.querySelector('[data-key="cancel"]').textContent = t('vkbCancel');
-                _el.querySelector('[data-key="ok"]').textContent = t('vkbOk');
-            }
-
-            if (_mode === 'text') _setShiftVisual(_shifted);
-            _cursorPos = _inputEl.value.length;
+            _cursorPos = _inputEl.selectionStart ?? (_inputEl.value || '').length;
+            _cursorPos = Math.max(0, Math.min((_inputEl.value || '').length, _cursorPos));
             _inputEl.classList.add('vkb-active');
             if (typeof _editOverlay !== 'undefined' && _editOverlay) _editOverlay.classList.add('vkb-active');
 
             _el.style.display = 'block';
             _renderPreview();
             _syncCursorToInput();
+            _positionOverlay();
 
             requestAnimationFrame(() => {
+                _positionOverlay();
                 _el.classList.add('visible');
                 window._vkbIsOpen = true;
                 _el.querySelector(`[data-key="${_mode === 'numeric' ? '1' : 'q'}"]`)?.focus();
@@ -8128,6 +8357,7 @@ function renderFolderList(folders) {
         function _forceClose() {
             if (!_el) return;
             _callbacks = {};
+            _pendingAccent = null;
             window._vkbIsOpen = false;
             _el.classList.remove('visible');
 
@@ -8136,29 +8366,57 @@ function renderFolderList(folders) {
 
             const returnTo = _returnFocusEl;
             _returnFocusEl = null;
-            setTimeout(() => { returnTo?.focus(); window.updateNavHint?.(); }, 350);
-            setTimeout(() => { if (_el && !_el.classList.contains('visible')) _el.style.display = 'none'; }, 340);
+            setTimeout(() => { returnTo?.focus?.(); window.updateNavHint?.(); }, 180);
+            setTimeout(() => { if (_el && !_el.classList.contains('visible')) _el.style.display = 'none'; }, 180);
+        }
+
+        function _cancelWithCallback() {
+            const fn = _callbacks.onCancel ?? window._editModalClose;
+            _forceClose();
+            fn?.();
+        }
+
+        function _submitEnter() {
+            _flushPendingAccent();
+            const fn = _callbacks.onEnter ?? _callbacks.onOk ?? window._editModalSave;
+            if (fn) {
+                _forceClose();
+                fn();
+                return;
+            }
+            if (!_inputEl) return;
+            const down = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter' });
+            _inputEl.dispatchEvent(down);
+            _inputEl.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Enter', code: 'Enter' }));
+            _renderPreview();
         }
 
         function _physicalKey(key) {
             if (!_inputEl) return;
-            if (key === 'Backspace') { _deleteText(); }
-            else if (key.length === 1) {
-                if (_mode === 'numeric' && !/^\d$/.test(key)) return;
-                _insertText(key);
-            }
-            _inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+            if (key === 'Backspace') _pressKey('BKSP');
+            else if (key === 'Enter') _pressKey('ENTER');
+            else if (key === ' ') _pressKey('SPACE');
+            else if (key?.length === 1) _inputCharacter(key);
             _renderPreview();
         }
 
-        function _confirm() {
-            if (!_inputEl) return;
-            _pressKey('ok');
+        function _toggleLayer() {
+            _pressKey(_mode === 'special' ? 'ABC' : 'SYM');
         }
 
+        window.addEventListener('resize', () => {
+            if (window._vkbIsOpen) _positionOverlay();
+        });
+
         return {
-            open: _open, forceClose: _forceClose, cancel: _forceClose, physicalKey: _physicalKey,
-            confirm: _confirm, toggleShift: () => _setShiftVisual(!_shifted), moveCursor: _moveCursor
+            open: _open,
+            forceClose: _forceClose,
+            cancel: _forceClose,
+            physicalKey: _physicalKey,
+            confirm: () => _pressKey('ENTER'),
+            toggleShift: () => _setShiftVisual(!_shifted),
+            toggleLayer: _toggleLayer,
+            moveCursor: _moveCursor
         };
     })();
 
@@ -8187,6 +8445,7 @@ function renderFolderList(folders) {
     window._vkbForceClose = () => VKB.forceClose();
     window._vkbPhysicalKey = (k) => VKB.physicalKey(k);
     window._vkbToggleShift = () => VKB.toggleShift();
+    window._vkbToggleLayer = () => VKB.toggleLayer();
     window._vkbMoveCursor = (dir) => VKB.moveCursor(dir);
     window._vkbClearFocus = () => {
         const el = document.activeElement;
