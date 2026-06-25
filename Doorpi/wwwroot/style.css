@@ -1,5 +1,23 @@
 ﻿
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;500;600;700&display=swap');
+
+/* Escala por faixas: preserva 1080p/1440p e melhora a leitura a distância em 4K. */
+html {
+    font-size: 16px;
+}
+
+@media (max-height: 800px) {
+    html { font-size: 14px; }
+}
+
+@media (min-width: 3000px) and (min-height: 1600px) {
+    html { font-size: 20px; }
+}
+
+@media (min-width: 4600px) and (min-height: 2400px) {
+    html { font-size: 22px; }
+}
+
 /* Isso garante que as imagens e fundos sejam "transparentes" ao clique */
 #bgBlur,
 #heroImage,
@@ -572,7 +590,7 @@ body {
     }
 
     .vkb-key[data-key="space"] {
-        grid-column: span 6;
+        grid-column: span 5;
         height: clamp(52px, 4.8vw, 70px);
         font-size: clamp(12px, 1.2vw, 16px);
         letter-spacing: 0.08em;
@@ -583,6 +601,13 @@ body {
         .vkb-key[data-key="space"]:focus {
             color: rgba(0,0,0,0.65);
         }
+
+    .vkb-key[data-key="accents"],
+    .vkb-key[data-key="accentBack"] {
+        color: rgba(170,205,255,0.95);
+        font-size: clamp(12px, 1.1vw, 16px);
+        font-weight: 650;
+    }
 
     .vkb-key[data-key="cancel"] {
         grid-column: span 2;

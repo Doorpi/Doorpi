@@ -6,8 +6,8 @@
     <title>Doorpi</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="preload" href="style.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
-    <noscript><link rel="stylesheet" href="style.css"></noscript>
+    <link rel="preload" href="style.css?v=20260619" as="style" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link rel="stylesheet" href="style.css?v=20260619"></noscript>
 
    
 </head>
@@ -15,7 +15,7 @@
 <body style="background: #020309; margin: 0; overflow: hidden;">
 
     <!-- 1. A Intro assume o controle absoluto instantaneamente no frame zero -->
-    <script src="intro-system.js"></script>
+    <script src="intro-system.js?v=20260619b"></script>
 
     <!-- 2. O SISTEMA INTEIRO FICA DESLIGADO (display: none) ATÉ O LOGIN -->
     <div id="doorpi-app-ui" style="display: none; opacity: 0; transition: opacity 0.8s ease;">
@@ -342,10 +342,12 @@
     <!-- Scripts de lógica da UI e Navegação -->
     <script src="strings.js"></script>
     <script src="store.js"></script>
-    <script src="renderer.js"></script>
+    <script src="renderer.js?v=20260619b"></script>
     <script src="grid-controller.js"></script>
-    <script src="navigation.js"></script>
+    <script src="navigation.js?v=20260619b"></script>
     <script src="app.js"></script>
+    <script src="bluetooth-ui.js?v=20260619c"></script>
+    <script src="wifi-ui.js?v=20260619a"></script>
     <script src="media.js"></script>
     <script src="stores.js"></script>
     <script src="nav-menu.js"></script>

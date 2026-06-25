@@ -1450,7 +1450,17 @@ namespace Doorpi
             return new
             {
                 type = "currentUserUpdated",
-                user,
+                user = new
+                {
+                    user.Id,
+                    user.Name,
+                    user.PhotoBase64,
+                    user.IsAdmin,
+                    user.DateCreated,
+                    user.LastUsed,
+                    HasSteamGridApiKey = !string.IsNullOrWhiteSpace(user.SteamGridApiKey),
+                    HasPin = !string.IsNullOrWhiteSpace(user.PinCode)
+                },
                 currentUserId,
                 isAdmin = IsCurrentUserAdmin(),
                 blockedStoreIds = blockedStores.ToList(),
@@ -9848,27 +9858,6 @@ namespace Doorpi
             );
         }
 
-        private async Task<bool> RemoteImageExistsAsync(string url)
-        {
-            try
-            {
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-                using var request = new HttpRequestMessage(HttpMethod.Head, url);
-                using var response = await httpClient.SendAsync(request, cts.Token).ConfigureAwait(false);
-                return response.IsSuccessStatusCode;
-            }
-            catch { return false; }
-        }
-
-        private async Task<bool> SteamCdnHasRequiredArtworkAsync(string appId)
-        {
-            var assets = BuildSteamCdnAssets(appId);
-            var gridTask = RemoteImageExistsAsync(assets.Grid);
-            var heroTask = RemoteImageExistsAsync(assets.Hero);
-            await Task.WhenAll(gridTask, heroTask).ConfigureAwait(false);
-            return gridTask.Result && heroTask.Result;
-        }
-
         private async Task WaitForGameSessionIdleAsync()
         {
             while (_gameSessionActive || _gameIsRunningAndDoorpiHidden)
@@ -9882,11 +9871,25 @@ namespace Doorpi
             try
             {
                 var cache = LoadAppCache() ?? new AppCacheModel();
-                cache.SteamApps = GetSteamGames(includeIcons: false).Select(a => { a.Source = "Steam"; return a; }).ToList();
-                cache.EpicApps = GetEpicGames(includeIcons: false).Select(a => { a.Source = "Epic"; return a; }).ToList();
-                cache.GogApps = GetGOGGames(includeIcons: false).Select(a => { a.Source = "GOG"; return a; }).ToList();
-                cache.RiotApps = GetRiotGames().Select(a => { a.Source = "Riot"; return a; }).ToList();
-                cache.XboxApps = GetXboxGames(includeIcons: false).Select(a => { a.Source = "Xbox"; return a; }).ToList();
+
+                var steamTask = Task.Run(() => GetSteamGames(includeIcons: false)
+                    .Select(a => { a.Source = "Steam"; return a; }).ToList());
+                var epicTask = Task.Run(() => GetEpicGames(includeIcons: false)
+                    .Select(a => { a.Source = "Epic"; return a; }).ToList());
+                var gogTask = Task.Run(() => GetGOGGames(includeIcons: false)
+                    .Select(a => { a.Source = "GOG"; return a; }).ToList());
+                var riotTask = Task.Run(() => GetRiotGames()
+                    .Select(a => { a.Source = "Riot"; return a; }).ToList());
+                var xboxTask = Task.Run(() => GetXboxGames(includeIcons: false)
+                    .Select(a => { a.Source = "Xbox"; return a; }).ToList());
+
+                await Task.WhenAll(steamTask, epicTask, gogTask, riotTask, xboxTask).ConfigureAwait(false);
+
+                cache.SteamApps = steamTask.Result;
+                cache.EpicApps = epicTask.Result;
+                cache.GogApps = gogTask.Result;
+                cache.RiotApps = riotTask.Result;
+                cache.XboxApps = xboxTask.Result;
                 cache.SteamFingerprint = GetSteamFingerprint();
                 cache.EpicFingerprint = GetEpicFingerprint();
                 cache.GogFingerprint = GetGogFingerprint();
@@ -9938,7 +9941,7 @@ namespace Doorpi
             return false;
         }
 
-        private async Task<bool> UpsertAutoAddedPlatformGamesAsync(List<InstalledApp> platformGames)
+        private Task<bool> UpsertAutoAddedPlatformGamesAsync(List<InstalledApp> platformGames)
         {
             var games = LoadGames();
             bool changed = false;
@@ -9951,8 +9954,7 @@ namespace Doorpi
                     continue;
 
                 string? steamAppId = ExtractSteamAppId(app);
-                bool steamReady = !string.IsNullOrEmpty(steamAppId)
-                                  && await SteamCdnHasRequiredArtworkAsync(steamAppId).ConfigureAwait(false);
+                bool steamReady = !string.IsNullOrEmpty(steamAppId);
                 var steamAssets = steamReady ? BuildSteamCdnAssets(steamAppId!) : ("", "", "", "");
 
                 games.Add(new GameModel
@@ -9975,7 +9977,7 @@ namespace Doorpi
             }
 
             if (changed) SaveGames(games);
-            return changed;
+            return Task.FromResult(changed);
         }
 
 #if false
@@ -10171,7 +10173,11 @@ namespace Doorpi
             _ = Task.Run(async () =>
             {
                 try { await RunLibraryBootstrapAsync().ConfigureAwait(false); }
-                catch (Exception ex) { Debug.WriteLine("[Bootstrap] Erro: " + ex.Message); }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[Bootstrap] Erro: " + ex.Message);
+                    _ = Dispatcher.BeginInvoke(() => LoadGamesIntoUI());
+                }
                 finally { Interlocked.Exchange(ref _libraryBootstrapRunning, 0); }
             });
             return true;
@@ -10198,8 +10204,8 @@ namespace Doorpi
 
             if (!state.PlatformAutoAddCompleted)
             {
-                if (await UpsertAutoAddedPlatformGamesAsync(platformGames).ConfigureAwait(false))
-                    _ = Dispatcher.BeginInvoke(() => LoadGamesIntoUI());
+                await UpsertAutoAddedPlatformGamesAsync(platformGames).ConfigureAwait(false);
+                _ = Dispatcher.BeginInvoke(() => LoadGamesIntoUI());
 
                 state.PlatformAutoAddCompleted = true;
                 state.CompletedAt = DateTime.Now;
@@ -10496,6 +10502,61 @@ namespace Doorpi
                 else if (action == "requestGpuUpdateStatus")
                 {
                     SendCachedGpuUpdateStatusToUI();
+                }
+                else if (action == "requestBluetoothStatus")
+                {
+                    RequestBluetoothStatus();
+                }
+                else if (action == "setBluetoothEnabled")
+                {
+                    bool enabled = root.TryGetProperty("enabled", out var enabledElement) && enabledElement.GetBoolean();
+                    SetBluetoothEnabled(enabled);
+                }
+                else if (action == "startBluetoothDiscovery")
+                {
+                    StartBluetoothDiscovery();
+                }
+                else if (action == "stopBluetoothDiscovery")
+                {
+                    StopBluetoothDiscovery();
+                }
+                else if (action == "pairBluetoothDevice")
+                {
+                    PairBluetoothDevice(GetStr(root, "deviceId"));
+                }
+                else if (action == "removeBluetoothDevice")
+                {
+                    RemoveBluetoothDevice(GetStr(root, "deviceId"));
+                }
+                else if (action == "respondBluetoothPairing")
+                {
+                    bool accepted = root.TryGetProperty("accepted", out var acceptedElement) && acceptedElement.GetBoolean();
+                    GetBluetoothManager().RespondToPairing(accepted, GetStr(root, "pin"));
+                }
+                else if (action == "requestWifiStatus")
+                {
+                    RequestWifiStatus();
+                }
+                else if (action == "setWifiEnabled")
+                {
+                    bool enabled = root.TryGetProperty("enabled", out var enabledElement) && enabledElement.GetBoolean();
+                    SetWifiEnabled(enabled);
+                }
+                else if (action == "scanWifiNetworks")
+                {
+                    ScanWifiNetworks();
+                }
+                else if (action == "connectWifiNetwork")
+                {
+                    ConnectWifiNetwork(GetStr(root, "networkId"), GetStr(root, "password"));
+                }
+                else if (action == "disconnectWifi")
+                {
+                    DisconnectWifi();
+                }
+                else if (action == "forgetWifiNetwork")
+                {
+                    ForgetWifiNetwork(GetStr(root, "networkId"));
                 }
                 else if (action == "openGpuUpdater")
                 {
@@ -11347,6 +11408,7 @@ namespace Doorpi
                     bool isLast = root.TryGetProperty("isLast", out var isLastEl) && isLastEl.GetBoolean();
                     bool skipTasks = root.TryGetProperty("skipTasks", out var skipEl) && skipEl.GetBoolean();
                     bool hasPin = root.TryGetProperty("pin", out _);
+                    bool hasApiKey = root.TryGetProperty("apiKey", out _);
                     string requestedPin = hasPin ? NormalizePinCode(GetStr(root, "pin")) : "";
 
                     string requestedId = GetStr(root, "userId");
@@ -11355,7 +11417,7 @@ namespace Doorpi
                         Id = createNew ? "" : (!string.IsNullOrWhiteSpace(requestedId) ? requestedId : currentUserId),
                         Name = GetStr(root, "name"),
                         PhotoBase64 = GetStr(root, "photoBase64"),
-                        SteamGridApiKey = GetStr(root, "apiKey"),
+                        SteamGridApiKey = hasApiKey ? GetStr(root, "apiKey") : "",
                         PinCode = requestedPin,
                         DateCreated = DateTime.Now,
                         LastUsed = DateTime.Now,
@@ -11400,7 +11462,7 @@ namespace Doorpi
 
                         existingUser.Name = profile.Name;
                         existingUser.PhotoBase64 = profile.PhotoBase64;
-                        existingUser.SteamGridApiKey = profile.SteamGridApiKey;
+                        if (hasApiKey) existingUser.SteamGridApiKey = profile.SteamGridApiKey;
                         if (hasPin) existingUser.PinCode = requestedPin;
                         existingUser.LastUsed = DateTime.Now;
                         profile.DateCreated = existingUser.DateCreated;
@@ -13003,9 +13065,7 @@ namespace Doorpi
 
         private void LoadGamesIntoUI()
         {
-            var allGames = LoadGames()
-                .Where(g => !g.IsPendingArtwork)
-                .ToList();
+            var allGames = LoadGames();
 
             var featured = allGames
                 .Where(g => g.LastPlayed > DateTime.MinValue)
@@ -13392,6 +13452,8 @@ namespace Doorpi
         private void CleanupAndExit()
         {
             DiscordRpcManager.Instance.Dispose();
+            DisposeBluetoothManager();
+            DisposeWifiManager();
             // 1. Força o fechamento de todas as janelas secundárias
             try { _webAppWindow?.Close(); } catch { }
             try { _popupWindow?.Close(); } catch { }
