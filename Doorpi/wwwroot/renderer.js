@@ -739,7 +739,8 @@ const CardRenderer = (() => {
             }
         }
 
-        #gameGrid, 
+        #gameGrid,
+        #storesGrid,
         #view-apps.active {
             /* 'both' é a mágica: aplica opacidade 0 antes de iniciar, matando a piscada */
             animation: slideInFromLeft 0.45s cubic-bezier(0.22, 1, 0.36, 1) both !important;

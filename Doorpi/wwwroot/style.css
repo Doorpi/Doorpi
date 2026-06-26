@@ -1,5 +1,23 @@
 ﻿
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;500;600;700&display=swap');
+
+/* Escala por faixas: preserva 1080p/1440p e melhora a leitura a distância em 4K. */
+html {
+    font-size: 16px;
+}
+
+@media (max-height: 800px) {
+    html { font-size: 14px; }
+}
+
+@media (min-width: 3000px) and (min-height: 1600px) {
+    html { font-size: 20px; }
+}
+
+@media (min-width: 4600px) and (min-height: 2400px) {
+    html { font-size: 22px; }
+}
+
 /* Isso garante que as imagens e fundos sejam "transparentes" ao clique */
 #bgBlur,
 #heroImage,
@@ -451,31 +469,37 @@ body {
     }
 .vkb-overlay {
     position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    z-index: 10001;
-    padding: 0 clamp(24px, 4vw, 80px) clamp(24px, 3vh, 48px);
-    background: linear-gradient(to top, rgba(5,5,10,1) 65%, rgba(5,5,10,0.96) 85%, transparent 100%);
-    transform: translateY(100%);
-    transition: transform 0.32s cubic-bezier(0.25,0.46,0.45,0.94);
+    top: 50%;
+    left: 50%;
+    z-index: 10005;
+    display: none;
+    padding: clamp(10px, 1.2vh, 16px);
+    background: rgba(8, 9, 15, 0.96);
+    border: 1px solid rgba(255,255,255,0.13);
+    border-radius: clamp(14px, 1.1vw, 20px);
+    box-shadow: 0 28px 90px rgba(0,0,0,0.72), 0 0 0 1px rgba(255,255,255,0.04) inset;
+    backdrop-filter: blur(22px) saturate(1.25);
+    opacity: 0;
+    transform: translate(-50%, 10px) scale(0.985);
+    transition: opacity 0.16s ease, transform 0.16s ease;
     user-select: none;
 }
 
     .vkb-overlay.visible {
-        transform: translateY(0);
+        opacity: 1;
+        transform: translate(-50%, 0) scale(1);
     }
 
 .vkb-preview-wrap {
     display: flex;
     align-items: center;
-    gap: 12px;
-    margin-bottom: clamp(12px, 2vh, 22px);
+    gap: clamp(8px, 0.8vw, 14px);
+    margin-bottom: clamp(8px, 1vh, 14px);
     padding: 0 2px;
 }
 
 .vkb-preview-label {
-    font-size: clamp(10px, 1.1vw, 14px);
+    font-size: clamp(9px, 0.72vw, 12px);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.09em;
@@ -486,14 +510,14 @@ body {
 
 .vkb-preview-text {
     flex: 1;
-    font-size: clamp(16px, 1.8vw, 26px);
+    font-size: clamp(14px, 1.05vw, 20px);
     font-weight: 500;
     color: #fff;
-    padding: clamp(7px, 1vh, 12px) clamp(12px, 1.4vw, 18px);
+    padding: clamp(7px, 0.8vh, 10px) clamp(10px, 1vw, 16px);
     background: rgba(255,255,255,0.06);
     border: 1px solid rgba(255,255,255,0.12);
     border-radius: 10px;
-    min-height: clamp(38px, 5vh, 56px);
+    min-height: clamp(34px, 4vh, 48px);
     display: flex;
     align-items: center;
     white-space: nowrap;
@@ -510,6 +534,12 @@ body {
     animation: vkbBlink 1s step-end infinite;
 }
 
+.vkb-pending-accent {
+    margin-left: 8px;
+    color: rgba(255, 185, 90, 0.96);
+    font-weight: 800;
+}
+
 @keyframes vkbBlink {
     0%,100% {
         opacity: 1
@@ -521,23 +551,30 @@ body {
 }
 
 .vkb-grid {
-    display: grid;
-    grid-template-columns: repeat(10, clamp(42px, 3.8vw, 95px));
-    gap: clamp(4px, 0.5vh, 7px) clamp(4px, 0.38vw, 6px);
-    width: fit-content;
-    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(5px, 0.55vh, 8px);
+}
+
+.vkb-row {
+    display: flex;
+    justify-content: center;
+    gap: clamp(5px, 0.45vw, 8px);
 }
 
 .vkb-key {
-    width: clamp(42px, 3.8vw, 90px);
-    height: clamp(42px, 3.8vw, 75px);
+    position: relative;
+    width: auto;
+    flex: var(--vkb-unit, 1) 1 0;
+    min-width: clamp(34px, 2.4vw, 58px);
+    height: clamp(36px, 3.2vw, 58px);
     padding: 0;
     background: rgba(255,255,255,0.08);
     border: 1px solid rgba(255,255,255,0.11);
-    border-bottom: 3px solid rgba(0,0,0,0.45);
+    border-bottom: 2px solid rgba(0,0,0,0.45);
     border-radius: clamp(7px, 0.6vw, 10px);
     color: rgba(255,255,255,0.88);
-    font-size: clamp(13px, 1.2vw, 18px);
+    font-size: clamp(12px, 0.95vw, 17px);
     font-weight: 500;
     font-family: inherit;
     display: flex;
@@ -560,7 +597,7 @@ body {
         color: #080810;
         border-color: transparent;
         border-bottom-color: rgba(0,0,0,0.25);
-        transform: scale(1.1) translateY(-3px);
+        transform: scale(1.06) translateY(-2px);
         box-shadow: 0 8px 24px rgba(0,0,0,0.55), 0 0 0 2px rgba(255,255,255,0.35);
         z-index: 1;
         position: relative;
@@ -571,69 +608,111 @@ body {
         box-shadow: none;
     }
 
-    .vkb-key[data-key="space"] {
-        grid-column: span 6;
-        height: clamp(52px, 4.8vw, 70px);
-        font-size: clamp(12px, 1.2vw, 16px);
-        letter-spacing: 0.08em;
-        color: rgba(255,255,255,0.45);
-        width: 100%;
+.vkb-key-label {
+    pointer-events: none;
+    white-space: nowrap;
+}
+
+.vkb-pad-icon {
+    position: absolute;
+    top: 4px;
+    right: 5px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.12);
+    color: rgba(255,255,255,0.75);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 8px;
+    line-height: 1;
+    font-weight: 850;
+    letter-spacing: 0;
+}
+
+    .vkb-pad-icon.start {
+        min-width: 20px;
+        border-radius: 5px;
     }
 
-        .vkb-key[data-key="space"]:focus {
+    .vkb-key.space-key {
+        height: clamp(42px, 3.6vw, 62px);
+        font-size: clamp(11px, 0.82vw, 14px);
+        letter-spacing: 0.08em;
+        color: rgba(255,255,255,0.45);
+    }
+
+        .vkb-key.space-key:focus {
             color: rgba(0,0,0,0.65);
         }
 
-    .vkb-key[data-key="cancel"] {
-        grid-column: span 2;
-        height: clamp(52px, 4.8vw, 70px);
+    .vkb-key[data-key="CANCEL"] {
         color: rgba(255,255,255,0.6);
-        font-size: clamp(12px, 1.2vw, 16px);
+        font-size: clamp(11px, 0.85vw, 15px);
         font-weight: 500;
-        width: 100%;
     }
 
-    .vkb-key[data-key="ok"] {
-        grid-column: span 2;
-        height: clamp(52px, 4.8vw, 70px);
+    .vkb-key[data-key="ENTER"] {
         background: rgba(50,110,255,0.32);
         border-color: rgba(50,110,255,0.55);
         color: rgba(170,205,255,0.95);
         font-weight: 650;
-        font-size: clamp(12px, 1.2vw, 16px);
-        width: 100%;
+        font-size: clamp(11px, 0.85vw, 15px);
     }
 
-        .vkb-key[data-key="ok"]:focus {
+        .vkb-key[data-key="ENTER"]:focus {
             background: rgb(50,110,255);
             color: #fff;
             border-color: transparent;
             box-shadow: 0 8px 28px rgba(50,110,255,0.55), 0 0 0 2px rgba(50,110,255,0.4);
         }
 
-    .vkb-key[data-key="⌫"] {
+    .vkb-key[data-key="BKSP"] {
         color: rgba(255,110,110,0.85);
-        font-size: clamp(16px,1.7vw,23px);
+        font-size: clamp(11px, 0.85vw, 15px);
     }
 
-        .vkb-key[data-key="⌫"]:focus {
+        .vkb-key[data-key="BKSP"]:focus {
             color: #b00;
         }
 
-    .vkb-key[data-key="shift"] {
-        font-size: clamp(15px,1.6vw,22px);
+    .vkb-key[data-key="SHIFT"] {
+        font-size: clamp(11px, 0.85vw, 15px);
     }
 
-        .vkb-key[data-key="shift"].shifted {
+        .vkb-key[data-key="SHIFT"].shifted {
             background: rgba(255,255,255,0.2);
             border-color: rgba(255,255,255,0.3);
             color: #fff;
         }
 
-            .vkb-key[data-key="shift"].shifted:focus {
+            .vkb-key[data-key="SHIFT"].shifted:focus {
                 background: rgba(255,255,255,0.97);
                 color: #080810;
             }
+
+    .vkb-key.accent-pending {
+        background: rgba(255, 145, 45, 0.34);
+        border-color: rgba(255, 180, 90, 0.78);
+        color: #fff;
+    }
+
+.vkb-overlay.numeric {
+    width: min(360px, calc(100vw - 32px)) !important;
+}
+
+    .vkb-overlay.numeric .vkb-row {
+        gap: 7px;
+    }
+
+    .vkb-overlay.numeric .vkb-key {
+        min-width: 0;
+        height: clamp(44px, 4.2vw, 68px);
+        font-size: clamp(16px, 1.3vw, 24px);
+        font-weight: 650;
+    }
 
     .card:focus,
     .card:hover {
@@ -2478,13 +2557,15 @@ body {
 
 .web-app-form {
     display: grid;
-    grid-template-columns: minmax(220px, 0.9fr) minmax(320px, 1.25fr);
-    gap: clamp(12px, 1.2vw, 20px);
-    padding: clamp(18px, 2vw, 30px);
+    grid-template-columns: minmax(0, 1fr);
+    gap: clamp(10px, 1vw, 16px);
+    width: min(100%, 920px);
+    padding: clamp(16px, 1.6vw, 24px);
     margin-top: clamp(12px, 1.2vw, 20px);
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 8px;
     background:
+        radial-gradient(circle at 92% 10%, rgba(100, 160, 255, 0.12), transparent 34%),
         linear-gradient(135deg, rgba(255,255,255,0.085), rgba(255,255,255,0.035)),
         rgba(8, 8, 20, 0.42);
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
@@ -2509,9 +2590,9 @@ body {
     background: rgba(255, 255, 255, 0.085);
     border: 1px solid rgba(255, 255, 255, 0.16);
     border-radius: 8px;
-    padding: clamp(13px, 1.3vw, 18px) clamp(15px, 1.5vw, 20px);
+    padding: clamp(10px, 1vw, 14px) clamp(13px, 1.2vw, 18px);
     color: #fff;
-    font-size: clamp(0.9rem, 1vw, 1.2rem);
+    font-size: clamp(0.86rem, 0.9vw, 1.05rem);
     font-family: 'Outfit', sans-serif;
     outline: none;
     box-sizing: border-box;
@@ -2545,7 +2626,7 @@ body {
 
 #subview-web .setup-api-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     gap: 10px;
 }
 
@@ -2554,9 +2635,43 @@ body {
     border-radius: 8px;
 }
 
+#subview-web .setup-input {
+    min-height: 0;
+    height: auto;
+    padding: clamp(10px, 1vw, 14px) clamp(13px, 1.2vw, 18px);
+    font-size: clamp(0.86rem, 0.9vw, 1.05rem);
+}
+
 #subview-web .setup-icon-btn {
     min-width: 104px;
+    min-height: 0;
+    padding: 0 clamp(12px, 1vw, 16px);
+    gap: 8px;
     justify-content: center;
+    text-transform: uppercase;
+}
+
+#btnWebAppBrowser {
+    min-width: 132px;
+}
+
+.web-app-action-icon {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    opacity: 0.92;
+}
+
+.web-app-browser-action-icon {
+    width: 22px;
+    height: 22px;
+    stroke-width: 1.9;
+    opacity: 0.96;
 }
 
 #subview-web .setup-input:focus,

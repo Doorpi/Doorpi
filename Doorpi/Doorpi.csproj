@@ -20,12 +20,14 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DoorpiInputBridge\DoorpiInputBridge.csproj" ReferenceOutputAssembly="false" OutputItemType="Content" CopyToOutputDirectory="PreserveNewest" />
+    <ProjectReference Include="..\DoorpiWindowsUpdateHelper\DoorpiWindowsUpdateHelper.csproj" ReferenceOutputAssembly="false" OutputItemType="Content" CopyToOutputDirectory="PreserveNewest" />
     <ProjectReference Include="..\Doorpi.UpdateCore\Doorpi.UpdateCore.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="DiscordRichPresence" Version="1.6.1.70" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3967.48" />
+    <PackageReference Include="ManagedNativeWifi" Version="3.0.2" />
     <PackageReference Include="System.Drawing.Common" Version="10.0.8" />
   </ItemGroup>
 
@@ -58,6 +60,12 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="wwwroot\app.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="wwwroot\bluetooth-ui.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="wwwroot\wifi-ui.js">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="wwwroot\config\strings.js">

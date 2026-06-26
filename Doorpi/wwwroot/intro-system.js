@@ -256,17 +256,30 @@
     }
 
     function skipIntro() {
-        if (!state.started || state.completed) return;
+        if (!state.started || state.completed) return false;
         createAmbient();
         completeIntro('skip', true);
+        return true;
     }
 
     function installInputGuards() {
         if (state.inputHandlersInstalled) return;
         state.inputHandlersInstalled = true;
-        const skip = (e) => { if (state.started && !state.completed && !e.altKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); e.stopImmediatePropagation(); skipIntro(); } };
-        document.addEventListener('keydown', skip, true);
-        document.addEventListener('click', skip, true);
+        const keyGuard = (e) => {
+            if (!state.started || state.completed) return;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'Enter') {
+                skipIntro();
+            }
+        };
+        const clickGuard = (e) => {
+            if (!state.started || state.completed) return;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+        };
+        document.addEventListener('keydown', keyGuard, true);
+        document.addEventListener('click', clickGuard, true);
     }
 
     function runAmbientPhysics() {
@@ -335,9 +348,13 @@
         state.started = true;
 
         injectStyles();
+        installInputGuards();
 
         // Use o await para esperar a leitura do JSON que criamos acima
         state.config = await fetchIntroConfig();
+
+        // O usuário pode ter pulado durante a leitura assíncrona do manifesto.
+        if (state.completed) return;
 
         if (!state.config.enabled) {
             state.completed = true;
@@ -345,7 +362,6 @@
             return;
         }
 
-        installInputGuards();
         window.addEventListener('message', handleIntroMessage);
 
         const iframe = document.createElement('iframe');

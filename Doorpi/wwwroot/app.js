@@ -1437,14 +1437,14 @@
         const overlay = document.createElement('div');
         overlay.id = 'sessionConflictOverlay';
         overlay.innerHTML = `
-            <div id="sessionConflictCard" role="dialog" aria-modal="true" aria-label="${typeof t === 'function' ? t('sessionConflictAriaLabel') : 'Conflito de sessao'}">
+            <div id="sessionConflictCard" role="dialog" aria-modal="true" aria-label="${typeof t === 'function' ? t('sessionConflictAriaLabel') : 'Conflito de sessão'}">
                 <div id="sessionConflictAccent" aria-hidden="true"></div>
                 <div id="sessionConflictBody">
-                    <div id="sessionConflictKicker">${typeof t === 'function' ? t('sessionConflictActiveKicker') : 'Sessao ativa'}</div>
+                    <div id="sessionConflictKicker">${typeof t === 'function' ? t('sessionConflictActiveKicker') : 'Sessão ativa'}</div>
                     <div id="sessionConflictCopy">
-                        <h3 id="sessionConflictTitle">${typeof t === 'function' ? t('sessionConflictTitle') : 'Sessao em andamento'}</h3>
-                        <p id="sessionConflictMessage">${typeof t === 'function' ? t('sessionConflictDefaultMessage') : 'Uma sessao ja esta ativa. Encerre a sessao atual para iniciar outra.'}</p>
-                        <p id="sessionConflictHint">${typeof t === 'function' ? t('sessionConflictHint') : 'O Doorpi mantem uma sessao por vez para evitar sobreposicao de janelas.'}</p>
+                        <h3 id="sessionConflictTitle">${typeof t === 'function' ? t('sessionConflictTitle') : 'Sessão em andamento'}</h3>
+                        <p id="sessionConflictMessage">${typeof t === 'function' ? t('sessionConflictDefaultMessage') : 'Uma sessão já está ativa. Encerre a sessão atual para iniciar outra.'}</p>
+                        <p id="sessionConflictHint">${typeof t === 'function' ? t('sessionConflictHint') : 'O Doorpi mantém uma sessão por vez para evitar sobreposição de janelas.'}</p>
                     </div>
                     <div id="sessionConflictActions">
                         <button id="sessionConflictClose" class="conflict-action primary" type="button" tabindex="0">
@@ -3167,6 +3167,20 @@
                 window.DoorpiQuickPanel?.setGpuUpdateStatus?.(data);
                 window._navMenuSetGpuUpdateStatus?.(data);
             }
+            else if (data.type === 'bluetoothStatus') {
+                const changed = window.DoorpiBluetoothUI?.setStatus?.(data) !== false;
+                if (changed) {
+                    window.DoorpiQuickPanel?.setBluetoothStatus?.(data);
+                    window._navMenuSetBluetoothStatus?.(data);
+                }
+            }
+            else if (data.type === 'wifiStatus') {
+                const changed = window.DoorpiWifiUI?.setStatus?.(data) !== false;
+                if (changed) {
+                    window.DoorpiQuickPanel?.setWifiStatus?.(data);
+                    window._navMenuSetWifiStatus?.(data);
+                }
+            }
             else if (data.type === 'updateFeaturedCard') {
                 // 🔹 Avisa o Store: ele reordena o carrossel E atualiza o hero automaticamente
                 if (window.AppStore) window.AppStore.mutations.trackOpened(data.id);
@@ -3321,6 +3335,28 @@
                         }
                     }
                 }
+            }
+            else if (data.type === 'webAppBrowserUrlCaptured') {
+                const url = (data.url || '').trim();
+                if (url) {
+                    window._suppressNextMediaAppClosedFocus = true;
+                    const input = document.getElementById('webAppUrlInput');
+                    if (input) {
+                        input.value = url;
+                        input.dispatchEvent(new Event('input', { bubbles: true }));
+                        setTimeout(() => document.getElementById('btnAddWebApp')?.focus(), 120);
+                    }
+                }
+            }
+            else if (data.type === 'webAppBrowserCaptureCanceled') {
+                window._suppressNextMediaAppClosedFocus = true;
+                setTimeout(() => {
+                    const target =
+                        document.getElementById('btnWebAppBrowser') ||
+                        document.getElementById('webAppUrlInput') ||
+                        document.getElementById('btnAddWebApp');
+                    target?.focus?.();
+                }, 180);
             }
             else if (data.type === 'gameLaunching') {
                 window._isExternalAppRunning = true;
@@ -4109,7 +4145,8 @@
             onOk: submit,
             onCancel: cancel
         };
-        const openPinKeyboard = () => {
+        const openPinKeyboard = (event) => {
+            if (event && !window._doorpiShouldOpenVkbFromEvent?.(event)) return;
             if (prompt.dataset.submitting === 'true') return;
             input.focus();
             input._doorpiVkbReturnFocus = dotsBtn;
@@ -4340,9 +4377,13 @@
         let doorpiStatus = null;
         let windowsStatus = null;
         let gpuStatus = null;
+        let bluetoothStatus = null;
+        let wifiStatus = null;
         let section = null;
         let updateView = 'hub';
+        let connectivityView = 'hub';
         let depth = 'menu';
+        let bluetoothPatchTimer = 0;
 
         function ensureStyles() {
             if (document.getElementById('doorpiQuickPanelStyles')) return;
@@ -4470,6 +4511,13 @@
                 .dq-meta { display:flex; flex-wrap:wrap; gap:10px 18px; color:rgba(255,255,255,.55); font-size:.9rem; margin-top:10px; }
                 .dq-list { display:grid; gap:8px; margin-top:12px; }
                 .dq-update-row { display:flex; justify-content:space-between; gap:14px; padding:9px 0; border-top:1px solid rgba(255,255,255,.07); color:rgba(255,255,255,.72); }
+                .dq-update-progress { display:grid; gap:7px; padding:10px 0; border-top:1px solid rgba(255,255,255,.07); }
+                .dq-update-progress-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; color:rgba(255,255,255,.74); }
+                .dq-update-progress-title { min-width:0; line-height:1.35; }
+                .dq-update-progress-state { flex:0 0 auto; color:rgba(255,255,255,.52); font-size:.82rem; }
+                .dq-update-progress-state.restart { color:#ffd872; }
+                .dq-progress-track { height:4px; overflow:hidden; border-radius:2px; background:rgba(255,255,255,.10); }
+                .dq-progress-fill { height:100%; width:var(--progress); background:#7dcbff; transition:width .18s linear; }
                 .dq-actions { display:grid; grid-template-columns: repeat(2, minmax(230px, 1fr)); gap:12px; max-width:740px; margin-top:6px; }
                 .dq-actions.windows-update-actions {
                     grid-template-areas:
@@ -4533,6 +4581,30 @@
                 .dq-gpu-guidance { max-width:880px; display:grid; gap:8px; padding-left:14px; border-left:2px solid rgba(125,203,255,.48); }
                 .dq-gpu-guidance p { margin:0; color:rgba(255,255,255,.56); font-size:.86rem; line-height:1.42; }
                 .dq-gpu-guidance strong { color:rgba(255,255,255,.84); font-weight:650; }
+                .dq-windows-guidance { max-width:880px; padding-left:14px; border-left:2px solid rgba(125,203,255,.48); }
+                .dq-windows-guidance p { margin:0; color:rgba(255,255,255,.58); font-size:.86rem; line-height:1.42; }
+                .dq-windows-guidance strong { color:rgba(255,255,255,.86); font-weight:650; }
+                @media (min-width: 3000px) and (min-height: 1600px) {
+                    .dq-sidebar { width:480px; padding:64px 44px; gap:24px; }
+                    .dq-brand { min-height:52px; margin-bottom:14px; }
+                    .dq-burger { width:36px; height:29px; gap:7px; }
+                    .dq-menu { gap:14px; margin-top:14px; }
+                    .dq-menu-btn { min-height:80px; padding:0 22px; }
+                    .dq-menu-label { gap:18px; }
+                    .dq-menu-ico { width:34px; height:34px; }
+                    .dq-menu-ico svg { width:32px; height:32px; }
+                    .dq-content { padding:90px 120px; gap:24px; }
+                    .dq-sub { max-width:900px; }
+                    .dq-grid { grid-template-columns:repeat(3,minmax(320px,1fr)); gap:22px; max-width:1240px; }
+                    .dq-card { min-height:224px; padding:28px; gap:28px; }
+                    .dq-action { min-height:76px; padding:0 24px; }
+                    .dq-panel, .dq-app-grid, .dq-gpu-guidance, .dq-windows-guidance { max-width:1100px; }
+                    .dq-actions { max-width:920px; gap:16px; }
+                    .dq-app-grid { grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:18px; }
+                    .dq-app-card { min-height:220px; padding:20px; }
+                    .dq-app-art { height:108px; }
+                    .dq-tab { min-width:165px; min-height:52px; }
+                }
                 @media (max-width: 900px) {
                     .dq-sidebar { width: 230px; padding-inline:18px; }
                     .dq-content { padding-inline:26px; }
@@ -4580,30 +4652,30 @@
             if (kind === 'gpu') {
                 const adapters = Array.isArray(status?.adapters) ? status.adapters : [];
                 const updaters = Array.isArray(status?.updaters) ? status.updaters : [];
-                if (status?.status === 'error') return `<span class="dq-pill err">Erro</span>`;
-                if (!adapters.length) return `<span class="dq-pill warn">Sem GPU</span>`;
-                if (!updaters.length) return `<span class="dq-pill warn">Sem app</span>`;
-                return `<span class="dq-pill">Detectado</span>`;
+                if (status?.status === 'error') return `<span class="dq-pill err">${t('quickError')}</span>`;
+                if (!adapters.length) return `<span class="dq-pill warn">${t('quickNoGpu')}</span>`;
+                if (!updaters.length) return `<span class="dq-pill warn">${t('quickNoApp')}</span>`;
+                return `<span class="dq-pill">${t('quickDetected')}</span>`;
             }
             if (kind === 'doorpi') {
                 const available = !!(status?.doorpiUpdateAvailable || status?.updaterUpdateAvailable);
-                if (available) return `<span class="dq-pill warn">Disponível</span>`;
-                if (status?.status === 'error') return `<span class="dq-pill err">Erro</span>`;
-                if (status?.status === 'checking') return `<span class="dq-pill">Verificando</span>`;
-                return `<span class="dq-pill">Atualizado</span>`;
+                if (available) return `<span class="dq-pill warn">${t('quickAvailable')}</span>`;
+                if (status?.status === 'error') return `<span class="dq-pill err">${t('quickError')}</span>`;
+                if (status?.status === 'checking') return `<span class="dq-pill">${t('quickChecking')}</span>`;
+                return `<span class="dq-pill">${t('quickUpdated')}</span>`;
             }
             const updates = Array.isArray(status?.updates) ? status.updates : [];
-            if (status?.rebootRequired) return `<span class="dq-pill warn">Reiniciar</span>`;
-            if (updates.length) return `<span class="dq-pill warn">Disponível</span>`;
-            if (status?.status === 'error') return `<span class="dq-pill err">Erro</span>`;
-            if (status?.status === 'checking' || status?.status === 'downloading') return `<span class="dq-pill">Processando</span>`;
-            return `<span class="dq-pill">Atualizado</span>`;
+            if (status?.rebootRequired) return `<span class="dq-pill warn">${t('quickRestart')}</span>`;
+            if (status?.status === 'error') return `<span class="dq-pill err">${t('quickError')}</span>`;
+            if (status?.status === 'checking' || status?.status === 'downloading' || status?.status === 'installing') return `<span class="dq-pill">${t('quickProcessing')}</span>`;
+            if (updates.length) return `<span class="dq-pill warn">${t('quickAvailable')}</span>`;
+            return `<span class="dq-pill">${t('quickUpdated')}</span>`;
         }
 
         function dateText(value) {
-            if (!value) return 'Nunca';
+            if (!value) return t('never');
             const d = new Date(value);
-            if (Number.isNaN(d.getTime())) return 'Nunca';
+            if (Number.isNaN(d.getTime())) return t('never');
             return d.toLocaleDateString(undefined, { day: '2-digit', month: '2-digit' }) + ' ' +
                 d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
         }
@@ -4616,9 +4688,52 @@
             return `${Math.max(1, Math.round(value / 1024))} KB`;
         }
 
+        function windowsActionLabel(status) {
+            if (status === 'installing') return t('windowsUpdateInstalling');
+            if (status === 'downloading') return t('windowsUpdateDownloading');
+            if (status === 'checking') return t('windowsUpdateChecking');
+            return t('checkWindows');
+        }
+
+        function windowsPackageState(item) {
+            if (item?.rebootRequired || item?.status === 'reboot-required')
+                return { text: t('windowsUpdateRebootPending'), cls: 'restart' };
+            const keys = {
+                pending: 'windowsUpdatePending',
+                downloading: 'windowsUpdateDownloading',
+                downloaded: 'windowsUpdateDownloaded',
+                installing: 'windowsUpdateInstalling',
+                installed: 'windowsUpdateInstalled',
+                error: 'windowsUpdatePackageError'
+            };
+            return { text: t(keys[item?.status] || 'windowsUpdatePending'), cls: '' };
+        }
+
+        function windowsUpdateRows(status, updates) {
+            const progress = Array.isArray(status?.packageProgress) ? status.packageProgress : [];
+            if (!progress.length) {
+                return updates.length
+                    ? updates.map(update => `<div class="dq-update-row"><span>${esc(update.title || t('quickWindowsUpdateName'))}</span><span>${esc(sizeText(update.sizeBytes))}</span></div>`).join('')
+                    : `<div class="dq-update-row"><span>${t('windowsUpdateNoneListed')}</span></div>`;
+            }
+
+            const updatesById = new Map(updates.map(update => [String(update.updateId || '').toLowerCase(), update]));
+            return progress.map(item => {
+                const update = updatesById.get(String(item.updateId || '').toLowerCase());
+                const state = windowsPackageState(item);
+                const percent = Math.max(0, Math.min(100, Number(item.percent) || 0));
+                const detail = [state.text, `${Math.round(percent)}%`, sizeText(update?.sizeBytes)].filter(Boolean).join(' - ');
+                return `<div class="dq-update-progress">
+                    <div class="dq-update-progress-head"><span class="dq-update-progress-title">${esc(item.title || update?.title || t('quickWindowsUpdateName'))}</span><span class="dq-update-progress-state ${state.cls}">${esc(detail)}</span></div>
+                    <div class="dq-progress-track"><div class="dq-progress-fill" style="--progress:${percent}%"></div></div>
+                </div>`;
+            }).join('');
+        }
+
         function iconSvg(id, cls = '') {
             const icons = {
                 updates: '<path d="M21 12a9 9 0 0 1-15.5 6.2"/><path d="M3 12A9 9 0 0 1 18.5 5.8"/><path d="M18.5 2.8v3h-3"/><path d="M5.5 21.2v-3h3"/>',
+                connectivity: '<path d="M7 7.5a7 7 0 0 1 10 0"/><path d="M9.7 10.2a3.3 3.3 0 0 1 4.6 0"/><circle cx="12" cy="13" r=".7" fill="currentColor"/><path d="m16.5 3 4 4-3 2.5 3 2.5-4 4V3Z"/>',
                 users: '<path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.85"/><path d="M16 3.15a4 4 0 0 1 0 7.7"/>',
                 power: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>',
                 settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.72l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/>',
@@ -4637,10 +4752,11 @@
             const hasWindowsUpdate = !!windowsStatus?.rebootRequired || ((windowsStatus?.updates || []).length > 0);
             const updateDot = hasDoorpiUpdate || hasWindowsUpdate ? '<span class="dq-dot"></span>' : '';
             const items = [
-                ['updates', 'Atualizações', updateDot],
-                ['users', 'Trocar usuário', ''],
-                ['power', 'Energia', ''],
-                ['settings', 'Configurações', '']
+                ['updates', t('updatesTitle'), updateDot],
+                ['connectivity', t('navSetConnectivity'), ''],
+                ['users', t('navChangeUser'), ''],
+                ['power', t('quickPower'), ''],
+                ['settings', t('navSettings'), '']
             ];
             return `
                 <aside class="dq-sidebar">
@@ -4663,21 +4779,21 @@
         function updatesHub() {
             return `
                 <section class="dq-content">
-                    <div class="dq-kicker">Painel rápido</div>
-                    <h1 class="dq-heading">Atualizações</h1>
-                    <p class="dq-sub">Verifique o Doorpi e o Windows sem sair da experiência de console.</p>
+                    <div class="dq-kicker">${t('quickPanel')}</div>
+                    <h1 class="dq-heading">${t('updatesTitle')}</h1>
+                    <p class="dq-sub">${t('quickUpdatesDesc')}</p>
                     <div class="dq-grid">
                         <button class="dq-card" data-update-view="doorpi" tabindex="0">
                             ${statusPill('doorpi', doorpiStatus)}
-                            <div><h3>Doorpi</h3><p>Aplicativo, updater e manifesto assinado.</p></div>
+                            <div><h3>Doorpi</h3><p>${t('quickDoorpiDesc')}</p></div>
                         </button>
                         <button class="dq-card" data-update-view="windows" tabindex="0">
                             ${statusPill('windows', windowsStatus)}
-                            <div><h3>Windows</h3><p>Windows Update, instalação em segundo plano e reinício.</p></div>
+                            <div><h3>Windows</h3><p>${t('quickWindowsDesc')}</p></div>
                         </button>
                         <button class="dq-card" data-update-view="gpu" tabindex="0">
                             ${statusPill('gpu', gpuStatus)}
-                            <div><h3>Placa de vídeo</h3><p>Versão atual dos drivers e apps de atualização.</p></div>
+                            <div><h3>${t('videoCardTitle')}</h3><p>${t('quickGpuDesc')}</p></div>
                         </button>
                     </div>
                 </section>
@@ -4693,28 +4809,28 @@
                 : [];
             return `
                 <section class="dq-content">
-                    <div class="dq-kicker">Atualizações</div>
+                    <div class="dq-kicker">${t('updatesTitle')}</div>
                     <h1 class="dq-heading">Doorpi</h1>
-                    <p class="dq-sub">${esc(s.message || 'Atualizações ainda não verificadas.')}</p>
+                    <p class="dq-sub">${esc(s.message || t('sysUpdateIdle'))}</p>
                     <div class="dq-tabs">
                         <button class="dq-tab active" data-update-view="doorpi" tabindex="0">Doorpi</button>
                         <button class="dq-tab" data-update-view="windows" tabindex="0">Windows</button>
-                        <button class="dq-tab" data-update-view="gpu" tabindex="0">Placa de vídeo</button>
+                        <button class="dq-tab" data-update-view="gpu" tabindex="0">${t('videoCardTitle')}</button>
                     </div>
                     <div class="dq-panel">
                         ${statusPill('doorpi', s)}
                         <div class="dq-meta">
                             <span>Doorpi ${esc(s.localDoorpiVersion || '--')}${s.remoteDoorpiVersion ? ' -> ' + esc(s.remoteDoorpiVersion) : ''}</span>
                             <span>Updater ${esc(s.localUpdaterVersion || '--')}${s.remoteUpdaterVersion ? ' -> ' + esc(s.remoteUpdaterVersion) : ''}</span>
-                            <span>Última verificação: ${esc(dateText(s.lastCheckedAt))}</span>
+                            <span>${t('windowsUpdateLastCheck', dateText(s.lastCheckedAt))}</span>
                         </div>
                         <div class="dq-list">
-                            ${changelog.length ? changelog.map(item => `<div class="dq-update-row"><span>${esc(item)}</span></div>`).join('') : '<div class="dq-update-row"><span>Nenhuma nota de versão carregada.</span></div>'}
+                            ${changelog.length ? changelog.map(item => `<div class="dq-update-row"><span>${esc(item)}</span></div>`).join('') : `<div class="dq-update-row"><span>${t('quickNoReleaseNotes')}</span></div>`}
                         </div>
                     </div>
                     <div class="dq-actions">
-                        <button class="dq-action" data-action="check-doorpi" tabindex="0" ${active ? 'data-busy="true"' : ''}><span class="dq-action-label">${active ? 'Verificando' : 'Verificar Doorpi'}</span><span class="dq-action-ico">${iconSvg('refresh', active ? 'dq-spin' : '')}</span></button>
-                        <button class="dq-action primary" data-action="install-doorpi" tabindex="0" ${(hasUpdate && !active) ? '' : 'disabled'}><span class="dq-action-label">Atualizar Doorpi</span><span class="dq-action-ico">${iconSvg('arrowRight')}</span></button>
+                        <button class="dq-action" data-action="check-doorpi" tabindex="0" ${active ? 'data-busy="true"' : ''}><span class="dq-action-label">${active ? t('quickChecking') : t('checkDoorpi')}</span><span class="dq-action-ico">${iconSvg('refresh', active ? 'dq-spin' : '')}</span></button>
+                        <button class="dq-action primary" data-action="install-doorpi" tabindex="0" ${(hasUpdate && !active) ? '' : 'disabled'}><span class="dq-action-label">${t('updateDoorpi')}</span><span class="dq-action-ico">${iconSvg('arrowRight')}</span></button>
                     </div>
                 </section>
             `;
@@ -4723,35 +4839,37 @@
         function windowsDetail() {
             const s = windowsStatus || {};
             const updates = Array.isArray(s.updates) ? s.updates : [];
+            const packageProgress = Array.isArray(s.packageProgress) ? s.packageProgress : [];
             const active = s.status === 'checking' || s.status === 'downloading' || s.status === 'installing';
             return `
                 <section class="dq-content">
-                    <div class="dq-kicker">Atualizações</div>
+                    <div class="dq-kicker">${t('updatesTitle')}</div>
                     <h1 class="dq-heading">Windows</h1>
-                    <p class="dq-sub">${esc(s.message || 'Atualizações do Windows ainda não verificadas.')}</p>
+                    <p class="dq-sub">${esc(s.message || t('windowsUpdateIdle'))}</p>
                     <div class="dq-tabs">
                         <button class="dq-tab" data-update-view="doorpi" tabindex="0">Doorpi</button>
                         <button class="dq-tab active" data-update-view="windows" tabindex="0">Windows</button>
-                        <button class="dq-tab" data-update-view="gpu" tabindex="0">Placa de vídeo</button>
+                        <button class="dq-tab" data-update-view="gpu" tabindex="0">${t('videoCardTitle')}</button>
                     </div>
                     <div class="dq-panel">
                         ${statusPill('windows', s)}
                         <div class="dq-meta">
-                            <span>${updates.length} pacote(s)</span>
-                            <span>Última verificação: ${esc(dateText(s.lastCheckedAt))}</span>
+                            <span>${t('windowsUpdatePackages', packageProgress.length || updates.length)}</span>
+                            ${active ? `<span>${t('windowsUpdateOverall', Math.max(0, Math.min(100, Number(s.overallPercent) || 0)))}</span>` : ''}
+                            <span>${t('windowsUpdateLastCheck', dateText(s.lastCheckedAt))}</span>
                         </div>
                         <div class="dq-list">
-                            ${updates.length ? updates.slice(0, 5).map(update => {
-                                const size = sizeText(update.sizeBytes);
-                                return `<div class="dq-update-row"><span>${esc(update.title || 'Atualização do Windows')}</span><span>${esc(size)}</span></div>`;
-                            }).join('') : '<div class="dq-update-row"><span>Nenhuma atualização listada.</span></div>'}
+                            ${windowsUpdateRows(s, updates)}
                         </div>
                     </div>
+                    <div class="dq-windows-guidance">
+                        <p><strong>${esc(t('windowsUpdateAdminNoticeTitle'))}</strong> ${esc(t('windowsUpdateAdminNoticeText'))}</p>
+                    </div>
                     <div class="dq-actions windows-update-actions">
-                        <button class="dq-action verify" data-action="check-windows" tabindex="0" ${active ? 'data-busy="true"' : ''}><span class="dq-action-label">${active ? 'Verificando' : 'Verificar Windows'}</span><span class="dq-action-ico">${iconSvg('refresh', active ? 'dq-spin' : '')}</span></button>
-                        <button class="dq-action manual" data-action="open-windows-update" tabindex="0"><span class="dq-action-label">Abrir Windows Update</span><span class="dq-action-ico">${iconSvg('external')}</span></button>
-                        <button class="dq-action primary install" data-action="install-windows" tabindex="0" ${(updates.length && !s.rebootRequired && !active) ? '' : 'disabled'}><span class="dq-action-label">Baixar e instalar</span><span class="dq-action-ico">${iconSvg('arrowRight')}</span></button>
-                        <button class="dq-action primary restart" data-action="restart" tabindex="0" ${s.rebootRequired ? '' : 'disabled'}><span class="dq-action-label">Reiniciar agora</span><span class="dq-action-ico">${iconSvg('shutdown')}</span></button>
+                        <button class="dq-action verify" data-action="check-windows" tabindex="0" ${active ? 'data-busy="true"' : ''}><span class="dq-action-label">${esc(windowsActionLabel(s.status))}</span><span class="dq-action-ico">${iconSvg('refresh', active ? 'dq-spin' : '')}</span></button>
+                        <button class="dq-action manual" data-action="open-windows-update" tabindex="0"><span class="dq-action-label">${t('quickOpenWindowsUpdate')}</span><span class="dq-action-ico">${iconSvg('external')}</span></button>
+                        <button class="dq-action primary install" data-action="install-windows" tabindex="0" ${(updates.length && !s.rebootRequired && !active) ? '' : 'disabled'}><span class="dq-action-label">${t('windowsUpdateInstall')}</span><span class="dq-action-ico">${iconSvg('arrowRight')}</span></button>
+                        <button class="dq-action primary restart" data-action="restart" tabindex="0" ${s.rebootRequired ? '' : 'disabled'}><span class="dq-action-label">${t('restartNow')}</span><span class="dq-action-ico">${iconSvg('shutdown')}</span></button>
                     </div>
                 </section>
             `;
@@ -4782,20 +4900,20 @@
             const updaters = Array.isArray(s.updaters) ? s.updaters : [];
             return `
                 <section class="dq-content">
-                    <div class="dq-kicker">Atualizações</div>
-                    <h1 class="dq-heading">Placa de vídeo</h1>
-                    <p class="dq-sub">${esc(s.message || 'Dados de placa de vídeo ainda não carregados.')}</p>
+                    <div class="dq-kicker">${t('updatesTitle')}</div>
+                    <h1 class="dq-heading">${t('videoCardTitle')}</h1>
+                    <p class="dq-sub">${esc(s.message || t('quickGpuIdle'))}</p>
                     <div class="dq-tabs">
                         <button class="dq-tab" data-update-view="doorpi" tabindex="0">Doorpi</button>
                         <button class="dq-tab" data-update-view="windows" tabindex="0">Windows</button>
-                        <button class="dq-tab active" data-update-view="gpu" tabindex="0">Placa de vídeo</button>
+                        <button class="dq-tab active" data-update-view="gpu" tabindex="0">${t('videoCardTitle')}</button>
                     </div>
                     <div class="dq-panel">
                         ${statusPill('gpu', s)}
                         <div class="dq-meta">
-                            <span>${adapters.length} adaptador(es)</span>
-                            <span>${updaters.length} app(s) configurado(s)</span>
-                            <span>Última leitura: ${esc(dateText(s.lastCheckedAt))}</span>
+                            <span>${t('quickGpuAdapters', adapters.length)}</span>
+                            <span>${t('quickGpuApps', updaters.length)}</span>
+                            <span>${t('quickLastReading', dateText(s.lastCheckedAt))}</span>
                         </div>
                         <div class="dq-list">
                             ${adapters.length ? adapters.map(adapter => `
@@ -4803,7 +4921,7 @@
                                     <span>${esc(readGpuProp(adapter, 'name') || vendorName(readGpuProp(adapter, 'vendor')))}</span>
                                     <span>${esc([vendorName(readGpuProp(adapter, 'vendor')), readGpuProp(adapter, 'driverVersion') || '--'].filter(Boolean).join(' - '))}</span>
                                 </div>
-                            `).join('') : '<div class="dq-update-row"><span>Nenhum driver de vídeo detectado.</span></div>'}
+                            `).join('') : `<div class="dq-update-row"><span>${t('quickNoVideoDriver')}</span></div>`}
                         </div>
                     </div>
                     <div class="dq-gpu-guidance">
@@ -4813,7 +4931,7 @@
                     <div class="dq-app-grid">
                         ${updaters.map(app => {
                             const id = readGpuProp(app, 'id');
-                            const name = readGpuProp(app, 'name') || 'Atualizador';
+                            const name = readGpuProp(app, 'name') || t('quickUpdater');
                             const vendor = readGpuProp(app, 'vendor');
                             const source = readGpuProp(app, 'source');
                             const imageUrl = readGpuProp(app, 'imageUrl');
@@ -4825,18 +4943,18 @@
                                 </div>
                                 <div>
                                     <div class="dq-app-name">${esc(name)}</div>
-                                    <div class="dq-app-meta">${esc(vendorName(vendor))} · ${esc(source === 'manual' ? 'Adicionado manualmente' : 'Detectado automaticamente')}</div>
+                                    <div class="dq-app-meta">${esc(vendorName(vendor))} · ${esc(source === 'manual' ? t('quickAddedManually') : t('quickDetectedAutomatically'))}</div>
                                 </div>
                                 <div class="dq-app-footer">
-                                    <span class="dq-pill">Abrir</span>
+                                    <span class="dq-pill">${t('quickOpen')}</span>
                                 </div>
                             </div>
                         `}).join('')}
                         <div class="dq-app-card dq-app-add" data-action="add-gpu-updater" tabindex="0" role="button">
                             <div class="dq-app-art"><div class="dq-app-fallback">+</div></div>
                             <div>
-                                <div class="dq-app-name">Adicionar app</div>
-                                <div class="dq-app-meta">Escolha outro atualizador instalado no Windows.</div>
+                                <div class="dq-app-name">${t('quickAddApp')}</div>
+                                <div class="dq-app-meta">${t('quickAddUpdaterDesc')}</div>
                             </div>
                         </div>
                     </div>
@@ -4847,27 +4965,62 @@
         function powerContent() {
             return `
                 <section class="dq-content">
-                    <div class="dq-kicker">Sistema</div>
-                    <h1 class="dq-heading">Energia</h1>
-                    <p class="dq-sub">Comandos diretos para controlar o computador.</p>
+                    <div class="dq-kicker">${t('quickSystem')}</div>
+                    <h1 class="dq-heading">${t('quickPower')}</h1>
+                    <p class="dq-sub">${t('quickPowerDesc')}</p>
                     <div class="dq-actions">
-                        <button class="dq-action" data-action="suspend" tabindex="0"><span class="dq-action-label">Suspender</span><span class="dq-action-ico">${iconSvg('sleep')}</span></button>
-                        <button class="dq-action" data-action="restart" tabindex="0"><span class="dq-action-label">Reiniciar</span><span class="dq-action-ico">${iconSvg('refresh')}</span></button>
-                        <button class="dq-action danger" data-action="shutdown" tabindex="0"><span class="dq-action-label">Desligar</span><span class="dq-action-ico">${iconSvg('shutdown')}</span></button>
-                        <button class="dq-action" data-action="exit" tabindex="0"><span class="dq-action-label">Sair do Doorpi</span><span class="dq-action-ico">${iconSvg('close')}</span></button>
+                        <button class="dq-action" data-action="suspend" tabindex="0"><span class="dq-action-label">${t('powerSuspend')}</span><span class="dq-action-ico">${iconSvg('sleep')}</span></button>
+                        <button class="dq-action" data-action="restart" tabindex="0"><span class="dq-action-label">${t('powerRestart')}</span><span class="dq-action-ico">${iconSvg('refresh')}</span></button>
+                        <button class="dq-action danger" data-action="shutdown" tabindex="0"><span class="dq-action-label">${t('powerShutdown')}</span><span class="dq-action-ico">${iconSvg('shutdown')}</span></button>
+                        <button class="dq-action" data-action="exit" tabindex="0"><span class="dq-action-label">${t('quickExitDoorpi')}</span><span class="dq-action-ico">${iconSvg('close')}</span></button>
                     </div>
                 </section>
             `;
         }
 
-        function simpleContent(title, sub, actionLabel) {
+        function bluetoothContent() {
             return `
                 <section class="dq-content">
-                    <div class="dq-kicker">Painel rápido</div>
+                    <div class="dq-kicker">${t('bluetoothQuickKicker')}</div>
+                    <h1 class="dq-heading">Bluetooth</h1>
+                    <p class="dq-sub">${t('bluetoothQuickDesc')}</p>
+                    ${window.DoorpiBluetoothUI?.render?.('quick') || ''}
+                </section>
+            `;
+        }
+
+        function wifiContent() {
+            return `
+                <section class="dq-content">
+                    <div class="dq-kicker">${t('connectivityQuickKicker')}</div>
+                    <h1 class="dq-heading">Wi-Fi</h1>
+                    <p class="dq-sub">${t('wifiQuickDesc')}</p>
+                    ${window.DoorpiWifiUI?.render?.('quick') || ''}
+                </section>
+            `;
+        }
+
+        function connectivityHub() {
+            return `
+                <section class="dq-content">
+                    <div class="dq-kicker">${t('quickPanel')}</div>
+                    <h1 class="dq-heading">${t('navSetConnectivity')}</h1>
+                    <p class="dq-sub">${t('quickConnectivityDesc')}</p>
+                    <div class="dq-grid">
+                        <button class="dq-card" data-connectivity-view="bluetooth" tabindex="0"><div><h3>Bluetooth</h3><p>${t('bluetoothSettingsDesc')}</p></div></button>
+                        <button class="dq-card" data-connectivity-view="wifi" tabindex="0"><div><h3>Wi-Fi</h3><p>${t('wifiSettingsDesc')}</p></div></button>
+                    </div>
+                </section>`;
+        }
+
+        function simpleContent(title, sub, actionLabel, action) {
+            return `
+                <section class="dq-content">
+                    <div class="dq-kicker">${t('quickPanel')}</div>
                     <h1 class="dq-heading">${title}</h1>
                     <p class="dq-sub">${sub}</p>
                     <div class="dq-actions">
-                        <button class="dq-action primary" data-action="${actionLabel === 'Trocar usuário' ? 'open-users' : 'open-settings'}" tabindex="0"><span class="dq-action-label">${actionLabel}</span><span class="dq-action-ico">${iconSvg('arrowRight')}</span></button>
+                        <button class="dq-action primary" data-action="${action}" tabindex="0"><span class="dq-action-label">${actionLabel}</span><span class="dq-action-ico">${iconSvg('arrowRight')}</span></button>
                     </div>
                 </section>
             `;
@@ -4881,9 +5034,14 @@
                 if (updateView === 'gpu') return gpuDetail();
                 return updatesHub();
             }
-            if (section === 'users') return simpleContent('Trocar usuário', 'Abra o seletor de perfis e escolha outra sessão.', 'Trocar usuário');
+            if (section === 'users') return simpleContent(t('navChangeUser'), t('quickSwitchUserDesc'), t('navChangeUser'), 'open-users');
+            if (section === 'connectivity') {
+                if (connectivityView === 'bluetooth') return bluetoothContent();
+                if (connectivityView === 'wifi') return wifiContent();
+                return connectivityHub();
+            }
             if (section === 'power') return powerContent();
-            return simpleContent('Configurações', 'Abre o menu completo de configurações e biblioteca.', 'Abrir configurações');
+            return simpleContent(t('navSettings'), t('quickSettingsDesc'), t('quickOpenSettings'), 'open-settings');
         }
 
         function contentFocusFor(sectionId) {
@@ -4893,6 +5051,11 @@
                 return '.dq-card';
             }
             if (sectionId === 'power') return '.dq-action';
+            if (sectionId === 'connectivity') {
+                if (connectivityView === 'bluetooth') return '.bluetooth-focus';
+                if (connectivityView === 'wifi') return '.wifi-focus';
+                return '.dq-card';
+            }
             return `.dq-menu-btn[data-section="${sectionId}"]`;
         }
 
@@ -4902,6 +5065,12 @@
             if (el.dataset?.action) return `[data-action="${el.dataset.action}"]`;
             if (el.dataset?.updateView) return `[data-update-view="${el.dataset.updateView}"]`;
             if (el.dataset?.section) return `.dq-menu-btn[data-section="${el.dataset.section}"]`;
+            if (el.dataset?.connectivityView) return `[data-connectivity-view="${el.dataset.connectivityView}"]`;
+            if (el.dataset?.wifiNetworkId) return `[data-wifi-network-id="${CSS.escape(el.dataset.wifiNetworkId)}"]`;
+            if (el.dataset?.wifiAction) return `[data-wifi-action="${el.dataset.wifiAction}"]`;
+            if (el.dataset?.btMenuId) return `[data-bt-menu-id="${CSS.escape(el.dataset.btMenuId)}"]`;
+            if (el.dataset?.deviceId) return `[data-device-id="${CSS.escape(el.dataset.deviceId)}"]`;
+            if (el.dataset?.btAction) return `[data-bt-action="${el.dataset.btAction}"]`;
             if (el.classList.contains('dq-card')) return '.dq-card';
             if (el.classList.contains('dq-action')) return '.dq-action';
             if (el.classList.contains('dq-app-card')) return '.dq-app-card';
@@ -4916,6 +5085,8 @@
 
         function enterSection(sectionId = section) {
             const sameSection = section === sectionId;
+            if (section === 'connectivity' && sectionId !== 'connectivity' && bluetoothStatus?.discovering)
+                postToHost?.({ action: 'stopBluetoothDiscovery' });
             section = sectionId || 'updates';
             if (section === 'users') {
                 window._doorpiUserPickerReturnToQuickPanel = true;
@@ -4927,6 +5098,7 @@
                 openNavSettings();
                 return;
             }
+            if (section === 'connectivity' && !sameSection) connectivityView = 'hub';
             if (section === 'updates' && !sameSection) updateView = 'hub';
             depth = 'content';
             if (sameSection && depth === 'content') {
@@ -4956,11 +5128,68 @@
             });
         }
 
+        function wireBluetooth(root) {
+            if (section !== 'connectivity' || connectivityView !== 'bluetooth') return;
+            window.DoorpiBluetoothUI?.bind?.(root, 'quick', focusSelector => render(focusSelector));
+        }
+
+        function wireWifi(root) {
+            if (section !== 'connectivity' || connectivityView !== 'wifi') return;
+            window.DoorpiWifiUI?.bind?.(root, 'quick', focusSelector => render(focusSelector));
+        }
+
+        function patchBluetoothContent() {
+            const overlay = document.getElementById('doorpiQuickPanel');
+            const current = overlay?.querySelector('.dq-content');
+            if (!current || section !== 'connectivity' || connectivityView !== 'bluetooth') return;
+            const focusSelector = currentFocusSelector();
+            const template = document.createElement('template');
+            template.innerHTML = bluetoothContent().trim();
+            const next = template.content.firstElementChild;
+            current.replaceWith(next);
+            wireBluetooth(next);
+            requestAnimationFrame(() => {
+                const target = (focusSelector && next.querySelector(focusSelector)) || next.querySelector('.bluetooth-focus');
+                target?.focus();
+            });
+        }
+
+        function scheduleBluetoothContentPatch(immediate = false) {
+            if (bluetoothPatchTimer) {
+                clearTimeout(bluetoothPatchTimer);
+                bluetoothPatchTimer = 0;
+            }
+            if (immediate) {
+                patchBluetoothContent();
+                return;
+            }
+            bluetoothPatchTimer = setTimeout(() => {
+                bluetoothPatchTimer = 0;
+                patchBluetoothContent();
+            }, 120);
+        }
+
+        function patchWifiContent() {
+            const overlay = document.getElementById('doorpiQuickPanel');
+            const current = overlay?.querySelector('.dq-content');
+            if (!current || section !== 'connectivity' || connectivityView !== 'wifi') return;
+            const focusSelector = currentFocusSelector();
+            const template = document.createElement('template');
+            template.innerHTML = wifiContent().trim();
+            const next = template.content.firstElementChild;
+            current.replaceWith(next);
+            wireWifi(next);
+            requestAnimationFrame(() => {
+                const target = (focusSelector && next.querySelector(focusSelector)) || next.querySelector('.wifi-focus');
+                target?.focus();
+            });
+        }
+
         function setBusyAction(btn, message) {
             btn.dataset.busy = 'true';
             const label = btn.querySelector('.dq-action-label');
             const icon = btn.querySelector('.dq-action-ico');
-            if (label) label.textContent = 'Verificando';
+            if (label) label.textContent = t('quickChecking');
             if (icon) icon.innerHTML = iconSvg('refresh', 'dq-spin');
             const sub = document.getElementById('doorpiQuickPanel')?.querySelector('.dq-sub');
             if (sub && message) sub.textContent = message;
@@ -4974,8 +5203,8 @@
             const btn = document.getElementById('doorpiQuickPanel')?.querySelector(`[data-action="${action}"]`);
             if (!btn) return false;
             const fallback = kind === 'windows'
-                ? 'Verificando atualizações do Windows...'
-                : 'Verificando atualizações do Doorpi...';
+                ? t('quickCheckingWindows')
+                : t('quickCheckingDoorpi');
             setBusyAction(btn, status.message || fallback);
             return true;
         }
@@ -4996,7 +5225,42 @@
                 });
         }
 
+        function getQuickPanelContentItems() {
+            const contentEl = document.querySelector('#doorpiQuickPanel .dq-content');
+            if (!contentEl) return [];
+            return Array.from(contentEl.querySelectorAll('button, input, select, [tabindex="0"]'))
+                .filter(el => !el.disabled && el.offsetWidth > 0 && el.offsetHeight > 0);
+        }
+
+        function findContentTargetToRight(active, items) {
+            if (!active || !items.length) return null;
+            const activeRect = active.getBoundingClientRect();
+            const activeCenterX = activeRect.left + activeRect.width / 2;
+            const activeCenterY = activeRect.top + activeRect.height / 2;
+            let best = null;
+            let bestScore = Number.POSITIVE_INFINITY;
+
+            items.forEach(item => {
+                if (item === active) return;
+                const rect = item.getBoundingClientRect();
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+                if (centerX <= activeCenterX) return;
+                const verticalOverlap = Math.min(activeRect.bottom, rect.bottom) - Math.max(activeRect.top, rect.top);
+                if (verticalOverlap <= -10) return;
+                const score = (centerX - activeCenterX) + Math.abs(centerY - activeCenterY) * 0.25;
+                if (score < bestScore) {
+                    best = item;
+                    bestScore = score;
+                }
+            });
+
+            return best;
+        }
+
         function wire(overlay) {
+            wireBluetooth(overlay.querySelector('.dq-content'));
+            wireWifi(overlay.querySelector('.dq-content'));
             overlay.querySelectorAll('[data-section]').forEach(btn => {
                 btn.addEventListener('click', () => {
                     enterSection(btn.dataset.section || 'updates');
@@ -5015,13 +5279,22 @@
                     render(`[data-update-view="${updateView}"]`);
                 });
             });
+            overlay.querySelectorAll('[data-connectivity-view]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    connectivityView = btn.dataset.connectivityView || 'hub';
+                    depth = 'content';
+                    if (connectivityView === 'bluetooth') postToHost?.({ action: 'requestBluetoothStatus' });
+                    if (connectivityView === 'wifi') postToHost?.({ action: 'requestWifiStatus' });
+                    render(contentFocusFor('connectivity'));
+                });
+            });
             overlay.querySelectorAll('[data-action]').forEach(btn => {
                 btn.addEventListener('click', (event) => {
                     event.stopPropagation();
                     const action = btn.dataset.action;
                     if (action === 'check-doorpi') {
                         if (btn.dataset.busy === 'true') return;
-                        const message = 'Verificando atualizações do Doorpi...';
+                        const message = t('quickCheckingDoorpi');
                         doorpiStatus = { ...(doorpiStatus || {}), status: 'checking', message };
                         setBusyAction(btn, message);
                         postToHost?.({ action: 'checkSystemUpdates' });
@@ -5029,7 +5302,7 @@
                     else if (action === 'install-doorpi') postToHost?.({ action: 'startSystemUpdate' });
                     else if (action === 'check-windows') {
                         if (btn.dataset.busy === 'true') return;
-                        const message = 'Verificando atualizações do Windows...';
+                        const message = t('quickCheckingWindows');
                         windowsStatus = { ...(windowsStatus || {}), status: 'checking', message };
                         setBusyAction(btn, message);
                         postToHost?.({ action: 'checkWindowsUpdates' });
@@ -5057,6 +5330,7 @@
             if (!canOpen()) return;
             section = null;
             updateView = 'hub';
+            connectivityView = 'hub';
             depth = 'menu';
             const overlay = ensure();
             overlay.classList.remove('has-opened');
@@ -5074,6 +5348,7 @@
             if (!canOpen()) return;
             section = null;
             updateView = 'hub';
+            connectivityView = 'hub';
             depth = 'menu';
             const overlay = ensure();
             overlay.classList.add('visible', 'has-opened');
@@ -5092,6 +5367,9 @@
         }
 
         function close() {
+            if (section === 'connectivity' && bluetoothStatus?.discovering)
+                postToHost?.({ action: 'stopBluetoothDiscovery' });
+            if (document.querySelector('.context-menu.visible')) window._ctxMenuClose?.();
             const overlay = document.getElementById('doorpiQuickPanel');
             if (overlay) {
                 overlay.classList.remove('visible');
@@ -5103,6 +5381,24 @@
         }
 
         function back() {
+            if (section === 'connectivity' && connectivityView === 'bluetooth' && bluetoothStatus?.pairingPrompt) {
+                postToHost?.({ action: 'respondBluetoothPairing', accepted: false, pin: '' });
+                return true;
+            }
+            if (section === 'connectivity' && connectivityView === 'bluetooth' && window.DoorpiBluetoothUI?.back?.('quick')) {
+                render('.bt-device-card');
+                return true;
+            }
+            if (section === 'connectivity' && connectivityView === 'wifi' && window.DoorpiWifiUI?.back?.('quick')) {
+                render('.wifi-network-card');
+                return true;
+            }
+            if (section === 'connectivity' && connectivityView !== 'hub') {
+                connectivityView = 'hub';
+                depth = 'content';
+                render('.dq-card');
+                return true;
+            }
             if (section === 'updates' && updateView !== 'hub') {
                 updateView = 'hub';
                 depth = 'content';
@@ -5124,16 +5420,31 @@
         function handleDirection(direction) {
             if (!api.isOpen()) return false;
             const active = document.activeElement;
-            if (active?.closest?.('#doorpiQuickPanel .dq-content') && direction === 'LEFT') {
-                if (hasContentTargetToLeft(active)) return false;
-                depth = 'menu';
-                const focusSelector = section ? `.dq-menu-btn[data-section="${section}"]` : '.dq-menu-btn';
-                section = null;
-                updateView = 'hub';
-                render(focusSelector);
-                return true;
+            if (active?.closest?.('#doorpiQuickPanel .dq-content')) {
+                if (direction === 'LEFT') {
+                    if (hasContentTargetToLeft(active)) return false;
+                    depth = 'menu';
+                    const sidebarTarget = document.querySelector(
+                        `#doorpiQuickPanel .dq-menu-btn[data-section="${section}"]`);
+                    sidebarTarget?.focus();
+                    return true;
+                }
+                if (direction === 'RIGHT') {
+                    const contentItems = getQuickPanelContentItems();
+                    const target = findContentTargetToRight(active, contentItems) || contentItems[0];
+                    target?.focus();
+                    return true;
+                }
             }
             if (active?.closest?.('#doorpiQuickPanel .dq-sidebar') && direction === 'RIGHT') {
+                const contentItems = getQuickPanelContentItems();
+                if (section && contentItems.length) {
+                    depth = 'content';
+                    const preferred = document.querySelector(
+                        `#doorpiQuickPanel ${contentFocusFor(section)}`);
+                    (preferred && contentItems.includes(preferred) ? preferred : contentItems[0])?.focus();
+                    return true;
+                }
                 close();
                 return true;
             }
@@ -5167,6 +5478,19 @@
                 const focusSelector = currentFocusSelector();
                 gpuStatus = status;
                 if (this.isOpen()) render(focusSelector || contentFocusFor(section));
+            },
+            setBluetoothStatus(status) {
+                bluetoothStatus = { ...(bluetoothStatus || {}), ...(status || {}) };
+                if (this.isOpen() && section === 'connectivity') {
+                    const op = bluetoothStatus.operation || '';
+                    scheduleBluetoothContentPatch(op === 'pairing' || op === 'removing' || !!bluetoothStatus.pairingPrompt);
+                }
+            },
+            setWifiStatus(status) {
+                wifiStatus = { ...(wifiStatus || {}), ...(status || {}) };
+                if (this.isOpen() && section === 'connectivity' && connectivityView === 'wifi') {
+                    patchWifiContent();
+                }
             }
         };
         return api;
@@ -5242,7 +5566,7 @@
             }
             return;
         }
-        if (e.target?.closest?.('.vkb-overlay, .doorpi-vkb-overlay')) return;
+        if (e.target?.closest?.('.vkb-overlay, .doorpi-vkb-overlay, .context-menu.visible')) return;
         if (window.isDoorpiOverlayOpen && window.isDoorpiOverlayOpen()) {
             const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay, .doorpi-pin-panel'))
                 .filter(el => el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
@@ -5294,6 +5618,7 @@
         if (window._vkbIsOpen) return;
         if (input.closest('.doorpi-manager-overlay, .doorpi-user-overlay, .edit-modal-overlay, #addGameContainer, #setupContainer, .nav-profile-dashboard')) {
             input.removeAttribute('readonly');
+            if (!window._doorpiShouldOpenVkbFromEvent?.(e)) return;
             window._vkbOpen?.(input);
         }
     }, true);
@@ -6501,6 +6826,24 @@ function renderFolderList(folders) {
         .context-menu.visible {
             opacity: 1; transform: scale(1) translateY(0); pointer-events: all;
         }
+        .context-menu.gpu-updater-context,
+        .context-menu.bluetooth-device-context {
+            min-width: 280px;
+            padding: 8px;
+            background: rgba(8,9,18,.98);
+            border-color: rgba(255,255,255,.15);
+        }
+        .context-menu.gpu-updater-context .ctx-game-name,
+        .context-menu.bluetooth-device-context .ctx-game-name {
+            padding: 9px 12px 8px;
+            max-width: 260px;
+            color: rgba(255,255,255,.48);
+        }
+        .context-menu.gpu-updater-context .ctx-item,
+        .context-menu.bluetooth-device-context .ctx-item {
+            min-height: 46px;
+            padding: 0 12px;
+        }
         .ctx-game-name {
             padding: 8px 14px 4px;
             font-size: 10.5px;
@@ -6706,7 +7049,7 @@ function renderFolderList(folders) {
             padding: 0;
             background: rgba(255,255,255,0.08);
             border: 1px solid rgba(255,255,255,0.11);
-            border-bottom: 3px solid rgba(0,0,0,0.45);
+            border-bottom: 0;
             border-radius: clamp(7px, 0.6vw, 10px);
             color: rgba(255,255,255,0.88);
             font-size: clamp(13px, 1.2vw, 18px);
@@ -6732,7 +7075,7 @@ function renderFolderList(folders) {
         .vkb-key:active { transform: scale(0.96) translateY(0); box-shadow: none; }
 
         .vkb-key[data-key="space"] {
-            grid-column: span 6;
+            grid-column: span 5;
             height: clamp(52px, 4.8vw, 70px);
             font-size: clamp(12px, 1.2vw, 16px);
             letter-spacing: 0.08em;
@@ -6778,6 +7121,93 @@ function renderFolderList(folders) {
             color: #fff;
         }
         .vkb-key[data-key="shift"].shifted:focus { background: rgba(255,255,255,0.97); color: #080810; }
+
+        .vkb-overlay {
+            top: 50%; left: 50%; right: auto; bottom: auto;
+            z-index: 10005;
+            display: none;
+            padding: clamp(10px, 1.2vh, 16px);
+            background: rgba(8, 9, 15, 0.96);
+            border: 1px solid rgba(255,255,255,0.13);
+            border-radius: clamp(14px, 1.1vw, 20px);
+            box-shadow: 0 28px 90px rgba(0,0,0,0.72), 0 0 0 1px rgba(255,255,255,0.04) inset;
+            backdrop-filter: blur(22px) saturate(1.25);
+            opacity: 0;
+            transform: translate(-50%, 10px) scale(0.985);
+            transition: opacity 0.16s ease, transform 0.16s ease;
+        }
+        .vkb-overlay.visible { opacity: 1; transform: translate(-50%, 0) scale(1); }
+        .vkb-preview-wrap { gap: clamp(8px, 0.8vw, 14px); margin-bottom: clamp(8px, 1vh, 14px); }
+        .vkb-preview-label { font-size: clamp(9px, 0.72vw, 12px); }
+        .vkb-preview-text {
+            font-size: clamp(14px, 1.05vw, 20px);
+            padding: clamp(7px, 0.8vh, 10px) clamp(10px, 1vw, 16px);
+            min-height: clamp(34px, 4vh, 48px);
+        }
+        .vkb-pending-accent { margin-left: 8px; color: rgba(255,185,90,0.96); font-weight: 800; }
+        .vkb-grid { display: flex; flex-direction: column; gap: clamp(5px, 0.55vh, 8px); width: auto; margin: 0; }
+        .vkb-row { display: flex; justify-content: center; gap: clamp(5px, 0.45vw, 8px); }
+        .vkb-key {
+            position: relative;
+            width: auto;
+            flex: var(--vkb-unit, 1) 1 0;
+            min-width: clamp(34px, 2.4vw, 58px);
+            height: clamp(36px, 3.2vw, 58px);
+            border-bottom-width: 0;
+            font-size: clamp(12px, 0.95vw, 17px);
+        }
+        .vkb-key:focus { transform: scale(1.06) translateY(-2px); }
+        .vkb-key-label { pointer-events: none; white-space: nowrap; }
+        .vkb-pad-icon {
+            position: absolute; top: 4px; right: 5px;
+            min-width: 16px; height: 16px; padding: 0 4px;
+            border-radius: 8px; background: rgba(255,255,255,0.12);
+            color: rgba(255,255,255,0.75);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 8px; line-height: 1; font-weight: 850; letter-spacing: 0;
+        }
+        .vkb-pad-icon.start { min-width: 20px; border-radius: 5px; }
+        .vkb-key.space-key {
+            height: clamp(42px, 3.6vw, 62px);
+            font-size: clamp(11px, 0.82vw, 14px);
+            letter-spacing: 0.08em;
+            color: rgba(255,255,255,0.45);
+        }
+        .vkb-key.space-key:focus { color: rgba(0,0,0,0.65); }
+        .vkb-key[data-key="CANCEL"] { color: rgba(255,255,255,0.6); font-size: clamp(11px, 0.85vw, 15px); font-weight: 500; }
+        .vkb-key[data-key="ENTER"] {
+            background: rgba(50,110,255,0.32);
+            border-color: rgba(50,110,255,0.55);
+            color: rgba(170,205,255,0.95);
+            font-weight: 650;
+            font-size: clamp(11px, 0.85vw, 15px);
+        }
+        .vkb-key[data-key="ENTER"]:focus {
+            background: rgb(50,110,255); color: #fff; border-color: transparent;
+            box-shadow: 0 8px 28px rgba(50,110,255,0.55), 0 0 0 2px rgba(50,110,255,0.4);
+        }
+        .vkb-key[data-key="BKSP"] { color: rgba(255,110,110,0.85); font-size: clamp(11px, 0.85vw, 15px); }
+        .vkb-key[data-key="BKSP"]:focus { color: #b00; }
+        .vkb-key[data-key="SHIFT"] { font-size: clamp(11px, 0.85vw, 15px); }
+        .vkb-key[data-key="SHIFT"].shifted {
+            background: rgba(255,255,255,0.2);
+            border-color: rgba(255,255,255,0.3);
+            color: #fff;
+        }
+        .vkb-key[data-key="SHIFT"].shifted:focus { background: rgba(255,255,255,0.97); color: #080810; }
+        .vkb-key.accent-pending {
+            background: rgba(255,145,45,0.34);
+            border-color: rgba(255,180,90,0.78);
+            color: #fff;
+        }
+        .vkb-overlay.numeric { width: min(360px, calc(100vw - 32px)) !important; }
+        .vkb-overlay.numeric .vkb-row { gap: 7px; }
+        .vkb-overlay.numeric .vkb-key {
+            min-width: 0;
+            height: clamp(44px, 4.2vw, 68px);
+            font-size: clamp(16px, 1.3vw, 24px);
+            font-weight: 650;
+        }
 
         @keyframes editOverlayIn { from{opacity:0} to{opacity:1} }
         @keyframes editModalIn   { from{opacity:0;transform:scale(0.93) translateY(10px)} to{opacity:1;transform:scale(1) translateY(0)} }
@@ -6933,28 +7363,19 @@ function renderFolderList(folders) {
 
     function _syncCtxMenuSeparators() {
         const children = Array.from(_ctxMenu.children);
-        for (let i = 0; i < children.length; i++) {
-            const el = children[i];
-            if (!el.classList?.contains('ctx-separator')) continue;
+        const separators = children.filter(child => child.classList?.contains('ctx-separator'));
+        separators.forEach(separator => { separator.style.display = 'none'; });
 
-            let prevVisible = false;
-            let nextVisible = false;
-
-            for (let p = i - 1; p >= 0; p--) {
-                const prev = children[p];
-                if (prev.classList?.contains('ctx-separator')) continue;
-                prevVisible = _isCtxItemVisible(prev);
-                if (prevVisible) break;
-            }
-
-            for (let n = i + 1; n < children.length; n++) {
-                const next = children[n];
-                if (next.classList?.contains('ctx-separator')) continue;
-                nextVisible = _isCtxItemVisible(next);
-                if (nextVisible) break;
-            }
-
-            el.style.display = prevVisible && nextVisible ? 'block' : 'none';
+        const visibleItems = children.filter(child =>
+            child.classList?.contains('ctx-item') && _isCtxItemVisible(child));
+        for (let i = 1; i < visibleItems.length; i++) {
+            const previousIndex = children.indexOf(visibleItems[i - 1]);
+            const currentIndex = children.indexOf(visibleItems[i]);
+            const separator = children
+                .slice(previousIndex + 1, currentIndex)
+                .filter(child => child.classList?.contains('ctx-separator'))
+                .at(-1);
+            if (separator) separator.style.display = 'block';
         }
     }
 
@@ -6969,6 +7390,9 @@ function renderFolderList(folders) {
         const gameId = card.dataset.gameId || card.dataset.appId || card.dataset.appUrl;
         const isYoutube = (gameId && gameId.toLowerCase().includes('youtube'));
         const isGpuUpdaterCard = card.dataset.gpuUpdaterCard === 'true';
+        const isBluetoothDeviceCard = card.dataset.bluetoothDeviceCard === 'true';
+        _ctxMenu.classList.toggle('gpu-updater-context', isGpuUpdaterCard);
+        _ctxMenu.classList.toggle('bluetooth-device-context', isBluetoothDeviceCard);
 
         const ctxEditBtn = _ctxMenu.querySelector('#ctxEdit');
         const ctxDeleteBtn = _ctxMenu.querySelector('#ctxDelete');
@@ -6986,6 +7410,8 @@ function renderFolderList(folders) {
             ctxRuntimeBtn.classList.toggle('ctx-danger', isRunning);
             ctxRuntimeText.textContent = isGpuUpdaterCard
                 ? 'Abrir'
+                : isBluetoothDeviceCard
+                ? (card.dataset.paired === 'true' ? t('bluetoothDetails') : t('bluetoothPair'))
                 : isStoreCard && !isRunning
                 ? (typeof t === 'function' ? t('storeOpenBtn') : 'Abrir')
                 : (isRunning
@@ -7040,7 +7466,22 @@ function renderFolderList(folders) {
             _ctxMenu.appendChild(ctxCloseBtn);
         }
 
-        if (isGpuUpdaterCard) {
+        if (isBluetoothDeviceCard) {
+            if (ctxRuntimeBtn) ctxRuntimeBtn.style.display = 'flex';
+            if (ctxStoreGamepadBtn) ctxStoreGamepadBtn.style.display = 'none';
+            if (ctxStoreAutoAddBtn) ctxStoreAutoAddBtn.style.display = 'none';
+            if (ctxEditBtn) ctxEditBtn.style.display = 'none';
+            if (ctxExtensionsBtn) ctxExtensionsBtn.style.display = 'none';
+            if (ctxSharingBtn) ctxSharingBtn.style.display = 'none';
+            if (ctxDeleteBtn) {
+                ctxDeleteBtn.style.display = card.dataset.paired === 'true' ? 'flex' : 'none';
+                const text = ctxDeleteBtn.querySelector('[data-i18n], span:last-child');
+                if (text) text.textContent = t('bluetoothRemoveDevice');
+            }
+            ctxCloseBtn.style.display = 'none';
+            _ctxMenu.querySelector('#ctxGameName').textContent =
+                card.querySelector('.bt-device-copy strong')?.innerText?.trim() || 'Bluetooth';
+        } else if (isGpuUpdaterCard) {
             if (ctxRuntimeBtn) ctxRuntimeBtn.style.display = 'flex';
             if (ctxStoreGamepadBtn) ctxStoreGamepadBtn.style.display = 'none';
             if (ctxStoreAutoAddBtn) ctxStoreAutoAddBtn.style.display = 'none';
@@ -7188,7 +7629,7 @@ function renderFolderList(folders) {
         _closeCtxMenu();
         if (!card) return;
 
-        if (card.dataset.gpuUpdaterCard === 'true') {
+        if (card.dataset.gpuUpdaterCard === 'true' || card.dataset.bluetoothDeviceCard === 'true') {
             card.click();
         } else if (isRunning) {
             postToHost({
@@ -7209,6 +7650,10 @@ function renderFolderList(folders) {
         if (card.dataset.gpuUpdaterCard === 'true') {
             const updaterId = card.dataset.updaterId || '';
             if (updaterId) postToHost?.({ action: 'removeGpuUpdater', updaterId });
+            return;
+        }
+        if (card.dataset.bluetoothDeviceCard === 'true') {
+            window.DoorpiBluetoothUI?.remove?.(card.dataset.deviceId || '');
             return;
         }
         _executeDelete(card);
@@ -7583,79 +8028,150 @@ function renderFolderList(folders) {
     // ══════════════════════════════════════════════════════════════════════════
 
     window._vkbIsOpen = false;
+    window._doorpiShouldOpenVkbFromEvent = (event) => {
+        if (!event) return true;
+        return Number(event.detail || 0) === 0;
+    };
 
     const VKB = (() => {
-        const FLAT_KEYS = [
-            '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
-            'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p',
-            'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', '⌫',
-            'shift', 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.',
-            'space', 'cancel', 'ok',
+        const ALPHA_ROWS = [
+            ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', 'BKSP'],
+            ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '´', 'ENTER'],
+            ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'ç', '~', 'CANCEL'],
+            ['SHIFT', 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '^', '?'],
+            ['SYM', 'CURSOR_LEFT', 'SPACE', 'CURSOR_RIGHT', '.com']
         ];
-        const NUMERIC_KEYS = [
-            '1', '2', '3',
-            '4', '5', '6',
-            '7', '8', '9',
-            '⌫', '0', 'ok',
-            'cancel'
+        const SPECIAL_ROWS = [
+            ['!', '@', '#', '$', '%', '&', '*', '(', ')', '_', '+', 'BKSP'],
+            ['/', '\\', '|', '=', '÷', '×', '{', '}', '[', ']', '`', 'ENTER'],
+            [':', ';', '"', "'", '€', '£', '¥', '©', '®', '°', '¨', 'CANCEL'],
+            ['SHIFT', '<', '>', '¿', '¡', '~', '´', '^', ',', '.', '?', '-'],
+            ['ABC', 'CURSOR_LEFT', 'SPACE', 'CURSOR_RIGHT', '.com']
         ];
+        const NUMERIC_ROWS = [
+            ['1', '2', '3'],
+            ['4', '5', '6'],
+            ['7', '8', '9'],
+            ['BKSP', '0', 'ENTER'],
+            ['CANCEL']
+        ];
+        const ACCENT_KEYS = new Set(['´', '~', '^', '`', '¨']);
+        const CONTROLLER_HINTS = {
+            BKSP: 'X',
+            ENTER: 'START',
+            CANCEL: 'B',
+            SHIFT: 'L3',
+            SYM: 'LT',
+            ABC: 'LT',
+            SPACE: 'Y',
+            CURSOR_LEFT: 'LB',
+            CURSOR_RIGHT: 'RB'
+        };
+        const KEY_UNITS = {
+            BKSP: 2,
+            ENTER: 2,
+            CANCEL: 2,
+            SHIFT: 2,
+            SYM: 2,
+            ABC: 2,
+            SPACE: 7,
+            CURSOR_LEFT: 1,
+            CURSOR_RIGHT: 1,
+            '.com': 2
+        };
 
         let _el = null;
         let _callbacks = {};
         let _returnFocusEl = null;
-        let _shifted = true;
+        let _shifted = false;
         let _inputEl = null;
         let _cursorPos = 0;
         let _mode = 'text';
+        let _pendingAccent = null;
+
+        function _rowsForMode() {
+            if (_mode === 'numeric') return NUMERIC_ROWS;
+            return _mode === 'special' ? SPECIAL_ROWS : ALPHA_ROWS;
+        }
+
+        function _labelForKey(key) {
+            switch (key) {
+                case 'BKSP': return t('vkbBackspace');
+                case 'ENTER': return t('vkbEnter');
+                case 'CANCEL': return t('vkbClose');
+                case 'SHIFT': return t('vkbShift');
+                case 'SYM': return t('vkbSym');
+                case 'ABC': return t('vkbAbc');
+                case 'SPACE': return t('vkbSpace');
+                case 'CURSOR_LEFT': return '←';
+                case 'CURSOR_RIGHT': return '→';
+                default:
+                    if (_mode === 'text' && key.length === 1 && /[a-zç]/i.test(key)) {
+                        return _shifted ? key.toLocaleUpperCase() : key.toLocaleLowerCase();
+                    }
+                    return key;
+            }
+        }
+
+        function _buttonHtml(key, row, col) {
+            const label = _labelForKey(key);
+            const hint = CONTROLLER_HINTS[key] || '';
+            const isAction = !!hint || ['BKSP', 'ENTER', 'CANCEL', 'SHIFT', 'SYM', 'ABC', 'SPACE', 'CURSOR_LEFT', 'CURSOR_RIGHT'].includes(key);
+            const classes = ['vkb-key'];
+            if (isAction) classes.push('action');
+            if (key === 'SPACE') classes.push('space-key');
+            if (key === _pendingAccent) classes.push('accent-pending');
+            if (key === 'SHIFT' && _shifted) classes.push('shifted');
+            return `<button class="${classes.join(' ')}" data-key="${_esc(key)}" data-row="${row}" data-col="${col}" style="--vkb-unit:${KEY_UNITS[key] || 1}" tabindex="0">
+                <span class="vkb-key-label">${_esc(label)}</span>
+                ${hint ? `<span class="vkb-pad-icon ${hint === 'START' ? 'start' : ''}">${_esc(hint)}</span>` : ''}
+            </button>`;
+        }
 
         function _build() {
             if (_el) return;
             _el = document.createElement('div');
             _el.className = 'vkb-overlay';
-
-            const dynamicLabels = { '⌫': '⌫', shift: '⇧', space: t('vkbSpace'), cancel: t('vkbCancel'), ok: t('vkbOk') };
-
-            const keysHtml = FLAT_KEYS.map(k => {
-                const lbl = dynamicLabels[k] ?? k;
-                return `<button class="vkb-key" data-key="${k}" tabindex="0">${lbl}</button>`;
-            }).join('');
-
             _el.innerHTML = `
                 <div class="vkb-preview-wrap">
                     <span class="vkb-preview-label">${t('vkbPreviewLabel')}</span>
                     <div class="vkb-preview-text" id="vkbPreview"></div>
                 </div>
-                <div class="vkb-grid">${keysHtml}</div>
+                <div class="vkb-grid"></div>
             `;
             document.body.appendChild(_el);
+        }
 
-            _el.querySelectorAll('.vkb-key').forEach(btn => {
+        function _wireKeys() {
+            _el?.querySelectorAll('.vkb-key').forEach(btn => {
                 btn.addEventListener('click', (e) => {
                     e.preventDefault();
+                    e.stopPropagation();
                     _pressKey(btn.dataset.key);
                 });
             });
         }
 
-        function _renderKeys(mode) {
+        function _renderKeys(mode, preferredFocusKey = '') {
             if (!_el) return;
-            _mode = mode === 'numeric' ? 'numeric' : 'text';
+            _mode = mode === 'numeric' ? 'numeric' : mode === 'special' ? 'special' : 'text';
             _el.classList.toggle('numeric', _mode === 'numeric');
+            _el.classList.toggle('special', _mode === 'special');
             const grid = _el.querySelector('.vkb-grid');
             if (!grid) return;
 
-            const dynamicLabels = { '⌫': '⌫', shift: '⇧', space: t('vkbSpace'), cancel: t('vkbCancel'), ok: t('vkbOk') };
-            const keys = _mode === 'numeric' ? NUMERIC_KEYS : FLAT_KEYS;
-            grid.innerHTML = keys.map(k => {
-                const lbl = dynamicLabels[k] ?? k;
-                return `<button class="vkb-key" data-key="${k}" tabindex="0">${lbl}</button>`;
-            }).join('');
+            const rows = _rowsForMode();
+            grid.innerHTML = rows.map((row, r) =>
+                `<div class="vkb-row">${row.map((key, c) => _buttonHtml(key, r, c)).join('')}</div>`
+            ).join('');
+            _wireKeys();
+            _setShiftVisual(_shifted, false);
+            _syncAccentVisual();
 
-            grid.querySelectorAll('.vkb-key').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    _pressKey(btn.dataset.key);
-                });
+            const focusKey = preferredFocusKey || (_mode === 'numeric' ? '1' : rows[0][0]);
+            requestAnimationFrame(() => {
+                _el?.querySelector(`[data-key="${CSS.escape(focusKey)}"]`)?.focus();
+                _positionOverlay();
             });
         }
 
@@ -7664,46 +8180,122 @@ function renderFolderList(folders) {
             try { _inputEl.setSelectionRange(_cursorPos, _cursorPos); } catch (_) { }
         }
 
-        function _insertText(text) {
+        function _dispatchInputChange() {
             if (!_inputEl) return;
-            let val = _inputEl.value;
+            _inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+            _inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        function _insertText(text) {
+            if (!_inputEl || text == null) return;
+            const val = _inputEl.value || '';
             const maxLen = Number.parseInt(_inputEl.getAttribute('maxlength') || '', 10);
             if (Number.isFinite(maxLen) && maxLen > 0 && val.length + text.length > maxLen) return;
             _inputEl.value = val.substring(0, _cursorPos) + text + val.substring(_cursorPos);
             _cursorPos += text.length;
             _syncCursorToInput();
+            _dispatchInputChange();
         }
 
         function _deleteText() {
-            if (!_inputEl || _cursorPos <= 0) return;
-            let val = _inputEl.value;
+            if (!_inputEl) return;
+            if (_pendingAccent) {
+                _pendingAccent = null;
+                _syncAccentVisual();
+                _renderPreview();
+                return;
+            }
+            if (_cursorPos <= 0) return;
+            const val = _inputEl.value || '';
             _inputEl.value = val.substring(0, _cursorPos - 1) + val.substring(_cursorPos);
             _cursorPos--;
             _syncCursorToInput();
+            _dispatchInputChange();
+        }
+
+        function _getAccentedCharacter(accent, letter) {
+            if (!letter || letter.length !== 1) return null;
+            const upper = letter === letter.toLocaleUpperCase() && letter !== letter.toLocaleLowerCase();
+            const base = letter.toLocaleLowerCase();
+            const map = {
+                '´': { a: 'á', e: 'é', i: 'í', o: 'ó', u: 'ú', c: 'ç' },
+                '~': { a: 'ã', o: 'õ', n: 'ñ' },
+                '^': { a: 'â', e: 'ê', i: 'î', o: 'ô', u: 'û' },
+                '`': { a: 'à', e: 'è', i: 'ì', o: 'ò', u: 'ù' },
+                '¨': { a: 'ä', e: 'ë', i: 'ï', o: 'ö', u: 'ü', y: 'ÿ' }
+            };
+            const result = map[accent]?.[base];
+            return result ? (upper ? result.toLocaleUpperCase() : result) : null;
+        }
+
+        function _flushPendingAccent() {
+            if (!_pendingAccent) return;
+            const accent = _pendingAccent;
+            _pendingAccent = null;
+            _insertText(accent);
+            _syncAccentVisual();
+        }
+
+        function _syncAccentVisual() {
+            _el?.querySelectorAll('.vkb-key').forEach(btn => {
+                btn.classList.toggle('accent-pending', !!_pendingAccent && btn.dataset.key === _pendingAccent);
+            });
+        }
+
+        function _inputCharacter(raw) {
+            if (!_inputEl || raw == null) return;
+            let value = raw;
+            if (_mode === 'numeric' && !/^\d$/.test(value)) return;
+            if (_mode === 'text' && value.length === 1 && /[a-zç]/i.test(value)) {
+                value = _shifted ? value.toLocaleUpperCase() : value.toLocaleLowerCase();
+            }
+
+            if (_pendingAccent) {
+                const composed = value.length === 1 ? _getAccentedCharacter(_pendingAccent, value) : null;
+                if (composed) _insertText(composed);
+                else {
+                    const accent = _pendingAccent;
+                    _pendingAccent = null;
+                    _insertText(accent);
+                    _insertText(value);
+                }
+                _pendingAccent = null;
+                _syncAccentVisual();
+            } else {
+                _insertText(value);
+            }
         }
 
         function _pressKey(key) {
-            if (!_inputEl) return;
-            if (_mode === 'numeric' && !/^\d$/.test(key) && key !== '⌫' && key !== 'ok' && key !== 'cancel') return;
+            if (!_inputEl || !key) return;
+            if (_mode === 'numeric' && !/^\d$/.test(key) && !['BKSP', 'ENTER', 'CANCEL'].includes(key)) return;
 
-            if (key === '⌫') { _deleteText(); }
-            else if (key === 'shift') { _setShiftVisual(!_shifted); return; }
-            else if (key === 'space') { _insertText(' '); }
-            else if (key === 'ok') {
-                const fn = _callbacks.onOk ?? window._editModalSave;
-                _forceClose();
-                fn?.();
+            if (ACCENT_KEYS.has(key)) {
+                if (_pendingAccent === key) {
+                    _insertText(key);
+                    _pendingAccent = null;
+                } else {
+                    _pendingAccent = key;
+                }
+                _syncAccentVisual();
+                _renderPreview();
                 return;
             }
-            else if (key === 'cancel') {
-                const fn = _callbacks.onCancel ?? window._editModalClose;
-                _forceClose();
-                fn?.();
-                return;
-            }
-            else { _insertText(_shifted ? key.toUpperCase() : key); }
 
-            _inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+            if (key === 'BKSP') _deleteText();
+            else if (key === 'SHIFT') { _setShiftVisual(!_shifted); return; }
+            else if (key === 'SYM') { _renderKeys('special', '!'); _renderPreview(); return; }
+            else if (key === 'ABC') { _renderKeys('text', 'q'); _renderPreview(); return; }
+            else if (key === 'CURSOR_LEFT') { _flushPendingAccent(); _moveCursor(-1); return; }
+            else if (key === 'CURSOR_RIGHT') { _flushPendingAccent(); _moveCursor(1); return; }
+            else if (key === 'SPACE') {
+                if (_pendingAccent) _flushPendingAccent();
+                else _insertText(' ');
+            }
+            else if (key === 'ENTER') { _submitEnter(); return; }
+            else if (key === 'CANCEL') { _pendingAccent = null; _cancelWithCallback(); return; }
+            else _inputCharacter(key);
+
             _renderPreview();
         }
 
@@ -7715,55 +8307,75 @@ function renderFolderList(folders) {
             const formatHtml = (text) => _esc(text).replace(/ /g, '&nbsp;');
             const left = previewVal.substring(0, _cursorPos);
             const right = previewVal.substring(_cursorPos);
-            el.innerHTML = `${formatHtml(left)}<span class="vkb-cursor"></span>${formatHtml(right)}`;
+            const accent = _pendingAccent ? `<span class="vkb-pending-accent">${_esc(_pendingAccent)}</span>` : '';
+            el.innerHTML = `${formatHtml(left)}<span class="vkb-cursor"></span>${formatHtml(right)}${accent}`;
         }
 
         function _moveCursor(dir) {
             if (!_inputEl) return;
-            let newPos = _cursorPos + dir;
-            if (newPos >= 0 && newPos <= _inputEl.value.length) _cursorPos = newPos;
+            _flushPendingAccent();
+            const newPos = _cursorPos + dir;
+            if (newPos >= 0 && newPos <= (_inputEl.value || '').length) _cursorPos = newPos;
             _syncCursorToInput();
             _renderPreview();
         }
 
-        function _setShiftVisual(on) {
-            _shifted = on;
-            const btn = _el?.querySelector('[data-key="shift"]');
-            btn?.classList.toggle('shifted', on);
+        function _setShiftVisual(on, rerender = true) {
+            _shifted = !!on;
+            _el?.querySelector('[data-key="SHIFT"]')?.classList.toggle('shifted', _shifted);
             _el?.querySelectorAll('.vkb-key').forEach(k => {
                 const key = k.dataset.key;
-                if (key && key.length === 1 && key >= 'a' && key <= 'z')
-                    k.textContent = on ? key.toUpperCase() : key;
+                const label = k.querySelector('.vkb-key-label');
+                if (label && key && _mode === 'text' && key.length === 1 && /[a-zç]/i.test(key)) {
+                    label.textContent = _shifted ? key.toLocaleUpperCase() : key.toLocaleLowerCase();
+                }
             });
+            if (rerender) _renderPreview();
+        }
+
+        function _positionOverlay() {
+            if (!_el || !_inputEl || _el.style.display === 'none') return;
+            const rect = _inputEl.getBoundingClientRect();
+            const margin = 14;
+            const numeric = _mode === 'numeric';
+            const width = numeric
+                ? Math.min(360, Math.max(280, window.innerWidth - 32))
+                : Math.min(window.innerWidth - 32, Math.max(620, Math.min(1080, window.innerWidth * 0.72)));
+            _el.style.width = `${Math.round(width)}px`;
+            const measured = _el.getBoundingClientRect();
+            const height = measured.height || 300;
+            const center = Math.max(16 + width / 2, Math.min(window.innerWidth - 16 - width / 2, rect.left + rect.width / 2));
+            const above = rect.top - height - margin;
+            const below = rect.bottom + margin;
+            const top = above >= 12 ? above : Math.min(Math.max(12, below), Math.max(12, window.innerHeight - height - 12));
+            _el.style.left = `${Math.round(center)}px`;
+            _el.style.top = `${Math.round(top)}px`;
         }
 
         function _open(targetInput, callbacks = {}) {
-            _callbacks = callbacks;
+            if (_inputEl && _inputEl !== targetInput) _inputEl.classList.remove('vkb-active');
+            _callbacks = callbacks || {};
             _returnFocusEl = targetInput?._doorpiVkbReturnFocus || targetInput || document.activeElement;
             _inputEl = targetInput || document.getElementById('editNameInput');
-
             if (!_inputEl) return;
+
+            _pendingAccent = null;
             _build();
-            _renderKeys(callbacks.mode || (window._vkbIsNumericInput?.(_inputEl) ? 'numeric' : 'text'));
+            _renderKeys(_callbacks.mode || (window._vkbIsNumericInput?.(_inputEl) ? 'numeric' : 'text'));
+            _el.querySelector('.vkb-preview-label').textContent = t('vkbPreviewLabel');
 
-            if (_el) {
-                _el.querySelector('.vkb-preview-label').textContent = t('vkbPreviewLabel');
-                const spaceKey = _el.querySelector('[data-key="space"]');
-                if (spaceKey) spaceKey.textContent = t('vkbSpace');
-                _el.querySelector('[data-key="cancel"]').textContent = t('vkbCancel');
-                _el.querySelector('[data-key="ok"]').textContent = t('vkbOk');
-            }
-
-            if (_mode === 'text') _setShiftVisual(_shifted);
-            _cursorPos = _inputEl.value.length;
+            _cursorPos = _inputEl.selectionStart ?? (_inputEl.value || '').length;
+            _cursorPos = Math.max(0, Math.min((_inputEl.value || '').length, _cursorPos));
             _inputEl.classList.add('vkb-active');
             if (typeof _editOverlay !== 'undefined' && _editOverlay) _editOverlay.classList.add('vkb-active');
 
             _el.style.display = 'block';
             _renderPreview();
             _syncCursorToInput();
+            _positionOverlay();
 
             requestAnimationFrame(() => {
+                _positionOverlay();
                 _el.classList.add('visible');
                 window._vkbIsOpen = true;
                 _el.querySelector(`[data-key="${_mode === 'numeric' ? '1' : 'q'}"]`)?.focus();
@@ -7773,6 +8385,7 @@ function renderFolderList(folders) {
         function _forceClose() {
             if (!_el) return;
             _callbacks = {};
+            _pendingAccent = null;
             window._vkbIsOpen = false;
             _el.classList.remove('visible');
 
@@ -7781,24 +8394,57 @@ function renderFolderList(folders) {
 
             const returnTo = _returnFocusEl;
             _returnFocusEl = null;
-            setTimeout(() => { returnTo?.focus(); window.updateNavHint?.(); }, 350);
-            setTimeout(() => { if (_el && !_el.classList.contains('visible')) _el.style.display = 'none'; }, 340);
+            setTimeout(() => { returnTo?.focus?.(); window.updateNavHint?.(); }, 180);
+            setTimeout(() => { if (_el && !_el.classList.contains('visible')) _el.style.display = 'none'; }, 180);
+        }
+
+        function _cancelWithCallback() {
+            const fn = _callbacks.onCancel ?? window._editModalClose;
+            _forceClose();
+            fn?.();
+        }
+
+        function _submitEnter() {
+            _flushPendingAccent();
+            const fn = _callbacks.onEnter ?? _callbacks.onOk ?? window._editModalSave;
+            if (fn) {
+                _forceClose();
+                fn();
+                return;
+            }
+            if (!_inputEl) return;
+            const down = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter' });
+            _inputEl.dispatchEvent(down);
+            _inputEl.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Enter', code: 'Enter' }));
+            _renderPreview();
         }
 
         function _physicalKey(key) {
             if (!_inputEl) return;
-            if (key === 'Backspace') { _deleteText(); }
-            else if (key.length === 1) {
-                if (_mode === 'numeric' && !/^\d$/.test(key)) return;
-                _insertText(key);
-            }
-            _inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+            if (key === 'Backspace') _pressKey('BKSP');
+            else if (key === 'Enter') _pressKey('ENTER');
+            else if (key === ' ') _pressKey('SPACE');
+            else if (key?.length === 1) _inputCharacter(key);
             _renderPreview();
         }
 
+        function _toggleLayer() {
+            _pressKey(_mode === 'special' ? 'ABC' : 'SYM');
+        }
+
+        window.addEventListener('resize', () => {
+            if (window._vkbIsOpen) _positionOverlay();
+        });
+
         return {
-            open: _open, forceClose: _forceClose, cancel: _forceClose, physicalKey: _physicalKey,
-            toggleShift: () => _setShiftVisual(!_shifted), moveCursor: _moveCursor
+            open: _open,
+            forceClose: _forceClose,
+            cancel: _forceClose,
+            physicalKey: _physicalKey,
+            confirm: () => _pressKey('ENTER'),
+            toggleShift: () => _setShiftVisual(!_shifted),
+            toggleLayer: _toggleLayer,
+            moveCursor: _moveCursor
         };
     })();
 
@@ -7823,9 +8469,11 @@ function renderFolderList(folders) {
         VKB.open(el, opts);
     };
     window._vkbCancel = () => VKB.cancel();
+    window._vkbConfirm = () => VKB.confirm();
     window._vkbForceClose = () => VKB.forceClose();
     window._vkbPhysicalKey = (k) => VKB.physicalKey(k);
     window._vkbToggleShift = () => VKB.toggleShift();
+    window._vkbToggleLayer = () => VKB.toggleLayer();
     window._vkbMoveCursor = (dir) => VKB.moveCursor(dir);
     window._vkbClearFocus = () => {
         const el = document.activeElement;
@@ -7836,7 +8484,8 @@ function renderFolderList(folders) {
         return el && el.classList.contains('vkb-key');
     };
 
-    const _tryOpenNumericVkb = (target) => {
+    const _tryOpenNumericVkb = (target, event = null) => {
+        if (event && !window._doorpiShouldOpenVkbFromEvent?.(event)) return;
         const input = target?.closest?.('input');
         if (!input || !window._vkbIsNumericInput?.(input)) return;
         if (input.closest?.('.vkb-overlay')) return;
@@ -7844,7 +8493,7 @@ function renderFolderList(folders) {
         input.removeAttribute('readonly');
         window._vkbOpen?.(input, { mode: 'numeric' });
     };
-    document.addEventListener('click', (e) => _tryOpenNumericVkb(e.target), true);
+    document.addEventListener('click', (e) => _tryOpenNumericVkb(e.target, e), true);
 
     function _esc(str) {
         return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -8061,8 +8710,8 @@ function renderFolderList(folders) {
         }
 
         return {
-            mark: typeof t === 'function' ? t('sessionTransitionMark') : 'Sessao',
-            title: typeof t === 'function' ? t('sessionSwitchTitle') : 'Trocando sessao',
+            mark: typeof t === 'function' ? t('sessionTransitionMark') : 'Sessão',
+            title: typeof t === 'function' ? t('sessionSwitchTitle') : 'Trocando sessão',
             sub: typeof t === 'function' ? t('logoutSubtitle') : 'Encerrando sessão atual',
         };
     }
@@ -8334,6 +8983,16 @@ function renderFolderList(folders) {
             });
         }
 
+        const btnBrowser = document.getElementById('btnWebAppBrowser');
+        if (btnBrowser) {
+            const freshBtn = btnBrowser.cloneNode(true);
+            btnBrowser.replaceWith(freshBtn);
+
+            freshBtn.addEventListener('click', () => {
+                postToHost({ action: 'openWebAppBrowserCapture' });
+            });
+        }
+
         ['webAppNameInput', 'webAppUrlInput'].forEach(id => {
             const input = document.getElementById(id);
             if (!input) return;
@@ -8346,7 +9005,10 @@ function renderFolderList(folders) {
 
             fresh.addEventListener('focus', () => { if (!window._vkbIsOpen) fresh.style.caretColor = ''; });
             fresh.addEventListener('blur', () => { if (!window._vkbIsOpen) fresh.style.caretColor = 'transparent'; });
-            fresh.addEventListener('click', () => { if (!window._vkbIsOpen) window._vkbOpen?.(fresh); });
+            fresh.addEventListener('click', (event) => {
+                if (!window._doorpiShouldOpenVkbFromEvent?.(event)) return;
+                if (!window._vkbIsOpen) window._vkbOpen?.(fresh);
+            });
 
             fresh.addEventListener('keydown', e => {
                 if (e.key === 'Enter') {

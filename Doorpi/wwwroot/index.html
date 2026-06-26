@@ -6,8 +6,8 @@
     <title>Doorpi</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="preload" href="style.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
-    <noscript><link rel="stylesheet" href="style.css"></noscript>
+    <link rel="preload" href="style.css?v=20260619" as="style" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link rel="stylesheet" href="style.css?v=20260619"></noscript>
 
    
 </head>
@@ -15,7 +15,7 @@
 <body style="background: #020309; margin: 0; overflow: hidden;">
 
     <!-- 1. A Intro assume o controle absoluto instantaneamente no frame zero -->
-    <script src="intro-system.js"></script>
+    <script src="intro-system.js?v=20260619b"></script>
 
     <!-- 2. O SISTEMA INTEIRO FICA DESLIGADO (display: none) ATÉ O LOGIN -->
     <div id="doorpi-app-ui" style="display: none; opacity: 0; transition: opacity 0.8s ease;">
@@ -235,7 +235,20 @@
                                     <div class="setup-api-row">
                                         <input class="setup-input" id="webAppUrlInput" type="text" readonly tabindex="0" />
                                         <button class="setup-icon-btn" id="btnWebAppPaste" tabindex="0">
+                                            <svg class="web-app-action-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                                <path d="M9 4.5H7.5A2.5 2.5 0 0 0 5 7v11.5A2.5 2.5 0 0 0 7.5 21h9A2.5 2.5 0 0 0 19 18.5V7a2.5 2.5 0 0 0-2.5-2.5H15" />
+                                                <path d="M9 4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v1.5H9V4Z" />
+                                                <path d="M9 11h6M9 15h6" />
+                                            </svg>
                                             <span data-i18n="pasteAppLink">Colar</span>
+                                        </button>
+                                        <button class="setup-icon-btn" id="btnWebAppBrowser" tabindex="0">
+                                            <span data-i18n="browseDoorpi">Browser</span>
+                                            <svg class="web-app-action-icon web-app-browser-action-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                                <path d="M5.5 18.5h13v-13h-6.2" />
+                                                <path d="M11 5.5h7.5V13" />
+                                                <path d="M18.2 5.8 9.3 14.7" />
+                                            </svg>
                                         </button>
                                     </div>
                                 </div>
@@ -342,10 +355,12 @@
     <!-- Scripts de lógica da UI e Navegação -->
     <script src="strings.js"></script>
     <script src="store.js"></script>
-    <script src="renderer.js"></script>
+    <script src="renderer.js?v=20260619b"></script>
     <script src="grid-controller.js"></script>
-    <script src="navigation.js"></script>
+    <script src="navigation.js?v=20260619b"></script>
     <script src="app.js"></script>
+    <script src="bluetooth-ui.js?v=20260619c"></script>
+    <script src="wifi-ui.js?v=20260619a"></script>
     <script src="media.js"></script>
     <script src="stores.js"></script>
     <script src="nav-menu.js"></script>

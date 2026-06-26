@@ -26,7 +26,7 @@ const NAV = {
     },
     KEYS: { UP: 'ArrowUp', DOWN: 'ArrowDown', LEFT: 'ArrowLeft', RIGHT: 'ArrowRight', CONFIRM: 'Enter', CANCEL: 'Escape' },
 };
-const VKB_BOTTOM_KEYS = ['space', 'cancel', 'ok'];
+const VKB_BOTTOM_KEYS = ['SYM', 'ABC', 'CURSOR_LEFT', 'SPACE', 'CURSOR_RIGHT', '.com'];
 
 const GAMEPAD_ICONS = {
     ps: {
@@ -104,7 +104,7 @@ function triggerContextMenu() {
     if (window.isNavMenuOpen) { window._navMenuTriggerCtxMenu?.(); return; }
 
     const focused = document.activeElement;
-    if (focused?.dataset?.gpuUpdaterCard === 'true') {
+    if (focused?.dataset?.gpuUpdaterCard === 'true' || focused?.dataset?.bluetoothDeviceCard === 'true') {
         const r = focused.getBoundingClientRect();
         window._ctxMenuOpen?.(focused, r.right + 2, r.top);
         return;
@@ -139,7 +139,7 @@ function getModalGroups() {
     } else if (activeTab === 'view-media-apps') {
         subtabs = Array.from(document.querySelectorAll('#mediaAppSubtabs .subtab'));
         if (document.getElementById('subview-web')?.classList.contains('active')) {
-            inputs = Array.from(document.querySelectorAll('#subview-web input, #btnWebAppPaste')).filter(Boolean);
+            inputs = Array.from(document.querySelectorAll('#subview-web input, #btnWebAppPaste, #btnWebAppBrowser')).filter(Boolean);
         } else {
             apps = Array.from(document.querySelectorAll('#appListMedia .app-item:not(.already-added)'));
         }
@@ -252,10 +252,55 @@ function findWrapCandidate(items, current, direction) {
 }
 
 function findVkbCandidate(items, current, direction) {
+    const rowItems = items
+        .map(el => ({ el, row: Number(el.dataset?.row), col: Number(el.dataset?.col) }))
+        .filter(item => Number.isFinite(item.row) && Number.isFinite(item.col));
+
+    if (rowItems.length === items.length && rowItems.length > 0) {
+        const cur = rowItems.find(item => item.el === current);
+        if (cur) {
+            const rows = new Map();
+            rowItems.forEach(item => {
+                if (!rows.has(item.row)) rows.set(item.row, []);
+                rows.get(item.row).push(item);
+            });
+            rows.forEach(row => row.sort((a, b) => a.col - b.col));
+            const rowNumbers = Array.from(rows.keys()).sort((a, b) => a - b);
+            const currentRow = rows.get(cur.row) || [];
+            if (direction === 'LEFT' || direction === 'RIGHT') {
+                const idx = currentRow.findIndex(item => item.el === current);
+                if (idx >= 0) {
+                    const nextIdx = direction === 'RIGHT'
+                        ? (idx + 1) % currentRow.length
+                        : (idx - 1 + currentRow.length) % currentRow.length;
+                    return currentRow[nextIdx]?.el || null;
+                }
+            }
+
+            if (direction === 'UP' || direction === 'DOWN') {
+                const rowIdx = rowNumbers.indexOf(cur.row);
+                if (rowIdx >= 0) {
+                    const nextRowNumber = direction === 'DOWN'
+                        ? rowNumbers[(rowIdx + 1) % rowNumbers.length]
+                        : rowNumbers[(rowIdx - 1 + rowNumbers.length) % rowNumbers.length];
+                    const nextRow = rows.get(nextRowNumber) || [];
+                    const cr = current.getBoundingClientRect();
+                    const cx = cr.left + cr.width / 2;
+                    return nextRow
+                        .map(item => {
+                            const r = item.el.getBoundingClientRect();
+                            return { item, dist: Math.abs((r.left + r.width / 2) - cx) };
+                        })
+                        .sort((a, b) => a.dist - b.dist)[0]?.item.el || null;
+                }
+            }
+        }
+    }
+
     const curKey = current.dataset?.key;
-    const hasTextBottomRow = items.some(el => el.dataset?.key === 'space');
+    const hasTextBottomRow = items.some(el => el.dataset?.key === 'SPACE');
     if (hasTextBottomRow && VKB_BOTTOM_KEYS.includes(curKey) && (direction === 'LEFT' || direction === 'RIGHT')) {
-        const order = ['space', 'cancel', 'ok'];
+        const order = VKB_BOTTOM_KEYS.filter(key => items.some(el => el.dataset?.key === key));
         const idx = order.indexOf(curKey);
         const nextIdx = direction === 'RIGHT' ? idx + 1 : idx - 1;
         if (nextIdx >= 0 && nextIdx < order.length) {
@@ -365,17 +410,18 @@ function getGroupTransition(direction, groupName, groups, current) {
         if (groupName === 'input') {
             const idx = inputs.indexOf(current);
             const isPasteBtn = current.id === 'btnWebAppPaste';
+            const isBrowserBtn = current.id === 'btnWebAppBrowser';
 
             if (direction === 'LEFT') {
-                if (isPasteBtn && idx > 0) return inputs[idx - 1];
+                if ((isPasteBtn || isBrowserBtn) && idx > 0) return inputs[idx - 1];
                 return bestSidebar();
             }
             if (direction === 'RIGHT') {
-                if (!isPasteBtn && inputs[idx + 1]?.id === 'btnWebAppPaste') return inputs[idx + 1];
+                if (inputs[idx + 1]) return inputs[idx + 1];
                 return null;
             }
             if (direction === 'UP') {
-                if (isPasteBtn) return inputs[0];
+                if (isPasteBtn || isBrowserBtn) return inputs[0];
                 return idx > 0 ? inputs[idx - 1] : bestSubtab();
             }
             if (direction === 'DOWN') {
@@ -650,7 +696,7 @@ function moveFocus(direction) {
     else if (current.classList.contains('store-install-card')) { groupName = 'storeBtn'; groupItems = groups.storeBtns; }
     else if (current.classList.contains('icon-btn')) { groupName = 'folderBtn'; groupItems = groups.folderBtns; }
     else if (current.classList.contains('subtab')) { groupName = 'subtab'; groupItems = groups.subtabs; }
-    else if (current.tagName === 'INPUT' || current.id === 'btnWebAppPaste') { groupName = 'input'; groupItems = groups.inputs; }
+    else if (current.tagName === 'INPUT' || current.id === 'btnWebAppPaste' || current.id === 'btnWebAppBrowser') { groupName = 'input'; groupItems = groups.inputs; }
     else { groupName = 'action'; groupItems = groups.actions; }
 
     if (groupName === 'app') _lastFocusedApp = current;
@@ -852,9 +898,11 @@ document.addEventListener('keydown', e => {
         return;
     }
     if (window.DoorpiIntro?.isRunning?.()) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        window.DoorpiIntro.skip?.();
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            window.DoorpiIntro.skip?.();
+        }
         return;
     }
 
@@ -1051,6 +1099,12 @@ window.requestDoorpiBackAction = function () {
         return true;
     }
 
+    if (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) {
+        closeCtxMenu();
+        window.DoorpiUiSound?.play('back');
+        return true;
+    }
+
     if (window.DoorpiQuickPanel?.isOpen?.()) {
         window.DoorpiQuickPanel.back?.();
         window.DoorpiUiSound?.play('back');
@@ -1074,8 +1128,8 @@ window.requestDoorpiBackAction = function () {
         return true;
     }
 
-    if (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) {
-        closeCtxMenu();
+    if (window._vkbIsOpen) {
+        window._vkbCancel?.();
         window.DoorpiUiSound?.play('back');
         return true;
     }
@@ -1094,12 +1148,6 @@ window.requestDoorpiBackAction = function () {
             return true;
         }
         return false;
-    }
-
-    if (window._vkbIsOpen) {
-        window._vkbCancel?.();
-        window.DoorpiUiSound?.play('back');
-        return true;
     }
 
     if (window.isNavMenuOpen) {
@@ -1153,6 +1201,16 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
 
         const gamepad = _gamepadIndex !== null ? navigator.getGamepads()[_gamepadIndex] : null;
         if (!gamepad) return;
+
+        if (window.DoorpiIntro?.isRunning?.()) {
+            const introButtons = gamepad.buttons;
+            const confirmPressed = buttonJustPressed(introButtons[NAV.GAMEPAD.BTN_CONFIRM], NAV.GAMEPAD.BTN_CONFIRM);
+            const startPressed = buttonJustPressed(introButtons[NAV.GAMEPAD.BTN_START], NAV.GAMEPAD.BTN_START);
+            if (confirmPressed || startPressed) {
+                window.DoorpiIntro.skip?.();
+            }
+            return;
+        }
 
         const isSessionConflict = window.isSessionConflictPopupOpen?.() === true;
         const launchOverlay = document.getElementById('gameLaunchOverlay');
@@ -1299,16 +1357,6 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
 
         _gameFocusFallbackHeldDir = null;
 
-        if (window.DoorpiIntro?.isRunning?.()) {
-            for (let i = 0; i < buttons.length; i++) {
-                if (buttonJustPressed(buttons[i], i)) {
-                    window.DoorpiIntro.skip?.();
-                    break;
-                }
-            }
-            return;
-        }
-
         let dir = null;
 
         if (ax > thr || buttons[GAMEPAD.BTN_RIGHT]?.pressed) dir = 'RIGHT';
@@ -1323,6 +1371,19 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
                 window._gpNavigating = false;
             }, NAV.GAMEPAD.REPEAT_DELAY + 50);
         }
+        if (isCtxMenuOpen) {
+            _currentDirection = null;
+            _moveState = 0;
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
+                document.activeElement?.click();
+            }
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
+                closeCtxMenu();
+                window.DoorpiUiSound?.play('back');
+            }
+            return;
+        }
+
         if (window.isDesktopWarningOpen) {
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) window._dwAction?.('CONFIRM');
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
@@ -1350,6 +1411,9 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
                 if (window.requestDoorpiBackAction?.()) return;
                 if (!canCloseProfileSelection()) return;
                 window.closeDoorpiTopOverlay?.();
+            }
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) {
+                triggerContextMenu();
             }
             return;
         }
@@ -1403,7 +1467,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
                 if (window.requestDoorpiBackAction?.()) return;
                 window._vkbCancel?.();
             }
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) window._editModalSave?.();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) window._vkbConfirm?.();
 
             [['l1', GAMEPAD.BTN_L1, -1], ['r1', GAMEPAD.BTN_R1, 1]].forEach(([id, idx, val]) => {
                 const pressed = buttons[idx]?.pressed;
@@ -1415,6 +1479,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             });
 
             if (buttonJustPressed(buttons[GAMEPAD.BTN_L3], GAMEPAD.BTN_L3)) window._vkbToggleShift?.();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_L2], GAMEPAD.BTN_L2)) window._vkbToggleLayer?.();
             if (buttonJustPressed(buttons[GAMEPAD.BTN_TRIANGLE], GAMEPAD.BTN_TRIANGLE)) window._vkbPhysicalKey?.(' ');
 
             const sqPressed = buttons[GAMEPAD.BTN_SQUARE]?.pressed;

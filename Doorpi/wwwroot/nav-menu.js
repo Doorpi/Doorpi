@@ -871,8 +871,8 @@ window.isNavMenuOpen = false;
                 <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:18px;">
                     <div style="min-width:0;">
                         <div id="systemUpdateBadge" style="display:inline-flex;margin-bottom:8px;padding:3px 8px;border-radius:999px;background:rgba(125,203,255,.14);color:#7dcbff;font-size:.68rem;font-weight:800;letter-spacing:.12em;">${_t('sysUpdateBadgeUpdated', 'ATUALIZADO')}</div>
-                        <h3 id="systemUpdateTitle" style="font-size:1.1rem;font-weight:600;color:#fff;margin:0 0 5px;">${_t('sysUpdateTitle', 'Atualizacoes do sistema')}</h3>
-                        <p id="systemUpdateSub" style="margin:0;color:rgba(255,255,255,.56);line-height:1.35;">${_t('sysUpdateIdle', 'Atualizacoes ainda nao verificadas.')}</p>
+                        <h3 id="systemUpdateTitle" style="font-size:1.1rem;font-weight:600;color:#fff;margin:0 0 5px;">${_t('sysUpdateTitle', 'Atualizações do sistema')}</h3>
+                        <p id="systemUpdateSub" style="margin:0;color:rgba(255,255,255,.56);line-height:1.35;">${_t('sysUpdateIdle', 'Atualizações ainda não verificadas.')}</p>
                     </div>
                     <div id="systemUpdateVersions" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;color:rgba(255,255,255,.62);font-size:.84rem;white-space:nowrap;"></div>
                 </div>
@@ -895,29 +895,33 @@ window.isNavMenuOpen = false;
                     <div style="min-width:0;">
                         <div id="windowsUpdateBadge" style="display:inline-flex;margin-bottom:8px;padding:3px 8px;border-radius:999px;background:rgba(125,203,255,.14);color:#7dcbff;font-size:.68rem;font-weight:800;letter-spacing:.12em;">WINDOWS</div>
                         <h3 id="windowsUpdateTitle" style="font-size:1.1rem;font-weight:600;color:#fff;margin:0 0 5px;">Windows Update</h3>
-                        <p id="windowsUpdateSub" style="margin:0;color:rgba(255,255,255,.56);line-height:1.35;">Atualizacoes do Windows ainda nao verificadas.</p>
+                        <p id="windowsUpdateSub" style="margin:0;color:rgba(255,255,255,.56);line-height:1.35;">${_t('windowsUpdateIdle', 'Atualizações do Windows ainda não verificadas.')}</p>
                     </div>
                     <div id="windowsUpdateMeta" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;color:rgba(255,255,255,.62);font-size:.84rem;white-space:nowrap;"></div>
                 </div>
                 <div id="windowsUpdateList" style="display:grid;gap:7px;margin:12px 0 0;color:rgba(255,255,255,.62);font-size:.86rem;line-height:1.35;"></div>
             </div>
 
+            <div style="display:grid;gap:7px;margin:0 0 18px;padding-left:14px;border-left:2px solid rgba(125,203,255,.48);">
+                <p style="margin:0;color:rgba(255,255,255,.56);font-size:.84rem;line-height:1.42;"><strong style="color:rgba(255,255,255,.84);font-weight:650;">${_t('windowsUpdateAdminNoticeTitle', 'Permiss\u00e3o administrativa necess\u00e1ria.')}</strong> ${_t('windowsUpdateAdminNoticeText', 'O Windows solicitar\u00e1 autoriza\u00e7\u00e3o antes de baixar e instalar os pacotes selecionados.')}</p>
+            </div>
+
             <div class="nav-suggestions-grid" id="windowsUpdateActionsGrid" style="margin-bottom:18px;">
                 <button class="nav-suggestion-card visible" id="navCardCheckWindowsUpdates" tabindex="-1">
-                    <div class="nav-suggestion-card-btn">Verificar Windows</div>
-                    <span class="nav-suggestion-card-text">Consulta o Windows Update e lista os pacotes encontrados.</span>
+                    <div class="nav-suggestion-card-btn">${_t('checkWindows', 'Verificar Windows')}</div>
+                    <span class="nav-suggestion-card-text">${_t('checkWindowsDesc', 'Consulta o Windows Update e lista os pacotes encontrados.')}</span>
                 </button>
                 <button class="nav-suggestion-card" id="navCardStartWindowsUpdate" tabindex="-1" style="display:none;">
-                    <div class="nav-suggestion-card-btn">Baixar e instalar</div>
-                    <span class="nav-suggestion-card-text">Usa a API do Windows Update para baixar e instalar em segundo plano.</span>
+                    <div class="nav-suggestion-card-btn">${_t('windowsUpdateInstall', 'Baixar e instalar')}</div>
+                    <span class="nav-suggestion-card-text">${_t('windowsUpdateInstallDesc', 'Usa a API do Windows Update para baixar e instalar em segundo plano.')}</span>
                 </button>
                 <button class="nav-suggestion-card" id="navCardRestartWindows" tabindex="-1" style="display:none;">
-                    <div class="nav-suggestion-card-btn">Reiniciar agora</div>
-                    <span class="nav-suggestion-card-text">Reinicia o computador para concluir atualizacoes pendentes.</span>
+                    <div class="nav-suggestion-card-btn">${_t('restartNow', 'Reiniciar agora')}</div>
+                    <span class="nav-suggestion-card-text">${_t('windowsRestartDesc', 'Reinicia o computador para concluir atualizações pendentes.')}</span>
                 </button>
                 <button class="nav-suggestion-card visible" id="navCardOpenWindowsUpdate" tabindex="-1">
-                    <div class="nav-suggestion-card-btn">Abrir Windows Update</div>
-                    <span class="nav-suggestion-card-text">Abre a tela nativa do Windows com mouse e teclado pelo controle.</span>
+                    <div class="nav-suggestion-card-btn">${_t('quickOpenWindowsUpdate', 'Abrir Windows Update')}</div>
+                    <span class="nav-suggestion-card-text">${_t('windowsOpenNativeDesc', 'Abre a tela nativa do Windows com mouse e teclado pelo controle.')}</span>
                 </button>
             </div>
 
@@ -1030,25 +1034,26 @@ window.isNavMenuOpen = false;
         });
 
         body.querySelector('#navCardCheckUpdates')?.addEventListener('click', () => {
-            _systemUpdateStatus = { ..._systemUpdateStatus, status: 'checking', message: 'Verificando atualizacoes...' };
+            _systemUpdateStatus = { ..._systemUpdateStatus, status: 'checking', message: _t('quickCheckingDoorpi', 'Verificando atualizações do Doorpi...') };
             _updateSystemUpdateUI();
             if (typeof postToHost === 'function') postToHost({ action: 'checkSystemUpdates' });
         });
 
         body.querySelector('#navCardStartUpdate')?.addEventListener('click', () => {
-            _systemUpdateStatus = { ..._systemUpdateStatus, status: 'installing', message: 'Preparando atualizacao...' };
+            _systemUpdateStatus = { ..._systemUpdateStatus, status: 'installing', message: _t('sysUpdatePreparing', 'Preparando atualização...') };
             _updateSystemUpdateUI();
             if (typeof postToHost === 'function') postToHost({ action: 'startSystemUpdate' });
         });
 
         body.querySelector('#navCardCheckWindowsUpdates')?.addEventListener('click', () => {
-            _windowsUpdateStatus = { ..._windowsUpdateStatus, status: 'checking', message: 'Verificando atualizacoes do Windows...' };
+            if (['checking', 'downloading', 'installing'].includes(_windowsUpdateStatus.status)) return;
+            _windowsUpdateStatus = { ..._windowsUpdateStatus, status: 'checking', message: _t('quickCheckingWindows', 'Verificando atualizações do Windows...') };
             _updateWindowsUpdateUI();
             if (typeof postToHost === 'function') postToHost({ action: 'checkWindowsUpdates' });
         });
 
         body.querySelector('#navCardStartWindowsUpdate')?.addEventListener('click', () => {
-            _windowsUpdateStatus = { ..._windowsUpdateStatus, status: 'downloading', message: 'Baixando e instalando atualizacoes do Windows...' };
+            _windowsUpdateStatus = { ..._windowsUpdateStatus, status: 'downloading', message: _t('windowsUpdateDownloadingInstalling', 'Baixando e instalando atualizações do Windows...') };
             _updateWindowsUpdateUI();
             if (typeof postToHost === 'function') postToHost({ action: 'startWindowsUpdateInstall' });
         });
@@ -1090,11 +1095,12 @@ window.isNavMenuOpen = false;
 
         const svgPower = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>`;
         const svgUpdate = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v6h-6"/><path d="M12 8v5l3 2"/></svg>`;
+        const svgConnectivity = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 8a7 7 0 0 1 10 0"/><path d="M9.8 10.8a3.1 3.1 0 0 1 4.4 0"/><circle cx="12" cy="14" r="1" fill="currentColor" stroke="none"/><path d="m17 4 4 4-3 2.5 3 2.5-4 4V4Z"/></svg>`;
 
         body.innerHTML = `
         <div class="nav-settings-subheader">
             <button class="nav-back-btn" id="setBackSystemHub" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
-            <h2>${_t('navSetSystem', 'Sistema e Inicialização')}</h2>
+            <h2>${_t('navSetSystem', 'Sistema')}</h2>
         </div>
         <div class="nav-settings-grid">
             <button class="nav-settings-card" id="setSystemStartup" tabindex="-1">
@@ -1111,9 +1117,16 @@ window.isNavMenuOpen = false;
                     <p>Doorpi, Updater e Windows Update reunidos em uma área dedicada.</p>
                 </div>
             </button>
+            <button class="nav-settings-card" id="setSystemConnectivity" tabindex="-1">
+                <div class="settings-card-icon">${svgConnectivity}</div>
+                <div class="settings-card-info">
+                    <h3>${_t('navSetConnectivity', 'Conectividade')}</h3>
+                    <p>${_t('navSetConnectivityDesc', 'Bluetooth, dispositivos e conexões sem fio')}</p>
+                </div>
+            </button>
         </div>`;
 
-        _wireSystemItems(body, ['#setBackSystemHub', '#setSystemStartup', '#setSystemUpdates']);
+        _wireSystemItems(body, ['#setBackSystemHub', '#setSystemStartup', '#setSystemUpdates', '#setSystemConnectivity']);
 
         body.querySelector('#setBackSystemHub')?.addEventListener('click', () => {
             _settingsSubView = null;
@@ -1131,6 +1144,13 @@ window.isNavMenuOpen = false;
         body.querySelector('#setSystemUpdates')?.addEventListener('click', () => {
             _systemSubView = 'updates';
             _systemUpdatesSubView = 'doorpi';
+            _contentIdx = 0;
+            _renderContent('settings');
+            _updateContentFocus();
+        });
+        body.querySelector('#setSystemConnectivity')?.addEventListener('click', () => {
+            _settingsSubView = 'connectivityHub';
+            _systemSubView = 'connectivity';
             _contentIdx = 0;
             _renderContent('settings');
             _updateContentFocus();
@@ -1274,14 +1294,14 @@ window.isNavMenuOpen = false;
         body.innerHTML = `
         <div class="nav-settings-subheader">
             <button class="nav-back-btn" id="setBackSystemUpdates" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
-            <h2>Atualizações</h2>
+            <h2>${_t('updatesTitle', 'Atualizações')}</h2>
         </div>
 
         <div style="max-width: 900px;">
             <div class="nav-system-tabs">
                 <button class="nav-system-tab ${doorpiActive ? 'active' : ''}" id="updatesTabDoorpi" data-updates-tab="doorpi" tabindex="-1">Doorpi</button>
                 <button class="nav-system-tab ${windowsActive ? 'active' : ''}" id="updatesTabWindows" data-updates-tab="windows" tabindex="-1">Windows</button>
-                <button class="nav-system-tab ${gpuActive ? 'active' : ''}" id="updatesTabGpu" data-updates-tab="gpu" tabindex="-1">Placa de vídeo</button>
+                <button class="nav-system-tab ${gpuActive ? 'active' : ''}" id="updatesTabGpu" data-updates-tab="gpu" tabindex="-1">${_t('videoCardTitle', 'Placa de vídeo')}</button>
             </div>
 
             <div class="nav-update-panel" id="systemUpdatePanel" style="display:${doorpiActive ? 'block' : 'none'};margin:0 0 18px;padding:16px 18px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.035);border-radius:10px;">
@@ -1289,7 +1309,7 @@ window.isNavMenuOpen = false;
                     <div style="min-width:0;">
                         <div id="systemUpdateBadge" style="display:inline-flex;margin-bottom:8px;padding:3px 8px;border-radius:999px;background:rgba(125,203,255,.14);color:#7dcbff;font-size:.68rem;font-weight:800;letter-spacing:.12em;">${_t('sysUpdateBadgeUpdated', 'ATUALIZADO')}</div>
                         <h3 id="systemUpdateTitle" style="font-size:1.1rem;font-weight:600;color:#fff;margin:0 0 5px;">Doorpi</h3>
-                        <p id="systemUpdateSub" style="margin:0;color:rgba(255,255,255,.56);line-height:1.35;">${_t('sysUpdateIdle', 'Atualizacoes ainda nao verificadas.')}</p>
+                        <p id="systemUpdateSub" style="margin:0;color:rgba(255,255,255,.56);line-height:1.35;">${_t('sysUpdateIdle', 'Atualizações ainda não verificadas.')}</p>
                     </div>
                     <div id="systemUpdateVersions" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;color:rgba(255,255,255,.62);font-size:.84rem;white-space:nowrap;"></div>
                 </div>
@@ -1298,12 +1318,12 @@ window.isNavMenuOpen = false;
 
             <div class="nav-suggestions-grid" id="navUpdateActionsGrid" style="display:${doorpiActive ? 'flex' : 'none'};flex-direction:column;margin-bottom:18px;">
                 <button class="nav-suggestion-card visible" id="navCardCheckUpdates" tabindex="-1">
-                    <div class="nav-suggestion-card-btn">Verificar Doorpi</div>
-                    <span class="nav-suggestion-card-text">Consulta atualizações do Doorpi, Updater e changelog.</span>
+                    <div class="nav-suggestion-card-btn">${_t('checkDoorpi', 'Verificar Doorpi')}</div>
+                    <span class="nav-suggestion-card-text">${_t('checkDoorpiDesc', 'Consulta atualizações do Doorpi, Updater e changelog.')}</span>
                 </button>
                 <button class="nav-suggestion-card" id="navCardStartUpdate" tabindex="-1" style="display:none;">
-                    <div class="nav-suggestion-card-btn">Atualizar Doorpi</div>
-                    <span class="nav-suggestion-card-text">Baixa o pacote validado, atualiza componentes e reinicia o Doorpi se necessário.</span>
+                    <div class="nav-suggestion-card-btn">${_t('updateDoorpi', 'Atualizar Doorpi')}</div>
+                    <span class="nav-suggestion-card-text">${_t('updateDoorpiDesc', 'Baixa o pacote validado, atualiza componentes e reinicia o Doorpi se necessário.')}</span>
                 </button>
             </div>
 
@@ -1312,29 +1332,33 @@ window.isNavMenuOpen = false;
                     <div style="min-width:0;">
                         <div id="windowsUpdateBadge" style="display:inline-flex;margin-bottom:8px;padding:3px 8px;border-radius:999px;background:rgba(125,203,255,.14);color:#7dcbff;font-size:.68rem;font-weight:800;letter-spacing:.12em;">WINDOWS</div>
                         <h3 id="windowsUpdateTitle" style="font-size:1.1rem;font-weight:600;color:#fff;margin:0 0 5px;">Windows Update</h3>
-                        <p id="windowsUpdateSub" style="margin:0;color:rgba(255,255,255,.56);line-height:1.35;">Atualizações do Windows ainda não verificadas.</p>
+                        <p id="windowsUpdateSub" style="margin:0;color:rgba(255,255,255,.56);line-height:1.35;">${_t('windowsUpdateIdle', 'Atualizações do Windows ainda não verificadas.')}</p>
                     </div>
                     <div id="windowsUpdateMeta" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;color:rgba(255,255,255,.62);font-size:.84rem;white-space:nowrap;"></div>
                 </div>
                 <div id="windowsUpdateList" style="display:grid;gap:7px;margin:12px 0 0;color:rgba(255,255,255,.62);font-size:.86rem;line-height:1.35;"></div>
             </div>
 
+            <div style="display:${windowsActive ? 'grid' : 'none'};gap:7px;margin:0 0 18px;padding-left:14px;border-left:2px solid rgba(125,203,255,.48);">
+                <p style="margin:0;color:rgba(255,255,255,.56);font-size:.84rem;line-height:1.42;"><strong style="color:rgba(255,255,255,.84);font-weight:650;">${_t('windowsUpdateAdminNoticeTitle', 'Permiss\u00e3o administrativa necess\u00e1ria.')}</strong> ${_t('windowsUpdateAdminNoticeText', 'O Windows solicitar\u00e1 autoriza\u00e7\u00e3o antes de baixar e instalar os pacotes selecionados.')}</p>
+            </div>
+
             <div class="nav-suggestions-grid" id="windowsUpdateActionsGrid" style="display:${windowsActive ? 'flex' : 'none'};flex-direction:column;margin-bottom:18px;">
                 <button class="nav-suggestion-card visible" id="navCardCheckWindowsUpdates" tabindex="-1">
-                    <div class="nav-suggestion-card-btn">Verificar Windows</div>
-                    <span class="nav-suggestion-card-text">Consulta o Windows Update e lista os pacotes encontrados.</span>
+                    <div class="nav-suggestion-card-btn">${_t('checkWindows', 'Verificar Windows')}</div>
+                    <span class="nav-suggestion-card-text">${_t('checkWindowsDesc', 'Consulta o Windows Update e lista os pacotes encontrados.')}</span>
                 </button>
                 <button class="nav-suggestion-card" id="navCardStartWindowsUpdate" tabindex="-1" style="display:none;">
-                    <div class="nav-suggestion-card-btn">Baixar e instalar</div>
-                    <span class="nav-suggestion-card-text">Usa a API do Windows Update para baixar e instalar em segundo plano.</span>
+                    <div class="nav-suggestion-card-btn">${_t('windowsUpdateInstall', 'Baixar e instalar')}</div>
+                    <span class="nav-suggestion-card-text">${_t('windowsUpdateInstallDesc', 'Usa a API do Windows Update para baixar e instalar em segundo plano.')}</span>
                 </button>
                 <button class="nav-suggestion-card" id="navCardRestartWindows" tabindex="-1" style="display:none;">
-                    <div class="nav-suggestion-card-btn">Reiniciar agora</div>
-                    <span class="nav-suggestion-card-text">Reinicia o computador para concluir atualizações pendentes.</span>
+                    <div class="nav-suggestion-card-btn">${_t('restartNow', 'Reiniciar agora')}</div>
+                    <span class="nav-suggestion-card-text">${_t('windowsRestartDesc', 'Reinicia o computador para concluir atualizações pendentes.')}</span>
                 </button>
                 <button class="nav-suggestion-card visible" id="navCardOpenWindowsUpdate" tabindex="-1">
-                    <div class="nav-suggestion-card-btn">Abrir Windows Update</div>
-                    <span class="nav-suggestion-card-text">Abre a tela nativa do Windows com mouse e teclado pelo controle.</span>
+                    <div class="nav-suggestion-card-btn">${_t('quickOpenWindowsUpdate', 'Abrir Windows Update')}</div>
+                    <span class="nav-suggestion-card-text">${_t('windowsOpenNativeDesc', 'Abre a tela nativa do Windows com mouse e teclado pelo controle.')}</span>
                 </button>
             </div>
 
@@ -1396,22 +1420,23 @@ window.isNavMenuOpen = false;
             });
         });
         body.querySelector('#navCardCheckUpdates')?.addEventListener('click', () => {
-            _systemUpdateStatus = { ..._systemUpdateStatus, status: 'checking', message: 'Verificando atualizações...' };
+            _systemUpdateStatus = { ..._systemUpdateStatus, status: 'checking', message: _t('quickCheckingDoorpi', 'Verificando atualizações do Doorpi...') };
             _updateSystemUpdateUI();
             postToHost?.({ action: 'checkSystemUpdates' });
         });
         body.querySelector('#navCardStartUpdate')?.addEventListener('click', () => {
-            _systemUpdateStatus = { ..._systemUpdateStatus, status: 'installing', message: 'Preparando atualização...' };
+            _systemUpdateStatus = { ..._systemUpdateStatus, status: 'installing', message: _t('sysUpdatePreparing', 'Preparando atualização...') };
             _updateSystemUpdateUI();
             postToHost?.({ action: 'startSystemUpdate' });
         });
         body.querySelector('#navCardCheckWindowsUpdates')?.addEventListener('click', () => {
-            _windowsUpdateStatus = { ..._windowsUpdateStatus, status: 'checking', message: 'Verificando atualizações do Windows...' };
+            if (['checking', 'downloading', 'installing'].includes(_windowsUpdateStatus.status)) return;
+            _windowsUpdateStatus = { ..._windowsUpdateStatus, status: 'checking', message: _t('quickCheckingWindows', 'Verificando atualizações do Windows...') };
             _updateWindowsUpdateUI();
             postToHost?.({ action: 'checkWindowsUpdates' });
         });
         body.querySelector('#navCardStartWindowsUpdate')?.addEventListener('click', () => {
-            _windowsUpdateStatus = { ..._windowsUpdateStatus, status: 'downloading', message: 'Baixando e instalando atualizações do Windows...' };
+            _windowsUpdateStatus = { ..._windowsUpdateStatus, status: 'downloading', message: _t('windowsUpdateDownloadingInstalling', 'Baixando e instalando atualizações do Windows...') };
             _updateWindowsUpdateUI();
             postToHost?.({ action: 'startWindowsUpdateInstall' });
         });
@@ -1469,7 +1494,18 @@ window.isNavMenuOpen = false;
                 fetch(`https://data.local/media.json?t=${ts}`)
             ]);
 
-            if (uRes.status === 'fulfilled' && uRes.value.ok) _menuData.user = await uRes.value.json();
+            if (uRes.status === 'fulfilled' && uRes.value.ok) {
+                const storedUser = await uRes.value.json();
+                const liveUser = window._doorpiProfile || {};
+                _menuData.user = {
+                    ...storedUser,
+                    ...liveUser,
+                    HasSteamGridApiKey: !!(liveUser.HasSteamGridApiKey ?? storedUser.SteamGridApiKey),
+                    HasPin: !!(liveUser.HasPin ?? storedUser.PinCode),
+                    SteamGridApiKey: '',
+                    PinCode: ''
+                };
+            }
             if (gRes.status === 'fulfilled' && gRes.value.ok) {
                 const games = await gRes.value.json();
                 _menuData.games = Array.isArray(games)
@@ -1672,7 +1708,7 @@ window.isNavMenuOpen = false;
     let _autoStartEnabled = false;
     let _systemUpdateStatus = {
         status: 'idle',
-        message: 'Atualizacoes ainda nao verificadas.',
+        message: 'Atualizações ainda não verificadas.',
         localDoorpiVersion: '',
         localUpdaterVersion: '',
         remoteDoorpiVersion: '',
@@ -1685,10 +1721,11 @@ window.isNavMenuOpen = false;
     };
     let _windowsUpdateStatus = {
         status: 'idle',
-        message: 'Atualizacoes do Windows ainda nao verificadas.',
+        message: 'Atualizações do Windows ainda não verificadas.',
         lastCheckedAt: '',
         rebootRequired: false,
         updates: [],
+        packageProgress: [],
         error: ''
     };
     let _gpuUpdateStatus = {
@@ -1698,6 +1735,9 @@ window.isNavMenuOpen = false;
         adapters: [],
         updaters: []
     };
+    let _bluetoothUpdateStatus = null;
+    let _bluetoothRenderTimer = 0;
+    let _wifiUpdateStatus = null;
     const NAV_MENU_TRANSITION_MS = 600;
     let _navMenuTransitionTimer = 0;
     let _navMenuTransitionToken = 0;
@@ -1988,6 +2028,7 @@ window.isNavMenuOpen = false;
 
 /* ── Dashboard de Configurações ── */
 .nav-settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(200px, 22vw, 320px), 1fr)); gap: clamp(12px, 1.5vh, 24px); animation: fadeInTop 0.4s ease; max-width: 1400px; }
+.nav-settings-grid.nav-connectivity-grid { grid-template-columns: repeat(2, minmax(240px, 340px)); max-width: 740px; }
 .nav-settings-card {
     background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 16px;
     padding: clamp(16px, 2.5vh, 30px) clamp(16px, 1.8vw, 24px); display: flex; align-items: flex-start; gap: clamp(12px, 1.5vw, 20px); cursor: pointer; outline: none;
@@ -2505,6 +2546,9 @@ window.isNavMenuOpen = false;
         if (_settingsSubView === 'extensions') { _renderSettingsExtensions(body); return; }
         if (_settingsSubView === 'sharing') { _renderSettingsSharing(body); return; }
         if (_settingsSubView === 'system') { _renderSettingsSystemV2(body); return; }
+        if (_settingsSubView === 'connectivityHub') { _renderSettingsConnectivityHub(body); return; }
+        if (_settingsSubView === 'bluetooth') { _renderSettingsBluetooth(body); return; }
+        if (_settingsSubView === 'wifi') { _renderSettingsWifi(body); return; }
         const svgUser = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
         const svgSys = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`;
         const svgExt = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`;
@@ -2521,7 +2565,7 @@ window.isNavMenuOpen = false;
             <button class="nav-settings-card" id="setSystem" tabindex="-1">
                 <div class="settings-card-icon">${svgSys}</div>
                 <div class="settings-card-info">
-                    <h3>${_t('navSetSystem', 'Sistema e Inicialização')}</h3>
+                    <h3>${_t('navSetSystem', 'Sistema')}</h3>
                     <p>${_t('navSetSystemDesc', 'Ajustes de inicialização do console e acesso à área de trabalho')}</p>
                 </div>
             </button>
@@ -2589,7 +2633,7 @@ window.isNavMenuOpen = false;
                 : isChecking
                     ? 'VERIFICANDO'
                     : hasUpdate
-                        ? 'DISPONIVEL'
+                        ? 'DISPONÍVEL'
                         : isError
                             ? 'ERRO'
                             : isNotConfigured
@@ -2600,12 +2644,12 @@ window.isNavMenuOpen = false;
 
         if (title) {
             title.textContent = hasUpdate
-                ? _t('sysUpdateAvailableTitle', 'Atualizacao disponivel')
-                : _t('sysUpdateTitle', 'Atualizacoes do sistema');
+                ? _t('sysUpdateAvailableTitle', 'Atualização disponível')
+                : _t('sysUpdateTitle', 'Atualizações do sistema');
         }
 
         if (sub) {
-            sub.textContent = status.message || _t('sysUpdateIdle', 'Atualizacoes ainda nao verificadas.');
+            sub.textContent = status.message || _t('sysUpdateIdle', 'Atualizações ainda não verificadas.');
         }
 
         if (versions) {
@@ -2631,6 +2675,174 @@ window.isNavMenuOpen = false;
         }
     }
 
+    function _renderSettingsConnectivityHub(body) {
+        const svgBluetooth = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v20l6-6-6-4 6-4-6-6Z"/><path d="M6.5 6.5 12 12l-5.5 5.5"/></svg>`;
+        const svgWifi = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.5 8.5a12 12 0 0 1 17 0"/><path d="M6.7 11.7a7.5 7.5 0 0 1 10.6 0"/><path d="M9.8 14.8a3.1 3.1 0 0 1 4.4 0"/><circle cx="12" cy="18" r="1" fill="currentColor" stroke="none"/></svg>`;
+        body.innerHTML = `
+            <div class="nav-settings-subheader">
+                <button class="nav-back-btn" id="setBackConnectivity" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
+                <h2>${_t('navSetConnectivity', 'Conectividade')}</h2>
+            </div>
+            <div class="nav-settings-grid nav-connectivity-grid">
+                <button class="nav-settings-card" id="setBluetooth" tabindex="-1">
+                    <div class="settings-card-icon">${svgBluetooth}</div>
+                    <div class="settings-card-info">
+                        <h3>Bluetooth</h3>
+                        <p>${_t('bluetoothSettingsDesc', 'Parear e gerenciar controles, áudio, teclados e outros dispositivos')}</p>
+                    </div>
+                </button>
+                <button class="nav-settings-card" id="setWifi" tabindex="-1">
+                    <div class="settings-card-icon">${svgWifi}</div>
+                    <div class="settings-card-info">
+                        <h3>Wi-Fi</h3>
+                        <p>${_t('wifiSettingsDesc', 'Conectar e gerenciar redes sem fio')}</p>
+                    </div>
+                </button>
+            </div>`;
+
+        _contentItems = [body.querySelector('#setBackConnectivity'), body.querySelector('#setBluetooth'), body.querySelector('#setWifi')].filter(Boolean);
+        _contentItems.forEach((el, idx) => el.addEventListener('mouseenter', () => {
+            _topbarFocus = false; _contentIdx = idx; _updateContentFocus();
+        }));
+        body.querySelector('#setBackConnectivity')?.addEventListener('click', () => {
+            _settingsSubView = 'system'; _systemSubView = null; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
+        });
+        body.querySelector('#setBluetooth')?.addEventListener('click', () => {
+            _settingsSubView = 'bluetooth'; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
+        });
+        body.querySelector('#setWifi')?.addEventListener('click', () => {
+            _settingsSubView = 'wifi'; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
+        });
+    }
+
+    function _bluetoothFocusSelector() {
+        const active = document.activeElement;
+        if (active?.dataset?.btMenuId) return `[data-bt-menu-id="${CSS.escape(active.dataset.btMenuId)}"]`;
+        if (active?.dataset?.deviceId) return `[data-device-id="${CSS.escape(active.dataset.deviceId)}"]`;
+        if (active?.dataset?.btAction) return `[data-bt-action="${active.dataset.btAction}"]`;
+        return '';
+    }
+
+    function _wireSettingsBluetooth(body, focusSelector = '') {
+        const host = body.querySelector('#navBluetoothHost');
+        window.DoorpiBluetoothUI?.bind?.(host, 'settings', nextFocus => {
+            _refreshSettingsBluetooth(body, nextFocus);
+        });
+        _contentItems = [body.querySelector('#setBackBluetooth'), ...Array.from(host?.querySelectorAll('.bluetooth-focus') || [])].filter(Boolean);
+        _contentItems.forEach((el, idx) => el.addEventListener('mouseenter', () => {
+            _topbarFocus = false; _contentIdx = idx; _updateContentFocus();
+        }));
+        const target = focusSelector ? body.querySelector(focusSelector) : null;
+        _contentIdx = target ? _contentItems.indexOf(target) : Math.max(0, Math.min(_contentIdx, _contentItems.length - 1));
+        _updateContentFocus();
+    }
+
+    function _refreshSettingsBluetooth(body, focusSelector = '') {
+        const host = body.querySelector('#navBluetoothHost');
+        if (!host) return;
+        host.innerHTML = window.DoorpiBluetoothUI?.render?.('settings') || '';
+        _wireSettingsBluetooth(body, focusSelector);
+    }
+
+    function _scheduleSettingsBluetoothRefresh(focusSelector = '', immediate = false) {
+        if (_bluetoothRenderTimer) {
+            clearTimeout(_bluetoothRenderTimer);
+            _bluetoothRenderTimer = 0;
+        }
+        const body = document.querySelector('.nav-content-body');
+        if (!body) return;
+        if (immediate) {
+            _refreshSettingsBluetooth(body, focusSelector);
+            return;
+        }
+        _bluetoothRenderTimer = setTimeout(() => {
+            _bluetoothRenderTimer = 0;
+            const currentBody = document.querySelector('.nav-content-body');
+            if (currentBody && window.isNavMenuOpen && _settingsSubView === 'bluetooth')
+                _refreshSettingsBluetooth(currentBody, focusSelector);
+        }, 120);
+    }
+
+    function _renderSettingsBluetooth(body) {
+        body.innerHTML = `
+            <div class="nav-settings-subheader">
+                <button class="nav-back-btn" id="setBackBluetooth" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
+                <h2>Bluetooth</h2>
+            </div>
+            <div id="navBluetoothHost" style="max-width:920px;"></div>`;
+
+        _refreshSettingsBluetooth(body);
+        postToHost?.({ action: 'requestBluetoothStatus' });
+        body.querySelector('#setBackBluetooth')?.addEventListener('click', () => {
+            if (window.DoorpiBluetoothUI?.back?.('settings')) {
+                _refreshSettingsBluetooth(body, '.bt-device-card');
+                return;
+            }
+            if (_bluetoothUpdateStatus?.discovering) postToHost?.({ action: 'stopBluetoothDiscovery' });
+            _settingsSubView = 'connectivityHub'; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
+        });
+    }
+
+    window._navMenuSetBluetoothStatus = function (status) {
+        _bluetoothUpdateStatus = { ...(_bluetoothUpdateStatus || {}), ...(status || {}) };
+        if (!window.isNavMenuOpen || _settingsSubView !== 'bluetooth') return;
+        const op = _bluetoothUpdateStatus.operation || '';
+        _scheduleSettingsBluetoothRefresh(
+            _bluetoothFocusSelector(),
+            op === 'pairing' || op === 'removing' || !!_bluetoothUpdateStatus.pairingPrompt);
+    };
+
+    function _wifiFocusSelector() {
+        const active = document.activeElement;
+        if (active?.dataset?.wifiNetworkId) return `[data-wifi-network-id="${CSS.escape(active.dataset.wifiNetworkId)}"]`;
+        if (active?.dataset?.wifiAction) return `[data-wifi-action="${active.dataset.wifiAction}"]`;
+        return '';
+    }
+
+    function _wireSettingsWifi(body, focusSelector = '') {
+        const host = body.querySelector('#navWifiHost');
+        window.DoorpiWifiUI?.bind?.(host, 'settings', nextFocus => _refreshSettingsWifi(body, nextFocus));
+        _contentItems = [body.querySelector('#setBackWifi'), ...Array.from(host?.querySelectorAll('.wifi-focus') || [])].filter(Boolean);
+        _contentItems.forEach((el, idx) => el.addEventListener('mouseenter', () => {
+            _topbarFocus = false; _contentIdx = idx; _updateContentFocus();
+        }));
+        const target = focusSelector ? body.querySelector(focusSelector) : null;
+        _contentIdx = target ? _contentItems.indexOf(target) : Math.max(0, Math.min(_contentIdx, _contentItems.length - 1));
+        _updateContentFocus();
+    }
+
+    function _refreshSettingsWifi(body, focusSelector = '') {
+        const host = body.querySelector('#navWifiHost');
+        if (!host) return;
+        host.innerHTML = window.DoorpiWifiUI?.render?.('settings') || '';
+        _wireSettingsWifi(body, focusSelector);
+    }
+
+    function _renderSettingsWifi(body) {
+        body.innerHTML = `
+            <div class="nav-settings-subheader">
+                <button class="nav-back-btn" id="setBackWifi" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
+                <h2>Wi-Fi</h2>
+            </div>
+            <div id="navWifiHost" style="max-width:920px;"></div>`;
+        _refreshSettingsWifi(body);
+        postToHost?.({ action: 'requestWifiStatus' });
+        body.querySelector('#setBackWifi')?.addEventListener('click', () => {
+            if (window.DoorpiWifiUI?.back?.('settings')) {
+                _refreshSettingsWifi(body, '.wifi-network-card');
+                return;
+            }
+            _settingsSubView = 'connectivityHub'; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
+        });
+    }
+
+    window._navMenuSetWifiStatus = function (status) {
+        _wifiUpdateStatus = { ...(_wifiUpdateStatus || {}), ...(status || {}) };
+        if (!window.isNavMenuOpen || _settingsSubView !== 'wifi') return;
+        const body = document.querySelector('.nav-content-body');
+        if (body) _refreshSettingsWifi(body, _wifiFocusSelector());
+    };
+
     function _formatWindowsUpdateSize(bytes) {
         const value = Number(bytes || 0);
         if (!Number.isFinite(value) || value <= 0) return '';
@@ -2640,12 +2852,74 @@ window.isNavMenuOpen = false;
     }
 
     function _formatWindowsUpdateDate(value) {
-        if (!value) return 'Nunca';
+        if (!value) return _t('never', 'Nunca');
         const date = new Date(value);
-        if (Number.isNaN(date.getTime())) return 'Nunca';
+        if (Number.isNaN(date.getTime())) return _t('never', 'Nunca');
         return date.toLocaleDateString(undefined, { day: '2-digit', month: '2-digit' })
             + ' '
             + date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function _windowsUpdateActionLabel(status) {
+        if (status === 'installing') return _t('windowsUpdateInstalling', 'Instalando');
+        if (status === 'downloading') return _t('windowsUpdateDownloading', 'Baixando');
+        if (status === 'checking') return _t('windowsUpdateChecking', 'Verificando');
+        return _t('checkWindows', 'Verificar Windows');
+    }
+
+    function _windowsUpdatePackageState(item) {
+        if (item?.rebootRequired || item?.status === 'reboot-required') {
+            return { text: _t('windowsUpdateRebootPending', 'Reinicialização pendente'), color: '#ffd872' };
+        }
+        const keys = {
+            pending: ['windowsUpdatePending', 'Pendente'],
+            downloading: ['windowsUpdateDownloading', 'Baixando'],
+            downloaded: ['windowsUpdateDownloaded', 'Baixado'],
+            installing: ['windowsUpdateInstalling', 'Instalando'],
+            installed: ['windowsUpdateInstalled', 'Instalado'],
+            error: ['windowsUpdatePackageError', 'Falha']
+        };
+        const [key, fallback] = keys[item?.status] || keys.pending;
+        return { text: _t(key, fallback), color: 'rgba(255,255,255,.48)' };
+    }
+
+    function _renderWindowsUpdatePackages(status, updates) {
+        const progress = Array.isArray(status.packageProgress) ? status.packageProgress : [];
+        if (!progress.length) {
+            if (!updates.length)
+                return `<div style="padding-top:4px;color:rgba(255,255,255,.42);">${_t('windowsUpdateNoneListed', 'Nenhuma atualização listada.')}</div>`;
+            return updates.map(update => {
+                const size = _formatWindowsUpdateSize(update.sizeBytes);
+                const downloaded = update.isDownloaded
+                    ? _t('windowsUpdateDownloaded', 'Baixado')
+                    : _t('windowsUpdatePending', 'Pendente');
+                return `
+                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:7px 0;border-top:1px solid rgba(255,255,255,.06);">
+                        <span style="min-width:0;color:rgba(255,255,255,.72);">${_esc(update.title || 'Atualização do Windows')}</span>
+                        <span style="flex:0 0 auto;color:rgba(255,255,255,.42);">${_esc([downloaded, size].filter(Boolean).join(' - '))}</span>
+                    </div>`;
+            }).join('');
+        }
+
+        const updatesById = new Map(updates.map(update => [String(update.updateId || '').toLowerCase(), update]));
+        return progress.map(item => {
+            const update = updatesById.get(String(item.updateId || '').toLowerCase());
+            const state = _windowsUpdatePackageState(item);
+            const percent = Math.max(0, Math.min(100, Number(item.percent) || 0));
+            const detail = [state.text, `${Math.round(percent)}%`, _formatWindowsUpdateSize(update?.sizeBytes)]
+                .filter(Boolean)
+                .join(' - ');
+            return `
+                <div style="display:grid;gap:7px;padding:10px 0;border-top:1px solid rgba(255,255,255,.06);">
+                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;">
+                        <span style="min-width:0;color:rgba(255,255,255,.72);line-height:1.35;">${_esc(item.title || update?.title || 'Atualização do Windows')}</span>
+                        <span style="flex:0 0 auto;color:${state.color};font-size:.8rem;">${_esc(detail)}</span>
+                    </div>
+                    <div style="height:4px;overflow:hidden;border-radius:2px;background:rgba(255,255,255,.10);">
+                        <div style="height:100%;width:${percent}%;background:#7dcbff;transition:width .18s linear;"></div>
+                    </div>
+                </div>`;
+        }).join('');
     }
 
     function _updateWindowsUpdateUI() {
@@ -2656,6 +2930,7 @@ window.isNavMenuOpen = false;
         const sub = document.getElementById('windowsUpdateSub');
         const meta = document.getElementById('windowsUpdateMeta');
         const list = document.getElementById('windowsUpdateList');
+        const checkBtn = document.getElementById('navCardCheckWindowsUpdates');
         const startBtn = document.getElementById('navCardStartWindowsUpdate');
         const restartBtn = document.getElementById('navCardRestartWindows');
 
@@ -2664,55 +2939,51 @@ window.isNavMenuOpen = false;
 
         if (badge) {
             badge.textContent = status.rebootRequired
-                ? 'REINICIAR'
+                ? _t('restartNow', 'Reiniciar agora').toUpperCase()
                 : active
-                    ? 'PROCESSANDO'
+                    ? _t('windowsUpdateProcessing', 'PROCESSANDO')
                     : hasUpdates
-                        ? 'DISPONIVEL'
+                        ? _t('windowsUpdateAvailable', 'DISPONÍVEL')
                         : status.status === 'error'
                             ? 'ERRO'
                             : status.status === 'access-denied'
                                 ? 'WINDOWS'
-                                : 'ATUALIZADO';
+                                : _t('windowsUpdateUpdated', 'ATUALIZADO');
             badge.dataset.state = status.status || 'idle';
         }
 
         if (title) {
             title.textContent = status.rebootRequired
-                ? 'Windows Update - reinicio pendente'
+                ? _t('windowsUpdateRestartTitle', 'Windows Update - reinício pendente')
                 : hasUpdates
-                    ? 'Windows Update - atualizacoes encontradas'
+                    ? _t('windowsUpdateFoundTitle', 'Windows Update - atualizações encontradas')
                     : 'Windows Update';
         }
 
         if (sub) {
-            sub.textContent = status.message || 'Atualizacoes do Windows ainda nao verificadas.';
+            sub.textContent = status.message || _t('windowsUpdateIdle', 'Atualizações do Windows ainda não verificadas.');
         }
 
         if (meta) {
+            const visiblePackageCount = Array.isArray(status.packageProgress) && status.packageProgress.length
+                ? status.packageProgress.length
+                : updates.length;
             meta.innerHTML = `
-                <span>${updates.length} pacote(s)</span>
-                <span>Ultima verificacao: ${_esc(_formatWindowsUpdateDate(status.lastCheckedAt))}</span>
+                <span>${_t('windowsUpdatePackages', `${visiblePackageCount} pacote(s)`, visiblePackageCount)}</span>
+                ${active ? `<span>${_t('windowsUpdateOverall', `${Math.max(0, Math.min(100, Number(status.overallPercent) || 0))}% geral`, Math.max(0, Math.min(100, Number(status.overallPercent) || 0)))}</span>` : ''}
+                <span>${_t('windowsUpdateLastCheck', `Última verificação: ${_formatWindowsUpdateDate(status.lastCheckedAt)}`, _esc(_formatWindowsUpdateDate(status.lastCheckedAt)))}</span>
             `;
         }
 
         if (list) {
-            if (updates.length) {
-                list.innerHTML = updates.slice(0, 5).map(update => {
-                    const size = _formatWindowsUpdateSize(update.sizeBytes);
-                    const downloaded = update.isDownloaded ? 'Baixado' : 'Pendente';
-                    return `
-                        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:7px 0;border-top:1px solid rgba(255,255,255,.06);">
-                            <span style="min-width:0;color:rgba(255,255,255,.72);">${_esc(update.title || 'Atualizacao do Windows')}</span>
-                            <span style="flex:0 0 auto;color:rgba(255,255,255,.42);">${_esc([downloaded, size].filter(Boolean).join(' - '))}</span>
-                        </div>
-                    `;
-                }).join('') + (updates.length > 5
-                    ? `<div style="color:rgba(255,255,255,.38);padding-top:4px;">+${updates.length - 5} outra(s) atualizacao(oes)</div>`
-                    : '');
-            } else {
-                list.innerHTML = `<div style="padding-top:4px;color:rgba(255,255,255,.42);">Nenhuma atualizacao listada.</div>`;
-            }
+            list.innerHTML = _renderWindowsUpdatePackages(status, updates);
+        }
+
+        if (checkBtn) {
+            const label = checkBtn.querySelector('.nav-suggestion-card-btn');
+            if (label) label.textContent = _windowsUpdateActionLabel(status.status);
+            checkBtn.dataset.busy = active ? 'true' : 'false';
+            checkBtn.setAttribute('aria-disabled', active ? 'true' : 'false');
         }
 
         if (startBtn) {
@@ -2860,7 +3131,7 @@ window.isNavMenuOpen = false;
                     <div class="settings-card-icon">${svgShare}</div>
                     <div class="settings-card-info">
                         <h3>${_t('navSetSharing', 'Contas dos apps')}</h3>
-                        <p>${_t('navSetSharingDesc', 'Dividir contas web por usuario, grupo ou todos')}</p>
+                        <p>${_t('navSetSharingDesc', 'Dividir contas web por usuário, grupo ou todos')}</p>
                     </div>
                 </button>
             </div>`;
@@ -2914,41 +3185,54 @@ window.isNavMenuOpen = false;
         }
 
         let pendingName = _menuData.user.Name || '';
-        let pendingApi = _menuData.user.SteamGridApiKey || '';
-        let pendingPin = String(_menuData.user.PinCode || _menuData.user.pinCode || '');
+        let pendingApi = '';
+        let pendingPin = '';
+        let apiConfigured = !!(_menuData.user.HasSteamGridApiKey || _menuData.user.hasSteamGridApiKey);
+        let pinConfigured = !!(_menuData.user.HasPin || _menuData.user.hasPin);
         const photo = _menuData.user.PhotoBase64 || '';
 
-        const maskApi = (key) => key ? key.slice(0, 6) + '••••••••' + key.slice(-4) : '—';
+        const maskApi = () => apiConfigured
+            ? _t('navApiConfigured', 'Chave configurada')
+            : _t('navApiNotConfigured', 'Nenhuma chave configurada');
 
-        const maskPin = (pin) => pin ? '*'.repeat(Math.min(4, pin.length)) : _t('setupPinPlaceholder', 'Sem PIN');
+        const maskPin = () => pinConfigured
+            ? _t('navPinConfigured', 'PIN configurado')
+            : _t('setupPinPlaceholder', 'Sem PIN');
 
         const _saveProfileNow = (patch = {}) => {
             if (Object.prototype.hasOwnProperty.call(patch, 'name')) pendingName = patch.name;
-            if (Object.prototype.hasOwnProperty.call(patch, 'apiKey')) pendingApi = patch.apiKey;
-            if (Object.prototype.hasOwnProperty.call(patch, 'pin')) pendingPin = patch.pin;
+            const hasApiPatch = Object.prototype.hasOwnProperty.call(patch, 'apiKey');
+            const hasPinPatch = Object.prototype.hasOwnProperty.call(patch, 'pin');
+            if (hasApiPatch) { pendingApi = patch.apiKey; apiConfigured = !!pendingApi; }
+            if (hasPinPatch) { pendingPin = patch.pin; pinConfigured = !!pendingPin; }
             _menuData.user.Name = pendingName;
-            _menuData.user.SteamGridApiKey = pendingApi;
-            _menuData.user.PinCode = pendingPin;
+            _menuData.user.SteamGridApiKey = '';
+            _menuData.user.PinCode = '';
+            _menuData.user.HasSteamGridApiKey = apiConfigured;
+            _menuData.user.HasPin = pinConfigured;
             if (window._doorpiProfile) {
                 window._doorpiProfile.Name = pendingName;
-                window._doorpiProfile.SteamGridApiKey = pendingApi;
-                window._doorpiProfile.PinCode = pendingPin;
+                window._doorpiProfile.SteamGridApiKey = '';
+                window._doorpiProfile.PinCode = '';
+                window._doorpiProfile.HasSteamGridApiKey = apiConfigured;
+                window._doorpiProfile.HasPin = pinConfigured;
             }
             if (typeof postToHost === 'function') {
-                postToHost({
+                const message = {
                     action: 'saveUserProfile',
                     name: pendingName,
-                    apiKey: pendingApi,
-                    pin: pendingPin,
                     photoBase64: _menuData.user.PhotoBase64 || '',
                     skipTasks: true
-                });
+                };
+                if (hasApiPatch) message.apiKey = pendingApi;
+                if (hasPinPatch) message.pin = pendingPin;
+                postToHost(message);
             }
         };
 
         const _saveApiNow = (apiKey) => {
-            pendingApi = apiKey;
             _saveProfileNow({ apiKey });
+            pendingApi = '';
         };
 
         body.innerHTML = `
@@ -2973,13 +3257,13 @@ window.isNavMenuOpen = false;
 
                     <div class="nav-profile-field" style="margin-top: 10px;">
                         <span class="nav-profile-field-label">${_t('navProfilePinLabel', 'PIN de acesso (opcional)')}</span>
-                        <input class="nav-profile-field-input" id="navProfPin" type="password" readonly value="${maskPin(pendingPin)}" inputmode="numeric" pattern="[0-9]*" maxlength="4" tabindex="-1" />
+                        <input class="nav-profile-field-input" id="navProfPin" type="text" readonly value="${maskPin()}" inputmode="numeric" pattern="[0-9]*" maxlength="4" tabindex="-1" />
                     </div>
                     
                     <div class="nav-profile-field" style="margin-top: 10px;">
                         <span class="nav-profile-field-label">${_t('navProfileApiLabel', 'Chave API SteamGridDB')}</span>
                         <div class="nav-api-row">
-                            <input class="nav-profile-field-input" id="navProfApi" readonly value="${maskApi(pendingApi)}" tabindex="-1" style="flex:1;" />
+                            <input class="nav-profile-field-input" id="navProfApi" readonly value="${maskApi()}" tabindex="-1" style="flex:1;" />
                             <button class="nav-icon-btn" id="navApiPaste" tabindex="-1">${_t('btnPaste', 'Colar')}</button>
                             <button class="nav-icon-btn" id="navApiLink" tabindex="-1">${_t('btnViewKey', 'Ver Chave')}</button>
                         </div>
@@ -3074,9 +3358,10 @@ window.isNavMenuOpen = false;
             }
         });
 
-        nameInput?.addEventListener('click', () => {
+        nameInput?.addEventListener('click', event => {
             nameInput.value = pendingName;
             nameInput.removeAttribute('readonly');
+            if (!window._doorpiShouldOpenVkbFromEvent?.(event)) return;
             window._vkbOpen?.(nameInput, {
                 onOk: () => {
                     pendingName = nameInput.value.trim();
@@ -3097,42 +3382,47 @@ window.isNavMenuOpen = false;
             });
         });
 
-        pinInput?.addEventListener('click', () => {
-            pinInput.value = pendingPin;
+        pinInput?.addEventListener('click', event => {
+            pinInput.value = '';
+            pinInput.type = 'password';
             pinInput.removeAttribute('readonly');
+            if (!window._doorpiShouldOpenVkbFromEvent?.(event)) return;
             window._vkbOpen?.(pinInput, {
                 mode: 'numeric',
                 onOk: () => {
                     const newPin = String(pinInput.value || '').replace(/\D/g, '').slice(0, 4);
                     pendingPin = newPin;
-                    pinInput.value = maskPin(newPin);
                     pinInput.setAttribute('readonly', '');
                     window._vkbForceClose?.();
                     _saveProfileNow({ pin: newPin });
+                    pinInput.type = 'text';
+                    pinInput.value = maskPin();
                     _showSavedFeedback();
                 },
                 onCancel: () => {
-                    pinInput.value = maskPin(pendingPin);
+                    pinInput.type = 'text';
+                    pinInput.value = maskPin();
                     pinInput.setAttribute('readonly', '');
                     window._vkbForceClose?.();
                 }
             });
         });
 
-        apiInput?.addEventListener('click', () => {
-            apiInput.value = pendingApi;
+        apiInput?.addEventListener('click', event => {
+            apiInput.value = '';
             apiInput.removeAttribute('readonly');
+            if (!window._doorpiShouldOpenVkbFromEvent?.(event)) return;
             window._vkbOpen?.(apiInput, {
                 onOk: () => {
                     const newKey = apiInput.value.trim();
                     apiInput.setAttribute('readonly', '');
                     window._vkbForceClose?.();
-                    apiInput.value = maskApi(newKey);
                     _saveApiNow(newKey);
+                    apiInput.value = maskApi();
                     _showSavedFeedback();
                 },
                 onCancel: () => {
-                    apiInput.value = maskApi(pendingApi);
+                    apiInput.value = maskApi();
                     apiInput.setAttribute('readonly', '');
                     window._vkbForceClose?.();
                 }
@@ -3141,8 +3431,8 @@ window.isNavMenuOpen = false;
 
         window._updatePendingApiKey = (keyText) => {
             const trimmed = keyText.trim();
-            if (apiInput) apiInput.value = maskApi(trimmed);
             _saveApiNow(trimmed);
+            if (apiInput) apiInput.value = maskApi();
             _showSavedFeedback();
         };
 
@@ -3264,9 +3554,9 @@ window.isNavMenuOpen = false;
                 <h2>${_t('accountSharingLabel', 'Compartilhamento de conta')}</h2>
             </div>
             ${isAdmin ? `
-            <section class="nav-store-policy-section" aria-label="${_t('storePolicyTitle', 'Politicas de lojas')}">
+            <section class="nav-store-policy-section" aria-label="${_t('storePolicyTitle', 'Políticas de lojas')}">
                 <div class="nav-store-policy-head">
-                    <h3>${_t('storePolicyTitle', 'Politicas de lojas')}</h3>
+                    <h3>${_t('storePolicyTitle', 'Políticas de lojas')}</h3>
                     <p>${_t('storePolicyDesc', 'Controle quais lojas podem ser usadas por outras contas deste Doorpi.')}</p>
                 </div>
                 <div class="nav-store-policy-grid">
@@ -3285,8 +3575,8 @@ window.isNavMenuOpen = false;
                             <button class="nav-store-policy-toggle ${window._steamForceAccountSelection ? 'active' : ''}" data-policy="steam-account" data-store-id="Steam" data-active="${window._steamForceAccountSelection ? 'true' : 'false'}" tabindex="-1">
                                 <span class="nav-store-policy-switch" aria-hidden="true"></span>
                                 <span class="nav-store-policy-copy">
-                                    <strong>${_t('steamForceAccountSelection', 'Forcar selecao de usuario Steam')}</strong>
-                                    <span>${_t('steamForceAccountSelectionDesc', 'Fecha e reabre a Steam antes de iniciar jogos para exibir o seletor de usuario.')}</span>
+                                    <strong>${_t('steamForceAccountSelection', 'Forçar seleção de usuário Steam')}</strong>
+                                    <span>${_t('steamForceAccountSelectionDesc', 'Fecha e reabre a Steam antes de iniciar jogos para exibir o seletor de usuário.')}</span>
                                 </span>
                             </button>` : ''}
                         </div>
@@ -3323,19 +3613,19 @@ window.isNavMenuOpen = false;
                 .filter(Boolean);
             
             const currentText = locked
-                ? _t('sharedByInfo', `Compartilhado por ${sharedFrom || _t('defaultOtherUser', 'outro usuario')}.`, sharedFrom || _t('defaultOtherUser', 'outro usuario'))
+                ? _t('sharedByInfo', `Compartilhado por ${sharedFrom || _t('defaultOtherUser', 'outro usuário')}.`, sharedFrom || _t('defaultOtherUser', 'outro usuário'))
                 : draftMode === 'all'
-                    ? _t('shareStatusAll', 'Este app esta publico para todos os usuarios atuais e futuros.')
+                    ? _t('shareStatusAll', 'Este app está público para todos os usuários atuais e futuros.')
                     : draftMode === 'user'
-                        ? (selectedNames.length ? _t('shareStatusUser', `Compartilhado com ${selectedNames.join(', ')}.`, selectedNames.join(', ')) : _t('shareStatusUserEmpty', 'Escolha um ou mais usuarios.'))
-                        : _t('shareStatusPrivate', 'Este app usa uma conta separada para cada usuario.');
+                        ? (selectedNames.length ? _t('shareStatusUser', `Compartilhado com ${selectedNames.join(', ')}.`, selectedNames.join(', ')) : _t('shareStatusUserEmpty', 'Escolha um ou mais usuários.'))
+                        : _t('shareStatusPrivate', 'Este app usa uma conta separada para cada usuário.');
 
             panel.innerHTML = `
                 <h3 class="nav-sharing-title">${_esc(appName)}</h3>
                 <p class="nav-sharing-sub">${_esc(currentText)}</p>
                 ${locked ? '' : `
                     <div class="nav-sharing-modes">
-                        <button class="nav-sharing-mode ${draftMode === 'private' ? 'active' : ''}" data-mode="private" tabindex="-1">${_t('shareModePrivate', 'Separado por usuario')}</button>
+                        <button class="nav-sharing-mode ${draftMode === 'private' ? 'active' : ''}" data-mode="private" tabindex="-1">${_t('shareModePrivate', 'Separado por usuário')}</button>
                         <button class="nav-sharing-mode ${draftMode === 'user' ? 'active' : ''}" data-mode="user" tabindex="-1">${_t('shareModeUser', 'Usuarios especificos')}</button>
                         <button class="nav-sharing-mode ${draftMode === 'all' ? 'active' : ''}" data-mode="all" tabindex="-1">${_t('shareModeAll', 'Publico')}</button>
                     </div>
@@ -3545,10 +3835,10 @@ window.isNavMenuOpen = false;
         const isAdmin = !!window._doorpiIsAdmin || !!(window._doorpiProfile?.IsAdmin || window._doorpiProfile?.isAdmin);
         const tabs = isAdmin
             ? [
-                { id: 'apps', label: _t('sharingTabApps', 'Streaming e midia') },
+                { id: 'apps', label: _t('sharingTabApps', 'Streaming e mídia') },
                 { id: 'stores', label: _t('sharingTabStores', 'Lojas') }
             ]
-            : [{ id: 'apps', label: _t('sharingTabApps', 'Streaming e midia') }];
+            : [{ id: 'apps', label: _t('sharingTabApps', 'Streaming e mídia') }];
         if (!tabs.some(tab => tab.id === _sharingSubView)) _sharingSubView = 'apps';
 
         const betaStores = [
@@ -3644,19 +3934,19 @@ window.isNavMenuOpen = false;
                 .map(id => _userName(users.find(u => _sameId(_userId(u), id))))
                 .filter(Boolean);
             const currentText = locked
-                ? _t('sharedByInfo', `Compartilhado por ${sharedFrom || _t('defaultOtherUser', 'outro usuario')}.`, sharedFrom || _t('defaultOtherUser', 'outro usuario'))
+                ? _t('sharedByInfo', `Compartilhado por ${sharedFrom || _t('defaultOtherUser', 'outro usuário')}.`, sharedFrom || _t('defaultOtherUser', 'outro usuário'))
                 : draftMode === 'all'
-                    ? _t('shareStatusAll', 'Este app esta publico para todos os usuarios atuais e futuros.')
+                    ? _t('shareStatusAll', 'Este app está público para todos os usuários atuais e futuros.')
                     : draftMode === 'user'
-                        ? (selectedNames.length ? _t('shareStatusUser', `Compartilhado com ${selectedNames.join(', ')}.`, selectedNames.join(', ')) : _t('shareStatusUserEmpty', 'Escolha um ou mais usuarios.'))
-                        : _t('shareStatusPrivate', 'Este app usa uma conta separada para cada usuario.');
+                        ? (selectedNames.length ? _t('shareStatusUser', `Compartilhado com ${selectedNames.join(', ')}.`, selectedNames.join(', ')) : _t('shareStatusUserEmpty', 'Escolha um ou mais usuários.'))
+                        : _t('shareStatusPrivate', 'Este app usa uma conta separada para cada usuário.');
 
             panel.innerHTML = `
                 <h3 class="nav-sharing-title">${_esc(appName)}</h3>
                 <p class="nav-sharing-sub">${_esc(currentText)}</p>
                 ${locked ? '' : `
                     <div class="nav-sharing-modes">
-                        <button class="nav-sharing-mode ${draftMode === 'private' ? 'active' : ''}" data-mode="private" tabindex="-1">${_t('shareModePrivate', 'Separado por usuario')}</button>
+                        <button class="nav-sharing-mode ${draftMode === 'private' ? 'active' : ''}" data-mode="private" tabindex="-1">${_t('shareModePrivate', 'Separado por usuário')}</button>
                         <button class="nav-sharing-mode ${draftMode === 'user' ? 'active' : ''}" data-mode="user" tabindex="-1">${_t('shareModeUser', 'Usuarios especificos')}</button>
                         <button class="nav-sharing-mode ${draftMode === 'all' ? 'active' : ''}" data-mode="all" tabindex="-1">${_t('shareModeAll', 'Publico')}</button>
                     </div>
@@ -3746,8 +4036,8 @@ window.isNavMenuOpen = false;
                     <button class="nav-sharing-toggle ${forceSteam ? 'active' : ''}" data-policy="steam-account" data-store-id="Steam" data-active="${forceSteam ? 'true' : 'false'}" tabindex="-1">
                         <span class="nav-sharing-switch" aria-hidden="true"></span>
                         <span class="nav-sharing-toggle-copy">
-                            <strong>${_t('steamForceAccountSelection', 'Forcar selecao de usuario Steam')}</strong>
-                            <span>${_t('steamForceAccountSelectionDesc', 'Fecha e reabre a Steam antes de iniciar jogos para exibir o seletor de usuario.')}</span>
+                            <strong>${_t('steamForceAccountSelection', 'Forçar seleção de usuário Steam')}</strong>
+                            <span>${_t('steamForceAccountSelectionDesc', 'Fecha e reabre a Steam antes de iniciar jogos para exibir o seletor de usuário.')}</span>
                         </span>
                     </button>` : ''}
                 </div>`;
@@ -3961,8 +4251,9 @@ window.isNavMenuOpen = false;
         });
 
         const urlInput = body.querySelector('#navExtUrlInput');
-        urlInput?.addEventListener('click', () => {
+        urlInput?.addEventListener('click', event => {
             urlInput.removeAttribute('readonly');
+            if (!window._doorpiShouldOpenVkbFromEvent?.(event)) return;
             window._vkbOpen?.(urlInput, {
                 onOk: () => {
                     urlInput.setAttribute('readonly', '');
@@ -4267,6 +4558,9 @@ window.isNavMenuOpen = false;
 
     function close() {
         if (!window.isNavMenuOpen || _navMenuPhase === 'closing') return;
+        if (_settingsSubView === 'bluetooth' && _bluetoothUpdateStatus?.discovering)
+            postToHost?.({ action: 'stopBluetoothDiscovery' });
+        if (document.querySelector('.context-menu.visible')) window._ctxMenuClose?.();
         const lifecycleToken = ++_navMenuLifecycleToken;
         _navMenuPhase = 'closing';
         window._navMenuPhase = _navMenuPhase;
@@ -4436,6 +4730,45 @@ window.isNavMenuOpen = false;
     function _navContent(key) {
         const cols = _gridCols();
         const total = _contentItems.length;
+
+        if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'bluetooth' &&
+            ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
+            const active = _contentItems[_contentIdx];
+            if (!active) return true;
+            if (_contentIdx === 0 && key === 'ArrowUp') {
+                _setTopbarFocus(true);
+                return true;
+            }
+
+            const rect = active.getBoundingClientRect();
+            const originX = rect.left + rect.width / 2;
+            const originY = rect.top + rect.height / 2;
+            const vertical = key === 'ArrowUp' || key === 'ArrowDown';
+            const sign = (key === 'ArrowRight' || key === 'ArrowDown') ? 1 : -1;
+            let nextIndex = -1;
+            let bestScore = Number.POSITIVE_INFINITY;
+
+            _contentItems.forEach((candidate, index) => {
+                if (!candidate || candidate === active) return;
+                const candidateRect = candidate.getBoundingClientRect();
+                const x = candidateRect.left + candidateRect.width / 2;
+                const y = candidateRect.top + candidateRect.height / 2;
+                const primary = vertical ? (y - originY) * sign : (x - originX) * sign;
+                if (primary <= 4) return;
+                const secondary = vertical ? Math.abs(x - originX) : Math.abs(y - originY);
+                const score = primary + secondary * 1.65;
+                if (score < bestScore) { bestScore = score; nextIndex = index; }
+            });
+
+            if (nextIndex >= 0) {
+                _contentIdx = nextIndex;
+                _updateContentFocus();
+            } else if (key === 'ArrowLeft' && _contentIdx > 0) {
+                _contentIdx = 0;
+                _updateContentFocus();
+            }
+            return true;
+        }
 
         // Comportamento focado no Grid com o LazyLoading ativo (O(1) sem travamentos)
         if (_isLazyCat()) {
@@ -4609,14 +4942,14 @@ window.isNavMenuOpen = false;
                     } else if (key === 'ArrowDown') {
                         if (_contentIdx === 0) _contentIdx = 1;
                     } else if (key === 'ArrowLeft') {
-                        if (_contentIdx === 2) _contentIdx = 1;
+                        if (_contentIdx > 1) _contentIdx--;
                         else if (_contentIdx === 1) _contentIdx = 0;
                         else {
                             _setTopbarFocus(true);
                             return;
                         }
                     } else if (key === 'ArrowRight') {
-                        if (_contentIdx === 1) _contentIdx = 2;
+                        if (_contentIdx >= 1 && _contentIdx < total - 1) _contentIdx++;
                     }
 
                     _contentIdx = Math.max(0, Math.min(total - 1, _contentIdx));
@@ -4635,6 +4968,22 @@ window.isNavMenuOpen = false;
                         el?.classList?.contains('nav-suggestion-card') ||
                         el?.classList?.contains('nav-gpu-app-card'));
                     const onTabs = _contentIdx === tabDoorpiIdx || _contentIdx === tabWindowsIdx || _contentIdx === tabGpuIdx;
+                    const gpuCardIndices = _contentItems
+                        .map((el, idx) => el?.classList?.contains('nav-gpu-app-card') ? idx : -1)
+                        .filter(idx => idx >= 0);
+                    const gpuCardPosition = gpuCardIndices.indexOf(_contentIdx);
+
+                    if (_systemUpdatesSubView === 'gpu' && gpuCardPosition >= 0) {
+                        if (key === 'ArrowLeft') {
+                            _contentIdx = gpuCardIndices[(gpuCardPosition - 1 + gpuCardIndices.length) % gpuCardIndices.length];
+                        } else if (key === 'ArrowRight') {
+                            _contentIdx = gpuCardIndices[(gpuCardPosition + 1) % gpuCardIndices.length];
+                        } else if (key === 'ArrowUp') {
+                            _contentIdx = tabGpuIdx;
+                        }
+                        _updateContentFocus();
+                        return;
+                    }
 
                     if (key === 'ArrowUp') {
                         if (_contentIdx <= 0) {
@@ -4688,6 +5037,33 @@ window.isNavMenuOpen = false;
             }
         }
 
+        if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'connectivityHub') {
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
+                if (key === 'ArrowUp') {
+                    if (_contentIdx <= 0) {
+                        _setTopbarFocus(true);
+                        return;
+                    }
+                    _contentIdx = 0;
+                } else if (key === 'ArrowDown') {
+                    if (_contentIdx === 0) _contentIdx = 1;
+                } else if (key === 'ArrowLeft') {
+                    if (_contentIdx === 2) _contentIdx = 1;
+                    else if (_contentIdx === 1) _contentIdx = 0;
+                    else {
+                        _setTopbarFocus(true);
+                        return;
+                    }
+                } else if (key === 'ArrowRight') {
+                    if (_contentIdx === 1) _contentIdx = 2;
+                }
+
+                _contentIdx = Math.max(0, Math.min(total - 1, _contentIdx));
+                _updateContentFocus();
+                return;
+            }
+        }
+
         // Navegação Comum Padrão (Sem Lazy Load)
         switch (key) {
             case 'ArrowLeft':
@@ -4717,7 +5093,26 @@ window.isNavMenuOpen = false;
             case 'Escape':
             case 'Backspace':
                 if (CATS[_catIdx]?.id === 'settings' && _settingsSubView) {
-                    if (_settingsSubView === 'system' && _systemSubView) {
+                    if (_settingsSubView === 'bluetooth' && _bluetoothUpdateStatus?.pairingPrompt) {
+                        postToHost?.({ action: 'respondBluetoothPairing', accepted: false, pin: '' });
+                        return true;
+                    } else if (_settingsSubView === 'bluetooth' && window.DoorpiBluetoothUI?.back?.('settings')) {
+                        const body = document.querySelector('.nav-content-body');
+                        if (body) _refreshSettingsBluetooth(body, '.bt-device-card');
+                        return true;
+                    } else if (_settingsSubView === 'bluetooth') {
+                        if (_bluetoothUpdateStatus?.discovering) postToHost?.({ action: 'stopBluetoothDiscovery' });
+                        _settingsSubView = 'connectivityHub';
+                    } else if (_settingsSubView === 'wifi' && window.DoorpiWifiUI?.back?.('settings')) {
+                        const body = document.querySelector('.nav-content-body');
+                        if (body) _refreshSettingsWifi(body, '.wifi-network-card');
+                        return true;
+                    } else if (_settingsSubView === 'wifi') {
+                        _settingsSubView = 'connectivityHub';
+                    } else if (_settingsSubView === 'connectivityHub') {
+                        _settingsSubView = 'system';
+                        _systemSubView = null;
+                    } else if (_settingsSubView === 'system' && _systemSubView) {
                         _systemSubView = null;
                     } else {
                         _settingsSubView = (_settingsSubView === 'account' || _settingsSubView === 'sharing') ? 'accountHub' : null;
@@ -4789,9 +5184,8 @@ window.isNavMenuOpen = false;
                     _menuData.user.PhotoBase64 = data.base64;
                     if (window._doorpiProfile) window._doorpiProfile.PhotoBase64 = data.base64;
 
-                    const apiKey = _menuData.user.SteamGridApiKey || '';
                     const name = _menuData.user.Name || '';
-                    postToHost({ action: 'saveUserProfile', name: name, apiKey: apiKey, photoBase64: data.base64, skipTasks: true });
+                    postToHost({ action: 'saveUserProfile', name: name, photoBase64: data.base64, skipTasks: true });
 
                     if (!window.isNavMenuOpen) return;
 
@@ -4833,7 +5227,8 @@ window.isNavMenuOpen = false;
             _settingsSubView === 'system' &&
             _systemSubView === 'updates' &&
             _systemUpdatesSubView === 'gpu';
-        if (catId !== 'games' && catId !== 'media' && !allowGpuUpdaterContext) return;
+        const allowBluetoothContext = catId === 'settings' && _settingsSubView === 'bluetooth';
+        if (catId !== 'games' && catId !== 'media' && !allowGpuUpdaterContext && !allowBluetoothContext) return;
 
         // Ao usar Virtual Rendering, a referencia O(1) correta no DOM é essa:
         let focused = null;
@@ -4845,6 +5240,7 @@ window.isNavMenuOpen = false;
         
         if (!focused) return;
         if (allowGpuUpdaterContext && focused.dataset?.gpuUpdaterCard !== 'true') return;
+        if (allowBluetoothContext && focused.dataset?.bluetoothDeviceCard !== 'true') return;
 
         const r = focused.getBoundingClientRect();
         window._ctxMenuOpen?.(focused, r.right + 2, r.top);

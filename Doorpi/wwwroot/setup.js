@@ -639,6 +639,8 @@ function _bindSetupEvents() {
             }
         });
         input.addEventListener('click', (e) => {
+            input.removeAttribute('readonly');
+            if (!window._doorpiShouldOpenVkbFromEvent?.(e)) return;
             if (!window._vkbIsOpen) window._vkbOpen?.(e.currentTarget);
         });
         input.addEventListener('keydown', (e) => {
