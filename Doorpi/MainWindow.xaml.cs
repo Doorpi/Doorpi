@@ -519,6 +519,12 @@ namespace Doorpi
                     return;
                 }
 
+                if (!_executionLockActive && WasWebAppRecentlyDeactivatedToDoorpi())
+                {
+                    ShowExecutionLockForWebApp();
+                    return;
+                }
+
                 if (!_executionLockActive &&
                     _isStoreLauncherSession &&
                     !(_gameSessionActive &&
@@ -545,6 +551,12 @@ namespace Doorpi
                     FindAliveMediaExeProcess(_mediaExeCurrentUrl, _mediaExeProcess) != null)
                 {
                     ShowExecutionLockForMediaExe();
+                    return;
+                }
+
+                if (!_executionLockActive && HasActiveWebAppWindow())
+                {
+                    ShowExecutionLockForWebApp();
                     return;
                 }
 
@@ -5601,12 +5613,17 @@ namespace Doorpi
 
                 if (_webAppSession is { WebView: not null } && !string.IsNullOrWhiteSpace(_currentWebAppUrl))
                 {
+                    var media = FindMediaAppByUrlOrId(_currentWebAppUrl);
                     running.Add(new
                     {
                         channel = "media",
                         url = _currentWebAppUrl,
                         kind = "web",
-                        status = _webAppWindow?.WindowState == WindowState.Minimized ? "minimized" : "running"
+                        appType = string.IsNullOrWhiteSpace(media?.Type) ? "webview" : media!.Type,
+                        status = _webAppWindow?.WindowState == WindowState.Minimized ? "minimized" : "running",
+                        name = media?.Name ?? (_isGenericBrowserMode ? "Browser" : "Web App"),
+                        heroImage = MediaHeroVisual(media),
+                        gridImage = MediaGridVisual(media)
                     });
                 }
 
@@ -7335,6 +7352,42 @@ namespace Doorpi
             catch { return false; }
         }
 
+        private bool HasActiveWebAppWindow()
+        {
+            try
+            {
+                return _webAppSession is { WebView: not null } &&
+                       _webAppWindow != null &&
+                       _webAppWindow.WindowState != WindowState.Minimized &&
+                       !string.IsNullOrWhiteSpace(_currentWebAppUrl);
+            }
+            catch { return false; }
+        }
+
+        private bool WasWebAppRecentlyDeactivatedToDoorpi()
+        {
+            if (!HasActiveWebAppWindow())
+                return false;
+
+            long ticks = Interlocked.Read(ref _lastWebAppDeactivatedUtcTicks);
+            if (ticks <= 0) return false;
+
+            return DateTime.UtcNow.Ticks - ticks <= TimeSpan.FromMilliseconds(1500).Ticks;
+        }
+
+        private bool IsForegroundOwnedByActiveWebApp()
+        {
+            try
+            {
+                if (!HasActiveWebAppWindow() || _webAppWindow == null)
+                    return false;
+
+                var hwnd = new System.Windows.Interop.WindowInteropHelper(_webAppWindow).Handle;
+                return hwnd != IntPtr.Zero && GetForegroundWindow() == hwnd;
+            }
+            catch { return false; }
+        }
+
         private void StartExecutionLockFocusMonitor()
         {
             try { _executionLockFocusCts?.Cancel(); } catch { }
@@ -7356,6 +7409,7 @@ namespace Doorpi
                         string kind = _executionLockKind;
                         bool foregroundReturned =
                             (kind == "exe" && IsForegroundOwnedByActiveMediaExe()) ||
+                            (kind == "web" && IsForegroundOwnedByActiveWebApp()) ||
                             (kind == "store" && IsForegroundOwnedByActiveStore()) ||
                             (kind == "game" && _currentGameHwnd != IntPtr.Zero && GetForegroundWindow() == _currentGameHwnd);
 
@@ -7416,6 +7470,15 @@ namespace Doorpi
             if (kind == "store")
             {
                 ReactivateStoreControlsForForeground();
+                return;
+            }
+
+            if (kind == "web")
+            {
+                StartMediaControllerMode();
+                EnsureCursorVisible();
+                _mainScreenMouseVisible = true;
+                SendRuntimeSessionsToUI();
                 return;
             }
 
@@ -7607,6 +7670,26 @@ namespace Doorpi
             return true;
         }
 
+        private bool ShowExecutionLockForWebApp()
+        {
+            if (!HasActiveWebAppWindow())
+                return false;
+
+            var media = FindMediaAppByUrlOrId(_currentWebAppUrl);
+            string appType = string.IsNullOrWhiteSpace(media?.Type) ? "webview" : media!.Type;
+
+            ShowExecutionLock(
+                "web",
+                media?.Name ?? (_isGenericBrowserMode ? "Browser" : "Web App"),
+                "",
+                _currentWebAppUrl,
+                "media",
+                appType,
+                MediaHeroVisual(media),
+                MediaGridVisual(media));
+            return true;
+        }
+
         private bool ShowExecutionLockForCurrentSession()
         {
             if (_gameSessionActive && !string.IsNullOrWhiteSpace(_activeSessionGameId))
@@ -7617,6 +7700,9 @@ namespace Doorpi
             {
                 return ShowExecutionLockForMediaExe();
             }
+
+            if (HasActiveWebAppWindow())
+                return ShowExecutionLockForWebApp();
 
             if (_isStoreLauncherSession &&
                 !_storePausedByDoorpi &&
@@ -7687,6 +7773,13 @@ namespace Doorpi
 
             if (wantsMedia)
             {
+                if (string.Equals(kind, "web", StringComparison.OrdinalIgnoreCase) ||
+                    (!string.IsNullOrWhiteSpace(url) &&
+                     string.Equals(_currentWebAppUrl, url, StringComparison.OrdinalIgnoreCase)))
+                {
+                    if (ShowExecutionLockForWebApp()) return;
+                }
+
                 if (!string.IsNullOrWhiteSpace(url))
                 {
                     var session = GetExecutableAppSession(url);
@@ -7803,6 +7896,24 @@ namespace Doorpi
             if (kind == "storeInstall")
             {
                 RestoreStoreInstallFromExecutionLock();
+                return;
+            }
+
+            if (kind == "web" && !string.IsNullOrWhiteSpace(url))
+            {
+                if (_webAppWindow != null &&
+                    string.Equals(_currentWebAppUrl, url, StringComparison.OrdinalIgnoreCase))
+                {
+                    _webAppWindow.WindowState = WindowState.Maximized;
+                    _webAppWindow.Activate();
+                    _ytWebView?.Focus();
+                    _ytWebView?.CoreWebView2?.ExecuteScriptAsync("window.focus();");
+                    StartMediaControllerMode();
+                    EnsureCursorVisible();
+                    _mainScreenMouseVisible = true;
+                    SendGameLaunchStatus("gameLaunchDone");
+                    SendRuntimeSessionsToUI();
+                }
                 return;
             }
 
