@@ -98,6 +98,10 @@ namespace Doorpi
         private DateTime _genericBrowserVkbSuppressUntilUtc = DateTime.MinValue;
         private bool _genericBrowserVkbSuppressAUntilRelease;
         private long _lastWebAppDeactivatedUtcTicks;
+        private Grid? _webAppLoadingOverlay;
+        private bool _webAppLoadingActive;
+        private bool _webAppLoadingReleaseStarted;
+        private DateTime _webAppLoadingStartedAtUtc = DateTime.MinValue;
         private TextBlock? _genericBrowserAddressPlaceholder;
         private GenericBrowserKeyboardTarget _genericBrowserKeyboardTarget = GenericBrowserKeyboardTarget.None;
         private readonly GenericBrowserTabState _genericBrowserActiveTab = new()
@@ -2380,10 +2384,17 @@ namespace Doorpi
                 return;
             }
 
+            if (_webAppLoadingActive)
+            {
+                Debug.WriteLine("[WebAppLoading] Janela nova bloqueada durante carregamento inicial: " + (e.Uri ?? "-"));
+                return;
+            }
+
             var deferral = e.GetDeferral();
 
             Dispatcher.Invoke(async () =>
             {
+                bool keepPopupBehindLoading = _webAppLoadingActive;
                 try { _popupWindow?.Close(); } catch { }
                 _popupWindow = null;
                 _popupWebView = null;
@@ -2396,8 +2407,20 @@ namespace Doorpi
                     Height = 800,
                     WindowStartupLocation = WindowStartupLocation.CenterScreen,
                     Topmost = true,
-                    Owner = _webAppWindow ?? this
+                    Owner = _webAppWindow ?? this,
+                    ShowInTaskbar = false
                 };
+
+                if (keepPopupBehindLoading)
+                {
+                    _popupWindow.Width = 1;
+                    _popupWindow.Height = 1;
+                    _popupWindow.Left = -32000;
+                    _popupWindow.Top = -32000;
+                    _popupWindow.Opacity = 0;
+                    _popupWindow.ShowActivated = false;
+                    _popupWindow.Topmost = false;
+                }
 
                 _popupWebView = new WebView2();
                 _popupWindow.Content = _popupWebView;
@@ -2438,7 +2461,8 @@ namespace Doorpi
                 };
 
                 _popupWindow.Show();
-                _popupWindow.Activate();
+                if (!keepPopupBehindLoading)
+                    _popupWindow.Activate();
 
                 var env = _ytWebView!.CoreWebView2.Environment;
                 await _popupWebView.EnsureCoreWebView2Async(env);
@@ -2470,8 +2494,11 @@ namespace Doorpi
                     var yt = _ytWebView;
                     if (popup == null) return;
 
-                    popup.Focus();
-                    _ = popup.CoreWebView2.ExecuteScriptAsync("window.focus();");
+                    if (!keepPopupBehindLoading)
+                    {
+                        popup.Focus();
+                        _ = popup.CoreWebView2.ExecuteScriptAsync("window.focus();");
+                    }
                     try
                     {
                         string currentUrl = popup.CoreWebView2.Source;
@@ -2492,8 +2519,11 @@ namespace Doorpi
                 e.NewWindow = _popupWebView.CoreWebView2;
                 deferral.Complete();
 
-                await Task.Delay(200);
-                _popupWebView.Focus();
+                if (!keepPopupBehindLoading)
+                {
+                    await Task.Delay(200);
+                    _popupWebView.Focus();
+                }
             });
         }
 
@@ -3676,7 +3706,311 @@ namespace Doorpi
             await cw.AddScriptToExecuteOnDocumentCreatedAsync(script);
         }
 
-        private async Task OpenWebViewInlineAsync(string url, bool isYouTube = false, string appName = "", string heroImg = "", string gridImg = "", bool isGenericBrowser = false)
+        private Grid BuildWebAppLoadingHost(WebView2 browser, string appName, string logoImg)
+        {
+            var host = new Grid
+            {
+                Background = Brushes.Black,
+                ClipToBounds = true
+            };
+
+            host.Children.Add(browser);
+
+            _webAppLoadingOverlay = BuildWebAppLoadingOverlay(appName, logoImg);
+            Panel.SetZIndex(_webAppLoadingOverlay, 10);
+            host.Children.Add(_webAppLoadingOverlay);
+            _webAppLoadingActive = true;
+            _webAppLoadingReleaseStarted = false;
+            _webAppLoadingStartedAtUtc = DateTime.UtcNow;
+
+            return host;
+        }
+
+        private Grid BuildWebAppLoadingOverlay(string appName, string logoImg)
+        {
+            var overlay = new Grid
+            {
+                Background = new SolidColorBrush(Color.FromRgb(3, 5, 13)),
+                Opacity = 1,
+                IsHitTestVisible = true
+            };
+
+            var stack = new StackPanel
+            {
+                Orientation = Orientation.Vertical,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                MinWidth = 360
+            };
+
+            var logoSource = TryCreateWebAppLoadingLogoSource(logoImg);
+            if (logoSource == null)
+                logoSource = TryCreateWebAppLoadingLogoSource(ResolveNativeWebAppLogoFallback(appName));
+            if (logoSource != null)
+            {
+                stack.Children.Add(new Image
+                {
+                    Source = logoSource,
+                    Width = 360,
+                    MaxHeight = 180,
+                    Stretch = Stretch.Uniform,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Margin = new Thickness(0, 0, 0, 58)
+                });
+            }
+            else
+            {
+                stack.Children.Add(new TextBlock
+                {
+                    Text = string.IsNullOrWhiteSpace(appName) ? "Doorpi" : appName,
+                    Foreground = Brushes.White,
+                    FontSize = 46,
+                    FontWeight = FontWeights.SemiBold,
+                    TextAlignment = TextAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Margin = new Thickness(0, 0, 0, 58)
+                });
+            }
+
+            stack.Children.Add(BuildWebAppLoadingSpinner(appName));
+
+            overlay.Children.Add(stack);
+            return overlay;
+        }
+
+        private ImageSource? TryCreateWebAppLoadingLogoSource(string logoImg)
+        {
+            try
+            {
+                string resolved = ResolveDoorpiImageForWpf(logoImg);
+                if (string.IsNullOrWhiteSpace(resolved)) return null;
+
+                var bitmap = new System.Windows.Media.Imaging.BitmapImage();
+                bitmap.BeginInit();
+                bitmap.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                bitmap.UriSource = new Uri(resolved, UriKind.Absolute);
+                bitmap.EndInit();
+                bitmap.Freeze();
+                return bitmap;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[WebAppLoading] Falha ao carregar logo: " + ex.Message);
+                return null;
+            }
+        }
+
+        private string ResolveDoorpiImageForWpf(string image)
+        {
+            if (string.IsNullOrWhiteSpace(image)) return "";
+            if (image.StartsWith("https://app.local/", StringComparison.OrdinalIgnoreCase))
+            {
+                string relative = image["https://app.local/".Length..].Replace('/', Path.DirectorySeparatorChar);
+                string wwwroot = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot"));
+                string local = Path.GetFullPath(Path.Combine(wwwroot, relative));
+                if (local.StartsWith(wwwroot, StringComparison.OrdinalIgnoreCase) && File.Exists(local))
+                    return local;
+                return "";
+            }
+            if (image.StartsWith("https://data.local/", StringComparison.OrdinalIgnoreCase))
+            {
+                string relative = image["https://data.local/".Length..].Replace('/', Path.DirectorySeparatorChar);
+                string local = Path.GetFullPath(Path.Combine(dataFolder, relative));
+                string root = Path.GetFullPath(dataFolder);
+                if (local.StartsWith(root, StringComparison.OrdinalIgnoreCase) && File.Exists(local))
+                    return local;
+                return "";
+            }
+            if (File.Exists(image)) return Path.GetFullPath(image);
+            if (Uri.TryCreate(image, UriKind.Absolute, out var uri))
+                return uri.ToString();
+            return "";
+        }
+
+        private string ResolveNativeWebAppLogoFallback(string appName)
+        {
+            string key = (appName ?? "").Trim().ToLowerInvariant();
+            string folder = key switch
+            {
+                var value when value.Contains("youtube") => "youtube",
+                var value when value.Contains("netflix") => "netflix",
+                var value when value.Contains("twitch") => "twitch",
+                var value when value.Contains("kick") => "kick",
+                var value when value.Contains("disney") => "disneyplus",
+                var value when value.Contains("prime") => "primevideo",
+                var value when value.Contains("apple") => "appletv",
+                var value when value.Contains("max") => "max",
+                var value when value.Contains("crunchy") => "crunchyroll",
+                _ => ""
+            };
+            return string.IsNullOrWhiteSpace(folder)
+                ? ""
+                : $"https://app.local/native-assets/{folder}/logo.png";
+        }
+
+        private FrameworkElement BuildWebAppLoadingSpinner(string appName)
+        {
+            var accent = GetWebAppLoadingAccent(appName);
+            var bright = Color.FromRgb(
+                (byte)Math.Min(255, accent.R + 28),
+                (byte)Math.Min(255, accent.G + 28),
+                (byte)Math.Min(255, accent.B + 28));
+            var deep = Color.FromRgb(
+                (byte)Math.Max(0, accent.R - 42),
+                (byte)Math.Max(0, accent.G - 42),
+                (byte)Math.Max(0, accent.B - 42));
+
+            var spinner = new Grid
+            {
+                Width = 154,
+                Height = 154,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                RenderTransformOrigin = new Point(0.5, 0.5),
+                RenderTransform = new RotateTransform(0),
+                Effect = new System.Windows.Media.Effects.DropShadowEffect
+                {
+                    Color = accent,
+                    BlurRadius = 16,
+                    ShadowDepth = 0,
+                    Opacity = 0.46
+                }
+            };
+
+            spinner.Children.Add(BuildSpinnerArcPath(
+                150,
+                18,
+                -128,
+                286,
+                new SolidColorBrush(Color.FromArgb(34, deep.R, deep.G, deep.B))));
+
+            var arcBrush = new LinearGradientBrush
+            {
+                StartPoint = new Point(0.18, 0.16),
+                EndPoint = new Point(0.88, 0.92)
+            };
+            arcBrush.GradientStops.Add(new GradientStop(Color.FromArgb(255, bright.R, bright.G, bright.B), 0.00));
+            arcBrush.GradientStops.Add(new GradientStop(Color.FromArgb(255, accent.R, accent.G, accent.B), 0.54));
+            arcBrush.GradientStops.Add(new GradientStop(Color.FromArgb(214, deep.R, deep.G, deep.B), 1.00));
+
+            spinner.Children.Add(BuildSpinnerArcPath(150, 16, -128, 286, arcBrush));
+
+            var rotate = new DoubleAnimation
+            {
+                From = 0,
+                To = 360,
+                Duration = TimeSpan.FromSeconds(1.18),
+                RepeatBehavior = RepeatBehavior.Forever,
+                EasingFunction = null
+            };
+            ((RotateTransform)spinner.RenderTransform).BeginAnimation(RotateTransform.AngleProperty, rotate);
+
+            return spinner;
+        }
+
+        private FrameworkElement BuildSpinnerArcPath(double size, double thickness, double startAngle, double sweepAngle, Brush stroke)
+        {
+            var geometry = new PathGeometry();
+            double radius = (size - thickness) / 2.0;
+            var center = new Point(size / 2.0, size / 2.0);
+            var start = PointOnCircle(center, radius, startAngle);
+            var end = PointOnCircle(center, radius, startAngle + sweepAngle);
+
+            var figure = new PathFigure
+            {
+                StartPoint = start,
+                IsClosed = false,
+                IsFilled = false
+            };
+            figure.Segments.Add(new ArcSegment
+            {
+                Point = end,
+                Size = new Size(radius, radius),
+                RotationAngle = 0,
+                IsLargeArc = Math.Abs(sweepAngle) > 180,
+                SweepDirection = sweepAngle >= 0 ? SweepDirection.Clockwise : SweepDirection.Counterclockwise,
+                IsStroked = true
+            });
+            geometry.Figures.Add(figure);
+
+            return new ShapePath
+            {
+                Data = geometry,
+                Width = size,
+                Height = size,
+                StrokeThickness = thickness,
+                Stroke = stroke,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+        }
+
+        private static Point PointOnCircle(Point center, double radius, double angleDegrees)
+        {
+            double radians = angleDegrees * Math.PI / 180.0;
+            return new Point(
+                center.X + radius * Math.Cos(radians),
+                center.Y + radius * Math.Sin(radians));
+        }
+
+        private static Color GetWebAppLoadingAccent(string appName)
+        {
+            string key = (appName ?? "").Trim().ToLowerInvariant();
+            if (key.Contains("netflix")) return Color.FromRgb(229, 9, 20);
+            if (key.Contains("youtube")) return Color.FromRgb(255, 0, 0);
+            if (key.Contains("prime")) return Color.FromRgb(0, 168, 225);
+            if (key.Contains("disney")) return Color.FromRgb(68, 156, 255);
+            if (key.Contains("twitch")) return Color.FromRgb(145, 70, 255);
+            if (key.Contains("kick")) return Color.FromRgb(83, 252, 24);
+            if (key.Contains("crunchy")) return Color.FromRgb(244, 117, 33);
+            if (key.Contains("max")) return Color.FromRgb(82, 112, 255);
+            if (key.Contains("apple")) return Color.FromRgb(230, 236, 255);
+            return Color.FromRgb(0, 153, 255);
+        }
+
+        private async Task ReleaseWebAppLoadingOverlayAsync()
+        {
+            if (!_webAppLoadingActive || _webAppLoadingReleaseStarted)
+                return;
+
+            _webAppLoadingReleaseStarted = true;
+
+            var elapsed = DateTime.UtcNow - _webAppLoadingStartedAtUtc;
+            var minDuration = TimeSpan.FromMilliseconds(1400);
+            if (elapsed < minDuration)
+                await Task.Delay(minDuration - elapsed);
+
+            try { _popupWindow?.Close(); } catch { }
+            _popupWindow = null;
+            _popupWebView = null;
+
+            var overlay = _webAppLoadingOverlay;
+            if (overlay == null)
+            {
+                _webAppLoadingActive = false;
+                return;
+            }
+
+            await Dispatcher.InvokeAsync(() =>
+            {
+                var fade = new DoubleAnimation
+                {
+                    To = 0,
+                    Duration = TimeSpan.FromMilliseconds(280),
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                };
+                fade.Completed += (_, _) =>
+                {
+                    overlay.Visibility = Visibility.Collapsed;
+                    overlay.IsHitTestVisible = false;
+                    _webAppLoadingActive = false;
+                };
+                overlay.BeginAnimation(OpacityProperty, fade);
+            });
+        }
+
+        private async Task OpenWebViewInlineAsync(string url, bool isYouTube = false, string appName = "", string heroImg = "", string gridImg = "", bool isGenericBrowser = false, string logoImg = "")
         {
             // Corrige a URL logo de cara se a abertura já for apontando para a home
             if (url.TrimEnd('/') == "https://www.steamgriddb.com")
@@ -3738,6 +4072,9 @@ namespace Doorpi
             _isGenericBrowserMode = isGenericBrowser;
             _vkbIsOpen = false;
             _vkbOwnerView = null;
+            _webAppLoadingActive = false;
+            _webAppLoadingReleaseStarted = false;
+            _webAppLoadingOverlay = null;
 
 
             _ytWebView = new WebView2
@@ -3765,7 +4102,7 @@ namespace Doorpi
 
                 _webAppWindow.Content = isGenericBrowser
                     ? BuildGenericBrowserShell(_ytWebView)
-                    : _ytWebView;
+                    : BuildWebAppLoadingHost(_ytWebView, appName, logoImg);
 
                 _webAppWindow.Closed += (s, e) =>
                 {
@@ -3798,9 +4135,19 @@ namespace Doorpi
             if (isGenericBrowser)
                 _genericBrowserEnvironment = env;
             await _ytWebView.EnsureCoreWebView2Async(env);
+            try
+            {
+                string folderPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot");
+                _ytWebView.CoreWebView2.SetVirtualHostNameToFolderMapping(
+                    "app.local", folderPath, CoreWebView2HostResourceAccessKind.Allow);
+                _ytWebView.CoreWebView2.SetVirtualHostNameToFolderMapping(
+                    "data.local", dataFolder, CoreWebView2HostResourceAccessKind.Allow);
+            }
+            catch { }
 
             _ytWebView.CoreWebView2.Profile.PreferredTrackingPreventionLevel = CoreWebView2TrackingPreventionLevel.Balanced;
 
+            _ytWebView.CoreWebView2.NewWindowRequested += OnNewWindowRequested;
             await LoadExtensionsAsync(_ytWebView.CoreWebView2);
 
             if (isYouTube)
@@ -3828,7 +4175,6 @@ namespace Doorpi
             _ytWebView.CoreWebView2.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
             _ytWebView.CoreWebView2.WebResourceRequested += YtOnWebResourceRequested;
             _ytWebView.CoreWebView2.WebMessageReceived += YtOnWebMessageReceived;
-            _ytWebView.CoreWebView2.NewWindowRequested += OnNewWindowRequested;
             _ytWebView.CoreWebView2.PermissionRequested += OnWebViewPermissionRequested;
 
             if (!isUtility)
@@ -3908,6 +4254,7 @@ namespace Doorpi
 
                 if (!_ytClosing && this.WindowState != WindowState.Minimized)
                 {
+                    await ReleaseWebAppLoadingOverlayAsync();
                     SendGameLaunchStatus("gameLaunchReady");
                     await Task.Delay(800);
 
@@ -4085,6 +4432,9 @@ namespace Doorpi
             _genericBrowserForwardButton = null;
             _genericBrowserWidgetsPanel = null;
             _genericBrowserWidgetsPopup = null;
+            _webAppLoadingOverlay = null;
+            _webAppLoadingActive = false;
+            _webAppLoadingReleaseStarted = false;
             try { _genericBrowserExtensionPopupView?.Dispose(); } catch { }
             _genericBrowserExtensionPopupView = null;
             _genericBrowserEnvironment = null;

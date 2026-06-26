@@ -11969,6 +11969,9 @@ namespace Doorpi
                             string mediaName = media?.Name ?? "App";
                             string heroImg = media?.HeroImage ?? "";
                             string gridImg = media?.GridImage ?? "";
+                            string logoImg = !string.IsNullOrWhiteSpace(media?.LogoStaticImage)
+                                ? media!.LogoStaticImage
+                                : media?.LogoImage ?? "";
 
                             DiscordRpcManager.Instance.UpdateState("media", mediaUrl, mediaName);
 
@@ -11980,7 +11983,7 @@ namespace Doorpi
                                 CenterCursorOnScreen();
                             });
                             bool isGenericBrowser = string.Equals(media?.Id, DoorpiBrowserAppId, StringComparison.OrdinalIgnoreCase);
-                            _ = Dispatcher.InvokeAsync(async () => await OpenWebViewInlineAsync(mediaUrl, mediaUrl.Contains("youtube.com"), mediaName, heroImg, gridImg, isGenericBrowser));
+                            _ = Dispatcher.InvokeAsync(async () => await OpenWebViewInlineAsync(mediaUrl, mediaUrl.Contains("youtube.com"), mediaName, heroImg, gridImg, isGenericBrowser, logoImg));
                         }
                         else if (appType == "exe")
                         {
