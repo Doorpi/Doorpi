@@ -97,6 +97,7 @@ namespace Doorpi
         private DateTime _genericBrowserControllerInputUntilUtc = DateTime.MinValue;
         private DateTime _genericBrowserVkbSuppressUntilUtc = DateTime.MinValue;
         private bool _genericBrowserVkbSuppressAUntilRelease;
+        private long _lastWebAppDeactivatedUtcTicks;
         private TextBlock? _genericBrowserAddressPlaceholder;
         private GenericBrowserKeyboardTarget _genericBrowserKeyboardTarget = GenericBrowserKeyboardTarget.None;
         private readonly GenericBrowserTabState _genericBrowserActiveTab = new()
@@ -3769,6 +3770,10 @@ namespace Doorpi
                 _webAppWindow.Closed += (s, e) =>
                 {
                     if (!_ytClosing) Dispatcher.Invoke(() => CloseYouTubeInline());
+                };
+                _webAppWindow.Deactivated += (s, e) =>
+                {
+                    Interlocked.Exchange(ref _lastWebAppDeactivatedUtcTicks, DateTime.UtcNow.Ticks);
                 };
                 _webAppWindow.StateChanged += (s, e) =>
                 {
