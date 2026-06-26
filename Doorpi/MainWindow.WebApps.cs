@@ -88,6 +88,8 @@ namespace Doorpi
         private Popup? _genericBrowserWidgetsPopup;
         private WebView2? _genericBrowserExtensionPopupView;
         private CoreWebView2Environment? _genericBrowserEnvironment;
+        private bool _genericBrowserExtensionOutsideCloseHooked;
+        private DateTime _genericBrowserIgnoreOutsideClickUntilUtc = DateTime.MinValue;
         private bool _isGenericBrowserMode;
         private bool _genericBrowserCaptureWebAppUrl;
         private string _genericBrowserCaptureInitialClipboard = "";
@@ -97,12 +99,41 @@ namespace Doorpi
         private bool _genericBrowserVkbSuppressAUntilRelease;
         private TextBlock? _genericBrowserAddressPlaceholder;
         private GenericBrowserKeyboardTarget _genericBrowserKeyboardTarget = GenericBrowserKeyboardTarget.None;
+        private readonly GenericBrowserTabState _genericBrowserActiveTab = new()
+        {
+            Id = 1,
+            WindowId = 1,
+            Url = DoorpiBrowserHomeUrl,
+            PendingUrl = DoorpiBrowserHomeUrl,
+            Title = "",
+            FavIconUrl = ""
+        };
 
         private enum GenericBrowserKeyboardTarget
         {
             None,
             AddressBar,
             WebInput
+        }
+
+        private enum GenericBrowserExtensionSurface
+        {
+            None,
+            Popup,
+            Options
+        }
+
+        private sealed record GenericBrowserExtensionTarget(string Url, GenericBrowserExtensionSurface Surface);
+
+        private sealed class GenericBrowserTabState
+        {
+            public int Id { get; init; }
+            public int WindowId { get; init; }
+            public string Url { get; set; } = "";
+            public string PendingUrl { get; set; } = "";
+            public string Title { get; set; } = "";
+            public string FavIconUrl { get; set; } = "";
+            public bool IsLoading { get; set; }
         }
 
         private static string UserDownloadsFolder
@@ -491,7 +522,11 @@ namespace Doorpi
                 _genericBrowserAddressBox.CaretIndex = caret + text.Length;
             });
         }
-
+        private void OnApplicationDeactivated(object? sender, EventArgs e)
+        {
+          
+            Dispatcher.Invoke(() => CloseGenericBrowserExtensionsPopup());
+        }
         private Grid BuildGenericBrowserShell(WebView2 browser)
         {
             browser.PreviewMouseDown += (_, _) =>
@@ -634,7 +669,7 @@ namespace Doorpi
                 if (e.Key != Key.Enter) return;
                 e.Handled = true;
                 string target = NormalizeGenericBrowserInput(_genericBrowserAddressBox.Text);
-                browser.CoreWebView2?.Navigate(target);
+                NavigateGenericBrowserActiveTab(target, closeExtensionPopup: false);
             };
             var addressHost = new Grid();
             addressHost.Children.Add(_genericBrowserAddressBox);
@@ -682,13 +717,13 @@ namespace Doorpi
             {
                 Width = 430,
                 MaxHeight = 620,
-                HorizontalAlignment = HorizontalAlignment.Right,
-                VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(0, 12, 16, 0),
+                // Margem removida (substituída por Thickness(0))
+                Margin = new Thickness(0),
                 Background = new SolidColorBrush(Color.FromArgb(246, 12, 16, 28)),
                 BorderBrush = new SolidColorBrush(Color.FromArgb(46, 255, 255, 255)),
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(8),
+                // Cantos zerados para não vazar a caixa preta do Win32
+                CornerRadius = new CornerRadius(0),
                 Padding = new Thickness(16),
                 Visibility = Visibility.Collapsed
             };
@@ -696,15 +731,23 @@ namespace Doorpi
             {
                 PlacementTarget = widgetsButton,
                 Placement = PlacementMode.Bottom,
-                HorizontalOffset = -318,
-                VerticalOffset = 10,
+                // -318 (antigo) - 16 (margem direita removida) = -334
+                HorizontalOffset = -334,
+                // 10 (antigo) + 12 (margem superior removida) = 22
+                VerticalOffset = 22,
                 StaysOpen = true,
-                AllowsTransparency = true,
+                AllowsTransparency = false,
                 Child = _genericBrowserWidgetsPanel
             };
 
             _genericBrowserShell = shell;
+            // COLOQUE ESTAS:
+            Application.Current.Deactivated -= OnApplicationDeactivated;
+            Application.Current.Deactivated += OnApplicationDeactivated;
+
+            _genericBrowserShell = shell;
             return shell;
+
         }
 
         private void ToggleGenericBrowserWidgetsPanel()
@@ -713,14 +756,150 @@ namespace Doorpi
 
             if (_genericBrowserWidgetsPopup.IsOpen)
             {
-                _genericBrowserWidgetsPopup.IsOpen = false;
+                CloseGenericBrowserExtensionsPopup();
                 return;
             }
 
             RenderGenericBrowserExtensionList();
             _ = RefreshGenericBrowserExtensionUpdatesForPopupAsync();
+            SuppressGenericBrowserOutsideCloseBriefly();
             _genericBrowserWidgetsPanel.Visibility = Visibility.Visible;
             _genericBrowserWidgetsPopup.IsOpen = true;
+            HookGenericBrowserExtensionsOutsideClose();
+        }
+
+        private void SetGenericBrowserWidgetsPanelWidth(double width)
+        {
+            if (_genericBrowserWidgetsPanel == null) return;
+
+            _genericBrowserWidgetsPanel.Width = width;
+
+            if (_genericBrowserWidgetsPopup?.PlacementTarget is FrameworkElement target)
+            {
+                double targetWidth = target.ActualWidth > 0 ? target.ActualWidth : 46;
+                // O "- 16" aqui compensa a margem que tiramos, mantendo alinhado com o ícone
+                _genericBrowserWidgetsPopup.HorizontalOffset = targetWidth - width - 16;
+            }
+        }
+
+        private void CloseGenericBrowserExtensionsPopup()
+        {
+            if (_genericBrowserWidgetsPopup != null)
+                _genericBrowserWidgetsPopup.IsOpen = false;
+            if (_genericBrowserWidgetsPanel != null)
+                _genericBrowserWidgetsPanel.Visibility = Visibility.Collapsed;
+            try
+            {
+                if (_genericBrowserExtensionPopupView?.CoreWebView2 != null)
+                {
+                    _genericBrowserExtensionPopupView.CoreWebView2.NavigationCompleted -= OnGenericBrowserExtensionPopupNavigationCompleted;
+                    _genericBrowserExtensionPopupView.CoreWebView2.NewWindowRequested -= OnGenericBrowserExtensionPopupNewWindowRequested;
+                    _genericBrowserExtensionPopupView.CoreWebView2.WebMessageReceived -= OnGenericBrowserExtensionPopupMessageReceived;
+                }
+                _genericBrowserExtensionPopupView?.Dispose();
+            }
+            catch { }
+            _genericBrowserExtensionPopupView = null;
+            UnhookGenericBrowserExtensionsOutsideClose();
+        }
+
+        private bool HandleGenericBrowserExtensionsBack()
+        {
+            if (_genericBrowserWidgetsPopup?.IsOpen != true) return false;
+            if (_genericBrowserExtensionPopupView != null)
+            {
+                RenderGenericBrowserExtensionList();
+                return true;
+            }
+
+            CloseGenericBrowserExtensionsPopup();
+            return true;
+        }
+
+        private void HookGenericBrowserExtensionsOutsideClose()
+        {
+            if (_genericBrowserExtensionOutsideCloseHooked) return;
+            PreviewMouseDown += OnGenericBrowserExtensionsOutsideMouseDown;
+            _genericBrowserExtensionOutsideCloseHooked = true;
+        }
+
+        private void UnhookGenericBrowserExtensionsOutsideClose()
+        {
+            if (!_genericBrowserExtensionOutsideCloseHooked) return;
+            PreviewMouseDown -= OnGenericBrowserExtensionsOutsideMouseDown;
+            _genericBrowserExtensionOutsideCloseHooked = false;
+        }
+
+        private void SuppressGenericBrowserOutsideCloseBriefly(int milliseconds = 260)
+        {
+            _genericBrowserIgnoreOutsideClickUntilUtc = DateTime.UtcNow.AddMilliseconds(milliseconds);
+        }
+
+        private bool IsPointerInsideGenericBrowserWidgetsPanel()
+        {
+            if (_genericBrowserWidgetsPopup?.IsOpen != true || _genericBrowserWidgetsPanel == null)
+                return false;
+
+            try
+            {
+                var topLeft = _genericBrowserWidgetsPanel.PointToScreen(new Point(0, 0));
+                double width = _genericBrowserWidgetsPanel.ActualWidth;
+                double height = _genericBrowserWidgetsPanel.ActualHeight;
+                if (width <= 0 || height <= 0) return false;
+                if (!GetCursorPos(out var cursor)) return false;
+
+                return cursor.X >= topLeft.X &&
+                       cursor.X <= topLeft.X + width &&
+                       cursor.Y >= topLeft.Y &&
+                       cursor.Y <= topLeft.Y + height;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void OnGenericBrowserExtensionsOutsideMouseDown(object sender, MouseButtonEventArgs e)
+        {
+            if (DateTime.UtcNow < _genericBrowserIgnoreOutsideClickUntilUtc)
+                return;
+
+            if (IsPointerInsideGenericBrowserWidgetsPanel())
+                return;
+
+            if (_genericBrowserWidgetsPopup?.PlacementTarget is DependencyObject target &&
+                e.OriginalSource is DependencyObject source &&
+                IsVisualDescendantOf(source, target))
+            {
+                return;
+            }
+
+            if (_genericBrowserWidgetsPopup?.IsOpen == true)
+                CloseGenericBrowserExtensionsPopup();
+        }
+
+        private void OnGenericBrowserMainWebViewGotFocus(object sender, RoutedEventArgs e)
+        {
+            if (_genericBrowserWidgetsPopup?.IsOpen == true)
+                CloseGenericBrowserExtensionsPopup();
+        }
+
+        private static bool IsVisualDescendantOf(DependencyObject child, DependencyObject parent)
+        {
+            DependencyObject? current = child;
+            while (current != null)
+            {
+                if (ReferenceEquals(current, parent)) return true;
+                try
+                {
+                    current = VisualTreeHelper.GetParent(current) ?? LogicalTreeHelper.GetParent(current);
+                }
+                catch
+                {
+                    current = LogicalTreeHelper.GetParent(current);
+                }
+            }
+            return false;
         }
 
         private async Task RefreshGenericBrowserExtensionUpdatesForPopupAsync()
@@ -747,11 +926,32 @@ namespace Doorpi
         private void RenderGenericBrowserExtensionList()
         {
             if (_genericBrowserWidgetsPanel == null) return;
-            try { _genericBrowserExtensionPopupView?.Dispose(); } catch { }
+            try
+            {
+                if (_genericBrowserExtensionPopupView?.CoreWebView2 != null)
+                {
+                    _genericBrowserExtensionPopupView.CoreWebView2.NavigationCompleted -= OnGenericBrowserExtensionPopupNavigationCompleted;
+                    _genericBrowserExtensionPopupView.CoreWebView2.NewWindowRequested -= OnGenericBrowserExtensionPopupNewWindowRequested;
+                    _genericBrowserExtensionPopupView.CoreWebView2.WebMessageReceived -= OnGenericBrowserExtensionPopupMessageReceived;
+                }
+                _genericBrowserExtensionPopupView?.Dispose();
+            }
+            catch { }
             _genericBrowserExtensionPopupView = null;
 
+            _genericBrowserWidgetsPanel.Height = double.NaN;
+            _genericBrowserWidgetsPanel.MaxHeight = 620;
+            SetGenericBrowserWidgetsPanelWidth(430);
+            _genericBrowserWidgetsPanel.Background = new SolidColorBrush(Color.FromArgb(246, 12, 16, 28));
+            _genericBrowserWidgetsPanel.BorderBrush = new SolidColorBrush(Color.FromArgb(46, 255, 255, 255));
+            _genericBrowserWidgetsPanel.Padding = new Thickness(16);
+
+            var root = new Grid();
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.Children.Add(BuildGenericBrowserExtensionHeader("Extensões", "Plugins carregados neste navegador."));
+
             var stack = new StackPanel { Orientation = Orientation.Vertical };
-            stack.Children.Add(BuildGenericBrowserExtensionHeader("Extensões", "Plugins carregados neste navegador."));
 
             var extensions = LoadBrowserExtensions();
             if (extensions.Count == 0)
@@ -770,11 +970,16 @@ namespace Doorpi
                     stack.Children.Add(BuildGenericBrowserExtensionItem(ext));
             }
 
-            _genericBrowserWidgetsPanel.Child = new ScrollViewer
+            var scroll = new ScrollViewer
             {
                 Content = stack,
+                MaxHeight = 430,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto
             };
+            Grid.SetRow(scroll, 1);
+            root.Children.Add(scroll);
+
+            _genericBrowserWidgetsPanel.Child = root;
         }
 
         private FrameworkElement BuildGenericBrowserExtensionHeader(string title, string subtitle)
@@ -807,8 +1012,8 @@ namespace Doorpi
         {
             string name = string.IsNullOrWhiteSpace(ext.Name) ? ext.Id : ext.Name;
             string version = GetExtensionVersion(ext);
-            string frontendUrl = ResolveExtensionFrontendUrl(ext);
-            bool hasPanel = !string.IsNullOrWhiteSpace(frontendUrl);
+            var target = ResolveExtensionFrontendTarget(ext);
+            bool hasPanel = !string.IsNullOrWhiteSpace(target.Url);
             bool hasUpdate = _latestUpdatesCache.TryGetValue(ext.Id, out string? updateVersion) &&
                              !string.IsNullOrWhiteSpace(updateVersion);
 
@@ -823,7 +1028,9 @@ namespace Doorpi
                     : new SolidColorBrush(Color.FromArgb(26, 255, 255, 255)),
                 BorderThickness = new Thickness(1),
                 Cursor = hasPanel ? Cursors.Hand : Cursors.Arrow,
-                ToolTip = hasPanel ? "Abrir painel da extensão" : "Esta extensão não informou um painel."
+                ToolTip = hasPanel
+                    ? (target.Surface == GenericBrowserExtensionSurface.Popup ? "Abrir popup da extensão" : "Abrir opções da extensão")
+                    : "Esta extensão não informou painel ou opções."
             };
 
             var row = new Grid();
@@ -884,7 +1091,7 @@ namespace Doorpi
 
             item.Child = row;
             if (hasPanel)
-                item.MouseLeftButtonUp += (_, _) => OpenGenericBrowserExtensionPanel(ext, frontendUrl);
+                item.MouseLeftButtonUp += (_, _) => OpenGenericBrowserExtensionTarget(ext, target);
 
             return item;
         }
@@ -923,7 +1130,489 @@ namespace Doorpi
             };
         }
 
-        private async void OpenGenericBrowserExtensionPanel(BrowserExtensionModel ext, string frontendUrl)
+        private void OpenGenericBrowserExtensionTarget(BrowserExtensionModel ext, GenericBrowserExtensionTarget target)
+        {
+            if (string.IsNullOrWhiteSpace(target.Url)) return;
+
+            if (target.Surface == GenericBrowserExtensionSurface.Popup)
+            {
+                OpenGenericBrowserExtensionPopupCompact(target.Url);
+                return;
+            }
+
+            NavigateGenericBrowserActiveTab(target.Url, closeExtensionPopup: true);
+        }
+
+        private void UpdateGenericBrowserActiveTab(string? url = null, string? pendingUrl = null, string? title = null, bool? isLoading = null)
+        {
+            if (!_isGenericBrowserMode) return;
+
+            if (!string.IsNullOrWhiteSpace(url))
+                _genericBrowserActiveTab.Url = url;
+
+            if (pendingUrl != null)
+                _genericBrowserActiveTab.PendingUrl = pendingUrl;
+            else if (!string.IsNullOrWhiteSpace(url))
+                _genericBrowserActiveTab.PendingUrl = url;
+
+            if (title != null)
+                _genericBrowserActiveTab.Title = title;
+
+            if (isLoading.HasValue)
+                _genericBrowserActiveTab.IsLoading = isLoading.Value;
+        }
+
+        private void RefreshGenericBrowserActiveTabFromWebView()
+        {
+            if (!_isGenericBrowserMode || _ytWebView?.CoreWebView2 == null) return;
+
+            UpdateGenericBrowserActiveTab(
+                _ytWebView.CoreWebView2.Source ?? _genericBrowserActiveTab.Url,
+                title: _ytWebView.CoreWebView2.DocumentTitle ?? _genericBrowserActiveTab.Title);
+        }
+
+        private string BuildGenericBrowserActiveTabJson()
+        {
+            RefreshGenericBrowserActiveTabFromWebView();
+
+            var tab = new
+            {
+                id = _genericBrowserActiveTab.Id,
+                index = 0,
+                windowId = _genericBrowserActiveTab.WindowId,
+                active = true,
+                highlighted = true,
+                selected = true,
+                currentWindow = true,
+                status = _genericBrowserActiveTab.IsLoading ? "loading" : "complete",
+                url = _genericBrowserActiveTab.Url,
+                pendingUrl = string.IsNullOrWhiteSpace(_genericBrowserActiveTab.PendingUrl)
+                    ? _genericBrowserActiveTab.Url
+                    : _genericBrowserActiveTab.PendingUrl,
+                title = _genericBrowserActiveTab.Title,
+                favIconUrl = _genericBrowserActiveTab.FavIconUrl,
+                incognito = false,
+                pinned = false,
+                audible = false,
+                discarded = false,
+                autoDiscardable = true,
+                mutedInfo = new { muted = false }
+            };
+
+            return System.Text.Json.JsonSerializer.Serialize(tab);
+        }
+
+        private void NavigateGenericBrowserActiveTab(string uri, bool closeExtensionPopup)
+        {
+            if (string.IsNullOrWhiteSpace(uri) || _ytWebView?.CoreWebView2 == null) return;
+
+            Dispatcher.Invoke(() =>
+            {
+                try
+                {
+                    UpdateGenericBrowserActiveTab(pendingUrl: uri, isLoading: true);
+                    _ytWebView.CoreWebView2.Navigate(uri);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[DoorpiBrowser] Falha ao navegar aba ativa: " + ex.Message);
+                }
+
+                if (closeExtensionPopup)
+                    CloseGenericBrowserExtensionsPopup();
+
+                _ytWebView.Focus();
+            });
+        }
+
+        private void ReloadGenericBrowserActiveTab()
+        {
+            Dispatcher.Invoke(() =>
+            {
+                try { _ytWebView?.CoreWebView2?.Reload(); }
+                catch (Exception ex) { Debug.WriteLine("[DoorpiBrowser] Falha ao recarregar aba ativa: " + ex.Message); }
+            });
+        }
+
+        private static bool IsBrowserNavigableUri(string uri)
+        {
+            if (string.IsNullOrWhiteSpace(uri)) return false;
+            if (!Uri.TryCreate(uri, UriKind.Absolute, out var parsed)) return false;
+            return parsed.Scheme == Uri.UriSchemeHttp ||
+                   parsed.Scheme == Uri.UriSchemeHttps ||
+                   parsed.Scheme == "chrome-extension";
+        }
+
+        private async void OpenGenericBrowserExtensionPopupCompact(string popupUrl)
+        {
+            if (_genericBrowserWidgetsPanel == null || _ytWebView?.CoreWebView2 == null) return;
+
+            SuppressGenericBrowserOutsideCloseBriefly(420);
+            try { _genericBrowserExtensionPopupView?.Dispose(); } catch { }
+            _genericBrowserExtensionPopupView = null;
+
+            SetGenericBrowserWidgetsPanelWidth(360);
+            _genericBrowserWidgetsPanel.Height = double.NaN;
+            _genericBrowserWidgetsPanel.MaxHeight = SystemParameters.WorkArea.Height * 0.82;
+            _genericBrowserWidgetsPanel.Background = Brushes.White;
+            _genericBrowserWidgetsPanel.BorderBrush = new SolidColorBrush(Color.FromArgb(58, 255, 255, 255));
+            _genericBrowserWidgetsPanel.Padding = new Thickness(0);
+
+            var popupView = new WebView2
+            {
+                MinWidth = 240,
+                MinHeight = 220,
+                MaxWidth = SystemParameters.WorkArea.Width * 0.52,
+                MaxHeight = SystemParameters.WorkArea.Height * 0.82,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch
+            };
+            try { popupView.DefaultBackgroundColor = System.Drawing.Color.White; } catch { }
+            _genericBrowserExtensionPopupView = popupView;
+            _genericBrowserWidgetsPanel.Child = popupView;
+
+            try
+            {
+                if (_genericBrowserEnvironment != null)
+                    await popupView.EnsureCoreWebView2Async(_genericBrowserEnvironment);
+                else
+                    await popupView.EnsureCoreWebView2Async();
+
+                popupView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
+                popupView.CoreWebView2.Settings.IsStatusBarEnabled = false;
+                popupView.CoreWebView2.Settings.IsZoomControlEnabled = false;
+                popupView.CoreWebView2.NavigationCompleted += OnGenericBrowserExtensionPopupNavigationCompleted;
+                popupView.CoreWebView2.NewWindowRequested += OnGenericBrowserExtensionPopupNewWindowRequested;
+                popupView.CoreWebView2.WebMessageReceived += OnGenericBrowserExtensionPopupMessageReceived;
+                await InjectGenericBrowserExtensionPopupBridgeAsync(popupView.CoreWebView2, BuildGenericBrowserActiveTabJson());
+                popupView.CoreWebView2.Navigate(popupUrl);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[DoorpiBrowser] Falha ao abrir popup da extensão: " + ex.Message);
+            }
+        }
+
+        private void OnGenericBrowserExtensionPopupNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
+        {
+            e.Handled = true;
+            string uri = e.Uri ?? "";
+            if (string.IsNullOrWhiteSpace(uri)) return;
+
+            OpenGenericBrowserExtensionPopupUrlInMainBrowser(uri, closeExtensionPopup: true);
+        }
+
+        private async void OnGenericBrowserExtensionPopupNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
+        {
+            if (sender is not CoreWebView2 core) return;
+
+            const string script = @"
+(function() {
+    if (window.__doorpiExtensionPopupSizer) return;
+    window.__doorpiExtensionPopupSizer = true;
+
+    function measure() {
+        const doc = document.documentElement;
+        const body = document.body;
+        let contentRight = 0;
+        let contentBottom = 0;
+        try {
+            const nodes = Array.from(document.body?.querySelectorAll('*') || []);
+            for (const node of nodes) {
+                const style = getComputedStyle(node);
+                if (style.display === 'none' || style.visibility === 'hidden') continue;
+                const rect = node.getBoundingClientRect();
+                if (rect.width <= 0 || rect.height <= 0) continue;
+                contentRight = Math.max(contentRight, rect.right);
+                contentBottom = Math.max(contentBottom, rect.bottom);
+            }
+        } catch (_) {}
+        const width = Math.ceil(Math.max(
+            Math.min(
+                Math.max(doc?.scrollWidth || 0, body?.scrollWidth || 0),
+                contentRight > 0 ? contentRight : Number.MAX_SAFE_INTEGER
+            ),
+            contentRight || 0,
+            240
+        ));
+        const height = Math.ceil(Math.max(
+            Math.min(
+                Math.max(doc?.scrollHeight || 0, body?.scrollHeight || 0),
+                contentBottom > 0 ? contentBottom : Number.MAX_SAFE_INTEGER
+            ),
+            contentBottom || 0,
+            220
+        ));
+        try {
+            window.chrome.webview.postMessage('extension_popup_size:' + JSON.stringify({ width, height }));
+        } catch (_) {}
+    }
+
+    let resizeTimer = 0;
+    function scheduleMeasure() {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(measure, 35);
+    }
+
+    try { new ResizeObserver(scheduleMeasure).observe(document.documentElement); } catch (_) {}
+    try { if (document.body) new ResizeObserver(scheduleMeasure).observe(document.body); } catch (_) {}
+    window.addEventListener('load', scheduleMeasure, { once: true });
+    requestAnimationFrame(measure);
+    setTimeout(measure, 120);
+    setTimeout(measure, 420);
+})();";
+
+            try { await core.ExecuteScriptAsync(script); }
+            catch (Exception ex) { Debug.WriteLine("[DoorpiBrowser] Falha ao medir popup da extensão: " + ex.Message); }
+        }
+
+        private void OnGenericBrowserExtensionPopupMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+        {
+            string msg = e.TryGetWebMessageAsString() ?? "";
+            if (msg.StartsWith("extension_popup_size:", StringComparison.Ordinal))
+            {
+                ApplyGenericBrowserExtensionPopupSize(msg["extension_popup_size:".Length..]);
+                return;
+            }
+
+            if (msg.StartsWith("extension_popup_reload", StringComparison.Ordinal))
+            {
+                ReloadGenericBrowserActiveTab();
+                return;
+            }
+
+            if (!msg.StartsWith("extension_popup_open:", StringComparison.Ordinal)) return;
+
+            string uri = "";
+            try { uri = Uri.UnescapeDataString(msg["extension_popup_open:".Length..]); }
+            catch { uri = msg["extension_popup_open:".Length..]; }
+
+            if (!string.IsNullOrWhiteSpace(uri))
+                OpenGenericBrowserExtensionPopupUrlInMainBrowser(uri, closeExtensionPopup: true);
+        }
+
+        private void ApplyGenericBrowserExtensionPopupSize(string payload)
+        {
+            try
+            {
+                var node = JsonNode.Parse(payload);
+                double requestedWidth = node?["width"]?.GetValue<double>() ?? 360;
+                double requestedHeight = node?["height"]?.GetValue<double>() ?? 360;
+
+                double maxWidth = Math.Max(280, SystemParameters.WorkArea.Width * 0.52);
+                double maxHeight = Math.Max(320, SystemParameters.WorkArea.Height * 0.82);
+                double width = Math.Clamp(requestedWidth, 240, maxWidth);
+                double height = Math.Clamp(requestedHeight, 220, maxHeight);
+
+                Dispatcher.Invoke(() =>
+                {
+                    if (_genericBrowserWidgetsPanel == null || _genericBrowserExtensionPopupView == null)
+                        return;
+
+                    SetGenericBrowserWidgetsPanelWidth(width);
+                    _genericBrowserWidgetsPanel.MaxHeight = maxHeight;
+                    _genericBrowserExtensionPopupView.Width = width;
+                    _genericBrowserExtensionPopupView.Height = height;
+                    _genericBrowserExtensionPopupView.MaxWidth = maxWidth;
+                    _genericBrowserExtensionPopupView.MaxHeight = maxHeight;
+                });
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[DoorpiBrowser] Tamanho inválido do popup da extensão: " + ex.Message);
+            }
+        }
+
+        private void OpenGenericBrowserExtensionPopupUrlInMainBrowser(string uri, bool closeExtensionPopup)
+        {
+            if (!IsBrowserNavigableUri(uri)) return;
+            NavigateGenericBrowserActiveTab(uri, closeExtensionPopup);
+        }
+
+        private static async Task InjectGenericBrowserExtensionPopupBridgeAsync(CoreWebView2 core, string activeTabJson)
+        {
+            string script = @"
+(function() {
+    if (window.__doorpiExtensionPopupBridge) return;
+    window.__doorpiExtensionPopupBridge = true;
+    const __doorpiActiveTab = " + activeTabJson + @";
+    const __doorpiWindow = {
+        id: 1,
+        focused: true,
+        incognito: false,
+        type: 'normal',
+        state: 'normal',
+        alwaysOnTop: false,
+        tabs: [__doorpiActiveTab]
+    };
+
+    function asyncResult(value, callback) {
+        if (typeof callback === 'function') {
+            setTimeout(() => callback(value), 0);
+            return;
+        }
+        return Promise.resolve(value);
+    }
+
+    function asyncVoid(callback) {
+        if (typeof callback === 'function') {
+            setTimeout(() => callback(), 0);
+            return;
+        }
+        return Promise.resolve();
+    }
+
+    function clone(value) {
+        try { return JSON.parse(JSON.stringify(value)); }
+        catch (_) { return value; }
+    }
+
+    function activeTab(url) {
+        const tab = clone(__doorpiActiveTab);
+        if (url) {
+            tab.url = url;
+            tab.pendingUrl = url;
+        }
+        return tab;
+    }
+
+    function absoluteUrl(url) {
+        if (!url) return '';
+        try { return new URL(String(url), location.href).href; }
+        catch (_) { return String(url || ''); }
+    }
+
+    function openInMain(url) {
+        const target = absoluteUrl(url);
+        if (!target) return false;
+        try { window.chrome.webview.postMessage('extension_popup_open:' + encodeURIComponent(target)); } catch (_) {}
+        return true;
+    }
+
+    function reloadMain() {
+        try { window.chrome.webview.postMessage('extension_popup_reload'); } catch (_) {}
+    }
+
+    const nativeOpen = window.open;
+    window.open = function(url) {
+        if (openInMain(url)) return null;
+        return nativeOpen ? nativeOpen.apply(window, arguments) : null;
+    };
+
+    function patchChromeApi() {
+        try {
+            if (window.chrome && chrome.tabs && !chrome.tabs.__doorpiPatched) {
+                const nativeCreate = chrome.tabs.create?.bind(chrome.tabs);
+                const nativeUpdate = chrome.tabs.update?.bind(chrome.tabs);
+                const nativeQuery = chrome.tabs.query?.bind(chrome.tabs);
+                const nativeGet = chrome.tabs.get?.bind(chrome.tabs);
+                chrome.tabs.query = function(queryInfo, callback) {
+                    queryInfo = queryInfo || {};
+                    const wantsDoorpiTab = queryInfo.active === true ||
+                        queryInfo.currentWindow === true ||
+                        queryInfo.windowId === 1 ||
+                        Object.keys(queryInfo).length === 0;
+                    if (wantsDoorpiTab) {
+                        return asyncResult([activeTab()], callback);
+                    }
+                    return nativeQuery ? nativeQuery.apply(chrome.tabs, arguments) : asyncResult([], callback);
+                };
+                chrome.tabs.get = function(tabId, callback) {
+                    if (tabId === 1 || tabId === undefined || tabId === null)
+                        return asyncResult(activeTab(), callback);
+                    return nativeGet ? nativeGet.apply(chrome.tabs, arguments) : asyncResult(undefined, callback);
+                };
+                chrome.tabs.getCurrent = function(callback) {
+                    return asyncResult(activeTab(), callback);
+                };
+                chrome.tabs.create = function(props, callback) {
+                    const url = typeof props === 'string' ? props : props && props.url;
+                    if (openInMain(url)) {
+                        return asyncResult(activeTab(absoluteUrl(url)), callback);
+                    }
+                    return nativeCreate ? nativeCreate.apply(chrome.tabs, arguments) : undefined;
+                };
+                chrome.tabs.update = function(tabId, props, callback) {
+                    if (typeof tabId === 'object') { callback = props; props = tabId; }
+                    const url = props && props.url;
+                    if (openInMain(url)) {
+                        return asyncResult(activeTab(absoluteUrl(url)), callback);
+                    }
+                    if (props && (props.active || props.highlighted || props.selected))
+                        return asyncResult(activeTab(), callback);
+                    return nativeUpdate ? nativeUpdate.apply(chrome.tabs, arguments) : asyncResult(activeTab(), callback);
+                };
+                chrome.tabs.reload = function(tabId, reloadProperties, callback) {
+                    if (typeof tabId === 'function') { callback = tabId; }
+                    else if (typeof reloadProperties === 'function') { callback = reloadProperties; }
+                    reloadMain();
+                    return asyncVoid(callback);
+                };
+                chrome.tabs.__doorpiPatched = true;
+            }
+
+            if (window.chrome && chrome.windows && !chrome.windows.__doorpiPatched) {
+                const nativeGet = chrome.windows.get?.bind(chrome.windows);
+                const nativeGetCurrent = chrome.windows.getCurrent?.bind(chrome.windows);
+                const nativeGetAll = chrome.windows.getAll?.bind(chrome.windows);
+                chrome.windows.get = function(windowId, getInfo, callback) {
+                    if (typeof getInfo === 'function') { callback = getInfo; getInfo = {}; }
+                    if (windowId === 1 || windowId === undefined || windowId === null)
+                        return asyncResult(clone(__doorpiWindow), callback);
+                    return nativeGet ? nativeGet.apply(chrome.windows, arguments) : asyncResult(undefined, callback);
+                };
+                chrome.windows.getCurrent = function(getInfo, callback) {
+                    if (typeof getInfo === 'function') { callback = getInfo; }
+                    return asyncResult(clone(__doorpiWindow), callback);
+                };
+                chrome.windows.getAll = function(getInfo, callback) {
+                    if (typeof getInfo === 'function') { callback = getInfo; }
+                    return asyncResult([clone(__doorpiWindow)], callback);
+                };
+                chrome.windows.__doorpiPatched = true;
+            }
+
+            if (window.chrome && chrome.runtime && !chrome.runtime.__doorpiPatched) {
+                const nativeOpenOptions = chrome.runtime.openOptionsPage?.bind(chrome.runtime);
+                chrome.runtime.openOptionsPage = function(callback) {
+                    let optionsUrl = '';
+                    try {
+                        const manifest = chrome.runtime.getManifest && chrome.runtime.getManifest();
+                        const page = manifest?.options_ui?.page || manifest?.options_page || '';
+                        if (page && chrome.runtime.getURL) optionsUrl = chrome.runtime.getURL(page);
+                    } catch (_) {}
+                    if (openInMain(optionsUrl)) {
+                        try { callback && callback(); } catch (_) {}
+                        return;
+                    }
+                    return nativeOpenOptions ? nativeOpenOptions.apply(chrome.runtime, arguments) : undefined;
+                };
+                chrome.runtime.__doorpiPatched = true;
+            }
+        } catch (_) {}
+    }
+
+    patchChromeApi();
+    setTimeout(patchChromeApi, 50);
+    setTimeout(patchChromeApi, 250);
+
+    document.addEventListener('click', function(event) {
+        const path = event.composedPath ? event.composedPath() : [];
+        const anchor = path.find(el => el && el.tagName === 'A' && el.href) || event.target?.closest?.('a[href]');
+        if (!anchor) return;
+        const href = anchor.href || anchor.getAttribute('href');
+        if (!href) return;
+        if (anchor.target && anchor.target !== '_self') {
+            event.preventDefault();
+            event.stopPropagation();
+            openInMain(href);
+        }
+    }, true);
+})();";
+            await core.AddScriptToExecuteOnDocumentCreatedAsync(script);
+        }
+
+        private async void OpenGenericBrowserExtensionPopup(BrowserExtensionModel ext, string popupUrl)
         {
             if (_genericBrowserWidgetsPanel == null || _ytWebView?.CoreWebView2 == null) return;
 
@@ -952,9 +1641,11 @@ namespace Doorpi
 
             var back = new Button
             {
-                Content = "‹ Extensões",
+                Content = CreateExtensionPuzzleIcon(22),
+                ToolTip = "Voltar para extensões",
+                Width = 42,
                 Height = 38,
-                Padding = new Thickness(12, 0, 12, 0),
+                Padding = new Thickness(0),
                 Margin = new Thickness(0, 0, 12, 0),
                 Style = CreateBrowserToolbarButtonStyle(),
                 Cursor = Cursors.Hand
@@ -996,10 +1687,11 @@ namespace Doorpi
 
             var popupView = new WebView2
             {
-                Height = 500,
+                Height = 360,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Stretch
             };
+            try { popupView.DefaultBackgroundColor = System.Drawing.Color.White; } catch { }
             _genericBrowserExtensionPopupView = popupView;
             Grid.SetRow(popupView, 1);
             root.Children.Add(popupView);
@@ -1015,7 +1707,7 @@ namespace Doorpi
                 popupView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
                 popupView.CoreWebView2.Settings.IsStatusBarEnabled = false;
                 popupView.CoreWebView2.Settings.IsZoomControlEnabled = false;
-                popupView.CoreWebView2.Navigate(frontendUrl);
+                popupView.CoreWebView2.Navigate(popupUrl);
             }
             catch (Exception ex)
             {
@@ -1087,32 +1779,50 @@ namespace Doorpi
                 .FirstOrDefault()?.Path ?? "";
         }
 
-        private static string ResolveExtensionFrontendUrl(BrowserExtensionModel ext)
+        private static GenericBrowserExtensionTarget ResolveExtensionFrontendTarget(BrowserExtensionModel ext)
         {
             try
             {
                 string manifestPath = ResolveExtensionManifestPath(ext);
 
                 if (!File.Exists(manifestPath))
-                    return "";
+                    return new GenericBrowserExtensionTarget("", GenericBrowserExtensionSurface.None);
 
                 var manifest = JsonNode.Parse(File.ReadAllText(manifestPath));
-                string page =
-                    manifest?["options_ui"]?["page"]?.ToString() ??
-                    manifest?["options_page"]?.ToString() ??
+                string popupPage =
                     manifest?["action"]?["default_popup"]?.ToString() ??
                     manifest?["browser_action"]?["default_popup"]?.ToString() ??
                     "";
 
-                page = page.Trim().TrimStart('/');
                 string extensionId = GetLoadedExtensionId(ext, manifestPath);
-                return string.IsNullOrWhiteSpace(page) || string.IsNullOrWhiteSpace(extensionId)
-                    ? ""
-                    : $"chrome-extension://{extensionId}/{page}";
+                if (string.IsNullOrWhiteSpace(extensionId))
+                    return new GenericBrowserExtensionTarget("", GenericBrowserExtensionSurface.None);
+
+                popupPage = popupPage.Trim().TrimStart('/');
+                if (!string.IsNullOrWhiteSpace(popupPage))
+                {
+                    return new GenericBrowserExtensionTarget(
+                        $"chrome-extension://{extensionId}/{popupPage}",
+                        GenericBrowserExtensionSurface.Popup);
+                }
+
+                string optionsPage =
+                    manifest?["options_ui"]?["page"]?.ToString() ??
+                    manifest?["options_page"]?.ToString() ??
+                    "";
+                optionsPage = optionsPage.Trim().TrimStart('/');
+                if (!string.IsNullOrWhiteSpace(optionsPage))
+                {
+                    return new GenericBrowserExtensionTarget(
+                        $"chrome-extension://{extensionId}/{optionsPage}",
+                        GenericBrowserExtensionSurface.Options);
+                }
+
+                return new GenericBrowserExtensionTarget("", GenericBrowserExtensionSurface.None);
             }
             catch
             {
-                return "";
+                return new GenericBrowserExtensionTarget("", GenericBrowserExtensionSurface.None);
             }
         }
 
@@ -1120,6 +1830,7 @@ namespace Doorpi
         {
             if (!_isGenericBrowserMode || _ytWebView?.CoreWebView2 == null) return;
 
+            RefreshGenericBrowserActiveTabFromWebView();
             string source = _ytWebView.CoreWebView2.Source ?? "";
             if (_genericBrowserAddressBox != null && !_genericBrowserAddressBox.IsKeyboardFocusWithin)
                 _genericBrowserAddressBox.Text = source;
@@ -1229,7 +1940,7 @@ namespace Doorpi
                 return;
             }
 
-            _genericBrowserWidgetsPopup?.SetCurrentValue(Popup.IsOpenProperty, false);
+            CloseGenericBrowserExtensionsPopup();
             if (_genericBrowserKeyboardTarget != GenericBrowserKeyboardTarget.None)
                 CloseGenericBrowserKeyboard(_genericBrowserKeyboardTarget == GenericBrowserKeyboardTarget.WebInput);
 
@@ -1392,6 +2103,18 @@ namespace Doorpi
                     }
 
                     // Define se deve usar o mouse físico C# (SEMPRE VERDADEIRO SE HOUVER UM POPUP ABERTO)
+                    if (_isGenericBrowserMode && Pressed(XI_B))
+                    {
+                        bool handled = false;
+                        Dispatcher.Invoke(() => handled = HandleGenericBrowserExtensionsBack());
+                        if (handled)
+                        {
+                            prevButtons = btn;
+                            Thread.Sleep(80);
+                            continue;
+                        }
+                    }
+
                     bool useNativeMouse = !_isCurrentSiteYouTube || _popupWindow != null;
 
                     // ════════════════════════════════════════════════════════
@@ -1553,7 +2276,7 @@ namespace Doorpi
                             else
                             {
                                 if (_isGenericBrowserMode) MarkGenericBrowserControllerInputIntent();
-                                SendVkbCommand("window.__doorpiVkbControllerIntentAt=Date.now()");
+                                else MarkCurrentWebViewControllerInputIntent();
                                 mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
                                 mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
                             }
@@ -1592,7 +2315,7 @@ namespace Doorpi
                             if (Pressed(XI_A))
                             {
                                 if (_isGenericBrowserMode) MarkGenericBrowserControllerInputIntent();
-                                SendVkbCommand("window.__doorpiVkbControllerIntentAt=Date.now()");
+                                else MarkCurrentWebViewControllerInputIntent();
                                 mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
                                 mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
                             }
@@ -1620,6 +2343,17 @@ namespace Doorpi
 
         // ── Abrir app de mídia ────────────────────────────────────────────────
 
+        private void MarkCurrentWebViewControllerInputIntent()
+        {
+            var view = _ytWebView;
+            if (view == null) return;
+            Dispatcher.Invoke(() =>
+            {
+                try { view.CoreWebView2?.ExecuteScriptAsync("try{window.__doorpiVkbControllerIntentAt=Date.now();}catch(e){}"); }
+                catch { }
+            });
+        }
+
         private async void LaunchMediaApp(string url, string appType)
         {
             try
@@ -1638,9 +2372,10 @@ namespace Doorpi
         {
             e.Handled = true;
 
-            if (_isGenericBrowserMode && !string.IsNullOrWhiteSpace(e.Uri))
+            if (_isGenericBrowserMode)
             {
-                _ytWebView?.CoreWebView2?.Navigate(e.Uri);
+                if (!string.IsNullOrWhiteSpace(e.Uri))
+                    NavigateGenericBrowserActiveTab(e.Uri, closeExtensionPopup: false);
                 return;
             }
 
@@ -2667,6 +3402,30 @@ namespace Doorpi
         if (!_vkbFocusKey) {{ _vkbSetFocus(_vkbMode === 'numeric' ? '1' : 'q'); return; }}
         const rows = _vkbMode === 'numeric' ? NUMERIC_KEY_ROWS : _vkbMode === 'special' ? SPECIAL_KEY_ROWS : KEY_ROWS;
         const bottomKeys = _vkbMode === 'numeric' ? ['CANCEL'] : BOTTOM_KEYS;
+        const keySpan = (key) => {{
+            if (_vkbMode === 'numeric') return 1;
+            if (key === 'SPACE') return 7;
+            if (['BKSP','ENTER','CANCEL','SHIFT','SYM','ABC','CURSOR_LEFT','CURSOR_RIGHT','.com'].includes(key)) return 2;
+            return 1;
+        }};
+        const rowLayout = (row) => {{
+            let col = 0;
+            return row.map(key => {{
+                const span = keySpan(key);
+                const item = {{ key, start: col, center: col + span / 2, span }};
+                col += span;
+                return item;
+            }});
+        }};
+        const nearestByCenter = (row, center) => {{
+            const layout = rowLayout(row);
+            let best = layout[0];
+            for (const item of layout) {{
+                if (Math.abs(item.center - center) < Math.abs(best.center - center))
+                    best = item;
+            }}
+            return best.key;
+        }};
         let rIdx = 0, cIdx = 0, found = false;
         for (let r = 0; r < rows.length && !found; r++)
             for (let c = 0; c < rows[r].length && !found; c++)
@@ -2678,8 +3437,12 @@ namespace Doorpi
             if (next >= 0 && next < order.length) _vkbSetFocus(order[next]);
             return;
         }}
-        if (dir === 'UP')    rIdx = (rIdx - 1 + rows.length) % rows.length;
-        if (dir === 'DOWN')  rIdx = (rIdx + 1) % rows.length;
+        if (dir === 'UP' || dir === 'DOWN') {{
+            const current = rowLayout(rows[rIdx]).find(item => item.key === _vkbFocusKey);
+            rIdx = dir === 'UP' ? (rIdx - 1 + rows.length) % rows.length : (rIdx + 1) % rows.length;
+            _vkbSetFocus(nearestByCenter(rows[rIdx], current?.center ?? cIdx + 0.5));
+            return;
+        }}
         if (dir === 'LEFT')  cIdx = (cIdx - 1 + rows[rIdx].length) % rows[rIdx].length;
         if (dir === 'RIGHT') cIdx = (cIdx + 1) % rows[rIdx].length;
         cIdx = Math.min(cIdx, rows[rIdx].length - 1);
@@ -3068,6 +3831,11 @@ namespace Doorpi
                 _ytWebView.CoreWebView2.DocumentTitleChanged += (s, _) =>
                 {
                     string title = _ytWebView?.CoreWebView2?.DocumentTitle ?? "";
+                    if (isGenericBrowser)
+                    {
+                        UpdateGenericBrowserActiveTab(title: title);
+                        Dispatcher.Invoke(UpdateGenericBrowserChrome);
+                    }
                     if (!string.IsNullOrWhiteSpace(title) && !string.IsNullOrWhiteSpace(_currentWebAppUrl))
                         DiscordRpcManager.Instance.UpdateState("media", _currentWebAppUrl, title);
                 };
@@ -3087,6 +3855,9 @@ namespace Doorpi
                 }
 
                 string? currentUri = e.Uri?.TrimEnd('/');
+                if (isGenericBrowser && !string.IsNullOrWhiteSpace(e.Uri))
+                    UpdateGenericBrowserActiveTab(pendingUrl: e.Uri, isLoading: true);
+
                 if (currentUri == "https://www.steamgriddb.com")
                 {
                     e.Cancel = true;
@@ -3114,7 +3885,15 @@ namespace Doorpi
             _ytWebView.CoreWebView2.NavigationCompleted += async (s, e) =>
             {
                 if (isGenericBrowser)
+                {
+                    string currentSource = _ytWebView.CoreWebView2.Source ?? _genericBrowserActiveTab.Url;
+                    UpdateGenericBrowserActiveTab(
+                        currentSource,
+                        currentSource,
+                        _ytWebView.CoreWebView2.DocumentTitle ?? _genericBrowserActiveTab.Title,
+                        isLoading: false);
                     Dispatcher.Invoke(UpdateGenericBrowserChrome);
+                }
                 // Utilitários (SteamGridDB, Chrome Web Store): garante cursor visível após qualquer navegação
                 if (isUtility)
                 {
@@ -3135,15 +3914,22 @@ namespace Doorpi
                 }
             };
 
+            if (isGenericBrowser)
+                UpdateGenericBrowserActiveTab(url, url, "", isLoading: true);
             _ytWebView.CoreWebView2.Navigate(url);
             _ytWebView.Focus();
             _ytWebView.KeyDown += YtOnKeyDown;
+            if (isGenericBrowser)
+                _ytWebView.GotFocus += OnGenericBrowserMainWebViewGotFocus;
 
             _ytWebView.CoreWebView2.SourceChanged += async (s, args) =>
             {
                 string newUrl = _ytWebView.CoreWebView2.Source;
                 if (isGenericBrowser)
+                {
+                    UpdateGenericBrowserActiveTab(newUrl, newUrl);
                     Dispatcher.Invoke(UpdateGenericBrowserChrome);
+                }
 
                 if (newUrl.Contains("chromewebstore.google.com/detail/"))
                     await InjectInstalledExtensionsAsync(_ytWebView.CoreWebView2);
@@ -3234,7 +4020,7 @@ namespace Doorpi
             var ytWebView = _ytWebView;
             if (_ytClosing || ytWebView == null) return;
             _ytClosing = true;
-
+            Application.Current.Deactivated -= OnApplicationDeactivated;
             bool shouldFinalizeStoreFromThisWebClose =
                 !skipStoreCompletion &&
                 _isStoreLauncherSession &&
@@ -3264,6 +4050,7 @@ namespace Doorpi
             catch { }
 
             ytWebView.KeyDown -= YtOnKeyDown;
+            ytWebView.GotFocus -= OnGenericBrowserMainWebViewGotFocus;
             if (coreWebView != null)
             {
                 coreWebView.WebResourceRequested -= YtOnWebResourceRequested;
@@ -3278,12 +4065,7 @@ namespace Doorpi
 
             try { _webAppWindow?.Close(); } catch { }
             _webAppWindow = null;
-            try
-            {
-                if (_genericBrowserWidgetsPopup != null)
-                    _genericBrowserWidgetsPopup.IsOpen = false;
-            }
-            catch { }
+            CloseGenericBrowserExtensionsPopup();
 
             RootGrid.Children.Remove(ytWebView);
 
@@ -3330,6 +4112,12 @@ namespace Doorpi
         {
             if (e.Key == Key.Escape || e.Key == Key.BrowserBack)
             {
+                if (HandleGenericBrowserExtensionsBack())
+                {
+                    e.Handled = true;
+                    return;
+                }
+
                 e.Handled = true;
                 if (_ytWebView?.CoreWebView2 != null)
                 {
