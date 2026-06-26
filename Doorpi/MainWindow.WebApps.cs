@@ -4128,7 +4128,7 @@ namespace Doorpi
             string profileName = GetBrowserProfileNameForUrl(url, isYouTube);
             string userDataPath = Path.Combine(DoorpiPaths.BrowserProfilesFolder, profileName);
 
-            var options = new CoreWebView2EnvironmentOptions { AreBrowserExtensionsEnabled = true };
+            var options = new CoreWebView2EnvironmentOptions { AreBrowserExtensionsEnabled = !isUtility };
 
 
             var env = await CoreWebView2Environment.CreateAsync(null, userDataPath, options);
@@ -4148,7 +4148,8 @@ namespace Doorpi
             _ytWebView.CoreWebView2.Profile.PreferredTrackingPreventionLevel = CoreWebView2TrackingPreventionLevel.Balanced;
 
             _ytWebView.CoreWebView2.NewWindowRequested += OnNewWindowRequested;
-            await LoadExtensionsAsync(_ytWebView.CoreWebView2);
+            if (!isUtility)
+                await LoadExtensionsAsync(_ytWebView.CoreWebView2);
 
             if (isYouTube)
                 _ytWebView.CoreWebView2.Settings.UserAgent = YT_UA;
