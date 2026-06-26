@@ -409,6 +409,10 @@ window._mediaHandleMessage = (data) => {
             window.isMediaAppActive = false;
             window._currentWebAppConflictEntry = null;
             window._storesHandleMessage?.(data);
+            if (window._suppressNextMediaAppClosedFocus) {
+                window._suppressNextMediaAppClosedFocus = false;
+                break;
+            }
             setTimeout(() => {
                 window.focus?.();
                 if (typeof window.getCurrentHomeTab === 'function' && window.getCurrentHomeTab() === 'stores') {

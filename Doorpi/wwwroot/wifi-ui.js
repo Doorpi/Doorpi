@@ -164,8 +164,9 @@
         });
 
         const password = root.querySelector('[data-wifi-password]');
-        password?.addEventListener('click', () => {
+        password?.addEventListener('click', event => {
             password.removeAttribute('readonly');
+            if (!window._doorpiShouldOpenVkbFromEvent?.(event)) return;
             window._vkbOpen?.(password, {
                 onOk: () => password.setAttribute('readonly', ''),
                 onCancel: () => password.setAttribute('readonly', '')

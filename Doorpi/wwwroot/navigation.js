@@ -139,7 +139,7 @@ function getModalGroups() {
     } else if (activeTab === 'view-media-apps') {
         subtabs = Array.from(document.querySelectorAll('#mediaAppSubtabs .subtab'));
         if (document.getElementById('subview-web')?.classList.contains('active')) {
-            inputs = Array.from(document.querySelectorAll('#subview-web input, #btnWebAppPaste')).filter(Boolean);
+            inputs = Array.from(document.querySelectorAll('#subview-web input, #btnWebAppPaste, #btnWebAppBrowser')).filter(Boolean);
         } else {
             apps = Array.from(document.querySelectorAll('#appListMedia .app-item:not(.already-added)'));
         }
@@ -252,6 +252,51 @@ function findWrapCandidate(items, current, direction) {
 }
 
 function findVkbCandidate(items, current, direction) {
+    const rowItems = items
+        .map(el => ({ el, row: Number(el.dataset?.row), col: Number(el.dataset?.col) }))
+        .filter(item => Number.isFinite(item.row) && Number.isFinite(item.col));
+
+    if (rowItems.length === items.length && rowItems.length > 0) {
+        const cur = rowItems.find(item => item.el === current);
+        if (cur) {
+            const rows = new Map();
+            rowItems.forEach(item => {
+                if (!rows.has(item.row)) rows.set(item.row, []);
+                rows.get(item.row).push(item);
+            });
+            rows.forEach(row => row.sort((a, b) => a.col - b.col));
+            const rowNumbers = Array.from(rows.keys()).sort((a, b) => a - b);
+            const currentRow = rows.get(cur.row) || [];
+            if (direction === 'LEFT' || direction === 'RIGHT') {
+                const idx = currentRow.findIndex(item => item.el === current);
+                if (idx >= 0) {
+                    const nextIdx = direction === 'RIGHT'
+                        ? (idx + 1) % currentRow.length
+                        : (idx - 1 + currentRow.length) % currentRow.length;
+                    return currentRow[nextIdx]?.el || null;
+                }
+            }
+
+            if (direction === 'UP' || direction === 'DOWN') {
+                const rowIdx = rowNumbers.indexOf(cur.row);
+                if (rowIdx >= 0) {
+                    const nextRowNumber = direction === 'DOWN'
+                        ? rowNumbers[(rowIdx + 1) % rowNumbers.length]
+                        : rowNumbers[(rowIdx - 1 + rowNumbers.length) % rowNumbers.length];
+                    const nextRow = rows.get(nextRowNumber) || [];
+                    const cr = current.getBoundingClientRect();
+                    const cx = cr.left + cr.width / 2;
+                    return nextRow
+                        .map(item => {
+                            const r = item.el.getBoundingClientRect();
+                            return { item, dist: Math.abs((r.left + r.width / 2) - cx) };
+                        })
+                        .sort((a, b) => a.dist - b.dist)[0]?.item.el || null;
+                }
+            }
+        }
+    }
+
     const curKey = current.dataset?.key;
     const hasTextBottomRow = items.some(el => el.dataset?.key === 'SPACE');
     if (hasTextBottomRow && VKB_BOTTOM_KEYS.includes(curKey) && (direction === 'LEFT' || direction === 'RIGHT')) {
@@ -365,17 +410,18 @@ function getGroupTransition(direction, groupName, groups, current) {
         if (groupName === 'input') {
             const idx = inputs.indexOf(current);
             const isPasteBtn = current.id === 'btnWebAppPaste';
+            const isBrowserBtn = current.id === 'btnWebAppBrowser';
 
             if (direction === 'LEFT') {
-                if (isPasteBtn && idx > 0) return inputs[idx - 1];
+                if ((isPasteBtn || isBrowserBtn) && idx > 0) return inputs[idx - 1];
                 return bestSidebar();
             }
             if (direction === 'RIGHT') {
-                if (!isPasteBtn && inputs[idx + 1]?.id === 'btnWebAppPaste') return inputs[idx + 1];
+                if (inputs[idx + 1]) return inputs[idx + 1];
                 return null;
             }
             if (direction === 'UP') {
-                if (isPasteBtn) return inputs[0];
+                if (isPasteBtn || isBrowserBtn) return inputs[0];
                 return idx > 0 ? inputs[idx - 1] : bestSubtab();
             }
             if (direction === 'DOWN') {
@@ -650,7 +696,7 @@ function moveFocus(direction) {
     else if (current.classList.contains('store-install-card')) { groupName = 'storeBtn'; groupItems = groups.storeBtns; }
     else if (current.classList.contains('icon-btn')) { groupName = 'folderBtn'; groupItems = groups.folderBtns; }
     else if (current.classList.contains('subtab')) { groupName = 'subtab'; groupItems = groups.subtabs; }
-    else if (current.tagName === 'INPUT' || current.id === 'btnWebAppPaste') { groupName = 'input'; groupItems = groups.inputs; }
+    else if (current.tagName === 'INPUT' || current.id === 'btnWebAppPaste' || current.id === 'btnWebAppBrowser') { groupName = 'input'; groupItems = groups.inputs; }
     else { groupName = 'action'; groupItems = groups.actions; }
 
     if (groupName === 'app') _lastFocusedApp = current;

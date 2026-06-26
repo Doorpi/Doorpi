@@ -3358,9 +3358,10 @@ window.isNavMenuOpen = false;
             }
         });
 
-        nameInput?.addEventListener('click', () => {
+        nameInput?.addEventListener('click', event => {
             nameInput.value = pendingName;
             nameInput.removeAttribute('readonly');
+            if (!window._doorpiShouldOpenVkbFromEvent?.(event)) return;
             window._vkbOpen?.(nameInput, {
                 onOk: () => {
                     pendingName = nameInput.value.trim();
@@ -3381,10 +3382,11 @@ window.isNavMenuOpen = false;
             });
         });
 
-        pinInput?.addEventListener('click', () => {
+        pinInput?.addEventListener('click', event => {
             pinInput.value = '';
             pinInput.type = 'password';
             pinInput.removeAttribute('readonly');
+            if (!window._doorpiShouldOpenVkbFromEvent?.(event)) return;
             window._vkbOpen?.(pinInput, {
                 mode: 'numeric',
                 onOk: () => {
@@ -3406,9 +3408,10 @@ window.isNavMenuOpen = false;
             });
         });
 
-        apiInput?.addEventListener('click', () => {
+        apiInput?.addEventListener('click', event => {
             apiInput.value = '';
             apiInput.removeAttribute('readonly');
+            if (!window._doorpiShouldOpenVkbFromEvent?.(event)) return;
             window._vkbOpen?.(apiInput, {
                 onOk: () => {
                     const newKey = apiInput.value.trim();
@@ -4248,8 +4251,9 @@ window.isNavMenuOpen = false;
         });
 
         const urlInput = body.querySelector('#navExtUrlInput');
-        urlInput?.addEventListener('click', () => {
+        urlInput?.addEventListener('click', event => {
             urlInput.removeAttribute('readonly');
+            if (!window._doorpiShouldOpenVkbFromEvent?.(event)) return;
             window._vkbOpen?.(urlInput, {
                 onOk: () => {
                     urlInput.setAttribute('readonly', '');

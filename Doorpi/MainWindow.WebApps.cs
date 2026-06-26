@@ -86,7 +86,13 @@ namespace Doorpi
         private Button? _genericBrowserForwardButton;
         private Border? _genericBrowserWidgetsPanel;
         private Popup? _genericBrowserWidgetsPopup;
+        private WebView2? _genericBrowserExtensionPopupView;
+        private CoreWebView2Environment? _genericBrowserEnvironment;
         private bool _isGenericBrowserMode;
+        private bool _genericBrowserCaptureWebAppUrl;
+        private string _genericBrowserCaptureInitialClipboard = "";
+        private System.Windows.Threading.DispatcherTimer? _genericBrowserCaptureClipboardTimer;
+        private DateTime _genericBrowserControllerInputUntilUtc = DateTime.MinValue;
         private DateTime _genericBrowserVkbSuppressUntilUtc = DateTime.MinValue;
         private bool _genericBrowserVkbSuppressAUntilRelease;
         private TextBlock? _genericBrowserAddressPlaceholder;
@@ -191,6 +197,34 @@ namespace Doorpi
                 StrokeEndLineCap = PenLineCap.Round,
                 StrokeLineJoin = PenLineJoin.Round,
                 Fill = Brushes.Transparent,
+                Opacity = 0.92
+            };
+        }
+
+        private static ShapePath CreateBrowserFilledIcon(string data, double size = 20)
+        {
+            return new ShapePath
+            {
+                Data = Geometry.Parse(data),
+                Width = size,
+                Height = size,
+                Stretch = Stretch.Uniform,
+                Fill = Brushes.White,
+                Stroke = Brushes.Transparent,
+                Opacity = 0.92
+            };
+        }
+
+        private static ShapePath CreateExtensionPuzzleIcon(double size = 24, Brush? fill = null)
+        {
+            return new ShapePath
+            {
+                Data = Geometry.Parse("M345.14,480H274a18,18,0,0,1-18-18V434.29a31.32,31.32,0,0,0-9.71-22.77c-7.78-7.59-19.08-11.8-30.89-11.51-21.36.5-39.4,19.3-39.4,41.06V462a18,18,0,0,1-18,18H87.62A55.62,55.62,0,0,1,32,424.38V354a18,18,0,0,1,18-18H77.71c9.16,0,18.07-3.92,25.09-11A42.06,42.06,0,0,0,115,295.08C114.7,273.89,97.26,256,76.91,256H50a18,18,0,0,1-18-18V167.62A55.62,55.62,0,0,1,87.62,112h55.24a8,8,0,0,0,8-8V97.52A65.53,65.53,0,0,1,217.54,32c35.49.62,64.36,30.38,64.36,66.33V104a8,8,0,0,0,8,8h55.24A54.86,54.86,0,0,1,400,166.86V222.1a8,8,0,0,0,8,8h5.66c36.58,0,66.34,29,66.34,64.64,0,36.61-29.39,66.4-65.52,66.4H408a8,8,0,0,0-8,8v56A54.86,54.86,0,0,1,345.14,480Z"),
+                Width = size,
+                Height = size,
+                Stretch = Stretch.Uniform,
+                Fill = fill ?? Brushes.White,
+                Stroke = Brushes.Transparent,
                 Opacity = 0.92
             };
         }
@@ -314,6 +348,26 @@ namespace Doorpi
 
         private void OpenGenericBrowserWebKeyboard(int targetScreenY) =>
             OpenGenericBrowserKeyboard(GenericBrowserKeyboardTarget.WebInput, targetScreenY);
+
+        private void MarkGenericBrowserControllerInputIntent()
+        {
+            _genericBrowserControllerInputUntilUtc = DateTime.UtcNow.AddMilliseconds(520);
+            var view = _ytWebView;
+            if (view == null) return;
+
+            Dispatcher.InvokeAsync(() =>
+            {
+                try
+                {
+                    view.CoreWebView2?.ExecuteScriptAsync(
+                        "try{window.__doorpiVkbControllerIntentAt=Date.now();}catch(e){}");
+                }
+                catch { }
+            });
+        }
+
+        private bool HasRecentGenericBrowserControllerInputIntent() =>
+            DateTime.UtcNow <= _genericBrowserControllerInputUntilUtc;
 
         private int GenericBrowserWebYToScreen(double webY)
         {
@@ -560,12 +614,14 @@ namespace Doorpi
                     _genericBrowserAddressBox.SelectAll();
                 }
 
-                OpenGenericBrowserAddressKeyboard();
+                if (HasRecentGenericBrowserControllerInputIntent())
+                    OpenGenericBrowserAddressKeyboard();
             };
             _genericBrowserAddressBox.GotKeyboardFocus += (_, _) =>
             {
                 _genericBrowserAddressBox.SelectAll();
-                OpenGenericBrowserAddressKeyboard();
+                if (HasRecentGenericBrowserControllerInputIntent())
+                    OpenGenericBrowserAddressKeyboard();
             };
             _genericBrowserAddressBox.LostKeyboardFocus += (_, _) =>
             {
@@ -588,9 +644,9 @@ namespace Doorpi
             row.Children.Add(addressHost);
 
             var widgetsButton = MakeButton(
-                CreateBrowserIcon("M20 13.5 V20 H13.5 C13.5 18.6 12.4 17.5 11 17.5 C9.6 17.5 8.5 18.6 8.5 20 H4 V15.5 C5.4 15.5 6.5 14.4 6.5 13 C6.5 11.6 5.4 10.5 4 10.5 V4 H10.5 C10.5 5.4 11.6 6.5 13 6.5 C14.4 6.5 15.5 5.4 15.5 4 H20 V8.5 C18.6 8.5 17.5 9.6 17.5 11 C17.5 12.4 18.6 13.5 20 13.5 Z", 21),
-                "Ver widgets instalados",
-                42);
+                CreateExtensionPuzzleIcon(25),
+                "Ver extensoes instaladas",
+                46);
             widgetsButton.Click += (_, _) => ToggleGenericBrowserWidgetsPanel();
             Grid.SetColumn(widgetsButton, 5);
             row.Children.Add(widgetsButton);
@@ -605,6 +661,8 @@ namespace Doorpi
                     if (!string.IsNullOrWhiteSpace(source))
                     {
                         Clipboard.SetText(source);
+                        if (TryCompleteGenericBrowserWebAppUrlCapture(source))
+                            return;
                         ShowGenericBrowserCopyFeedback(source);
                     }
                 }
@@ -622,8 +680,8 @@ namespace Doorpi
 
             _genericBrowserWidgetsPanel = new Border
             {
-                Width = 360,
-                MaxHeight = 420,
+                Width = 430,
+                MaxHeight = 620,
                 HorizontalAlignment = HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Top,
                 Margin = new Thickness(0, 12, 16, 0),
@@ -640,7 +698,7 @@ namespace Doorpi
                 Placement = PlacementMode.Bottom,
                 HorizontalOffset = -318,
                 VerticalOffset = 10,
-                StaysOpen = false,
+                StaysOpen = true,
                 AllowsTransparency = true,
                 Child = _genericBrowserWidgetsPanel
             };
@@ -659,22 +717,48 @@ namespace Doorpi
                 return;
             }
 
-            var stack = new StackPanel { Orientation = Orientation.Vertical };
-            stack.Children.Add(new TextBlock
+            RenderGenericBrowserExtensionList();
+            _ = RefreshGenericBrowserExtensionUpdatesForPopupAsync();
+            _genericBrowserWidgetsPanel.Visibility = Visibility.Visible;
+            _genericBrowserWidgetsPopup.IsOpen = true;
+        }
+
+        private async Task RefreshGenericBrowserExtensionUpdatesForPopupAsync()
+        {
+            try
             {
-                Text = "Widgets instalados",
-                Foreground = Brushes.White,
-                FontSize = 18,
-                FontWeight = FontWeights.SemiBold,
-                Margin = new Thickness(0, 0, 0, 10)
-            });
+                await CheckAndSendExtensionUpdatesAsync();
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    if (_genericBrowserWidgetsPopup?.IsOpen == true &&
+                        _genericBrowserWidgetsPanel != null &&
+                        _genericBrowserExtensionPopupView == null)
+                    {
+                        RenderGenericBrowserExtensionList();
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[DoorpiBrowser] Falha ao atualizar estado de extensões: " + ex.Message);
+            }
+        }
+
+        private void RenderGenericBrowserExtensionList()
+        {
+            if (_genericBrowserWidgetsPanel == null) return;
+            try { _genericBrowserExtensionPopupView?.Dispose(); } catch { }
+            _genericBrowserExtensionPopupView = null;
+
+            var stack = new StackPanel { Orientation = Orientation.Vertical };
+            stack.Children.Add(BuildGenericBrowserExtensionHeader("Extensões", "Plugins carregados neste navegador."));
 
             var extensions = LoadBrowserExtensions();
             if (extensions.Count == 0)
             {
                 stack.Children.Add(new TextBlock
                 {
-                    Text = "Nenhum widget instalado ainda.",
+                    Text = "Nenhuma extensão instalada ainda.",
                     Foreground = new SolidColorBrush(Color.FromArgb(166, 255, 255, 255)),
                     FontSize = 14,
                     TextWrapping = TextWrapping.Wrap
@@ -683,54 +767,7 @@ namespace Doorpi
             else
             {
                 foreach (var ext in extensions.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase))
-                {
-                    string version = GetExtensionVersion(ext);
-                    string frontendUrl = ResolveExtensionFrontendUrl(ext);
-                    var item = new Border
-                    {
-                        Margin = new Thickness(0, 0, 0, 8),
-                        Padding = new Thickness(10),
-                        CornerRadius = new CornerRadius(6),
-                        Background = new SolidColorBrush(Color.FromArgb(18, 255, 255, 255)),
-                        Cursor = string.IsNullOrWhiteSpace(frontendUrl) ? Cursors.Arrow : Cursors.Hand,
-                        ToolTip = string.IsNullOrWhiteSpace(frontendUrl)
-                            ? "Este widget nao informou uma tela de configuracao."
-                            : "Abrir configuracoes do widget"
-                    };
-                    item.Child = new StackPanel
-                    {
-                        Children =
-                        {
-                            new TextBlock
-                            {
-                                Text = string.IsNullOrWhiteSpace(ext.Name) ? ext.Id : ext.Name,
-                                Foreground = Brushes.White,
-                                FontSize = 14,
-                                FontWeight = FontWeights.SemiBold,
-                                TextTrimming = TextTrimming.CharacterEllipsis
-                            },
-                            new TextBlock
-                            {
-                                Text = string.IsNullOrWhiteSpace(frontendUrl)
-                                    ? (string.IsNullOrWhiteSpace(version) ? $"{ext.Id} - sem painel" : $"{ext.Id} - v{version} - sem painel")
-                                    : (string.IsNullOrWhiteSpace(version) ? ext.Id : $"{ext.Id} - v{version}"),
-                                Foreground = new SolidColorBrush(Color.FromArgb(138, 255, 255, 255)),
-                                FontSize = 12,
-                                TextTrimming = TextTrimming.CharacterEllipsis
-                            }
-                        }
-                    };
-                    if (!string.IsNullOrWhiteSpace(frontendUrl))
-                    {
-                        item.MouseLeftButtonUp += (_, _) =>
-                        {
-                            _ytWebView?.CoreWebView2?.Navigate(frontendUrl);
-                            if (_genericBrowserWidgetsPopup != null)
-                                _genericBrowserWidgetsPopup.IsOpen = false;
-                        };
-                    }
-                    stack.Children.Add(item);
-                }
+                    stack.Children.Add(BuildGenericBrowserExtensionItem(ext));
             }
 
             _genericBrowserWidgetsPanel.Child = new ScrollViewer
@@ -738,21 +775,323 @@ namespace Doorpi
                 Content = stack,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto
             };
-            _genericBrowserWidgetsPanel.Visibility = Visibility.Visible;
-            _genericBrowserWidgetsPopup.IsOpen = true;
+        }
+
+        private FrameworkElement BuildGenericBrowserExtensionHeader(string title, string subtitle)
+        {
+            var header = new StackPanel
+            {
+                Orientation = Orientation.Vertical,
+                Margin = new Thickness(0, 0, 0, 14)
+            };
+            header.Children.Add(new TextBlock
+            {
+                Text = title,
+                Foreground = Brushes.White,
+                FontSize = 20,
+                FontWeight = FontWeights.SemiBold,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+            header.Children.Add(new TextBlock
+            {
+                Text = subtitle,
+                Foreground = new SolidColorBrush(Color.FromArgb(132, 255, 255, 255)),
+                FontSize = 12.5,
+                Margin = new Thickness(0, 2, 0, 0),
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+            return header;
+        }
+
+        private FrameworkElement BuildGenericBrowserExtensionItem(BrowserExtensionModel ext)
+        {
+            string name = string.IsNullOrWhiteSpace(ext.Name) ? ext.Id : ext.Name;
+            string version = GetExtensionVersion(ext);
+            string frontendUrl = ResolveExtensionFrontendUrl(ext);
+            bool hasPanel = !string.IsNullOrWhiteSpace(frontendUrl);
+            bool hasUpdate = _latestUpdatesCache.TryGetValue(ext.Id, out string? updateVersion) &&
+                             !string.IsNullOrWhiteSpace(updateVersion);
+
+            var item = new Border
+            {
+                Margin = new Thickness(0, 0, 0, 9),
+                Padding = new Thickness(12),
+                CornerRadius = new CornerRadius(8),
+                Background = new SolidColorBrush(Color.FromArgb(22, 255, 255, 255)),
+                BorderBrush = hasUpdate
+                    ? new SolidColorBrush(Color.FromArgb(70, 255, 190, 90))
+                    : new SolidColorBrush(Color.FromArgb(26, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                Cursor = hasPanel ? Cursors.Hand : Cursors.Arrow,
+                ToolTip = hasPanel ? "Abrir painel da extensão" : "Esta extensão não informou um painel."
+            };
+
+            var row = new Grid();
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var icon = BuildGenericBrowserExtensionIcon(ext, 42);
+            icon.Margin = new Thickness(0, 0, 12, 0);
+            Grid.SetColumn(icon, 0);
+            row.Children.Add(icon);
+
+            var text = new StackPanel { Orientation = Orientation.Vertical, VerticalAlignment = VerticalAlignment.Center };
+            text.Children.Add(new TextBlock
+            {
+                Text = name,
+                Foreground = Brushes.White,
+                FontSize = 14.5,
+                FontWeight = FontWeights.SemiBold,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+
+            string meta = string.IsNullOrWhiteSpace(version) ? "Versão desconhecida" : $"v{version}";
+            if (!hasPanel) meta += " - sem painel";
+            text.Children.Add(new TextBlock
+            {
+                Text = meta,
+                Foreground = new SolidColorBrush(Color.FromArgb(145, 255, 255, 255)),
+                FontSize = 12,
+                Margin = new Thickness(0, 2, 0, 0),
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+            if (hasUpdate)
+            {
+                text.Children.Add(new TextBlock
+                {
+                    Text = $"Atualização disponível: v{updateVersion}",
+                    Foreground = new SolidColorBrush(Color.FromRgb(255, 198, 92)),
+                    FontSize = 12,
+                    FontWeight = FontWeights.SemiBold,
+                    Margin = new Thickness(0, 4, 0, 0),
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                });
+            }
+            Grid.SetColumn(text, 1);
+            row.Children.Add(text);
+
+            var chevron = new TextBlock
+            {
+                Text = hasPanel ? "›" : "",
+                Foreground = new SolidColorBrush(Color.FromArgb(150, 255, 255, 255)),
+                FontSize = 24,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(10, 0, 0, 0)
+            };
+            Grid.SetColumn(chevron, 2);
+            row.Children.Add(chevron);
+
+            item.Child = row;
+            if (hasPanel)
+                item.MouseLeftButtonUp += (_, _) => OpenGenericBrowserExtensionPanel(ext, frontendUrl);
+
+            return item;
+        }
+
+        private FrameworkElement BuildGenericBrowserExtensionIcon(BrowserExtensionModel ext, double size)
+        {
+            string iconPath = ResolveExtensionIconPath(ext);
+            if (!string.IsNullOrWhiteSpace(iconPath) && File.Exists(iconPath))
+            {
+                try
+                {
+                    return new Border
+                    {
+                        Width = size,
+                        Height = size,
+                        CornerRadius = new CornerRadius(10),
+                        Background = new SolidColorBrush(Color.FromArgb(24, 255, 255, 255)),
+                        Child = new Image
+                        {
+                            Source = new System.Windows.Media.Imaging.BitmapImage(new Uri(iconPath, UriKind.Absolute)),
+                            Stretch = Stretch.Uniform,
+                            Margin = new Thickness(5)
+                        }
+                    };
+                }
+                catch { }
+            }
+
+            return new Border
+            {
+                Width = size,
+                Height = size,
+                CornerRadius = new CornerRadius(10),
+                Background = new SolidColorBrush(Color.FromArgb(36, 255, 255, 255)),
+                Child = CreateExtensionPuzzleIcon(size * 0.58, new SolidColorBrush(Color.FromArgb(220, 255, 255, 255)))
+            };
+        }
+
+        private async void OpenGenericBrowserExtensionPanel(BrowserExtensionModel ext, string frontendUrl)
+        {
+            if (_genericBrowserWidgetsPanel == null || _ytWebView?.CoreWebView2 == null) return;
+
+            string name = string.IsNullOrWhiteSpace(ext.Name) ? ext.Id : ext.Name;
+            string version = GetExtensionVersion(ext);
+            bool hasUpdate = _latestUpdatesCache.TryGetValue(ext.Id, out string? updateVersion) &&
+                             !string.IsNullOrWhiteSpace(updateVersion);
+
+            var root = new Grid();
+            try { _genericBrowserExtensionPopupView?.Dispose(); } catch { }
+            _genericBrowserExtensionPopupView = null;
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+            var header = new Border
+            {
+                Margin = new Thickness(0, 0, 0, 12),
+                Padding = new Thickness(0, 0, 0, 12),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(28, 255, 255, 255)),
+                BorderThickness = new Thickness(0, 0, 0, 1)
+            };
+            var headerGrid = new Grid();
+            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var back = new Button
+            {
+                Content = "‹ Extensões",
+                Height = 38,
+                Padding = new Thickness(12, 0, 12, 0),
+                Margin = new Thickness(0, 0, 12, 0),
+                Style = CreateBrowserToolbarButtonStyle(),
+                Cursor = Cursors.Hand
+            };
+            back.Click += (_, _) => RenderGenericBrowserExtensionList();
+            Grid.SetColumn(back, 0);
+            headerGrid.Children.Add(back);
+
+            var icon = BuildGenericBrowserExtensionIcon(ext, 42);
+            icon.Margin = new Thickness(0, 0, 10, 0);
+            Grid.SetColumn(icon, 1);
+            headerGrid.Children.Add(icon);
+
+            var title = new StackPanel { Orientation = Orientation.Vertical, VerticalAlignment = VerticalAlignment.Center };
+            title.Children.Add(new TextBlock
+            {
+                Text = name,
+                Foreground = Brushes.White,
+                FontSize = 14.5,
+                FontWeight = FontWeights.SemiBold,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+            title.Children.Add(new TextBlock
+            {
+                Text = hasUpdate
+                    ? $"v{version} - atualização disponível: v{updateVersion}"
+                    : (string.IsNullOrWhiteSpace(version) ? "Versão desconhecida" : $"v{version}"),
+                Foreground = hasUpdate
+                    ? new SolidColorBrush(Color.FromRgb(255, 198, 92))
+                    : new SolidColorBrush(Color.FromArgb(145, 255, 255, 255)),
+                FontSize = 12,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+            Grid.SetColumn(title, 2);
+            headerGrid.Children.Add(title);
+            header.Child = headerGrid;
+            Grid.SetRow(header, 0);
+            root.Children.Add(header);
+
+            var popupView = new WebView2
+            {
+                Height = 500,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch
+            };
+            _genericBrowserExtensionPopupView = popupView;
+            Grid.SetRow(popupView, 1);
+            root.Children.Add(popupView);
+            _genericBrowserWidgetsPanel.Child = root;
+
+            try
+            {
+                if (_genericBrowserEnvironment != null)
+                    await popupView.EnsureCoreWebView2Async(_genericBrowserEnvironment);
+                else
+                    await popupView.EnsureCoreWebView2Async();
+
+                popupView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
+                popupView.CoreWebView2.Settings.IsStatusBarEnabled = false;
+                popupView.CoreWebView2.Settings.IsZoomControlEnabled = false;
+                popupView.CoreWebView2.Navigate(frontendUrl);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[DoorpiBrowser] Falha ao abrir painel da extensão: " + ex.Message);
+            }
+        }
+
+        private static string ResolveExtensionManifestPath(BrowserExtensionModel ext)
+        {
+            try
+            {
+                string manifestPath = Path.Combine(ext.InstalledPath, "manifest.json");
+                if (File.Exists(manifestPath)) return manifestPath;
+
+                var versionFolder = Directory.GetDirectories(ext.InstalledPath)
+                    .FirstOrDefault(d => File.Exists(Path.Combine(d, "manifest.json")));
+                return versionFolder == null ? "" : Path.Combine(versionFolder, "manifest.json");
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
+        private static string ResolveExtensionIconPath(BrowserExtensionModel ext)
+        {
+            try
+            {
+                string manifestPath = ResolveExtensionManifestPath(ext);
+                if (string.IsNullOrWhiteSpace(manifestPath) || !File.Exists(manifestPath)) return "";
+
+                var manifest = JsonNode.Parse(File.ReadAllText(manifestPath));
+                var iconNode =
+                    manifest?["action"]?["default_icon"] ??
+                    manifest?["browser_action"]?["default_icon"] ??
+                    manifest?["icons"];
+                string icon = PickBestExtensionIcon(iconNode);
+
+                if (string.IsNullOrWhiteSpace(icon))
+                    icon = PickBestExtensionIcon(manifest?["icons"]);
+
+                icon = icon.Trim().TrimStart('/');
+                if (string.IsNullOrWhiteSpace(icon) || icon.StartsWith("__MSG_", StringComparison.OrdinalIgnoreCase))
+                    return "";
+
+                string path = Path.Combine(Path.GetDirectoryName(manifestPath) ?? ext.InstalledPath, icon.Replace('/', Path.DirectorySeparatorChar));
+                return File.Exists(path) ? path : "";
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
+        private static string PickBestExtensionIcon(JsonNode? node)
+        {
+            if (node == null) return "";
+            if (node is JsonValue value) return value.ToString();
+            if (node is not JsonObject obj) return "";
+
+            return obj
+                .Select(kvp =>
+                {
+                    int size = int.TryParse(kvp.Key, out int parsed) ? parsed : 0;
+                    return new { Size = size, Path = kvp.Value?.ToString() ?? "" };
+                })
+                .Where(item => !string.IsNullOrWhiteSpace(item.Path))
+                .OrderByDescending(item => item.Size)
+                .FirstOrDefault()?.Path ?? "";
         }
 
         private static string ResolveExtensionFrontendUrl(BrowserExtensionModel ext)
         {
             try
             {
-                string manifestPath = Path.Combine(ext.InstalledPath, "manifest.json");
-                if (!File.Exists(manifestPath))
-                {
-                    var versionFolder = Directory.GetDirectories(ext.InstalledPath)
-                        .FirstOrDefault(d => File.Exists(Path.Combine(d, "manifest.json")));
-                    if (versionFolder != null) manifestPath = Path.Combine(versionFolder, "manifest.json");
-                }
+                string manifestPath = ResolveExtensionManifestPath(ext);
 
                 if (!File.Exists(manifestPath))
                     return "";
@@ -805,6 +1144,67 @@ namespace Doorpi
             {
                 Debug.WriteLine("[DoorpiBrowser] Falha ao preparar download: " + ex.Message);
             }
+        }
+
+        private static bool IsCapturableWebUrl(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return false;
+            value = value.Trim();
+            return Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
+                   (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+        }
+
+        private void BeginGenericBrowserWebAppUrlCapture()
+        {
+            _genericBrowserCaptureWebAppUrl = true;
+            try { _genericBrowserCaptureInitialClipboard = Clipboard.ContainsText() ? Clipboard.GetText().Trim() : ""; }
+            catch { _genericBrowserCaptureInitialClipboard = ""; }
+
+            _genericBrowserCaptureClipboardTimer?.Stop();
+            _genericBrowserCaptureClipboardTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(450)
+            };
+            _genericBrowserCaptureClipboardTimer.Tick += (_, _) =>
+            {
+                if (!_genericBrowserCaptureWebAppUrl) return;
+                string text = "";
+                try { text = Clipboard.ContainsText() ? Clipboard.GetText().Trim() : ""; }
+                catch { return; }
+                if (string.IsNullOrWhiteSpace(text) ||
+                    string.Equals(text, _genericBrowserCaptureInitialClipboard, StringComparison.Ordinal))
+                    return;
+                TryCompleteGenericBrowserWebAppUrlCapture(text);
+            };
+            _genericBrowserCaptureClipboardTimer.Start();
+        }
+
+        private void StopGenericBrowserWebAppUrlCapture()
+        {
+            _genericBrowserCaptureWebAppUrl = false;
+            _genericBrowserCaptureInitialClipboard = "";
+            try { _genericBrowserCaptureClipboardTimer?.Stop(); } catch { }
+            _genericBrowserCaptureClipboardTimer = null;
+        }
+
+        private bool TryCompleteGenericBrowserWebAppUrlCapture(string url)
+        {
+            if (!_genericBrowserCaptureWebAppUrl || !IsCapturableWebUrl(url)) return false;
+            StopGenericBrowserWebAppUrlCapture();
+
+            try
+            {
+                webView.CoreWebView2?.PostWebMessageAsString(
+                    System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        type = "webAppBrowserUrlCaptured",
+                        url = url.Trim()
+                    }));
+            }
+            catch { }
+
+            Dispatcher.InvokeAsync(() => CloseYouTubeInline(skipStoreCompletion: true));
+            return true;
         }
 
         // ── Controller thread ─────────────────────────────────────────────────
@@ -963,15 +1363,20 @@ namespace Doorpi
 
                         Dispatcher.Invoke(() =>
                         {
+                            if (_genericBrowserKeyboardTarget != GenericBrowserKeyboardTarget.None)
+                                CloseGenericBrowserKeyboard(_genericBrowserKeyboardTarget == GenericBrowserKeyboardTarget.WebInput);
+
+                            if (_isGenericBrowserMode && _genericBrowserCaptureWebAppUrl)
+                            {
+                                CloseYouTubeInline(skipStoreCompletion: true);
+                                return;
+                            }
+
                             if (_isStoreLauncherSession)
                             {
                                 MinimizeStoreSessionAndShowMenu();
                                 return;
                             }
-
-                            _vkbIsOpen = false;
-                            _vkbOwnerView = null;
-                            _vkbHasFocus = false;
 
                             try { _popupWindow?.Close(); } catch { }
                             _popupWindow = null;
@@ -1147,6 +1552,8 @@ namespace Doorpi
                                 SendVkbCommand("window.__doorpiVkbConfirm?.()");
                             else
                             {
+                                if (_isGenericBrowserMode) MarkGenericBrowserControllerInputIntent();
+                                SendVkbCommand("window.__doorpiVkbControllerIntentAt=Date.now()");
                                 mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
                                 mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
                             }
@@ -1184,6 +1591,8 @@ namespace Doorpi
                         {
                             if (Pressed(XI_A))
                             {
+                                if (_isGenericBrowserMode) MarkGenericBrowserControllerInputIntent();
+                                SendVkbCommand("window.__doorpiVkbControllerIntentAt=Date.now()");
                                 mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
                                 mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
                             }
@@ -1815,6 +2224,9 @@ namespace Doorpi
         const path = e.composedPath?.() || [];
         return path.some(item => item?.classList?.contains?.(className));
     }}
+    function _doorpiVkbOpenedByController() {{
+        return Date.now() - (window.__doorpiVkbControllerIntentAt || 0) < 520;
+    }}
 
     if (__doorpiUseNativeKeyboard) {{
         let _nativeVkbInputEl = null;
@@ -1995,12 +2407,31 @@ namespace Doorpi
             if (Date.now() < _nativeVkbSuppressUntil) return;
             const el = inputFromEvent(e) || deepActiveElement();
             if (!isInput(el)) return;
+            if (!_doorpiVkbOpenedByController()) {{
+                setTimeout(() => {{
+                    if (Date.now() >= _nativeVkbSuppressUntil &&
+                        _doorpiVkbOpenedByController() &&
+                        deepActiveElement() === el &&
+                        !window._vkbIsOpen)
+                        _nativeVkbPostOpen(el);
+                }}, 80);
+                return;
+            }}
             setTimeout(() => {{ if (deepActiveElement() === el) _nativeVkbPostOpen(el); }}, 30);
         }}, true);
 
         document.addEventListener('mousedown', e => {{
             if (Date.now() < _nativeVkbSuppressUntil) return;
             const el = inputFromEvent(e);
+            if (!_doorpiVkbOpenedByController()) {{
+                if (el) setTimeout(() => {{
+                    if (Date.now() >= _nativeVkbSuppressUntil &&
+                        _doorpiVkbOpenedByController() &&
+                        !window._vkbIsOpen)
+                        _nativeVkbPostOpen(el);
+                }}, 80);
+                return;
+            }}
             if (el) setTimeout(() => _nativeVkbPostOpen(el), 30);
         }}, true);
 
@@ -2247,10 +2678,10 @@ namespace Doorpi
             if (next >= 0 && next < order.length) _vkbSetFocus(order[next]);
             return;
         }}
-        if (dir === 'UP')    rIdx = Math.max(0, rIdx - 1);
-        if (dir === 'DOWN')  rIdx = Math.min(rows.length - 1, rIdx + 1);
-        if (dir === 'LEFT')  cIdx = Math.max(0, cIdx - 1);
-        if (dir === 'RIGHT') cIdx = Math.min(rows[rIdx].length - 1, cIdx + 1);
+        if (dir === 'UP')    rIdx = (rIdx - 1 + rows.length) % rows.length;
+        if (dir === 'DOWN')  rIdx = (rIdx + 1) % rows.length;
+        if (dir === 'LEFT')  cIdx = (cIdx - 1 + rows[rIdx].length) % rows[rIdx].length;
+        if (dir === 'RIGHT') cIdx = (cIdx + 1) % rows[rIdx].length;
         cIdx = Math.min(cIdx, rows[rIdx].length - 1);
         _vkbSetFocus(rows[rIdx][cIdx]);
     }}
@@ -2324,8 +2755,8 @@ namespace Doorpi
         }}
         if (key === 'BKSP') {{ if (_vkbPendingAccent) _vkbPendingAccent = null; else _vkbDeleteChar(); }}
         else if (key === 'SHIFT') _vkbSetShift(!_vkbShifted);
-        else if (key === 'SYM') {{ flushAccent(); _vkbRenderKeys('special'); _vkbSetFocus('!'); return; }}
-        else if (key === 'ABC') {{ flushAccent(); _vkbRenderKeys('text'); _vkbSetShift(_vkbShifted); _vkbSetFocus('q'); return; }}
+        else if (key === 'SYM') {{ _vkbRenderKeys('special'); _vkbSetFocus('!'); _vkbRenderPreview(); return; }}
+        else if (key === 'ABC') {{ _vkbRenderKeys('text'); _vkbSetShift(_vkbShifted); _vkbSetFocus('q'); _vkbRenderPreview(); return; }}
         else if (key === 'CURSOR_LEFT') {{ flushAccent(); _vkbMoveCursorInField(-1); return; }}
         else if (key === 'CURSOR_RIGHT') {{ flushAccent(); _vkbMoveCursorInField(1); return; }}
         else if (key === 'SPACE') {{ if (_vkbPendingAccent) flushAccent(); else _vkbInsert(' '); }}
@@ -2445,6 +2876,13 @@ namespace Doorpi
         if (_vkbClosing) return;
         const el = inputFromEvent(e) || deepActiveElement();
         if (!isInput(el)) return;
+        if (!_doorpiVkbOpenedByController()) {{
+            setTimeout(() => {{
+                if (!_vkbClosing && _doorpiVkbOpenedByController() && deepActiveElement() === el && !window._vkbIsOpen)
+                    _vkbOpen(el);
+            }}, 80);
+            return;
+        }}
         if (!window._vkbIsOpen) {{
             setTimeout(() => {{ if (!_vkbClosing && deepActiveElement() === el) _vkbOpen(el); }}, 50);
         }} else if (el !== _vkbInputEl) {{
@@ -2455,6 +2893,7 @@ namespace Doorpi
 
     document.addEventListener('mousedown', e => {{
         if (eventPathHasClass(e, 'doorpi-vkb-overlay')) {{ e.preventDefault(); return; }}
+        if (!_doorpiVkbOpenedByController()) return;
         const el = inputFromEvent(e);
         if (el && !window._vkbIsOpen && !_vkbClosing) _vkbOpen(el);
     }}, true);
@@ -2588,6 +3027,8 @@ namespace Doorpi
 
 
             var env = await CoreWebView2Environment.CreateAsync(null, userDataPath, options);
+            if (isGenericBrowser)
+                _genericBrowserEnvironment = env;
             await _ytWebView.EnsureCoreWebView2Async(env);
 
             _ytWebView.CoreWebView2.Profile.PreferredTrackingPreventionLevel = CoreWebView2TrackingPreventionLevel.Balanced;
@@ -2798,6 +3239,7 @@ namespace Doorpi
                 !skipStoreCompletion &&
                 _isStoreLauncherSession &&
                 string.Equals(_storeSessionKind, "web", StringComparison.OrdinalIgnoreCase);
+            bool shouldReturnToWebAppForm = _isGenericBrowserMode && _genericBrowserCaptureWebAppUrl;
 
             StopMediaControllerMode();
             _vkbIsOpen = false;
@@ -2856,12 +3298,25 @@ namespace Doorpi
             _genericBrowserForwardButton = null;
             _genericBrowserWidgetsPanel = null;
             _genericBrowserWidgetsPopup = null;
+            try { _genericBrowserExtensionPopupView?.Dispose(); } catch { }
+            _genericBrowserExtensionPopupView = null;
+            _genericBrowserEnvironment = null;
             _isGenericBrowserMode = false;
+            StopGenericBrowserWebAppUrlCapture();
             ClearWebAppSession();
 
             webView.Visibility = Visibility.Visible;
             this.WindowState = WindowState.Maximized;
             ForceFocus();
+            if (shouldReturnToWebAppForm)
+            {
+                try
+                {
+                    webView.CoreWebView2?.PostWebMessageAsString(
+                        "{\"type\":\"webAppBrowserCaptureCanceled\"}");
+                }
+                catch { }
+            }
             webView.CoreWebView2?.PostWebMessageAsString("{\"type\":\"mediaAppClosed\"}");
             SendRuntimeSessionsToUI();
 

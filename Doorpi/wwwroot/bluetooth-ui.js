@@ -228,8 +228,9 @@
             });
         });
         const pinInput = root.querySelector('[data-bt-pin]');
-        pinInput?.addEventListener('click', () => {
+        pinInput?.addEventListener('click', event => {
             pinInput.removeAttribute('readonly');
+            if (!window._doorpiShouldOpenVkbFromEvent?.(event)) return;
             window._vkbOpen?.(pinInput, {
                 onOk: () => pinInput.setAttribute('readonly', ''),
                 onCancel: () => pinInput.setAttribute('readonly', '')

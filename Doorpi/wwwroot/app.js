@@ -3336,6 +3336,28 @@
                     }
                 }
             }
+            else if (data.type === 'webAppBrowserUrlCaptured') {
+                const url = (data.url || '').trim();
+                if (url) {
+                    window._suppressNextMediaAppClosedFocus = true;
+                    const input = document.getElementById('webAppUrlInput');
+                    if (input) {
+                        input.value = url;
+                        input.dispatchEvent(new Event('input', { bubbles: true }));
+                        setTimeout(() => document.getElementById('btnAddWebApp')?.focus(), 120);
+                    }
+                }
+            }
+            else if (data.type === 'webAppBrowserCaptureCanceled') {
+                window._suppressNextMediaAppClosedFocus = true;
+                setTimeout(() => {
+                    const target =
+                        document.getElementById('btnWebAppBrowser') ||
+                        document.getElementById('webAppUrlInput') ||
+                        document.getElementById('btnAddWebApp');
+                    target?.focus?.();
+                }, 180);
+            }
             else if (data.type === 'gameLaunching') {
                 window._isExternalAppRunning = true;
                 window._stopSystemAudio();
@@ -4123,7 +4145,8 @@
             onOk: submit,
             onCancel: cancel
         };
-        const openPinKeyboard = () => {
+        const openPinKeyboard = (event) => {
+            if (event && !window._doorpiShouldOpenVkbFromEvent?.(event)) return;
             if (prompt.dataset.submitting === 'true') return;
             input.focus();
             input._doorpiVkbReturnFocus = dotsBtn;
@@ -5595,6 +5618,7 @@
         if (window._vkbIsOpen) return;
         if (input.closest('.doorpi-manager-overlay, .doorpi-user-overlay, .edit-modal-overlay, #addGameContainer, #setupContainer, .nav-profile-dashboard')) {
             input.removeAttribute('readonly');
+            if (!window._doorpiShouldOpenVkbFromEvent?.(e)) return;
             window._vkbOpen?.(input);
         }
     }, true);
@@ -8004,6 +8028,10 @@ function renderFolderList(folders) {
     // ══════════════════════════════════════════════════════════════════════════
 
     window._vkbIsOpen = false;
+    window._doorpiShouldOpenVkbFromEvent = (event) => {
+        if (!event) return true;
+        return Number(event.detail || 0) === 0;
+    };
 
     const VKB = (() => {
         const ALPHA_ROWS = [
@@ -8256,8 +8284,8 @@ function renderFolderList(folders) {
 
             if (key === 'BKSP') _deleteText();
             else if (key === 'SHIFT') { _setShiftVisual(!_shifted); return; }
-            else if (key === 'SYM') { _flushPendingAccent(); _renderKeys('special', '!'); return; }
-            else if (key === 'ABC') { _flushPendingAccent(); _renderKeys('text', 'q'); return; }
+            else if (key === 'SYM') { _renderKeys('special', '!'); _renderPreview(); return; }
+            else if (key === 'ABC') { _renderKeys('text', 'q'); _renderPreview(); return; }
             else if (key === 'CURSOR_LEFT') { _flushPendingAccent(); _moveCursor(-1); return; }
             else if (key === 'CURSOR_RIGHT') { _flushPendingAccent(); _moveCursor(1); return; }
             else if (key === 'SPACE') {
@@ -8456,7 +8484,8 @@ function renderFolderList(folders) {
         return el && el.classList.contains('vkb-key');
     };
 
-    const _tryOpenNumericVkb = (target) => {
+    const _tryOpenNumericVkb = (target, event = null) => {
+        if (event && !window._doorpiShouldOpenVkbFromEvent?.(event)) return;
         const input = target?.closest?.('input');
         if (!input || !window._vkbIsNumericInput?.(input)) return;
         if (input.closest?.('.vkb-overlay')) return;
@@ -8464,7 +8493,7 @@ function renderFolderList(folders) {
         input.removeAttribute('readonly');
         window._vkbOpen?.(input, { mode: 'numeric' });
     };
-    document.addEventListener('click', (e) => _tryOpenNumericVkb(e.target), true);
+    document.addEventListener('click', (e) => _tryOpenNumericVkb(e.target, e), true);
 
     function _esc(str) {
         return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -8954,6 +8983,16 @@ function renderFolderList(folders) {
             });
         }
 
+        const btnBrowser = document.getElementById('btnWebAppBrowser');
+        if (btnBrowser) {
+            const freshBtn = btnBrowser.cloneNode(true);
+            btnBrowser.replaceWith(freshBtn);
+
+            freshBtn.addEventListener('click', () => {
+                postToHost({ action: 'openWebAppBrowserCapture' });
+            });
+        }
+
         ['webAppNameInput', 'webAppUrlInput'].forEach(id => {
             const input = document.getElementById(id);
             if (!input) return;
@@ -8966,7 +9005,10 @@ function renderFolderList(folders) {
 
             fresh.addEventListener('focus', () => { if (!window._vkbIsOpen) fresh.style.caretColor = ''; });
             fresh.addEventListener('blur', () => { if (!window._vkbIsOpen) fresh.style.caretColor = 'transparent'; });
-            fresh.addEventListener('click', () => { if (!window._vkbIsOpen) window._vkbOpen?.(fresh); });
+            fresh.addEventListener('click', (event) => {
+                if (!window._doorpiShouldOpenVkbFromEvent?.(event)) return;
+                if (!window._vkbIsOpen) window._vkbOpen?.(fresh);
+            });
 
             fresh.addEventListener('keydown', e => {
                 if (e.key === 'Enter') {

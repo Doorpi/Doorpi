@@ -11625,6 +11625,14 @@ namespace Doorpi
                     _ = Dispatcher.InvokeAsync(async () =>
                         await OpenWebViewInlineAsync(cwsUrl, false));
                 }
+                else if (action == "openWebAppBrowserCapture")
+                {
+                    _ = Dispatcher.InvokeAsync(async () =>
+                    {
+                        BeginGenericBrowserWebAppUrlCapture();
+                        await OpenWebViewInlineAsync(DoorpiBrowserHomeUrl, false, "Browser", "", "", true);
+                    });
+                }
                 else if (action == "updateAppSharing")
                 {
                     string appId = GetStr(root, "appId");

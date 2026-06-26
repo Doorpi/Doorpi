@@ -2557,13 +2557,15 @@ body {
 
 .web-app-form {
     display: grid;
-    grid-template-columns: minmax(220px, 0.9fr) minmax(320px, 1.25fr);
-    gap: clamp(12px, 1.2vw, 20px);
-    padding: clamp(18px, 2vw, 30px);
+    grid-template-columns: minmax(0, 1fr);
+    gap: clamp(10px, 1vw, 16px);
+    width: min(100%, 920px);
+    padding: clamp(16px, 1.6vw, 24px);
     margin-top: clamp(12px, 1.2vw, 20px);
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 8px;
     background:
+        radial-gradient(circle at 92% 10%, rgba(100, 160, 255, 0.12), transparent 34%),
         linear-gradient(135deg, rgba(255,255,255,0.085), rgba(255,255,255,0.035)),
         rgba(8, 8, 20, 0.42);
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
@@ -2588,9 +2590,9 @@ body {
     background: rgba(255, 255, 255, 0.085);
     border: 1px solid rgba(255, 255, 255, 0.16);
     border-radius: 8px;
-    padding: clamp(13px, 1.3vw, 18px) clamp(15px, 1.5vw, 20px);
+    padding: clamp(10px, 1vw, 14px) clamp(13px, 1.2vw, 18px);
     color: #fff;
-    font-size: clamp(0.9rem, 1vw, 1.2rem);
+    font-size: clamp(0.86rem, 0.9vw, 1.05rem);
     font-family: 'Outfit', sans-serif;
     outline: none;
     box-sizing: border-box;
@@ -2624,7 +2626,7 @@ body {
 
 #subview-web .setup-api-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     gap: 10px;
 }
 
@@ -2633,9 +2635,43 @@ body {
     border-radius: 8px;
 }
 
+#subview-web .setup-input {
+    min-height: 0;
+    height: auto;
+    padding: clamp(10px, 1vw, 14px) clamp(13px, 1.2vw, 18px);
+    font-size: clamp(0.86rem, 0.9vw, 1.05rem);
+}
+
 #subview-web .setup-icon-btn {
     min-width: 104px;
+    min-height: 0;
+    padding: 0 clamp(12px, 1vw, 16px);
+    gap: 8px;
     justify-content: center;
+    text-transform: uppercase;
+}
+
+#btnWebAppBrowser {
+    min-width: 132px;
+}
+
+.web-app-action-icon {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    opacity: 0.92;
+}
+
+.web-app-browser-action-icon {
+    width: 22px;
+    height: 22px;
+    stroke-width: 1.9;
+    opacity: 0.96;
 }
 
 #subview-web .setup-input:focus,

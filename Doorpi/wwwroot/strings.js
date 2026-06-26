@@ -526,7 +526,8 @@ const STRINGS = {
         webAppUrlLabel: 'Link',
         subtabWeb: 'Aplicativos Web',
         subtabExe: 'Aplicativo do sistema',
-        pasteAppLink: 'Colar Link',
+        pasteAppLink: 'Colar',
+        browseDoorpi: 'Browser',
         webAppErrorName: 'Insira o nome do aplicativo',
         webAppErrorUrl: 'Insira a URL do aplicativo web.',
 
@@ -1120,7 +1121,8 @@ const STRINGS = {
         webAppUrlLabel: 'Link',
         subtabWeb: 'Web App',
         subtabExe: 'System Apps',
-        pasteAppLink: 'Paste URL',
+        pasteAppLink: 'Paste',
+        browseDoorpi: 'Browser',
         webAppErrorName: 'Invalid Name',
         webAppErrorUrl: 'Insert a valid URL.',
 
