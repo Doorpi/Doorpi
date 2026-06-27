@@ -45,6 +45,7 @@ namespace Doorpi
         private const uint MOUSEEVENTF_MOVE = 0x0001;
         private const uint MOUSEEVENTF_XDOWN = 0x0080;
         private const uint MOUSEEVENTF_XUP = 0x0100;
+        private const uint XBUTTON2 = 0x0002;
         private const uint XBUTTON1 = 0x0001; // Simula o botão "Voltar" (Mouse Button 4)
 
         // ── Constantes botões XInput ──────────────────────────────────────────
@@ -55,6 +56,7 @@ namespace Doorpi
         private const ushort XI_START = 0x0010;
         private const ushort XI_BACK = 0x0020;
         private const ushort XI_L3 = 0x0040;
+        private const ushort XI_R3 = 0x0080;
         private const ushort XI_L1 = 0x0100;
         private const ushort XI_R1 = 0x0200;
         private const ushort XI_GUIDE = 0x0400;  // só via XInputGetStateEx
@@ -102,6 +104,10 @@ namespace Doorpi
         private bool _webAppLoadingActive;
         private bool _webAppLoadingReleaseStarted;
         private DateTime _webAppLoadingStartedAtUtc = DateTime.MinValue;
+        private Grid? _webAppCloseHoldOverlay;
+        private ShapePath? _webAppCloseHoldProgressArc;
+        private Popup? _webAppCloseHoldPopup;
+        private FrameworkElement? _webAppCloseHoldPlacementTarget;
         private TextBlock? _genericBrowserAddressPlaceholder;
         private GenericBrowserKeyboardTarget _genericBrowserKeyboardTarget = GenericBrowserKeyboardTarget.None;
         private readonly GenericBrowserTabState _genericBrowserActiveTab = new()
@@ -2023,8 +2029,19 @@ namespace Doorpi
             // Repetição de backspace (botão X)
             bool xWasHeld = false;
             bool ltWasHeld = false;
+            bool leftMouseDown = false;
+            bool bHoldActive = false;
+            bool bCloseFired = false;
+            long bHoldStartMs = 0;
+            ushort webNavLastDir = 0;
+            long webNavDirStartMs = 0;
+            long webNavDirLastRepeat = 0;
             long xHoldStartMs = 0;
             long xLastRepeat = 0;
+            const int WEB_NAV_INITIAL_MS = 330;
+            const int WEB_NAV_REPEAT_MS = 82;
+            const int WEB_CLOSE_HOLD_MS = 1450;
+            const int WEB_CLOSE_INDICATOR_MS = 220;
             var nativeVkbHoldActive = new Dictionary<VkbHoldAction, bool>
             {
                 { VkbHoldAction.MoveUp, false },
@@ -2063,6 +2080,11 @@ namespace Doorpi
                     // Isso evita input duplicado ao alternar WebApp -> Jogo.
                     if (!IsForegroundOwnedByProcess(Environment.ProcessId))
                     {
+                        if (leftMouseDown)
+                        {
+                            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+                            leftMouseDown = false;
+                        }
                         prevButtons = btn;
                         Thread.Sleep(25);
                         continue;
@@ -2070,6 +2092,7 @@ namespace Doorpi
 
                     bool Pressed(ushort m) => (btn & m) != 0 && (prevButtons & m) == 0;
                     bool Held(ushort m) => (btn & m) != 0;
+                    bool Released(ushort m) => (btn & m) == 0 && (prevButtons & m) != 0;
 
                     // ════════════════════════════════════════════════════════
                     if (Held(XI_GUIDE))
@@ -2107,22 +2130,127 @@ namespace Doorpi
                         continue;
                     }
 
-                    // Define se deve usar o mouse físico C# (SEMPRE VERDADEIRO SE HOUVER UM POPUP ABERTO)
-                    if (_isGenericBrowserMode && Pressed(XI_B))
+                    bool useNativeMouse = !_isCurrentSiteYouTube || _popupWindow != null;
+
+                    if (!_vkbIsOpen)
                     {
-                        bool handled = false;
-                        Dispatcher.Invoke(() => handled = HandleGenericBrowserExtensionsBack());
-                        if (handled)
+                        if (Pressed(XI_B))
                         {
+                            bHoldActive = true;
+                            bCloseFired = false;
+                            bHoldStartMs = nowMs;
+                            HideWebAppCloseHoldOverlay();
+                        }
+
+                        if (bHoldActive && Held(XI_B))
+                        {
+                            double progress = Math.Clamp((nowMs - bHoldStartMs - WEB_CLOSE_INDICATOR_MS) /
+                                                         (double)(WEB_CLOSE_HOLD_MS - WEB_CLOSE_INDICATOR_MS), 0, 1);
+                            if (progress > 0)
+                                UpdateWebAppCloseHoldOverlay(progress);
+
+                            if (!bCloseFired && nowMs - bHoldStartMs >= WEB_CLOSE_HOLD_MS)
+                            {
+                                bCloseFired = true;
+                                if (leftMouseDown)
+                                {
+                                    mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+                                    leftMouseDown = false;
+                                }
+                                HideWebAppCloseHoldOverlay();
+                                Dispatcher.Invoke(() => CloseYouTubeInline());
+                                prevButtons = btn;
+                                Thread.Sleep(120);
+                                continue;
+                            }
+                        }
+
+                        if (bHoldActive && Released(XI_B))
+                        {
+                            bool wasClose = bCloseFired;
+                            bHoldActive = false;
+                            bCloseFired = false;
+                            HideWebAppCloseHoldOverlay();
+                            if (!wasClose)
+                            {
+                                bool handled = false;
+                                if (_isGenericBrowserMode)
+                                    Dispatcher.Invoke(() => handled = HandleGenericBrowserExtensionsBack());
+                                if (!handled)
+                                {
+                                    Dispatcher.Invoke(() =>
+                                    {
+                                        try
+                                        {
+                                            if (_ytWebView?.CoreWebView2?.CanGoBack == true)
+                                                _ytWebView.CoreWebView2.GoBack();
+                                        }
+                                        catch { }
+                                    });
+                                }
+                            }
                             prevButtons = btn;
-                            Thread.Sleep(80);
+                            Thread.Sleep(40);
                             continue;
                         }
                     }
 
-                    bool useNativeMouse = !_isCurrentSiteYouTube || _popupWindow != null;
-
                     // ════════════════════════════════════════════════════════
+                    if (!_vkbIsOpen)
+                    {
+                        if (Pressed(XI_R3))
+                            SendVirtualKey(0xAD);
+
+                        if (Pressed(XI_Y))
+                            SendVirtualKey(0x46);
+
+                        if (Pressed(XI_X))
+                        {
+                            mouse_event(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, UIntPtr.Zero);
+                            mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, UIntPtr.Zero);
+                        }
+
+                        if (Pressed(XI_L1))
+                        {
+                            mouse_event(MOUSEEVENTF_XDOWN, 0, 0, XBUTTON1, UIntPtr.Zero);
+                            mouse_event(MOUSEEVENTF_XUP, 0, 0, XBUTTON1, UIntPtr.Zero);
+                        }
+
+                        if (Pressed(XI_R1))
+                        {
+                            mouse_event(MOUSEEVENTF_XDOWN, 0, 0, XBUTTON2, UIntPtr.Zero);
+                            mouse_event(MOUSEEVENTF_XUP, 0, 0, XBUTTON2, UIntPtr.Zero);
+                        }
+
+                        ushort navDirBtn = 0;
+                        byte navVk = 0;
+                        if (Held(XI_DPAD_LEFT)) { navDirBtn = XI_DPAD_LEFT; navVk = 0x25; }
+                        else if (Held(XI_DPAD_UP)) { navDirBtn = XI_DPAD_UP; navVk = 0x26; }
+                        else if (Held(XI_DPAD_RIGHT)) { navDirBtn = XI_DPAD_RIGHT; navVk = 0x27; }
+                        else if (Held(XI_DPAD_DOWN)) { navDirBtn = XI_DPAD_DOWN; navVk = 0x28; }
+
+                        if (navDirBtn != 0)
+                        {
+                            if (navDirBtn != webNavLastDir)
+                            {
+                                webNavLastDir = navDirBtn;
+                                webNavDirStartMs = nowMs;
+                                webNavDirLastRepeat = nowMs;
+                                SendVirtualKey(navVk);
+                            }
+                            else if ((nowMs - webNavDirStartMs) > WEB_NAV_INITIAL_MS &&
+                                     (nowMs - webNavDirLastRepeat) > WEB_NAV_REPEAT_MS)
+                            {
+                                webNavDirLastRepeat = nowMs;
+                                SendVirtualKey(navVk);
+                            }
+                        }
+                        else
+                        {
+                            webNavLastDir = 0;
+                        }
+                    }
+
                     if (useNativeMouse && !_vkbIsOpen)
                     {
                         double lx = gp.sThumbLX / 32767.0;
@@ -2160,6 +2288,12 @@ namespace Doorpi
                     // ════════════════════════════════════════════════════════
                     if (_vkbIsOpen)
                     {
+                        if (leftMouseDown)
+                        {
+                            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+                            leftMouseDown = false;
+                        }
+
                         if (_isGenericBrowserMode && _desktopVkb != null)
                         {
                             double nativeAlx = gp.sThumbLX / 32767.0;
@@ -2322,9 +2456,13 @@ namespace Doorpi
                                 if (_isGenericBrowserMode) MarkGenericBrowserControllerInputIntent();
                                 else MarkCurrentWebViewControllerInputIntent();
                                 mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
-                                mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+                                leftMouseDown = true;
                             }
-                            if (Pressed(XI_B)) SendVirtualKey(0x1B);
+                            if (leftMouseDown && Released(XI_A))
+                            {
+                                mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+                                leftMouseDown = false;
+                            }
                         }
                     }
 
@@ -2333,6 +2471,10 @@ namespace Doorpi
 
                 Thread.Sleep(10);
             }
+
+            if (leftMouseDown)
+                mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+            HideWebAppCloseHoldOverlay();
         }
 
         private void SendVkbCommand(string script)
@@ -2835,23 +2977,7 @@ namespace Doorpi
 
         function ensureStoreCloseButton() {{
             let closeBtn = document.getElementById('doorpi-cws-close');
-            if (location.hostname !== 'chromewebstore.google.com') {{ closeBtn?.remove(); return; }}
-            if (closeBtn) return;
-            closeBtn = document.createElement('button');
-            closeBtn.id = 'doorpi-cws-close';
-            closeBtn.type = 'button';
-            closeBtn.setAttribute('aria-label', 'Fechar Chrome Web Store');
-            closeBtn.style.cssText = 'position:fixed;right:28px;bottom:24px;z-index:2147483646;' +
-                'display:flex;align-items:center;gap:9px;padding:9px 14px 9px 10px;border-radius:8px;' +
-                'border:1px solid rgba(255,255,255,.18);background:rgba(8,8,18,.82);color:#fff;' +
-                'font:600 13px Outfit,Segoe UI,sans-serif;backdrop-filter:blur(16px);cursor:pointer;';
-            const xboxB = document.createElement('span');
-            xboxB.textContent = 'B';
-            xboxB.style.cssText = 'display:grid;place-items:center;width:22px;height:22px;border-radius:50%;' +
-                'background:#d94747;color:#fff;font-size:12px;font-weight:800;';
-            closeBtn.append(xboxB, document.createTextNode('Fechar'));
-            closeBtn.addEventListener('click', () => window.chrome.webview.postMessage('close_app'));
-            document.body.appendChild(closeBtn);
+            closeBtn?.remove();
         }}
 
         function updateBtnContent(forceUpdate = false) {{
@@ -3719,11 +3845,179 @@ namespace Doorpi
             _webAppLoadingOverlay = BuildWebAppLoadingOverlay(appName, logoImg);
             Panel.SetZIndex(_webAppLoadingOverlay, 10);
             host.Children.Add(_webAppLoadingOverlay);
+            AttachWebAppCloseHoldOverlay(host);
             _webAppLoadingActive = true;
             _webAppLoadingReleaseStarted = false;
             _webAppLoadingStartedAtUtc = DateTime.UtcNow;
 
             return host;
+        }
+
+        private void AttachWebAppCloseHoldOverlay(Panel host)
+        {
+            try
+            {
+                if (_webAppCloseHoldPopup != null)
+                    _webAppCloseHoldPopup.IsOpen = false;
+            }
+            catch { }
+
+            _webAppCloseHoldPlacementTarget = host;
+            _webAppCloseHoldOverlay = BuildWebAppCloseHoldOverlay();
+            _webAppCloseHoldOverlay.Margin = new Thickness(0);
+            _webAppCloseHoldPopup = new Popup
+            {
+                PlacementTarget = host,
+                Placement = PlacementMode.Relative,
+                StaysOpen = true,
+                AllowsTransparency = true,
+                IsHitTestVisible = false,
+                Child = _webAppCloseHoldOverlay
+            };
+        }
+
+        private Grid BuildWebAppCloseHoldOverlay()
+        {
+            var root = new Grid
+            {
+                Width = 132,
+                Height = 132,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(0, 0, 0, 54),
+                Visibility = Visibility.Collapsed,
+                Opacity = 0,
+                IsHitTestVisible = false
+            };
+
+            var back = BuildProgressArcPath(108, 5, 1.0, new SolidColorBrush(Color.FromArgb(45, 255, 255, 255)));
+            root.Children.Add(back);
+
+            _webAppCloseHoldProgressArc = BuildProgressArcPath(108, 5, 0.001, new SolidColorBrush(Color.FromRgb(44, 174, 255)));
+            root.Children.Add(_webAppCloseHoldProgressArc);
+
+            root.Children.Add(new TextBlock
+            {
+                Text = GetWebAppCloseHoldLabel(),
+                Foreground = new SolidColorBrush(Color.FromArgb(235, 255, 255, 255)),
+                FontSize = 17,
+                FontWeight = FontWeights.SemiBold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextAlignment = TextAlignment.Center
+            });
+
+            return root;
+        }
+
+        private static string GetWebAppCloseHoldLabel()
+        {
+            var lang = System.Globalization.CultureInfo.CurrentUICulture.Name;
+            return lang.StartsWith("pt", StringComparison.OrdinalIgnoreCase) ? "Encerrar" : "Close";
+        }
+
+        private ShapePath BuildProgressArcPath(double size, double thickness, double progress, Brush stroke)
+        {
+            return new ShapePath
+            {
+                Data = BuildArcGeometry(size, thickness, -90, Math.Max(0.1, Math.Min(359.9, 360 * progress))),
+                Width = size,
+                Height = size,
+                StrokeThickness = thickness,
+                Stroke = stroke,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+        }
+
+        private Geometry BuildArcGeometry(double size, double thickness, double startAngle, double sweepAngle)
+        {
+            var geometry = new PathGeometry();
+            double radius = (size - thickness) / 2.0;
+            var center = new Point(size / 2.0, size / 2.0);
+            var start = PointOnCircle(center, radius, startAngle);
+            var end = PointOnCircle(center, radius, startAngle + sweepAngle);
+
+            var figure = new PathFigure
+            {
+                StartPoint = start,
+                IsClosed = false,
+                IsFilled = false
+            };
+            figure.Segments.Add(new ArcSegment
+            {
+                Point = end,
+                Size = new Size(radius, radius),
+                RotationAngle = 0,
+                IsLargeArc = Math.Abs(sweepAngle) > 180,
+                SweepDirection = sweepAngle >= 0 ? SweepDirection.Clockwise : SweepDirection.Counterclockwise,
+                IsStroked = true
+            });
+            geometry.Figures.Add(figure);
+            return geometry;
+        }
+
+        private void UpdateWebAppCloseHoldOverlay(double progress)
+        {
+            Dispatcher.InvokeAsync(() =>
+            {
+                EnsureWebAppCloseHoldPopup();
+                if (_webAppCloseHoldOverlay == null || _webAppCloseHoldProgressArc == null)
+                    return;
+
+                progress = Math.Clamp(progress, 0, 1);
+                _webAppCloseHoldProgressArc.Data = BuildArcGeometry(108, 5, -90, Math.Max(0.1, Math.Min(359.9, 360 * progress)));
+                if (progress > 0)
+                {
+                    PositionWebAppCloseHoldPopup();
+                    if (_webAppCloseHoldOverlay.Visibility != Visibility.Visible)
+                        _webAppCloseHoldOverlay.Visibility = Visibility.Visible;
+                    _webAppCloseHoldOverlay.Opacity = Math.Min(1, Math.Max(0.18, progress));
+                    if (_webAppCloseHoldPopup != null && !_webAppCloseHoldPopup.IsOpen)
+                        _webAppCloseHoldPopup.IsOpen = true;
+                }
+                else
+                {
+                    _webAppCloseHoldOverlay.Opacity = 0;
+                    _webAppCloseHoldOverlay.Visibility = Visibility.Collapsed;
+                    if (_webAppCloseHoldPopup != null)
+                        _webAppCloseHoldPopup.IsOpen = false;
+                }
+            });
+        }
+
+        private void HideWebAppCloseHoldOverlay() => UpdateWebAppCloseHoldOverlay(0);
+
+        private void EnsureWebAppCloseHoldPopup()
+        {
+            if (_webAppCloseHoldPopup != null && _webAppCloseHoldOverlay != null && _webAppCloseHoldProgressArc != null)
+                return;
+
+            var target = _webAppCloseHoldPlacementTarget ?? (_webAppWindow?.Content as FrameworkElement) ?? RootGrid;
+            _webAppCloseHoldPlacementTarget = target;
+            _webAppCloseHoldOverlay = BuildWebAppCloseHoldOverlay();
+            _webAppCloseHoldOverlay.Margin = new Thickness(0);
+            _webAppCloseHoldPopup = new Popup
+            {
+                PlacementTarget = target,
+                Placement = PlacementMode.Relative,
+                StaysOpen = true,
+                AllowsTransparency = true,
+                IsHitTestVisible = false,
+                Child = _webAppCloseHoldOverlay
+            };
+        }
+
+        private void PositionWebAppCloseHoldPopup()
+        {
+            if (_webAppCloseHoldPopup == null) return;
+            var target = _webAppCloseHoldPlacementTarget ?? _webAppCloseHoldPopup.PlacementTarget as FrameworkElement;
+            double width = target?.ActualWidth > 0 ? target.ActualWidth : SystemParameters.PrimaryScreenWidth;
+            double height = target?.ActualHeight > 0 ? target.ActualHeight : SystemParameters.PrimaryScreenHeight;
+            _webAppCloseHoldPopup.HorizontalOffset = Math.Max(0, (width - 132) / 2);
+            _webAppCloseHoldPopup.VerticalOffset = Math.Max(0, height - 132 - 54);
         }
 
         private Grid BuildWebAppLoadingOverlay(string appName, string logoImg)
@@ -4088,6 +4382,7 @@ namespace Doorpi
                 webView.Visibility = Visibility.Collapsed;
                 Panel.SetZIndex(_ytWebView, 1000);
                 RootGrid.Children.Add(_ytWebView);
+                AttachWebAppCloseHoldOverlay(RootGrid);
             }
             else
             {
@@ -4100,9 +4395,16 @@ namespace Doorpi
                     ShowInTaskbar = false
                 };
 
-                _webAppWindow.Content = isGenericBrowser
-                    ? BuildGenericBrowserShell(_ytWebView)
-                    : BuildWebAppLoadingHost(_ytWebView, appName, logoImg);
+                if (isGenericBrowser)
+                {
+                    var browserShell = BuildGenericBrowserShell(_ytWebView);
+                    AttachWebAppCloseHoldOverlay(browserShell);
+                    _webAppWindow.Content = browserShell;
+                }
+                else
+                {
+                    _webAppWindow.Content = BuildWebAppLoadingHost(_ytWebView, appName, logoImg);
+                }
 
                 _webAppWindow.Closed += (s, e) =>
                 {
@@ -4436,6 +4738,22 @@ namespace Doorpi
             _webAppLoadingOverlay = null;
             _webAppLoadingActive = false;
             _webAppLoadingReleaseStarted = false;
+            try
+            {
+                if (_webAppCloseHoldOverlay?.Parent is Panel closeHoldParent)
+                    closeHoldParent.Children.Remove(_webAppCloseHoldOverlay);
+            }
+            catch { }
+            try
+            {
+                if (_webAppCloseHoldPopup != null)
+                    _webAppCloseHoldPopup.IsOpen = false;
+            }
+            catch { }
+            _webAppCloseHoldPopup = null;
+            _webAppCloseHoldPlacementTarget = null;
+            _webAppCloseHoldOverlay = null;
+            _webAppCloseHoldProgressArc = null;
             try { _genericBrowserExtensionPopupView?.Dispose(); } catch { }
             _genericBrowserExtensionPopupView = null;
             _genericBrowserEnvironment = null;
@@ -4480,10 +4798,6 @@ namespace Doorpi
                     if (_ytWebView.CoreWebView2.CanGoBack)
                     {
                         _ytWebView.CoreWebView2.GoBack();
-                    }
-                    else
-                    {
-                        Dispatcher.Invoke(() => CloseYouTubeInline());
                     }
                 }
             }
@@ -4868,28 +5182,8 @@ namespace Doorpi
         }, 20);
     }
 
-    let lastEscapeTime = 0;
     window.handleBackButton = function() {
-        let hash = window.location.hash || '';
-        if (hash.includes('/watch')) {
-            fireKey(27, 'Escape');
-        } else {
-            let now = Date.now();
-            if (now - lastEscapeTime < 1500) {
-                window.chrome.webview.postMessage('close_app');
-            } else {
-                lastEscapeTime = now;
-                fireKey(27, 'Escape');
-                let existing = document.getElementById('doorpi-toast-exit');
-                if (existing) existing.remove();
-                let t = document.createElement('div');
-                t.id = 'doorpi-toast-exit';
-                t.innerText = 'Pressione B novamente para sair';
-                t.style.cssText = 'position:fixed;bottom:40px;left:50%;transform:translateX(-50%);background:rgba(20,20,20,0.95);color:#fff;padding:12px 24px;border-radius:30px;z-index:999999;font-family:""Roboto"",sans-serif;font-size:16px;font-weight:500;box-shadow:0 4px 12px rgba(0,0,0,0.5);transition:opacity 0.3s;';
-                document.body.appendChild(t);
-                setTimeout(() => { if(t){ t.style.opacity='0'; setTimeout(()=>t.remove(),300); } }, 1500);
-            }
-        }
+        fireKey(27, 'Escape');
     };
 
     function processButton(idx, pressed, code, key) {
