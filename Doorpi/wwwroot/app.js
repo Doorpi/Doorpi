@@ -124,6 +124,8 @@
             this.gainNode = null;
             this.isLoaded = false;
             this.isPlaying = false;
+            this.maxVolume = maxVolume;
+            this.volumeScale = 1;
             this.volume = maxVolume;
             this.suspendTimeout = null;
         }
@@ -329,6 +331,17 @@
                 }
             }, durationMs + 50);
         }
+
+        setVolumeScale(scale) {
+            const safe = Math.max(0, Math.min(1, Number(scale) || 0));
+            this.volumeScale = safe;
+            this.volume = this.maxVolume * safe;
+            if (!this.gainNode || !this.ctx || !this.isPlaying) return;
+            const now = this.ctx.currentTime;
+            this.gainNode.gain.cancelScheduledValues(now);
+            this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, now);
+            this.gainNode.gain.linearRampToValueAtTime(this.volume, now + 0.12);
+        }
     }
 
     const MAX_AMBIENCE_VOLUME = 0.4;
@@ -421,6 +434,16 @@
         let spaceContext = null;
         let lastMoveAt = 0;
         let noiseBuffer = null;
+        const baseGains = {
+            navigation: uiSound.move.gain,
+            confirm: uiSound.confirm.gain,
+            back: uiSound.back.gain
+        };
+        const volumeScales = {
+            navigation: 1,
+            confirm: 1,
+            back: 1
+        };
 
         window.DoorpiUiSoundConfig = uiSound;
 
@@ -545,6 +568,20 @@
             };
         }
 
+        function gainFor(kind) {
+            if (kind === 'confirm') return baseGains.confirm * volumeScales.confirm;
+            if (kind === 'back') return baseGains.back * volumeScales.back;
+            return baseGains.navigation * volumeScales.navigation;
+        }
+
+        function setVolumeScales(scales = {}) {
+            ['navigation', 'confirm', 'back'].forEach(key => {
+                if (scales[key] === undefined) return;
+                const safe = Math.max(0, Math.min(1, Number(scales[key]) || 0));
+                volumeScales[key] = safe;
+            });
+        }
+
         async function play(kind) {
             if (!window._isIntroComplete || window._isExternalAppRunning) return;
             const context = ctx();
@@ -562,25 +599,83 @@
 
             const now = context.currentTime;
             if (kind === 'confirm') {
-                playTone(context, now + 0.002, uiSound.confirm.frequency, 0.16, uiSound.confirm.gain, {
+                playTone(context, now + 0.002, uiSound.confirm.frequency, 0.16, gainFor('confirm'), {
                     endFrequency: uiSound.confirm.endFrequency,
                     attack: uiSound.confirm.attack,
                 });
             } else if (kind === 'back') {
-                playTone(context, now + 0.002, uiSound.back.frequency, 0.34, uiSound.back.gain, {
+                playTone(context, now + 0.002, uiSound.back.frequency, 0.34, gainFor('back'), {
                     endFrequency: uiSound.back.endFrequency,
                     attack: uiSound.back.attack,
                     space: uiSound.back.space,
                 });
             } else {
-                playTone(context, now + 0.002, uiSound.move.frequency, 0.09, uiSound.move.gain, {
+                playTone(context, now + 0.002, uiSound.move.frequency, 0.09, gainFor('navigation'), {
                     endFrequency: uiSound.move.endFrequency,
                     attack: uiSound.move.attack,
                 });
             }
         }
 
-        return { play };
+        return { play, setVolumeScales };
+    })();
+
+    window.DoorpiSoundSettings = (() => {
+        const storageKey = 'doorpi.sound.volumes.v1';
+        const defaults = {
+            ambience: 100,
+            navigation: 100,
+            confirm: 100,
+            back: 100,
+            intro: 100
+        };
+
+        function clamp(value) {
+            const n = Number(value);
+            if (!Number.isFinite(n)) return 100;
+            return Math.max(0, Math.min(100, Math.round(n)));
+        }
+
+        function readVolumes() {
+            try {
+                const raw = JSON.parse(localStorage.getItem(storageKey) || '{}');
+                return Object.fromEntries(Object.keys(defaults).map(key => [key, clamp(raw[key] ?? defaults[key])]));
+            } catch {
+                return { ...defaults };
+            }
+        }
+
+        function saveVolumes(volumes) {
+            try { localStorage.setItem(storageKey, JSON.stringify(volumes)); } catch { }
+        }
+
+        function apply(volumes = readVolumes()) {
+            window._audioPlayer?.setVolumeScale?.(volumes.ambience / 100);
+            window.DoorpiUiSound?.setVolumeScales?.({
+                navigation: volumes.navigation / 100,
+                confirm: volumes.confirm / 100,
+                back: volumes.back / 100
+            });
+            window.DoorpiIntro?.setVolume?.(volumes.intro / 100);
+        }
+
+        function setInternalVolume(key, value) {
+            if (!Object.prototype.hasOwnProperty.call(defaults, key)) return readVolumes();
+            const volumes = readVolumes();
+            volumes[key] = clamp(value);
+            saveVolumes(volumes);
+            apply(volumes);
+            return volumes;
+        }
+
+        const api = {
+            getInternalVolumes: readVolumes,
+            setInternalVolume,
+            applyInternalVolumes: () => apply(readVolumes())
+        };
+
+        requestAnimationFrame(() => api.applyInternalVolumes());
+        return api;
     })();
 
     function _readDoorpiAudioMuteFlag(data, fallback = false) {
@@ -2208,6 +2303,7 @@
                 pointer-events: none;
             }
             body.user-picker-open .top-profile-btn,
+            body.setup-active .top-profile-btn,
             body.quick-menu-unavailable .top-profile-btn {
                 opacity: 0;
                 pointer-events: none;
@@ -2319,13 +2415,17 @@
             return Array.isArray(running) && running.length > 0;
         }
 
-        function shouldDeferAutoPrompt() {
+        function shouldDeferAutoPrompt(status = latestStatus) {
+            const force = !!status?.forceUpdate;
             if (isVisible) return false;
             if (!window._isIntroComplete) return true;
             if (window._isExternalAppRunning) return true;
             if (hasRuntimeSession()) return true;
             if (window.isDoorpiSessionTransitionActive?.()) return true;
             if (window.isGlobalLoading) return true;
+
+            if (force) return false;
+
             if (window.isNavMenuOpen || ['opening', 'closing'].includes(window._navMenuPhase || 'closed')) return true;
             if (window.isModalOpen || window.isSetupOpen || window._vkbIsOpen) return true;
             if (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) return true;
@@ -2394,13 +2494,14 @@
             prompt.setAttribute('aria-labelledby', 'doorpiUpdatePromptTitle');
             prompt.innerHTML = `
                 <div class="doorpi-update-shell">
-                    <div class="doorpi-update-orb orb-a"></div>
-                    <div class="doorpi-update-orb orb-b"></div>
-                    <div class="doorpi-update-kicker">${t('updatePromptKicker')}</div>
-                    <h2 id="doorpiUpdatePromptTitle">${t('updatePromptInitialTitle')}</h2>
-                    <p id="doorpiUpdatePromptSubtitle" class="doorpi-update-subtitle"></p>
+                    <div class="doorpi-update-header">
+                        <div>
+                            <div class="doorpi-update-kicker">${t('updatePromptKicker')}</div>
+                            <h2 id="doorpiUpdatePromptTitle">${t('updatePromptInitialTitle')}</h2>
+                        </div>
+                    </div>
                     <div class="doorpi-update-version-row" id="doorpiUpdateVersionRow"></div>
-                    <ul id="doorpiUpdateChangelog" class="doorpi-update-changelog"></ul>
+                    <p id="doorpiUpdatePromptSubtitle" class="doorpi-update-subtitle"></p>
                     <div class="doorpi-update-warning">${t('updatePromptWarning')}</div>
                     <div class="doorpi-update-actions">
                         <button id="doorpiUpdateStartBtn" class="doorpi-update-primary" type="button">${t('updatePromptStart')}</button>
@@ -2418,16 +2519,19 @@
             });
 
             prompt.querySelector('#doorpiUpdateLaterBtn')?.addEventListener('click', () => {
+                if (latestStatus?.forceUpdate) return;
                 dismissCurrentTarget();
                 hide(true);
             });
 
             prompt.addEventListener('keydown', (e) => {
                 if (!isVisible) return;
-                const buttons = Array.from(prompt.querySelectorAll('button'));
+                const buttons = Array.from(prompt.querySelectorAll('button'))
+                    .filter(btn => !btn.hidden && !btn.disabled);
                 const current = buttons.indexOf(document.activeElement);
                 if (e.key === 'Escape' || e.key === 'Backspace') {
                     e.preventDefault();
+                    if (latestStatus?.forceUpdate) return;
                     dismissCurrentTarget();
                     hide(true);
                     return;
@@ -2443,17 +2547,69 @@
             return prompt;
         }
 
-        function changelogItems(status) {
-            const entries = Array.isArray(status?.changelog) ? status.changelog : [];
-            const items = [];
-            entries.forEach(entry => {
-                if (Array.isArray(entry?.items)) {
-                    entry.items.forEach(item => {
-                        if (items.length < 6 && item) items.push(String(item));
-                    });
+        function promptIsOpen() {
+            const prompt = document.getElementById('doorpiUpdatePrompt');
+            return !!(isVisible || prompt?.classList.contains('is-visible'));
+        }
+
+        function focusPromptPrimary() {
+            const prompt = ensurePrompt();
+            const active = document.activeElement;
+            if (prompt.contains(active)) return;
+            prompt.querySelector('#doorpiUpdateStartBtn')?.focus({ preventScroll: true });
+        }
+
+        function handlePromptKey(e) {
+            if (!promptIsOpen()) return false;
+
+            const prompt = ensurePrompt();
+            const buttons = Array.from(prompt.querySelectorAll('button'))
+                .filter(btn => !btn.hidden && !btn.disabled);
+            const current = buttons.indexOf(document.activeElement);
+
+            e.preventDefault();
+            e.stopImmediatePropagation();
+
+            if (e.key === 'Escape' || e.key === 'Backspace') {
+                if (latestStatus?.forceUpdate) {
+                    focusPromptPrimary();
+                    return true;
                 }
-            });
-            return items;
+                dismissCurrentTarget();
+                hide(true);
+                return true;
+            }
+
+            if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+                const dir = (e.key === 'ArrowLeft' || e.key === 'ArrowUp') ? -1 : 1;
+                const idx = current >= 0 ? current : 0;
+                buttons[(idx + dir + buttons.length) % buttons.length]?.focus({ preventScroll: true });
+                return true;
+            }
+
+            if (e.key === 'Enter' || e.key === ' ') {
+                const activeButton = buttons.includes(document.activeElement)
+                    ? document.activeElement
+                    : prompt.querySelector('#doorpiUpdateStartBtn');
+                activeButton?.click();
+                return true;
+            }
+
+            focusPromptPrimary();
+            return true;
+        }
+
+        function handlePromptPointer(e) {
+            if (!promptIsOpen()) return false;
+
+            const prompt = ensurePrompt();
+            const button = e.target?.closest?.('#doorpiUpdatePrompt button');
+            if (button && prompt.contains(button)) return false;
+
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            focusPromptPrimary();
+            return true;
         }
 
         function renderPrompt() {
@@ -2461,17 +2617,27 @@
             const title = prompt.querySelector('#doorpiUpdatePromptTitle');
             const sub = prompt.querySelector('#doorpiUpdatePromptSubtitle');
             const versions = prompt.querySelector('#doorpiUpdateVersionRow');
-            const changelog = prompt.querySelector('#doorpiUpdateChangelog');
+            const kicker = prompt.querySelector('.doorpi-update-kicker');
+            const startBtn = prompt.querySelector('#doorpiUpdateStartBtn');
+            const laterBtn = prompt.querySelector('#doorpiUpdateLaterBtn');
 
             const status = latestStatus || {};
+            const force = !!status.forceUpdate;
             const parts = [];
             if (status.doorpiUpdateAvailable) parts.push('Doorpi');
             if (status.updaterUpdateAvailable) parts.push(t('updatePromptSystemComponents'));
             const scope = parts.length ? parts.join(' + ') : 'Doorpi';
 
-            if (title) title.textContent = t('updatePromptTitle', scope);
+            prompt.classList.toggle('is-force', force);
+            if (kicker) kicker.textContent = force ? t('updatePromptForceKicker') : t('updatePromptKicker');
+            if (title) title.textContent = force ? t('updatePromptForceTitle') : t('updatePromptTitle', scope);
             if (sub) {
-                sub.textContent = t('updatePromptSubtitle');
+                sub.textContent = force ? t('updatePromptForceSubtitle') : t('updatePromptSubtitle');
+            }
+            if (startBtn) startBtn.textContent = force ? t('updatePromptForceContinue') : t('updatePromptStart');
+            if (laterBtn) {
+                laterBtn.hidden = force;
+                laterBtn.disabled = force;
             }
 
             if (versions) {
@@ -2483,21 +2649,13 @@
                     : '';
                 versions.innerHTML = [doorpi, updater].filter(Boolean).join('');
             }
-
-            if (changelog) {
-                const items = changelogItems(status);
-                changelog.innerHTML = items.length
-                    ? items.map(item => `<li>${esc(item)}</li>`).join('')
-                    : `<li>${esc(t('updatePromptNoChangelog'))}</li>`;
-            }
         }
 
         function show(manual = false) {
             if (!hasUpdate(latestStatus)) return;
-            if (latestStatus?.forceUpdate) return;
 
             if (!manual) {
-                if (targetKey(latestStatus) === dismissedTarget()) return;
+                if (!latestStatus?.forceUpdate && targetKey(latestStatus) === dismissedTarget()) return;
                 if (shouldDeferAutoPrompt()) {
                     scheduleEvaluate(1500);
                     return;
@@ -2508,6 +2666,8 @@
             const prompt = ensurePrompt();
             isVisible = true;
             prompt.classList.add('is-visible');
+            document.body.classList.add('doorpi-update-modal-open');
+            window.updateDoorpiQuickMenuAvailability?.();
             window.DoorpiUiSound?.play('confirm');
             requestAnimationFrame(() => {
                 prompt.querySelector('#doorpiUpdateStartBtn')?.focus();
@@ -2518,6 +2678,8 @@
             const prompt = document.getElementById('doorpiUpdatePrompt');
             isVisible = false;
             prompt?.classList.remove('is-visible');
+            document.body.classList.remove('doorpi-update-modal-open');
+            window.updateDoorpiQuickMenuAvailability?.();
             if (refocus) setTimeout(() => recoverGlobalFocus?.(), 60);
         }
 
@@ -2592,7 +2754,7 @@
                 .doorpi-update-prompt {
                     position: fixed;
                     inset: 0;
-                    z-index: 9500;
+                    z-index: 30000;
                     display: flex;
                     align-items: center;
                     justify-content: center;
@@ -2609,49 +2771,45 @@
                 }
                 .doorpi-update-shell {
                     position: relative;
-                    width: min(860px, 92vw);
+                    width: min(700px, 92vw);
                     overflow: hidden;
-                    padding: 42px;
-                    border: 1px solid rgba(255,255,255,0.14);
+                    padding: 34px 36px 32px;
+                    border: 1px solid rgba(255,255,255,0.16);
                     border-radius: 8px;
                     background:
-                        radial-gradient(circle at 22% 10%, rgba(78,158,255,0.24), transparent 30%),
-                        radial-gradient(circle at 84% 86%, rgba(63,228,255,0.18), transparent 34%),
-                        rgba(7, 13, 28, 0.92);
-                    box-shadow: 0 36px 90px rgba(0,0,0,0.48);
+                        linear-gradient(90deg, rgba(255,255,255,0.30), transparent 52%) 0 0 / 100% 3px no-repeat,
+                        linear-gradient(180deg, rgba(13,17,31,0.97), rgba(5,7,16,0.96));
+                    box-shadow: 0 34px 90px rgba(0,0,0,0.52), inset 0 1px 0 rgba(255,255,255,0.07);
                     color: #fff;
                     transform: translateY(16px) scale(.985);
                     transition: transform .22s ease;
                 }
+                .doorpi-update-shell::before {
+                    content: '';
+                    position: absolute;
+                    inset: 0;
+                    background:
+                        radial-gradient(ellipse at 80% -18%, rgba(255,255,255,0.075), transparent 38%),
+                        radial-gradient(ellipse at -14% 112%, rgba(110,140,190,0.08), transparent 42%);
+                    pointer-events: none;
+                }
                 .doorpi-update-prompt.is-visible .doorpi-update-shell {
                     transform: translateY(0) scale(1);
                 }
-                .doorpi-update-orb {
-                    position: absolute;
-                    border-radius: 50%;
-                    filter: blur(24px);
-                    opacity: .36;
-                    pointer-events: none;
+                .doorpi-update-prompt.is-force .doorpi-update-shell {
+                    border-color: rgba(255,255,255,0.24);
+                    background:
+                        linear-gradient(90deg, rgba(255,255,255,0.40), transparent 54%) 0 0 / 100% 3px no-repeat,
+                        linear-gradient(180deg, rgba(15,19,34,0.98), rgba(5,7,16,0.97));
                 }
-                .doorpi-update-orb.orb-a {
-                    width: 220px;
-                    height: 220px;
-                    right: -76px;
-                    top: -82px;
-                    background: #267bff;
-                }
-                .doorpi-update-orb.orb-b {
-                    width: 180px;
-                    height: 180px;
-                    left: -70px;
-                    bottom: -76px;
-                    background: #20d4ff;
+                .doorpi-update-header {
+                    position: relative;
                 }
                 .doorpi-update-kicker {
                     position: relative;
-                    margin-bottom: 14px;
-                    color: #82dbff;
-                    font-size: 13px;
+                    margin: 0 0 10px;
+                    color: rgba(255,255,255,0.58);
+                    font-size: 12px;
                     font-weight: 800;
                     letter-spacing: 0.12em;
                     text-transform: uppercase;
@@ -2659,79 +2817,51 @@
                 .doorpi-update-shell h2 {
                     position: relative;
                     margin: 0;
-                    max-width: 760px;
-                    font-size: clamp(32px, 4vw, 52px);
-                    line-height: 1.03;
-                    font-weight: 800;
+                    font-size: clamp(28px, 3.2vw, 42px);
+                    line-height: 1.05;
+                    font-weight: 700;
                 }
                 .doorpi-update-subtitle {
                     position: relative;
-                    margin: 18px 0 0;
-                    max-width: 720px;
-                    color: rgba(255,255,255,0.72);
-                    font-size: 18px;
-                    line-height: 1.45;
+                    margin: 16px 0 0;
+                    max-width: 560px;
+                    color: rgba(255,255,255,0.68);
+                    font-size: 15px;
+                    line-height: 1.42;
                 }
                 .doorpi-update-version-row {
                     position: relative;
                     display: flex;
                     flex-wrap: wrap;
-                    gap: 10px;
-                    margin: 26px 0 0;
+                    gap: 8px;
+                    margin: 20px 0 0;
                 }
                 .doorpi-update-version-row span {
-                    padding: 9px 13px;
-                    border-radius: 999px;
+                    padding: 8px 11px;
+                    border-radius: 6px;
                     border: 1px solid rgba(255,255,255,0.14);
-                    background: rgba(255,255,255,0.07);
+                    background: rgba(255,255,255,0.055);
                     color: rgba(255,255,255,0.86);
-                    font-size: 14px;
-                }
-                .doorpi-update-changelog {
-                    position: relative;
-                    display: grid;
-                    gap: 9px;
-                    margin: 24px 0 0;
-                    padding: 0;
-                    list-style: none;
-                    color: rgba(255,255,255,0.8);
-                    font-size: 15px;
-                    line-height: 1.38;
-                }
-                .doorpi-update-changelog li {
-                    padding-left: 18px;
-                    position: relative;
-                }
-                .doorpi-update-changelog li::before {
-                    content: '';
-                    position: absolute;
-                    left: 0;
-                    top: .62em;
-                    width: 5px;
-                    height: 5px;
-                    border-radius: 50%;
-                    background: #58d9ff;
+                    font-size: 13px;
                 }
                 .doorpi-update-warning {
                     position: relative;
-                    margin-top: 26px;
-                    padding: 13px 16px;
-                    border-radius: 8px;
-                    border: 1px solid rgba(255,255,255,0.12);
-                    background: rgba(255,255,255,0.07);
-                    color: rgba(255,255,255,0.78);
-                    font-size: 14px;
+                    margin: 22px 0 0;
+                    padding-top: 14px;
+                    border-top: 1px solid rgba(255,255,255,0.12);
+                    color: rgba(255,255,255,0.72);
+                    font-size: 13px;
                 }
                 .doorpi-update-actions {
                     position: relative;
                     display: flex;
                     justify-content: flex-end;
                     gap: 12px;
-                    margin-top: 30px;
+                    margin-top: 26px;
                 }
                 .doorpi-update-actions button {
-                    min-width: 170px;
-                    height: 52px;
+                    min-width: 158px;
+                    height: 48px;
                     border-radius: 8px;
                     border: 1px solid rgba(255,255,255,0.18);
                     color: #fff;
@@ -2742,8 +2872,9 @@
                     transition: transform .16s ease, border-color .16s ease, background .16s ease;
                 }
                 .doorpi-update-primary {
-                    background: rgba(70, 166, 255, 0.86);
-                    box-shadow: 0 14px 32px rgba(31,132,255,0.28);
+                    background: rgba(255,255,255,0.92);
+                    color: #090d18;
+                    box-shadow: 0 14px 32px rgba(0,0,0,0.22);
                 }
                 .doorpi-update-secondary {
                     background: rgba(255,255,255,0.08);
@@ -2752,6 +2883,20 @@
                 .doorpi-update-actions button:hover {
                     transform: translateY(-1px);
                     border-color: rgba(255,255,255,0.8);
+                }
+                .doorpi-update-actions .doorpi-update-primary,
+                .doorpi-update-actions .doorpi-update-primary:focus,
+                .doorpi-update-actions .doorpi-update-primary:hover,
+                .doorpi-update-actions .doorpi-update-primary.nav-focused-el {
+                    background: #fff;
+                    color: #060914;
+                    border-color: rgba(255,255,255,0.92);
+                }
+                .doorpi-update-actions .doorpi-update-secondary:focus,
+                .doorpi-update-actions .doorpi-update-secondary:hover,
+                .doorpi-update-actions .doorpi-update-secondary.nav-focused-el {
+                    background: rgba(255,255,255,0.14);
+                    color: #fff;
                 }
                 @media (max-width: 720px) {
                     .doorpi-update-prompt { padding: 18px; }
@@ -2769,6 +2914,17 @@
 
         injectStyles();
         ensureBadge();
+
+        window.isDoorpiUpdatePromptOpen = promptIsOpen;
+        document.addEventListener('keydown', handlePromptKey, true);
+        document.addEventListener('keyup', (e) => {
+            if (!promptIsOpen()) return;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+        }, true);
+        ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'dblclick', 'touchstart', 'touchend'].forEach(type => {
+            document.addEventListener(type, handlePromptPointer, true);
+        });
 
         window.DoorpiUpdatePrompt = {
             setStatus,
@@ -3021,6 +3177,7 @@
                 }
             }
             else if (data.type === 'openQuickPanel') {
+                if (window.isDoorpiUpdatePromptOpen?.()) return;
                 window.DoorpiQuickPanel?.toggle?.();
             }
             else if (data.type === 'extensionsList' || data.type === 'extensionUpdatesList') {
@@ -3179,6 +3336,13 @@
                 if (changed) {
                     window.DoorpiQuickPanel?.setWifiStatus?.(data);
                     window._navMenuSetWifiStatus?.(data);
+                }
+            }
+            else if (data.type === 'soundStatus') {
+                const changed = window.DoorpiSoundUI?.setStatus?.(data) !== false;
+                if (changed) {
+                    window.DoorpiQuickPanel?.setSoundStatus?.(data);
+                    window._navMenuSetSoundStatus?.(data);
                 }
             }
             else if (data.type === 'updateFeaturedCard') {
@@ -3805,13 +3969,57 @@
         .doorpi-pin-actions .doorpi-manager-btn:focus, .doorpi-pin-actions .doorpi-manager-btn:hover { border-color: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,.18); color: #fff; }
         .doorpi-pin-actions .doorpi-manager-btn.primary:focus, .doorpi-pin-actions .doorpi-manager-btn.primary:hover { color: #080812; box-shadow: 0 0 0 3px rgba(255,255,255,.22), 0 12px 30px rgba(0,0,0,.28); }
 
-    /* USER CARDS STYLES */
-    .doorpi-user-grid {
+/* USER CARDS STYLES */
+    .doorpi-user-picker-layout {
         display: flex;
-        flex-wrap: wrap;
+        align-items: center;
         justify-content: center;
-        gap: clamp(32px, 4vw, 64px);
+        gap: clamp(24px, 3vw, 48px);
         width: 100%;
+        max-width: 100vw;
+    }
+
+    .doorpi-user-scroll-area {
+        /* Largura Exata: 4 cards + 3 espaços + 30px de folga (15px cada lado) */
+        max-width: calc((clamp(170px, 12vw, 220px) * 4) + (clamp(24px, 3vw, 48px) * 3) + 30px);
+        overflow-x: auto;
+        overflow-y: hidden;
+        scroll-behavior: smooth;
+
+        /* Padding protege a animação (scale). Margin puxa o layout de volta pro lugar. */
+        padding: 30px 15px;
+        margin: -30px -15px;
+
+        /* ── MÁGICA DO ALINHAMENTO PERFEITO ── */
+        scroll-snap-type: x mandatory;
+        /* Diz ao navegador para descontar o padding de 15px na hora de "travar" o card */
+        scroll-padding-inline: 15px;
+
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+    .doorpi-user-scroll-area::-webkit-scrollbar { display: none; }
+
+    .doorpi-user-track {
+        display: flex;
+        align-items: center;
+        gap: clamp(24px, 3vw, 48px);
+        width: max-content;
+    }
+
+    /* Fantasma sutil para garantir que o último elemento trave corretamente sem bater na parede */
+    .doorpi-user-track::after {
+        content: '';
+        display: block;
+        padding-right: 1px;
+    }
+
+    .doorpi-user-fixed-add {
+        display: flex;
+        align-items: center;
+        border-left: 2px solid rgba(255, 255, 255, 0.08);
+        padding-left: clamp(24px, 3vw, 48px);
+        z-index: 10;
     }
 
     .doorpi-user-card {
@@ -3829,6 +4037,10 @@
         position: relative;
         animation: doorpiCardRise 0.3s cubic-bezier(0.16, 1, 0.3, 1) backwards;
         will-change: transform;
+        flex-shrink: 0;
+
+        /* Força a lista a sempre parar alinhada no início deste card */
+        scroll-snap-align: start;
     }
 
     @keyframes doorpiCardRise {
@@ -3862,13 +4074,6 @@
     .doorpi-user-card:focus .doorpi-avatar,
     .doorpi-user-card:hover .doorpi-avatar {
         border-color: #fff;
-
-    }
-
-    .doorpi-avatar img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
     }
 
     .doorpi-user-name {
@@ -4180,136 +4385,148 @@
         });
     }
 
-    function showUserPicker(users, requireSelection = false) {
-        if (window.DoorpiIntro?.shouldDeferUserPicker?.()) {
-            window.DoorpiIntro.runAfterIntro(() => showUserPicker(users, requireSelection));
-            return;
-        }
+function showUserPicker(users, requireSelection = false) {
+    if (window.DoorpiIntro?.shouldDeferUserPicker?.()) {
+        window.DoorpiIntro.runAfterIntro(() => showUserPicker(users, requireSelection));
+        return;
+    }
 
-        ensureDoorpiOverlayStyles();
-        let overlay = document.getElementById('doorpiUserPicker');
-        if (!overlay) {
-            overlay = document.createElement('div');
-            overlay.id = 'doorpiUserPicker';
-            overlay.className = 'doorpi-user-overlay';
+    ensureDoorpiOverlayStyles();
+    let overlay = document.getElementById('doorpiUserPicker');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'doorpiUserPicker';
+        overlay.className = 'doorpi-user-overlay';
 
-            // Controle de navegação forçado (Fase de Captura para bloquear a navegação nativa)
-            overlay.addEventListener('keydown', (e) => {
-                const active = document.activeElement || document.body;
+        // Controle de navegação forçado (Fase de Captura)
+        overlay.addEventListener('keydown', (e) => {
+            const active = document.activeElement || document.body;
 
-                if (e.key === 'ArrowDown') {
-                    const isUserCard = active.closest('.doorpi-user-card');
-                    const isBackBtn = active.closest('#doorpiCloseUsers');
+            if (e.key === 'ArrowDown') {
+                const isUserCard = active.closest('.doorpi-user-card');
+                const isBackBtn = active.closest('#doorpiCloseUsers');
 
-                    if (isUserCard) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const backBtn = overlay.querySelector('#doorpiCloseUsers');
-                        if (backBtn) {
-                            backBtn.focus();
-                        } else {
-                            overlay.querySelector('.doorpi-power-btn')?.focus();
-                        }
-                    } else if (isBackBtn) {
-                        e.preventDefault();
-                        e.stopPropagation();
+                if (isUserCard) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const backBtn = overlay.querySelector('#doorpiCloseUsers');
+                    if (backBtn) {
+                        backBtn.focus();
+                    } else {
                         overlay.querySelector('.doorpi-power-btn')?.focus();
                     }
-                } else if (e.key === 'ArrowUp') {
-                    const isPowerBtn = active.closest('.doorpi-power-btn');
-                    const isBackBtn = active.closest('#doorpiCloseUsers');
+                } else if (isBackBtn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    overlay.querySelector('.doorpi-power-btn')?.focus();
+                }
+            } else if (e.key === 'ArrowUp') {
+                const isPowerBtn = active.closest('.doorpi-power-btn');
+                const isBackBtn = active.closest('#doorpiCloseUsers');
 
-                    if (isPowerBtn || isBackBtn) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const backBtn = overlay.querySelector('#doorpiCloseUsers');
+                if (isPowerBtn || isBackBtn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const backBtn = overlay.querySelector('#doorpiCloseUsers');
 
-                        // Se estivermos na energia, subir obrigatoriamente para o Back
-                        if (isPowerBtn && backBtn) {
-                            backBtn.focus();
-                            return;
-                        }
-
-                        // Se estivermos no Back ou na energia (sem botão Back disponível), subir pros Usuários
-                        const userCards = Array.from(overlay.querySelectorAll('.doorpi-user-card'));
-                        if (userCards.length) {
-                            const activeRect = active.getBoundingClientRect();
-                            let bestCard = userCards[0];
-                            let minDiff = Infinity;
-                            userCards.forEach(c => {
-                                const cRect = c.getBoundingClientRect();
-                                const diff = Math.abs((cRect.left + cRect.width / 2) - (activeRect.left + activeRect.width / 2));
-                                if (diff < minDiff) {
-                                    minDiff = diff;
-                                    bestCard = c;
-                                }
-                            });
-                            bestCard.focus();
-                        }
+                    if (isPowerBtn && backBtn) {
+                        backBtn.focus();
+                        return;
                     }
-                } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-                    const isUserCard = active.closest('.doorpi-user-card');
-                    if (isUserCard) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const userCards = Array.from(overlay.querySelectorAll('.doorpi-user-card'));
-                        const currentIndex = userCards.indexOf(isUserCard);
 
-                        if (currentIndex !== -1) {
-                            if (e.key === 'ArrowLeft') {
-                                const prevIndex = currentIndex > 0 ? currentIndex - 1 : userCards.length - 1;
-                                userCards[prevIndex].focus();
-                            } else {
-                                const nextIndex = currentIndex < userCards.length - 1 ? currentIndex + 1 : 0;
-                                userCards[nextIndex].focus();
+                    const userCards = Array.from(overlay.querySelectorAll('.doorpi-user-card'));
+                    if (userCards.length) {
+                        const activeRect = active.getBoundingClientRect();
+                        let bestCard = userCards[0];
+                        let minDiff = Infinity;
+                        userCards.forEach(c => {
+                            const cRect = c.getBoundingClientRect();
+                            const diff = Math.abs((cRect.left + cRect.width / 2) - (activeRect.left + activeRect.width / 2));
+                            if (diff < minDiff) {
+                                minDiff = diff;
+                                bestCard = c;
                             }
+                        });
+                        bestCard.focus();
+                        // nearest faz rolar apenas o necessário para mostrar o card
+                        bestCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+                    }
+                }
+            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                const isUserCard = active.closest('.doorpi-user-card');
+                if (isUserCard) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const userCards = Array.from(overlay.querySelectorAll('.doorpi-user-card'));
+                    const currentIndex = userCards.indexOf(isUserCard);
+
+                    if (currentIndex !== -1) {
+                        if (e.key === 'ArrowLeft') {
+                            const prevIndex = currentIndex > 0 ? currentIndex - 1 : userCards.length - 1;
+                            userCards[prevIndex].focus();
+                            userCards[prevIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+                        } else {
+                            const nextIndex = currentIndex < userCards.length - 1 ? currentIndex + 1 : 0;
+                            userCards[nextIndex].focus();
+                            userCards[nextIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
                         }
                     }
                 }
-            }, true); // Ativa o Capture Phase
+            }
+        }, true);
 
-            document.body.appendChild(overlay);
-        }
-        overlay.dataset.required = requireSelection ? 'true' : 'false';
-        overlay.dataset.returnToQuickPanel = (window._doorpiUserPickerReturnToQuickPanel && !requireSelection) ? 'true' : 'false';
-        window._doorpiUserPickerReturnToQuickPanel = false;
-        if (overlay.dataset.introPickerClasses) {
-            overlay.classList.remove(...overlay.dataset.introPickerClasses.split(/\s+/).filter(Boolean));
-        }
-        const introPickerClasses = window.DoorpiIntro?.isHandoffActive?.()
-            ? (window.DoorpiIntro.getUserPickerClasses?.() || [])
-            : [];
-        if (introPickerClasses.length) overlay.classList.add(...introPickerClasses);
-        overlay.dataset.introPickerClasses = introPickerClasses.join(' ');
+        document.body.appendChild(overlay);
+    }
 
-        const cards = users.map((user, idx) => `
+    overlay.dataset.required = requireSelection ? 'true' : 'false';
+    overlay.dataset.returnToQuickPanel = (window._doorpiUserPickerReturnToQuickPanel && !requireSelection) ? 'true' : 'false';
+    window._doorpiUserPickerReturnToQuickPanel = false;
+
+    if (overlay.dataset.introPickerClasses) {
+        overlay.classList.remove(...overlay.dataset.introPickerClasses.split(/\s+/).filter(Boolean));
+    }
+    const introPickerClasses = window.DoorpiIntro?.isHandoffActive?.()
+        ? (window.DoorpiIntro.getUserPickerClasses?.() || [])
+        : [];
+    if (introPickerClasses.length) overlay.classList.add(...introPickerClasses);
+    overlay.dataset.introPickerClasses = introPickerClasses.join(' ');
+
+    const cards = users.map((user, idx) => `
         <button class="doorpi-user-card" data-user-id="${escapeHtml(user.Id)}" tabindex="0" style="animation-delay: ${idx * 0.03}s">
             ${avatarMarkup(user)}
             <span class="doorpi-user-name">${escapeHtml(user.Name)}</span>
             ${user.Id === window._doorpiCurrentUserId ? `<span class="doorpi-user-badge">${t('badgeCurrent')}</span>` : ''}
         </button>`).join('');
 
-        const createUserDelay = users.length * 0.03;
+    const createUserDelay = users.length * 0.03;
 
-        const svgExit = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`;
-        const svgSleep = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
-        const svgRestart = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.84"/></svg>`;
-        const svgShutdown = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>`;
+    const svgExit = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`;
+    const svgSleep = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
+    const svgRestart = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.84"/></svg>`;
+    const svgShutdown = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>`;
 
-        overlay.innerHTML = `
+    overlay.innerHTML = `
             <div class="doorpi-user-panel">
                 <div class="doorpi-panel-head">
                     <h2 class="doorpi-panel-title">${t('whoIsPlaying')}</h2>
                     <p class="doorpi-panel-sub">${t('welcomeBack')}</p>
                 </div>
-                <div class="doorpi-user-grid">
-                    ${cards}
-                    <button class="doorpi-user-card create-card" id="doorpiCreateUserCard" tabindex="0" style="animation-delay: ${createUserDelay}s">
-                        <div class="doorpi-avatar"><div class="doorpi-create-user-icon">+</div></div>
-                        <span class="doorpi-user-name">${t('newUser')}</span>
-                    </button>
+                
+                <div class="doorpi-user-picker-layout">
+                    <div class="doorpi-user-scroll-area">
+                        <div class="doorpi-user-track">
+                            ${cards}
+                        </div>
+                    </div>
+                    <div class="doorpi-user-fixed-add">
+                        <button class="doorpi-user-card create-card" id="doorpiCreateUserCard" tabindex="0" style="animation-delay: ${createUserDelay}s">
+                            <div class="doorpi-avatar"><div class="doorpi-create-user-icon">+</div></div>
+                            <span class="doorpi-user-name">${t('newUser')}</span>
+                        </button>
+                    </div>
                 </div>
-                            ${requireSelection ? '' : `<button class="doorpi-manager-btn" id="doorpiCloseUsers" tabindex="0" style="margin-top: 24px; animation: doorpiCardRise 0.5s backwards; animation-delay: ${(createUserDelay + 0.1)}s">${t('btnBackLabel')}</button>`}
+
+                ${requireSelection ? '' : `<button class="doorpi-manager-btn" id="doorpiCloseUsers" tabindex="0" style="margin-top: 24px; animation: doorpiCardRise 0.5s backwards; animation-delay: ${(createUserDelay + 0.1)}s">${t('btnBackLabel')}</button>`}
 
                 <div class="doorpi-power-row" style="animation: doorpiCardRise 0.5s backwards; animation-delay: ${(createUserDelay + 0.15)}s">
                     <button class="doorpi-power-btn" id="doorpiExitApp" tabindex="0">${svgExit}${t('powerExit', 'Sair')}</button>
@@ -4320,51 +4537,57 @@
                 </div>
             </div>`;
 
-        if (typeof applyI18n === 'function') applyI18n();
-        overlay.style.display = 'flex';
-        document.body.classList.add('user-picker-open');
+    if (typeof applyI18n === 'function') applyI18n();
+    overlay.style.display = 'flex';
+    document.body.classList.add('user-picker-open');
 
-        if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
 
-        const hidePicker = () => {
-            overlay.style.display = 'none';
-            document.body.classList.remove('user-picker-open');
-            window.DoorpiIntro?.finishHandoff?.();
-            if (overlay.dataset.returnToQuickPanel === 'true' && overlay.dataset.required !== 'true') {
-                overlay.dataset.returnToQuickPanel = 'false';
-                window.DoorpiQuickPanel?.openMenu?.();
+    const hidePicker = () => {
+        overlay.style.display = 'none';
+        document.body.classList.remove('user-picker-open');
+        window.DoorpiIntro?.finishHandoff?.();
+        if (overlay.dataset.returnToQuickPanel === 'true' && overlay.dataset.required !== 'true') {
+            overlay.dataset.returnToQuickPanel = 'false';
+            window.DoorpiQuickPanel?.openMenu?.();
+        }
+    };
+
+    overlay.querySelectorAll('[data-user-id]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const user = users.find(u => String(u.Id) === String(btn.dataset.userId));
+            if (user?.HasPin || user?.hasPin) {
+                showUserPinPrompt(user);
+                return;
             }
-        };
-
-        overlay.querySelectorAll('[data-user-id]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const user = users.find(u => String(u.Id) === String(btn.dataset.userId));
-                if (user?.HasPin || user?.hasPin) {
-                    showUserPinPrompt(user);
-                    return;
-                }
-                window._pendingUserSwitchId = btn.dataset.userId;
-                postToHost({ action: 'selectUser', userId: btn.dataset.userId });
-            });
+            window._pendingUserSwitchId = btn.dataset.userId;
+            postToHost({ action: 'selectUser', userId: btn.dataset.userId });
         });
-        overlay.querySelector('#doorpiCreateUserCard')?.addEventListener('click', () => {
-            hidePicker();
-            openCreateUserDialog();
+        // Quando a navegação for feita pelo ponteiro (mouse/toque)
+        btn.addEventListener('focus', () => {
+            btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
         });
-        overlay.querySelector('#doorpiCloseUsers')?.addEventListener('click', hidePicker);
-        window._doorpiCloseUserPicker = function () {
-            if (overlay.dataset.required === 'true') return false;
-            hidePicker();
-            return true;
-        };
+    });
 
-        overlay.querySelector('#doorpiExitApp')?.addEventListener('click', () => postToHost({ action: 'exitApp' }));
-        overlay.querySelector('#doorpiSuspend')?.addEventListener('click', () => postToHost({ action: 'suspendSystem' }));
-        overlay.querySelector('#doorpiRestart')?.addEventListener('click', () => postToHost({ action: 'restartSystem' }));
-        overlay.querySelector('#doorpiShutdown')?.addEventListener('click', () => postToHost({ action: 'shutdownSystem' }));
+    overlay.querySelector('#doorpiCreateUserCard')?.addEventListener('click', () => {
+        hidePicker();
+        openCreateUserDialog();
+    });
 
-        requestAnimationFrame(() => requestAnimationFrame(() => overlay.querySelector('.doorpi-user-card')?.focus()));
-    }
+    overlay.querySelector('#doorpiCloseUsers')?.addEventListener('click', hidePicker);
+    window._doorpiCloseUserPicker = function () {
+        if (overlay.dataset.required === 'true') return false;
+        hidePicker();
+        return true;
+    };
+
+    overlay.querySelector('#doorpiExitApp')?.addEventListener('click', () => postToHost({ action: 'exitApp' }));
+    overlay.querySelector('#doorpiSuspend')?.addEventListener('click', () => postToHost({ action: 'suspendSystem' }));
+    overlay.querySelector('#doorpiRestart')?.addEventListener('click', () => postToHost({ action: 'restartSystem' }));
+    overlay.querySelector('#doorpiShutdown')?.addEventListener('click', () => postToHost({ action: 'shutdownSystem' }));
+
+    requestAnimationFrame(() => requestAnimationFrame(() => overlay.querySelector('.doorpi-user-card')?.focus()));
+}
 
     function openCreateUserDialog() {
         window.closeDoorpiTopOverlay?.(true);
@@ -4379,6 +4602,7 @@
         let gpuStatus = null;
         let bluetoothStatus = null;
         let wifiStatus = null;
+        let soundStatus = null;
         let section = null;
         let updateView = 'hub';
         let connectivityView = 'hub';
@@ -4623,6 +4847,7 @@
         }
 
         function canOpen() {
+            if (window.isDoorpiUpdatePromptOpen?.()) return false;
             if (window.isDoorpiQuickMenuBlocked?.()) return false;
             if (window.isDoorpiSessionTransitionActive?.()) return false;
             if (window.isNavMenuOpen || window.isModalOpen || window.isSetupOpen || window._vkbIsOpen) return false;
@@ -4734,6 +4959,7 @@
             const icons = {
                 updates: '<path d="M21 12a9 9 0 0 1-15.5 6.2"/><path d="M3 12A9 9 0 0 1 18.5 5.8"/><path d="M18.5 2.8v3h-3"/><path d="M5.5 21.2v-3h3"/>',
                 connectivity: '<path d="M7 7.5a7 7 0 0 1 10 0"/><path d="M9.7 10.2a3.3 3.3 0 0 1 4.6 0"/><circle cx="12" cy="13" r=".7" fill="currentColor"/><path d="m16.5 3 4 4-3 2.5 3 2.5-4 4V3Z"/>',
+                sound: '<path d="M4 9v6h4l5 4V5L8 9H4Z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/>',
                 users: '<path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.85"/><path d="M16 3.15a4 4 0 0 1 0 7.7"/>',
                 power: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>',
                 settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.72l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/>',
@@ -4753,6 +4979,7 @@
             const updateDot = hasDoorpiUpdate || hasWindowsUpdate ? '<span class="dq-dot"></span>' : '';
             const items = [
                 ['updates', t('updatesTitle'), updateDot],
+                ['sound', t('soundTitle'), ''],
                 ['connectivity', t('navSetConnectivity'), ''],
                 ['users', t('navChangeUser'), ''],
                 ['power', t('quickPower'), ''],
@@ -5000,6 +5227,17 @@
             `;
         }
 
+        function soundContent() {
+            return `
+                <section class="dq-content">
+                    <div class="dq-kicker">${t('quickPanel')}</div>
+                    <h1 class="dq-heading">${t('soundTitle')}</h1>
+                    <p class="dq-sub">${t('soundQuickDesc')}</p>
+                    ${window.DoorpiSoundUI?.render?.('quick') || ''}
+                </section>
+            `;
+        }
+
         function connectivityHub() {
             return `
                 <section class="dq-content">
@@ -5035,6 +5273,7 @@
                 return updatesHub();
             }
             if (section === 'users') return simpleContent(t('navChangeUser'), t('quickSwitchUserDesc'), t('navChangeUser'), 'open-users');
+            if (section === 'sound') return soundContent();
             if (section === 'connectivity') {
                 if (connectivityView === 'bluetooth') return bluetoothContent();
                 if (connectivityView === 'wifi') return wifiContent();
@@ -5051,6 +5290,7 @@
                 return '.dq-card';
             }
             if (sectionId === 'power') return '.dq-action';
+            if (sectionId === 'sound') return '.sound-focus';
             if (sectionId === 'connectivity') {
                 if (connectivityView === 'bluetooth') return '.bluetooth-focus';
                 if (connectivityView === 'wifi') return '.wifi-focus';
@@ -5068,6 +5308,11 @@
             if (el.dataset?.connectivityView) return `[data-connectivity-view="${el.dataset.connectivityView}"]`;
             if (el.dataset?.wifiNetworkId) return `[data-wifi-network-id="${CSS.escape(el.dataset.wifiNetworkId)}"]`;
             if (el.dataset?.wifiAction) return `[data-wifi-action="${el.dataset.wifiAction}"]`;
+            if (el.dataset?.soundAction) return `[data-sound-action="${CSS.escape(el.dataset.soundAction)}"]`;
+            if (el.dataset?.soundVolumeControl) return `[data-sound-volume-control="${CSS.escape(el.dataset.soundVolumeControl)}"]`;
+            if (el.dataset?.soundDeviceOption) return `[data-sound-device-option="${CSS.escape(el.dataset.soundDeviceOption)}"]`;
+            if (el.dataset?.soundItem) return `[data-sound-item="${CSS.escape(el.dataset.soundItem)}"]`;
+            if (el.dataset?.soundSlider) return `[data-sound-slider="${CSS.escape(el.dataset.soundSlider)}"]`;
             if (el.dataset?.btMenuId) return `[data-bt-menu-id="${CSS.escape(el.dataset.btMenuId)}"]`;
             if (el.dataset?.deviceId) return `[data-device-id="${CSS.escape(el.dataset.deviceId)}"]`;
             if (el.dataset?.btAction) return `[data-bt-action="${el.dataset.btAction}"]`;
@@ -5100,6 +5345,7 @@
             }
             if (section === 'connectivity' && !sameSection) connectivityView = 'hub';
             if (section === 'updates' && !sameSection) updateView = 'hub';
+            if (section === 'sound') postToHost?.({ action: 'requestSoundStatus' });
             depth = 'content';
             if (sameSection && depth === 'content') {
                 const target = document.getElementById('doorpiQuickPanel')?.querySelector(contentFocusFor(section));
@@ -5136,6 +5382,11 @@
         function wireWifi(root) {
             if (section !== 'connectivity' || connectivityView !== 'wifi') return;
             window.DoorpiWifiUI?.bind?.(root, 'quick', focusSelector => render(focusSelector));
+        }
+
+        function wireSound(root) {
+            if (section !== 'sound') return;
+            window.DoorpiSoundUI?.bind?.(root, 'quick', focusSelector => render(focusSelector));
         }
 
         function patchBluetoothContent() {
@@ -5181,6 +5432,22 @@
             wireWifi(next);
             requestAnimationFrame(() => {
                 const target = (focusSelector && next.querySelector(focusSelector)) || next.querySelector('.wifi-focus');
+                target?.focus();
+            });
+        }
+
+        function patchSoundContent() {
+            const overlay = document.getElementById('doorpiQuickPanel');
+            const current = overlay?.querySelector('.dq-content');
+            if (!current || section !== 'sound') return;
+            const focusSelector = currentFocusSelector();
+            const template = document.createElement('template');
+            template.innerHTML = soundContent().trim();
+            const next = template.content.firstElementChild;
+            current.replaceWith(next);
+            wireSound(next);
+            requestAnimationFrame(() => {
+                const target = (focusSelector && next.querySelector(focusSelector)) || next.querySelector('.sound-focus');
                 target?.focus();
             });
         }
@@ -5261,6 +5528,7 @@
         function wire(overlay) {
             wireBluetooth(overlay.querySelector('.dq-content'));
             wireWifi(overlay.querySelector('.dq-content'));
+            wireSound(overlay.querySelector('.dq-content'));
             overlay.querySelectorAll('[data-section]').forEach(btn => {
                 btn.addEventListener('click', () => {
                     enterSection(btn.dataset.section || 'updates');
@@ -5341,6 +5609,7 @@
             postToHost?.({ action: 'requestUpdateStatus' });
             postToHost?.({ action: 'requestWindowsUpdateStatus' });
             postToHost?.({ action: 'requestGpuUpdateStatus' });
+            postToHost?.({ action: 'requestSoundStatus' });
             render('.dq-menu-btn');
         }
 
@@ -5358,6 +5627,7 @@
             postToHost?.({ action: 'requestUpdateStatus' });
             postToHost?.({ action: 'requestWindowsUpdateStatus' });
             postToHost?.({ action: 'requestGpuUpdateStatus' });
+            postToHost?.({ action: 'requestSoundStatus' });
             render('.dq-menu-btn');
         }
 
@@ -5381,6 +5651,13 @@
         }
 
         function back() {
+            if (section === 'sound') {
+                const soundFocusSelector = window.DoorpiSoundUI?.back?.('quick');
+                if (soundFocusSelector) {
+                    if (typeof soundFocusSelector === 'string') render(soundFocusSelector);
+                    return true;
+                }
+            }
             if (section === 'connectivity' && connectivityView === 'bluetooth' && bluetoothStatus?.pairingPrompt) {
                 postToHost?.({ action: 'respondBluetoothPairing', accepted: false, pin: '' });
                 return true;
@@ -5419,6 +5696,7 @@
 
         function handleDirection(direction) {
             if (!api.isOpen()) return false;
+            if (section === 'sound' && window.DoorpiSoundUI?.handleDirection?.('quick', direction)) return true;
             const active = document.activeElement;
             if (active?.closest?.('#doorpiQuickPanel .dq-content')) {
                 if (direction === 'LEFT') {
@@ -5457,6 +5735,10 @@
             close,
             toggle,
             back,
+            confirm() {
+                if (!this.isOpen() || section !== 'sound') return false;
+                return !!window.DoorpiSoundUI?.confirm?.('quick');
+            },
             handleDirection,
             isOpen: () => {
                 const overlay = document.getElementById('doorpiQuickPanel');
@@ -5490,6 +5772,12 @@
                 wifiStatus = { ...(wifiStatus || {}), ...(status || {}) };
                 if (this.isOpen() && section === 'connectivity' && connectivityView === 'wifi') {
                     patchWifiContent();
+                }
+            },
+            setSoundStatus(status) {
+                soundStatus = { ...(soundStatus || {}), ...(status || {}) };
+                if (this.isOpen() && section === 'sound') {
+                    patchSoundContent();
                 }
             }
         };
@@ -5568,7 +5856,7 @@
         }
         if (e.target?.closest?.('.vkb-overlay, .doorpi-vkb-overlay, .context-menu.visible')) return;
         if (window.isDoorpiOverlayOpen && window.isDoorpiOverlayOpen()) {
-            const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay, .doorpi-pin-panel'))
+            const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay, .doorpi-pin-panel, .doorpi-update-prompt.is-visible'))
                 .filter(el => el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
             const topOverlay = overlays.at(-1);
 

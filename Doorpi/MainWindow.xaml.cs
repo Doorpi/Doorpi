@@ -10669,6 +10669,19 @@ namespace Doorpi
                 {
                     ForgetWifiNetwork(GetStr(root, "networkId"));
                 }
+                else if (action == "requestSoundStatus")
+                {
+                    RequestSoundStatus();
+                }
+                else if (action == "setDefaultSoundDevice")
+                {
+                    SetDefaultSoundDevice(GetStr(root, "deviceId"));
+                }
+                else if (action == "setSystemVolume")
+                {
+                    int volume = root.TryGetProperty("volume", out var volumeElement) ? volumeElement.GetInt32() : 0;
+                    SetSystemVolume(volume);
+                }
                 else if (action == "openGpuUpdater")
                 {
                     string updaterId = GetStr(root, "updaterId");
@@ -13576,6 +13589,7 @@ namespace Doorpi
             DiscordRpcManager.Instance.Dispose();
             DisposeBluetoothManager();
             DisposeWifiManager();
+            DisposeSoundManager();
             // 1. Força o fechamento de todas as janelas secundárias
             try { _webAppWindow?.Close(); } catch { }
             try { _popupWindow?.Close(); } catch { }

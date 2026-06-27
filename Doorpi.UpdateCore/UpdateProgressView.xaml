@@ -1,114 +1,215 @@
 <UserControl x:Class="Doorpi.UpdateCore.UpdateProgressView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Background="#020309">
-    <Grid Background="#020309">
-        <Grid.Resources>
-            <Style x:Key="ProgressText" TargetType="TextBlock">
-                <Setter Property="Foreground" Value="#EAF4FF" />
-                <Setter Property="FontFamily" Value="Segoe UI Variable Display, Segoe UI, Arial" />
-            </Style>
-        </Grid.Resources>
+             Background="#07071A">
+    <UserControl.Resources>
+        <Style x:Key="ProgressText" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#F4F8FF" />
+            <Setter Property="FontFamily" Value="Segoe UI Variable Display, Segoe UI, Arial" />
+            <Setter Property="FontWeight" Value="Light" />
+        </Style>
 
-        <Ellipse Width="760" Height="420" Fill="#182D5A" Opacity="0.28"
-                 HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-180,-100,0,0">
-            <Ellipse.Effect>
-                <BlurEffect Radius="90" />
-            </Ellipse.Effect>
-        </Ellipse>
-        <Ellipse Width="680" Height="520" Fill="#155E75" Opacity="0.22"
-                 HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-220,-160">
-            <Ellipse.Effect>
-                <BlurEffect Radius="110" />
-            </Ellipse.Effect>
-        </Ellipse>
+        <RadialGradientBrush x:Key="BlobBlueDeep" Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.56" RadiusY="0.56">
+            <GradientStop Color="#722D41B9" Offset="0" />
+            <GradientStop Color="#382D41B9" Offset="0.48" />
+            <GradientStop Color="#002D41B9" Offset="1" />
+        </RadialGradientBrush>
+        <RadialGradientBrush x:Key="BlobBlue" Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.58" RadiusY="0.58">
+            <GradientStop Color="#661C61D6" Offset="0" />
+            <GradientStop Color="#321C61D6" Offset="0.5" />
+            <GradientStop Color="#001C61D6" Offset="1" />
+        </RadialGradientBrush>
+        <RadialGradientBrush x:Key="BlobCyan" Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.58" RadiusY="0.58">
+            <GradientStop Color="#5A1B8FCC" Offset="0" />
+            <GradientStop Color="#301B8FCC" Offset="0.48" />
+            <GradientStop Color="#001B8FCC" Offset="1" />
+        </RadialGradientBrush>
+        <RadialGradientBrush x:Key="BlobPurple" Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.58" RadiusY="0.58">
+            <GradientStop Color="#6A5046D8" Offset="0" />
+            <GradientStop Color="#385046D8" Offset="0.5" />
+            <GradientStop Color="#005046D8" Offset="1" />
+        </RadialGradientBrush>
+    </UserControl.Resources>
 
-        <Grid MaxWidth="980" Margin="42" HorizontalAlignment="Center" VerticalAlignment="Center">
+    <UserControl.Triggers>
+        <EventTrigger RoutedEvent="Loaded">
+            <BeginStoryboard>
+                <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="DriftA" Storyboard.TargetProperty="X" From="-90" To="130" Duration="0:00:18" AutoReverse="True" RepeatBehavior="Forever" />
+                    <DoubleAnimation Storyboard.TargetName="DriftA" Storyboard.TargetProperty="Y" From="-35" To="80" Duration="0:00:21" AutoReverse="True" RepeatBehavior="Forever" />
+                    <DoubleAnimation Storyboard.TargetName="DriftB" Storyboard.TargetProperty="X" From="80" To="-130" Duration="0:00:22" AutoReverse="True" RepeatBehavior="Forever" />
+                    <DoubleAnimation Storyboard.TargetName="DriftB" Storyboard.TargetProperty="Y" From="70" To="-70" Duration="0:00:19" AutoReverse="True" RepeatBehavior="Forever" />
+                    <DoubleAnimation Storyboard.TargetName="DriftC" Storyboard.TargetProperty="X" From="-70" To="110" Duration="0:00:20" AutoReverse="True" RepeatBehavior="Forever" />
+                    <DoubleAnimation Storyboard.TargetName="DriftC" Storyboard.TargetProperty="Y" From="55" To="-95" Duration="0:00:24" AutoReverse="True" RepeatBehavior="Forever" />
+                    <DoubleAnimation Storyboard.TargetName="DriftD" Storyboard.TargetProperty="X" From="50" To="-110" Duration="0:00:17" AutoReverse="True" RepeatBehavior="Forever" />
+                    <DoubleAnimation Storyboard.TargetName="DriftD" Storyboard.TargetProperty="Y" From="-70" To="70" Duration="0:00:20" AutoReverse="True" RepeatBehavior="Forever" />
+                </Storyboard>
+            </BeginStoryboard>
+        </EventTrigger>
+    </UserControl.Triggers>
+
+    <Grid Background="#07071A" ClipToBounds="True">
+        <Grid>
+            <Rectangle Fill="#07071A" />
+
+            <Ellipse Width="1900" Height="1180"
+                     HorizontalAlignment="Right"
+                     VerticalAlignment="Top"
+                     Margin="0,-420,-140,0"
+                     Fill="{StaticResource BlobCyan}"
+                     Opacity="0.92"
+                     RenderTransformOrigin="0.5,0.5">
+                <Ellipse.RenderTransform>
+                    <TransformGroup>
+                        <RotateTransform Angle="-2" />
+                        <TranslateTransform x:Name="DriftA" />
+                    </TransformGroup>
+                </Ellipse.RenderTransform>
+            </Ellipse>
+
+            <Ellipse Width="1760" Height="1080"
+                     HorizontalAlignment="Right"
+                     VerticalAlignment="Center"
+                     Margin="0,110,-40,0"
+                     Fill="{StaticResource BlobBlue}"
+                     Opacity="0.86"
+                     RenderTransformOrigin="0.5,0.5">
+                <Ellipse.RenderTransform>
+                    <TransformGroup>
+                        <RotateTransform Angle="2" />
+                        <TranslateTransform x:Name="DriftB" />
+                    </TransformGroup>
+                </Ellipse.RenderTransform>
+            </Ellipse>
+
+            <Ellipse Width="1700" Height="1060"
+                     HorizontalAlignment="Center"
+                     VerticalAlignment="Bottom"
+                     Margin="-110,0,0,-470"
+                     Fill="{StaticResource BlobPurple}"
+                     Opacity="0.92"
+                     RenderTransformOrigin="0.5,0.5">
+                <Ellipse.RenderTransform>
+                    <TransformGroup>
+                        <RotateTransform Angle="5" />
+                        <TranslateTransform x:Name="DriftC" />
+                    </TransformGroup>
+                </Ellipse.RenderTransform>
+            </Ellipse>
+
+            <Ellipse Width="1420" Height="930"
+                     HorizontalAlignment="Left"
+                     VerticalAlignment="Center"
+                     Margin="-650,-120,0,0"
+                     Fill="{StaticResource BlobBlueDeep}"
+                     Opacity="0.70"
+                     RenderTransformOrigin="0.5,0.5">
+                <Ellipse.RenderTransform>
+                    <TransformGroup>
+                        <RotateTransform Angle="-9" />
+                        <TranslateTransform x:Name="DriftD" />
+                    </TransformGroup>
+                </Ellipse.RenderTransform>
+            </Ellipse>
+
+            <Ellipse Width="1260" Height="820"
+                     HorizontalAlignment="Center"
+                     VerticalAlignment="Center"
+                     Margin="90,40,0,0"
+                     Fill="{StaticResource BlobBlue}"
+                     Opacity="0.36"
+                     RenderTransformOrigin="0.5,0.5">
+                <Ellipse.RenderTransform>
+                        <RotateTransform Angle="-3" />
+                </Ellipse.RenderTransform>
+            </Ellipse>
+
+            <Rectangle>
+                <Rectangle.Fill>
+                    <RadialGradientBrush Center="0.5,0.52"
+                                         GradientOrigin="0.5,0.52"
+                                         RadiusX="0.78"
+                                         RadiusY="0.86">
+                        <GradientStop Color="#00000000" Offset="0" />
+                        <GradientStop Color="#64000012" Offset="1" />
+                    </RadialGradientBrush>
+                </Rectangle.Fill>
+            </Rectangle>
+        </Grid>
+
+        <TextBlock x:Name="EyebrowText"
+                   Style="{StaticResource ProgressText}"
+                   Text="Doorpi System Update"
+                   FontSize="48"
+                   Foreground="#F6F8FF"
+                   Opacity="0.92"
+                   HorizontalAlignment="Left"
+                   VerticalAlignment="Top"
+                   Margin="72,52,0,0" />
+
+        <TextBlock x:Name="TitleText"
+                   Visibility="Collapsed"
+                   Text="" />
+
+        <Grid Width="1120"
+              HorizontalAlignment="Center"
+              VerticalAlignment="Center"
+              Margin="0,44,0,0">
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="28" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="30" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="32" />
                 <RowDefinition Height="Auto" />
-                <RowDefinition Height="26" />
+                <RowDefinition Height="22" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="44" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <TextBlock x:Name="EyebrowText"
+            <TextBlock x:Name="TipText"
                        Style="{StaticResource ProgressText}"
-                       Text="DOORPI SYSTEM UPDATE"
-                       FontSize="14"
-                       FontWeight="SemiBold"
-                       Foreground="#7DCBFF"
-                       Opacity="0.84" />
-
-            <TextBlock x:Name="TitleText"
-                       Grid.Row="2"
-                       Style="{StaticResource ProgressText}"
-                       Text="Atualizando componentes do sistema..."
-                       FontSize="44"
-                       FontWeight="SemiBold"
-                       TextWrapping="Wrap" />
+                       Text="A atualização está preparando os arquivos necessários."
+                       FontSize="30"
+                       Foreground="#F5F8FF"
+                       TextAlignment="Center"
+                       HorizontalAlignment="Center"
+                       TextWrapping="Wrap"
+                       Opacity="0.92" />
 
             <TextBlock x:Name="StatusText"
-                       Grid.Row="4"
+                       Grid.Row="2"
                        Style="{StaticResource ProgressText}"
-                       Text="Preparando ambiente seguro de atualizacao."
-                       FontSize="18"
-                       Foreground="#B9C8D8"
-                       TextWrapping="Wrap" />
+                       Text="Preparando ambiente seguro de atualização."
+                       FontSize="22"
+                       Foreground="#DFE7F4"
+                       TextAlignment="Center"
+                       HorizontalAlignment="Center"
+                       TextWrapping="Wrap"
+                       Opacity="0.82" />
 
-            <Grid Grid.Row="6">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="16" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
-
-                <Border Height="8" CornerRadius="4" Background="#223044">
-                    <Grid x:Name="ProgressTrack" ClipToBounds="True">
-                        <Border x:Name="ProgressFill"
-                                Width="0"
-                                HorizontalAlignment="Left"
-                                CornerRadius="4"
-                                Background="#EAF4FF" />
-                    </Grid>
-                </Border>
-
-                <TextBlock x:Name="WarningText"
-                           Grid.Row="2"
-                           Style="{StaticResource ProgressText}"
-                           Text="Nao desligue o sistema durante a atualizacao."
-                           FontSize="14"
-                           Foreground="#7F90A3"
-                           HorizontalAlignment="Right" />
-            </Grid>
-
-            <Border Grid.Row="8"
-                    Background="#0B1220"
-                    BorderBrush="#223044"
-                    BorderThickness="1"
-                    CornerRadius="8"
-                    Padding="18"
-                    Opacity="0.92">
-                <StackPanel>
-                    <TextBlock x:Name="TipLabel"
-                               Style="{StaticResource ProgressText}"
-                               Text="Notas da versao"
-                               FontSize="13"
-                               Foreground="#7DCBFF"
-                               FontWeight="SemiBold" />
-                    <TextBlock x:Name="TipText"
-                               Margin="0,8,0,0"
-                               Style="{StaticResource ProgressText}"
-                               Text="A atualizacao esta preparando os arquivos necessarios."
-                               FontSize="15"
-                               Foreground="#B9C8D8"
-                               TextWrapping="Wrap" />
-                </StackPanel>
+            <Border Grid.Row="4"
+                    Height="8"
+                    Width="1080"
+                    HorizontalAlignment="Center"
+                    CornerRadius="4"
+                    Background="#718096">
+                <Grid x:Name="ProgressTrack" ClipToBounds="True">
+                    <Border x:Name="ProgressFill"
+                            Width="0"
+                            HorizontalAlignment="Left"
+                            CornerRadius="4"
+                            Background="#F7F9FF" />
+                </Grid>
             </Border>
+
+            <TextBlock x:Name="WarningText"
+                       Grid.Row="6"
+                       Style="{StaticResource ProgressText}"
+                       Text="Não desligue o sistema durante a atualização."
+                       FontSize="25"
+                       Foreground="#EEF3FA"
+                       TextAlignment="Center"
+                       HorizontalAlignment="Center"
+                       Opacity="0.9" />
         </Grid>
     </Grid>
 </UserControl>

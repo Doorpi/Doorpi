@@ -342,6 +342,13 @@
         else if (type === 'doorpi:intro:error') { state.failed = true; completeIntro('error'); }
     }
 
+    function postIntroVolume(value) {
+        const safe = Math.max(0, Math.min(1, Number(value) || 0));
+        try {
+            state.iframe?.contentWindow?.postMessage({ type: 'doorpi:intro:set-volume', volume: safe }, '*');
+        } catch { }
+    }
+
     // Adicione 'async' aqui na frente
     async function start() {
         if (state.started) return;
@@ -373,6 +380,10 @@
 
         document.body.appendChild(iframe);
         state.iframe = iframe;
+        iframe.addEventListener('load', () => {
+            const volume = window.DoorpiSoundSettings?.getInternalVolumes?.().intro;
+            postIntroVolume(volume === undefined ? 1 : volume / 100);
+        }, { once: true });
 
         const fallbackMs = Math.max(1000, Number(state.config.fallbackTimeoutMs ?? state.config.durationMs ?? 12000));
         state.completeTimer = window.setTimeout(() => {
@@ -386,6 +397,7 @@
         isRunning: () => state.started && !state.completed,
         isComplete: () => state.completed,
         isHandoffActive: () => state.handoffActive,
+        setVolume: postIntroVolume,
         getUserPickerClasses: () => {
             const cfg = state.handoffConfig || {};
             const userPicker = cfg.userPicker || {};

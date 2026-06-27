@@ -929,6 +929,7 @@ document.addEventListener('keydown', e => {
 
         if (e.key === 'Enter') {
             e.preventDefault();
+            if (window.DoorpiQuickPanel?.confirm?.()) return;
             const el = document.activeElement;
 
             if (el && el.tagName === 'INPUT') {
@@ -1396,6 +1397,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
 
         if (window.isDoorpiOverlayOpen?.() && !window._vkbIsOpen) {
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
+                if (window.DoorpiQuickPanel?.confirm?.()) return;
                 const el = document.activeElement;
                 if (el && el.tagName === 'INPUT') window._vkbOpen?.(el);
                 else if (el && el.tagName === 'SELECT') {

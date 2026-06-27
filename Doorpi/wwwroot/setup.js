@@ -543,6 +543,8 @@ function openSetup(isAddingUser = false) {
     document.getElementById('btnSetupFinish').textContent = isAddingUser ? (typeof t === 'function' ? t('addUsuario', 'Adicionar Usuário') : 'Adicionar Usuário') : (typeof t === 'function' ? t('setupStep4Finish') : 'Concluir');
     window.isSetupOpen = true;
     isSetupOpen = true;
+    document.body.classList.add('setup-active');
+    window.updateDoorpiQuickMenuAvailability?.();
     const c = document.getElementById('setupContainer');
     c.style.display = 'flex';
     requestAnimationFrame(() => {
@@ -562,6 +564,8 @@ function closeSetup() {
     _stopSetupBg(); // Para a animação do Setup ao fechar para poupar recursos
     window.focusFeaturedCard?.();
     window.isSetupOpen = false;
+    document.body.classList.remove('setup-active');
+    window.updateDoorpiQuickMenuAvailability?.();
 }
 
 function setupBack() { closeSetup(); }

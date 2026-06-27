@@ -18,7 +18,6 @@ namespace Doorpi
         private UpdateDecision? _lastUpdateDecision;
         private DateTimeOffset _lastUpdateCheckUtc = DateTimeOffset.MinValue;
         private bool _startupUpdateCheckStarted;
-        private bool _forceUpdateStarted;
         private UpdateProgressWindow? _updateProgressWindow;
         private WindowsUpdateManager? _windowsUpdateManager;
 
@@ -252,15 +251,7 @@ namespace Doorpi
                     : "Sistema atualizado.";
                 SendUpdateStatusToUI(status, message, decision);
 
-                if (decision.ForceUpdate && decision.HasAnyUpdate && !_forceUpdateStarted)
-                {
-                    _forceUpdateStarted = true;
-                    ShowUpdateProgress("Atualizacao obrigatoria",
-                        "O Doorpi precisa aplicar uma atualizacao antes de continuar.",
-                        0.08);
-                    _ = Task.Run(() => StartSystemUpdateAsync());
-                }
-                else if (!decision.ForceUpdate)
+                if (!decision.ForceUpdate)
                 {
                     CloseUpdateProgress();
                 }

@@ -68,6 +68,9 @@
     <None Update="wwwroot\wifi-ui.js">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="wwwroot\sound-ui.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="wwwroot\config\strings.js">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
