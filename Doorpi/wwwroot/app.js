@@ -62,9 +62,9 @@
                 }
                 .doorpi-first-run-tutorial.visible { display: flex; }
                 .first-run-panel {
-                    width: min(1120px, 92vw);
+                    width: min(920px, 90vw);
                     display: grid;
-                    gap: clamp(22px, 3vh, 42px);
+                    gap: clamp(16px, 2.1vh, 30px);
                     animation: firstRunIn .36s cubic-bezier(.2,.9,.2,1) both;
                 }
                 @keyframes firstRunIn {
@@ -73,20 +73,20 @@
                 }
                 .first-run-title {
                     margin: 0;
-                    font-size: clamp(2.8rem, 6vw, 7.8rem);
+                    font-size: clamp(1.8rem, 3.8vw, 4.8rem);
                     line-height: .95;
-                    font-weight: 260;
-                    letter-spacing: -.05em;
+                    font-weight: 300;
+                    letter-spacing: -.035em;
                     text-shadow: 0 0 42px rgba(125,203,255,.22), 0 18px 80px rgba(0,0,0,.72);
                 }
                 .first-run-copy {
                     display: grid;
-                    gap: clamp(14px, 1.8vh, 22px);
+                    gap: clamp(10px, 1.35vh, 17px);
                     margin: 0 auto;
-                    max-width: 920px;
+                    max-width: 780px;
                     color: rgba(255,255,255,.82);
-                    font-size: clamp(1.25rem, 2vw, 2.35rem);
-                    line-height: 1.24;
+                    font-size: clamp(1rem, 1.28vw, 1.58rem);
+                    line-height: 1.34;
                     font-weight: 340;
                 }
                 .first-run-copy p {
@@ -94,14 +94,14 @@
                 }
                 .first-run-action {
                     justify-self: center;
-                    min-width: clamp(210px, 18vw, 340px);
-                    min-height: clamp(54px, 6vh, 78px);
+                    min-width: clamp(170px, 14vw, 260px);
+                    min-height: clamp(46px, 5vh, 62px);
                     border: 1px solid rgba(255,255,255,.18);
                     border-radius: 10px;
                     background: rgba(255,255,255,.88);
                     color: #050711;
                     font: inherit;
-                    font-size: clamp(1rem, 1.25vw, 1.45rem);
+                    font-size: clamp(.9rem, 1.02vw, 1.18rem);
                     font-weight: 760;
                     letter-spacing: .02em;
                     outline: none;
@@ -151,6 +151,45 @@
                     font-weight: 860;
                     letter-spacing: .08em;
                 }
+                .doorpi-xbox-logo-btn {
+                    width: 2.08em;
+                    height: 2.08em;
+                    border-radius: 50%;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: linear-gradient(180deg, #f6f6f7, #c9ccd2);
+                    border: 1px solid rgba(255,255,255,.48);
+                    box-shadow: inset 0 .12em .22em rgba(255,255,255,.58), inset 0 -.18em .34em rgba(0,0,0,.22), 0 .34em .82em rgba(0,0,0,.34);
+                    color: #151820;
+                }
+                .doorpi-xbox-logo-btn svg {
+                    width: 1.18em;
+                    height: 1.18em;
+                    display: block;
+                    fill: currentColor;
+                }
+                .doorpi-face-x {
+                    width: 1.45em;
+                    height: 1.45em;
+                    border-radius: 50%;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: #003e92;
+                    color: #fff;
+                    font-size: .72em;
+                    font-weight: 900;
+                    line-height: 1;
+                    box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 .24em .6em rgba(0,0,0,.28);
+                    vertical-align: middle;
+                    transform: translateY(-.07em);
+                }
+                .first-run-em {
+                    color: rgba(255,255,255,.96);
+                    font-weight: 620;
+                    text-shadow: 0 0 26px rgba(125,203,255,.20);
+                }
                 .doorpi-stickcap {
                     width: 2.08em;
                     height: 2.08em;
@@ -178,43 +217,43 @@
                     border: 1px solid rgba(255,255,255,.28);
                     box-shadow: 0 0 0 .18em rgba(0,0,0,.14);
                 }
-                .doorpi-stick-press {
-                    position: absolute;
-                    right: -.22em;
-                    bottom: -.12em;
-                    width: .82em;
-                    height: .82em;
-                    border-radius: 50%;
-                    background: rgba(255,255,255,.92);
-                    color: #080a12;
-                    display: inline-flex;
-                    align-items: center;
-                    justify-content: center;
-                    font-size: .72em;
-                    line-height: 1;
-                    box-shadow: 0 .16em .46em rgba(0,0,0,.42);
-                }
             `;
             document.head.appendChild(s);
         }
 
+        function xboxLogoSvg() {
+            return `<svg viewBox="1 1 30 30" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M11.9 9.3c-5.1-5.1-6.4-4-6.4-4C2.7 8 1 11.8 1 16c0 3.4 1.1 6.6 3.1 9.1h.1V25C3 21.5 8.9 12.9 11.9 9.3zm14.6-4s-1.3-1.1-6.4 3.9c3 3.6 8.9 12.2 7.7 15.7v.1h.1c1.9-2.5 3.1-5.7 3.1-9.1 0-4.1-1.7-7.9-4.5-10.6zM16 5.4c.5-.2 4.9-2.8 7.8-2.1h.1v-.1C21.5 1.8 19 1 16 1s-5.5.8-7.8 2.2v.1h.1c2.5-.6 6.6 1.5 7.7 2.1zm0 7.7c0-.1 0-.1 0 0C11.4 16.5 3.7 25 6.1 27.3 8.8 29.6 12.2 31 16 31s7.2-1.4 9.9-3.7c2.3-2.4-5.4-10.8-9.9-14.2z"/></svg>`;
+        }
+
         function shortcutHtml() {
             return `<span class="doorpi-shortcut-combo" aria-label="Xbox ou L1 + R1 + R3">
-                <span class="doorpi-keycap">XBOX</span>
+                <span class="doorpi-xbox-logo-btn">${xboxLogoSvg()}</span>
                 <span class="doorpi-shortcut-plus">/</span>
                 <span class="doorpi-keycap">L1</span>
                 <span class="doorpi-shortcut-plus">+</span>
                 <span class="doorpi-keycap">R1</span>
                 <span class="doorpi-shortcut-plus">+</span>
-                <span class="doorpi-stickcap">R3<span class="doorpi-stick-press">↓</span></span>
+                <span class="doorpi-stickcap">R3</span>
             </span>`;
+        }
+
+        function closeButtonHtml() {
+            return `<span class="doorpi-face-x">X</span>`;
+        }
+
+        function formatTutorialText(text) {
+            return escapeHtml(text)
+                .replaceAll('__DOORPI_RETURN_SHORTCUT__', shortcutHtml())
+                .replaceAll('__DOORPI_CLOSE_BUTTON__', closeButtonHtml())
+                .replace(/\b(YouTube|Discord|GitHub|Doorpi|multitarefas|beta)\b/g, '<span class="first-run-em">$1</span>');
         }
 
         function pages() {
             const shortcutToken = '__DOORPI_RETURN_SHORTCUT__';
+            const closeToken = '__DOORPI_CLOSE_BUTTON__';
             return [
                 [
-                    typeof t === 'function' ? t('firstRunPage1', shortcutToken) : `Para sair de qualquer jogo ou aplicativo, pressione ${shortcutToken} a qualquer momento para retornar ao Doorpi. Voce pode fechar qualquer aplicativo pelas opcoes pressionando X.`
+                    typeof t === 'function' ? t('firstRunPage1', shortcutToken, closeToken) : `Para sair de qualquer jogo ou aplicativo, pressione ${shortcutToken} a qualquer momento para retornar ao Doorpi. Voce pode fechar qualquer aplicativo pelas opcoes pressionando ${closeToken}.`
                 ],
                 [
                     typeof t === 'function' ? t('firstRunPage2a') : 'O Doorpi permite multitarefas, voce e livre para ouvir YouTube, usar Discord e jogar tudo ao mesmo tempo!',
@@ -236,7 +275,7 @@
                 <section class="first-run-panel" aria-live="polite">
                     <h1 class="first-run-title">${tr('firstRunTitle')}</h1>
                     <div class="first-run-copy">
-                        ${copy.map(text => `<p>${escapeHtml(text).replaceAll('__DOORPI_RETURN_SHORTCUT__', shortcutHtml())}</p>`).join('')}
+                        ${copy.map(text => `<p>${formatTutorialText(text)}</p>`).join('')}
                     </div>
                     <button class="first-run-action" type="button" tabindex="0">
                         ${isLast ? tr('firstRunFinish') : tr('firstRunNext')}
@@ -3749,10 +3788,17 @@
                 window._doorpiUsersDataReady?.(window._doorpiUsers, window._doorpiCurrentUserId);
             }
             else if (data.type === 'userPinRejected') {
-                const shown = setUserPinError(t('pinPromptInvalid'));
+                const shown = setUserPinError(t('pinPromptInvalid'), true);
                 if (!shown) {
                     window._pendingUserSwitchId = '';
                     window.showDoorpiToast?.(t('pinPromptInvalid'), '');
+                }
+            }
+            else if (data.type === 'userPinRecoveryRejected') {
+                const shown = setUserPinRecoveryError(t(data.reason || 'pinRecoveryFailed'));
+                if (!shown) {
+                    window._pendingUserSwitchId = '';
+                    window.showDoorpiToast?.(t(data.reason || 'pinRecoveryFailed'), '');
                 }
             }
             else if (data.type === 'clipboardText') {
@@ -4095,6 +4141,7 @@
         const grid = document.getElementById(gridId);
 
         if (grid) {
+            window.syncFeaturedCardArt?.(grid);
             const target = grid.querySelector('.card.featured')
                 || grid.querySelector('.store-card')
                 || grid.querySelector('.card:not(.add-card)')
@@ -4263,6 +4310,11 @@
         .doorpi-pin-panel.pin-error .doorpi-pin-dot.error { animation: doorpiPinShake .28s cubic-bezier(.36,.07,.19,.97); background: rgba(255,95,95,.95); border-color: rgba(255,135,135,.98); box-shadow: 0 0 24px rgba(255,75,75,.36); }
         @keyframes doorpiPinShake { 0%,100% { transform: translateX(0); } 20% { transform: translateX(-10px); } 40% { transform: translateX(8px); } 60% { transform: translateX(-5px); } 80% { transform: translateX(4px); } }
         .doorpi-pin-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+        .doorpi-pin-recovery-input { width: min(420px, 82vw); min-height: 52px; padding: 0 16px; border: 1px solid rgba(255,255,255,.16); border-radius: 12px; background: rgba(255,255,255,.07); color: #fff; font: inherit; text-align: center; outline: none; box-sizing: border-box; }
+        .doorpi-pin-recovery-input:focus { border-color: #fff; box-shadow: 0 0 0 4px rgba(255,255,255,.14); background: rgba(255,255,255,.11); }
+        .doorpi-pin-recovery-link { margin-top: -8px; border: 0; background: transparent; color: rgba(255,255,255,.54); font: inherit; font-size: clamp(.86rem, .92vw, 1rem); cursor: pointer; outline: none; text-decoration: none; }
+        .doorpi-pin-recovery-link:focus, .doorpi-pin-recovery-link:hover { color: #fff; text-decoration: underline; text-underline-offset: 4px; }
+        .doorpi-pin-recovery-link[hidden], .doorpi-pin-recovery-input[hidden], .doorpi-pin-dots[hidden] { display: none; }
         .doorpi-pin-error { min-height: 22px; color: rgba(255,120,120,.95); font-size: clamp(.9rem, .95vw, 1.05rem); }
         .doorpi-pin-actions { display: flex; gap: 12px; justify-content: center; margin-top: 2px; }
         .doorpi-pin-actions .doorpi-manager-btn { min-width: 104px; min-height: 42px; border-radius: 999px; background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.14); color: rgba(255,255,255,.72); padding: 10px 18px; }
@@ -4559,7 +4611,9 @@
 
     function closeUserPinPrompt() {
         window._vkbForceClose?.();
-        document.getElementById('doorpiUserPinPrompt')?.remove();
+        const prompt = document.getElementById('doorpiUserPinPrompt');
+        prompt?._doorpiCleanup?.();
+        prompt?.remove();
     }
 
     function updateUserPinDots(prompt, value, markError = false) {
@@ -4572,7 +4626,7 @@
         });
     }
 
-    function setUserPinError(message) {
+    function setUserPinError(message, countAttempt = false) {
         const prompt = document.getElementById('doorpiUserPinPrompt');
         if (!prompt) return false;
         prompt.dataset.submitting = 'false';
@@ -4580,6 +4634,14 @@
         void prompt.offsetWidth;
         prompt.classList.add('pin-error');
         window._pendingUserSwitchId = '';
+        let shouldRevealRecovery = false;
+        if (countAttempt) {
+            const attempts = Number(prompt.dataset.failedAttempts || '0') + 1;
+            prompt.dataset.failedAttempts = String(attempts);
+            const recoveryBtn = prompt.querySelector('#doorpiUserPinRecovery');
+            if (recoveryBtn && attempts >= 3) recoveryBtn.hidden = false;
+            shouldRevealRecovery = attempts === 3 && !!recoveryBtn;
+        }
         const error = prompt.querySelector('#doorpiUserPinError');
         const input = prompt.querySelector('#doorpiUserPinInput');
         if (error) error.textContent = message || '';
@@ -4587,10 +4649,15 @@
             const failedPin = String(input.value || '').replace(/\D/g, '').slice(0, 4);
             updateUserPinDots(prompt, failedPin, true);
             input.value = '';
-            setTimeout(() => {
-                input.focus();
-                window._vkbOpen?.(input, input._doorpiPinCallbacks || { mode: 'numeric' });
-            }, window._vkbIsOpen ? 0 : 380);
+            if (shouldRevealRecovery) {
+                window._vkbForceClose?.();
+                setTimeout(() => prompt.querySelector('#doorpiUserPinRecovery')?.focus(), 380);
+            } else {
+                setTimeout(() => {
+                    input.focus();
+                    window._vkbOpen?.(input, input._doorpiPinCallbacks || { mode: 'numeric' });
+                }, window._vkbIsOpen ? 0 : 380);
+            }
         }
         setTimeout(() => {
             prompt.classList.remove('pin-error');
@@ -4599,11 +4666,25 @@
         return true;
     }
 
+    function setUserPinRecoveryError(message) {
+        const prompt = document.getElementById('doorpiUserPinPrompt');
+        if (!prompt) return false;
+        prompt.dataset.submitting = 'false';
+        window._pendingUserSwitchId = '';
+        const error = prompt.querySelector('#doorpiUserPinError');
+        if (error) error.textContent = message || t('pinRecoveryFailed');
+        const focused = prompt.querySelector('.doorpi-pin-recovery-input:not([hidden]), #doorpiUserPinDots:not([hidden])');
+        setTimeout(() => focused?.focus?.(), 80);
+        return true;
+    }
+
     function showUserPinPrompt(user) {
         closeUserPinPrompt();
         const prompt = document.createElement('div');
         prompt.id = 'doorpiUserPinPrompt';
         prompt.className = 'doorpi-pin-panel';
+        prompt.dataset.mode = 'pin';
+        prompt.dataset.failedAttempts = '0';
         const pinAvatar = user.PhotoBase64
             ? `<img src="data:image/png;base64,${user.PhotoBase64}" />`
             : escapeHtml((user.Name || '?').charAt(0).toUpperCase());
@@ -4621,6 +4702,8 @@
                     <span class="doorpi-pin-dot"></span>
                 </button>
                 <input class="doorpi-pin-input" id="doorpiUserPinInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" readonly tabindex="0" />
+                <input class="doorpi-pin-recovery-input" id="doorpiPinRecoveryNameInput" type="text" readonly tabindex="0" hidden />
+                <button class="doorpi-pin-recovery-link" id="doorpiUserPinRecovery" tabindex="0" hidden>${t('pinRecoveryForgot')}</button>
                 <div class="doorpi-pin-error" id="doorpiUserPinError"></div>
                 <div class="doorpi-pin-actions">
                     <button class="doorpi-manager-btn" id="doorpiUserPinCancel" tabindex="0">${t('vkbCancel')}</button>
@@ -4631,9 +4714,35 @@
 
         const input = prompt.querySelector('#doorpiUserPinInput');
         const dotsBtn = prompt.querySelector('#doorpiUserPinDots');
+        const recoveryInput = prompt.querySelector('#doorpiPinRecoveryNameInput');
+        const recoveryBtn = prompt.querySelector('#doorpiUserPinRecovery');
+        const subtitle = prompt.querySelector('.doorpi-pin-sub');
+        const errorEl = prompt.querySelector('#doorpiUserPinError');
+        const actions = prompt.querySelector('.doorpi-pin-actions');
+        const placeRecoveryHelpAboveInput = () => {
+            if (errorEl && recoveryInput?.parentNode) recoveryInput.parentNode.insertBefore(errorEl, recoveryInput);
+        };
+        const placeRecoveryHelpDefault = () => {
+            if (errorEl && actions?.parentNode) actions.parentNode.insertBefore(errorEl, actions);
+        };
+        let recoveryUserName = '';
+
+        const pinDigits = () => String(input.value || '').replace(/\D/g, '').slice(0, 4);
+        const setError = (message) => {
+            if (errorEl) errorEl.textContent = message || '';
+        };
+        const bindActions = (secondaryText, secondaryAction, primaryText, primaryAction) => {
+            actions.innerHTML = `
+                <button class="doorpi-manager-btn" id="doorpiPinSecondary" tabindex="0">${secondaryText}</button>
+                <button class="doorpi-manager-btn primary" id="doorpiPinPrimary" tabindex="0">${primaryText}</button>
+            `;
+            actions.querySelector('#doorpiPinSecondary')?.addEventListener('click', secondaryAction);
+            actions.querySelector('#doorpiPinPrimary')?.addEventListener('click', primaryAction);
+        };
         const submit = () => {
+            if (prompt.dataset.mode !== 'pin') return;
             if (prompt.dataset.submitting === 'true') return;
-            const pin = String(input.value || '').replace(/\D/g, '').slice(0, 4);
+            const pin = pinDigits();
             if (pin.length < 4) {
                 setUserPinError(t('pinPromptEmpty'));
                 return;
@@ -4651,20 +4760,130 @@
                 ?.focus();
         };
 
+        const showPinEntry = () => {
+            prompt.dataset.mode = 'pin';
+            prompt.dataset.submitting = 'false';
+            placeRecoveryHelpDefault();
+            subtitle.textContent = t('pinPromptTitle');
+            setError('');
+            input.value = '';
+            recoveryInput.hidden = true;
+            recoveryInput.value = '';
+            dotsBtn.hidden = false;
+            recoveryBtn.hidden = Number(prompt.dataset.failedAttempts || '0') < 3;
+            bindActions(t('vkbCancel'), cancel, t('vkbOk'), submit);
+            updateUserPinDots(prompt, '');
+            dotsBtn.focus();
+        };
+
+        const showRecoveryNewPin = () => {
+            prompt.dataset.mode = 'recoveryPin';
+            prompt.dataset.submitting = 'false';
+            placeRecoveryHelpDefault();
+            subtitle.textContent = t('pinRecoveryNewPinTitle');
+            setError(t('pinRecoveryNewPinHint'));
+            input.value = '';
+            recoveryInput.hidden = true;
+            dotsBtn.hidden = false;
+            recoveryBtn.hidden = true;
+            bindActions(t('vkbCancel'), cancel, t('pinRecoverySave'), submitRecoveryPin);
+            updateUserPinDots(prompt, '');
+            setTimeout(() => openPinKeyboard(), 80);
+        };
+
+        const submitRecoveryName = () => {
+            const typedName = recoveryInput.value || '';
+            if (typedName !== (user.Name || '')) {
+                setError(t('pinRecoveryNameMismatch'));
+                recoveryInput.focus();
+                return;
+            }
+            recoveryUserName = typedName;
+            window._vkbForceClose?.();
+            showRecoveryNewPin();
+        };
+
+        const showRecoveryName = () => {
+            prompt.dataset.mode = 'recoveryName';
+            prompt.dataset.submitting = 'false';
+            placeRecoveryHelpAboveInput();
+            subtitle.textContent = t('pinRecoveryNameTitle');
+            setError(t('pinRecoveryNameHint'));
+            input.value = '';
+            recoveryInput.value = '';
+            recoveryInput.placeholder = t('pinRecoveryNamePlaceholder');
+            recoveryInput.hidden = false;
+            recoveryBtn.hidden = true;
+            dotsBtn.hidden = true;
+            bindActions(t('vkbCancel'), cancel, t('vkbOk'), submitRecoveryName);
+            recoveryInput._doorpiVkbReturnFocus = null;
+            recoveryInput._doorpiRecoveryCallbacks = {
+                placement: 'below',
+                keepOpenOnEnter: true,
+                onEnter: submitRecoveryName,
+                onOk: submitRecoveryName,
+                onCancel: cancel
+            };
+            recoveryInput._doorpiVkbCallbacks = recoveryInput._doorpiRecoveryCallbacks;
+            setTimeout(() => {
+                recoveryInput.removeAttribute('readonly');
+                recoveryInput.focus();
+                window._vkbOpen?.(recoveryInput, recoveryInput._doorpiRecoveryCallbacks);
+            }, 80);
+        };
+
+        function submitRecoveryPin() {
+            if (prompt.dataset.mode !== 'recoveryPin') return;
+            if (prompt.dataset.submitting === 'true') return;
+            const pin = pinDigits();
+            if (pin.length < 4) {
+                setError(t('pinRecoveryPinTooShort'));
+                setTimeout(() => openPinKeyboard(), 120);
+                return;
+            }
+            prompt.dataset.submitting = 'true';
+            window._pendingUserSwitchId = user.Id;
+            window._vkbForceClose?.();
+            postToHost({ action: 'recoverUserPin', userId: user.Id, userName: recoveryUserName, pin });
+        }
+
+        const showRecoveryConfirm = () => {
+            prompt.dataset.mode = 'recoveryConfirm';
+            prompt.dataset.submitting = 'false';
+            placeRecoveryHelpDefault();
+            window._vkbForceClose?.();
+            subtitle.textContent = t('pinRecoveryConfirmTitle');
+            setError(t('pinRecoveryConfirmBody'));
+            input.value = '';
+            recoveryInput.hidden = true;
+            recoveryBtn.hidden = true;
+            dotsBtn.hidden = true;
+            bindActions(t('vkbCancel'), showPinEntry, t('pinRecoveryConfirmYes'), showRecoveryName);
+            actions.querySelector('#doorpiPinPrimary')?.focus();
+        };
+
         input._doorpiPinCallbacks = {
             mode: 'numeric',
-            onOk: submit,
+            onOk: () => prompt.dataset.mode === 'recoveryPin' ? submitRecoveryPin() : submit(),
             onCancel: cancel
         };
         const openPinKeyboard = (event) => {
             if (event && !window._doorpiShouldOpenVkbFromEvent?.(event)) return;
             if (prompt.dataset.submitting === 'true') return;
+            if (prompt.dataset.mode !== 'pin' && prompt.dataset.mode !== 'recoveryPin') return;
             input.focus();
             input._doorpiVkbReturnFocus = dotsBtn;
             window._vkbOpen?.(input, input._doorpiPinCallbacks);
         };
-        prompt.querySelector('#doorpiUserPinOk')?.addEventListener('click', submit);
-        prompt.querySelector('#doorpiUserPinCancel')?.addEventListener('click', cancel);
+        bindActions(t('vkbCancel'), cancel, t('vkbOk'), submit);
+        recoveryBtn?.addEventListener('click', showRecoveryConfirm);
+        recoveryInput?.addEventListener('click', event => {
+            if (event && !window._doorpiShouldOpenVkbFromEvent?.(event)) return;
+            if (prompt.dataset.mode !== 'recoveryName') return;
+            recoveryInput.removeAttribute('readonly');
+            recoveryInput.focus();
+            window._vkbOpen?.(recoveryInput, recoveryInput._doorpiRecoveryCallbacks);
+        });
         dotsBtn?.addEventListener('click', openPinKeyboard);
         dotsBtn?.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' || e.key === ' ') {
@@ -4676,13 +4895,47 @@
             const digits = String(input.value || '').replace(/\D/g, '').slice(0, 4);
             if (input.value !== digits) input.value = digits;
             updateUserPinDots(prompt, digits);
-            if (digits.length === 4) submit();
+            if (digits.length === 4) {
+                if (prompt.dataset.mode === 'recoveryPin') submitRecoveryPin();
+                else submit();
+            }
         });
+        recoveryInput.addEventListener('input', () => setError(''));
+        recoveryInput.addEventListener('keydown', (e) => {
+            if (prompt.dataset.mode !== 'recoveryName') return;
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                e.stopPropagation();
+                submitRecoveryName();
+            }
+        });
+        const recoveryVkbEnterHandler = (event) => {
+            const enterKey = event.target?.closest?.('.vkb-key[data-key="ENTER"]');
+            if (!enterKey || !prompt.isConnected || prompt.dataset.mode !== 'recoveryName') return;
+            event.preventDefault();
+            event.stopPropagation();
+            submitRecoveryName();
+        };
+        document.addEventListener('click', recoveryVkbEnterHandler, true);
+        const previousVkbEnterConfirm = window._doorpiVkbShouldConfirmEnter;
+        const previousVkbConfirmOverride = window._doorpiVkbConfirmOverride;
+        window._doorpiVkbShouldConfirmEnter = () => prompt.isConnected && prompt.dataset.mode === 'recoveryName';
+        window._doorpiVkbConfirmOverride = () => {
+            if (!prompt.isConnected || prompt.dataset.mode !== 'recoveryName') return false;
+            submitRecoveryName();
+            return true;
+        };
+        prompt._doorpiCleanup = () => {
+            document.removeEventListener('click', recoveryVkbEnterHandler, true);
+            window._doorpiVkbShouldConfirmEnter = previousVkbEnterConfirm;
+            window._doorpiVkbConfirmOverride = previousVkbConfirmOverride;
+        };
         updateUserPinDots(prompt, '');
         prompt.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' || e.key === 'Backspace') {
                 e.preventDefault();
-                cancel();
+                if (prompt.dataset.mode === 'pin') cancel();
+                else showPinEntry();
             }
         }, true);
 
@@ -6332,7 +6585,7 @@ function showUserPicker(users, requireSelection = false) {
                 const currentTab = (typeof window.getCurrentHomeTab === 'function') ? window.getCurrentHomeTab() : 'games';
                 const grid = document.getElementById(currentTab === 'media' ? 'mediaGrid' : 'gameGrid');
                 if (grid) {
-
+                    window.syncFeaturedCardArt?.(grid);
                     const target = grid.querySelector('.card.featured') || grid.querySelector('.card:not(.add-card)') || grid.querySelector('.card.add-card');
                     if (target) target.focus();
                 }
@@ -6359,6 +6612,9 @@ function showUserPicker(users, requireSelection = false) {
                 img.src = newUrl;
                 img.style.opacity = '1';
             }
+        }
+        if ((key === 'staticHorizontal' || key === 'staticVertical') && document.activeElement !== card && !card.matches(':hover')) {
+            window.syncFeaturedCardArt?.(card.closest('#gameGrid, #mediaGrid') || document);
         }
         if (isFeatured && key === 'staticHero') switchHeroBackground(newUrl, card.dataset.staticLogo || card.dataset.logo);
     }
@@ -6980,7 +7236,10 @@ function renderFolderList(folders) {
             if (c === card) return;
             c.classList.remove('featured');
             const img = c.querySelector('img');
-            if (img) img.src = c.dataset.staticVertical || c.dataset.vertical || '';
+            if (img) {
+                const src = c.dataset.staticVertical || (c.dataset.isAnimated !== 'true' ? c.dataset.vertical : '');
+                if (src) img.src = src;
+            }
         });
 
         card.classList.add('featured');
@@ -6990,6 +7249,7 @@ function renderFolderList(folders) {
         if (img) {
             img.src = card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical || '';
         }
+        window.syncFeaturedCardArt?.(grid);
 
         grid.scrollTo({ left: 0, behavior: 'smooth' });
     }
@@ -8324,6 +8584,7 @@ function renderFolderList(folders) {
                     next.classList.add('featured');
                     const img = next.querySelector('img');
                     if (img) img.src = next.dataset.staticHorizontal || next.dataset.horizontal || next.dataset.staticVertical || '';
+                    window.syncFeaturedCardArt?.(grid);
                     next._startInteraction?.();
                 } else {
                     if (typeof clearHero === 'function') clearHero();
@@ -8982,7 +9243,10 @@ function renderFolderList(folders) {
             const center = Math.max(16 + width / 2, Math.min(window.innerWidth - 16 - width / 2, rect.left + rect.width / 2));
             const above = rect.top - height - margin;
             const below = rect.bottom + margin;
-            const top = above >= 12 ? above : Math.min(Math.max(12, below), Math.max(12, window.innerHeight - height - 12));
+            const forceBelow = _callbacks.placement === 'below';
+            const top = forceBelow
+                ? Math.min(Math.max(12, below), Math.max(12, window.innerHeight - height - 12))
+                : (above >= 12 ? above : Math.min(Math.max(12, below), Math.max(12, window.innerHeight - height - 12)));
             _el.style.left = `${Math.round(center)}px`;
             _el.style.top = `${Math.round(top)}px`;
         }
@@ -9041,10 +9305,15 @@ function renderFolderList(folders) {
 
         function _submitEnter() {
             _flushPendingAccent();
+            if (window._doorpiVkbConfirmOverride?.()) {
+                _renderPreview();
+                return;
+            }
             const fn = _callbacks.onEnter ?? _callbacks.onOk ?? window._editModalSave;
             if (fn) {
-                _forceClose();
+                if (!_callbacks.keepOpenOnEnter) _forceClose();
                 fn();
+                if (_callbacks.keepOpenOnEnter) _renderPreview();
                 return;
             }
             if (!_inputEl) return;
@@ -9099,12 +9368,15 @@ function renderFolderList(folders) {
             const type = (el.type || '').toLowerCase();
             if (!_TEXT_INPUT_TYPES.has(type) && !window._vkbIsNumericInput(el)) return;
         }
-        const opts = { ...(callbacks || {}) };
+        const opts = { ...((callbacks || el?._doorpiVkbCallbacks) || {}) };
         if (!opts.mode && window._vkbIsNumericInput(el)) opts.mode = 'numeric';
         VKB.open(el, opts);
     };
     window._vkbCancel = () => VKB.cancel();
-    window._vkbConfirm = () => VKB.confirm();
+    window._vkbConfirm = () => {
+        if (window._doorpiVkbConfirmOverride?.()) return;
+        VKB.confirm();
+    };
     window._vkbForceClose = () => VKB.forceClose();
     window._vkbPhysicalKey = (k) => VKB.physicalKey(k);
     window._vkbToggleShift = () => VKB.toggleShift();

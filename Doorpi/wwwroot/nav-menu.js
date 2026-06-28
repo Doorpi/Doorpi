@@ -58,23 +58,40 @@ window.isNavMenuOpen = false;
             .doorpi-keycap { min-width:2.7em; height:1.8em; padding:0 .72em; border-radius:.55em; display:inline-flex; align-items:center; justify-content:center; background:linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,.055)); border:1px solid rgba(255,255,255,.30); box-shadow:inset 0 1px 0 rgba(255,255,255,.20), 0 .32em .9em rgba(0,0,0,.30); color:rgba(255,255,255,.94); font-size:.72em; font-weight:860; letter-spacing:.08em; }
             .doorpi-stickcap { width:2.15em; height:2.15em; border-radius:50%; position:relative; display:inline-flex; align-items:center; justify-content:center; background:radial-gradient(circle at 38% 30%, rgba(255,255,255,.26), transparent 18%), radial-gradient(circle at 50% 55%, rgba(255,255,255,.08), transparent 46%), linear-gradient(180deg, #303340, #11131b); border:1px solid rgba(255,255,255,.22); box-shadow:inset 0 .18em .32em rgba(255,255,255,.08), inset 0 -.24em .42em rgba(0,0,0,.42), 0 .38em .9em rgba(0,0,0,.36); color:rgba(255,255,255,.95); font-size:.72em; font-weight:900; letter-spacing:.04em; }
             .doorpi-stickcap::after { content:''; position:absolute; inset:28%; border-radius:50%; border:1px solid rgba(255,255,255,.28); box-shadow:0 0 0 .18em rgba(0,0,0,.14); }
-            .doorpi-stick-press { position:absolute; right:-.22em; bottom:-.12em; width:.82em; height:.82em; border-radius:50%; background:rgba(255,255,255,.92); color:#080a12; display:inline-flex; align-items:center; justify-content:center; font-size:.72em; line-height:1; box-shadow:0 .16em .46em rgba(0,0,0,.42); }
+            .doorpi-xbox-logo-btn { width:2.15em; height:2.15em; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; background:linear-gradient(180deg, #f6f6f7, #c9ccd2); border:1px solid rgba(255,255,255,.48); box-shadow:inset 0 .12em .22em rgba(255,255,255,.58), inset 0 -.18em .34em rgba(0,0,0,.22), 0 .34em .82em rgba(0,0,0,.34); color:#151820; }
+            .doorpi-xbox-logo-btn svg { width:1.2em; height:1.2em; display:block; fill:currentColor; }
             .nav-shortcut-row { display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; margin-top:10px; color:rgba(255,255,255,.54); font-size:.78rem; }
         `;
         document.head.appendChild(s);
     }
 
+    function _xboxButtonSvg() {
+        return `<svg viewBox="1 1 30 30" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M11.9 9.3c-5.1-5.1-6.4-4-6.4-4C2.7 8 1 11.8 1 16c0 3.4 1.1 6.6 3.1 9.1h.1V25C3 21.5 8.9 12.9 11.9 9.3zm14.6-4s-1.3-1.1-6.4 3.9c3 3.6 8.9 12.2 7.7 15.7v.1h.1c1.9-2.5 3.1-5.7 3.1-9.1 0-4.1-1.7-7.9-4.5-10.6zM16 5.4c.5-.2 4.9-2.8 7.8-2.1h.1v-.1C21.5 1.8 19 1 16 1s-5.5.8-7.8 2.2v.1h.1c2.5-.6 6.6 1.5 7.7 2.1zm0 7.7c0-.1 0-.1 0 0C11.4 16.5 3.7 25 6.1 27.3 8.8 29.6 12.2 31 16 31s7.2-1.4 9.9-3.7c2.3-2.4-5.4-10.8-9.9-14.2z"/></svg>`;
+    }
+
     function _doorpiReturnShortcutHtml() {
         _ensureDoorpiShortcutStyles();
         return `<span class="doorpi-shortcut-combo" aria-label="Xbox ou L1 + R1 + R3">
-            <span class="doorpi-keycap">XBOX</span>
+            <span class="doorpi-xbox-logo-btn">${_xboxButtonSvg()}</span>
             <span class="doorpi-shortcut-plus">/</span>
             <span class="doorpi-keycap">L1</span>
             <span class="doorpi-shortcut-plus">+</span>
             <span class="doorpi-keycap">R1</span>
             <span class="doorpi-shortcut-plus">+</span>
-            <span class="doorpi-stickcap">R3<span class="doorpi-stick-press">↓</span></span>
+            <span class="doorpi-stickcap">R3</span>
         </span>`;
+    }
+
+    function _decorateDoorpiReturnShortcut(root) {
+        const card = root?.querySelector?.('#navCardGameBar');
+        if (!card || card.querySelector('.nav-shortcut-row')) return;
+        const title = card.querySelector('.nav-suggestion-card-btn');
+        title?.insertAdjacentHTML('afterend', `
+            <span class="nav-shortcut-row">
+                <span>${_t('sysDoorpiReturnShortcut', 'Retorno alternativo:')}</span>
+                ${_doorpiReturnShortcutHtml()}
+            </span>
+        `);
     }
 
     function _showDesktopWarning(context, onConfirm) {
@@ -977,6 +994,8 @@ window.isNavMenuOpen = false;
         </div>
     `;
 
+        _decorateDoorpiReturnShortcut(body);
+
         window._updateBootModeUI = () => {
             const currentMode = window._doorpiBootMode || 0;
 
@@ -1253,6 +1272,8 @@ window.isNavMenuOpen = false;
                 </div>
             </button>
         </div>`;
+
+        _decorateDoorpiReturnShortcut(body);
 
         window._updateBootModeUI = () => {
             const currentMode = window._doorpiBootMode || 0;
@@ -3334,6 +3355,12 @@ window.isNavMenuOpen = false;
             pendingApi = '';
         };
 
+        const _normalizePin = (value) => String(value || '').replace(/\D/g, '').slice(0, 4);
+        const _isValidPin = (value) => {
+            const pin = _normalizePin(value);
+            return pin.length === 0 || pin.length === 4;
+        };
+
         body.innerHTML = `
             <div class="nav-settings-subheader">
                 <button class="nav-back-btn" id="setBack" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
@@ -3489,7 +3516,16 @@ window.isNavMenuOpen = false;
             window._vkbOpen?.(pinInput, {
                 mode: 'numeric',
                 onOk: () => {
-                    const newPin = String(pinInput.value || '').replace(/\D/g, '').slice(0, 4);
+                    const newPin = _normalizePin(pinInput.value);
+                    pinInput.value = newPin;
+                    if (!_isValidPin(newPin)) {
+                        window.showDoorpiToast?.(
+                            _t('setupPinInvalidTitle', 'PIN inválido'),
+                            _t('setupPinLengthError', 'Use 4 dígitos ou deixe vazio.')
+                        );
+                        pinInput.focus();
+                        return;
+                    }
                     pendingPin = newPin;
                     pinInput.setAttribute('readonly', '');
                     window._vkbForceClose?.();
@@ -3505,6 +3541,10 @@ window.isNavMenuOpen = false;
                     window._vkbForceClose?.();
                 }
             });
+        });
+        pinInput?.addEventListener('input', event => {
+            const digits = _normalizePin(event.target.value);
+            if (event.target.value !== digits) event.target.value = digits;
         });
 
         apiInput?.addEventListener('click', event => {
@@ -4771,7 +4811,10 @@ window.isNavMenuOpen = false;
                 moveFocus(dirMap[e.key]);
             }
             else if (e.key === 'Escape') { window._vkbCancel?.(); }
-            else if (e.key === 'Enter') { document.activeElement?.click(); }
+            else if (e.key === 'Enter') {
+                if (window._doorpiVkbShouldConfirmEnter?.()) window._vkbConfirm?.();
+                else document.activeElement?.click();
+            }
             else if (e.key === 'Backspace') { window._vkbPhysicalKey?.('Backspace'); }
             else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
                 window._vkbPhysicalKey?.(e.key);

@@ -1010,6 +1010,7 @@ namespace Doorpi
                 foreach (var user in users)
                 {
                     UnprotectUserProfile(user);
+                    user.PinCode = NormalizePinCode(user.PinCode);
                     user.AdminBlockedStoreIds ??= new List<string>();
                 }
                 EnsureOneAdmin(users);
@@ -1172,7 +1173,10 @@ namespace Doorpi
         }
 
         private static string NormalizePinCode(string value)
-            => new string((value ?? "").Where(char.IsDigit).Take(4).ToArray());
+        {
+            var pin = new string((value ?? "").Where(char.IsDigit).Take(4).ToArray());
+            return pin.Length == 0 || pin.Length == 4 ? pin : "";
+        }
 
         private static UserProfile CloneUserProfileForStorage(UserProfile profile)
         {
@@ -11689,6 +11693,40 @@ namespace Doorpi
                         }
                         SwitchToUser(userId);
                     }
+                }
+                else if (action == "recoverUserPin")
+                {
+                    string userId = GetStr(root, "userId");
+                    string userName = GetStr(root, "userName");
+                    string newPin = NormalizePinCode(GetStr(root, "pin"));
+                    var users = LoadUserProfiles();
+                    var requestedUser = users.FirstOrDefault(u =>
+                        string.Equals(u.Id, userId, StringComparison.OrdinalIgnoreCase));
+
+                    string? reason = null;
+                    if (requestedUser == null)
+                        reason = "pinRecoveryFailed";
+                    else if (!string.Equals(userName, requestedUser.Name, StringComparison.Ordinal))
+                        reason = "pinRecoveryInvalidName";
+                    else if (newPin.Length != 4)
+                        reason = "pinRecoveryInvalidPin";
+
+                    if (reason != null)
+                    {
+                        Dispatcher.Invoke(() =>
+                            webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                            {
+                                type = "userPinRecoveryRejected",
+                                reason,
+                                userId
+                            })));
+                        return;
+                    }
+
+                    requestedUser!.PinCode = newPin;
+                    requestedUser.LastUsed = DateTime.Now;
+                    SaveUserProfiles(users);
+                    SwitchToUser(requestedUser.Id);
                 }
                 else if (action == "requestExtensions")
                 {

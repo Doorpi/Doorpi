@@ -6,6 +6,50 @@
 // renderer.js — CardInteraction Definitivo (Decode via GPU Off-Thread)
 // =============================================================================
 
+function _doorpiFeaturedCardSrc(card) {
+    return card?.dataset?.staticHorizontal
+        || card?.dataset?.horizontal
+        || card?.dataset?.staticVertical
+        || card?.dataset?.vertical
+        || '';
+}
+
+function _doorpiRestingCardSrc(card) {
+    const canUseLiveAsStatic = card?.dataset?.isAnimated !== 'true';
+    return card?.dataset?.staticVertical
+        || (canUseLiveAsStatic ? card?.dataset?.vertical : '')
+        || '';
+}
+
+function _doorpiSetCardImage(card, src) {
+    const img = card?.querySelector?.('img');
+    if (!img || !src) return;
+
+    const currentAttr = img.getAttribute('src') || '';
+    const currentSrc = img.src || '';
+    if (currentAttr === src || currentSrc.endsWith(src)) return;
+
+    img.style.display = '';
+    img.src = src;
+}
+
+function _doorpiSyncFeaturedCardArt(root = document) {
+    const grids = root?.matches?.('#gameGrid, #mediaGrid')
+        ? [root]
+        : Array.from(root?.querySelectorAll?.('#gameGrid, #mediaGrid') || []);
+
+    grids.forEach(grid => {
+        grid.querySelectorAll('.card:not(.add-card):not(.loading-card)').forEach(card => {
+            const src = card.classList.contains('featured')
+                ? _doorpiFeaturedCardSrc(card)
+                : _doorpiRestingCardSrc(card);
+            _doorpiSetCardImage(card, src);
+        });
+    });
+}
+
+window.syncFeaturedCardArt = _doorpiSyncFeaturedCardArt;
+
 const CardInteraction = (() => {
     let heroTimer = null;
     let animTimer = null;
@@ -60,11 +104,9 @@ const CardInteraction = (() => {
         if (!img) return;
 
         const isFeatured = card.classList.contains('featured');
-        const canUseLiveAsStatic = card.dataset.isAnimated !== 'true';
         const staticSrc = isFeatured
-            ? (card.dataset.staticHorizontal || card.dataset.staticVertical
-                || (canUseLiveAsStatic ? (card.dataset.horizontal || card.dataset.vertical) : ''))
-            : (card.dataset.staticVertical || (canUseLiveAsStatic ? card.dataset.vertical : ''));
+            ? _doorpiFeaturedCardSrc(card)
+            : _doorpiRestingCardSrc(card);
 
         // Só reverte se o src atual já é diferente — evita flicker desnecessário
         if (staticSrc && img.src && !img.src.endsWith(staticSrc)) {
@@ -78,11 +120,9 @@ const CardInteraction = (() => {
         const animSrc = isFeatured
             ? (card.dataset.horizontal || card.dataset.vertical)
             : card.dataset.vertical;
-        const canUseLiveAsStatic = card.dataset.isAnimated !== 'true';
         const staticSrc = isFeatured
-            ? (card.dataset.staticHorizontal || card.dataset.staticVertical
-                || (canUseLiveAsStatic ? (card.dataset.horizontal || card.dataset.vertical) : ''))
-            : (card.dataset.staticVertical || (canUseLiveAsStatic ? card.dataset.vertical : ''));
+            ? _doorpiFeaturedCardSrc(card)
+            : _doorpiRestingCardSrc(card);
 
         if (animSrc && animSrc !== staticSrc) {
             const img = card.querySelector('img');
@@ -287,7 +327,7 @@ const CardRenderer = (() => {
     function _selectedImageSrc(item, isFeatured) {
         const canUseLiveAsStatic = !item.isAnimated;
         return isFeatured
-            ? (item.staticHorizontal || item.staticVertical || (canUseLiveAsStatic ? (item.horizontal || item.vertical) : ''))
+            ? (item.staticHorizontal || item.horizontal || item.staticVertical || item.vertical || '')
             : (item.staticVertical || (canUseLiveAsStatic ? item.vertical : ''));
     }
 
@@ -534,6 +574,7 @@ const CardRenderer = (() => {
         old.forEach(c => c.remove());
 
         anchorEl ? gridEl.insertBefore(fragment, anchorEl) : gridEl.appendChild(fragment);
+        _doorpiSyncFeaturedCardArt(gridEl);
     }
 
     function prependCard(item, gridEl, anchorEl) {
@@ -556,6 +597,7 @@ const CardRenderer = (() => {
         });
 
         gridEl.insertBefore(card, gridEl.firstElementChild);
+        _doorpiSyncFeaturedCardArt(gridEl);
         return card;
     }
 
@@ -584,21 +626,10 @@ const CardRenderer = (() => {
         if (first && !isStoresGrid) {
             cardMap.forEach((card, id) => {
                 const shouldBeFeatured = id === first.id;
-                if (card.classList.contains('featured') === shouldBeFeatured) return;
-
                 card.classList.toggle('featured', shouldBeFeatured);
-                const img = card.querySelector('img');
-
-                if (img && shouldBeFeatured) {
-                    const src = card.dataset.staticHorizontal || card.dataset.staticVertical
-                        || (card.dataset.isAnimated !== 'true' ? (card.dataset.horizontal || card.dataset.vertical) : '');
-                    if (src) img.src = src;
-                } else if (img && !shouldBeFeatured) {
-                    const src = card.dataset.staticVertical || (card.dataset.isAnimated !== 'true' ? card.dataset.vertical : '');
-                    if (src) img.src = src;
-                }
             });
         }
+        _doorpiSyncFeaturedCardArt(gridEl);
     }
 
     function applyPatch(id, patch, gridEl) {
@@ -621,16 +652,12 @@ const CardRenderer = (() => {
         if (patch.shareMode) card.dataset.shareMode = patch.shareMode;
         if (patch.disableGamepadControl != null) card.dataset.disableGamepadControl = String(patch.disableGamepadControl);
         const img = card.querySelector('img');
-        if (img && patch.staticVertical) {
+        if (img && (patch.staticVertical || patch.staticHorizontal)) {
             card.classList.remove('no-art');
             const fallbackEl = card.querySelector('.media-card-fallback');
             if (fallbackEl) fallbackEl.style.display = 'none';
             const isFeatured = card.classList.contains('featured');
-            if (!isFeatured) {
-                img.src = patch.staticVertical;
-            } else if (patch.staticHorizontal) {
-                img.src = patch.staticHorizontal;
-            }
+            _doorpiSetCardImage(card, isFeatured ? _doorpiFeaturedCardSrc(card) : _doorpiRestingCardSrc(card));
             img.style.display = '';
         }
     }
@@ -702,6 +729,7 @@ const CardRenderer = (() => {
                 c.remove();
             }
         });
+        _doorpiSyncFeaturedCardArt(gridEl);
     }
     return { renderBatch, prependCard, removeCard, reorderDOM, applyPatch, syncDOM };
 })();
