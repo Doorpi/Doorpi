@@ -3301,20 +3301,44 @@
 
     /* Seção: Ponte com o host */
     // ── GERADOR DE FALLBACKS SVG ──────────────────────────────────────────
-    window.generateFallbackSvg = function (name, type) {
+    window.generateFallbackSvg = function (name, type, iconBase64 = '', forceLetter = false) {
         const initial = (name || "App").charAt(0).toUpperCase();
         const safeName = (name || "App").replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         const makeSvg = (svg) => "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
+        const safeIcon = String(iconBase64 || '').replace(/"/g, '&quot;').trim();
+        const hasIcon = safeIcon && !forceLetter;
+        const iconSvg = (w, h, mainSize, blurSize) => {
+            const xMain = (w - mainSize) / 2;
+            const yMain = (h - mainSize) / 2;
+            const xBlur = (w - blurSize) / 2;
+            const yBlur = (h - blurSize) / 2;
+            return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}">
+                <defs>
+                    <filter id="doorpiIconBlur"><feGaussianBlur stdDeviation="${Math.round(Math.min(w, h) * 0.08)}"/></filter>
+                    <radialGradient id="doorpiShade" cx="50%" cy="45%" r="75%">
+                        <stop offset="0%" stop-color="#30365f"/>
+                        <stop offset="100%" stop-color="#070812"/>
+                    </radialGradient>
+                </defs>
+                <rect width="${w}" height="${h}" fill="url(#doorpiShade)"/>
+                <image href="data:image/png;base64,${safeIcon}" x="${xBlur}" y="${yBlur}" width="${blurSize}" height="${blurSize}" preserveAspectRatio="xMidYMid meet" opacity="0.7" filter="url(#doorpiIconBlur)"/>
+                <rect width="${w}" height="${h}" fill="#03040c" opacity="0.35"/>
+                <image href="data:image/png;base64,${safeIcon}" x="${xMain}" y="${yMain}" width="${mainSize}" height="${mainSize}" preserveAspectRatio="xMidYMid meet"/>
+            </svg>`;
+        };
 
         if (type === 'grid') {
+            if (hasIcon) return makeSvg(iconSvg(600, 900, 190, 760));
             // GRID VERTICAL: Fundo Escuro + Inicial
             return makeSvg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900"><rect width="600" height="900" fill="#1a1a2e"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#ffffff" font-family="sans-serif" font-size="350" font-weight="bold">${initial}</text></svg>`);
 
         } else if (type === 'horizontal') {
+            if (hasIcon) return makeSvg(iconSvg(920, 430, 150, 560));
             // GRID HORIZONTAL: Fundo Escuro + Inicial
             return makeSvg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 430"><rect width="920" height="430" fill="#1a1a2e"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#ffffff" font-family="sans-serif" font-size="200" font-weight="bold">${initial}</text></svg>`);
 
         } else if (type === 'logo') {
+            if (hasIcon) return makeSvg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 150"><image href="data:image/png;base64,${safeIcon}" x="0" y="18" width="112" height="112" preserveAspectRatio="xMidYMid meet"/></svg>`);
             // LOGO: Alinhado à esquerda (x="0") e mais para baixo (y="80%") para casar com a posição real
             return makeSvg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 150"><text x="0%" y="80%" fill="#ffffff" font-family="sans-serif" font-size="75" font-weight="bold">${safeName}</text></svg>`);
 
@@ -3335,18 +3359,21 @@
             // ── INJEÇÃO DE FALLBACKS (SEM ARTE) ──────────────────────────────────
             const applyFallbacks = (item) => {
                 const name = item.name || item.Name || "App";
+                const appType = String(item.appType || item.Type || item.type || '').toLowerCase();
+                const isWebApp = appType === 'browser' || appType === 'webview';
+                const iconBase64 = item.iconBase64 || item.IconBase64 || '';
 
                 // 1. Grid Vertical (Inicial)
                 const gridKey = item.imageData !== undefined ? 'imageData' : (item.GridImage !== undefined ? 'GridImage' : null);
-                if (gridKey && !item[gridKey]) item[gridKey] = window.generateFallbackSvg(name, 'grid');
+                if (gridKey && !item[gridKey]) item[gridKey] = window.generateFallbackSvg(name, 'grid', iconBase64, isWebApp);
 
                 // 2. Grid Horizontal (Inicial)
                 const horizKey = item.horizontalImage !== undefined ? 'horizontalImage' : (item.GridHorizontalImage !== undefined ? 'GridHorizontalImage' : null);
-                if (horizKey && !item[horizKey]) item[horizKey] = window.generateFallbackSvg(name, 'horizontal');
+                if (horizKey && !item[horizKey]) item[horizKey] = window.generateFallbackSvg(name, 'horizontal', iconBase64, isWebApp);
 
                 // 3. Logo (Nome)
                 const logoKey = item.logo !== undefined ? 'logo' : (item.LogoImage !== undefined ? 'LogoImage' : null);
-                if (logoKey && !item[logoKey]) item[logoKey] = window.generateFallbackSvg(name, 'logo');
+                if (logoKey && !item[logoKey]) item[logoKey] = window.generateFallbackSvg(name, 'logo', iconBase64, isWebApp);
 
                 // 4. Banner (Transparente para o Blob)
                 const bannerKey = item.hero !== undefined ? 'hero' : (item.HeroImage !== undefined ? 'HeroImage' : null);
@@ -3578,6 +3605,15 @@
             }
             else if (data.type === 'profilePhotoSelected') {
                 window._setupHandlePhotoSelected?.(data.base64);
+            }
+            else if (data.type === 'steamGridArtworkResults') {
+                window._artworkWizardHandleResults?.(data);
+            }
+            else if (data.type === 'artworkImagePicked') {
+                window._artworkWizardHandlePicked?.(data);
+            }
+            else if (data.type === 'artworkSelectionApplied') {
+                window._artworkWizardHandleApplied?.(data);
             }
             else if (data.type === 'setupFolderAdded') {
                 window._setupHandleFolderAdded?.(data.path);
@@ -6504,7 +6540,7 @@ function showUserPicker(users, requireSelection = false) {
         const input = e.target.closest?.('input[type="text"], input:not([type]), textarea');
         if (!input) return;
         if (window._vkbIsOpen) return;
-        if (input.closest('.doorpi-manager-overlay, .doorpi-user-overlay, .edit-modal-overlay, #addGameContainer, #setupContainer, .nav-profile-dashboard')) {
+        if (input.closest('.doorpi-manager-overlay, .doorpi-user-overlay, .edit-modal-overlay, .artwork-wizard-overlay, #addGameContainer, #setupContainer, .nav-profile-dashboard')) {
             input.removeAttribute('readonly');
             if (!window._doorpiShouldOpenVkbFromEvent?.(e)) return;
             window._vkbOpen?.(input);
@@ -6515,7 +6551,7 @@ function showUserPicker(users, requireSelection = false) {
         if (e.key !== 'Enter' || window._vkbIsOpen) return;
         const input = e.target.closest?.('input[type="text"], input:not([type]), textarea');
         if (!input) return;
-        if (input.closest('.doorpi-manager-overlay, .doorpi-user-overlay, .edit-modal-overlay, #addGameContainer, #setupContainer, .nav-profile-dashboard')) {
+        if (input.closest('.doorpi-manager-overlay, .doorpi-user-overlay, .edit-modal-overlay, .artwork-wizard-overlay, #addGameContainer, #setupContainer, .nav-profile-dashboard')) {
             e.preventDefault();
             input.removeAttribute('readonly');
             window._vkbOpen?.(input);
@@ -6943,7 +6979,7 @@ document.getElementById('btnAddStore')?.addEventListener('click', () => {
             return `
             <div class="app-item ${isAdded ? 'already-added' : ''} ${isAdminLocked ? 'already-added admin-locked' : ''} ${isPreparing ? 'preparing-artwork' : ''}" ${isAdded || isAdminLocked ? '' : 'tabindex="0"'}
                  data-path="${path.replace(/\\/g, '\\\\')}" data-launch="${launch}"
-                 data-name="${name.replace(/"/g, '&quot;')}" data-source="${source || ''}">
+                 data-name="${name.replace(/"/g, '&quot;')}" data-source="${source || ''}" data-icon-base64="${icon || ''}">
                 ${icon ? `<img class="app-icon" src="data:image/png;base64,${icon}" />` : ''}
                 <div class="app-item-info">
                     <span class="app-name">${name}</span>
@@ -6994,7 +7030,7 @@ document.getElementById('btnAddStore')?.addEventListener('click', () => {
 
             // Lógica normal se estivermos na aba de JOGOS (view-apps)
             const selected = Array.from(appList.querySelectorAll('.app-item.selected')).map(el => ({
-                Name: el.dataset.name, Path: el.dataset.path, LaunchUrl: el.dataset.launch, Source: el.dataset.source || '',
+                Name: el.dataset.name, Path: el.dataset.path, LaunchUrl: el.dataset.launch, Source: el.dataset.source || '', IconBase64: el.dataset.iconBase64 || '',
             }));
 
             if (selected.length > 0) {
@@ -7803,7 +7839,7 @@ function renderFolderList(folders) {
             animation: editOverlayIn 0.15s ease;
             transition: align-items 0.3s ease, padding-top 0.3s ease;
         }
-        .edit-modal-overlay.vkb-active { align-items: flex-start; padding-top: 36px; }
+        .edit-modal-overlay.vkb-active { align-items: center; padding-top: 0; }
         .edit-modal {
             background: rgba(14,14,20,0.99);
             border: 1px solid rgba(255,255,255,0.10);
@@ -7833,6 +7869,51 @@ function renderFolderList(folders) {
             display: flex; flex-direction: column; gap: 18px;
             max-height: 60vh; overflow-y: auto;
         }
+        .edit-artwork-actions { display: flex; flex-direction: column; gap: 10px; }
+        .edit-artwork-btn {
+            border: 1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.055);
+            color: #fff; border-radius: 12px; min-height: 58px; padding: 0 16px;
+            font: inherit; cursor: pointer; outline: none; text-align: left; width: 100%;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .edit-artwork-btn:focus, .edit-artwork-btn:hover, .edit-artwork-btn.nav-focused-el { border-color: rgba(255,255,255,0.72); background: rgba(255,255,255,0.12); box-shadow: 0 0 0 2px rgba(255,255,255,.14); }
+        .artwork-wizard-overlay { position: fixed; inset: 0; z-index: 10020; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.62); backdrop-filter: blur(18px); }
+        .artwork-wizard { width: min(1280px, 96vw); height: min(880px, 92vh); background: rgba(12,12,18,0.99); border: 1px solid rgba(255,255,255,0.11); border-radius: 22px; box-shadow: 0 30px 80px rgba(0,0,0,.82); display: flex; flex-direction: column; overflow: hidden; }
+        .artwork-wizard-head { padding: 20px 24px 14px; border-bottom: 1px solid rgba(255,255,255,.07); }
+        .artwork-wizard-title { margin: 0 0 12px; font-size: 18px; color: #fff; }
+        .artwork-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+        .artwork-step { border: 1px solid rgba(255,255,255,.08); border-radius: 999px; padding: 8px 10px; color: rgba(255,255,255,.35); text-align: center; font-size: 12px; }
+        .artwork-step.active { color: #07101d; background: rgba(255,255,255,.94); border-color: #fff; }
+        .artwork-step.done { color: rgba(130,210,255,.95); border-color: rgba(130,210,255,.28); }
+        .artwork-wizard-body { flex: 1; min-height: 0; padding: 18px 24px; display: flex; flex-direction: column; gap: 14px; }
+        .artwork-results { flex: 1; min-height: 0; overflow: auto; display: grid; gap: 18px; align-content: start; align-items: start; justify-content: stretch; justify-items: stretch; grid-auto-flow: row; grid-auto-rows: max-content; padding: 12px 16px 18px 12px; }
+        .artwork-results.is-vertical { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+        .artwork-results.is-horizontal { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+        .artwork-results.is-banner { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+        .artwork-results.is-logo { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+        .artwork-results.is-local { grid-template-columns: minmax(0, 1fr); }
+        .artwork-choice { width: 100%; box-sizing: border-box; border: 0; border-radius: 0; background: transparent; padding: 0; overflow: visible; cursor: pointer; outline: none; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; scroll-margin: 28px 18px; }
+        .artwork-choice:focus, .artwork-choice:hover, .artwork-choice.nav-focused-el { transform: none; box-shadow: none; }
+        .artwork-choice img { width: 100%; height: auto; object-fit: contain; display: block; border-radius: 0; border: 2px solid transparent; box-sizing: border-box; }
+        .artwork-choice.vertical img { aspect-ratio: 2 / 3; object-fit: cover; }
+        .artwork-choice.horizontal img { aspect-ratio: 460 / 215; object-fit: cover; }
+        .artwork-choice.banner img { aspect-ratio: 1920 / 620; object-fit: cover; }
+        .artwork-choice.logo img { aspect-ratio: 4 / 1; object-fit: contain; min-height: 76px; }
+        .artwork-choice:focus img, .artwork-choice:hover img, .artwork-choice.nav-focused-el img { border-color: #fff; box-shadow: 0 0 0 3px #fff, 0 0 0 7px rgba(255,255,255,.20), 0 18px 42px rgba(0,0,0,.55); }
+        .artwork-status { color: rgba(255,255,255,.46); font-size: 13px; }
+        .artwork-search-row, .artwork-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+        .artwork-actions { grid-template-columns: auto auto minmax(0, 1fr); }
+        .artwork-search-box { position: relative; min-width: 0; display: flex; align-items: center; }
+        .artwork-search-box .edit-modal-input { padding-left: 48px; }
+        .artwork-search-badge { position: absolute; left: 12px; z-index: 1; pointer-events: none; transform: scale(.86); }
+        .artwork-action-btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; }
+        .artwork-local-panel { width: 100%; min-height: 360px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; border: 1px dashed rgba(255,255,255,.14); border-radius: 18px; background: rgba(255,255,255,.035); padding: 28px; box-sizing: border-box; text-align: center; }
+        .artwork-local-title { color: rgba(255,255,255,.9); font-size: 16px; font-weight: 650; }
+        .artwork-local-hint { color: rgba(255,255,255,.42); font-size: 13px; max-width: 460px; line-height: 1.45; }
+        .artwork-local-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px; max-width: 100%; }
+        .artwork-pick-btn { max-width: min(340px, 72vw); min-height: 48px; white-space: normal; line-height: 1.25; text-align: center; }
+        .artwork-local-preview { max-width: min(420px, 68vw); max-height: 250px; border-radius: 14px; object-fit: contain; background: rgba(0,0,0,.25); border: 1px solid rgba(255,255,255,.08); }
+        .artwork-clear-btn { width: 46px; min-width: 46px; height: 46px; padding: 0; color: #ff7777; border-color: rgba(255,90,90,.38); font-size: 18px; font-weight: 800; }
         .edit-modal-field { display: flex; flex-direction: column; gap: 6px; }
         .edit-modal-label {
             font-size: 10px; text-transform: uppercase; letter-spacing: 0.10em;
@@ -7874,7 +7955,7 @@ function renderFolderList(folders) {
         .vkb-overlay {
             position: fixed;
             bottom: 0; left: 0; right: 0;
-            z-index: 10005;
+            z-index: 10040;
             padding: 0 clamp(24px, 4vw, 80px) clamp(24px, 3vh, 48px);
             background: linear-gradient(to top, rgba(5,5,10,1) 65%, rgba(5,5,10,0.96) 85%, transparent 100%);
             transform: translateY(100%);
@@ -8019,7 +8100,7 @@ function renderFolderList(folders) {
 
         .vkb-overlay {
             top: 50%; left: 50%; right: auto; bottom: auto;
-            z-index: 10005;
+            z-index: 10040;
             display: none;
             padding: clamp(10px, 1.2vh, 16px);
             background: rgba(8, 9, 15, 0.96);
@@ -8613,6 +8694,271 @@ function renderFolderList(folders) {
 
     let _editCard = null;
     let _editOverlay = null;
+    const ARTWORK_CATEGORIES = [
+        { key: 'vertical', label: 'Grid vertical' },
+        { key: 'horizontal', label: 'Horizontal' },
+        { key: 'banner', label: 'Banner' },
+        { key: 'logo', label: 'Logo' }
+    ];
+    let _artworkWizard = null;
+
+    function _artworkPatchFromCategories(images) {
+        const patch = {};
+        if (images.vertical) patch.vertical = images.vertical;
+        if (images.horizontal) patch.horizontal = images.horizontal;
+        if (images.banner) patch.hero = images.banner;
+        if (images.logo) patch.logo = images.logo;
+        return patch;
+    }
+
+    function openArtworkWizard(card, mode, defaultQuery) {
+        const requestId = `art_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+        const isMedia = card.hasAttribute('data-app-id') || card.closest('#mediaGrid') !== null;
+        const gameId = card.dataset.gameId || card.dataset.appId || card.dataset.appUrl || '';
+        const state = {
+            requestId,
+            mode,
+            card,
+            gameId,
+            isMedia,
+            index: 0,
+            query: defaultQuery || card.querySelector('.title')?.innerText?.trim() || '',
+            selected: {},
+            localPreview: {},
+            focusResultsOnLoad: mode === 'steamgrid'
+        };
+
+        const overlay = document.createElement('div');
+        overlay.className = 'artwork-wizard-overlay';
+        overlay.innerHTML = `
+            <div class="artwork-wizard" role="dialog" aria-modal="true">
+                <div class="artwork-wizard-head">
+                    <h3 class="artwork-wizard-title">Mudar imagem</h3>
+                    <div class="artwork-steps"></div>
+                </div>
+                <div class="artwork-wizard-body">
+                    <div class="artwork-status"></div>
+                    <div class="artwork-results"></div>
+                    <div class="artwork-search-row">
+                        <div class="artwork-search-box">
+                            <span class="gp-face-btn gp-y artwork-search-badge">Y</span>
+                            <input class="edit-modal-input" id="artworkSearchInput" type="text" autocomplete="off" spellcheck="false" />
+                        </div>
+                        <button class="modal-btn secondary" id="artworkSearchBtn">Procurar</button>
+                    </div>
+                    <div class="artwork-actions">
+                        <button class="modal-btn secondary artwork-action-btn" id="artworkSkipBtn"><span class="gp-face-btn gp-x">X</span><span class="artwork-skip-label">Pular</span></button>
+                        <button class="modal-btn cancel artwork-action-btn" id="artworkCancelBtn"><span class="gp-face-btn gp-b">B</span><span>Cancelar</span></button>
+                        <span></span>
+                    </div>
+                </div>
+            </div>`;
+        document.body.appendChild(overlay);
+
+        state.overlay = overlay;
+        _artworkWizard = state;
+
+        const searchInput = overlay.querySelector('#artworkSearchInput');
+        if (searchInput) {
+            searchInput._doorpiVkbReturnFocus = searchInput;
+            searchInput._doorpiVkbCallbacks = {
+                onCancel: () => requestAnimationFrame(() => searchInput.focus({ preventScroll: true })),
+                onEnter: () => {
+                    overlay.querySelector('#artworkSearchBtn')?.click();
+                    requestAnimationFrame(() => searchInput.focus({ preventScroll: true }));
+                }
+            };
+        }
+
+        const renderSteps = () => {
+            overlay.querySelector('.artwork-steps').innerHTML = ARTWORK_CATEGORIES.map((cat, i) =>
+                `<div class="artwork-step ${i === state.index ? 'active' : ''} ${i < state.index ? 'done' : ''}">${cat.label}</div>`
+            ).join('');
+        };
+
+        const finish = () => {
+            const images = {};
+            for (const cat of ARTWORK_CATEGORIES) {
+                if (state.selected[cat.key]) images[cat.key] = state.selected[cat.key];
+            }
+            if (Object.keys(images).length === 0) {
+                close();
+                return;
+            }
+            postToHost({
+                action: 'applyArtworkSelection',
+                requestId,
+                gameId,
+                isMedia,
+                localFiles: mode === 'local',
+                images
+            });
+            overlay.querySelector('.artwork-status').textContent = 'Aplicando imagens...';
+        };
+
+        const next = () => {
+            state.index += 1;
+            if (state.index >= ARTWORK_CATEGORIES.length) {
+                finish();
+                return;
+            }
+            render();
+        };
+
+        const close = () => {
+            overlay.remove();
+            if (_artworkWizard === state) _artworkWizard = null;
+        };
+
+        const renderLocal = (cat) => {
+            const preview = state.localPreview[cat.key] || '';
+            overlay.querySelector('.artwork-results').innerHTML = `
+                <div class="artwork-local-panel">
+                    <div class="artwork-local-title">${cat.label}</div>
+                    <div class="artwork-local-hint">Selecione uma imagem do computador para esta categoria ou avance sem alterar.</div>
+                    ${preview ? `<img class="artwork-local-preview" src="${preview}" />` : ''}
+                    <div class="artwork-local-controls">
+                        <button class="modal-btn secondary artwork-pick-btn" id="artworkPickLocalBtn">Selecionar imagem</button>
+                        ${preview ? `<button class="modal-btn artwork-clear-btn" id="artworkClearLocalBtn" aria-label="Limpar imagem">×</button>` : ''}
+                    </div>
+                </div>`;
+            overlay.querySelector('#artworkPickLocalBtn')?.addEventListener('click', () => {
+                postToHost({
+                    action: 'pickArtworkImage',
+                    requestId,
+                    category: cat.key,
+                    dialogTitle: 'Selecionar imagem',
+                    dialogFilter: 'Images (*.png;*.jpg;*.jpeg;*.webp;*.gif)|*.png;*.jpg;*.jpeg;*.webp;*.gif'
+                });
+            });
+            overlay.querySelector('#artworkClearLocalBtn')?.addEventListener('click', () => {
+                delete state.selected[cat.key];
+                delete state.localPreview[cat.key];
+                render();
+            });
+        };
+
+        const renderSteamGrid = (cat) => {
+            overlay.querySelector('.artwork-results').innerHTML = '';
+            overlay.querySelector('.artwork-status').textContent = `Pesquisando "${state.query}" em ${cat.label}...`;
+            state.focusResultsOnLoad = true;
+            postToHost({ action: 'searchSteamGridArtwork', requestId, query: state.query, category: cat.key });
+        };
+
+        const render = () => {
+            const cat = ARTWORK_CATEGORIES[state.index];
+            renderSteps();
+            const results = overlay.querySelector('.artwork-results');
+            results.className = mode === 'local' ? 'artwork-results is-local' : `artwork-results is-${cat.key}`;
+            overlay.querySelector('#artworkSearchInput').value = state.query;
+            overlay.querySelector('.artwork-search-row').style.display = mode === 'steamgrid' ? 'grid' : 'none';
+            overlay.querySelector('#artworkSkipBtn .artwork-skip-label').textContent = mode === 'local' ? 'Próximo' : 'Pular';
+            overlay.querySelector('.artwork-status').textContent = `${cat.label}`;
+            if (mode === 'local') renderLocal(cat);
+            else renderSteamGrid(cat);
+        };
+
+        overlay.querySelector('#artworkSearchBtn').addEventListener('click', () => {
+            state.query = overlay.querySelector('#artworkSearchInput').value.trim() || state.query;
+            render();
+        });
+        overlay.querySelector('#artworkSearchInput').addEventListener('keydown', e => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                overlay.querySelector('#artworkSearchBtn')?.click();
+            }
+        });
+        overlay.querySelector('#artworkSkipBtn').addEventListener('click', next);
+        overlay.querySelector('#artworkCancelBtn').addEventListener('click', close);
+        overlay.addEventListener('mousedown', e => { if (e.target === overlay) close(); });
+        overlay.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+
+        state.renderResults = (category, images) => {
+            if (!_artworkWizard || _artworkWizard.requestId !== requestId) return;
+            const cat = ARTWORK_CATEGORIES[state.index];
+            if (!cat || cat.key !== category) return;
+            overlay.querySelector('.artwork-status').textContent = images.length
+                ? `${images.length} imagens encontradas para "${state.query}"`
+                : `Nenhuma imagem encontrada para "${state.query}"`;
+            overlay.querySelector('.artwork-results').innerHTML = images.map(url =>
+                `<button class="artwork-choice ${cat.key}" type="button" data-url="${escapeHtml(url)}"><img src="${escapeHtml(url)}" loading="lazy" /></button>`
+            ).join('');
+            overlay.querySelectorAll('.artwork-choice').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    state.selected[cat.key] = btn.dataset.url;
+                    next();
+                });
+            });
+            if (state.focusResultsOnLoad) {
+                state.focusResultsOnLoad = false;
+                requestAnimationFrame(() => {
+                    const firstChoice = overlay.querySelector('.artwork-choice');
+                    if (!firstChoice) {
+                        overlay.querySelector('#artworkSearchInput')?.focus({ preventScroll: true });
+                        return;
+                    }
+                    firstChoice.focus({ preventScroll: true });
+                    firstChoice.scrollIntoView({
+                        block: 'center',
+                        inline: 'nearest'
+                    });
+                });
+            }
+        };
+
+        state.pickLocal = (category, path, preview) => {
+            if (!_artworkWizard || _artworkWizard.requestId !== requestId) return;
+            state.selected[category] = path;
+            state.localPreview[category] = preview;
+            render();
+        };
+
+        state.applied = (images) => {
+            const patch = _artworkPatchFromCategories(images || {});
+            const channel = isMedia ? 'media' : 'games';
+            window.AppStore?.mutations?.patchItem(channel, gameId, patch);
+            close();
+        };
+
+        render();
+        requestAnimationFrame(() => {
+            const first = mode === 'steamgrid'
+                ? overlay.querySelector('.artwork-results')
+                : overlay.querySelector('#artworkPickLocalBtn');
+            first?.focus?.();
+        });
+    }
+
+    window._artworkWizardHandleResults = data => _artworkWizard?.renderResults?.(data.category, data.images || []);
+    window._artworkWizardHandlePicked = data => _artworkWizard?.pickLocal?.(data.category, data.path, data.preview);
+    window._artworkWizardHandleApplied = data => _artworkWizard?.applied?.(data.images || {});
+    window._artworkWizardIsOpen = () => !!_artworkWizard?.overlay;
+    window._artworkWizardShortcut = action => {
+        if (!_artworkWizard?.overlay) return false;
+        const overlay = _artworkWizard.overlay;
+        if (action === 'search') {
+            const input = overlay.querySelector('#artworkSearchInput');
+            if (!input || input.offsetParent === null) return false;
+            input.focus({ preventScroll: true });
+            requestAnimationFrame(() => window._vkbOpen?.(input));
+            return true;
+        }
+        if (action === 'skip') {
+            overlay.querySelector('#artworkSkipBtn')?.click();
+            return true;
+        }
+        if (action === 'cancel') {
+            overlay.querySelector('#artworkCancelBtn')?.click();
+            return true;
+        }
+        return false;
+    };
+    window._artworkWizardClose = () => {
+        if (!_artworkWizard?.overlay) return false;
+        _artworkWizard.overlay.remove();
+        _artworkWizard = null;
+        return true;
+    };
 
     function openEditGameModal(card) {
         ensureDoorpiOverlayStyles();
@@ -8712,6 +9058,13 @@ function renderFolderList(folders) {
                             ${typeof t === 'function' ? t('editModalHint', 'Pressione enter para alterar') : 'Pressione enter para alterar'}
                         </span>
                     </div>
+                    <div class="edit-modal-field">
+                        <label class="edit-modal-label">Mudar imagem</label>
+                        <div class="edit-artwork-actions">
+                            <button class="edit-artwork-btn" id="editArtworkSteamGridBtn" type="button" tabindex="0">SteamGrid</button>
+                            <button class="edit-artwork-btn" id="editArtworkLocalBtn" type="button" tabindex="0">Escolher do computador</button>
+                        </div>
+                    </div>
                     ${mediaExtras}
                     ${isExeApp ? `
                     <div class="edit-modal-field" style="margin-top: 8px;">
@@ -8757,6 +9110,14 @@ function renderFolderList(folders) {
             window._navMenuOpenAccountSharing?.(appId);
         });
 
+        overlay.querySelector('#editArtworkSteamGridBtn')?.addEventListener('click', () => {
+            openArtworkWizard(card, 'steamgrid', input.value.trim() || currentName);
+        });
+
+        overlay.querySelector('#editArtworkLocalBtn')?.addEventListener('click', () => {
+            openArtworkWizard(card, 'local', input.value.trim() || currentName);
+        });
+
         const doSave = () => {
             const newName = input.value.trim();
             const nameChanged = newName && newName !== currentName;
@@ -8771,9 +9132,12 @@ function renderFolderList(folders) {
                 );
 
                 // Gera as novas artes com o nome atualizado
-                const newLogoSvg = window.generateFallbackSvg(newName, 'logo');
-                const newGridSvg = window.generateFallbackSvg(newName, 'grid');
-                const newHorizSvg = window.generateFallbackSvg(newName, 'horizontal');
+                const cardAppType = String(card.dataset.appType || '').toLowerCase();
+                const forceLetterFallback = cardAppType === 'browser' || cardAppType === 'webview';
+                const iconBase64 = card.dataset.iconBase64 || '';
+                const newLogoSvg = window.generateFallbackSvg(newName, 'logo', iconBase64, forceLetterFallback);
+                const newGridSvg = window.generateFallbackSvg(newName, 'grid', iconBase64, forceLetterFallback);
+                const newHorizSvg = window.generateFallbackSvg(newName, 'horizontal', iconBase64, forceLetterFallback);
 
                 allCards.forEach(c => {
                     // Atualiza o texto normal da UI
@@ -10014,7 +10378,7 @@ function renderFolderList(folders) {
         document.getElementById('btnConfirmAddMedia').addEventListener('click', () => {
             const selected = Array.from(
                 document.querySelectorAll('#appListMedia .app-item.selected')
-            ).map(el => ({ Name: el.dataset.name, Path: el.dataset.path, LaunchUrl: el.dataset.launch }));
+            ).map(el => ({ Name: el.dataset.name, Path: el.dataset.path, LaunchUrl: el.dataset.launch, IconBase64: el.dataset.iconBase64 || '' }));
 
             if (selected.length > 0) {
                 selected.forEach(app => newGameIdsThisSession.add(app.LaunchUrl || app.Path));
@@ -10061,7 +10425,7 @@ function renderFolderList(folders) {
             <div class="app-item ${isAdded ? 'already-added' : ''}" ${isAdded ? '' : 'tabindex="0"'}
                  data-path="${path.replace(/\\/g, '\\\\')}"
                  data-launch="${launch}"
-                 data-name="${name.replace(/"/g, '&quot;')}">
+                 data-name="${name.replace(/"/g, '&quot;')}" data-icon-base64="${icon || ''}">
                 ${icon ? `<img class="app-icon" src="data:image/png;base64,${icon}" />` : ''}
                 <div class="app-item-info">
                     <span class="app-name">${name}</span>

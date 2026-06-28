@@ -23,6 +23,7 @@ namespace Doorpi
         public string GridHorizontalStaticImage { get; set; } = "";
         public string HeroStaticImage { get; set; } = "";
         public string LogoStaticImage { get; set; } = "";
+        public string IconBase64 { get; set; } = "";
 
         public DateTime LastPlayed { get; set; }
         public bool IsPendingArtwork { get; set; } = false;

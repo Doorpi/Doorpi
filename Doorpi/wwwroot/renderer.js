@@ -397,6 +397,7 @@ const CardRenderer = (() => {
         card.dataset.staticHorizontal = item.staticHorizontal || '';
         card.dataset.staticHero = item.staticHero || '';
         card.dataset.staticLogo = item.staticLogo || '';
+        card.dataset.iconBase64 = item.iconBase64 || '';
         card.dataset.isAnimated = item.isAnimated ? 'true' : 'false';
         if (item.disableGamepadControl != null) {
             card.dataset.disableGamepadControl = item.disableGamepadControl ? 'true' : 'false';
@@ -470,6 +471,7 @@ const CardRenderer = (() => {
         card.dataset.staticHorizontal = item.staticHorizontal || '';
         card.dataset.staticHero = item.staticHero || '';
         card.dataset.staticLogo = item.staticLogo || '';
+        card.dataset.iconBase64 = item.iconBase64 || '';
 
         if (item.channel === 'games') {
             card.dataset.gameId = item.id;
@@ -689,10 +691,15 @@ const CardRenderer = (() => {
         if (patch.staticHorizontal) card.dataset.staticHorizontal = patch.staticHorizontal;
         if (patch.staticHero) card.dataset.staticHero = patch.staticHero;
         if (patch.staticLogo) card.dataset.staticLogo = patch.staticLogo;
+        if (patch.vertical) card.dataset.vertical = patch.vertical;
+        if (patch.horizontal) card.dataset.horizontal = patch.horizontal;
+        if (patch.hero) card.dataset.hero = patch.hero;
+        if (patch.logo) card.dataset.logo = patch.logo;
+        if (patch.iconBase64) card.dataset.iconBase64 = patch.iconBase64;
         if (patch.shareMode) card.dataset.shareMode = patch.shareMode;
         if (patch.disableGamepadControl != null) card.dataset.disableGamepadControl = String(patch.disableGamepadControl);
         const img = card.querySelector('img');
-        if (img && (patch.staticVertical || patch.staticHorizontal)) {
+        if (img && (patch.staticVertical || patch.staticHorizontal || patch.vertical || patch.horizontal)) {
             card.classList.remove('no-art');
             const fallbackEl = card.querySelector('.media-card-fallback');
             if (fallbackEl) fallbackEl.style.display = 'none';

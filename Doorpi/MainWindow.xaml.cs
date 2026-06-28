@@ -49,6 +49,7 @@ namespace Doorpi
         public string LogoImage { get; set; } = "";
         public string LogoStaticImage { get; set; } = "";
         public string AssetQuery { get; set; } = "";
+        public string IconBase64 { get; set; } = "";
         public bool DisableGamepadControlConfigured { get; set; } = false;
 
         public DateTime LastPlayed { get; set; } = DateTime.MinValue;
@@ -10088,6 +10089,7 @@ namespace Doorpi
                     GridHorizontalImage = steamAssets.Item2,
                     HeroImage = steamAssets.Item3,
                     LogoImage = steamAssets.Item4,
+                    IconBase64 = app.IconBase64,
                     LastPlayed = DateTime.MinValue,
                     DateAdded = DateTime.Now,
                     IsPendingArtwork = !steamReady,
@@ -10443,6 +10445,10 @@ namespace Doorpi
 
                     await Task.WhenAll(tGrid, tHoriz, tHero, tLogo);
 
+                    string iconBase64 = !string.IsNullOrWhiteSpace(app.IconBase64)
+                        ? app.IconBase64
+                        : (!string.IsNullOrWhiteSpace(app.Path) && File.Exists(app.Path) ? GetCachedIcon(app.Path) : "");
+
                     existing.Add(new MediaAppModel
                     {
                         Id = id,
@@ -10456,6 +10462,7 @@ namespace Doorpi
                         GridHorizontalImage = tHoriz.Result != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(tHoriz.Result)}" : "",
                         HeroImage = tHero.Result != null ? $"https://data.local/images/hero/{Path.GetFileName(tHero.Result)}" : "",
                         LogoImage = tLogo.Result != null ? $"https://data.local/images/logo/{Path.GetFileName(tLogo.Result)}" : "",
+                        IconBase64 = iconBase64,
                         DateAdded = DateTime.Now
                     });
 
@@ -11402,6 +11409,104 @@ namespace Doorpi
                         }
                     }
                 }
+                else if (action == "searchSteamGridArtwork")
+                {
+                    string requestId = GetStr(root, "requestId");
+                    string query = GetStr(root, "query");
+                    string category = GetStr(root, "category");
+
+                    _ = Task.Run(async () =>
+                    {
+                        var images = await FetchSteamGridImageListAsync(query, category).ConfigureAwait(false);
+                        Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(
+                            JsonSerializer.Serialize(new
+                            {
+                                type = "steamGridArtworkResults",
+                                requestId,
+                                query,
+                                category,
+                                images
+                            })));
+                    });
+                }
+                else if (action == "pickArtworkImage")
+                {
+                    string requestId = GetStr(root, "requestId");
+                    string category = GetStr(root, "category");
+                    string dialogTitle = GetStr(root, "dialogTitle", "Select image");
+                    string dialogFilter = GetStr(root, "dialogFilter", "Images (*.png;*.jpg;*.jpeg;*.webp;*.gif)|*.png;*.jpg;*.jpeg;*.webp;*.gif");
+
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        var dlg = new Microsoft.Win32.OpenFileDialog
+                        {
+                            Title = dialogTitle,
+                            Filter = dialogFilter
+                        };
+
+                        StartDialogControllerMode();
+                        bool? dialogResult = dlg.ShowDialog();
+                        StopDialogControllerMode();
+
+                        if (dialogResult == true)
+                        {
+                            string ext = ExtensionForImagePath(dlg.FileName);
+                            string mime = ext is ".jpg" or ".jpeg" ? "image/jpeg" :
+                                ext == ".webp" ? "image/webp" :
+                                ext == ".gif" ? "image/gif" : "image/png";
+                            string b64 = Convert.ToBase64String(File.ReadAllBytes(dlg.FileName));
+                            webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                            {
+                                type = "artworkImagePicked",
+                                requestId,
+                                category,
+                                path = dlg.FileName,
+                                preview = $"data:{mime};base64,{b64}"
+                            }));
+                        }
+                        else
+                        {
+                            webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                            {
+                                type = "artworkImagePickCanceled",
+                                requestId,
+                                category
+                            }));
+                        }
+                    });
+                }
+                else if (action == "applyArtworkSelection" &&
+                         root.TryGetProperty("gameId", out var artworkIdEl) &&
+                         root.TryGetProperty("images", out var artworkImagesEl))
+                {
+                    string gameId = artworkIdEl.GetString() ?? "";
+                    bool isMedia = root.TryGetProperty("isMedia", out var artworkMediaEl) && artworkMediaEl.GetBoolean();
+                    bool localFiles = root.TryGetProperty("localFiles", out var localFilesEl) && localFilesEl.GetBoolean();
+                    string requestId = GetStr(root, "requestId");
+                    var imagesClone = artworkImagesEl.Clone();
+
+                    if (!string.IsNullOrWhiteSpace(gameId))
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            var result = await SaveSelectedArtworkAsync(gameId, isMedia, imagesClone, localFiles).ConfigureAwait(false);
+                            Dispatcher.Invoke(() =>
+                            {
+                                if (isMedia) SendMediaAppsToUI(LoadMediaApps());
+                                else LoadGamesIntoUI();
+
+                                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                                {
+                                    type = "artworkSelectionApplied",
+                                    requestId,
+                                    gameId,
+                                    isMedia,
+                                    images = result
+                                }));
+                            });
+                        });
+                    }
+                }
                 else if (action == "editGame" && root.TryGetProperty("gameId", out var editIdEl))
                 {
                     string gameId = editIdEl.GetString() ?? "";
@@ -12329,6 +12434,10 @@ namespace Doorpi
 
                 await Task.WhenAll(tGrid, tHoriz, tHero, tLogo).ConfigureAwait(false);
 
+                string iconBase64 = !string.IsNullOrWhiteSpace(app.IconBase64)
+                    ? app.IconBase64
+                    : (!string.IsNullOrWhiteSpace(app.Path) && File.Exists(app.Path) ? GetCachedIcon(app.Path) : "");
+
                 var game = new GameModel
                 {
                     Name = app.Name,
@@ -12338,6 +12447,7 @@ namespace Doorpi
                     GridHorizontalImage = tHoriz.Result != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(tHoriz.Result)}" : "",
                     HeroImage = tHero.Result != null ? $"https://data.local/images/hero/{Path.GetFileName(tHero.Result)}" : "",
                     LogoImage = tLogo.Result != null ? $"https://data.local/images/logo/{Path.GetFileName(tLogo.Result)}" : "",
+                    IconBase64 = iconBase64,
                     LastPlayed = DateTime.MinValue,
                     DateAdded = DateTime.Now,
                     Source = NormalizeStorePolicyKey(app.Source)
@@ -12386,6 +12496,119 @@ namespace Doorpi
                 if (byId.Item1 != null) return byId;
             }
             return await TryFetchByName(treatedName);
+        }
+
+        private async Task<List<int>> ResolveSteamGridGameIdsAsync(string gameName)
+        {
+            try
+            {
+                string safe = Uri.EscapeDataString(PrepareSearchName(gameName));
+                var json = await SgdbGetStringAsync($"https://www.steamgriddb.com/api/v2/search/autocomplete/{safe}");
+                using var doc = JsonDocument.Parse(json);
+                if (!doc.RootElement.GetProperty("success").GetBoolean()) return new List<int>();
+
+                var results = doc.RootElement.GetProperty("data");
+                if (results.GetArrayLength() == 0) return new List<int>();
+                return results.EnumerateArray()
+                    .Take(5)
+                    .Select(item => item.GetProperty("id").GetInt32())
+                    .Distinct()
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[SGDB] Resolve id falhou: " + ex.Message);
+                return new List<int>();
+            }
+        }
+
+        private async Task<List<string>> FetchSteamGridImageListAsync(string query, string category)
+        {
+            var ids = await ResolveSteamGridGameIdsAsync(query).ConfigureAwait(false);
+            if (ids.Count == 0) return new List<string>();
+
+            var urls = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (int gameId in ids)
+            {
+                foreach (string endpoint in SteamGridArtworkEndpoints(gameId, category))
+                {
+                    foreach (string url in await FetchSteamGridArtworkEndpointAsync(endpoint, category).ConfigureAwait(false))
+                    {
+                        if (!seen.Add(url)) continue;
+                        urls.Add(url);
+                        if (urls.Count >= 36) return urls;
+                    }
+                }
+            }
+
+            return urls;
+        }
+
+        private static IEnumerable<string> SteamGridArtworkEndpoints(int gameId, string category)
+        {
+            if (category == "vertical")
+            {
+                yield return $"grids/game/{gameId}?dimensions=600x900,342x482,660x930&types=static,animated&sort=score&nsfw=any&humor=any";
+                yield return $"grids/game/{gameId}?dimensions=600x900&types=static,animated&sort=score&nsfw=any&humor=any";
+                yield return $"grids/game/{gameId}?types=static,animated&sort=score&nsfw=any&humor=any";
+            }
+            else if (category == "horizontal")
+            {
+                yield return $"grids/game/{gameId}?dimensions=460x215,920x430&types=static,animated&sort=score&nsfw=any&humor=any";
+                yield return $"grids/game/{gameId}?dimensions=920x430&types=static,animated&sort=score&nsfw=any&humor=any";
+                yield return $"grids/game/{gameId}?dimensions=460x215&types=static,animated&sort=score&nsfw=any&humor=any";
+                yield return $"grids/game/{gameId}?types=static,animated&sort=score&nsfw=any&humor=any";
+            }
+            else if (category == "banner")
+            {
+                yield return $"heroes/game/{gameId}?types=static,animated&sort=score&nsfw=any&humor=any";
+            }
+            else if (category == "logo")
+            {
+                yield return $"logos/game/{gameId}?types=static,animated&sort=score&nsfw=any&humor=any";
+            }
+        }
+
+        private async Task<List<string>> FetchSteamGridArtworkEndpointAsync(string endpoint, string category)
+        {
+            try
+            {
+                var json = await SgdbGetStringAsync($"https://www.steamgriddb.com/api/v2/{endpoint}");
+                using var doc = JsonDocument.Parse(json);
+                if (!doc.RootElement.GetProperty("success").GetBoolean()) return new List<string>();
+
+                return doc.RootElement.GetProperty("data")
+                    .EnumerateArray()
+                    .Where(item => SteamGridArtworkMatchesCategory(item, category))
+                    .Select(item => item.TryGetProperty("url", out var urlEl) ? urlEl.GetString() ?? "" : "")
+                    .Where(url => !string.IsNullOrWhiteSpace(url))
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[SGDB] Lista de imagens falhou: " + ex.Message);
+                return new List<string>();
+            }
+        }
+
+        private static bool SteamGridArtworkMatchesCategory(JsonElement item, string category)
+        {
+            if (category is "banner" or "logo") return true;
+            if (!item.TryGetProperty("width", out var widthEl) ||
+                !item.TryGetProperty("height", out var heightEl) ||
+                !widthEl.TryGetInt32(out int width) ||
+                !heightEl.TryGetInt32(out int height) ||
+                width <= 0 || height <= 0)
+            {
+                return true;
+            }
+
+            double ratio = width / (double)height;
+            return category == "horizontal"
+                ? ratio >= 1.85 && ratio <= 2.35
+                : ratio < 1.0;
         }
 
         private async Task<(string?, string?, string?, string?)> TryFetchFromSteamCDN(string appId)
@@ -12518,6 +12741,117 @@ namespace Doorpi
             catch { }
             return false;
         }
+
+        private (string Folder, string UrlFolder, string Suffix) ArtworkTargetForCategory(string category)
+            => category switch
+            {
+                "horizontal" => (gridHorizontalFolder, "grid-horizontal", "_h"),
+                "banner" => (heroFolder, "hero", "_hero"),
+                "logo" => (logoFolder, "logo", "_logo"),
+                _ => (gridFolder, "grid", "_grid")
+            };
+
+        private static string ExtensionForImagePath(string path)
+        {
+            string ext = Path.GetExtension(path).ToLowerInvariant();
+            return ext is ".png" or ".jpg" or ".jpeg" or ".webp" or ".gif" ? ext : ".png";
+        }
+
+        private async Task<string?> CopyLocalArtworkAsync(string sourcePath, string folder, string name)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath)) return null;
+                Directory.CreateDirectory(folder);
+                string fullPath = Path.Combine(folder, name + ExtensionForImagePath(sourcePath));
+                await using var source = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                await using var target = new FileStream(fullPath, FileMode.Create, FileAccess.Write, FileShare.None);
+                await source.CopyToAsync(target);
+                return fullPath;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[Artwork] Copia local falhou: " + ex.Message);
+                return null;
+            }
+        }
+
+        private static void ApplyArtworkUrlToGame(GameModel game, string category, string url)
+        {
+            if (category == "horizontal") { game.GridHorizontalImage = url; game.GridHorizontalStaticImage = ""; }
+            else if (category == "banner") { game.HeroImage = url; game.HeroStaticImage = ""; }
+            else if (category == "logo") { game.LogoImage = url; game.LogoStaticImage = ""; }
+            else { game.GridImage = url; game.GridStaticImage = ""; }
+        }
+
+        private static void ApplyArtworkUrlToMedia(MediaAppModel media, string category, string url)
+        {
+            if (category == "horizontal") { media.GridHorizontalImage = url; media.GridHorizontalStaticImage = ""; }
+            else if (category == "banner") { media.HeroImage = url; media.HeroStaticImage = ""; }
+            else if (category == "logo") { media.LogoImage = url; media.LogoStaticImage = ""; }
+            else { media.GridImage = url; media.GridStaticImage = ""; }
+        }
+
+        private async Task<Dictionary<string, string>> SaveSelectedArtworkAsync(string entityId, bool isMedia, JsonElement imagesEl, bool localFiles)
+        {
+            var patch = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            string safeName = "edit_" + StableAssetName(entityId + DateTime.UtcNow.Ticks);
+
+            var selected = imagesEl.EnumerateObject()
+                .Where(p => !string.IsNullOrWhiteSpace(p.Value.GetString()))
+                .Select(p => (Category: p.Name, Value: p.Value.GetString() ?? ""))
+                .ToList();
+
+            if (selected.Count == 0) return patch;
+
+            if (!isMedia)
+            {
+                var games = LoadGames();
+                var game = games.FirstOrDefault(g =>
+                    string.Equals(g.Path, entityId, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(g.LaunchUrl, entityId, StringComparison.OrdinalIgnoreCase));
+                if (game == null) return patch;
+
+                foreach (var item in selected)
+                {
+                    var target = ArtworkTargetForCategory(item.Category);
+                    string? local = localFiles
+                        ? await CopyLocalArtworkAsync(item.Value, target.Folder, safeName + target.Suffix).ConfigureAwait(false)
+                        : await DownloadImageAsync(item.Value, target.Folder, safeName + target.Suffix).ConfigureAwait(false);
+                    if (local == null) continue;
+                    string url = $"https://data.local/images/{target.UrlFolder}/{Path.GetFileName(local)}";
+                    ApplyArtworkUrlToGame(game, item.Category, url);
+                    patch[item.Category] = url;
+                }
+
+                if (patch.Count > 0) SaveGames(games);
+            }
+            else
+            {
+                var medias = LoadMediaAppsForUser(currentUserId);
+                var media = medias.FirstOrDefault(m =>
+                    string.Equals(m.Id, entityId, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(m.Url, entityId, StringComparison.OrdinalIgnoreCase));
+                if (media == null || media.IsSharedFromOtherUser) return patch;
+
+                foreach (var item in selected)
+                {
+                    var target = ArtworkTargetForCategory(item.Category);
+                    string? local = localFiles
+                        ? await CopyLocalArtworkAsync(item.Value, target.Folder, safeName + target.Suffix).ConfigureAwait(false)
+                        : await DownloadImageAsync(item.Value, target.Folder, safeName + target.Suffix).ConfigureAwait(false);
+                    if (local == null) continue;
+                    string url = $"https://data.local/images/{target.UrlFolder}/{Path.GetFileName(local)}";
+                    ApplyArtworkUrlToMedia(media, item.Category, url);
+                    patch[item.Category] = url;
+                }
+
+                if (patch.Count > 0) SaveMediaApps(medias);
+            }
+
+            return patch;
+        }
+
         private async Task<string?> DownloadImageAsync(string url, string folder, string name)
         {
             for (int attempt = 1; attempt <= 3; attempt++)
@@ -13218,6 +13552,9 @@ namespace Doorpi
             string localGridPath = string.IsNullOrEmpty(game.GridImage) ? "" :
                 Path.Combine(dataFolder,
                     new Uri(game.GridImage).AbsolutePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+            string iconBase64 = game.IconBase64;
+            if (string.IsNullOrWhiteSpace(iconBase64) && !string.IsNullOrWhiteSpace(game.Path) && File.Exists(game.Path))
+                iconBase64 = GetCachedIcon(game.Path);
 
             return new
             {
@@ -13234,6 +13571,7 @@ namespace Doorpi
                 staticHero = game.HeroStaticImage,
                 logo = game.LogoImage,
                 staticLogo = game.LogoStaticImage,
+                iconBase64,
                 source = StorePolicyKeyForGame(game),
                 isAdminLocked = IsGameBlockedForCurrentUser(game),
                 adminLockReason = "blocked-store",
@@ -13282,6 +13620,9 @@ namespace Doorpi
             string localGridPath = string.IsNullOrEmpty(game.GridImage) ? "" :
                 Path.Combine(dataFolder,
                     new Uri(game.GridImage).AbsolutePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+            string iconBase64 = game.IconBase64;
+            if (string.IsNullOrWhiteSpace(iconBase64) && !string.IsNullOrWhiteSpace(game.Path) && File.Exists(game.Path))
+                iconBase64 = GetCachedIcon(game.Path);
 
             var data = new
             {
@@ -13297,6 +13638,7 @@ namespace Doorpi
                 staticHero = game.HeroStaticImage,
                 logo = game.LogoImage,
                 staticLogo = game.LogoStaticImage,
+                iconBase64,
                 source = StorePolicyKeyForGame(game),
                 isAdminLocked = IsGameBlockedForCurrentUser(game),
                 adminLockReason = "blocked-store",

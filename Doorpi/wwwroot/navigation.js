@@ -161,7 +161,13 @@ function getNavigableItems() {
     if (isSetupOpen) return typeof getSetupItems === 'function' ? getSetupItems() : [];
     if (isCtxMenuOpen) return getCtxMenuItems();
     if (isEditModalOpen) {
-        return Array.from(document.querySelectorAll('.edit-modal-input, .doorpi-choice-trigger, .doorpi-choice-option, #editSharingBtn, #editExtensionsBtn, .edit-toggle-row, .edit-modal-actions button'))
+        const artworkWizard = document.querySelector('.artwork-wizard-overlay');
+        if (artworkWizard) {
+            return Array.from(artworkWizard.querySelectorAll('input, button'))
+                .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0 && !el.disabled);
+        }
+
+        return Array.from(document.querySelectorAll('.edit-modal-input, .edit-artwork-btn, .doorpi-choice-trigger, .doorpi-choice-option, #editSharingBtn, #editExtensionsBtn, .edit-toggle-row, .edit-modal-actions button'))
             .filter(el => el.offsetWidth > 0 && !el.disabled && !el.closest('.doorpi-choice-wrap.is-disabled'));
     }
     if (window.isSessionConflictPopupOpen?.()) {
@@ -249,6 +255,75 @@ function findWrapCandidate(items, current, direction) {
         if (opp && overlap > -10 && dist > maxDist) { maxDist = dist; best = item; }
     });
     return best;
+}
+
+function findArtworkWizardGridCandidate(items, current, direction) {
+    const cr = current.getBoundingClientRect();
+    const cx = cr.left + cr.width / 2;
+    const cy = cr.top + cr.height / 2;
+    let best = null;
+    let bestScore = Infinity;
+
+    items.forEach(item => {
+        if (item === current) return;
+        const r = item.getBoundingClientRect();
+        const icx = r.left + r.width / 2;
+        const icy = r.top + r.height / 2;
+        const primary = direction === 'DOWN' ? icy - cy : cy - icy;
+        if (primary <= 4) return;
+
+        const lateral = Math.abs(icx - cx);
+        const score = primary * 3 + lateral;
+        if (score < bestScore) {
+            bestScore = score;
+            best = item;
+        }
+    });
+
+    return best;
+}
+
+function revealArtworkWizardChoice(choice) {
+    if (!choice?.classList?.contains('artwork-choice')) return;
+    const grid = choice.closest('.artwork-results');
+    if (!grid) return;
+    const gridRect = grid.getBoundingClientRect();
+    const choiceRect = choice.getBoundingClientRect();
+    const centeredTop = grid.scrollTop
+        + (choiceRect.top - gridRect.top)
+        - ((grid.clientHeight - choiceRect.height) / 2);
+    grid.scrollTo({ top: Math.max(0, centeredTop), behavior: 'smooth' });
+}
+
+function handleArtworkWizardGridDirection(direction, current) {
+    if (direction !== 'DOWN' && direction !== 'UP') return false;
+    if (!current?.classList?.contains('artwork-choice')) return false;
+
+    const grid = current.closest('.artwork-results');
+    if (!grid) return false;
+
+    const choices = Array.from(grid.querySelectorAll('.artwork-choice'))
+        .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0 && !el.disabled);
+    const target = findArtworkWizardGridCandidate(choices, current, direction);
+    if (target && target !== current) {
+        target.focus({ preventScroll: true });
+        revealArtworkWizardChoice(target);
+        return true;
+    }
+
+    const scrollAmount = Math.max(140, Math.floor(grid.clientHeight * 0.72));
+    const canScrollDown = grid.scrollTop + grid.clientHeight < grid.scrollHeight - 2;
+    const canScrollUp = grid.scrollTop > 2;
+
+    if (direction === 'DOWN' && canScrollDown) {
+        grid.scrollBy({ top: scrollAmount, behavior: 'smooth' });
+        return true;
+    }
+    if (direction === 'UP' && canScrollUp) {
+        grid.scrollBy({ top: -scrollAmount, behavior: 'smooth' });
+        return true;
+    }
+    return false;
 }
 
 function findVkbCandidate(items, current, direction) {
@@ -560,6 +635,8 @@ function moveFocus(direction) {
         if (!items.length) return;
         const current = document.activeElement;
 
+        if (handleArtworkWizardGridDirection(direction, current)) return;
+
         if (!items.includes(current)) { items[0]?.focus(); return; }
         let target = findSpatialCandidate(items, current, direction) || findWrapCandidate(items, current, direction);
 
@@ -569,7 +646,10 @@ function moveFocus(direction) {
             if (direction === 'UP' && idx > 0) target = items[idx - 1];
         }
 
-        if (target && target !== current) target.focus();
+        if (target && target !== current) {
+            target.focus();
+            revealArtworkWizardChoice(target);
+        }
         return;
     }
 
@@ -1136,6 +1216,10 @@ window.requestDoorpiBackAction = function () {
     }
 
     if (typeof isEditModalOpen !== 'undefined' && isEditModalOpen) {
+        if (window._artworkWizardClose?.()) {
+            window.DoorpiUiSound?.play('back');
+            return true;
+        }
         window._editModalClose?.();
         window.DoorpiUiSound?.play('back');
         return true;
@@ -1176,6 +1260,21 @@ function buttonJustPressed(btn, index) {
         return false;
     }
     _btnCooldown[index] = false; return false;
+}
+
+function handleArtworkWizardGamepadShortcuts(buttons) {
+    if (window._vkbIsOpen || !window._artworkWizardIsOpen?.()) return false;
+
+    if (buttonJustPressed(buttons[NAV.GAMEPAD.BTN_TRIANGLE], NAV.GAMEPAD.BTN_TRIANGLE)) {
+        return window._artworkWizardShortcut?.('search') === true;
+    }
+    if (buttonJustPressed(buttons[NAV.GAMEPAD.BTN_SQUARE], NAV.GAMEPAD.BTN_SQUARE)) {
+        return window._artworkWizardShortcut?.('skip') === true;
+    }
+    if (buttonJustPressed(buttons[NAV.GAMEPAD.BTN_CANCEL], NAV.GAMEPAD.BTN_CANCEL)) {
+        return window._artworkWizardShortcut?.('cancel') === true;
+    }
+    return false;
 }
 
 window.addEventListener('gamepadconnected', e => {
@@ -1423,6 +1522,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         if (window.isNavMenuOpen) {
             if (!window._vkbIsOpen) {
                 if (typeof isEditModalOpen !== 'undefined' && isEditModalOpen) {
+                    if (handleArtworkWizardGamepadShortcuts(buttons)) return;
                     if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
                         const el = document.activeElement;
                         if (el && el.tagName === 'INPUT') window._vkbOpen?.(el);
@@ -1437,6 +1537,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
                     }
                     if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
                         if (window.requestDoorpiBackAction?.()) return;
+                        if (window._artworkWizardClose?.()) return;
                         window._editModalClose?.();
                     }
                     return;
@@ -1492,6 +1593,8 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             } else { _cursorHoldState['sq'] = 0; }
             return;
         }
+
+        if (handleArtworkWizardGamepadShortcuts(buttons)) return;
 
         // Botões de ação globais
         if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
