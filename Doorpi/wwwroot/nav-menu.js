@@ -4664,6 +4664,7 @@ window.isNavMenuOpen = false;
         if (topProf) topProf.classList.add('nav-menu-hidden');
 
         _lastFocus = document.activeElement;
+        window.pauseDoorpiArtworkForTransition?.(_lastFocus);
 
         _buildOverlay();
         _overlay.classList.remove('nav-menu-input-released');
@@ -4714,15 +4715,16 @@ window.isNavMenuOpen = false;
         if (topProf) topProf.classList.remove('nav-menu-hidden');
 
         _overlay?.classList.add('nav-menu-input-released');
-        _releaseNavMenuInput(lifecycleToken);
 
         _runNavMenuTransition(() => {
             if (lifecycleToken !== _navMenuLifecycleToken || _navMenuPhase !== 'closing') return;
             if (_overlay) _overlay.style.display = 'none';
-            _navMenuPhase = 'closed';
-            window._navMenuPhase = _navMenuPhase;
             document.body.classList.remove('nav-menu-closing');
             _overlay?.classList.remove('nav-menu-input-released');
+            _releaseNavMenuInput(lifecycleToken);
+            _navMenuPhase = 'closed';
+            window._navMenuPhase = _navMenuPhase;
+            window.resumeDoorpiArtworkAfterTransition?.(_lastFocus);
         });
         _overlay?.classList.remove('visible');
     }
