@@ -2095,7 +2095,7 @@ namespace Doorpi
                     bool Released(ushort m) => (btn & m) == 0 && (prevButtons & m) != 0;
 
                     // ════════════════════════════════════════════════════════
-                    if (Held(XI_GUIDE))
+                    if (IsDoorpiReturnShortcutJustPressed(btn, prevButtons))
                     {
                         Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil,
                             DateTime.UtcNow.AddMilliseconds(350).Ticks);

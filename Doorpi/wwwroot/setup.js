@@ -602,6 +602,12 @@ function _validateAndFinish() {
         }
     }
 
+    if (!_isAddingUserMode) {
+        try {
+            localStorage.setItem('doorpi.firstRunTutorial.pending.v1', 'true');
+        } catch { }
+    }
+
     closeSetup();
 
     setTimeout(() => {

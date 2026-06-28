@@ -333,6 +333,27 @@
         button?.scrollIntoView?.({ block: 'nearest' });
     }
 
+    function focusDeviceOption(button) {
+        if (!button) return;
+        button.focus();
+        scrollDeviceOptionIntoView(button);
+    }
+
+    function moveDeviceDrawerFocus(root, direction) {
+        const active = document.activeElement;
+        if (!root || !active || !root.contains(active) || !active.closest?.('.sound-drawer')) return false;
+        if (direction !== 'UP' && direction !== 'DOWN') return false;
+        const options = Array.from(root.querySelectorAll('.sound-drawer .sound-device-option'))
+            .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0);
+        if (!options.length) return true;
+        const current = options.indexOf(active);
+        const nextIndex = direction === 'DOWN'
+            ? (current + 1 + options.length) % options.length
+            : (current - 1 + options.length) % options.length;
+        focusDeviceOption(options[nextIndex]);
+        return true;
+    }
+
     function updateDeviceBusyUi(root, state) {
         if (!root) return;
         const locked = Date.now() < state.deviceChangingUntil;
@@ -389,8 +410,19 @@
         requestAnimationFrame(() => root.querySelector(`[data-sound-slider="${CSS.escape(key)}"]`)?.focus());
     }
 
+    function syncActiveSliderWithFocus(root, state, target) {
+        if (!state.activeSliderKey || !root || !target || !root.contains(target)) return;
+        if (target.dataset?.soundSlider === state.activeSliderKey) return;
+        setActiveSliderUi(root, state, '');
+    }
+
     function wireSoundDynamic(root, surface, onChanged) {
         const state = surfaceState(surface);
+
+        if (!root.dataset.soundFocusSyncBound) {
+            root.dataset.soundFocusSyncBound = 'true';
+            root.addEventListener('focusin', event => syncActiveSliderWithFocus(root, state, event.target));
+        }
 
         root.querySelectorAll('[data-sound-item]:not([data-sound-bound])').forEach(button => {
             button.dataset.soundBound = 'true';
@@ -550,6 +582,12 @@
             state.activeSliderKey = '';
             return true;
         }
+        const active = document.activeElement;
+        const focusedSlider = active && root.contains(active) && active.dataset?.soundSlider === key;
+        if (!focusedSlider) {
+            setActiveSliderUi(root, state, '');
+            return false;
+        }
         setActiveSliderUi(root, state, '');
         focusVolumeControl(root, key);
         return true;
@@ -611,7 +649,7 @@
             devices: list.map(device => ({
                 id: read(device, 'id', ''),
                 name: read(device, 'name', '')
-            }))
+            })).sort((a, b) => `${a.id}\u0000${a.name}`.localeCompare(`${b.id}\u0000${b.name}`))
         });
     }
 
@@ -713,7 +751,7 @@
     function adjustFocusedSlider(root, direction) {
         const active = document.activeElement;
         if (!root || !active || !root.contains(active) || !active.dataset?.soundSlider) return false;
-        if (direction !== 'LEFT' && direction !== 'RIGHT') return true;
+        if (direction !== 'LEFT' && direction !== 'RIGHT') return false;
         const key = active.dataset.soundSlider || '';
         const system = active.dataset.soundSystem === 'true';
         const current = clampVolume(active.value, valueFor(key));
@@ -785,15 +823,30 @@
         return false;
     }
 
+    function closeDrawer(surface) {
+        const state = surfaceState(surface);
+        state.drawerOpen = false;
+        state.activeSliderKey = '';
+        const root = surfaceRoot(surface);
+        if (!root) return;
+        setActiveSliderUi(root, state, '');
+        root.querySelector('.sound-view')?.classList.remove('drawer-open');
+        root.querySelector('.sound-drawer')?.remove();
+    }
+
     function handleDirection(surface, direction) {
         const root = surfaceRoot(surface);
         const active = document.activeElement;
         if (!root || !active || !root.contains(active)) return false;
+        if (moveDeviceDrawerFocus(root, direction)) return true;
         if (adjustFocusedSlider(root, direction)) return true;
 
         const items = getFocusableItems(root);
         const next = findDirectionalTarget(active, items, direction);
         if (next) {
+            if (active.dataset?.soundSlider) {
+                setActiveSliderUi(root, surfaceState(surface), '');
+            }
             next.focus();
             return true;
         }
@@ -847,7 +900,7 @@
             .sound-slider-stage{position:relative;min-height:32px;display:flex;align-items:center}
             .sound-slider-rail{position:absolute;left:0;right:0;top:50%;height:10px;transform:translateY(-50%);border-radius:999px;background:rgba(255,255,255,.13);box-shadow:inset 0 1px 0 rgba(255,255,255,.08),inset 0 -1px 0 rgba(0,0,0,.42);overflow:hidden}
             
-            /* Preenchimento padrão */
+            /* Preenchimento padrÃ£o */
             .sound-slider-rail i{position:absolute;left:0;top:0;bottom:0;width:0;border-radius:inherit;background:linear-gradient(90deg,#70c2ff 0%,#3f91d0 60%,#28699e 100%);box-shadow:0 0 18px rgba(91,174,237,.28),inset 0 1px 0 rgba(255,255,255,.28);transition:width .13s cubic-bezier(.2,.75,.2,1);will-change:width}
             .sound-slider-rail b{position:absolute;inset:1px;border-radius:inherit;background:linear-gradient(180deg,rgba(255,255,255,.16),transparent 62%);opacity:.75;pointer-events:none}
             
@@ -861,7 +914,7 @@
             .sound-volume-slider{-webkit-appearance:none;appearance:none;position:relative;width:100%;height:32px;margin:0;border:0;background:transparent;cursor:pointer;z-index:1}
             .sound-volume-slider::-webkit-slider-runnable-track{-webkit-appearance:none;height:32px;background:transparent}
             
-            /* Botão (Thumb) com glow sutil combinando */
+            /* BotÃ£o (Thumb) com glow sutil combinando */
             .sound-volume-slider::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:22px;margin-top:5px;border-radius:6px;border:1px solid rgba(255,255,255,.28);background:linear-gradient(180deg,#f5fbff,#9fb3c3);box-shadow:0 1px 5px rgba(0,0,0,.42);opacity:0;transform:scale(.96);transition:opacity .12s ease,transform .12s ease, box-shadow .15s ease}
             .sound-volume-card.editing .sound-volume-slider::-webkit-slider-thumb{opacity:1;transform:scale(1);background:#fff;border-color:#fff;box-shadow:0 0 8px rgba(88,185,255,.6),0 1px 5px rgba(0,0,0,.42)}
             
@@ -919,5 +972,5 @@
     }
 
     ensureStyles();
-    window.DoorpiSoundUI = { render, bind, setStatus, refreshInternalVolumes, back, confirm, handleDirection, getStatus: () => status };
+    window.DoorpiSoundUI = { render, bind, setStatus, refreshInternalVolumes, back, confirm, handleDirection, closeDrawer, getStatus: () => status };
 })();

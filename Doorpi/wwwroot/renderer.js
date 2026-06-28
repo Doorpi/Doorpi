@@ -740,7 +740,6 @@ const CardRenderer = (() => {
         }
 
         #gameGrid,
-        #storesGrid,
         #view-apps.active {
             /* 'both' é a mágica: aplica opacidade 0 antes de iniciar, matando a piscada */
             animation: slideInFromLeft 0.45s cubic-bezier(0.22, 1, 0.36, 1) both !important;
@@ -748,7 +747,8 @@ const CardRenderer = (() => {
             backface-visibility: hidden; /* Força 2D por hardware, evita tremulação nos pixels */
         }
 
-        #mediaGrid, 
+        #mediaGrid,
+        #storesGrid,
         #view-media-apps.active,
         #view-folders.active {
             animation: slideInFromRight 0.45s cubic-bezier(0.22, 1, 0.36, 1) both !important;

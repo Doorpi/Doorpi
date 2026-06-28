@@ -15,6 +15,290 @@
     let _pendingNewGameTimer = 0;
     let _pendingRenderGamesPayload = null;
     let _pendingRenderGamesTimer = 0;
+    const FIRST_RUN_TUTORIAL_PENDING_KEY = 'doorpi.firstRunTutorial.pending.v1';
+    const FIRST_RUN_TUTORIAL_DONE_KEY = 'doorpi.firstRunTutorial.done.v1';
+
+    window.DoorpiFirstRunTutorial = (() => {
+        let page = 0;
+
+        function storageGet(key) {
+            try { return localStorage.getItem(key); }
+            catch { return null; }
+        }
+
+        function storageSet(key, value) {
+            try { localStorage.setItem(key, value); }
+            catch { }
+        }
+
+        function storageRemove(key) {
+            try { localStorage.removeItem(key); }
+            catch { }
+        }
+
+        function shouldShow() {
+            return storageGet(FIRST_RUN_TUTORIAL_PENDING_KEY) === 'true' &&
+                storageGet(FIRST_RUN_TUTORIAL_DONE_KEY) !== 'true';
+        }
+
+        function ensureStyles() {
+            if (document.getElementById('doorpiFirstRunTutorialStyles')) return;
+            const s = document.createElement('style');
+            s.id = 'doorpiFirstRunTutorialStyles';
+            s.textContent = `
+                .doorpi-first-run-tutorial {
+                    position: fixed;
+                    inset: 0;
+                    z-index: 18500;
+                    display: none;
+                    align-items: center;
+                    justify-content: center;
+                    padding: clamp(28px, 6vw, 92px);
+                    background: radial-gradient(circle at 50% 45%, rgba(32,52,92,.26), transparent 42%), rgba(0,0,8,.74);
+                    backdrop-filter: blur(14px) brightness(.72);
+                    -webkit-backdrop-filter: blur(14px) brightness(.72);
+                    color: #fff;
+                    text-align: center;
+                }
+                .doorpi-first-run-tutorial.visible { display: flex; }
+                .first-run-panel {
+                    width: min(1120px, 92vw);
+                    display: grid;
+                    gap: clamp(22px, 3vh, 42px);
+                    animation: firstRunIn .36s cubic-bezier(.2,.9,.2,1) both;
+                }
+                @keyframes firstRunIn {
+                    from { opacity: 0; transform: translateY(18px) scale(.985); }
+                    to { opacity: 1; transform: none; }
+                }
+                .first-run-title {
+                    margin: 0;
+                    font-size: clamp(2.8rem, 6vw, 7.8rem);
+                    line-height: .95;
+                    font-weight: 260;
+                    letter-spacing: -.05em;
+                    text-shadow: 0 0 42px rgba(125,203,255,.22), 0 18px 80px rgba(0,0,0,.72);
+                }
+                .first-run-copy {
+                    display: grid;
+                    gap: clamp(14px, 1.8vh, 22px);
+                    margin: 0 auto;
+                    max-width: 920px;
+                    color: rgba(255,255,255,.82);
+                    font-size: clamp(1.25rem, 2vw, 2.35rem);
+                    line-height: 1.24;
+                    font-weight: 340;
+                }
+                .first-run-copy p {
+                    margin: 0;
+                }
+                .first-run-action {
+                    justify-self: center;
+                    min-width: clamp(210px, 18vw, 340px);
+                    min-height: clamp(54px, 6vh, 78px);
+                    border: 1px solid rgba(255,255,255,.18);
+                    border-radius: 10px;
+                    background: rgba(255,255,255,.88);
+                    color: #050711;
+                    font: inherit;
+                    font-size: clamp(1rem, 1.25vw, 1.45rem);
+                    font-weight: 760;
+                    letter-spacing: .02em;
+                    outline: none;
+                    cursor: pointer;
+                    box-shadow: 0 20px 60px rgba(0,0,0,.42), 0 0 34px rgba(125,203,255,.16);
+                    transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
+                }
+                .first-run-action:focus,
+                .first-run-action:hover {
+                    transform: translateY(-2px) scale(1.03);
+                    background: #fff;
+                    box-shadow: 0 24px 70px rgba(0,0,0,.52), 0 0 0 5px rgba(255,255,255,.16), 0 0 44px rgba(125,203,255,.26);
+                }
+                .first-run-hint {
+                    color: rgba(255,255,255,.48);
+                    font-size: clamp(.84rem, 1vw, 1.12rem);
+                    letter-spacing: .12em;
+                    text-transform: uppercase;
+                }
+                .doorpi-shortcut-combo {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: .34em;
+                    white-space: nowrap;
+                    vertical-align: middle;
+                    transform: translateY(-.04em);
+                }
+                .doorpi-shortcut-plus {
+                    color: rgba(255,255,255,.42);
+                    font-size: .72em;
+                    font-weight: 760;
+                }
+                .doorpi-keycap {
+                    min-width: 2.45em;
+                    height: 1.62em;
+                    padding: 0 .62em;
+                    border-radius: .5em;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,.055));
+                    border: 1px solid rgba(255,255,255,.30);
+                    box-shadow: inset 0 1px 0 rgba(255,255,255,.20), 0 .32em .9em rgba(0,0,0,.30);
+                    color: rgba(255,255,255,.94);
+                    font-size: .58em;
+                    font-weight: 860;
+                    letter-spacing: .08em;
+                }
+                .doorpi-stickcap {
+                    width: 2.08em;
+                    height: 2.08em;
+                    border-radius: 50%;
+                    position: relative;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    background:
+                        radial-gradient(circle at 38% 30%, rgba(255,255,255,.26), transparent 18%),
+                        radial-gradient(circle at 50% 55%, rgba(255,255,255,.08), transparent 46%),
+                        linear-gradient(180deg, #303340, #11131b);
+                    border: 1px solid rgba(255,255,255,.22);
+                    box-shadow: inset 0 .18em .32em rgba(255,255,255,.08), inset 0 -.24em .42em rgba(0,0,0,.42), 0 .38em .9em rgba(0,0,0,.36);
+                    color: rgba(255,255,255,.95);
+                    font-size: .58em;
+                    font-weight: 900;
+                    letter-spacing: .04em;
+                }
+                .doorpi-stickcap::after {
+                    content: '';
+                    position: absolute;
+                    inset: 28%;
+                    border-radius: 50%;
+                    border: 1px solid rgba(255,255,255,.28);
+                    box-shadow: 0 0 0 .18em rgba(0,0,0,.14);
+                }
+                .doorpi-stick-press {
+                    position: absolute;
+                    right: -.22em;
+                    bottom: -.12em;
+                    width: .82em;
+                    height: .82em;
+                    border-radius: 50%;
+                    background: rgba(255,255,255,.92);
+                    color: #080a12;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: .72em;
+                    line-height: 1;
+                    box-shadow: 0 .16em .46em rgba(0,0,0,.42);
+                }
+            `;
+            document.head.appendChild(s);
+        }
+
+        function shortcutHtml() {
+            return `<span class="doorpi-shortcut-combo" aria-label="Xbox ou L1 + R1 + R3">
+                <span class="doorpi-keycap">XBOX</span>
+                <span class="doorpi-shortcut-plus">/</span>
+                <span class="doorpi-keycap">L1</span>
+                <span class="doorpi-shortcut-plus">+</span>
+                <span class="doorpi-keycap">R1</span>
+                <span class="doorpi-shortcut-plus">+</span>
+                <span class="doorpi-stickcap">R3<span class="doorpi-stick-press">↓</span></span>
+            </span>`;
+        }
+
+        function pages() {
+            const shortcutToken = '__DOORPI_RETURN_SHORTCUT__';
+            return [
+                [
+                    typeof t === 'function' ? t('firstRunPage1', shortcutToken) : `Para sair de qualquer jogo ou aplicativo, pressione ${shortcutToken} a qualquer momento para retornar ao Doorpi. Voce pode fechar qualquer aplicativo pelas opcoes pressionando X.`
+                ],
+                [
+                    typeof t === 'function' ? t('firstRunPage2a') : 'O Doorpi permite multitarefas, voce e livre para ouvir YouTube, usar Discord e jogar tudo ao mesmo tempo!',
+                    typeof t === 'function' ? t('firstRunPage2b', shortcutToken) : `Pressione ${shortcutToken} para minimizar e abrir outra aplicacao quando quiser.`,
+                    typeof t === 'function' ? t('firstRunPage2c') : 'Esta e uma versao beta. Caso encontre algum problema, reporte no GitHub do projeto.',
+                    typeof t === 'function' ? t('firstRunPage2d') : 'Divirta-se!'
+                ]
+            ];
+        }
+
+        function render() {
+            const overlay = document.getElementById('doorpiFirstRunTutorial');
+            if (!overlay) return;
+            const tr = (key, ...args) => typeof t === 'function' ? t(key, ...args) : key;
+            const allPages = pages();
+            const copy = allPages[Math.min(page, allPages.length - 1)] || [];
+            const isLast = page >= allPages.length - 1;
+            overlay.innerHTML = `
+                <section class="first-run-panel" aria-live="polite">
+                    <h1 class="first-run-title">${tr('firstRunTitle')}</h1>
+                    <div class="first-run-copy">
+                        ${copy.map(text => `<p>${escapeHtml(text).replaceAll('__DOORPI_RETURN_SHORTCUT__', shortcutHtml())}</p>`).join('')}
+                    </div>
+                    <button class="first-run-action" type="button" tabindex="0">
+                        ${isLast ? tr('firstRunFinish') : tr('firstRunNext')}
+                    </button>
+                    <div class="first-run-hint">${tr('firstRunHint')}</div>
+                </section>
+            `;
+            overlay.querySelector('.first-run-action')?.addEventListener('click', confirm);
+            requestAnimationFrame(() => overlay.querySelector('.first-run-action')?.focus());
+        }
+
+        function show() {
+            if (!shouldShow()) return false;
+            if (isOpen()) return true;
+            ensureStyles();
+            let overlay = document.getElementById('doorpiFirstRunTutorial');
+            if (!overlay) {
+                overlay = document.createElement('div');
+                overlay.id = 'doorpiFirstRunTutorial';
+                overlay.className = 'doorpi-first-run-tutorial doorpi-manager-overlay';
+                overlay.dataset.required = 'true';
+                document.body.appendChild(overlay);
+            }
+            page = 0;
+            render();
+            overlay.classList.add('visible');
+            overlay.style.display = 'flex';
+            window.updateDoorpiQuickMenuAvailability?.();
+            return true;
+        }
+
+        function finish() {
+            const overlay = document.getElementById('doorpiFirstRunTutorial');
+            storageSet(FIRST_RUN_TUTORIAL_DONE_KEY, 'true');
+            storageRemove(FIRST_RUN_TUTORIAL_PENDING_KEY);
+            if (overlay) {
+                overlay.classList.remove('visible');
+                overlay.style.display = 'none';
+            }
+            window.updateDoorpiQuickMenuAvailability?.();
+            window.focusFeaturedCard?.();
+            return true;
+        }
+
+        function confirm() {
+            if (!isOpen()) return false;
+            const allPages = pages();
+            if (page < allPages.length - 1) {
+                page += 1;
+                render();
+                return true;
+            }
+            return finish();
+        }
+
+        function isOpen() {
+            const overlay = document.getElementById('doorpiFirstRunTutorial');
+            return !!(overlay && overlay.style.display !== 'none' && overlay.classList.contains('visible'));
+        }
+
+        return { maybeShow: show, confirm, isOpen };
+    })();
 
     function _libraryUpdateShouldWait() {
         const phase = window._navMenuPhase || 'closed';
@@ -2255,6 +2539,22 @@
             postToHost({ action: 'requestUsers' });
         });
 
+        function applyTopProfileUser(user) {
+            const u = user || window._doorpiProfile || {};
+            const avatar = btn.querySelector('.doorpi-avatar');
+            const name = btn.querySelector('.top-profile-name');
+            if (avatar) {
+                avatar.innerHTML = u?.PhotoBase64
+                    ? `<img src="data:image/png;base64,${u.PhotoBase64}" />`
+                    : (u?.Name ? u.Name.charAt(0).toUpperCase() : '•');
+            }
+            if (name) name.textContent = u?.Name ?? '';
+            btn.classList.add('is-loaded');
+        }
+
+        window._applyDoorpiTopProfile = applyTopProfileUser;
+        requestAnimationFrame(() => applyTopProfileUser(window._doorpiProfile));
+
         const s = document.createElement('style');
         s.textContent = `
             .top-profile-btn {
@@ -2270,6 +2570,13 @@
                 outline: none;
                 z-index: 17000;
                 padding: 0;
+                opacity: 0;
+                transform: translateX(-15px) scale(0.95);
+                transition: opacity 0.22s cubic-bezier(0.2, 0.8, 0.2, 1), transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+            }
+            .top-profile-btn.is-loaded {
+                opacity: 1;
+                transform: translateX(0) scale(1);
             }
             .top-quick-menu-cue {
                 display: inline-flex;
@@ -2304,9 +2611,11 @@
             }
             body.user-picker-open .top-profile-btn,
             body.setup-active .top-profile-btn,
-            body.quick-menu-unavailable .top-profile-btn {
-                opacity: 0;
+            body.quick-menu-unavailable .top-profile-btn,
+            .top-profile-btn.nav-menu-hidden {
+                opacity: 0 !important;
                 pointer-events: none;
+                transition: opacity 0.12s ease !important;
             }
             body.quick-panel-open .top-quick-menu-cue {
                 width: auto;
@@ -3007,6 +3316,7 @@
 
             // Substitui o bloco renderGames existente
             if (data.type === 'renderGames' && data.games) {
+                window.DoorpiFirstRunTutorial?.maybeShow?.();
                 data.games.forEach(applyFallbacks);
 
                 const wasOnMedia = typeof window.getCurrentHomeTab === 'function'
@@ -3241,6 +3551,7 @@
                 if (window.AppStore) window.AppStore.mutations.setBatch('games', []);
             }
             else if (data.type === 'bootstrapStarted') {
+                window.DoorpiFirstRunTutorial?.maybeShow?.();
                 // showLoadingCards já existe no codebase (usada ao adicionar jogos manualmente)
                 if (typeof showLoadingCards === 'function') {
                     showLoadingCards(data.count || 6, 'games');
@@ -3299,18 +3610,8 @@
                     window._pendingUserSwitchId = '';
                     window.DoorpiIntro?.finishHandoff?.();
                 }
-                const btn = document.getElementById('btnTopProfile');
-                if (btn) {
-                    const u = data.user;
-                    const avatar = btn.querySelector('.doorpi-avatar');
-                    const name = btn.querySelector('.top-profile-name');
-                    if (avatar) {
-                        avatar.innerHTML = u?.PhotoBase64
-                            ? `<img src="data:image/png;base64,${u.PhotoBase64}" />`
-                            : (u?.Name ? u.Name.charAt(0).toUpperCase() : '•');
-                    }
-                    if (name) name.textContent = u?.Name ?? '';
-                }
+                window._applyDoorpiTopProfile?.(data.user);
+                window.DoorpiFirstRunTutorial?.maybeShow?.();
                 if (typeof clearHero === 'function') clearHero();
             }
             else if (data.type === 'systemUpdateStatus') {
@@ -4070,6 +4371,11 @@
         position: relative;
         z-index: 2;
     }
+    .doorpi-avatar img{
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
 
     .doorpi-user-card:focus .doorpi-avatar,
     .doorpi-user-card:hover .doorpi-avatar {
@@ -4147,7 +4453,7 @@
             if (quickPanelOpen) return false;
 
             if (window.isDoorpiSessionTransitionActive?.() || window.DoorpiIntro?.isRunning?.()) return true;
-            if (window.isNavMenuOpen || body.classList.contains('nav-menu-active') || body.classList.contains('nav-menu-closing')) return true;
+            if (window.isNavMenuOpen || body.classList.contains('nav-menu-active')) return true;
             if (window.isModalOpen || window.isSetupOpen || window._vkbIsOpen || window.isGlobalLoading) return true;
             if (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) return true;
             if (typeof isEditModalOpen !== 'undefined' && isEditModalOpen) return true;
@@ -4659,10 +4965,9 @@ function showUserPicker(users, requireSelection = false) {
                     to { opacity: 1; transform: translateX(0) scaleX(1); }
                 }
                 .dq-brand { min-height:42px; margin-bottom:10px; }
-                .dq-burger { width:30px; height:24px; display:grid; gap:6px; flex:0 0 auto; }
-                .dq-burger span { display:block; height:2px; border-radius:99px; background:rgba(255,255,255,.78); }
                 .dq-title { font-size: clamp(1.18rem, 1.45vw, 1.65rem); font-weight: 500; letter-spacing: 0; }
                 .dq-menu { display:flex; flex-direction:column; gap:10px; margin-top:10px; }
+                .dq-sidebar-bottom { margin-top: auto; padding-top: 18px; border-top: 1px solid rgba(255,255,255,0.06); }
                 .dq-menu-btn {
                     min-height: 64px;
                     border: 1px solid transparent;
@@ -4714,7 +5019,7 @@ function showUserPicker(users, requireSelection = false) {
                     cursor:pointer;
                     transition:transform .18s, background .18s, border-color .18s, box-shadow .18s;
                 }
-                .dq-card { min-height:178px; padding:22px; display:flex; flex-direction:column; justify-content:space-between; gap:22px; }
+                .dq-card { min-height:178px; padding:22px; display:flex; flex-direction:column-reverse; justify-content:space-between; gap:22px; }
                 .dq-action { min-height:60px; padding:0 18px; display:flex; align-items:center; justify-content:space-between; gap:14px; }
                 .dq-card.nav-focused-el, .dq-action.nav-focused-el, .dq-card:focus, .dq-action:focus {
                     transform:translateY(-2px);
@@ -4743,6 +5048,11 @@ function showUserPicker(users, requireSelection = false) {
                 .dq-progress-track { height:4px; overflow:hidden; border-radius:2px; background:rgba(255,255,255,.10); }
                 .dq-progress-fill { height:100%; width:var(--progress); background:#7dcbff; transition:width .18s linear; }
                 .dq-actions { display:grid; grid-template-columns: repeat(2, minmax(230px, 1fr)); gap:12px; max-width:740px; margin-top:6px; }
+                .dq-power-list { display: flex; flex-direction: column; gap: 12px; max-width: 540px; margin-top: 12px; }
+                .dq-power-list .dq-action { width: 100%; justify-content: flex-start; gap: 18px; min-height: 64px; font-size: 1.05rem; }
+                .dq-power-list .dq-action-ico { color: rgba(255,255,255,0.4); transition: color 0.18s; }
+                .dq-power-list .dq-action:focus .dq-action-ico, .dq-power-list .dq-action:hover .dq-action-ico { color: #fff; }
+                .dq-power-list .dq-action.danger .dq-action-ico { color: #ff9696; }
                 .dq-actions.windows-update-actions {
                     grid-template-areas:
                         "verify install"
@@ -4811,7 +5121,6 @@ function showUserPicker(users, requireSelection = false) {
                 @media (min-width: 3000px) and (min-height: 1600px) {
                     .dq-sidebar { width:480px; padding:64px 44px; gap:24px; }
                     .dq-brand { min-height:52px; margin-bottom:14px; }
-                    .dq-burger { width:36px; height:29px; gap:7px; }
                     .dq-menu { gap:14px; margin-top:14px; }
                     .dq-menu-btn { min-height:80px; padding:0 22px; }
                     .dq-menu-label { gap:18px; }
@@ -4821,7 +5130,7 @@ function showUserPicker(users, requireSelection = false) {
                     .dq-sub { max-width:900px; }
                     .dq-grid { grid-template-columns:repeat(3,minmax(320px,1fr)); gap:22px; max-width:1240px; }
                     .dq-card { min-height:224px; padding:28px; gap:28px; }
-                    .dq-action { min-height:76px; padding:0 24px; }
+                    .dq-action, .dq-power-list .dq-action { min-height:80px; padding:0 24px; font-size:1.2rem; }
                     .dq-panel, .dq-app-grid, .dq-gpu-guidance, .dq-windows-guidance { max-width:1100px; }
                     .dq-actions { max-width:920px; gap:16px; }
                     .dq-app-grid { grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:18px; }
@@ -4968,7 +5277,8 @@ function showUserPicker(users, requireSelection = false) {
                 external: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/>',
                 sleep: '<path d="M20.5 14.5A8.5 8.5 0 1 1 9.5 3.5 7 7 0 0 0 20.5 14.5Z"/>',
                 shutdown: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>',
-                close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'
+                close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+                desktop: '<rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>'
             };
             return `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[id] || icons.arrowRight}</svg>`;
         }
@@ -4981,8 +5291,6 @@ function showUserPicker(users, requireSelection = false) {
                 ['updates', t('updatesTitle'), updateDot],
                 ['sound', t('soundTitle'), ''],
                 ['connectivity', t('navSetConnectivity'), ''],
-                ['users', t('navChangeUser'), ''],
-                ['power', t('quickPower'), ''],
                 ['settings', t('navSettings'), '']
             ];
             return `
@@ -4998,6 +5306,14 @@ function showUserPicker(users, requireSelection = false) {
                                 ${badge}
                             </button>
                         `).join('')}
+                    </div>
+                    <div class="dq-menu dq-sidebar-bottom">
+                        <button class="dq-menu-btn ${section === 'power' ? 'active' : ''}" data-section="power" tabindex="0">
+                            <span class="dq-menu-label">
+                                <span class="dq-menu-ico">${iconSvg('power')}</span>
+                                <span>${t('quickPower', 'Energia')}</span>
+                            </span>
+                        </button>
                     </div>
                 </aside>
             `;
@@ -5193,13 +5509,33 @@ function showUserPicker(users, requireSelection = false) {
             return `
                 <section class="dq-content">
                     <div class="dq-kicker">${t('quickSystem')}</div>
-                    <h1 class="dq-heading">${t('quickPower')}</h1>
-                    <p class="dq-sub">${t('quickPowerDesc')}</p>
-                    <div class="dq-actions">
-                        <button class="dq-action" data-action="suspend" tabindex="0"><span class="dq-action-label">${t('powerSuspend')}</span><span class="dq-action-ico">${iconSvg('sleep')}</span></button>
-                        <button class="dq-action" data-action="restart" tabindex="0"><span class="dq-action-label">${t('powerRestart')}</span><span class="dq-action-ico">${iconSvg('refresh')}</span></button>
-                        <button class="dq-action danger" data-action="shutdown" tabindex="0"><span class="dq-action-label">${t('powerShutdown')}</span><span class="dq-action-ico">${iconSvg('shutdown')}</span></button>
-                        <button class="dq-action" data-action="exit" tabindex="0"><span class="dq-action-label">${t('quickExitDoorpi')}</span><span class="dq-action-ico">${iconSvg('close')}</span></button>
+                    <h1 class="dq-heading">${t('quickPower', 'Energia')}</h1>
+                    <p class="dq-sub">${t('quickPowerExpandedDesc', 'Opções de energia, perfis e sistema.')}</p>
+                    <div class="dq-power-list">
+                        <button class="dq-action" data-action="open-users" tabindex="0">
+                            <span class="dq-action-ico">${iconSvg('users')}</span>
+                            <span class="dq-action-label">${t('navChangeUser', 'Trocar Usuário')}</span>
+                        </button>
+                        <button class="dq-action" data-action="enter-desktop" tabindex="0">
+                            <span class="dq-action-ico">${iconSvg('desktop')}</span>
+                            <span class="dq-action-label">${t('sysActionDesktopTitle', 'Acessar Área de Trabalho')}</span>
+                        </button>
+                        <button class="dq-action" data-action="exit" tabindex="0">
+                            <span class="dq-action-ico">${iconSvg('close')}</span>
+                            <span class="dq-action-label">${t('quickExitDoorpi', 'Sair do Doorpi')}</span>
+                        </button>
+                        <button class="dq-action" data-action="suspend" tabindex="0">
+                            <span class="dq-action-ico">${iconSvg('sleep')}</span>
+                            <span class="dq-action-label">${t('powerSuspend', 'Suspender Sistema')}</span>
+                        </button>
+                        <button class="dq-action" data-action="restart" tabindex="0">
+                            <span class="dq-action-ico">${iconSvg('refresh')}</span>
+                            <span class="dq-action-label">${t('powerRestart', 'Reiniciar Sistema')}</span>
+                        </button>
+                        <button class="dq-action danger" data-action="shutdown" tabindex="0">
+                            <span class="dq-action-ico">${iconSvg('shutdown')}</span>
+                            <span class="dq-action-label">${t('powerShutdown', 'Desligar Sistema')}</span>
+                        </button>
                     </div>
                 </section>
             `;
@@ -5332,6 +5668,7 @@ function showUserPicker(users, requireSelection = false) {
             const sameSection = section === sectionId;
             if (section === 'connectivity' && sectionId !== 'connectivity' && bluetoothStatus?.discovering)
                 postToHost?.({ action: 'stopBluetoothDiscovery' });
+            if (section === 'sound' && sectionId !== 'sound') window.DoorpiSoundUI?.closeDrawer?.('quick');
             section = sectionId || 'updates';
             if (section === 'users') {
                 window._doorpiUserPickerReturnToQuickPanel = true;
@@ -5589,6 +5926,14 @@ function showUserPicker(users, requireSelection = false) {
                         close();
                         postToHost?.({ action: 'requestUsers' });
                     }
+                    else if (action === 'enter-desktop') {
+                        close();
+                        if (typeof window.showDesktopWarning === 'function') {
+                            window.showDesktopWarning('desktop', () => postToHost?.({ action: 'enterDesktopMode' }));
+                        } else {
+                            postToHost?.({ action: 'enterDesktopMode' });
+                        }
+                    }
                     else if (action === 'open-settings') openNavSettings();
                 });
             });
@@ -5639,6 +5984,7 @@ function showUserPicker(users, requireSelection = false) {
         function close() {
             if (section === 'connectivity' && bluetoothStatus?.discovering)
                 postToHost?.({ action: 'stopBluetoothDiscovery' });
+            if (section === 'sound') window.DoorpiSoundUI?.closeDrawer?.('quick');
             if (document.querySelector('.context-menu.visible')) window._ctxMenuClose?.();
             const overlay = document.getElementById('doorpiQuickPanel');
             if (overlay) {
@@ -5685,6 +6031,7 @@ function showUserPicker(users, requireSelection = false) {
             if (depth === 'content') {
                 depth = 'menu';
                 const focusSelector = section ? `.dq-menu-btn[data-section="${section}"]` : '.dq-menu-btn';
+                if (section === 'sound') window.DoorpiSoundUI?.closeDrawer?.('quick');
                 section = null;
                 updateView = 'hub';
                 render(focusSelector);

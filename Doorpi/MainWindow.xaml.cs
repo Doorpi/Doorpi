@@ -2008,12 +2008,23 @@ namespace Doorpi
         }
         // ========================= CONTROLE COMPARTILHADO (APP EXE & DIALOGS) =========================
         private const ushort MOUSE_MODE_SHORTCUT_MASK = 0x00C0; // L3 + R3
+        private const ushort DOORPI_RETURN_GUIDE_MASK = 0x0400;
+        private const ushort DOORPI_RETURN_ALT_MASK = 0x0380; // L1 + R1 + R3
         private const double CONTROLLER_MOUSE_BASE_SPEED = 700.0;
         private const double CONTROLLER_NATIVE_MOUSE_BASE_SPEED = 900.0;
         private const double CONTROLLER_MOUSE_SENSITIVITY_SCALE = 0.64;
 
         private static bool IsMouseModeShortcutPressed(ushort buttons)
             => (buttons & MOUSE_MODE_SHORTCUT_MASK) == MOUSE_MODE_SHORTCUT_MASK;
+
+        private static bool IsDoorpiReturnShortcutPressed(ushort buttons)
+            => (buttons & DOORPI_RETURN_GUIDE_MASK) != 0 ||
+               (buttons & DOORPI_RETURN_ALT_MASK) == DOORPI_RETURN_ALT_MASK;
+
+        private static bool IsDoorpiReturnShortcutJustPressed(ushort buttons, ushort previousButtons)
+            => ((buttons & DOORPI_RETURN_GUIDE_MASK) != 0 && (previousButtons & DOORPI_RETURN_GUIDE_MASK) == 0) ||
+               ((buttons & DOORPI_RETURN_ALT_MASK) == DOORPI_RETURN_ALT_MASK &&
+                (previousButtons & DOORPI_RETURN_ALT_MASK) != DOORPI_RETURN_ALT_MASK);
 
         private void SharedGamepadControllerLoop(
             Func<bool> isActive,
@@ -2106,8 +2117,7 @@ namespace Doorpi
                         }
 
                         // -- Botão Xbox = Voltar/Minimizar Modo Mídia Exe/Dialog --
-                        bool xboxBtn = (btn & 0x0400) != 0;
-                        if (handleXboxButton && xboxBtn)
+                        if (handleXboxButton && IsDoorpiReturnShortcutJustPressed(btn, prevButtons))
                         {
                             onExitCombo?.Invoke();
                             if (!isActive()) break;
@@ -2492,8 +2502,7 @@ namespace Doorpi
                     if (XInputGetStateSecret(0, out var state) == 0)
                     {
                         ushort btn = state.Gamepad.wButtons;
-                        bool xboxPressed = (btn & 0x0400) != 0 && (prevButtons & 0x0400) == 0;
-                        if (xboxPressed)
+                        if (IsDoorpiReturnShortcutJustPressed(btn, prevButtons))
                         {
                             bool minimized = false;
                             Dispatcher.Invoke(() =>
@@ -4366,9 +4375,7 @@ namespace Doorpi
                         }
 
                         // Fechar Modo Desktop apenas com o botão Xbox
-                        bool isXboxButton = (btn & 0x0400) != 0;
-
-                        if (isXboxButton)
+                        if (IsDoorpiReturnShortcutJustPressed(btn, prevButtons))
                         {
                             ExitDesktopMode();
                             break;
@@ -13454,10 +13461,6 @@ namespace Doorpi
             DateTime lastMoveTime = DateTime.MinValue;
             ushort prevButtons = 0;
 
-            // Variáveis de controle para o Combo (L1 + R1 + Select)
-            bool isHoldingMinimizeCombo = false;
-            DateTime minimizeComboStartTime = DateTime.MinValue;
-
             while (_mainUiGamepadActive)
             {
                 try
@@ -13484,29 +13487,9 @@ namespace Doorpi
                                 ushort snapBtn = snap.Gamepad.wButtons;
 
                                 // 1. Botão Xbox (Minimiza instantâneo)
-                                if ((snapBtn & 0x0400) != 0 && (prevButtons & 0x0400) == 0)
+                                if (IsDoorpiReturnShortcutJustPressed(snapBtn, prevButtons))
                                 {
                                     Dispatcher.Invoke(() => MinimizeCurrentGameAndRestoreDoorpi());
-                                }
-
-                                // 2. Combo: L1 (0x0100) + R1 (0x0200) + Select (0x0020) = 0x0320
-                                if ((snapBtn & 0x0320) == 0x0320)
-                                {
-                                    if (!isHoldingMinimizeCombo)
-                                    {
-                                        isHoldingMinimizeCombo = true;
-                                        minimizeComboStartTime = DateTime.UtcNow;
-                                    }
-                                    // Se segurou por 1 segundo (1000ms)
-                                    else if ((DateTime.UtcNow - minimizeComboStartTime).TotalMilliseconds >= 1000)
-                                    {
-                                        isHoldingMinimizeCombo = false; // Reseta para não disparar múltiplas vezes
-                                        Dispatcher.Invoke(() => MinimizeCurrentGameAndRestoreDoorpi());
-                                    }
-                                }
-                                else
-                                {
-                                    isHoldingMinimizeCombo = false; // Soltou algum botão, cancela a contagem
                                 }
 
                                 prevButtons = snapBtn;
