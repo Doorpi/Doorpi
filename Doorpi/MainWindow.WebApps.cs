@@ -108,6 +108,10 @@ namespace Doorpi
         private ShapePath? _webAppCloseHoldProgressArc;
         private Popup? _webAppCloseHoldPopup;
         private FrameworkElement? _webAppCloseHoldPlacementTarget;
+        private Grid? _webAppTutorialOverlay;
+        private Window? _webAppTutorialWindow;
+        private FrameworkElement? _webAppTutorialPlacementTarget;
+        private volatile bool _webAppTutorialOpen;
         private TextBlock? _genericBrowserAddressPlaceholder;
         private GenericBrowserKeyboardTarget _genericBrowserKeyboardTarget = GenericBrowserKeyboardTarget.None;
         private readonly GenericBrowserTabState _genericBrowserActiveTab = new()
@@ -2094,6 +2098,22 @@ namespace Doorpi
                     bool Held(ushort m) => (btn & m) != 0;
                     bool Released(ushort m) => (btn & m) == 0 && (prevButtons & m) != 0;
 
+                    if (_webAppTutorialOpen)
+                    {
+                        if (leftMouseDown)
+                        {
+                            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+                            leftMouseDown = false;
+                        }
+
+                        if (Pressed(XI_A) || Pressed(XI_B) || Pressed(XI_START))
+                            Dispatcher.Invoke(DismissWebAppTutorial);
+
+                        prevButtons = btn;
+                        Thread.Sleep(20);
+                        continue;
+                    }
+
                     // ════════════════════════════════════════════════════════
                     if (IsDoorpiReturnShortcutJustPressed(btn, prevButtons))
                     {
@@ -3916,6 +3936,651 @@ namespace Doorpi
             return lang.StartsWith("pt", StringComparison.OrdinalIgnoreCase) ? "Encerrar" : "Close";
         }
 
+        private string WebAppTutorialDoneFile
+        {
+            get
+            {
+                string root = !string.IsNullOrWhiteSpace(currentUserDataFolder)
+                    ? currentUserDataFolder
+                    : dataFolder;
+                return Path.Combine(root, "webapp-tutorial.done");
+            }
+        }
+
+        private static bool IsPortugueseUi()
+            => System.Globalization.CultureInfo.CurrentUICulture.Name.StartsWith("pt", StringComparison.OrdinalIgnoreCase);
+
+        private bool ShouldShowWebAppTutorial()
+        {
+            try { return !File.Exists(WebAppTutorialDoneFile); }
+            catch { return true; }
+        }
+
+        private void MarkWebAppTutorialDone()
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(WebAppTutorialDoneFile) ?? dataFolder);
+                File.WriteAllText(WebAppTutorialDoneFile, DateTime.UtcNow.ToString("O"));
+            }
+            catch { }
+        }
+
+        private void TryShowWebAppTutorial()
+        {
+            if (_webAppTutorialOpen || !ShouldShowWebAppTutorial()) return;
+
+            FrameworkElement? host = _webAppWindow?.Content as FrameworkElement;
+            if (host == null && _ytWebView?.Parent is FrameworkElement parent)
+                host = parent;
+            if (host == null) return;
+
+            try
+            {
+                _webAppTutorialWindow?.Close();
+            }
+            catch { }
+
+            _webAppTutorialOverlay = BuildWebAppTutorialOverlay();
+            _webAppTutorialPlacementTarget = host;
+            host.SizeChanged += OnWebAppTutorialPlacementTargetSizeChanged;
+            if (_webAppWindow != null)
+            {
+                _webAppWindow.LocationChanged += OnWebAppTutorialHostChanged;
+                _webAppWindow.SizeChanged += OnWebAppTutorialPlacementTargetSizeChanged;
+                _webAppWindow.StateChanged += OnWebAppTutorialHostChanged;
+            }
+
+            _webAppTutorialWindow = new Window
+            {
+                WindowStyle = WindowStyle.None,
+                ResizeMode = ResizeMode.NoResize,
+                ShowInTaskbar = false,
+                AllowsTransparency = true,
+                Background = Brushes.Transparent,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                ShowActivated = true,
+                Topmost = _webAppWindow?.Topmost ?? false,
+                Owner = _webAppWindow ?? this,
+                Content = _webAppTutorialOverlay
+            };
+            SyncWebAppTutorialOverlaySize();
+            _webAppTutorialWindow.Show();
+            _webAppTutorialOpen = true;
+            _webAppTutorialOverlay.Focus();
+            Dispatcher.InvokeAsync(SyncWebAppTutorialOverlaySize);
+        }
+
+        private void OnWebAppTutorialHostChanged(object? sender, EventArgs e)
+            => SyncWebAppTutorialOverlaySize();
+
+        private void OnWebAppTutorialPlacementTargetSizeChanged(object sender, SizeChangedEventArgs e)
+            => SyncWebAppTutorialOverlaySize();
+
+        private void SyncWebAppTutorialOverlaySize()
+        {
+            if (_webAppTutorialOverlay == null) return;
+            double width = Math.Max(_webAppTutorialPlacementTarget?.ActualWidth ?? 0, _webAppWindow?.ActualWidth ?? 0);
+            double height = Math.Max(_webAppTutorialPlacementTarget?.ActualHeight ?? 0, _webAppWindow?.ActualHeight ?? 0);
+            if (_webAppWindow?.WindowState == WindowState.Maximized)
+            {
+                width = Math.Max(width, SystemParameters.PrimaryScreenWidth);
+                height = Math.Max(height, SystemParameters.PrimaryScreenHeight);
+            }
+            if (width <= 0) width = SystemParameters.PrimaryScreenWidth;
+            if (height <= 0) height = SystemParameters.PrimaryScreenHeight;
+            if (width > 0) _webAppTutorialOverlay.Width = width;
+            if (height > 0) _webAppTutorialOverlay.Height = height;
+            if (_webAppTutorialWindow != null)
+            {
+                _webAppTutorialWindow.WindowState = WindowState.Normal;
+                _webAppTutorialWindow.Left = _webAppWindow?.Left ?? 0;
+                _webAppTutorialWindow.Top = _webAppWindow?.Top ?? 0;
+                _webAppTutorialWindow.Width = width;
+                _webAppTutorialWindow.Height = height;
+            }
+        }
+
+        private void DismissWebAppTutorial()
+        {
+            var overlay = _webAppTutorialOverlay;
+            if (overlay == null)
+            {
+                _webAppTutorialOpen = false;
+                return;
+            }
+
+            MarkWebAppTutorialDone();
+            _webAppTutorialOpen = false;
+
+            var fade = new DoubleAnimation
+            {
+                To = 0,
+                Duration = TimeSpan.FromMilliseconds(180),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            };
+            fade.Completed += (_, _) =>
+            {
+                if (_webAppTutorialPlacementTarget != null)
+                    _webAppTutorialPlacementTarget.SizeChanged -= OnWebAppTutorialPlacementTargetSizeChanged;
+                if (_webAppWindow != null)
+                {
+                    _webAppWindow.LocationChanged -= OnWebAppTutorialHostChanged;
+                    _webAppWindow.SizeChanged -= OnWebAppTutorialPlacementTargetSizeChanged;
+                    _webAppWindow.StateChanged -= OnWebAppTutorialHostChanged;
+                }
+                try { _webAppTutorialWindow?.Close(); } catch { }
+                _webAppTutorialWindow = null;
+                _webAppTutorialPlacementTarget = null;
+                if (_webAppTutorialOverlay == overlay)
+                    _webAppTutorialOverlay = null;
+                try { _ytWebView?.Focus(); } catch { }
+            };
+            overlay.BeginAnimation(OpacityProperty, fade);
+        }
+
+        private Grid BuildWebAppTutorialOverlay()
+        {
+            bool pt = IsPortugueseUi();
+            var root = new Grid
+            {
+                Focusable = true,
+                Background = new SolidColorBrush(Color.FromArgb(206, 0, 2, 10)),
+                Opacity = 0,
+                IsHitTestVisible = true
+            };
+            root.PreviewMouseDown += (_, e) =>
+            {
+                if (ReferenceEquals(e.OriginalSource, root))
+                    e.Handled = true;
+            };
+            root.PreviewKeyDown += (_, e) =>
+            {
+                if (e.Key == Key.Enter || e.Key == Key.Space || e.Key == Key.Escape)
+                {
+                    e.Handled = true;
+                    DismissWebAppTutorial();
+                }
+            };
+
+            var bottomShade = new Border
+            {
+                Background = new LinearGradientBrush
+                {
+                    StartPoint = new Point(0, 0),
+                    EndPoint = new Point(0, 1),
+                    GradientStops = new GradientStopCollection
+                    {
+                        new GradientStop(Color.FromArgb(0, 0, 2, 10), 0.0),
+                        new GradientStop(Color.FromArgb(142, 0, 2, 10), 0.42),
+                        new GradientStop(Color.FromArgb(232, 0, 2, 10), 1.0)
+                    }
+                },
+                VerticalAlignment = VerticalAlignment.Stretch,
+                IsHitTestVisible = false
+            };
+            root.Children.Add(bottomShade);
+
+            var glow = new System.Windows.Shapes.Ellipse
+            {
+                Width = 820,
+                Height = 520,
+                Fill = new RadialGradientBrush(
+                    Color.FromArgb(82, 36, 135, 210),
+                    Color.FromArgb(0, 36, 135, 210)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false
+            };
+            root.Children.Add(glow);
+
+            var panel = new Grid
+            {
+                Width = 1180,
+                MaxWidth = 1180,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(44)
+            };
+            panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            panel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            panel.Children.Add(new TextBlock
+            {
+                Text = pt ? "COMANDOS DO MODO WEB APP" : "WEB APP CONTROLS",
+                Foreground = Brushes.White,
+                    FontSize = 42,
+                    FontWeight = FontWeights.Light,
+                    TextAlignment = TextAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 0, 0, 10)
+            });
+
+            var subtitle = new TextBlock
+            {
+                Text = pt ? "Esses sao os comandos para navegar aplicativos web usando o controle." : "Use these commands to control web apps with your controller.",
+                Foreground = new SolidColorBrush(Color.FromArgb(190, 255, 255, 255)),
+                FontSize = 20,
+                FontWeight = FontWeights.Normal,
+                TextAlignment = TextAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 58, 0, 0)
+            };
+            panel.Children.Add(subtitle);
+
+            var diagram = BuildWebAppControllerDiagramSvg(pt);
+            Grid.SetRow(diagram, 1);
+            panel.Children.Add(diagram);
+
+            var action = new Button
+            {
+                Content = pt ? "Entendi" : "Got it",
+                MinWidth = 188,
+                Height = 54,
+                Padding = new Thickness(28, 0, 28, 0),
+                FontSize = 17,
+                FontWeight = FontWeights.Bold,
+                Foreground = new SolidColorBrush(Color.FromRgb(5, 7, 13)),
+                Background = Brushes.White,
+                BorderBrush = new SolidColorBrush(Color.FromArgb(55, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 8, 0, 0)
+            };
+            action.Click += (_, _) => DismissWebAppTutorial();
+            Grid.SetRow(action, 2);
+            panel.Children.Add(action);
+
+            var hint = new TextBlock
+            {
+                Text = pt ? "Pressione A, B ou Start para continuar" : "Press A, B, or Start to continue",
+                Foreground = new SolidColorBrush(Color.FromArgb(112, 255, 255, 255)),
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                TextAlignment = TextAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 76, 0, 0),
+                TextWrapping = TextWrapping.Wrap
+            };
+            Grid.SetRow(hint, 2);
+            panel.Children.Add(hint);
+
+            root.Children.Add(panel);
+
+            root.BeginAnimation(OpacityProperty, new DoubleAnimation
+            {
+                To = 1,
+                Duration = TimeSpan.FromMilliseconds(260),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            });
+
+            return root;
+        }
+
+        private FrameworkElement BuildWebAppControllerDiagramSvg(bool pt)
+        {
+            var viewbox = new Viewbox
+            {
+                Stretch = Stretch.Uniform,
+                MaxHeight = 560,
+                Margin = new Thickness(0, 14, 0, 2)
+            };
+
+            var canvas = new Canvas { Width = 1120, Height = 540 };
+            viewbox.Child = canvas;
+
+            Brush textBrush = new SolidColorBrush(Color.FromArgb(235, 255, 255, 255));
+            Brush dimBrush = new SolidColorBrush(Color.FromArgb(150, 255, 255, 255));
+            Brush lineBrush = new SolidColorBrush(Color.FromArgb(190, 132, 211, 255));
+
+            var controller = new Canvas { Width = 580.03, Height = 486 };
+            controller.RenderTransform = new TransformGroup
+            {
+                Children = new TransformCollection
+                {
+                    new ScaleTransform(0.88, 0.88),
+                    new TranslateTransform(0, 0)
+                }
+            };
+            Canvas.SetLeft(controller, 310);
+            Canvas.SetTop(controller, 46);
+            canvas.Children.Add(controller);
+
+            Brush shellFill = new LinearGradientBrush(
+                Color.FromArgb(96, 238, 243, 252),
+                Color.FromArgb(58, 142, 154, 180),
+                90);
+            Brush shellStroke = new SolidColorBrush(Color.FromArgb(230, 225, 236, 255));
+            Brush detailFill = new SolidColorBrush(Color.FromArgb(92, 31, 38, 53));
+            Brush detailStroke = new SolidColorBrush(Color.FromArgb(185, 225, 236, 255));
+
+            AddSvgPath(controller, "M505.765,150.961c-16.255-10.392-4.528-16.328-21.353-29.192s-85.104-34.639-96.983-24.743s-25.233,11.873-25.233,11.873 h-72.112h-0.122h-72.118c0,0-13.36-1.977-25.233-11.873c-11.873-9.896-80.16,11.873-96.983,24.743 c-16.824,12.864-5.098,18.801-21.353,29.192C58.02,161.353,15.467,304.843,15.467,304.843s-55.417,159.823,43.544,179.12 c0,0,24.241-15.337,45.025-40.08c7.778-9.26,18.33-19.97,29.627-29.78v-3.794c0-20.569,16.738-37.308,37.308-37.308h233.967 c18.514,0,33.923,13.556,36.818,31.261c8.213,3.825,14.309,11.42,16.188,20.453c6.812,6.573,13.017,13.177,18.054,19.168 c20.783,24.743,45.024,40.08,45.024,40.08c98.961-19.297,43.544-179.12,43.544-179.12S522.02,161.347,505.765,150.961z M438.047,148.335c13.728,0,24.89,11.169,24.89,24.89c0,13.721-11.162,24.89-24.89,24.89s-24.89-11.163-24.89-24.89 S424.319,148.335,438.047,148.335z M399.932,186.433c13.721,0,24.89,11.163,24.89,24.89s-11.162,24.89-24.89,24.89 s-24.891-11.169-24.891-24.89S386.204,186.433,399.932,186.433z M332.146,195.398c8.782,0,15.924,7.148,15.924,15.93 s-7.142,15.924-15.924,15.924s-15.925-7.142-15.925-15.924S323.364,195.398,332.146,195.398z M142.139,259.414 c-27.062,0-49.083-22.02-49.083-49.083c0-27.062,22.02-49.076,49.083-49.076c27.063,0,49.076,22.014,49.076,49.076 C191.215,237.394,169.201,259.414,142.139,259.414z M256.399,316.807c0,1.689-1.371,3.061-3.06,3.061h-22.448v22.454 c0,1.689-1.371,3.06-3.06,3.06h-24.235c-1.689,0-3.06-1.37-3.06-3.06v-22.454h-22.448c-1.689,0-3.06-1.371-3.06-3.061v-24.235 c0-1.688,1.371-3.06,3.06-3.06h22.448v-22.454c0-1.689,1.371-3.06,3.06-3.06h24.235c1.689,0,3.06,1.371,3.06,3.06v22.454h22.448 c1.689,0,3.06,1.371,3.06,3.06V316.807z M249.019,227.247c-8.782,0-15.924-7.142-15.924-15.924s7.142-15.931,15.924-15.931 s15.924,7.148,15.924,15.931S257.794,227.247,249.019,227.247z M290.022,177.271c-16.457,0-29.841-13.391-29.841-29.841 c0-16.45,13.391-29.841,29.841-29.841c16.45,0,29.841,13.391,29.841,29.841C319.863,163.88,306.479,177.271,290.022,177.271z M365.299,348.974c-27.063,0-49.077-22.02-49.077-49.082c0-27.063,22.014-49.077,49.077-49.077 c27.062,0,49.076,22.014,49.076,49.077C414.375,326.954,392.361,348.974,365.299,348.974z M438.047,276.311 c-13.728,0-24.89-11.169-24.89-24.89s11.162-24.89,24.89-24.89s24.89,11.163,24.89,24.89S451.774,276.311,438.047,276.311z M479.106,236.213c-13.728,0-24.891-11.169-24.891-24.89c0-13.721,11.163-24.89,24.891-24.89c13.721,0,24.89,11.163,24.89,24.89 S492.827,236.213,479.106,236.213z", shellFill, shellStroke, 2.1);
+
+            AddSvgPath(controller, "M142.139,167.381c-23.69,0-42.962,19.266-42.962,42.957s19.272,42.962,42.962,42.962 c23.685,0,42.957-19.272,42.957-42.962S165.829,167.381,142.139,167.381z M142.139,243.575c-18.329,0-33.244-14.915-33.244-33.244 c0-18.329,14.915-33.244,33.244-33.244c18.33,0,33.244,14.915,33.244,33.244C175.383,228.661,160.474,243.575,142.139,243.575z", detailFill, detailStroke, 1.2);
+            AddSvgPath(controller, "M142.139,183.213c-14.957,0-27.124,12.167-27.124,27.124c0,14.957,12.167,27.124,27.124,27.124 c14.958,0,27.124-12.167,27.124-27.124C169.263,195.38,157.096,183.213,142.139,183.213z", detailFill, detailStroke, 1.1);
+            AddSvgPath(controller, "M365.299,256.941c-23.685,0-42.957,19.266-42.957,42.957s19.272,42.962,42.957,42.962 c23.684,0,42.956-19.271,42.956-42.962S388.982,256.941,365.299,256.941z M365.299,333.142c-18.33,0-33.244-14.921-33.244-33.25 c0-18.33,14.914-33.244,33.244-33.244c18.329,0,33.243,14.915,33.243,33.244C398.542,318.221,383.628,333.142,365.299,333.142z", detailFill, detailStroke, 1.2);
+            AddSvgPath(controller, "M365.299,272.773c-14.958,0-27.124,12.167-27.124,27.124c0,14.957,12.166,27.13,27.124,27.13 c14.957,0,27.123-12.167,27.123-27.13C392.416,284.94,380.256,272.773,365.299,272.773z", detailFill, detailStroke, 1.1);
+            AddSvgPath(controller, "M224.771,292.571v-22.454h-18.115v22.454c0,1.689-1.371,3.061-3.06,3.061h-22.448v18.115h22.448 c1.689,0,3.06,1.371,3.06,3.06v22.454h18.115v-22.454c0-1.688,1.371-3.06,3.06-3.06h22.448v-18.115h-22.448 C226.142,295.632,224.771,294.261,224.771,292.571z", detailFill, detailStroke, 1.1);
+            AddSvgCircle(controller, 249.019, 211.323, 9.804, detailFill);
+            AddSvgCircle(controller, 332.146, 211.323, 9.804, detailFill);
+            AddSvgCircle(controller, 399.932, 211.323, 18.77, detailFill);
+            AddSvgCircle(controller, 438.047, 173.226, 18.77, detailFill);
+            AddSvgCircle(controller, 438.047, 251.421, 18.77, detailFill);
+            AddSvgCircle(controller, 479.106, 211.323, 18.77, detailFill);
+
+            AddFaceButton(canvas, 695, 267, "A", Color.FromRgb(82, 203, 116));
+            AddFaceButton(canvas, 732, 232, "B", Color.FromRgb(234, 88, 92));
+            AddFaceButton(canvas, 662, 232, "X", Color.FromRgb(82, 151, 232));
+            AddFaceButton(canvas, 695, 198, "Y", Color.FromRgb(238, 205, 82));
+            AddStick(canvas, 435, 231, "L");
+            AddStick(canvas, 631, 310, "R");
+            AddShoulder(canvas, 390, 128, "L1");
+            AddShoulder(canvas, 662, 128, "R1");
+            AddXboxGuideButton(canvas, 565, 176);
+
+            AddCallout(canvas, 436, 130, 120, 92,
+                "L1", pt ? "Voltar no historico" : "Browser back", lineBrush, textBrush, dimBrush, true);
+            AddCallout(canvas, 708, 130, 902, 92,
+                "R1", pt ? "Avancar no historico" : "Browser forward", lineBrush, textBrush, dimBrush);
+            AddCallout(canvas, 565, 176, 472, 18,
+                pt ? "Botao Xbox" : "Xbox button", pt ? "Minimiza para o Doorpi" : "Minimizes to Doorpi", lineBrush, textBrush, dimBrush);
+            AddCallout(canvas, 435, 231, 96, 220,
+                pt ? "Analogico esquerdo" : "Left stick", pt ? "Controla o mouse" : "Moves the mouse", lineBrush, textBrush, dimBrush, true);
+            AddCallout(canvas, 631, 310, 584, 424,
+                pt ? "Analogico direito" : "Right stick", pt ? "Controla o scroll" : "Controls scroll", lineBrush, textBrush, dimBrush);
+            AddCallout(canvas, 695, 198, 858, 164,
+                "Y", pt ? "Espaco / play quando disponivel" : "Space / play when available", lineBrush, textBrush, dimBrush);
+            AddCallout(canvas, 732, 232, 858, 238,
+                "B", pt ? "Pressionar: volta pagina\nSegurar: fecha o app" : "Press: page back\nHold: close app", lineBrush, textBrush, dimBrush);
+            AddCallout(canvas, 662, 232, 858, 304,
+                "X", pt ? "Clique direito" : "Right click", lineBrush, textBrush, dimBrush);
+            AddCallout(canvas, 695, 267, 858, 430,
+                "A", pt ? "Clique do mouse" : "Mouse click", lineBrush, textBrush, dimBrush);
+
+            return viewbox;
+        }
+
+        private static void AddSvgPath(Canvas canvas, string data, Brush fill, Brush? stroke, double thickness)
+        {
+            canvas.Children.Add(new ShapePath
+            {
+                Data = Geometry.Parse(data),
+                Fill = fill,
+                Stroke = stroke,
+                StrokeThickness = thickness,
+                Stretch = Stretch.None
+            });
+        }
+
+        private static void AddSvgCircle(Canvas canvas, double cx, double cy, double r, Brush fill)
+        {
+            var circle = new System.Windows.Shapes.Ellipse
+            {
+                Width = r * 2,
+                Height = r * 2,
+                Fill = fill
+            };
+            Canvas.SetLeft(circle, cx - r);
+            Canvas.SetTop(circle, cy - r);
+            canvas.Children.Add(circle);
+        }
+
+        private static void AddXboxGuideButton(Canvas canvas, double cx, double cy)
+        {
+            var outer = new System.Windows.Shapes.Ellipse
+            {
+                Width = 44,
+                Height = 44,
+                Fill = new SolidColorBrush(Color.FromRgb(238, 243, 252)),
+                Stroke = new SolidColorBrush(Color.FromArgb(170, 255, 255, 255)),
+                StrokeThickness = 1.5
+            };
+            Canvas.SetLeft(outer, cx - 22);
+            Canvas.SetTop(outer, cy - 22);
+            canvas.Children.Add(outer);
+
+            var logo = new ShapePath
+            {
+                Data = Geometry.Parse("M11.9 9.3c-5.1-5.1-6.4-4-6.4-4C2.7 8 1 11.8 1 16c0 3.4 1.1 6.6 3.1 9.1h.1V25C3 21.5 8.9 12.9 11.9 9.3zm14.6-4s-1.3-1.1-6.4 3.9c3 3.6 8.9 12.2 7.7 15.7v.1h.1c1.9-2.5 3.1-5.7 3.1-9.1 0-4.1-1.7-7.9-4.5-10.6zM16 5.4c.5-.2 4.9-2.8 7.8-2.1h.1v-.1C21.5 1.8 19 1 16 1s-5.5.8-7.8 2.2v.1h.1c2.5-.6 6.6 1.5 7.7 2.1zm0 7.7c0-.1 0-.1 0 0C11.4 16.5 3.7 25 6.1 27.3 8.8 29.6 12.2 31 16 31s7.2-1.4 9.9-3.7c2.3-2.4-5.4-10.8-9.9-14.2z"),
+                Fill = new SolidColorBrush(Color.FromRgb(22, 28, 40)),
+                Stretch = Stretch.None,
+                RenderTransform = new TransformGroup
+                {
+                    Children = new TransformCollection
+                    {
+                        new ScaleTransform(0.86, 0.86),
+                        new TranslateTransform(cx - 14, cy - 14)
+                    }
+                }
+            };
+            canvas.Children.Add(logo);
+        }
+
+        private FrameworkElement BuildWebAppControllerDiagram(bool pt)
+        {
+            var viewbox = new Viewbox
+            {
+                Stretch = Stretch.Uniform,
+                MaxHeight = 560,
+                Margin = new Thickness(0, 14, 0, 2)
+            };
+
+            var canvas = new Canvas { Width = 1120, Height = 540 };
+            viewbox.Child = canvas;
+
+            Brush bodyFill = new LinearGradientBrush(
+                Color.FromRgb(238, 242, 250),
+                Color.FromRgb(148, 158, 178),
+                90);
+            Brush bodyStroke = new SolidColorBrush(Color.FromArgb(185, 255, 255, 255));
+            Brush textBrush = new SolidColorBrush(Color.FromArgb(235, 255, 255, 255));
+            Brush dimBrush = new SolidColorBrush(Color.FromArgb(150, 255, 255, 255));
+            Brush lineBrush = new SolidColorBrush(Color.FromArgb(190, 132, 211, 255));
+
+            var body = new ShapePath
+            {
+                Data = Geometry.Parse("M358,178 C407,118 484,132 520,166 C548,191 572,191 600,166 C636,132 713,118 762,178 C809,236 845,368 797,412 C754,452 714,391 679,346 C654,314 632,308 560,308 C488,308 466,314 441,346 C406,391 366,452 323,412 C275,368 311,236 358,178 Z"),
+                Fill = bodyFill,
+                Stroke = bodyStroke,
+                StrokeThickness = 2
+            };
+            canvas.Children.Add(body);
+
+            AddShoulder(canvas, 375, 126, "L1");
+            AddShoulder(canvas, 665, 126, "R1");
+            AddStick(canvas, 425, 258, "L");
+            AddStick(canvas, 645, 258, "R");
+            AddDpad(canvas, 482, 325);
+            AddFaceButton(canvas, 726, 247, "Y", Color.FromRgb(238, 205, 82));
+            AddFaceButton(canvas, 684, 289, "X", Color.FromRgb(82, 151, 232));
+            AddFaceButton(canvas, 768, 289, "B", Color.FromRgb(234, 88, 92));
+            AddFaceButton(canvas, 726, 331, "A", Color.FromRgb(82, 203, 116));
+            AddSmallButton(canvas, 531, 242, "≡");
+            AddSmallButton(canvas, 589, 242, "⋯");
+
+            AddCallout(canvas, 724, 331, 880, 392,
+                "A", pt ? "Clique do mouse" : "Mouse click", lineBrush, textBrush, dimBrush);
+            AddCallout(canvas, 768, 289, 870, 224,
+                "B", pt ? "Pressionar: volta pagina\nSegurar: fecha o app" : "Press: page back\nHold: close app", lineBrush, textBrush, dimBrush);
+            AddCallout(canvas, 425, 258, 148, 220,
+                pt ? "Analogico esquerdo" : "Left stick", pt ? "Controla o mouse" : "Moves the mouse", lineBrush, textBrush, dimBrush);
+            AddCallout(canvas, 645, 258, 836, 122,
+                pt ? "Analogico direito" : "Right stick", pt ? "Controla o scroll" : "Controls scroll", lineBrush, textBrush, dimBrush);
+            AddCallout(canvas, 684, 289, 146, 360,
+                "X", pt ? "Clique direito" : "Right click", lineBrush, textBrush, dimBrush);
+            AddCallout(canvas, 375, 126, 148, 108,
+                "L1", pt ? "Voltar no historico" : "Browser back", lineBrush, textBrush, dimBrush);
+            AddCallout(canvas, 665, 126, 838, 52,
+                "R1", pt ? "Avancar no historico" : "Browser forward", lineBrush, textBrush, dimBrush);
+            AddCallout(canvas, 726, 247, 884, 306,
+                "Y", pt ? "Espaco / play quando disponivel" : "Space / play when available", lineBrush, textBrush, dimBrush);
+
+            return viewbox;
+        }
+
+        private static void AddShoulder(Canvas canvas, double x, double y, string text)
+        {
+            var rect = new System.Windows.Shapes.Rectangle
+            {
+                Width = 92,
+                Height = 36,
+                RadiusX = 18,
+                RadiusY = 18,
+                Fill = new SolidColorBrush(Color.FromArgb(92, 225, 232, 245)),
+                Stroke = new SolidColorBrush(Color.FromArgb(210, 255, 255, 255)),
+                StrokeThickness = 2
+            };
+            Canvas.SetLeft(rect, x);
+            Canvas.SetTop(rect, y);
+            canvas.Children.Add(rect);
+            AddCanvasText(canvas, text, x, y + 7, 92, 18, Brushes.Black, 14, FontWeights.Bold);
+        }
+
+        private static void AddStick(Canvas canvas, double cx, double cy, string text)
+        {
+            var outer = new System.Windows.Shapes.Ellipse
+            {
+                Width = 74,
+                Height = 74,
+                Fill = new SolidColorBrush(Color.FromArgb(82, 48, 55, 70)),
+                Stroke = new SolidColorBrush(Color.FromArgb(205, 225, 236, 255)),
+                StrokeThickness = 2.4
+            };
+            Canvas.SetLeft(outer, cx - 37);
+            Canvas.SetTop(outer, cy - 37);
+            canvas.Children.Add(outer);
+
+            var inner = new System.Windows.Shapes.Ellipse
+            {
+                Width = 42,
+                Height = 42,
+                Fill = new SolidColorBrush(Color.FromArgb(88, 23, 27, 38)),
+                Stroke = new SolidColorBrush(Color.FromArgb(145, 255, 255, 255)),
+                StrokeThickness = 1.4
+            };
+            Canvas.SetLeft(inner, cx - 21);
+            Canvas.SetTop(inner, cy - 21);
+            canvas.Children.Add(inner);
+            AddCanvasText(canvas, text, cx - 18, cy - 10, 36, 20, new SolidColorBrush(Color.FromArgb(210, 255, 255, 255)), 12, FontWeights.Bold);
+        }
+
+        private static void AddDpad(Canvas canvas, double x, double y)
+        {
+            var v = new System.Windows.Shapes.Rectangle { Width = 26, Height = 78, RadiusX = 7, RadiusY = 7, Fill = new SolidColorBrush(Color.FromRgb(38, 44, 58)) };
+            var h = new System.Windows.Shapes.Rectangle { Width = 78, Height = 26, RadiusX = 7, RadiusY = 7, Fill = new SolidColorBrush(Color.FromRgb(38, 44, 58)) };
+            Canvas.SetLeft(v, x + 26);
+            Canvas.SetTop(v, y);
+            Canvas.SetLeft(h, x);
+            Canvas.SetTop(h, y + 26);
+            canvas.Children.Add(v);
+            canvas.Children.Add(h);
+        }
+
+        private static void AddFaceButton(Canvas canvas, double cx, double cy, string text, Color color)
+        {
+            var circle = new System.Windows.Shapes.Ellipse
+            {
+                Width = 42,
+                Height = 42,
+                Fill = new SolidColorBrush(Color.FromArgb(108, 232, 238, 248)),
+                Stroke = new SolidColorBrush(Color.FromArgb(205, 255, 255, 255)),
+                StrokeThickness = 1.7
+            };
+            Canvas.SetLeft(circle, cx - 21);
+            Canvas.SetTop(circle, cy - 21);
+            canvas.Children.Add(circle);
+            AddCanvasText(canvas, text, cx - 16, cy - 10, 32, 20, new SolidColorBrush(color), 15, FontWeights.Black);
+        }
+
+        private static void AddSmallButton(Canvas canvas, double cx, double cy, string text)
+        {
+            var pill = new System.Windows.Shapes.Ellipse
+            {
+                Width = 34,
+                Height = 22,
+                Fill = new SolidColorBrush(Color.FromRgb(70, 78, 96)),
+                Stroke = new SolidColorBrush(Color.FromArgb(90, 255, 255, 255)),
+                StrokeThickness = 1
+            };
+            Canvas.SetLeft(pill, cx - 17);
+            Canvas.SetTop(pill, cy - 11);
+            canvas.Children.Add(pill);
+            AddCanvasText(canvas, text, cx - 17, cy - 10, 34, 18, Brushes.White, 12, FontWeights.Bold);
+        }
+
+        private static void AddCallout(Canvas canvas, double sx, double sy, double tx, double ty, string title, string desc, Brush lineBrush, Brush titleBrush, Brush descBrush, bool lineToTextEnd = false)
+        {
+            const double textWidth = 210;
+            var textAlignment = lineToTextEnd ? TextAlignment.Right : TextAlignment.Left;
+            var line = new System.Windows.Shapes.Line
+            {
+                X1 = sx,
+                Y1 = sy,
+                X2 = lineToTextEnd ? tx + textWidth : tx,
+                Y2 = ty + 12,
+                Stroke = lineBrush,
+                StrokeThickness = 1.7,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round
+            };
+            canvas.Children.Add(line);
+
+            var dot = new System.Windows.Shapes.Ellipse
+            {
+                Width = 8,
+                Height = 8,
+                Fill = lineBrush
+            };
+            Canvas.SetLeft(dot, sx - 4);
+            Canvas.SetTop(dot, sy - 4);
+            canvas.Children.Add(dot);
+
+            var stack = new StackPanel { Width = textWidth };
+            stack.Children.Add(new TextBlock
+            {
+                Text = title,
+                Width = textWidth,
+                Foreground = titleBrush,
+                FontSize = 18,
+                FontWeight = FontWeights.Black,
+                TextAlignment = textAlignment,
+                TextWrapping = TextWrapping.Wrap
+            });
+            stack.Children.Add(new TextBlock
+            {
+                Text = desc,
+                Width = textWidth,
+                Foreground = descBrush,
+                FontSize = 14,
+                FontWeight = FontWeights.SemiBold,
+                LineHeight = 17,
+                TextAlignment = textAlignment,
+                TextWrapping = TextWrapping.Wrap
+            });
+            Canvas.SetLeft(stack, tx);
+            Canvas.SetTop(stack, ty);
+            canvas.Children.Add(stack);
+        }
+
+        private static void AddCanvasText(Canvas canvas, string text, double x, double y, double width, double height, Brush foreground, double fontSize, FontWeight weight)
+        {
+            var tb = new TextBlock
+            {
+                Text = text,
+                Width = width,
+                Height = height,
+                Foreground = foreground,
+                FontSize = fontSize,
+                FontWeight = weight,
+                TextAlignment = TextAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Canvas.SetLeft(tb, x);
+            Canvas.SetTop(tb, y);
+            canvas.Children.Add(tb);
+        }
+
         private ShapePath BuildProgressArcPath(double size, double thickness, double progress, Brush stroke)
         {
             return new ShapePath
@@ -4558,6 +5223,8 @@ namespace Doorpi
                 if (!_ytClosing && this.WindowState != WindowState.Minimized)
                 {
                     await ReleaseWebAppLoadingOverlayAsync();
+                    if (!isYouTube)
+                        Dispatcher.Invoke(TryShowWebAppTutorial);
                     SendGameLaunchStatus("gameLaunchReady");
                     await Task.Delay(800);
 
@@ -4721,6 +5388,19 @@ namespace Doorpi
             try { _webAppWindow?.Close(); } catch { }
             _webAppWindow = null;
             CloseGenericBrowserExtensionsPopup();
+            if (_webAppTutorialPlacementTarget != null)
+                _webAppTutorialPlacementTarget.SizeChanged -= OnWebAppTutorialPlacementTargetSizeChanged;
+            if (_webAppWindow != null)
+            {
+                _webAppWindow.LocationChanged -= OnWebAppTutorialHostChanged;
+                _webAppWindow.SizeChanged -= OnWebAppTutorialPlacementTargetSizeChanged;
+                _webAppWindow.StateChanged -= OnWebAppTutorialHostChanged;
+            }
+            try { _webAppTutorialWindow?.Close(); } catch { }
+            _webAppTutorialWindow = null;
+            _webAppTutorialPlacementTarget = null;
+            _webAppTutorialOverlay = null;
+            _webAppTutorialOpen = false;
 
             RootGrid.Children.Remove(ytWebView);
 
