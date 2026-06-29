@@ -78,7 +78,7 @@ public partial class MainWindow : Window
             string packagePath = await downloader.DownloadAndVerifyAsync(
                 release,
                 DoorpiRuntimePaths.DownloadsFolder,
-                $"doorpi-{release.Version}.doorpiupdate",
+                $"doorpi-{release.Version}.doorpiupdate.zip",
                 new Progress<double>(p => SetStatus("Baixando novo pacote do Doorpi...", 0.20 + (p * 0.35))));
 
             state.PackagePath = packagePath;
