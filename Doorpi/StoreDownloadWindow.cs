@@ -150,6 +150,9 @@ namespace Doorpi
             _webView.CoreWebView2.Settings.AreHostObjectsAllowed = false;
             _webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
             _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
+            _webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
+            _webView.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = false;
+            _webView.CoreWebView2.Settings.IsZoomControlEnabled = false;
             try { _webView.CoreWebView2.Profile.DefaultDownloadFolderPath = _downloadFolder; } catch { }
             _webView.CoreWebView2.NewWindowRequested += (_, e) =>
             {

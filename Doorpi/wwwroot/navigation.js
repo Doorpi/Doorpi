@@ -326,6 +326,25 @@ function handleArtworkWizardGridDirection(direction, current) {
     return false;
 }
 
+function resolveExplicitNavTarget(current, direction) {
+    const key = {
+        LEFT: 'navLeft',
+        RIGHT: 'navRight',
+        UP: 'navUp',
+        DOWN: 'navDown'
+    }[direction];
+    const selector = key ? current?.dataset?.[key] : '';
+    if (!selector) return null;
+
+    try {
+        const root = current.closest('.artwork-wizard-overlay') || document;
+        const target = root.querySelector(selector);
+        if (target && target.offsetWidth > 0 && target.offsetHeight > 0 && !target.disabled) return target;
+    } catch { }
+
+    return null;
+}
+
 function findVkbCandidate(items, current, direction) {
     const rowItems = items
         .map(el => ({ el, row: Number(el.dataset?.row), col: Number(el.dataset?.col) }))
@@ -638,7 +657,9 @@ function moveFocus(direction) {
         if (handleArtworkWizardGridDirection(direction, current)) return;
 
         if (!items.includes(current)) { items[0]?.focus(); return; }
-        let target = findSpatialCandidate(items, current, direction) || findWrapCandidate(items, current, direction);
+        let target = resolveExplicitNavTarget(current, direction) ||
+            findSpatialCandidate(items, current, direction) ||
+            findWrapCandidate(items, current, direction);
 
         if (!target) {
             const idx = items.indexOf(current);

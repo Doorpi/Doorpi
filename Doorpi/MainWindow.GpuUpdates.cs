@@ -124,10 +124,7 @@ namespace Doorpi
                         Title = "Selecionar atualizador de placa de vídeo"
                     };
 
-                    bool? result;
-                    StartDialogControllerMode();
-                    try { result = dialog.ShowDialog(); }
-                    finally { StopDialogControllerMode(); }
+                    bool? result = ShowDialogWithController(dialog);
 
                     if (result == true)
                     {
@@ -1191,7 +1188,7 @@ namespace Doorpi
                 "--autoplay-policy=no-user-gesture-required");
             var environment = await Microsoft.Web.WebView2.Core.CoreWebView2Environment.CreateAsync(null, null, options);
             await webView.EnsureCoreWebView2Async(environment);
-            webView.CoreWebView2.Settings.AreHostObjectsAllowed = false;
+            ApplyProductionWebViewSettings(webView.CoreWebView2);
             webView.CoreWebView2.PermissionRequested += OnWebViewPermissionRequested;
             webView.CoreWebView2.ProcessFailed += OnMainWebViewProcessFailed;
 

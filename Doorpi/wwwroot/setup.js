@@ -601,7 +601,7 @@ function _setSetupPinHintError(isError) {
     if (!hint) return;
     hint.textContent = typeof t === 'function'
         ? t(isError ? 'setupPinLengthError' : 'setupPinHint')
-        : (isError ? 'Use 4 digitos ou deixe vazio.' : 'Use apenas numeros. Deixe vazio para entrar sem PIN.');
+        : (isError ? 'Use 4 dígitos ou deixe vazio.' : 'Use apenas números. Deixe vazio para entrar sem PIN.');
     hint.classList.toggle('error', !!isError);
 }
 

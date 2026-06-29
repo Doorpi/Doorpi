@@ -10,6 +10,18 @@
     window._doorpiCurrentUserId = '';
     window._pendingExtensionUpdates = {};
 
+    document.addEventListener('contextmenu', event => event.preventDefault(), true);
+    document.addEventListener('keydown', event => {
+        const key = (event.key || '').toLowerCase();
+        const blocked =
+            event.key === 'F12' ||
+            (event.ctrlKey && event.shiftKey && ['i', 'j', 'c'].includes(key)) ||
+            (event.ctrlKey && key === 'u');
+        if (!blocked) return;
+        event.preventDefault();
+        event.stopPropagation();
+    }, true);
+
     const DOORPI_BULK_LIBRARY_THRESHOLD = 3;
     let _pendingNewGameQueue = [];
     let _pendingNewGameTimer = 0;
@@ -253,12 +265,12 @@
             const closeToken = '__DOORPI_CLOSE_BUTTON__';
             return [
                 [
-                    typeof t === 'function' ? t('firstRunPage1', shortcutToken, closeToken) : `Para sair de qualquer jogo ou aplicativo, pressione ${shortcutToken} a qualquer momento para retornar ao Doorpi. Voce pode fechar qualquer aplicativo pelas opcoes pressionando ${closeToken}.`
+                    typeof t === 'function' ? t('firstRunPage1', shortcutToken, closeToken) : `Para sair de qualquer jogo ou aplicativo, pressione ${shortcutToken} a qualquer momento para retornar ao Doorpi. Você pode fechar qualquer aplicativo pelas opções pressionando ${closeToken}.`
                 ],
                 [
-                    typeof t === 'function' ? t('firstRunPage2a') : 'O Doorpi permite multitarefas, voce e livre para ouvir YouTube, usar Discord e jogar tudo ao mesmo tempo!',
-                    typeof t === 'function' ? t('firstRunPage2b', shortcutToken) : `Pressione ${shortcutToken} para minimizar e abrir outra aplicacao quando quiser.`,
-                    typeof t === 'function' ? t('firstRunPage2c') : 'Esta e uma versao beta. Caso encontre algum problema, reporte no GitHub do projeto.',
+                    typeof t === 'function' ? t('firstRunPage2a') : 'O Doorpi permite multitarefas, você é livre para ouvir YouTube, usar Discord e jogar tudo ao mesmo tempo!',
+                    typeof t === 'function' ? t('firstRunPage2b', shortcutToken) : `Pressione ${shortcutToken} para minimizar e abrir outra aplicação quando quiser.`,
+                    typeof t === 'function' ? t('firstRunPage2c') : 'Esta é uma versão beta. Caso encontre algum problema, reporte no GitHub do projeto.',
                     typeof t === 'function' ? t('firstRunPage2d') : 'Divirta-se!'
                 ]
             ];
@@ -732,19 +744,19 @@
                 wet: 0.09,
             },
             move: {
-                gain: 0.16,
+                gain: 0.18,
                 frequency: 300,
                 endFrequency: 520,
                 attack: 0.012,
             },
             confirm: {
-                gain: 0.17,
+                gain: 0.19,
                 frequency: 330,
                 endFrequency: 610,
                 attack: 0.016,
             },
             back: {
-                gain: 0.08,
+                gain: 0.095,
                 frequency: 320,
                 endFrequency: 200,
                 attack: 0.03,
@@ -8695,12 +8707,16 @@ function renderFolderList(folders) {
     let _editCard = null;
     let _editOverlay = null;
     const ARTWORK_CATEGORIES = [
-        { key: 'vertical', label: 'Grid vertical' },
-        { key: 'horizontal', label: 'Horizontal' },
-        { key: 'banner', label: 'Banner' },
-        { key: 'logo', label: 'Logo' }
+        { key: 'vertical', labelKey: 'artworkCategoryVertical' },
+        { key: 'horizontal', labelKey: 'artworkCategoryHorizontal' },
+        { key: 'banner', labelKey: 'artworkCategoryBanner' },
+        { key: 'logo', labelKey: 'artworkCategoryLogo' }
     ];
     let _artworkWizard = null;
+
+    function artworkLabel(cat) {
+        return typeof t === 'function' ? t(cat.labelKey) : cat.key;
+    }
 
     function _artworkPatchFromCategories(images) {
         const patch = {};
@@ -8733,7 +8749,7 @@ function renderFolderList(folders) {
         overlay.innerHTML = `
             <div class="artwork-wizard" role="dialog" aria-modal="true">
                 <div class="artwork-wizard-head">
-                    <h3 class="artwork-wizard-title">Mudar imagem</h3>
+                    <h3 class="artwork-wizard-title">${t('artworkWizardTitle')}</h3>
                     <div class="artwork-steps"></div>
                 </div>
                 <div class="artwork-wizard-body">
@@ -8744,11 +8760,11 @@ function renderFolderList(folders) {
                             <span class="gp-face-btn gp-y artwork-search-badge">Y</span>
                             <input class="edit-modal-input" id="artworkSearchInput" type="text" autocomplete="off" spellcheck="false" />
                         </div>
-                        <button class="modal-btn secondary" id="artworkSearchBtn">Procurar</button>
+                        <button class="modal-btn secondary" id="artworkSearchBtn">${t('artworkSearch')}</button>
                     </div>
                     <div class="artwork-actions">
-                        <button class="modal-btn secondary artwork-action-btn" id="artworkSkipBtn"><span class="gp-face-btn gp-x">X</span><span class="artwork-skip-label">Pular</span></button>
-                        <button class="modal-btn cancel artwork-action-btn" id="artworkCancelBtn"><span class="gp-face-btn gp-b">B</span><span>Cancelar</span></button>
+                        <button class="modal-btn secondary artwork-action-btn" id="artworkSkipBtn"><span class="gp-face-btn gp-x">X</span><span class="artwork-skip-label">${t('artworkSkip')}</span></button>
+                        <button class="modal-btn cancel artwork-action-btn" id="artworkCancelBtn"><span class="gp-face-btn gp-b">B</span><span>${t('btnCancel')}</span></button>
                         <span></span>
                     </div>
                 </div>
@@ -8772,7 +8788,7 @@ function renderFolderList(folders) {
 
         const renderSteps = () => {
             overlay.querySelector('.artwork-steps').innerHTML = ARTWORK_CATEGORIES.map((cat, i) =>
-                `<div class="artwork-step ${i === state.index ? 'active' : ''} ${i < state.index ? 'done' : ''}">${cat.label}</div>`
+                `<div class="artwork-step ${i === state.index ? 'active' : ''} ${i < state.index ? 'done' : ''}">${artworkLabel(cat)}</div>`
             ).join('');
         };
 
@@ -8793,7 +8809,7 @@ function renderFolderList(folders) {
                 localFiles: mode === 'local',
                 images
             });
-            overlay.querySelector('.artwork-status').textContent = 'Aplicando imagens...';
+            overlay.querySelector('.artwork-status').textContent = t('artworkApplying');
         };
 
         const next = () => {
@@ -8814,12 +8830,12 @@ function renderFolderList(folders) {
             const preview = state.localPreview[cat.key] || '';
             overlay.querySelector('.artwork-results').innerHTML = `
                 <div class="artwork-local-panel">
-                    <div class="artwork-local-title">${cat.label}</div>
-                    <div class="artwork-local-hint">Selecione uma imagem do computador para esta categoria ou avance sem alterar.</div>
+                    <div class="artwork-local-title">${artworkLabel(cat)}</div>
+                    <div class="artwork-local-hint">${t('artworkLocalHint')}</div>
                     ${preview ? `<img class="artwork-local-preview" src="${preview}" />` : ''}
                     <div class="artwork-local-controls">
-                        <button class="modal-btn secondary artwork-pick-btn" id="artworkPickLocalBtn">Selecionar imagem</button>
-                        ${preview ? `<button class="modal-btn artwork-clear-btn" id="artworkClearLocalBtn" aria-label="Limpar imagem">×</button>` : ''}
+                        <button class="modal-btn secondary artwork-pick-btn" id="artworkPickLocalBtn" data-nav-right="#artworkClearLocalBtn" data-nav-down="#artworkSkipBtn">${t('artworkSelectImage')}</button>
+                        ${preview ? `<button class="modal-btn artwork-clear-btn" id="artworkClearLocalBtn" aria-label="${t('artworkClearImage')}" data-nav-left="#artworkPickLocalBtn" data-nav-down="#artworkCancelBtn">X</button>` : ''}
                     </div>
                 </div>`;
             overlay.querySelector('#artworkPickLocalBtn')?.addEventListener('click', () => {
@@ -8827,8 +8843,8 @@ function renderFolderList(folders) {
                     action: 'pickArtworkImage',
                     requestId,
                     category: cat.key,
-                    dialogTitle: 'Selecionar imagem',
-                    dialogFilter: 'Images (*.png;*.jpg;*.jpeg;*.webp;*.gif)|*.png;*.jpg;*.jpeg;*.webp;*.gif'
+                    dialogTitle: t('artworkSelectImage'),
+                    dialogFilter: t('artworkImageFilter')
                 });
             });
             overlay.querySelector('#artworkClearLocalBtn')?.addEventListener('click', () => {
@@ -8840,7 +8856,7 @@ function renderFolderList(folders) {
 
         const renderSteamGrid = (cat) => {
             overlay.querySelector('.artwork-results').innerHTML = '';
-            overlay.querySelector('.artwork-status').textContent = `Pesquisando "${state.query}" em ${cat.label}...`;
+            overlay.querySelector('.artwork-status').textContent = t('artworkSearching', state.query, artworkLabel(cat));
             state.focusResultsOnLoad = true;
             postToHost({ action: 'searchSteamGridArtwork', requestId, query: state.query, category: cat.key });
         };
@@ -8852,10 +8868,20 @@ function renderFolderList(folders) {
             results.className = mode === 'local' ? 'artwork-results is-local' : `artwork-results is-${cat.key}`;
             overlay.querySelector('#artworkSearchInput').value = state.query;
             overlay.querySelector('.artwork-search-row').style.display = mode === 'steamgrid' ? 'grid' : 'none';
-            overlay.querySelector('#artworkSkipBtn .artwork-skip-label').textContent = mode === 'local' ? 'Próximo' : 'Pular';
-            overlay.querySelector('.artwork-status').textContent = `${cat.label}`;
+            overlay.querySelector('#artworkSkipBtn .artwork-skip-label').textContent = mode === 'local'
+                ? t('artworkNext')
+                : t('artworkSkip');
+            overlay.querySelector('.artwork-status').textContent = `${artworkLabel(cat)}`;
             if (mode === 'local') renderLocal(cat);
             else renderSteamGrid(cat);
+            if (mode === 'local') {
+                const clearBtn = overlay.querySelector('#artworkClearLocalBtn');
+                overlay.querySelector('#artworkSkipBtn')?.setAttribute('data-nav-up', '#artworkPickLocalBtn');
+                overlay.querySelector('#artworkCancelBtn')?.setAttribute('data-nav-up', clearBtn ? '#artworkClearLocalBtn' : '#artworkPickLocalBtn');
+            } else {
+                overlay.querySelector('#artworkSkipBtn')?.removeAttribute('data-nav-up');
+                overlay.querySelector('#artworkCancelBtn')?.removeAttribute('data-nav-up');
+            }
         };
 
         overlay.querySelector('#artworkSearchBtn').addEventListener('click', () => {
@@ -8878,8 +8904,8 @@ function renderFolderList(folders) {
             const cat = ARTWORK_CATEGORIES[state.index];
             if (!cat || cat.key !== category) return;
             overlay.querySelector('.artwork-status').textContent = images.length
-                ? `${images.length} imagens encontradas para "${state.query}"`
-                : `Nenhuma imagem encontrada para "${state.query}"`;
+                ? t('artworkFound', images.length, state.query)
+                : t('artworkNoneFound', state.query);
             overlay.querySelector('.artwork-results').innerHTML = images.map(url =>
                 `<button class="artwork-choice ${cat.key}" type="button" data-url="${escapeHtml(url)}"><img src="${escapeHtml(url)}" loading="lazy" /></button>`
             ).join('');
@@ -9059,10 +9085,10 @@ function renderFolderList(folders) {
                         </span>
                     </div>
                     <div class="edit-modal-field">
-                        <label class="edit-modal-label">Mudar imagem</label>
+                        <label class="edit-modal-label">${t('artworkWizardTitle')}</label>
                         <div class="edit-artwork-actions">
                             <button class="edit-artwork-btn" id="editArtworkSteamGridBtn" type="button" tabindex="0">SteamGrid</button>
-                            <button class="edit-artwork-btn" id="editArtworkLocalBtn" type="button" tabindex="0">Escolher do computador</button>
+                            <button class="edit-artwork-btn" id="editArtworkLocalBtn" type="button" tabindex="0">${t('artworkChooseComputer')}</button>
                         </div>
                     </div>
                     ${mediaExtras}

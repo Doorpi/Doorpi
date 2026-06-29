@@ -25,6 +25,16 @@ $doorpiPublish = Join-Path $publishRoot "Doorpi"
 $updaterPublish = Join-Path $publishRoot "Updater"
 $installerRoot = Join-Path $root "artifacts\installer"
 $issPath = Join-Path $root "installer\doorpi.iss"
+$doorpiIcon = Join-Path $root "Doorpi\Assets\doorpi.ico"
+
+function Resolve-ManifestPrivateKeyPath([string]$privateKeyPath) {
+    if (![string]::IsNullOrWhiteSpace($privateKeyPath)) {
+        return $privateKeyPath
+    }
+
+    $answer = Read-Host "Caminho da chave privada do manifesto"
+    return $answer.Trim('"')
+}
 
 function Resolve-InnoSetupCompiler([string]$explicitPath) {
     if (![string]::IsNullOrWhiteSpace($explicitPath)) {
@@ -61,33 +71,35 @@ function Invoke-Checked([string]$file, [string[]]$arguments) {
 }
 
 if (!$SkipReleaseBuild) {
-    $releaseArgs = @(
-        "-DoorpiVersion", $DoorpiVersion,
-        "-UpdaterVersion", $UpdaterVersion,
-        "-Configuration", $Configuration,
-        "-Runtime", $Runtime,
-        "-SelfContained:$SelfContained",
-        "-ManifestPrivateKeyPath", $ManifestPrivateKeyPath,
-        "-ExpiresInDays", $ExpiresInDays.ToString()
-    )
+    $ManifestPrivateKeyPath = Resolve-ManifestPrivateKeyPath $ManifestPrivateKeyPath
+
+    $releaseParams = @{
+        DoorpiVersion = $DoorpiVersion
+        UpdaterVersion = $UpdaterVersion
+        Configuration = $Configuration
+        Runtime = $Runtime
+        SelfContained = $SelfContained
+        ManifestPrivateKeyPath = $ManifestPrivateKeyPath
+        ExpiresInDays = $ExpiresInDays
+    }
 
     if (![string]::IsNullOrWhiteSpace($BaseDownloadUrl)) {
-        $releaseArgs += @("-BaseDownloadUrl", $BaseDownloadUrl)
+        $releaseParams.BaseDownloadUrl = $BaseDownloadUrl
     }
     if ($ManifestVersion -gt 0) {
-        $releaseArgs += @("-ManifestVersion", $ManifestVersion.ToString())
+        $releaseParams.ManifestVersion = $ManifestVersion
     }
     if (![string]::IsNullOrWhiteSpace($ReleaseNotesPath)) {
-        $releaseArgs += @("-ReleaseNotesPath", $ReleaseNotesPath)
+        $releaseParams.ReleaseNotesPath = $ReleaseNotesPath
     }
     if ($ForceUpdate) {
-        $releaseArgs += "-ForceUpdate"
+        $releaseParams.ForceUpdate = $true
     }
     if ($AllowRollback) {
-        $releaseArgs += "-AllowRollback"
+        $releaseParams.AllowRollback = $true
     }
 
-    & (Join-Path $root "scripts\build-release.ps1") @releaseArgs
+    & (Join-Path $root "scripts\build-release.ps1") @releaseParams
     if ($LASTEXITCODE -ne 0) {
         throw "build-release.ps1 falhou com codigo $LASTEXITCODE."
     }
@@ -101,6 +113,10 @@ if (!(Test-Path (Join-Path $updaterPublish "Updater.exe"))) {
     throw "Updater.exe nao encontrado em $updaterPublish. Rode sem -SkipReleaseBuild primeiro."
 }
 
+if (!(Test-Path $doorpiIcon)) {
+    throw "Icone do Doorpi nao encontrado em $doorpiIcon."
+}
+
 New-Item -ItemType Directory -Force -Path $installerRoot | Out-Null
 
 $iscc = Resolve-InnoSetupCompiler $InnoSetupCompilerPath
@@ -109,6 +125,7 @@ $isccArgs = @(
     "/DDoorpiPublish=$doorpiPublish",
     "/DUpdaterPublish=$updaterPublish",
     "/DOutputDir=$installerRoot",
+    "/DDoorpiIcon=$doorpiIcon",
     $issPath
 )
 

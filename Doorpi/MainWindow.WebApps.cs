@@ -1293,9 +1293,7 @@ namespace Doorpi
                 else
                     await popupView.EnsureCoreWebView2Async();
 
-                popupView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
-                popupView.CoreWebView2.Settings.IsStatusBarEnabled = false;
-                popupView.CoreWebView2.Settings.IsZoomControlEnabled = false;
+                ApplyProductionWebViewSettings(popupView.CoreWebView2, allowDefaultContextMenus: true);
                 popupView.CoreWebView2.NavigationCompleted += OnGenericBrowserExtensionPopupNavigationCompleted;
                 popupView.CoreWebView2.NewWindowRequested += OnGenericBrowserExtensionPopupNewWindowRequested;
                 popupView.CoreWebView2.WebMessageReceived += OnGenericBrowserExtensionPopupMessageReceived;
@@ -1719,9 +1717,7 @@ namespace Doorpi
                 else
                     await popupView.EnsureCoreWebView2Async();
 
-                popupView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
-                popupView.CoreWebView2.Settings.IsStatusBarEnabled = false;
-                popupView.CoreWebView2.Settings.IsZoomControlEnabled = false;
+                ApplyProductionWebViewSettings(popupView.CoreWebView2, allowDefaultContextMenus: true);
                 popupView.CoreWebView2.Navigate(popupUrl);
             }
             catch (Exception ex)
@@ -2631,8 +2627,7 @@ namespace Doorpi
 
                 await _popupWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync("window.name = 'doorpi_popup';");
                 _popupWebView.CoreWebView2.Settings.UserAgent = await BuildBrandedUserAgentAsync(_popupWebView.CoreWebView2);
-                _popupWebView.CoreWebView2.Settings.AreHostObjectsAllowed = false;
-                _popupWebView.CoreWebView2.Settings.IsStatusBarEnabled = false;
+                ApplyProductionWebViewSettings(_popupWebView.CoreWebView2, allowDefaultContextMenus: true);
                 _popupWebView.CoreWebView2.PermissionRequested += OnWebViewPermissionRequested;
 
 
@@ -5122,10 +5117,7 @@ namespace Doorpi
                 _ytWebView.CoreWebView2.Settings.UserAgent = YT_UA;
             else
                 _ytWebView.CoreWebView2.Settings.UserAgent = await BuildBrandedUserAgentAsync(_ytWebView.CoreWebView2);
-            _ytWebView.CoreWebView2.Settings.IsStatusBarEnabled = false;
-            _ytWebView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
-            _ytWebView.CoreWebView2.Settings.AreHostObjectsAllowed = false;
-            _ytWebView.CoreWebView2.Settings.IsZoomControlEnabled = false;
+            ApplyProductionWebViewSettings(_ytWebView.CoreWebView2, allowDefaultContextMenus: true);
 
             if (isGenericBrowser)
             {

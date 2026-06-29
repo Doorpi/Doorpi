@@ -11,6 +11,9 @@
 #ifndef OutputDir
 #define OutputDir "..\artifacts\installer"
 #endif
+#ifndef DoorpiIcon
+#define DoorpiIcon "..\Doorpi\Assets\doorpi.ico"
+#endif
 
 [Setup]
 AppId={{9E9C58BC-0A3B-4879-B61B-7F2837E7714B}
@@ -30,6 +33,8 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayName=Doorpi
 SetupLogging=yes
+SetupIconFile={#DoorpiIcon}
+UninstallDisplayIcon={app}\Doorpi.exe
 
 [Languages]
 Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"

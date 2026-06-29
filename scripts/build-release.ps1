@@ -52,12 +52,18 @@ function Write-PackageManifest([string]$folder, [string]$component, [string]$ver
     $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $folder "package-manifest.json") -Encoding UTF8
 }
 
-function New-ZipFromFolder([string]$folder, [string]$zipPath) {
-    if (Test-Path $zipPath) {
-        Remove-Item -LiteralPath $zipPath -Force
+function New-UpdatePackageFromFolder([string]$folder, [string]$packagePath) {
+    if (Test-Path $packagePath) {
+        Remove-Item -LiteralPath $packagePath -Force
     }
 
-    Compress-Archive -Path (Join-Path $folder "*") -DestinationPath $zipPath -Force
+    $temporaryZipPath = "$packagePath.zip"
+    if (Test-Path $temporaryZipPath) {
+        Remove-Item -LiteralPath $temporaryZipPath -Force
+    }
+
+    Compress-Archive -Path (Join-Path $folder "*") -DestinationPath $temporaryZipPath -Force
+    Move-Item -LiteralPath $temporaryZipPath -Destination $packagePath -Force
 }
 
 function Invoke-Checked([string]$file, [string[]]$arguments) {
@@ -65,6 +71,15 @@ function Invoke-Checked([string]$file, [string[]]$arguments) {
     if ($LASTEXITCODE -ne 0) {
         throw "$file falhou com codigo $LASTEXITCODE."
     }
+}
+
+function Resolve-ManifestPrivateKeyPath([string]$privateKeyPath) {
+    if (![string]::IsNullOrWhiteSpace($privateKeyPath)) {
+        return $privateKeyPath
+    }
+
+    $answer = Read-Host "Caminho da chave privada do manifesto"
+    return $answer.Trim('"')
 }
 
 function Add-SigningLine([System.Text.StringBuilder]$builder, [string]$name, [object]$value) {
@@ -116,6 +131,8 @@ function Get-ManifestSigningPayload([object]$manifest) {
 }
 
 function Ensure-SigningKey([string]$privateKeyPath) {
+    $privateKeyPath = Resolve-ManifestPrivateKeyPath $privateKeyPath
+
     if ([string]::IsNullOrWhiteSpace($privateKeyPath)) {
         throw "Informe -ManifestPrivateKeyPath para gerar um release assinado."
     }
@@ -182,23 +199,25 @@ if (Test-Path $publishedData) {
 Write-PackageManifest $doorpiPublish "doorpi" $DoorpiVersion "Doorpi.exe"
 Write-PackageManifest $updaterPublish "updater" $UpdaterVersion "Updater.exe"
 
-$doorpiZip = Join-Path $releaseRoot "doorpi-$DoorpiVersion-$Runtime.zip"
-$updaterZip = Join-Path $releaseRoot "updater-$UpdaterVersion-$Runtime.zip"
+$doorpiPackageName = "doorpi-$DoorpiVersion.doorpiupdate"
+$updaterPackageName = "updater-$UpdaterVersion.doorpiupdate"
+$doorpiPackage = Join-Path $releaseRoot $doorpiPackageName
+$updaterPackage = Join-Path $releaseRoot $updaterPackageName
 
-New-ZipFromFolder $doorpiPublish $doorpiZip
-New-ZipFromFolder $updaterPublish $updaterZip
+New-UpdatePackageFromFolder $doorpiPublish $doorpiPackage
+New-UpdatePackageFromFolder $updaterPublish $updaterPackage
 
-$doorpiHash = (Get-FileHash $doorpiZip -Algorithm SHA256).Hash.ToLowerInvariant()
-$updaterHash = (Get-FileHash $updaterZip -Algorithm SHA256).Hash.ToLowerInvariant()
-$doorpiSize = (Get-Item $doorpiZip).Length
-$updaterSize = (Get-Item $updaterZip).Length
+$doorpiHash = (Get-FileHash $doorpiPackage -Algorithm SHA256).Hash.ToLowerInvariant()
+$updaterHash = (Get-FileHash $updaterPackage -Algorithm SHA256).Hash.ToLowerInvariant()
+$doorpiSize = (Get-Item $doorpiPackage).Length
+$updaterSize = (Get-Item $updaterPackage).Length
 $publishedAt = (Get-Date).ToUniversalTime()
 $expiresAt = $publishedAt.AddDays($ExpiresInDays)
 
 $releaseTitle = "Doorpi $DoorpiVersion"
-$releaseItems = @("Descreva as mudancas desta versao.")
+$releaseItems = @("Descreva as mudanças desta versão.")
 if (![string]::IsNullOrWhiteSpace($ReleaseNotesPath) -and (Test-Path $ReleaseNotesPath)) {
-    $notes = Get-Content $ReleaseNotesPath -Raw | ConvertFrom-Json
+    $notes = Get-Content $ReleaseNotesPath -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($notes.title) {
         $releaseTitle = [string]$notes.title
     }
@@ -216,7 +235,7 @@ $draftManifest = [ordered]@{
     minimumSupportedManifestVersion = 1
     doorpi = [ordered]@{
         version = $DoorpiVersion
-        downloadUrl = "$BaseDownloadUrl/doorpi-$DoorpiVersion-$Runtime.zip"
+        downloadUrl = "$BaseDownloadUrl/$doorpiPackageName"
         sha256 = $doorpiHash
         sizeBytes = $doorpiSize
         minUpdaterVersion = $UpdaterVersion
@@ -225,7 +244,7 @@ $draftManifest = [ordered]@{
     }
     updater = [ordered]@{
         version = $UpdaterVersion
-        downloadUrl = "$BaseDownloadUrl/updater-$UpdaterVersion-$Runtime.zip"
+        downloadUrl = "$BaseDownloadUrl/$updaterPackageName"
         sha256 = $updaterHash
         sizeBytes = $updaterSize
         forceUpdate = [bool]$ForceUpdate
@@ -250,8 +269,8 @@ $draftManifest | ConvertTo-Json -Depth 10 | Set-Content -Path $manifestPath -Enc
 
 Write-Host ""
 Write-Host "Release gerado em: $releaseRoot"
-Write-Host "Doorpi ZIP:  $doorpiZip"
-Write-Host "Doorpi SHA:  $doorpiHash"
-Write-Host "Updater ZIP: $updaterZip"
-Write-Host "Updater SHA: $updaterHash"
+Write-Host "Doorpi pacote:  $doorpiPackage"
+Write-Host "Doorpi SHA:     $doorpiHash"
+Write-Host "Updater pacote: $updaterPackage"
+Write-Host "Updater SHA:    $updaterHash"
 Write-Host "Manifesto:   $manifestPath"

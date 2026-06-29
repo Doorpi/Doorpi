@@ -412,6 +412,9 @@ namespace Doorpi
         private const uint KEYEVENTF_KEYUP = 0x0002;
         private const ushort VK_MENU = 0x12;
         private const ushort VK_TAB = 0x09;
+        private const uint MOUSEEVENTF_LEFTUP_SHARED = 0x0004;
+        private const uint MOUSEEVENTF_RIGHTUP_SHARED = 0x0010;
+        private const uint MOUSEEVENTF_XUP_SHARED = 0x0100;
 
 
 
@@ -726,6 +729,26 @@ namespace Doorpi
             while (ShowCursor(true) < 0) { }
         }
 
+        private static void ApplyProductionWebViewSettings(CoreWebView2 core, bool allowDefaultContextMenus = false)
+        {
+            var settings = core.Settings;
+            settings.AreHostObjectsAllowed = false;
+            settings.AreDevToolsEnabled = false;
+            settings.AreDefaultContextMenusEnabled = allowDefaultContextMenus;
+            settings.AreBrowserAcceleratorKeysEnabled = false;
+            settings.IsStatusBarEnabled = false;
+            settings.IsZoomControlEnabled = false;
+        }
+
+        private void ReleaseMouseButtons()
+        {
+            try
+            {
+                SendMouse(0, 0, MOUSEEVENTF_LEFTUP_SHARED);
+            }
+            catch { }
+        }
+
         private void StartMainScreenMouseWatch()
         {
             GetCursorPos(out _lastKnownCursorPos);
@@ -818,7 +841,7 @@ namespace Doorpi
 
             // Inicializa o WebView2 usando essas opções
             await webView.EnsureCoreWebView2Async(environment);
-            webView.CoreWebView2.Settings.AreHostObjectsAllowed = false;
+            ApplyProductionWebViewSettings(webView.CoreWebView2);
             webView.CoreWebView2.PermissionRequested += OnWebViewPermissionRequested;
             webView.CoreWebView2.ProcessFailed += OnMainWebViewProcessFailed;
             string folderPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot");
@@ -2017,7 +2040,7 @@ namespace Doorpi
         private const ushort DOORPI_RETURN_ALT_MASK = 0x0380; // L1 + R1 + R3
         private const double CONTROLLER_MOUSE_BASE_SPEED = 700.0;
         private const double CONTROLLER_NATIVE_MOUSE_BASE_SPEED = 900.0;
-        private const double CONTROLLER_MOUSE_SENSITIVITY_SCALE = 0.64;
+        private const double CONTROLLER_MOUSE_SENSITIVITY_SCALE = 0.92;
 
         private static bool IsMouseModeShortcutPressed(ushort buttons)
             => (buttons & MOUSE_MODE_SHORTCUT_MASK) == MOUSE_MODE_SHORTCUT_MASK;
@@ -2037,7 +2060,8 @@ namespace Doorpi
             bool handleXboxButton = true,
             Func<bool>? shouldAcceptInput = null,
             Action? onMouseModeShortcut = null,
-            Func<ushort, bool>? mouseModeShortcutPredicate = null)
+            Func<ushort, bool>? mouseModeShortcutPredicate = null,
+            bool instantPrimaryClick = false)
         {
             var sw = Stopwatch.StartNew();
             ushort prevButtons = 0;
@@ -2219,6 +2243,18 @@ namespace Doorpi
                                 aDragOccurred = false; isClicking = true;
                                 clickAccumX = 0; clickAccumY = 0; dragBrokeThreshold = false;
                                 SendMouse(0, 0, MOUSEEVENTF_LEFTDOWN);
+                                if (instantPrimaryClick)
+                                {
+                                    SendMouse(0, 0, MOUSEEVENTF_LEFTUP_SHARED);
+                                    isClicking = false;
+                                    if (aWasOnTextField && IsCursorOnTextField())
+                                    {
+                                        aDoubleClickPending = true;
+                                        lastAReleaseTime = DateTime.Now;
+                                    }
+                                    aWasOnTextField = false;
+                                    aDragOccurred = false;
+                                }
                             }
 
                             // Movimento do mouse
@@ -2988,16 +3024,110 @@ namespace Doorpi
             {
                 SharedGamepadControllerLoop(
                     () => _dialogModeActive,
-                    () => SendVirtualKey(0x1B)
+                    () => SendVirtualKey(0x1B),
+                    instantPrimaryClick: true
                 );
             })
             { IsBackground = true }.Start();
+        }
+
+        private bool? ShowDialogWithController(Microsoft.Win32.CommonDialog dialog)
+        {
+            StartDialogControllerMode();
+            CenterOwnedDialogSoon();
+            try
+            {
+                return dialog.ShowDialog(this);
+            }
+            finally
+            {
+                StopDialogControllerMode();
+            }
+        }
+
+        private void CenterOwnedDialogSoon()
+        {
+            Task.Run(async () =>
+            {
+                for (int i = 0; i < 12 && _dialogModeActive; i++)
+                {
+                    await Task.Delay(80).ConfigureAwait(false);
+                    if (!_dialogModeActive) return;
+                    if (TryCenterOwnedCommonDialog())
+                        return;
+                }
+            });
+        }
+
+        private bool TryCenterOwnedCommonDialog()
+        {
+            IntPtr dialogHwnd = FindOwnedCommonDialogWindow();
+            if (dialogHwnd == IntPtr.Zero || !GetWindowRect(dialogHwnd, out RECT rect))
+                return false;
+
+            int width = Math.Max(420, rect.Width);
+            int height = Math.Max(260, rect.Height);
+
+            int ownerLeft;
+            int ownerTop;
+            int ownerWidth;
+            int ownerHeight;
+
+            try
+            {
+                var ownerTopLeft = PointToScreen(new Point(0, 0));
+                ownerLeft = (int)ownerTopLeft.X;
+                ownerTop = (int)ownerTopLeft.Y;
+                ownerWidth = (int)(ActualWidth > 0 ? ActualWidth : SystemParameters.PrimaryScreenWidth);
+                ownerHeight = (int)(ActualHeight > 0 ? ActualHeight : SystemParameters.PrimaryScreenHeight);
+            }
+            catch
+            {
+                ownerLeft = 0;
+                ownerTop = 0;
+                ownerWidth = (int)SystemParameters.PrimaryScreenWidth;
+                ownerHeight = (int)SystemParameters.PrimaryScreenHeight;
+            }
+
+            int x = ownerLeft + Math.Max(0, (ownerWidth - width) / 2);
+            int y = ownerTop + Math.Max(0, (ownerHeight - height) / 2);
+
+            SetWindowPos(dialogHwnd, HWND_TOP, x, y, 0, 0, SWP_NOSIZE);
+            SetCursorPos(x + Math.Min(width - 40, Math.Max(40, width / 2)), y + Math.Min(height - 40, Math.Max(40, height / 2)));
+            return true;
+        }
+
+        private IntPtr FindOwnedCommonDialogWindow()
+        {
+            int currentPid = Environment.ProcessId;
+            IntPtr found = IntPtr.Zero;
+
+            EnumWindows((hWnd, _) =>
+            {
+                if (!IsWindowVisible(hWnd)) return true;
+
+                GetWindowProcessId(hWnd, out uint windowPid);
+                if ((int)windowPid != currentPid) return true;
+
+                var className = new StringBuilder(128);
+                if (GetClassName(hWnd, className, className.Capacity) <= 0) return true;
+                if (!string.Equals(className.ToString(), "#32770", StringComparison.Ordinal)) return true;
+
+                if (!GetWindowRect(hWnd, out RECT dialogRect) || dialogRect.Width < 300 || dialogRect.Height < 180)
+                    return true;
+
+                found = hWnd;
+                return false;
+            }, IntPtr.Zero);
+
+            return found;
         }
 
         private void StopDialogControllerMode()
         {
             if (!_dialogModeActive) return;
             _dialogModeActive = false;
+            ReleaseMouseButtons();
 
             Dispatcher.Invoke(() => {
                 _desktopVkb?.Close();
@@ -11013,9 +11143,7 @@ namespace Doorpi
                         {
                             var dlg = new Microsoft.Win32.OpenFileDialog { Filter = dialogFilter, Title = dialogTitle };
 
-                            StartDialogControllerMode();
-                            bool? dialogResult = dlg.ShowDialog();
-                            StopDialogControllerMode();
+                            bool? dialogResult = ShowDialogWithController(dlg);
 
                             if (dialogResult == true)
                             {
@@ -11059,9 +11187,7 @@ namespace Doorpi
                                 Title = dialogTitle
                             };
 
-                            StartDialogControllerMode();
-                            bool? dialogResult = dlg.ShowDialog();
-                            StopDialogControllerMode();
+                            bool? dialogResult = ShowDialogWithController(dlg);
 
                             if (dialogResult == true)
                             {
@@ -11113,9 +11239,7 @@ namespace Doorpi
                         {
                             var dlg = new Microsoft.Win32.OpenFolderDialog { Title = dialogTitle, Multiselect = false };
 
-                            StartDialogControllerMode();
-                            bool? dialogResult = dlg.ShowDialog();
-                            StopDialogControllerMode();
+                            bool? dialogResult = ShowDialogWithController(dlg);
 
                             if (dialogResult == true)
                             {
@@ -11182,9 +11306,7 @@ namespace Doorpi
                         {
                             var dlg = new Microsoft.Win32.OpenFolderDialog { Title = dialogTitle, Multiselect = false };
 
-                            StartDialogControllerMode();
-                            bool? dialogResult = dlg.ShowDialog();
-                            StopDialogControllerMode();
+                            bool? dialogResult = ShowDialogWithController(dlg);
 
                             if (dialogResult == true)
                             {
@@ -11444,9 +11566,7 @@ namespace Doorpi
                             Filter = dialogFilter
                         };
 
-                        StartDialogControllerMode();
-                        bool? dialogResult = dlg.ShowDialog();
-                        StopDialogControllerMode();
+                        bool? dialogResult = ShowDialogWithController(dlg);
 
                         if (dialogResult == true)
                         {
@@ -11971,9 +12091,7 @@ namespace Doorpi
                             Filter = dialogFilter
                         };
 
-                        StartDialogControllerMode();
-                        bool? dialogResult = dlg.ShowDialog();
-                        StopDialogControllerMode();
+                        bool? dialogResult = ShowDialogWithController(dlg);
 
                         if (dialogResult == true)
                         {
@@ -12305,9 +12423,7 @@ namespace Doorpi
                     {
                         var dlg = new Microsoft.Win32.OpenFolderDialog { Title = dialogTitle };
 
-                        StartDialogControllerMode();
-                        bool? dialogResult = dlg.ShowDialog();
-                        StopDialogControllerMode();
+                        bool? dialogResult = ShowDialogWithController(dlg);
 
                         if (dialogResult == true)
                         {
