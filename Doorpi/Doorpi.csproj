@@ -8,7 +8,8 @@
     <UseWPF>true</UseWPF>
     <Version>0.0.1</Version>
     <Platforms>AnyCPU;x64</Platforms>
-<UseWindowsDesktopSdk>true</UseWindowsDesktopSdk>
+    <ApplicationIcon>Assets\doorpi.ico</ApplicationIcon>
+    <UseWindowsDesktopSdk>true</UseWindowsDesktopSdk>
   </PropertyGroup>
 
   <ItemGroup>
@@ -66,6 +67,9 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="wwwroot\wifi-ui.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="wwwroot\sound-ui.js">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="wwwroot\config\strings.js">

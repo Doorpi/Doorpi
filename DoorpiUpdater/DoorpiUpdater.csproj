@@ -13,6 +13,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <Version>0.1.0</Version>
+    <ApplicationIcon>..\Doorpi\Assets\doorpi.ico</ApplicationIcon>
   </PropertyGroup>
 
 </Project>

@@ -48,6 +48,52 @@ window.isNavMenuOpen = false;
     // ── Função Exclusiva para o Modal de Aviso de Modo Desktop ──────────────
     window.isDesktopWarningOpen = false;
 
+    function _ensureDoorpiShortcutStyles() {
+        if (document.getElementById('doorpiShortcutStyles')) return;
+        const s = document.createElement('style');
+        s.id = 'doorpiShortcutStyles';
+        s.textContent = `
+            .doorpi-shortcut-combo { display:inline-flex; align-items:center; gap:.42em; white-space:nowrap; vertical-align:middle; }
+            .doorpi-shortcut-plus { color:rgba(255,255,255,.42); font-size:.82em; font-weight:800; }
+            .doorpi-keycap { min-width:2.7em; height:1.8em; padding:0 .72em; border-radius:.55em; display:inline-flex; align-items:center; justify-content:center; background:linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,.055)); border:1px solid rgba(255,255,255,.30); box-shadow:inset 0 1px 0 rgba(255,255,255,.20), 0 .32em .9em rgba(0,0,0,.30); color:rgba(255,255,255,.94); font-size:.72em; font-weight:860; letter-spacing:.08em; }
+            .doorpi-stickcap { width:2.15em; height:2.15em; border-radius:50%; position:relative; display:inline-flex; align-items:center; justify-content:center; background:radial-gradient(circle at 38% 30%, rgba(255,255,255,.26), transparent 18%), radial-gradient(circle at 50% 55%, rgba(255,255,255,.08), transparent 46%), linear-gradient(180deg, #303340, #11131b); border:1px solid rgba(255,255,255,.22); box-shadow:inset 0 .18em .32em rgba(255,255,255,.08), inset 0 -.24em .42em rgba(0,0,0,.42), 0 .38em .9em rgba(0,0,0,.36); color:rgba(255,255,255,.95); font-size:.72em; font-weight:900; letter-spacing:.04em; }
+            .doorpi-stickcap::after { content:''; position:absolute; inset:28%; border-radius:50%; border:1px solid rgba(255,255,255,.28); box-shadow:0 0 0 .18em rgba(0,0,0,.14); }
+            .doorpi-xbox-logo-btn { width:2.15em; height:2.15em; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; background:linear-gradient(180deg, #f6f6f7, #c9ccd2); border:1px solid rgba(255,255,255,.48); box-shadow:inset 0 .12em .22em rgba(255,255,255,.58), inset 0 -.18em .34em rgba(0,0,0,.22), 0 .34em .82em rgba(0,0,0,.34); color:#151820; }
+            .doorpi-xbox-logo-btn svg { width:1.2em; height:1.2em; display:block; fill:currentColor; }
+            .nav-shortcut-row { display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; margin-top:10px; color:rgba(255,255,255,.54); font-size:.78rem; }
+        `;
+        document.head.appendChild(s);
+    }
+
+    function _xboxButtonSvg() {
+        return `<svg viewBox="1 1 30 30" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M11.9 9.3c-5.1-5.1-6.4-4-6.4-4C2.7 8 1 11.8 1 16c0 3.4 1.1 6.6 3.1 9.1h.1V25C3 21.5 8.9 12.9 11.9 9.3zm14.6-4s-1.3-1.1-6.4 3.9c3 3.6 8.9 12.2 7.7 15.7v.1h.1c1.9-2.5 3.1-5.7 3.1-9.1 0-4.1-1.7-7.9-4.5-10.6zM16 5.4c.5-.2 4.9-2.8 7.8-2.1h.1v-.1C21.5 1.8 19 1 16 1s-5.5.8-7.8 2.2v.1h.1c2.5-.6 6.6 1.5 7.7 2.1zm0 7.7c0-.1 0-.1 0 0C11.4 16.5 3.7 25 6.1 27.3 8.8 29.6 12.2 31 16 31s7.2-1.4 9.9-3.7c2.3-2.4-5.4-10.8-9.9-14.2z"/></svg>`;
+    }
+
+    function _doorpiReturnShortcutHtml() {
+        _ensureDoorpiShortcutStyles();
+        return `<span class="doorpi-shortcut-combo" aria-label="Xbox ou L1 + R1 + R3">
+            <span class="doorpi-xbox-logo-btn">${_xboxButtonSvg()}</span>
+            <span class="doorpi-shortcut-plus">/</span>
+            <span class="doorpi-keycap">L1</span>
+            <span class="doorpi-shortcut-plus">+</span>
+            <span class="doorpi-keycap">R1</span>
+            <span class="doorpi-shortcut-plus">+</span>
+            <span class="doorpi-stickcap">R3</span>
+        </span>`;
+    }
+
+    function _decorateDoorpiReturnShortcut(root) {
+        const card = root?.querySelector?.('#navCardGameBar');
+        if (!card || card.querySelector('.nav-shortcut-row')) return;
+        const title = card.querySelector('.nav-suggestion-card-btn');
+        title?.insertAdjacentHTML('afterend', `
+            <span class="nav-shortcut-row">
+                <span>${_t('sysDoorpiReturnShortcut', 'Retorno alternativo:')}</span>
+                ${_doorpiReturnShortcutHtml()}
+            </span>
+        `);
+    }
+
     function _showDesktopWarning(context, onConfirm) {
         // Verifica se o usuário já marcou para não exibir novamente
         if (localStorage.getItem('doorpi_skip_desktop_warning') === 'true') {
@@ -121,11 +167,7 @@ window.isNavMenuOpen = false;
                     <span id="dwSettingsExit" style="font-weight: 500; color:#ffd166;"></span>
                </div>`
             : `<div class="dw-item" style="grid-column: 1 / -1; margin-top: 8px; justify-content: center; background: rgba(255,255,255,0.05); padding: 12px; border-radius: 10px; display: flex; align-items: center; gap: 12px;">
-                    <div style="display:flex; align-items:center; gap:8px;">
-                        <div class="dw-badge" style="background:transparent; border-color:rgba(255,255,255,0.4); color:#fff; font-size: 0.75rem;">START + SELECT</div> 
-                        <span style="color: rgba(255,255,255,0.4); font-size: 0.8rem;">/</span>
-                        <div class="dw-badge" style="background:transparent; border-color:rgba(255,255,255,0.4); color:#fff; font-size: 0.75rem;">XBOX</div>
-                    </div>
+                    ${_doorpiReturnShortcutHtml()}
                     <span id="dwExit" style="font-weight: 500; color:#fff;"></span>
                </div>`;
 
@@ -242,7 +284,7 @@ window.isNavMenuOpen = false;
         window.isDesktopWarningOpen = true;
         requestAnimationFrame(() => overlay.classList.add('visible'));
     }
-
+    window.showDesktopWarning = _showDesktopWarning;
     // ────────────────────────────────────────────────────────────────────────
     // ██████████████████  LAZY GRID LOADER  ██████████████████████████████████
     // ────────────────────────────────────────────────────────────────────────
@@ -952,6 +994,8 @@ window.isNavMenuOpen = false;
         </div>
     `;
 
+        _decorateDoorpiReturnShortcut(body);
+
         window._updateBootModeUI = () => {
             const currentMode = window._doorpiBootMode || 0;
 
@@ -1095,7 +1139,7 @@ window.isNavMenuOpen = false;
 
         const svgPower = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>`;
         const svgUpdate = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v6h-6"/><path d="M12 8v5l3 2"/></svg>`;
-        const svgConnectivity = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 8a7 7 0 0 1 10 0"/><path d="M9.8 10.8a3.1 3.1 0 0 1 4.4 0"/><circle cx="12" cy="14" r="1" fill="currentColor" stroke="none"/><path d="m17 4 4 4-3 2.5 3 2.5-4 4V4Z"/></svg>`;
+        const svgDevices = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="8" height="14" rx="2"/><rect x="14" y="4" width="7" height="5" rx="1.5"/><path d="M15 14a5 5 0 0 1 5 0"/><path d="M16.6 16.6a2.7 2.7 0 0 1 2.8 0"/><circle cx="18" cy="19" r=".7" fill="currentColor" stroke="none"/></svg>`;
 
         body.innerHTML = `
         <div class="nav-settings-subheader">
@@ -1117,16 +1161,16 @@ window.isNavMenuOpen = false;
                     <p>Doorpi, Updater e Windows Update reunidos em uma área dedicada.</p>
                 </div>
             </button>
-            <button class="nav-settings-card" id="setSystemConnectivity" tabindex="-1">
-                <div class="settings-card-icon">${svgConnectivity}</div>
+            <button class="nav-settings-card" id="setSystemDevices" tabindex="-1">
+                <div class="settings-card-icon">${svgDevices}</div>
                 <div class="settings-card-info">
-                    <h3>${_t('navSetConnectivity', 'Conectividade')}</h3>
-                    <p>${_t('navSetConnectivityDesc', 'Bluetooth, dispositivos e conexões sem fio')}</p>
+                    <h3>${_t('navSetDevices', 'Dispositivos')}</h3>
+                    <p>${_t('navSetDevicesDesc', 'Bluetooth, Wi-Fi, som e acessórios conectados')}</p>
                 </div>
             </button>
         </div>`;
 
-        _wireSystemItems(body, ['#setBackSystemHub', '#setSystemStartup', '#setSystemUpdates', '#setSystemConnectivity']);
+        _wireSystemItems(body, ['#setBackSystemHub', '#setSystemStartup', '#setSystemUpdates', '#setSystemDevices']);
 
         body.querySelector('#setBackSystemHub')?.addEventListener('click', () => {
             _settingsSubView = null;
@@ -1148,9 +1192,9 @@ window.isNavMenuOpen = false;
             _renderContent('settings');
             _updateContentFocus();
         });
-        body.querySelector('#setSystemConnectivity')?.addEventListener('click', () => {
-            _settingsSubView = 'connectivityHub';
-            _systemSubView = 'connectivity';
+        body.querySelector('#setSystemDevices')?.addEventListener('click', () => {
+            _settingsSubView = 'devicesHub';
+            _systemSubView = 'devices';
             _contentIdx = 0;
             _renderContent('settings');
             _updateContentFocus();
@@ -1205,11 +1249,20 @@ window.isNavMenuOpen = false;
                 </button>
                 <button class="nav-suggestion-card" id="navCardGameBar" tabindex="-1">
                     <div class="nav-suggestion-card-btn">${_t('sysGameBarNoticeBtn', 'Xbox Game Bar')}</div>
+                    <span class="nav-shortcut-row">
+                        <span>${_t('sysDoorpiReturnShortcut', 'Retorno alternativo:')}</span>
+                        ${_doorpiReturnShortcutHtml()}
+                    </span>
                     <span class="nav-suggestion-card-text">${_t('sysGameBarNoticeText', 'Desative o atalho do botão Xbox para não abrir a overlay durante o uso do Doorpi.')}</span>
                 </button>
             </div>
 
             <h3 style="font-size:1.1rem;font-weight:500;color:#fff;margin:18px 0 12px;">${_t('sysActionsHeader', 'Ações do Sistema')}</h3>
+
+            <div class="nav-shortcut-row" style="margin:0 0 18px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.08);">
+                <span>${_t('sysDoorpiReturnShortcut', 'Retorno alternativo:')}</span>
+                ${_doorpiReturnShortcutHtml()}
+            </div>
 
             <button class="nav-settings-card" id="btnEnterDesktop" tabindex="-1" style="width:100%;">
                 <div class="settings-card-icon" style="width:36px;height:36px;">${svgDesktop}</div>
@@ -1219,6 +1272,8 @@ window.isNavMenuOpen = false;
                 </div>
             </button>
         </div>`;
+
+        _decorateDoorpiReturnShortcut(body);
 
         window._updateBootModeUI = () => {
             const currentMode = window._doorpiBootMode || 0;
@@ -2028,7 +2083,7 @@ window.isNavMenuOpen = false;
 
 /* ── Dashboard de Configurações ── */
 .nav-settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(200px, 22vw, 320px), 1fr)); gap: clamp(12px, 1.5vh, 24px); animation: fadeInTop 0.4s ease; max-width: 1400px; }
-.nav-settings-grid.nav-connectivity-grid { grid-template-columns: repeat(2, minmax(240px, 340px)); max-width: 740px; }
+.nav-settings-grid.nav-connectivity-grid { grid-template-columns: repeat(3, minmax(240px, 340px)); }
 .nav-settings-card {
     background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 16px;
     padding: clamp(16px, 2.5vh, 30px) clamp(16px, 1.8vw, 24px); display: flex; align-items: flex-start; gap: clamp(12px, 1.5vw, 20px); cursor: pointer; outline: none;
@@ -2225,6 +2280,9 @@ window.isNavMenuOpen = false;
     // ── Seleção de categoria ──────────────────────────────────────────────────
     function _selectCat(idx) {
         if (_navMenuPhase === 'closing') return;
+        if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'sound' && Number(idx) !== _catIdx) {
+            window.DoorpiSoundUI?.closeDrawer?.('settings');
+        }
         _catIdx = Number(idx);
 
         if (_preserveSettingsSubViewOnce) {
@@ -2546,9 +2604,10 @@ window.isNavMenuOpen = false;
         if (_settingsSubView === 'extensions') { _renderSettingsExtensions(body); return; }
         if (_settingsSubView === 'sharing') { _renderSettingsSharing(body); return; }
         if (_settingsSubView === 'system') { _renderSettingsSystemV2(body); return; }
-        if (_settingsSubView === 'connectivityHub') { _renderSettingsConnectivityHub(body); return; }
+        if (_settingsSubView === 'devicesHub' || _settingsSubView === 'connectivityHub') { _renderSettingsDevicesHub(body); return; }
         if (_settingsSubView === 'bluetooth') { _renderSettingsBluetooth(body); return; }
         if (_settingsSubView === 'wifi') { _renderSettingsWifi(body); return; }
+        if (_settingsSubView === 'sound') { _renderSettingsSound(body); return; }
         const svgUser = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
         const svgSys = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`;
         const svgExt = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`;
@@ -2675,13 +2734,14 @@ window.isNavMenuOpen = false;
         }
     }
 
-    function _renderSettingsConnectivityHub(body) {
+    function _renderSettingsDevicesHub(body) {
         const svgBluetooth = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v20l6-6-6-4 6-4-6-6Z"/><path d="M6.5 6.5 12 12l-5.5 5.5"/></svg>`;
         const svgWifi = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.5 8.5a12 12 0 0 1 17 0"/><path d="M6.7 11.7a7.5 7.5 0 0 1 10.6 0"/><path d="M9.8 14.8a3.1 3.1 0 0 1 4.4 0"/><circle cx="12" cy="18" r="1" fill="currentColor" stroke="none"/></svg>`;
+        const svgSound = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4Z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg>`;
         body.innerHTML = `
             <div class="nav-settings-subheader">
                 <button class="nav-back-btn" id="setBackConnectivity" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
-                <h2>${_t('navSetConnectivity', 'Conectividade')}</h2>
+                <h2>${_t('navSetDevices', 'Dispositivos')}</h2>
             </div>
             <div class="nav-settings-grid nav-connectivity-grid">
                 <button class="nav-settings-card" id="setBluetooth" tabindex="-1">
@@ -2698,9 +2758,16 @@ window.isNavMenuOpen = false;
                         <p>${_t('wifiSettingsDesc', 'Conectar e gerenciar redes sem fio')}</p>
                     </div>
                 </button>
+                <button class="nav-settings-card" id="setSound" tabindex="-1">
+                    <div class="settings-card-icon">${svgSound}</div>
+                    <div class="settings-card-info">
+                        <h3>${_t('soundTitle', 'Som')}</h3>
+                        <p>${_t('soundSettingsDesc', 'Saída de áudio, volume do Windows e sons do Doorpi')}</p>
+                    </div>
+                </button>
             </div>`;
 
-        _contentItems = [body.querySelector('#setBackConnectivity'), body.querySelector('#setBluetooth'), body.querySelector('#setWifi')].filter(Boolean);
+        _contentItems = [body.querySelector('#setBackConnectivity'), body.querySelector('#setBluetooth'), body.querySelector('#setWifi'), body.querySelector('#setSound')].filter(Boolean);
         _contentItems.forEach((el, idx) => el.addEventListener('mouseenter', () => {
             _topbarFocus = false; _contentIdx = idx; _updateContentFocus();
         }));
@@ -2712,6 +2779,9 @@ window.isNavMenuOpen = false;
         });
         body.querySelector('#setWifi')?.addEventListener('click', () => {
             _settingsSubView = 'wifi'; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
+        });
+        body.querySelector('#setSound')?.addEventListener('click', () => {
+            _settingsSubView = 'sound'; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
         });
     }
 
@@ -2779,7 +2849,7 @@ window.isNavMenuOpen = false;
                 return;
             }
             if (_bluetoothUpdateStatus?.discovering) postToHost?.({ action: 'stopBluetoothDiscovery' });
-            _settingsSubView = 'connectivityHub'; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
+            _settingsSubView = 'devicesHub'; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
         });
     }
 
@@ -2832,7 +2902,7 @@ window.isNavMenuOpen = false;
                 _refreshSettingsWifi(body, '.wifi-network-card');
                 return;
             }
-            _settingsSubView = 'connectivityHub'; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
+            _settingsSubView = 'devicesHub'; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
         });
     }
 
@@ -2841,6 +2911,56 @@ window.isNavMenuOpen = false;
         if (!window.isNavMenuOpen || _settingsSubView !== 'wifi') return;
         const body = document.querySelector('.nav-content-body');
         if (body) _refreshSettingsWifi(body, _wifiFocusSelector());
+    };
+
+    function _soundFocusSelector() {
+        const active = document.activeElement;
+        if (active?.dataset?.soundAction) return `[data-sound-action="${CSS.escape(active.dataset.soundAction)}"]`;
+        if (active?.dataset?.soundVolumeControl) return `[data-sound-volume-control="${CSS.escape(active.dataset.soundVolumeControl)}"]`;
+        if (active?.dataset?.soundDeviceOption) return `[data-sound-device-option="${CSS.escape(active.dataset.soundDeviceOption)}"]`;
+        if (active?.dataset?.soundItem) return `[data-sound-item="${CSS.escape(active.dataset.soundItem)}"]`;
+        if (active?.dataset?.soundSlider) return `[data-sound-slider="${CSS.escape(active.dataset.soundSlider)}"]`;
+        return '';
+    }
+
+    function _wireSettingsSound(body, focusSelector = '') {
+        const host = body.querySelector('#navSoundHost');
+        window.DoorpiSoundUI?.bind?.(host, 'settings', nextFocus => _refreshSettingsSound(body, nextFocus));
+        _contentItems = [body.querySelector('#setBackSound'), ...Array.from(host?.querySelectorAll('.sound-focus') || [])].filter(Boolean);
+        _contentItems.forEach((el, idx) => el.addEventListener('mouseenter', () => {
+            _topbarFocus = false; _contentIdx = idx; _updateContentFocus();
+        }));
+        const target = focusSelector ? body.querySelector(focusSelector) : null;
+        _contentIdx = target ? _contentItems.indexOf(target) : Math.max(0, Math.min(_contentIdx, _contentItems.length - 1));
+        _updateContentFocus();
+    }
+
+    function _refreshSettingsSound(body, focusSelector = '') {
+        const host = body.querySelector('#navSoundHost');
+        if (!host) return;
+        host.innerHTML = window.DoorpiSoundUI?.render?.('settings') || '';
+        _wireSettingsSound(body, focusSelector);
+    }
+
+    function _renderSettingsSound(body) {
+        body.innerHTML = `
+            <div class="nav-settings-subheader">
+                <button class="nav-back-btn" id="setBackSound" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
+                <h2>${_t('soundTitle', 'Som')}</h2>
+            </div>
+            <div id="navSoundHost" style="max-width:1500px;"></div>`;
+        _refreshSettingsSound(body);
+        postToHost?.({ action: 'requestSoundStatus' });
+        body.querySelector('#setBackSound')?.addEventListener('click', () => {
+            window.DoorpiSoundUI?.closeDrawer?.('settings');
+            _settingsSubView = 'devicesHub'; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
+        });
+    }
+
+    window._navMenuSetSoundStatus = function (status) {
+        if (!window.isNavMenuOpen || _settingsSubView !== 'sound') return;
+        const body = document.querySelector('.nav-content-body');
+        if (body) _refreshSettingsSound(body, _soundFocusSelector());
     };
 
     function _formatWindowsUpdateSize(bytes) {
@@ -3235,6 +3355,12 @@ window.isNavMenuOpen = false;
             pendingApi = '';
         };
 
+        const _normalizePin = (value) => String(value || '').replace(/\D/g, '').slice(0, 4);
+        const _isValidPin = (value) => {
+            const pin = _normalizePin(value);
+            return pin.length === 0 || pin.length === 4;
+        };
+
         body.innerHTML = `
             <div class="nav-settings-subheader">
                 <button class="nav-back-btn" id="setBack" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
@@ -3390,7 +3516,16 @@ window.isNavMenuOpen = false;
             window._vkbOpen?.(pinInput, {
                 mode: 'numeric',
                 onOk: () => {
-                    const newPin = String(pinInput.value || '').replace(/\D/g, '').slice(0, 4);
+                    const newPin = _normalizePin(pinInput.value);
+                    pinInput.value = newPin;
+                    if (!_isValidPin(newPin)) {
+                        window.showDoorpiToast?.(
+                            _t('setupPinInvalidTitle', 'PIN inválido'),
+                            _t('setupPinLengthError', 'Use 4 dígitos ou deixe vazio.')
+                        );
+                        pinInput.focus();
+                        return;
+                    }
                     pendingPin = newPin;
                     pinInput.setAttribute('readonly', '');
                     window._vkbForceClose?.();
@@ -3406,6 +3541,10 @@ window.isNavMenuOpen = false;
                     window._vkbForceClose?.();
                 }
             });
+        });
+        pinInput?.addEventListener('input', event => {
+            const digits = _normalizePin(event.target.value);
+            if (event.target.value !== digits) event.target.value = digits;
         });
 
         apiInput?.addEventListener('click', event => {
@@ -4506,6 +4645,8 @@ window.isNavMenuOpen = false;
 
     // ── Abrir / Fechar ────────────────────────────────────────────────────────
     async function open(startIdx = 0) {
+        if (window.isDoorpiUpdatePromptOpen?.() || document.querySelector('.doorpi-update-prompt.is-visible')) return;
+        if (window.isDoorpiOverlayOpen?.() || window.isModalOpen || window.isSetupOpen || window._vkbIsOpen) return;
         if (window.isNavMenuOpen || _navMenuPhase !== 'closed' || window.isDoorpiSessionTransitionActive?.()) return;
         const requestedIdx = Number(startIdx);
         if (arguments.length > 0 && Number.isFinite(requestedIdx)) {
@@ -4523,6 +4664,7 @@ window.isNavMenuOpen = false;
         if (topProf) topProf.classList.add('nav-menu-hidden');
 
         _lastFocus = document.activeElement;
+        window.pauseDoorpiArtworkForTransition?.(_lastFocus);
 
         _buildOverlay();
         _overlay.classList.remove('nav-menu-input-released');
@@ -4560,6 +4702,7 @@ window.isNavMenuOpen = false;
         if (!window.isNavMenuOpen || _navMenuPhase === 'closing') return;
         if (_settingsSubView === 'bluetooth' && _bluetoothUpdateStatus?.discovering)
             postToHost?.({ action: 'stopBluetoothDiscovery' });
+        if (_settingsSubView === 'sound') window.DoorpiSoundUI?.closeDrawer?.('settings');
         if (document.querySelector('.context-menu.visible')) window._ctxMenuClose?.();
         const lifecycleToken = ++_navMenuLifecycleToken;
         _navMenuPhase = 'closing';
@@ -4572,15 +4715,16 @@ window.isNavMenuOpen = false;
         if (topProf) topProf.classList.remove('nav-menu-hidden');
 
         _overlay?.classList.add('nav-menu-input-released');
-        _releaseNavMenuInput(lifecycleToken);
 
         _runNavMenuTransition(() => {
             if (lifecycleToken !== _navMenuLifecycleToken || _navMenuPhase !== 'closing') return;
             if (_overlay) _overlay.style.display = 'none';
-            _navMenuPhase = 'closed';
-            window._navMenuPhase = _navMenuPhase;
             document.body.classList.remove('nav-menu-closing');
             _overlay?.classList.remove('nav-menu-input-released');
+            _releaseNavMenuInput(lifecycleToken);
+            _navMenuPhase = 'closed';
+            window._navMenuPhase = _navMenuPhase;
+            window.resumeDoorpiArtworkAfterTransition?.(_lastFocus);
         });
         _overlay?.classList.remove('visible');
     }
@@ -4669,7 +4813,10 @@ window.isNavMenuOpen = false;
                 moveFocus(dirMap[e.key]);
             }
             else if (e.key === 'Escape') { window._vkbCancel?.(); }
-            else if (e.key === 'Enter') { document.activeElement?.click(); }
+            else if (e.key === 'Enter') {
+                if (window._doorpiVkbShouldConfirmEnter?.()) window._vkbConfirm?.();
+                else document.activeElement?.click();
+            }
             else if (e.key === 'Backspace') { window._vkbPhysicalKey?.('Backspace'); }
             else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
                 window._vkbPhysicalKey?.(e.key);
@@ -4693,6 +4840,18 @@ window.isNavMenuOpen = false;
 
             e.preventDefault();
             e.stopImmediatePropagation();
+            if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'sound' &&
+                ['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].includes(e.key)) {
+                const dirMap = { 'ArrowRight': 'RIGHT', 'ArrowLeft': 'LEFT', 'ArrowDown': 'DOWN', 'ArrowUp': 'UP' };
+                if (window.DoorpiSoundUI?.handleDirection?.('settings', dirMap[e.key])) {
+                    const focusedIdx = _contentItems.indexOf(document.activeElement);
+                    if (focusedIdx >= 0) {
+                        _contentIdx = focusedIdx;
+                        _contentItems.forEach((el, i) => el?.classList.toggle('nav-focused-el', i === _contentIdx));
+                    }
+                    return;
+                }
+            }
             if (e.key === 'Escape' || e.key === 'Backspace') {
                 if (window.requestDoorpiBackAction?.()) return;
                 return;
@@ -5037,7 +5196,7 @@ window.isNavMenuOpen = false;
             }
         }
 
-        if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'connectivityHub') {
+        if (CATS[_catIdx]?.id === 'settings' && (_settingsSubView === 'devicesHub' || _settingsSubView === 'connectivityHub')) {
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
                 if (key === 'ArrowUp') {
                     if (_contentIdx <= 0) {
@@ -5048,14 +5207,14 @@ window.isNavMenuOpen = false;
                 } else if (key === 'ArrowDown') {
                     if (_contentIdx === 0) _contentIdx = 1;
                 } else if (key === 'ArrowLeft') {
-                    if (_contentIdx === 2) _contentIdx = 1;
+                    if (_contentIdx > 1) _contentIdx--;
                     else if (_contentIdx === 1) _contentIdx = 0;
                     else {
                         _setTopbarFocus(true);
                         return;
                     }
                 } else if (key === 'ArrowRight') {
-                    if (_contentIdx === 1) _contentIdx = 2;
+                    if (_contentIdx >= 1 && _contentIdx < total - 1) _contentIdx++;
                 }
 
                 _contentIdx = Math.max(0, Math.min(total - 1, _contentIdx));
@@ -5086,6 +5245,16 @@ window.isNavMenuOpen = false;
                 if (_contentIdx + cols < total) { _contentIdx += cols; _updateContentFocus(); }
                 break;
             case 'Enter': {
+                if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'sound') {
+                    if (window.DoorpiSoundUI?.confirm?.('settings')) return true;
+                    const active = document.activeElement;
+                    if (active?.closest?.('#navSoundHost') && active.classList.contains('sound-focus')) {
+                        active.click();
+                        const focusedIdx = _contentItems.indexOf(document.activeElement);
+                        if (focusedIdx >= 0) _contentIdx = focusedIdx;
+                        return true;
+                    }
+                }
                 const target = _contentItems[_contentIdx];
                 if (target) target.click();
                 break;
@@ -5102,14 +5271,25 @@ window.isNavMenuOpen = false;
                         return true;
                     } else if (_settingsSubView === 'bluetooth') {
                         if (_bluetoothUpdateStatus?.discovering) postToHost?.({ action: 'stopBluetoothDiscovery' });
-                        _settingsSubView = 'connectivityHub';
+                        _settingsSubView = 'devicesHub';
                     } else if (_settingsSubView === 'wifi' && window.DoorpiWifiUI?.back?.('settings')) {
                         const body = document.querySelector('.nav-content-body');
                         if (body) _refreshSettingsWifi(body, '.wifi-network-card');
                         return true;
                     } else if (_settingsSubView === 'wifi') {
-                        _settingsSubView = 'connectivityHub';
-                    } else if (_settingsSubView === 'connectivityHub') {
+                        _settingsSubView = 'devicesHub';
+                    } else if (_settingsSubView === 'sound') {
+                        const soundFocusSelector = window.DoorpiSoundUI?.back?.('settings');
+                        if (soundFocusSelector) {
+                            if (typeof soundFocusSelector === 'string') {
+                                const body = document.querySelector('.nav-content-body');
+                                if (body) _refreshSettingsSound(body, soundFocusSelector);
+                            }
+                            return true;
+                        }
+                        window.DoorpiSoundUI?.closeDrawer?.('settings');
+                        _settingsSubView = 'devicesHub';
+                    } else if (_settingsSubView === 'devicesHub' || _settingsSubView === 'connectivityHub') {
                         _settingsSubView = 'system';
                         _systemSubView = null;
                     } else if (_settingsSubView === 'system' && _systemSubView) {
@@ -5183,6 +5363,7 @@ window.isNavMenuOpen = false;
 
                     _menuData.user.PhotoBase64 = data.base64;
                     if (window._doorpiProfile) window._doorpiProfile.PhotoBase64 = data.base64;
+                    window._applyDoorpiTopProfile?.(window._doorpiProfile || _menuData.user);
 
                     const name = _menuData.user.Name || '';
                     postToHost({ action: 'saveUserProfile', name: name, photoBase64: data.base64, skipTasks: true });

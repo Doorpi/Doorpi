@@ -47,8 +47,11 @@ namespace Doorpi
             this.WindowState = WindowState.Maximized;
 
             ytWebView.CoreWebView2.Settings.UserAgent = YT_API_UA;
+            ytWebView.CoreWebView2.Settings.AreHostObjectsAllowed = false;
+            ytWebView.CoreWebView2.Settings.AreDevToolsEnabled = false;
+            ytWebView.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = false;
             ytWebView.CoreWebView2.Settings.IsStatusBarEnabled = false;
-            ytWebView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
+            ytWebView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
             ytWebView.CoreWebView2.Settings.IsZoomControlEnabled = false;
 
             await EnsureBlocklistAsync();

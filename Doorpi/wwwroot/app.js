@@ -10,11 +10,346 @@
     window._doorpiCurrentUserId = '';
     window._pendingExtensionUpdates = {};
 
+    document.addEventListener('contextmenu', event => event.preventDefault(), true);
+    document.addEventListener('keydown', event => {
+        const key = (event.key || '').toLowerCase();
+        const blocked =
+            event.key === 'F12' ||
+            (event.ctrlKey && event.shiftKey && ['i', 'j', 'c'].includes(key)) ||
+            (event.ctrlKey && key === 'u');
+        if (!blocked) return;
+        event.preventDefault();
+        event.stopPropagation();
+    }, true);
+
     const DOORPI_BULK_LIBRARY_THRESHOLD = 3;
     let _pendingNewGameQueue = [];
     let _pendingNewGameTimer = 0;
     let _pendingRenderGamesPayload = null;
     let _pendingRenderGamesTimer = 0;
+    const FIRST_RUN_TUTORIAL_PENDING_KEY = 'doorpi.firstRunTutorial.pending.v1';
+    const FIRST_RUN_TUTORIAL_DONE_KEY = 'doorpi.firstRunTutorial.done.v1';
+
+    window.DoorpiFirstRunTutorial = (() => {
+        let page = 0;
+
+        function storageGet(key) {
+            try { return localStorage.getItem(key); }
+            catch { return null; }
+        }
+
+        function storageSet(key, value) {
+            try { localStorage.setItem(key, value); }
+            catch { }
+        }
+
+        function storageRemove(key) {
+            try { localStorage.removeItem(key); }
+            catch { }
+        }
+
+        function shouldShow() {
+            return storageGet(FIRST_RUN_TUTORIAL_PENDING_KEY) === 'true' &&
+                storageGet(FIRST_RUN_TUTORIAL_DONE_KEY) !== 'true';
+        }
+
+        function ensureStyles() {
+            if (document.getElementById('doorpiFirstRunTutorialStyles')) return;
+            const s = document.createElement('style');
+            s.id = 'doorpiFirstRunTutorialStyles';
+            s.textContent = `
+                .doorpi-first-run-tutorial {
+                    position: fixed;
+                    inset: 0;
+                    z-index: 18500;
+                    display: none;
+                    align-items: center;
+                    justify-content: center;
+                    padding: clamp(28px, 6vw, 92px);
+                    background: radial-gradient(circle at 50% 45%, rgba(32,52,92,.26), transparent 42%), rgba(0,0,8,.74);
+                    backdrop-filter: blur(14px) brightness(.72);
+                    -webkit-backdrop-filter: blur(14px) brightness(.72);
+                    color: #fff;
+                    text-align: center;
+                }
+                .doorpi-first-run-tutorial.visible { display: flex; }
+                .first-run-panel {
+                    width: min(920px, 90vw);
+                    display: grid;
+                    gap: clamp(16px, 2.1vh, 30px);
+                    animation: firstRunIn .36s cubic-bezier(.2,.9,.2,1) both;
+                }
+                @keyframes firstRunIn {
+                    from { opacity: 0; transform: translateY(18px) scale(.985); }
+                    to { opacity: 1; transform: none; }
+                }
+                .first-run-title {
+                    margin: 0;
+                    font-size: clamp(1.8rem, 3.8vw, 4.8rem);
+                    line-height: .95;
+                    font-weight: 300;
+                    letter-spacing: -.035em;
+                    text-shadow: 0 0 42px rgba(125,203,255,.22), 0 18px 80px rgba(0,0,0,.72);
+                }
+                .first-run-copy {
+                    display: grid;
+                    gap: clamp(10px, 1.35vh, 17px);
+                    margin: 0 auto;
+                    max-width: 780px;
+                    color: rgba(255,255,255,.82);
+                    font-size: clamp(1rem, 1.28vw, 1.58rem);
+                    line-height: 1.34;
+                    font-weight: 340;
+                }
+                .first-run-copy p {
+                    margin: 0;
+                }
+                .first-run-action {
+                    justify-self: center;
+                    min-width: clamp(170px, 14vw, 260px);
+                    min-height: clamp(46px, 5vh, 62px);
+                    border: 1px solid rgba(255,255,255,.18);
+                    border-radius: 10px;
+                    background: rgba(255,255,255,.88);
+                    color: #050711;
+                    font: inherit;
+                    font-size: clamp(.9rem, 1.02vw, 1.18rem);
+                    font-weight: 760;
+                    letter-spacing: .02em;
+                    outline: none;
+                    cursor: pointer;
+                    box-shadow: 0 20px 60px rgba(0,0,0,.42), 0 0 34px rgba(125,203,255,.16);
+                    transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
+                }
+                .first-run-action:focus,
+                .first-run-action:hover {
+                    transform: translateY(-2px) scale(1.03);
+                    background: #fff;
+                    box-shadow: 0 24px 70px rgba(0,0,0,.52), 0 0 0 5px rgba(255,255,255,.16), 0 0 44px rgba(125,203,255,.26);
+                }
+                .first-run-hint {
+                    color: rgba(255,255,255,.48);
+                    font-size: clamp(.84rem, 1vw, 1.12rem);
+                    letter-spacing: .12em;
+                    text-transform: uppercase;
+                }
+                .doorpi-shortcut-combo {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: .34em;
+                    white-space: nowrap;
+                    vertical-align: middle;
+                    transform: translateY(-.04em);
+                }
+                .doorpi-shortcut-plus {
+                    color: rgba(255,255,255,.42);
+                    font-size: .72em;
+                    font-weight: 760;
+                }
+                .doorpi-keycap {
+                    min-width: 2.45em;
+                    height: 1.62em;
+                    padding: 0 .62em;
+                    border-radius: .5em;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,.055));
+                    border: 1px solid rgba(255,255,255,.30);
+                    box-shadow: inset 0 1px 0 rgba(255,255,255,.20), 0 .32em .9em rgba(0,0,0,.30);
+                    color: rgba(255,255,255,.94);
+                    font-size: .58em;
+                    font-weight: 860;
+                    letter-spacing: .08em;
+                }
+                .doorpi-xbox-logo-btn {
+                    width: 2.08em;
+                    height: 2.08em;
+                    border-radius: 50%;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: linear-gradient(180deg, #f6f6f7, #c9ccd2);
+                    border: 1px solid rgba(255,255,255,.48);
+                    box-shadow: inset 0 .12em .22em rgba(255,255,255,.58), inset 0 -.18em .34em rgba(0,0,0,.22), 0 .34em .82em rgba(0,0,0,.34);
+                    color: #151820;
+                }
+                .doorpi-xbox-logo-btn svg {
+                    width: 1.18em;
+                    height: 1.18em;
+                    display: block;
+                    fill: currentColor;
+                }
+                .doorpi-face-x {
+                    width: 1.45em;
+                    height: 1.45em;
+                    border-radius: 50%;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: #003e92;
+                    color: #fff;
+                    font-size: .72em;
+                    font-weight: 900;
+                    line-height: 1;
+                    box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 .24em .6em rgba(0,0,0,.28);
+                    vertical-align: middle;
+                    transform: translateY(-.07em);
+                }
+                .first-run-em {
+                    color: rgba(255,255,255,.96);
+                    font-weight: 620;
+                    text-shadow: 0 0 26px rgba(125,203,255,.20);
+                }
+                .doorpi-stickcap {
+                    width: 2.08em;
+                    height: 2.08em;
+                    border-radius: 50%;
+                    position: relative;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    background:
+                        radial-gradient(circle at 38% 30%, rgba(255,255,255,.26), transparent 18%),
+                        radial-gradient(circle at 50% 55%, rgba(255,255,255,.08), transparent 46%),
+                        linear-gradient(180deg, #303340, #11131b);
+                    border: 1px solid rgba(255,255,255,.22);
+                    box-shadow: inset 0 .18em .32em rgba(255,255,255,.08), inset 0 -.24em .42em rgba(0,0,0,.42), 0 .38em .9em rgba(0,0,0,.36);
+                    color: rgba(255,255,255,.95);
+                    font-size: .58em;
+                    font-weight: 900;
+                    letter-spacing: .04em;
+                }
+                .doorpi-stickcap::after {
+                    content: '';
+                    position: absolute;
+                    inset: 28%;
+                    border-radius: 50%;
+                    border: 1px solid rgba(255,255,255,.28);
+                    box-shadow: 0 0 0 .18em rgba(0,0,0,.14);
+                }
+            `;
+            document.head.appendChild(s);
+        }
+
+        function xboxLogoSvg() {
+            return `<svg viewBox="1 1 30 30" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M11.9 9.3c-5.1-5.1-6.4-4-6.4-4C2.7 8 1 11.8 1 16c0 3.4 1.1 6.6 3.1 9.1h.1V25C3 21.5 8.9 12.9 11.9 9.3zm14.6-4s-1.3-1.1-6.4 3.9c3 3.6 8.9 12.2 7.7 15.7v.1h.1c1.9-2.5 3.1-5.7 3.1-9.1 0-4.1-1.7-7.9-4.5-10.6zM16 5.4c.5-.2 4.9-2.8 7.8-2.1h.1v-.1C21.5 1.8 19 1 16 1s-5.5.8-7.8 2.2v.1h.1c2.5-.6 6.6 1.5 7.7 2.1zm0 7.7c0-.1 0-.1 0 0C11.4 16.5 3.7 25 6.1 27.3 8.8 29.6 12.2 31 16 31s7.2-1.4 9.9-3.7c2.3-2.4-5.4-10.8-9.9-14.2z"/></svg>`;
+        }
+
+        function shortcutHtml() {
+            return `<span class="doorpi-shortcut-combo" aria-label="Xbox ou L1 + R1 + R3">
+                <span class="doorpi-xbox-logo-btn">${xboxLogoSvg()}</span>
+                <span class="doorpi-shortcut-plus">/</span>
+                <span class="doorpi-keycap">L1</span>
+                <span class="doorpi-shortcut-plus">+</span>
+                <span class="doorpi-keycap">R1</span>
+                <span class="doorpi-shortcut-plus">+</span>
+                <span class="doorpi-stickcap">R3</span>
+            </span>`;
+        }
+
+        function closeButtonHtml() {
+            return `<span class="doorpi-face-x">X</span>`;
+        }
+
+        function formatTutorialText(text) {
+            return escapeHtml(text)
+                .replaceAll('__DOORPI_RETURN_SHORTCUT__', shortcutHtml())
+                .replaceAll('__DOORPI_CLOSE_BUTTON__', closeButtonHtml())
+                .replace(/\b(YouTube|Discord|GitHub|Doorpi|multitarefas|beta)\b/g, '<span class="first-run-em">$1</span>');
+        }
+
+        function pages() {
+            const shortcutToken = '__DOORPI_RETURN_SHORTCUT__';
+            const closeToken = '__DOORPI_CLOSE_BUTTON__';
+            return [
+                [
+                    typeof t === 'function' ? t('firstRunPage1', shortcutToken, closeToken) : `Para sair de qualquer jogo ou aplicativo, pressione ${shortcutToken} a qualquer momento para retornar ao Doorpi. Você pode fechar qualquer aplicativo pelas opções pressionando ${closeToken}.`
+                ],
+                [
+                    typeof t === 'function' ? t('firstRunPage2a') : 'O Doorpi permite multitarefas, você é livre para ouvir YouTube, usar Discord e jogar tudo ao mesmo tempo!',
+                    typeof t === 'function' ? t('firstRunPage2b', shortcutToken) : `Pressione ${shortcutToken} para minimizar e abrir outra aplicação quando quiser.`,
+                    typeof t === 'function' ? t('firstRunPage2c') : 'Esta é uma versão beta. Caso encontre algum problema, reporte no GitHub do projeto.',
+                    typeof t === 'function' ? t('firstRunPage2d') : 'Divirta-se!'
+                ]
+            ];
+        }
+
+        function render() {
+            const overlay = document.getElementById('doorpiFirstRunTutorial');
+            if (!overlay) return;
+            const tr = (key, ...args) => typeof t === 'function' ? t(key, ...args) : key;
+            const allPages = pages();
+            const copy = allPages[Math.min(page, allPages.length - 1)] || [];
+            const isLast = page >= allPages.length - 1;
+            overlay.innerHTML = `
+                <section class="first-run-panel" aria-live="polite">
+                    <h1 class="first-run-title">${tr('firstRunTitle')}</h1>
+                    <div class="first-run-copy">
+                        ${copy.map(text => `<p>${formatTutorialText(text)}</p>`).join('')}
+                    </div>
+                    <button class="first-run-action" type="button" tabindex="0">
+                        ${isLast ? tr('firstRunFinish') : tr('firstRunNext')}
+                    </button>
+                    <div class="first-run-hint">${tr('firstRunHint')}</div>
+                </section>
+            `;
+            overlay.querySelector('.first-run-action')?.addEventListener('click', confirm);
+            requestAnimationFrame(() => overlay.querySelector('.first-run-action')?.focus());
+        }
+
+        function show() {
+            if (!shouldShow()) return false;
+            if (isOpen()) return true;
+            ensureStyles();
+            let overlay = document.getElementById('doorpiFirstRunTutorial');
+            if (!overlay) {
+                overlay = document.createElement('div');
+                overlay.id = 'doorpiFirstRunTutorial';
+                overlay.className = 'doorpi-first-run-tutorial doorpi-manager-overlay';
+                overlay.dataset.required = 'true';
+                document.body.appendChild(overlay);
+            }
+            page = 0;
+            render();
+            overlay.classList.add('visible');
+            overlay.style.display = 'flex';
+            window.updateDoorpiQuickMenuAvailability?.();
+            return true;
+        }
+
+        function finish() {
+            const overlay = document.getElementById('doorpiFirstRunTutorial');
+            storageSet(FIRST_RUN_TUTORIAL_DONE_KEY, 'true');
+            storageRemove(FIRST_RUN_TUTORIAL_PENDING_KEY);
+            if (overlay) {
+                overlay.classList.remove('visible');
+                overlay.style.display = 'none';
+            }
+            window.updateDoorpiQuickMenuAvailability?.();
+            window.focusFeaturedCard?.();
+            return true;
+        }
+
+        function confirm() {
+            if (!isOpen()) return false;
+            const allPages = pages();
+            if (page < allPages.length - 1) {
+                page += 1;
+                render();
+                return true;
+            }
+            return finish();
+        }
+
+        function isOpen() {
+            const overlay = document.getElementById('doorpiFirstRunTutorial');
+            return !!(overlay && overlay.style.display !== 'none' && overlay.classList.contains('visible'));
+        }
+
+        return { maybeShow: show, confirm, isOpen };
+    })();
 
     function _libraryUpdateShouldWait() {
         const phase = window._navMenuPhase || 'closed';
@@ -124,6 +459,8 @@
             this.gainNode = null;
             this.isLoaded = false;
             this.isPlaying = false;
+            this.maxVolume = maxVolume;
+            this.volumeScale = 1;
             this.volume = maxVolume;
             this.suspendTimeout = null;
         }
@@ -329,6 +666,17 @@
                 }
             }, durationMs + 50);
         }
+
+        setVolumeScale(scale) {
+            const safe = Math.max(0, Math.min(1, Number(scale) || 0));
+            this.volumeScale = safe;
+            this.volume = this.maxVolume * safe;
+            if (!this.gainNode || !this.ctx || !this.isPlaying) return;
+            const now = this.ctx.currentTime;
+            this.gainNode.gain.cancelScheduledValues(now);
+            this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, now);
+            this.gainNode.gain.linearRampToValueAtTime(this.volume, now + 0.12);
+        }
     }
 
     const MAX_AMBIENCE_VOLUME = 0.4;
@@ -396,19 +744,19 @@
                 wet: 0.09,
             },
             move: {
-                gain: 0.16,
+                gain: 0.18,
                 frequency: 300,
                 endFrequency: 520,
                 attack: 0.012,
             },
             confirm: {
-                gain: 0.17,
+                gain: 0.19,
                 frequency: 330,
                 endFrequency: 610,
                 attack: 0.016,
             },
             back: {
-                gain: 0.08,
+                gain: 0.095,
                 frequency: 320,
                 endFrequency: 200,
                 attack: 0.03,
@@ -421,6 +769,16 @@
         let spaceContext = null;
         let lastMoveAt = 0;
         let noiseBuffer = null;
+        const baseGains = {
+            navigation: uiSound.move.gain,
+            confirm: uiSound.confirm.gain,
+            back: uiSound.back.gain
+        };
+        const volumeScales = {
+            navigation: 1,
+            confirm: 1,
+            back: 1
+        };
 
         window.DoorpiUiSoundConfig = uiSound;
 
@@ -545,6 +903,20 @@
             };
         }
 
+        function gainFor(kind) {
+            if (kind === 'confirm') return baseGains.confirm * volumeScales.confirm;
+            if (kind === 'back') return baseGains.back * volumeScales.back;
+            return baseGains.navigation * volumeScales.navigation;
+        }
+
+        function setVolumeScales(scales = {}) {
+            ['navigation', 'confirm', 'back'].forEach(key => {
+                if (scales[key] === undefined) return;
+                const safe = Math.max(0, Math.min(1, Number(scales[key]) || 0));
+                volumeScales[key] = safe;
+            });
+        }
+
         async function play(kind) {
             if (!window._isIntroComplete || window._isExternalAppRunning) return;
             const context = ctx();
@@ -562,25 +934,83 @@
 
             const now = context.currentTime;
             if (kind === 'confirm') {
-                playTone(context, now + 0.002, uiSound.confirm.frequency, 0.16, uiSound.confirm.gain, {
+                playTone(context, now + 0.002, uiSound.confirm.frequency, 0.16, gainFor('confirm'), {
                     endFrequency: uiSound.confirm.endFrequency,
                     attack: uiSound.confirm.attack,
                 });
             } else if (kind === 'back') {
-                playTone(context, now + 0.002, uiSound.back.frequency, 0.34, uiSound.back.gain, {
+                playTone(context, now + 0.002, uiSound.back.frequency, 0.34, gainFor('back'), {
                     endFrequency: uiSound.back.endFrequency,
                     attack: uiSound.back.attack,
                     space: uiSound.back.space,
                 });
             } else {
-                playTone(context, now + 0.002, uiSound.move.frequency, 0.09, uiSound.move.gain, {
+                playTone(context, now + 0.002, uiSound.move.frequency, 0.09, gainFor('navigation'), {
                     endFrequency: uiSound.move.endFrequency,
                     attack: uiSound.move.attack,
                 });
             }
         }
 
-        return { play };
+        return { play, setVolumeScales };
+    })();
+
+    window.DoorpiSoundSettings = (() => {
+        const storageKey = 'doorpi.sound.volumes.v1';
+        const defaults = {
+            ambience: 100,
+            navigation: 100,
+            confirm: 100,
+            back: 100,
+            intro: 100
+        };
+
+        function clamp(value) {
+            const n = Number(value);
+            if (!Number.isFinite(n)) return 100;
+            return Math.max(0, Math.min(100, Math.round(n)));
+        }
+
+        function readVolumes() {
+            try {
+                const raw = JSON.parse(localStorage.getItem(storageKey) || '{}');
+                return Object.fromEntries(Object.keys(defaults).map(key => [key, clamp(raw[key] ?? defaults[key])]));
+            } catch {
+                return { ...defaults };
+            }
+        }
+
+        function saveVolumes(volumes) {
+            try { localStorage.setItem(storageKey, JSON.stringify(volumes)); } catch { }
+        }
+
+        function apply(volumes = readVolumes()) {
+            window._audioPlayer?.setVolumeScale?.(volumes.ambience / 100);
+            window.DoorpiUiSound?.setVolumeScales?.({
+                navigation: volumes.navigation / 100,
+                confirm: volumes.confirm / 100,
+                back: volumes.back / 100
+            });
+            window.DoorpiIntro?.setVolume?.(volumes.intro / 100);
+        }
+
+        function setInternalVolume(key, value) {
+            if (!Object.prototype.hasOwnProperty.call(defaults, key)) return readVolumes();
+            const volumes = readVolumes();
+            volumes[key] = clamp(value);
+            saveVolumes(volumes);
+            apply(volumes);
+            return volumes;
+        }
+
+        const api = {
+            getInternalVolumes: readVolumes,
+            setInternalVolume,
+            applyInternalVolumes: () => apply(readVolumes())
+        };
+
+        requestAnimationFrame(() => api.applyInternalVolumes());
+        return api;
     })();
 
     function _readDoorpiAudioMuteFlag(data, fallback = false) {
@@ -2160,6 +2590,22 @@
             postToHost({ action: 'requestUsers' });
         });
 
+        function applyTopProfileUser(user) {
+            const u = user || window._doorpiProfile || {};
+            const avatar = btn.querySelector('.doorpi-avatar');
+            const name = btn.querySelector('.top-profile-name');
+            if (avatar) {
+                avatar.innerHTML = u?.PhotoBase64
+                    ? `<img src="data:image/png;base64,${u.PhotoBase64}" />`
+                    : (u?.Name ? u.Name.charAt(0).toUpperCase() : '•');
+            }
+            if (name) name.textContent = u?.Name ?? '';
+            btn.classList.add('is-loaded');
+        }
+
+        window._applyDoorpiTopProfile = applyTopProfileUser;
+        requestAnimationFrame(() => applyTopProfileUser(window._doorpiProfile));
+
         const s = document.createElement('style');
         s.textContent = `
             .top-profile-btn {
@@ -2175,6 +2621,13 @@
                 outline: none;
                 z-index: 17000;
                 padding: 0;
+                opacity: 0;
+                transform: translateX(-15px) scale(0.95);
+                transition: opacity 0.22s cubic-bezier(0.2, 0.8, 0.2, 1), transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+            }
+            .top-profile-btn.is-loaded {
+                opacity: 1;
+                transform: translateX(0) scale(1);
             }
             .top-quick-menu-cue {
                 display: inline-flex;
@@ -2208,9 +2661,12 @@
                 pointer-events: none;
             }
             body.user-picker-open .top-profile-btn,
-            body.quick-menu-unavailable .top-profile-btn {
-                opacity: 0;
+            body.setup-active .top-profile-btn,
+            body.quick-menu-unavailable .top-profile-btn,
+            .top-profile-btn.nav-menu-hidden {
+                opacity: 0 !important;
                 pointer-events: none;
+                transition: opacity 0.12s ease !important;
             }
             body.quick-panel-open .top-quick-menu-cue {
                 width: auto;
@@ -2319,13 +2775,17 @@
             return Array.isArray(running) && running.length > 0;
         }
 
-        function shouldDeferAutoPrompt() {
+        function shouldDeferAutoPrompt(status = latestStatus) {
+            const force = !!status?.forceUpdate;
             if (isVisible) return false;
             if (!window._isIntroComplete) return true;
             if (window._isExternalAppRunning) return true;
             if (hasRuntimeSession()) return true;
             if (window.isDoorpiSessionTransitionActive?.()) return true;
             if (window.isGlobalLoading) return true;
+
+            if (force) return false;
+
             if (window.isNavMenuOpen || ['opening', 'closing'].includes(window._navMenuPhase || 'closed')) return true;
             if (window.isModalOpen || window.isSetupOpen || window._vkbIsOpen) return true;
             if (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) return true;
@@ -2394,13 +2854,14 @@
             prompt.setAttribute('aria-labelledby', 'doorpiUpdatePromptTitle');
             prompt.innerHTML = `
                 <div class="doorpi-update-shell">
-                    <div class="doorpi-update-orb orb-a"></div>
-                    <div class="doorpi-update-orb orb-b"></div>
-                    <div class="doorpi-update-kicker">${t('updatePromptKicker')}</div>
-                    <h2 id="doorpiUpdatePromptTitle">${t('updatePromptInitialTitle')}</h2>
-                    <p id="doorpiUpdatePromptSubtitle" class="doorpi-update-subtitle"></p>
+                    <div class="doorpi-update-header">
+                        <div>
+                            <div class="doorpi-update-kicker">${t('updatePromptKicker')}</div>
+                            <h2 id="doorpiUpdatePromptTitle">${t('updatePromptInitialTitle')}</h2>
+                        </div>
+                    </div>
                     <div class="doorpi-update-version-row" id="doorpiUpdateVersionRow"></div>
-                    <ul id="doorpiUpdateChangelog" class="doorpi-update-changelog"></ul>
+                    <p id="doorpiUpdatePromptSubtitle" class="doorpi-update-subtitle"></p>
                     <div class="doorpi-update-warning">${t('updatePromptWarning')}</div>
                     <div class="doorpi-update-actions">
                         <button id="doorpiUpdateStartBtn" class="doorpi-update-primary" type="button">${t('updatePromptStart')}</button>
@@ -2418,16 +2879,19 @@
             });
 
             prompt.querySelector('#doorpiUpdateLaterBtn')?.addEventListener('click', () => {
+                if (latestStatus?.forceUpdate) return;
                 dismissCurrentTarget();
                 hide(true);
             });
 
             prompt.addEventListener('keydown', (e) => {
                 if (!isVisible) return;
-                const buttons = Array.from(prompt.querySelectorAll('button'));
+                const buttons = Array.from(prompt.querySelectorAll('button'))
+                    .filter(btn => !btn.hidden && !btn.disabled);
                 const current = buttons.indexOf(document.activeElement);
                 if (e.key === 'Escape' || e.key === 'Backspace') {
                     e.preventDefault();
+                    if (latestStatus?.forceUpdate) return;
                     dismissCurrentTarget();
                     hide(true);
                     return;
@@ -2443,17 +2907,69 @@
             return prompt;
         }
 
-        function changelogItems(status) {
-            const entries = Array.isArray(status?.changelog) ? status.changelog : [];
-            const items = [];
-            entries.forEach(entry => {
-                if (Array.isArray(entry?.items)) {
-                    entry.items.forEach(item => {
-                        if (items.length < 6 && item) items.push(String(item));
-                    });
+        function promptIsOpen() {
+            const prompt = document.getElementById('doorpiUpdatePrompt');
+            return !!(isVisible || prompt?.classList.contains('is-visible'));
+        }
+
+        function focusPromptPrimary() {
+            const prompt = ensurePrompt();
+            const active = document.activeElement;
+            if (prompt.contains(active)) return;
+            prompt.querySelector('#doorpiUpdateStartBtn')?.focus({ preventScroll: true });
+        }
+
+        function handlePromptKey(e) {
+            if (!promptIsOpen()) return false;
+
+            const prompt = ensurePrompt();
+            const buttons = Array.from(prompt.querySelectorAll('button'))
+                .filter(btn => !btn.hidden && !btn.disabled);
+            const current = buttons.indexOf(document.activeElement);
+
+            e.preventDefault();
+            e.stopImmediatePropagation();
+
+            if (e.key === 'Escape' || e.key === 'Backspace') {
+                if (latestStatus?.forceUpdate) {
+                    focusPromptPrimary();
+                    return true;
                 }
-            });
-            return items;
+                dismissCurrentTarget();
+                hide(true);
+                return true;
+            }
+
+            if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+                const dir = (e.key === 'ArrowLeft' || e.key === 'ArrowUp') ? -1 : 1;
+                const idx = current >= 0 ? current : 0;
+                buttons[(idx + dir + buttons.length) % buttons.length]?.focus({ preventScroll: true });
+                return true;
+            }
+
+            if (e.key === 'Enter' || e.key === ' ') {
+                const activeButton = buttons.includes(document.activeElement)
+                    ? document.activeElement
+                    : prompt.querySelector('#doorpiUpdateStartBtn');
+                activeButton?.click();
+                return true;
+            }
+
+            focusPromptPrimary();
+            return true;
+        }
+
+        function handlePromptPointer(e) {
+            if (!promptIsOpen()) return false;
+
+            const prompt = ensurePrompt();
+            const button = e.target?.closest?.('#doorpiUpdatePrompt button');
+            if (button && prompt.contains(button)) return false;
+
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            focusPromptPrimary();
+            return true;
         }
 
         function renderPrompt() {
@@ -2461,17 +2977,27 @@
             const title = prompt.querySelector('#doorpiUpdatePromptTitle');
             const sub = prompt.querySelector('#doorpiUpdatePromptSubtitle');
             const versions = prompt.querySelector('#doorpiUpdateVersionRow');
-            const changelog = prompt.querySelector('#doorpiUpdateChangelog');
+            const kicker = prompt.querySelector('.doorpi-update-kicker');
+            const startBtn = prompt.querySelector('#doorpiUpdateStartBtn');
+            const laterBtn = prompt.querySelector('#doorpiUpdateLaterBtn');
 
             const status = latestStatus || {};
+            const force = !!status.forceUpdate;
             const parts = [];
             if (status.doorpiUpdateAvailable) parts.push('Doorpi');
             if (status.updaterUpdateAvailable) parts.push(t('updatePromptSystemComponents'));
             const scope = parts.length ? parts.join(' + ') : 'Doorpi';
 
-            if (title) title.textContent = t('updatePromptTitle', scope);
+            prompt.classList.toggle('is-force', force);
+            if (kicker) kicker.textContent = force ? t('updatePromptForceKicker') : t('updatePromptKicker');
+            if (title) title.textContent = force ? t('updatePromptForceTitle') : t('updatePromptTitle', scope);
             if (sub) {
-                sub.textContent = t('updatePromptSubtitle');
+                sub.textContent = force ? t('updatePromptForceSubtitle') : t('updatePromptSubtitle');
+            }
+            if (startBtn) startBtn.textContent = force ? t('updatePromptForceContinue') : t('updatePromptStart');
+            if (laterBtn) {
+                laterBtn.hidden = force;
+                laterBtn.disabled = force;
             }
 
             if (versions) {
@@ -2483,21 +3009,13 @@
                     : '';
                 versions.innerHTML = [doorpi, updater].filter(Boolean).join('');
             }
-
-            if (changelog) {
-                const items = changelogItems(status);
-                changelog.innerHTML = items.length
-                    ? items.map(item => `<li>${esc(item)}</li>`).join('')
-                    : `<li>${esc(t('updatePromptNoChangelog'))}</li>`;
-            }
         }
 
         function show(manual = false) {
             if (!hasUpdate(latestStatus)) return;
-            if (latestStatus?.forceUpdate) return;
 
             if (!manual) {
-                if (targetKey(latestStatus) === dismissedTarget()) return;
+                if (!latestStatus?.forceUpdate && targetKey(latestStatus) === dismissedTarget()) return;
                 if (shouldDeferAutoPrompt()) {
                     scheduleEvaluate(1500);
                     return;
@@ -2508,6 +3026,8 @@
             const prompt = ensurePrompt();
             isVisible = true;
             prompt.classList.add('is-visible');
+            document.body.classList.add('doorpi-update-modal-open');
+            window.updateDoorpiQuickMenuAvailability?.();
             window.DoorpiUiSound?.play('confirm');
             requestAnimationFrame(() => {
                 prompt.querySelector('#doorpiUpdateStartBtn')?.focus();
@@ -2518,6 +3038,8 @@
             const prompt = document.getElementById('doorpiUpdatePrompt');
             isVisible = false;
             prompt?.classList.remove('is-visible');
+            document.body.classList.remove('doorpi-update-modal-open');
+            window.updateDoorpiQuickMenuAvailability?.();
             if (refocus) setTimeout(() => recoverGlobalFocus?.(), 60);
         }
 
@@ -2592,7 +3114,7 @@
                 .doorpi-update-prompt {
                     position: fixed;
                     inset: 0;
-                    z-index: 9500;
+                    z-index: 30000;
                     display: flex;
                     align-items: center;
                     justify-content: center;
@@ -2609,49 +3131,45 @@
                 }
                 .doorpi-update-shell {
                     position: relative;
-                    width: min(860px, 92vw);
+                    width: min(700px, 92vw);
                     overflow: hidden;
-                    padding: 42px;
-                    border: 1px solid rgba(255,255,255,0.14);
+                    padding: 34px 36px 32px;
+                    border: 1px solid rgba(255,255,255,0.16);
                     border-radius: 8px;
                     background:
-                        radial-gradient(circle at 22% 10%, rgba(78,158,255,0.24), transparent 30%),
-                        radial-gradient(circle at 84% 86%, rgba(63,228,255,0.18), transparent 34%),
-                        rgba(7, 13, 28, 0.92);
-                    box-shadow: 0 36px 90px rgba(0,0,0,0.48);
+                        linear-gradient(90deg, rgba(255,255,255,0.30), transparent 52%) 0 0 / 100% 3px no-repeat,
+                        linear-gradient(180deg, rgba(13,17,31,0.97), rgba(5,7,16,0.96));
+                    box-shadow: 0 34px 90px rgba(0,0,0,0.52), inset 0 1px 0 rgba(255,255,255,0.07);
                     color: #fff;
                     transform: translateY(16px) scale(.985);
                     transition: transform .22s ease;
                 }
+                .doorpi-update-shell::before {
+                    content: '';
+                    position: absolute;
+                    inset: 0;
+                    background:
+                        radial-gradient(ellipse at 80% -18%, rgba(255,255,255,0.075), transparent 38%),
+                        radial-gradient(ellipse at -14% 112%, rgba(110,140,190,0.08), transparent 42%);
+                    pointer-events: none;
+                }
                 .doorpi-update-prompt.is-visible .doorpi-update-shell {
                     transform: translateY(0) scale(1);
                 }
-                .doorpi-update-orb {
-                    position: absolute;
-                    border-radius: 50%;
-                    filter: blur(24px);
-                    opacity: .36;
-                    pointer-events: none;
+                .doorpi-update-prompt.is-force .doorpi-update-shell {
+                    border-color: rgba(255,255,255,0.24);
+                    background:
+                        linear-gradient(90deg, rgba(255,255,255,0.40), transparent 54%) 0 0 / 100% 3px no-repeat,
+                        linear-gradient(180deg, rgba(15,19,34,0.98), rgba(5,7,16,0.97));
                 }
-                .doorpi-update-orb.orb-a {
-                    width: 220px;
-                    height: 220px;
-                    right: -76px;
-                    top: -82px;
-                    background: #267bff;
-                }
-                .doorpi-update-orb.orb-b {
-                    width: 180px;
-                    height: 180px;
-                    left: -70px;
-                    bottom: -76px;
-                    background: #20d4ff;
+                .doorpi-update-header {
+                    position: relative;
                 }
                 .doorpi-update-kicker {
                     position: relative;
-                    margin-bottom: 14px;
-                    color: #82dbff;
-                    font-size: 13px;
+                    margin: 0 0 10px;
+                    color: rgba(255,255,255,0.58);
+                    font-size: 12px;
                     font-weight: 800;
                     letter-spacing: 0.12em;
                     text-transform: uppercase;
@@ -2659,79 +3177,51 @@
                 .doorpi-update-shell h2 {
                     position: relative;
                     margin: 0;
-                    max-width: 760px;
-                    font-size: clamp(32px, 4vw, 52px);
-                    line-height: 1.03;
-                    font-weight: 800;
+                    font-size: clamp(28px, 3.2vw, 42px);
+                    line-height: 1.05;
+                    font-weight: 700;
                 }
                 .doorpi-update-subtitle {
                     position: relative;
-                    margin: 18px 0 0;
-                    max-width: 720px;
-                    color: rgba(255,255,255,0.72);
-                    font-size: 18px;
-                    line-height: 1.45;
+                    margin: 16px 0 0;
+                    max-width: 560px;
+                    color: rgba(255,255,255,0.68);
+                    font-size: 15px;
+                    line-height: 1.42;
                 }
                 .doorpi-update-version-row {
                     position: relative;
                     display: flex;
                     flex-wrap: wrap;
-                    gap: 10px;
-                    margin: 26px 0 0;
+                    gap: 8px;
+                    margin: 20px 0 0;
                 }
                 .doorpi-update-version-row span {
-                    padding: 9px 13px;
-                    border-radius: 999px;
+                    padding: 8px 11px;
+                    border-radius: 6px;
                     border: 1px solid rgba(255,255,255,0.14);
-                    background: rgba(255,255,255,0.07);
+                    background: rgba(255,255,255,0.055);
                     color: rgba(255,255,255,0.86);
-                    font-size: 14px;
-                }
-                .doorpi-update-changelog {
-                    position: relative;
-                    display: grid;
-                    gap: 9px;
-                    margin: 24px 0 0;
-                    padding: 0;
-                    list-style: none;
-                    color: rgba(255,255,255,0.8);
-                    font-size: 15px;
-                    line-height: 1.38;
-                }
-                .doorpi-update-changelog li {
-                    padding-left: 18px;
-                    position: relative;
-                }
-                .doorpi-update-changelog li::before {
-                    content: '';
-                    position: absolute;
-                    left: 0;
-                    top: .62em;
-                    width: 5px;
-                    height: 5px;
-                    border-radius: 50%;
-                    background: #58d9ff;
+                    font-size: 13px;
                 }
                 .doorpi-update-warning {
                     position: relative;
-                    margin-top: 26px;
-                    padding: 13px 16px;
-                    border-radius: 8px;
-                    border: 1px solid rgba(255,255,255,0.12);
-                    background: rgba(255,255,255,0.07);
-                    color: rgba(255,255,255,0.78);
-                    font-size: 14px;
+                    margin: 22px 0 0;
+                    padding-top: 14px;
+                    border-top: 1px solid rgba(255,255,255,0.12);
+                    color: rgba(255,255,255,0.72);
+                    font-size: 13px;
                 }
                 .doorpi-update-actions {
                     position: relative;
                     display: flex;
                     justify-content: flex-end;
                     gap: 12px;
-                    margin-top: 30px;
+                    margin-top: 26px;
                 }
                 .doorpi-update-actions button {
-                    min-width: 170px;
-                    height: 52px;
+                    min-width: 158px;
+                    height: 48px;
                     border-radius: 8px;
                     border: 1px solid rgba(255,255,255,0.18);
                     color: #fff;
@@ -2742,8 +3232,9 @@
                     transition: transform .16s ease, border-color .16s ease, background .16s ease;
                 }
                 .doorpi-update-primary {
-                    background: rgba(70, 166, 255, 0.86);
-                    box-shadow: 0 14px 32px rgba(31,132,255,0.28);
+                    background: rgba(255,255,255,0.92);
+                    color: #090d18;
+                    box-shadow: 0 14px 32px rgba(0,0,0,0.22);
                 }
                 .doorpi-update-secondary {
                     background: rgba(255,255,255,0.08);
@@ -2752,6 +3243,20 @@
                 .doorpi-update-actions button:hover {
                     transform: translateY(-1px);
                     border-color: rgba(255,255,255,0.8);
+                }
+                .doorpi-update-actions .doorpi-update-primary,
+                .doorpi-update-actions .doorpi-update-primary:focus,
+                .doorpi-update-actions .doorpi-update-primary:hover,
+                .doorpi-update-actions .doorpi-update-primary.nav-focused-el {
+                    background: #fff;
+                    color: #060914;
+                    border-color: rgba(255,255,255,0.92);
+                }
+                .doorpi-update-actions .doorpi-update-secondary:focus,
+                .doorpi-update-actions .doorpi-update-secondary:hover,
+                .doorpi-update-actions .doorpi-update-secondary.nav-focused-el {
+                    background: rgba(255,255,255,0.14);
+                    color: #fff;
                 }
                 @media (max-width: 720px) {
                     .doorpi-update-prompt { padding: 18px; }
@@ -2769,6 +3274,17 @@
 
         injectStyles();
         ensureBadge();
+
+        window.isDoorpiUpdatePromptOpen = promptIsOpen;
+        document.addEventListener('keydown', handlePromptKey, true);
+        document.addEventListener('keyup', (e) => {
+            if (!promptIsOpen()) return;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+        }, true);
+        ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'dblclick', 'touchstart', 'touchend'].forEach(type => {
+            document.addEventListener(type, handlePromptPointer, true);
+        });
 
         window.DoorpiUpdatePrompt = {
             setStatus,
@@ -2797,20 +3313,44 @@
 
     /* Seção: Ponte com o host */
     // ── GERADOR DE FALLBACKS SVG ──────────────────────────────────────────
-    window.generateFallbackSvg = function (name, type) {
+    window.generateFallbackSvg = function (name, type, iconBase64 = '', forceLetter = false) {
         const initial = (name || "App").charAt(0).toUpperCase();
         const safeName = (name || "App").replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         const makeSvg = (svg) => "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
+        const safeIcon = String(iconBase64 || '').replace(/"/g, '&quot;').trim();
+        const hasIcon = safeIcon && !forceLetter;
+        const iconSvg = (w, h, mainSize, blurSize) => {
+            const xMain = (w - mainSize) / 2;
+            const yMain = (h - mainSize) / 2;
+            const xBlur = (w - blurSize) / 2;
+            const yBlur = (h - blurSize) / 2;
+            return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}">
+                <defs>
+                    <filter id="doorpiIconBlur"><feGaussianBlur stdDeviation="${Math.round(Math.min(w, h) * 0.08)}"/></filter>
+                    <radialGradient id="doorpiShade" cx="50%" cy="45%" r="75%">
+                        <stop offset="0%" stop-color="#30365f"/>
+                        <stop offset="100%" stop-color="#070812"/>
+                    </radialGradient>
+                </defs>
+                <rect width="${w}" height="${h}" fill="url(#doorpiShade)"/>
+                <image href="data:image/png;base64,${safeIcon}" x="${xBlur}" y="${yBlur}" width="${blurSize}" height="${blurSize}" preserveAspectRatio="xMidYMid meet" opacity="0.7" filter="url(#doorpiIconBlur)"/>
+                <rect width="${w}" height="${h}" fill="#03040c" opacity="0.35"/>
+                <image href="data:image/png;base64,${safeIcon}" x="${xMain}" y="${yMain}" width="${mainSize}" height="${mainSize}" preserveAspectRatio="xMidYMid meet"/>
+            </svg>`;
+        };
 
         if (type === 'grid') {
+            if (hasIcon) return makeSvg(iconSvg(600, 900, 190, 760));
             // GRID VERTICAL: Fundo Escuro + Inicial
             return makeSvg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900"><rect width="600" height="900" fill="#1a1a2e"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#ffffff" font-family="sans-serif" font-size="350" font-weight="bold">${initial}</text></svg>`);
 
         } else if (type === 'horizontal') {
+            if (hasIcon) return makeSvg(iconSvg(920, 430, 150, 560));
             // GRID HORIZONTAL: Fundo Escuro + Inicial
             return makeSvg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 430"><rect width="920" height="430" fill="#1a1a2e"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#ffffff" font-family="sans-serif" font-size="200" font-weight="bold">${initial}</text></svg>`);
 
         } else if (type === 'logo') {
+            if (hasIcon) return makeSvg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 150"><image href="data:image/png;base64,${safeIcon}" x="0" y="18" width="112" height="112" preserveAspectRatio="xMidYMid meet"/></svg>`);
             // LOGO: Alinhado à esquerda (x="0") e mais para baixo (y="80%") para casar com a posição real
             return makeSvg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 150"><text x="0%" y="80%" fill="#ffffff" font-family="sans-serif" font-size="75" font-weight="bold">${safeName}</text></svg>`);
 
@@ -2831,18 +3371,21 @@
             // ── INJEÇÃO DE FALLBACKS (SEM ARTE) ──────────────────────────────────
             const applyFallbacks = (item) => {
                 const name = item.name || item.Name || "App";
+                const appType = String(item.appType || item.Type || item.type || '').toLowerCase();
+                const isWebApp = appType === 'browser' || appType === 'webview';
+                const iconBase64 = item.iconBase64 || item.IconBase64 || '';
 
                 // 1. Grid Vertical (Inicial)
                 const gridKey = item.imageData !== undefined ? 'imageData' : (item.GridImage !== undefined ? 'GridImage' : null);
-                if (gridKey && !item[gridKey]) item[gridKey] = window.generateFallbackSvg(name, 'grid');
+                if (gridKey && !item[gridKey]) item[gridKey] = window.generateFallbackSvg(name, 'grid', iconBase64, isWebApp);
 
                 // 2. Grid Horizontal (Inicial)
                 const horizKey = item.horizontalImage !== undefined ? 'horizontalImage' : (item.GridHorizontalImage !== undefined ? 'GridHorizontalImage' : null);
-                if (horizKey && !item[horizKey]) item[horizKey] = window.generateFallbackSvg(name, 'horizontal');
+                if (horizKey && !item[horizKey]) item[horizKey] = window.generateFallbackSvg(name, 'horizontal', iconBase64, isWebApp);
 
                 // 3. Logo (Nome)
                 const logoKey = item.logo !== undefined ? 'logo' : (item.LogoImage !== undefined ? 'LogoImage' : null);
-                if (logoKey && !item[logoKey]) item[logoKey] = window.generateFallbackSvg(name, 'logo');
+                if (logoKey && !item[logoKey]) item[logoKey] = window.generateFallbackSvg(name, 'logo', iconBase64, isWebApp);
 
                 // 4. Banner (Transparente para o Blob)
                 const bannerKey = item.hero !== undefined ? 'hero' : (item.HeroImage !== undefined ? 'HeroImage' : null);
@@ -2851,6 +3394,7 @@
 
             // Substitui o bloco renderGames existente
             if (data.type === 'renderGames' && data.games) {
+                window.DoorpiFirstRunTutorial?.maybeShow?.();
                 data.games.forEach(applyFallbacks);
 
                 const wasOnMedia = typeof window.getCurrentHomeTab === 'function'
@@ -3021,6 +3565,7 @@
                 }
             }
             else if (data.type === 'openQuickPanel') {
+                if (window.isDoorpiUpdatePromptOpen?.()) return;
                 window.DoorpiQuickPanel?.toggle?.();
             }
             else if (data.type === 'extensionsList' || data.type === 'extensionUpdatesList') {
@@ -3073,6 +3618,15 @@
             else if (data.type === 'profilePhotoSelected') {
                 window._setupHandlePhotoSelected?.(data.base64);
             }
+            else if (data.type === 'steamGridArtworkResults') {
+                window._artworkWizardHandleResults?.(data);
+            }
+            else if (data.type === 'artworkImagePicked') {
+                window._artworkWizardHandlePicked?.(data);
+            }
+            else if (data.type === 'artworkSelectionApplied') {
+                window._artworkWizardHandleApplied?.(data);
+            }
             else if (data.type === 'setupFolderAdded') {
                 window._setupHandleFolderAdded?.(data.path);
             }
@@ -3084,6 +3638,7 @@
                 if (window.AppStore) window.AppStore.mutations.setBatch('games', []);
             }
             else if (data.type === 'bootstrapStarted') {
+                window.DoorpiFirstRunTutorial?.maybeShow?.();
                 // showLoadingCards já existe no codebase (usada ao adicionar jogos manualmente)
                 if (typeof showLoadingCards === 'function') {
                     showLoadingCards(data.count || 6, 'games');
@@ -3142,18 +3697,8 @@
                     window._pendingUserSwitchId = '';
                     window.DoorpiIntro?.finishHandoff?.();
                 }
-                const btn = document.getElementById('btnTopProfile');
-                if (btn) {
-                    const u = data.user;
-                    const avatar = btn.querySelector('.doorpi-avatar');
-                    const name = btn.querySelector('.top-profile-name');
-                    if (avatar) {
-                        avatar.innerHTML = u?.PhotoBase64
-                            ? `<img src="data:image/png;base64,${u.PhotoBase64}" />`
-                            : (u?.Name ? u.Name.charAt(0).toUpperCase() : '•');
-                    }
-                    if (name) name.textContent = u?.Name ?? '';
-                }
+                window._applyDoorpiTopProfile?.(data.user);
+                window.DoorpiFirstRunTutorial?.maybeShow?.();
                 if (typeof clearHero === 'function') clearHero();
             }
             else if (data.type === 'systemUpdateStatus') {
@@ -3179,6 +3724,13 @@
                 if (changed) {
                     window.DoorpiQuickPanel?.setWifiStatus?.(data);
                     window._navMenuSetWifiStatus?.(data);
+                }
+            }
+            else if (data.type === 'soundStatus') {
+                const changed = window.DoorpiSoundUI?.setStatus?.(data) !== false;
+                if (changed) {
+                    window.DoorpiQuickPanel?.setSoundStatus?.(data);
+                    window._navMenuSetSoundStatus?.(data);
                 }
             }
             else if (data.type === 'updateFeaturedCard') {
@@ -3284,10 +3836,17 @@
                 window._doorpiUsersDataReady?.(window._doorpiUsers, window._doorpiCurrentUserId);
             }
             else if (data.type === 'userPinRejected') {
-                const shown = setUserPinError(t('pinPromptInvalid'));
+                const shown = setUserPinError(t('pinPromptInvalid'), true);
                 if (!shown) {
                     window._pendingUserSwitchId = '';
                     window.showDoorpiToast?.(t('pinPromptInvalid'), '');
+                }
+            }
+            else if (data.type === 'userPinRecoveryRejected') {
+                const shown = setUserPinRecoveryError(t(data.reason || 'pinRecoveryFailed'));
+                if (!shown) {
+                    window._pendingUserSwitchId = '';
+                    window.showDoorpiToast?.(t(data.reason || 'pinRecoveryFailed'), '');
                 }
             }
             else if (data.type === 'clipboardText') {
@@ -3630,6 +4189,7 @@
         const grid = document.getElementById(gridId);
 
         if (grid) {
+            window.syncFeaturedCardArt?.(grid);
             const target = grid.querySelector('.card.featured')
                 || grid.querySelector('.store-card')
                 || grid.querySelector('.card:not(.add-card)')
@@ -3798,6 +4358,11 @@
         .doorpi-pin-panel.pin-error .doorpi-pin-dot.error { animation: doorpiPinShake .28s cubic-bezier(.36,.07,.19,.97); background: rgba(255,95,95,.95); border-color: rgba(255,135,135,.98); box-shadow: 0 0 24px rgba(255,75,75,.36); }
         @keyframes doorpiPinShake { 0%,100% { transform: translateX(0); } 20% { transform: translateX(-10px); } 40% { transform: translateX(8px); } 60% { transform: translateX(-5px); } 80% { transform: translateX(4px); } }
         .doorpi-pin-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+        .doorpi-pin-recovery-input { width: min(420px, 82vw); min-height: 52px; padding: 0 16px; border: 1px solid rgba(255,255,255,.16); border-radius: 12px; background: rgba(255,255,255,.07); color: #fff; font: inherit; text-align: center; outline: none; box-sizing: border-box; }
+        .doorpi-pin-recovery-input:focus { border-color: #fff; box-shadow: 0 0 0 4px rgba(255,255,255,.14); background: rgba(255,255,255,.11); }
+        .doorpi-pin-recovery-link { margin-top: -8px; border: 0; background: transparent; color: rgba(255,255,255,.54); font: inherit; font-size: clamp(.86rem, .92vw, 1rem); cursor: pointer; outline: none; text-decoration: none; }
+        .doorpi-pin-recovery-link:focus, .doorpi-pin-recovery-link:hover { color: #fff; text-decoration: underline; text-underline-offset: 4px; }
+        .doorpi-pin-recovery-link[hidden], .doorpi-pin-recovery-input[hidden], .doorpi-pin-dots[hidden] { display: none; }
         .doorpi-pin-error { min-height: 22px; color: rgba(255,120,120,.95); font-size: clamp(.9rem, .95vw, 1.05rem); }
         .doorpi-pin-actions { display: flex; gap: 12px; justify-content: center; margin-top: 2px; }
         .doorpi-pin-actions .doorpi-manager-btn { min-width: 104px; min-height: 42px; border-radius: 999px; background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.14); color: rgba(255,255,255,.72); padding: 10px 18px; }
@@ -3805,13 +4370,57 @@
         .doorpi-pin-actions .doorpi-manager-btn:focus, .doorpi-pin-actions .doorpi-manager-btn:hover { border-color: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,.18); color: #fff; }
         .doorpi-pin-actions .doorpi-manager-btn.primary:focus, .doorpi-pin-actions .doorpi-manager-btn.primary:hover { color: #080812; box-shadow: 0 0 0 3px rgba(255,255,255,.22), 0 12px 30px rgba(0,0,0,.28); }
 
-    /* USER CARDS STYLES */
-    .doorpi-user-grid {
+/* USER CARDS STYLES */
+    .doorpi-user-picker-layout {
         display: flex;
-        flex-wrap: wrap;
+        align-items: center;
         justify-content: center;
-        gap: clamp(32px, 4vw, 64px);
+        gap: clamp(24px, 3vw, 48px);
         width: 100%;
+        max-width: 100vw;
+    }
+
+    .doorpi-user-scroll-area {
+        /* Largura Exata: 4 cards + 3 espaços + 30px de folga (15px cada lado) */
+        max-width: calc((clamp(170px, 12vw, 220px) * 4) + (clamp(24px, 3vw, 48px) * 3) + 30px);
+        overflow-x: auto;
+        overflow-y: hidden;
+        scroll-behavior: smooth;
+
+        /* Padding protege a animação (scale). Margin puxa o layout de volta pro lugar. */
+        padding: 30px 15px;
+        margin: -30px -15px;
+
+        /* ── MÁGICA DO ALINHAMENTO PERFEITO ── */
+        scroll-snap-type: x mandatory;
+        /* Diz ao navegador para descontar o padding de 15px na hora de "travar" o card */
+        scroll-padding-inline: 15px;
+
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+    .doorpi-user-scroll-area::-webkit-scrollbar { display: none; }
+
+    .doorpi-user-track {
+        display: flex;
+        align-items: center;
+        gap: clamp(24px, 3vw, 48px);
+        width: max-content;
+    }
+
+    /* Fantasma sutil para garantir que o último elemento trave corretamente sem bater na parede */
+    .doorpi-user-track::after {
+        content: '';
+        display: block;
+        padding-right: 1px;
+    }
+
+    .doorpi-user-fixed-add {
+        display: flex;
+        align-items: center;
+        border-left: 2px solid rgba(255, 255, 255, 0.08);
+        padding-left: clamp(24px, 3vw, 48px);
+        z-index: 10;
     }
 
     .doorpi-user-card {
@@ -3829,6 +4438,10 @@
         position: relative;
         animation: doorpiCardRise 0.3s cubic-bezier(0.16, 1, 0.3, 1) backwards;
         will-change: transform;
+        flex-shrink: 0;
+
+        /* Força a lista a sempre parar alinhada no início deste card */
+        scroll-snap-align: start;
     }
 
     @keyframes doorpiCardRise {
@@ -3858,17 +4471,15 @@
         position: relative;
         z-index: 2;
     }
+    .doorpi-avatar img{
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
 
     .doorpi-user-card:focus .doorpi-avatar,
     .doorpi-user-card:hover .doorpi-avatar {
         border-color: #fff;
-
-    }
-
-    .doorpi-avatar img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
     }
 
     .doorpi-user-name {
@@ -3942,7 +4553,7 @@
             if (quickPanelOpen) return false;
 
             if (window.isDoorpiSessionTransitionActive?.() || window.DoorpiIntro?.isRunning?.()) return true;
-            if (window.isNavMenuOpen || body.classList.contains('nav-menu-active') || body.classList.contains('nav-menu-closing')) return true;
+            if (window.isNavMenuOpen || body.classList.contains('nav-menu-active')) return true;
             if (window.isModalOpen || window.isSetupOpen || window._vkbIsOpen || window.isGlobalLoading) return true;
             if (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) return true;
             if (typeof isEditModalOpen !== 'undefined' && isEditModalOpen) return true;
@@ -4048,7 +4659,9 @@
 
     function closeUserPinPrompt() {
         window._vkbForceClose?.();
-        document.getElementById('doorpiUserPinPrompt')?.remove();
+        const prompt = document.getElementById('doorpiUserPinPrompt');
+        prompt?._doorpiCleanup?.();
+        prompt?.remove();
     }
 
     function updateUserPinDots(prompt, value, markError = false) {
@@ -4061,7 +4674,7 @@
         });
     }
 
-    function setUserPinError(message) {
+    function setUserPinError(message, countAttempt = false) {
         const prompt = document.getElementById('doorpiUserPinPrompt');
         if (!prompt) return false;
         prompt.dataset.submitting = 'false';
@@ -4069,6 +4682,14 @@
         void prompt.offsetWidth;
         prompt.classList.add('pin-error');
         window._pendingUserSwitchId = '';
+        let shouldRevealRecovery = false;
+        if (countAttempt) {
+            const attempts = Number(prompt.dataset.failedAttempts || '0') + 1;
+            prompt.dataset.failedAttempts = String(attempts);
+            const recoveryBtn = prompt.querySelector('#doorpiUserPinRecovery');
+            if (recoveryBtn && attempts >= 3) recoveryBtn.hidden = false;
+            shouldRevealRecovery = attempts === 3 && !!recoveryBtn;
+        }
         const error = prompt.querySelector('#doorpiUserPinError');
         const input = prompt.querySelector('#doorpiUserPinInput');
         if (error) error.textContent = message || '';
@@ -4076,10 +4697,15 @@
             const failedPin = String(input.value || '').replace(/\D/g, '').slice(0, 4);
             updateUserPinDots(prompt, failedPin, true);
             input.value = '';
-            setTimeout(() => {
-                input.focus();
-                window._vkbOpen?.(input, input._doorpiPinCallbacks || { mode: 'numeric' });
-            }, window._vkbIsOpen ? 0 : 380);
+            if (shouldRevealRecovery) {
+                window._vkbForceClose?.();
+                setTimeout(() => prompt.querySelector('#doorpiUserPinRecovery')?.focus(), 380);
+            } else {
+                setTimeout(() => {
+                    input.focus();
+                    window._vkbOpen?.(input, input._doorpiPinCallbacks || { mode: 'numeric' });
+                }, window._vkbIsOpen ? 0 : 380);
+            }
         }
         setTimeout(() => {
             prompt.classList.remove('pin-error');
@@ -4088,11 +4714,25 @@
         return true;
     }
 
+    function setUserPinRecoveryError(message) {
+        const prompt = document.getElementById('doorpiUserPinPrompt');
+        if (!prompt) return false;
+        prompt.dataset.submitting = 'false';
+        window._pendingUserSwitchId = '';
+        const error = prompt.querySelector('#doorpiUserPinError');
+        if (error) error.textContent = message || t('pinRecoveryFailed');
+        const focused = prompt.querySelector('.doorpi-pin-recovery-input:not([hidden]), #doorpiUserPinDots:not([hidden])');
+        setTimeout(() => focused?.focus?.(), 80);
+        return true;
+    }
+
     function showUserPinPrompt(user) {
         closeUserPinPrompt();
         const prompt = document.createElement('div');
         prompt.id = 'doorpiUserPinPrompt';
         prompt.className = 'doorpi-pin-panel';
+        prompt.dataset.mode = 'pin';
+        prompt.dataset.failedAttempts = '0';
         const pinAvatar = user.PhotoBase64
             ? `<img src="data:image/png;base64,${user.PhotoBase64}" />`
             : escapeHtml((user.Name || '?').charAt(0).toUpperCase());
@@ -4110,6 +4750,8 @@
                     <span class="doorpi-pin-dot"></span>
                 </button>
                 <input class="doorpi-pin-input" id="doorpiUserPinInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" readonly tabindex="0" />
+                <input class="doorpi-pin-recovery-input" id="doorpiPinRecoveryNameInput" type="text" readonly tabindex="0" hidden />
+                <button class="doorpi-pin-recovery-link" id="doorpiUserPinRecovery" tabindex="0" hidden>${t('pinRecoveryForgot')}</button>
                 <div class="doorpi-pin-error" id="doorpiUserPinError"></div>
                 <div class="doorpi-pin-actions">
                     <button class="doorpi-manager-btn" id="doorpiUserPinCancel" tabindex="0">${t('vkbCancel')}</button>
@@ -4120,9 +4762,35 @@
 
         const input = prompt.querySelector('#doorpiUserPinInput');
         const dotsBtn = prompt.querySelector('#doorpiUserPinDots');
+        const recoveryInput = prompt.querySelector('#doorpiPinRecoveryNameInput');
+        const recoveryBtn = prompt.querySelector('#doorpiUserPinRecovery');
+        const subtitle = prompt.querySelector('.doorpi-pin-sub');
+        const errorEl = prompt.querySelector('#doorpiUserPinError');
+        const actions = prompt.querySelector('.doorpi-pin-actions');
+        const placeRecoveryHelpAboveInput = () => {
+            if (errorEl && recoveryInput?.parentNode) recoveryInput.parentNode.insertBefore(errorEl, recoveryInput);
+        };
+        const placeRecoveryHelpDefault = () => {
+            if (errorEl && actions?.parentNode) actions.parentNode.insertBefore(errorEl, actions);
+        };
+        let recoveryUserName = '';
+
+        const pinDigits = () => String(input.value || '').replace(/\D/g, '').slice(0, 4);
+        const setError = (message) => {
+            if (errorEl) errorEl.textContent = message || '';
+        };
+        const bindActions = (secondaryText, secondaryAction, primaryText, primaryAction) => {
+            actions.innerHTML = `
+                <button class="doorpi-manager-btn" id="doorpiPinSecondary" tabindex="0">${secondaryText}</button>
+                <button class="doorpi-manager-btn primary" id="doorpiPinPrimary" tabindex="0">${primaryText}</button>
+            `;
+            actions.querySelector('#doorpiPinSecondary')?.addEventListener('click', secondaryAction);
+            actions.querySelector('#doorpiPinPrimary')?.addEventListener('click', primaryAction);
+        };
         const submit = () => {
+            if (prompt.dataset.mode !== 'pin') return;
             if (prompt.dataset.submitting === 'true') return;
-            const pin = String(input.value || '').replace(/\D/g, '').slice(0, 4);
+            const pin = pinDigits();
             if (pin.length < 4) {
                 setUserPinError(t('pinPromptEmpty'));
                 return;
@@ -4140,20 +4808,130 @@
                 ?.focus();
         };
 
+        const showPinEntry = () => {
+            prompt.dataset.mode = 'pin';
+            prompt.dataset.submitting = 'false';
+            placeRecoveryHelpDefault();
+            subtitle.textContent = t('pinPromptTitle');
+            setError('');
+            input.value = '';
+            recoveryInput.hidden = true;
+            recoveryInput.value = '';
+            dotsBtn.hidden = false;
+            recoveryBtn.hidden = Number(prompt.dataset.failedAttempts || '0') < 3;
+            bindActions(t('vkbCancel'), cancel, t('vkbOk'), submit);
+            updateUserPinDots(prompt, '');
+            dotsBtn.focus();
+        };
+
+        const showRecoveryNewPin = () => {
+            prompt.dataset.mode = 'recoveryPin';
+            prompt.dataset.submitting = 'false';
+            placeRecoveryHelpDefault();
+            subtitle.textContent = t('pinRecoveryNewPinTitle');
+            setError(t('pinRecoveryNewPinHint'));
+            input.value = '';
+            recoveryInput.hidden = true;
+            dotsBtn.hidden = false;
+            recoveryBtn.hidden = true;
+            bindActions(t('vkbCancel'), cancel, t('pinRecoverySave'), submitRecoveryPin);
+            updateUserPinDots(prompt, '');
+            setTimeout(() => openPinKeyboard(), 80);
+        };
+
+        const submitRecoveryName = () => {
+            const typedName = recoveryInput.value || '';
+            if (typedName !== (user.Name || '')) {
+                setError(t('pinRecoveryNameMismatch'));
+                recoveryInput.focus();
+                return;
+            }
+            recoveryUserName = typedName;
+            window._vkbForceClose?.();
+            showRecoveryNewPin();
+        };
+
+        const showRecoveryName = () => {
+            prompt.dataset.mode = 'recoveryName';
+            prompt.dataset.submitting = 'false';
+            placeRecoveryHelpAboveInput();
+            subtitle.textContent = t('pinRecoveryNameTitle');
+            setError(t('pinRecoveryNameHint'));
+            input.value = '';
+            recoveryInput.value = '';
+            recoveryInput.placeholder = t('pinRecoveryNamePlaceholder');
+            recoveryInput.hidden = false;
+            recoveryBtn.hidden = true;
+            dotsBtn.hidden = true;
+            bindActions(t('vkbCancel'), cancel, t('vkbOk'), submitRecoveryName);
+            recoveryInput._doorpiVkbReturnFocus = null;
+            recoveryInput._doorpiRecoveryCallbacks = {
+                placement: 'below',
+                keepOpenOnEnter: true,
+                onEnter: submitRecoveryName,
+                onOk: submitRecoveryName,
+                onCancel: cancel
+            };
+            recoveryInput._doorpiVkbCallbacks = recoveryInput._doorpiRecoveryCallbacks;
+            setTimeout(() => {
+                recoveryInput.removeAttribute('readonly');
+                recoveryInput.focus();
+                window._vkbOpen?.(recoveryInput, recoveryInput._doorpiRecoveryCallbacks);
+            }, 80);
+        };
+
+        function submitRecoveryPin() {
+            if (prompt.dataset.mode !== 'recoveryPin') return;
+            if (prompt.dataset.submitting === 'true') return;
+            const pin = pinDigits();
+            if (pin.length < 4) {
+                setError(t('pinRecoveryPinTooShort'));
+                setTimeout(() => openPinKeyboard(), 120);
+                return;
+            }
+            prompt.dataset.submitting = 'true';
+            window._pendingUserSwitchId = user.Id;
+            window._vkbForceClose?.();
+            postToHost({ action: 'recoverUserPin', userId: user.Id, userName: recoveryUserName, pin });
+        }
+
+        const showRecoveryConfirm = () => {
+            prompt.dataset.mode = 'recoveryConfirm';
+            prompt.dataset.submitting = 'false';
+            placeRecoveryHelpDefault();
+            window._vkbForceClose?.();
+            subtitle.textContent = t('pinRecoveryConfirmTitle');
+            setError(t('pinRecoveryConfirmBody'));
+            input.value = '';
+            recoveryInput.hidden = true;
+            recoveryBtn.hidden = true;
+            dotsBtn.hidden = true;
+            bindActions(t('vkbCancel'), showPinEntry, t('pinRecoveryConfirmYes'), showRecoveryName);
+            actions.querySelector('#doorpiPinPrimary')?.focus();
+        };
+
         input._doorpiPinCallbacks = {
             mode: 'numeric',
-            onOk: submit,
+            onOk: () => prompt.dataset.mode === 'recoveryPin' ? submitRecoveryPin() : submit(),
             onCancel: cancel
         };
         const openPinKeyboard = (event) => {
             if (event && !window._doorpiShouldOpenVkbFromEvent?.(event)) return;
             if (prompt.dataset.submitting === 'true') return;
+            if (prompt.dataset.mode !== 'pin' && prompt.dataset.mode !== 'recoveryPin') return;
             input.focus();
             input._doorpiVkbReturnFocus = dotsBtn;
             window._vkbOpen?.(input, input._doorpiPinCallbacks);
         };
-        prompt.querySelector('#doorpiUserPinOk')?.addEventListener('click', submit);
-        prompt.querySelector('#doorpiUserPinCancel')?.addEventListener('click', cancel);
+        bindActions(t('vkbCancel'), cancel, t('vkbOk'), submit);
+        recoveryBtn?.addEventListener('click', showRecoveryConfirm);
+        recoveryInput?.addEventListener('click', event => {
+            if (event && !window._doorpiShouldOpenVkbFromEvent?.(event)) return;
+            if (prompt.dataset.mode !== 'recoveryName') return;
+            recoveryInput.removeAttribute('readonly');
+            recoveryInput.focus();
+            window._vkbOpen?.(recoveryInput, recoveryInput._doorpiRecoveryCallbacks);
+        });
         dotsBtn?.addEventListener('click', openPinKeyboard);
         dotsBtn?.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' || e.key === ' ') {
@@ -4165,13 +4943,47 @@
             const digits = String(input.value || '').replace(/\D/g, '').slice(0, 4);
             if (input.value !== digits) input.value = digits;
             updateUserPinDots(prompt, digits);
-            if (digits.length === 4) submit();
+            if (digits.length === 4) {
+                if (prompt.dataset.mode === 'recoveryPin') submitRecoveryPin();
+                else submit();
+            }
         });
+        recoveryInput.addEventListener('input', () => setError(''));
+        recoveryInput.addEventListener('keydown', (e) => {
+            if (prompt.dataset.mode !== 'recoveryName') return;
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                e.stopPropagation();
+                submitRecoveryName();
+            }
+        });
+        const recoveryVkbEnterHandler = (event) => {
+            const enterKey = event.target?.closest?.('.vkb-key[data-key="ENTER"]');
+            if (!enterKey || !prompt.isConnected || prompt.dataset.mode !== 'recoveryName') return;
+            event.preventDefault();
+            event.stopPropagation();
+            submitRecoveryName();
+        };
+        document.addEventListener('click', recoveryVkbEnterHandler, true);
+        const previousVkbEnterConfirm = window._doorpiVkbShouldConfirmEnter;
+        const previousVkbConfirmOverride = window._doorpiVkbConfirmOverride;
+        window._doorpiVkbShouldConfirmEnter = () => prompt.isConnected && prompt.dataset.mode === 'recoveryName';
+        window._doorpiVkbConfirmOverride = () => {
+            if (!prompt.isConnected || prompt.dataset.mode !== 'recoveryName') return false;
+            submitRecoveryName();
+            return true;
+        };
+        prompt._doorpiCleanup = () => {
+            document.removeEventListener('click', recoveryVkbEnterHandler, true);
+            window._doorpiVkbShouldConfirmEnter = previousVkbEnterConfirm;
+            window._doorpiVkbConfirmOverride = previousVkbConfirmOverride;
+        };
         updateUserPinDots(prompt, '');
         prompt.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' || e.key === 'Backspace') {
                 e.preventDefault();
-                cancel();
+                if (prompt.dataset.mode === 'pin') cancel();
+                else showPinEntry();
             }
         }, true);
 
@@ -4180,136 +4992,148 @@
         });
     }
 
-    function showUserPicker(users, requireSelection = false) {
-        if (window.DoorpiIntro?.shouldDeferUserPicker?.()) {
-            window.DoorpiIntro.runAfterIntro(() => showUserPicker(users, requireSelection));
-            return;
-        }
+function showUserPicker(users, requireSelection = false) {
+    if (window.DoorpiIntro?.shouldDeferUserPicker?.()) {
+        window.DoorpiIntro.runAfterIntro(() => showUserPicker(users, requireSelection));
+        return;
+    }
 
-        ensureDoorpiOverlayStyles();
-        let overlay = document.getElementById('doorpiUserPicker');
-        if (!overlay) {
-            overlay = document.createElement('div');
-            overlay.id = 'doorpiUserPicker';
-            overlay.className = 'doorpi-user-overlay';
+    ensureDoorpiOverlayStyles();
+    let overlay = document.getElementById('doorpiUserPicker');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'doorpiUserPicker';
+        overlay.className = 'doorpi-user-overlay';
 
-            // Controle de navegação forçado (Fase de Captura para bloquear a navegação nativa)
-            overlay.addEventListener('keydown', (e) => {
-                const active = document.activeElement || document.body;
+        // Controle de navegação forçado (Fase de Captura)
+        overlay.addEventListener('keydown', (e) => {
+            const active = document.activeElement || document.body;
 
-                if (e.key === 'ArrowDown') {
-                    const isUserCard = active.closest('.doorpi-user-card');
-                    const isBackBtn = active.closest('#doorpiCloseUsers');
+            if (e.key === 'ArrowDown') {
+                const isUserCard = active.closest('.doorpi-user-card');
+                const isBackBtn = active.closest('#doorpiCloseUsers');
 
-                    if (isUserCard) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const backBtn = overlay.querySelector('#doorpiCloseUsers');
-                        if (backBtn) {
-                            backBtn.focus();
-                        } else {
-                            overlay.querySelector('.doorpi-power-btn')?.focus();
-                        }
-                    } else if (isBackBtn) {
-                        e.preventDefault();
-                        e.stopPropagation();
+                if (isUserCard) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const backBtn = overlay.querySelector('#doorpiCloseUsers');
+                    if (backBtn) {
+                        backBtn.focus();
+                    } else {
                         overlay.querySelector('.doorpi-power-btn')?.focus();
                     }
-                } else if (e.key === 'ArrowUp') {
-                    const isPowerBtn = active.closest('.doorpi-power-btn');
-                    const isBackBtn = active.closest('#doorpiCloseUsers');
+                } else if (isBackBtn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    overlay.querySelector('.doorpi-power-btn')?.focus();
+                }
+            } else if (e.key === 'ArrowUp') {
+                const isPowerBtn = active.closest('.doorpi-power-btn');
+                const isBackBtn = active.closest('#doorpiCloseUsers');
 
-                    if (isPowerBtn || isBackBtn) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const backBtn = overlay.querySelector('#doorpiCloseUsers');
+                if (isPowerBtn || isBackBtn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const backBtn = overlay.querySelector('#doorpiCloseUsers');
 
-                        // Se estivermos na energia, subir obrigatoriamente para o Back
-                        if (isPowerBtn && backBtn) {
-                            backBtn.focus();
-                            return;
-                        }
-
-                        // Se estivermos no Back ou na energia (sem botão Back disponível), subir pros Usuários
-                        const userCards = Array.from(overlay.querySelectorAll('.doorpi-user-card'));
-                        if (userCards.length) {
-                            const activeRect = active.getBoundingClientRect();
-                            let bestCard = userCards[0];
-                            let minDiff = Infinity;
-                            userCards.forEach(c => {
-                                const cRect = c.getBoundingClientRect();
-                                const diff = Math.abs((cRect.left + cRect.width / 2) - (activeRect.left + activeRect.width / 2));
-                                if (diff < minDiff) {
-                                    minDiff = diff;
-                                    bestCard = c;
-                                }
-                            });
-                            bestCard.focus();
-                        }
+                    if (isPowerBtn && backBtn) {
+                        backBtn.focus();
+                        return;
                     }
-                } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-                    const isUserCard = active.closest('.doorpi-user-card');
-                    if (isUserCard) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const userCards = Array.from(overlay.querySelectorAll('.doorpi-user-card'));
-                        const currentIndex = userCards.indexOf(isUserCard);
 
-                        if (currentIndex !== -1) {
-                            if (e.key === 'ArrowLeft') {
-                                const prevIndex = currentIndex > 0 ? currentIndex - 1 : userCards.length - 1;
-                                userCards[prevIndex].focus();
-                            } else {
-                                const nextIndex = currentIndex < userCards.length - 1 ? currentIndex + 1 : 0;
-                                userCards[nextIndex].focus();
+                    const userCards = Array.from(overlay.querySelectorAll('.doorpi-user-card'));
+                    if (userCards.length) {
+                        const activeRect = active.getBoundingClientRect();
+                        let bestCard = userCards[0];
+                        let minDiff = Infinity;
+                        userCards.forEach(c => {
+                            const cRect = c.getBoundingClientRect();
+                            const diff = Math.abs((cRect.left + cRect.width / 2) - (activeRect.left + activeRect.width / 2));
+                            if (diff < minDiff) {
+                                minDiff = diff;
+                                bestCard = c;
                             }
+                        });
+                        bestCard.focus();
+                        // nearest faz rolar apenas o necessário para mostrar o card
+                        bestCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+                    }
+                }
+            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                const isUserCard = active.closest('.doorpi-user-card');
+                if (isUserCard) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const userCards = Array.from(overlay.querySelectorAll('.doorpi-user-card'));
+                    const currentIndex = userCards.indexOf(isUserCard);
+
+                    if (currentIndex !== -1) {
+                        if (e.key === 'ArrowLeft') {
+                            const prevIndex = currentIndex > 0 ? currentIndex - 1 : userCards.length - 1;
+                            userCards[prevIndex].focus();
+                            userCards[prevIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+                        } else {
+                            const nextIndex = currentIndex < userCards.length - 1 ? currentIndex + 1 : 0;
+                            userCards[nextIndex].focus();
+                            userCards[nextIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
                         }
                     }
                 }
-            }, true); // Ativa o Capture Phase
+            }
+        }, true);
 
-            document.body.appendChild(overlay);
-        }
-        overlay.dataset.required = requireSelection ? 'true' : 'false';
-        overlay.dataset.returnToQuickPanel = (window._doorpiUserPickerReturnToQuickPanel && !requireSelection) ? 'true' : 'false';
-        window._doorpiUserPickerReturnToQuickPanel = false;
-        if (overlay.dataset.introPickerClasses) {
-            overlay.classList.remove(...overlay.dataset.introPickerClasses.split(/\s+/).filter(Boolean));
-        }
-        const introPickerClasses = window.DoorpiIntro?.isHandoffActive?.()
-            ? (window.DoorpiIntro.getUserPickerClasses?.() || [])
-            : [];
-        if (introPickerClasses.length) overlay.classList.add(...introPickerClasses);
-        overlay.dataset.introPickerClasses = introPickerClasses.join(' ');
+        document.body.appendChild(overlay);
+    }
 
-        const cards = users.map((user, idx) => `
+    overlay.dataset.required = requireSelection ? 'true' : 'false';
+    overlay.dataset.returnToQuickPanel = (window._doorpiUserPickerReturnToQuickPanel && !requireSelection) ? 'true' : 'false';
+    window._doorpiUserPickerReturnToQuickPanel = false;
+
+    if (overlay.dataset.introPickerClasses) {
+        overlay.classList.remove(...overlay.dataset.introPickerClasses.split(/\s+/).filter(Boolean));
+    }
+    const introPickerClasses = window.DoorpiIntro?.isHandoffActive?.()
+        ? (window.DoorpiIntro.getUserPickerClasses?.() || [])
+        : [];
+    if (introPickerClasses.length) overlay.classList.add(...introPickerClasses);
+    overlay.dataset.introPickerClasses = introPickerClasses.join(' ');
+
+    const cards = users.map((user, idx) => `
         <button class="doorpi-user-card" data-user-id="${escapeHtml(user.Id)}" tabindex="0" style="animation-delay: ${idx * 0.03}s">
             ${avatarMarkup(user)}
             <span class="doorpi-user-name">${escapeHtml(user.Name)}</span>
             ${user.Id === window._doorpiCurrentUserId ? `<span class="doorpi-user-badge">${t('badgeCurrent')}</span>` : ''}
         </button>`).join('');
 
-        const createUserDelay = users.length * 0.03;
+    const createUserDelay = users.length * 0.03;
 
-        const svgExit = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`;
-        const svgSleep = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
-        const svgRestart = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.84"/></svg>`;
-        const svgShutdown = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>`;
+    const svgExit = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`;
+    const svgSleep = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
+    const svgRestart = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.84"/></svg>`;
+    const svgShutdown = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>`;
 
-        overlay.innerHTML = `
+    overlay.innerHTML = `
             <div class="doorpi-user-panel">
                 <div class="doorpi-panel-head">
                     <h2 class="doorpi-panel-title">${t('whoIsPlaying')}</h2>
                     <p class="doorpi-panel-sub">${t('welcomeBack')}</p>
                 </div>
-                <div class="doorpi-user-grid">
-                    ${cards}
-                    <button class="doorpi-user-card create-card" id="doorpiCreateUserCard" tabindex="0" style="animation-delay: ${createUserDelay}s">
-                        <div class="doorpi-avatar"><div class="doorpi-create-user-icon">+</div></div>
-                        <span class="doorpi-user-name">${t('newUser')}</span>
-                    </button>
+                
+                <div class="doorpi-user-picker-layout">
+                    <div class="doorpi-user-scroll-area">
+                        <div class="doorpi-user-track">
+                            ${cards}
+                        </div>
+                    </div>
+                    <div class="doorpi-user-fixed-add">
+                        <button class="doorpi-user-card create-card" id="doorpiCreateUserCard" tabindex="0" style="animation-delay: ${createUserDelay}s">
+                            <div class="doorpi-avatar"><div class="doorpi-create-user-icon">+</div></div>
+                            <span class="doorpi-user-name">${t('newUser')}</span>
+                        </button>
+                    </div>
                 </div>
-                            ${requireSelection ? '' : `<button class="doorpi-manager-btn" id="doorpiCloseUsers" tabindex="0" style="margin-top: 24px; animation: doorpiCardRise 0.5s backwards; animation-delay: ${(createUserDelay + 0.1)}s">${t('btnBackLabel')}</button>`}
+
+                ${requireSelection ? '' : `<button class="doorpi-manager-btn" id="doorpiCloseUsers" tabindex="0" style="margin-top: 24px; animation: doorpiCardRise 0.5s backwards; animation-delay: ${(createUserDelay + 0.1)}s">${t('btnBackLabel')}</button>`}
 
                 <div class="doorpi-power-row" style="animation: doorpiCardRise 0.5s backwards; animation-delay: ${(createUserDelay + 0.15)}s">
                     <button class="doorpi-power-btn" id="doorpiExitApp" tabindex="0">${svgExit}${t('powerExit', 'Sair')}</button>
@@ -4320,51 +5144,57 @@
                 </div>
             </div>`;
 
-        if (typeof applyI18n === 'function') applyI18n();
-        overlay.style.display = 'flex';
-        document.body.classList.add('user-picker-open');
+    if (typeof applyI18n === 'function') applyI18n();
+    overlay.style.display = 'flex';
+    document.body.classList.add('user-picker-open');
 
-        if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
 
-        const hidePicker = () => {
-            overlay.style.display = 'none';
-            document.body.classList.remove('user-picker-open');
-            window.DoorpiIntro?.finishHandoff?.();
-            if (overlay.dataset.returnToQuickPanel === 'true' && overlay.dataset.required !== 'true') {
-                overlay.dataset.returnToQuickPanel = 'false';
-                window.DoorpiQuickPanel?.openMenu?.();
+    const hidePicker = () => {
+        overlay.style.display = 'none';
+        document.body.classList.remove('user-picker-open');
+        window.DoorpiIntro?.finishHandoff?.();
+        if (overlay.dataset.returnToQuickPanel === 'true' && overlay.dataset.required !== 'true') {
+            overlay.dataset.returnToQuickPanel = 'false';
+            window.DoorpiQuickPanel?.openMenu?.();
+        }
+    };
+
+    overlay.querySelectorAll('[data-user-id]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const user = users.find(u => String(u.Id) === String(btn.dataset.userId));
+            if (user?.HasPin || user?.hasPin) {
+                showUserPinPrompt(user);
+                return;
             }
-        };
-
-        overlay.querySelectorAll('[data-user-id]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const user = users.find(u => String(u.Id) === String(btn.dataset.userId));
-                if (user?.HasPin || user?.hasPin) {
-                    showUserPinPrompt(user);
-                    return;
-                }
-                window._pendingUserSwitchId = btn.dataset.userId;
-                postToHost({ action: 'selectUser', userId: btn.dataset.userId });
-            });
+            window._pendingUserSwitchId = btn.dataset.userId;
+            postToHost({ action: 'selectUser', userId: btn.dataset.userId });
         });
-        overlay.querySelector('#doorpiCreateUserCard')?.addEventListener('click', () => {
-            hidePicker();
-            openCreateUserDialog();
+        // Quando a navegação for feita pelo ponteiro (mouse/toque)
+        btn.addEventListener('focus', () => {
+            btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
         });
-        overlay.querySelector('#doorpiCloseUsers')?.addEventListener('click', hidePicker);
-        window._doorpiCloseUserPicker = function () {
-            if (overlay.dataset.required === 'true') return false;
-            hidePicker();
-            return true;
-        };
+    });
 
-        overlay.querySelector('#doorpiExitApp')?.addEventListener('click', () => postToHost({ action: 'exitApp' }));
-        overlay.querySelector('#doorpiSuspend')?.addEventListener('click', () => postToHost({ action: 'suspendSystem' }));
-        overlay.querySelector('#doorpiRestart')?.addEventListener('click', () => postToHost({ action: 'restartSystem' }));
-        overlay.querySelector('#doorpiShutdown')?.addEventListener('click', () => postToHost({ action: 'shutdownSystem' }));
+    overlay.querySelector('#doorpiCreateUserCard')?.addEventListener('click', () => {
+        hidePicker();
+        openCreateUserDialog();
+    });
 
-        requestAnimationFrame(() => requestAnimationFrame(() => overlay.querySelector('.doorpi-user-card')?.focus()));
-    }
+    overlay.querySelector('#doorpiCloseUsers')?.addEventListener('click', hidePicker);
+    window._doorpiCloseUserPicker = function () {
+        if (overlay.dataset.required === 'true') return false;
+        hidePicker();
+        return true;
+    };
+
+    overlay.querySelector('#doorpiExitApp')?.addEventListener('click', () => postToHost({ action: 'exitApp' }));
+    overlay.querySelector('#doorpiSuspend')?.addEventListener('click', () => postToHost({ action: 'suspendSystem' }));
+    overlay.querySelector('#doorpiRestart')?.addEventListener('click', () => postToHost({ action: 'restartSystem' }));
+    overlay.querySelector('#doorpiShutdown')?.addEventListener('click', () => postToHost({ action: 'shutdownSystem' }));
+
+    requestAnimationFrame(() => requestAnimationFrame(() => overlay.querySelector('.doorpi-user-card')?.focus()));
+}
 
     function openCreateUserDialog() {
         window.closeDoorpiTopOverlay?.(true);
@@ -4379,6 +5209,7 @@
         let gpuStatus = null;
         let bluetoothStatus = null;
         let wifiStatus = null;
+        let soundStatus = null;
         let section = null;
         let updateView = 'hub';
         let connectivityView = 'hub';
@@ -4435,10 +5266,9 @@
                     to { opacity: 1; transform: translateX(0) scaleX(1); }
                 }
                 .dq-brand { min-height:42px; margin-bottom:10px; }
-                .dq-burger { width:30px; height:24px; display:grid; gap:6px; flex:0 0 auto; }
-                .dq-burger span { display:block; height:2px; border-radius:99px; background:rgba(255,255,255,.78); }
                 .dq-title { font-size: clamp(1.18rem, 1.45vw, 1.65rem); font-weight: 500; letter-spacing: 0; }
                 .dq-menu { display:flex; flex-direction:column; gap:10px; margin-top:10px; }
+                .dq-sidebar-bottom { margin-top: auto; padding-top: 18px; border-top: 1px solid rgba(255,255,255,0.06); }
                 .dq-menu-btn {
                     min-height: 64px;
                     border: 1px solid transparent;
@@ -4490,7 +5320,7 @@
                     cursor:pointer;
                     transition:transform .18s, background .18s, border-color .18s, box-shadow .18s;
                 }
-                .dq-card { min-height:178px; padding:22px; display:flex; flex-direction:column; justify-content:space-between; gap:22px; }
+                .dq-card { min-height:178px; padding:22px; display:flex; flex-direction:column-reverse; justify-content:space-between; gap:22px; }
                 .dq-action { min-height:60px; padding:0 18px; display:flex; align-items:center; justify-content:space-between; gap:14px; }
                 .dq-card.nav-focused-el, .dq-action.nav-focused-el, .dq-card:focus, .dq-action:focus {
                     transform:translateY(-2px);
@@ -4519,6 +5349,11 @@
                 .dq-progress-track { height:4px; overflow:hidden; border-radius:2px; background:rgba(255,255,255,.10); }
                 .dq-progress-fill { height:100%; width:var(--progress); background:#7dcbff; transition:width .18s linear; }
                 .dq-actions { display:grid; grid-template-columns: repeat(2, minmax(230px, 1fr)); gap:12px; max-width:740px; margin-top:6px; }
+                .dq-power-list { display: flex; flex-direction: column; gap: 12px; max-width: 540px; margin-top: 12px; }
+                .dq-power-list .dq-action { width: 100%; justify-content: flex-start; gap: 18px; min-height: 64px; font-size: 1.05rem; }
+                .dq-power-list .dq-action-ico { color: rgba(255,255,255,0.4); transition: color 0.18s; }
+                .dq-power-list .dq-action:focus .dq-action-ico, .dq-power-list .dq-action:hover .dq-action-ico { color: #fff; }
+                .dq-power-list .dq-action.danger .dq-action-ico { color: #ff9696; }
                 .dq-actions.windows-update-actions {
                     grid-template-areas:
                         "verify install"
@@ -4587,7 +5422,6 @@
                 @media (min-width: 3000px) and (min-height: 1600px) {
                     .dq-sidebar { width:480px; padding:64px 44px; gap:24px; }
                     .dq-brand { min-height:52px; margin-bottom:14px; }
-                    .dq-burger { width:36px; height:29px; gap:7px; }
                     .dq-menu { gap:14px; margin-top:14px; }
                     .dq-menu-btn { min-height:80px; padding:0 22px; }
                     .dq-menu-label { gap:18px; }
@@ -4597,7 +5431,7 @@
                     .dq-sub { max-width:900px; }
                     .dq-grid { grid-template-columns:repeat(3,minmax(320px,1fr)); gap:22px; max-width:1240px; }
                     .dq-card { min-height:224px; padding:28px; gap:28px; }
-                    .dq-action { min-height:76px; padding:0 24px; }
+                    .dq-action, .dq-power-list .dq-action { min-height:80px; padding:0 24px; font-size:1.2rem; }
                     .dq-panel, .dq-app-grid, .dq-gpu-guidance, .dq-windows-guidance { max-width:1100px; }
                     .dq-actions { max-width:920px; gap:16px; }
                     .dq-app-grid { grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:18px; }
@@ -4623,6 +5457,7 @@
         }
 
         function canOpen() {
+            if (window.isDoorpiUpdatePromptOpen?.()) return false;
             if (window.isDoorpiQuickMenuBlocked?.()) return false;
             if (window.isDoorpiSessionTransitionActive?.()) return false;
             if (window.isNavMenuOpen || window.isModalOpen || window.isSetupOpen || window._vkbIsOpen) return false;
@@ -4734,6 +5569,7 @@
             const icons = {
                 updates: '<path d="M21 12a9 9 0 0 1-15.5 6.2"/><path d="M3 12A9 9 0 0 1 18.5 5.8"/><path d="M18.5 2.8v3h-3"/><path d="M5.5 21.2v-3h3"/>',
                 connectivity: '<path d="M7 7.5a7 7 0 0 1 10 0"/><path d="M9.7 10.2a3.3 3.3 0 0 1 4.6 0"/><circle cx="12" cy="13" r=".7" fill="currentColor"/><path d="m16.5 3 4 4-3 2.5 3 2.5-4 4V3Z"/>',
+                sound: '<path d="M4 9v6h4l5 4V5L8 9H4Z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/>',
                 users: '<path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.85"/><path d="M16 3.15a4 4 0 0 1 0 7.7"/>',
                 power: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>',
                 settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.72l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/>',
@@ -4742,7 +5578,8 @@
                 external: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/>',
                 sleep: '<path d="M20.5 14.5A8.5 8.5 0 1 1 9.5 3.5 7 7 0 0 0 20.5 14.5Z"/>',
                 shutdown: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>',
-                close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'
+                close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+                desktop: '<rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>'
             };
             return `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[id] || icons.arrowRight}</svg>`;
         }
@@ -4753,9 +5590,8 @@
             const updateDot = hasDoorpiUpdate || hasWindowsUpdate ? '<span class="dq-dot"></span>' : '';
             const items = [
                 ['updates', t('updatesTitle'), updateDot],
+                ['sound', t('soundTitle'), ''],
                 ['connectivity', t('navSetConnectivity'), ''],
-                ['users', t('navChangeUser'), ''],
-                ['power', t('quickPower'), ''],
                 ['settings', t('navSettings'), '']
             ];
             return `
@@ -4771,6 +5607,14 @@
                                 ${badge}
                             </button>
                         `).join('')}
+                    </div>
+                    <div class="dq-menu dq-sidebar-bottom">
+                        <button class="dq-menu-btn ${section === 'power' ? 'active' : ''}" data-section="power" tabindex="0">
+                            <span class="dq-menu-label">
+                                <span class="dq-menu-ico">${iconSvg('power')}</span>
+                                <span>${t('quickPower', 'Energia')}</span>
+                            </span>
+                        </button>
                     </div>
                 </aside>
             `;
@@ -4966,13 +5810,33 @@
             return `
                 <section class="dq-content">
                     <div class="dq-kicker">${t('quickSystem')}</div>
-                    <h1 class="dq-heading">${t('quickPower')}</h1>
-                    <p class="dq-sub">${t('quickPowerDesc')}</p>
-                    <div class="dq-actions">
-                        <button class="dq-action" data-action="suspend" tabindex="0"><span class="dq-action-label">${t('powerSuspend')}</span><span class="dq-action-ico">${iconSvg('sleep')}</span></button>
-                        <button class="dq-action" data-action="restart" tabindex="0"><span class="dq-action-label">${t('powerRestart')}</span><span class="dq-action-ico">${iconSvg('refresh')}</span></button>
-                        <button class="dq-action danger" data-action="shutdown" tabindex="0"><span class="dq-action-label">${t('powerShutdown')}</span><span class="dq-action-ico">${iconSvg('shutdown')}</span></button>
-                        <button class="dq-action" data-action="exit" tabindex="0"><span class="dq-action-label">${t('quickExitDoorpi')}</span><span class="dq-action-ico">${iconSvg('close')}</span></button>
+                    <h1 class="dq-heading">${t('quickPower', 'Energia')}</h1>
+                    <p class="dq-sub">${t('quickPowerExpandedDesc', 'Opções de energia, perfis e sistema.')}</p>
+                    <div class="dq-power-list">
+                        <button class="dq-action" data-action="open-users" tabindex="0">
+                            <span class="dq-action-ico">${iconSvg('users')}</span>
+                            <span class="dq-action-label">${t('navChangeUser', 'Trocar Usuário')}</span>
+                        </button>
+                        <button class="dq-action" data-action="enter-desktop" tabindex="0">
+                            <span class="dq-action-ico">${iconSvg('desktop')}</span>
+                            <span class="dq-action-label">${t('sysActionDesktopTitle', 'Acessar Área de Trabalho')}</span>
+                        </button>
+                        <button class="dq-action" data-action="exit" tabindex="0">
+                            <span class="dq-action-ico">${iconSvg('close')}</span>
+                            <span class="dq-action-label">${t('quickExitDoorpi', 'Sair do Doorpi')}</span>
+                        </button>
+                        <button class="dq-action" data-action="suspend" tabindex="0">
+                            <span class="dq-action-ico">${iconSvg('sleep')}</span>
+                            <span class="dq-action-label">${t('powerSuspend', 'Suspender Sistema')}</span>
+                        </button>
+                        <button class="dq-action" data-action="restart" tabindex="0">
+                            <span class="dq-action-ico">${iconSvg('refresh')}</span>
+                            <span class="dq-action-label">${t('powerRestart', 'Reiniciar Sistema')}</span>
+                        </button>
+                        <button class="dq-action danger" data-action="shutdown" tabindex="0">
+                            <span class="dq-action-ico">${iconSvg('shutdown')}</span>
+                            <span class="dq-action-label">${t('powerShutdown', 'Desligar Sistema')}</span>
+                        </button>
                     </div>
                 </section>
             `;
@@ -4996,6 +5860,17 @@
                     <h1 class="dq-heading">Wi-Fi</h1>
                     <p class="dq-sub">${t('wifiQuickDesc')}</p>
                     ${window.DoorpiWifiUI?.render?.('quick') || ''}
+                </section>
+            `;
+        }
+
+        function soundContent() {
+            return `
+                <section class="dq-content">
+                    <div class="dq-kicker">${t('quickPanel')}</div>
+                    <h1 class="dq-heading">${t('soundTitle')}</h1>
+                    <p class="dq-sub">${t('soundQuickDesc')}</p>
+                    ${window.DoorpiSoundUI?.render?.('quick') || ''}
                 </section>
             `;
         }
@@ -5035,6 +5910,7 @@
                 return updatesHub();
             }
             if (section === 'users') return simpleContent(t('navChangeUser'), t('quickSwitchUserDesc'), t('navChangeUser'), 'open-users');
+            if (section === 'sound') return soundContent();
             if (section === 'connectivity') {
                 if (connectivityView === 'bluetooth') return bluetoothContent();
                 if (connectivityView === 'wifi') return wifiContent();
@@ -5051,6 +5927,7 @@
                 return '.dq-card';
             }
             if (sectionId === 'power') return '.dq-action';
+            if (sectionId === 'sound') return '.sound-focus';
             if (sectionId === 'connectivity') {
                 if (connectivityView === 'bluetooth') return '.bluetooth-focus';
                 if (connectivityView === 'wifi') return '.wifi-focus';
@@ -5068,6 +5945,11 @@
             if (el.dataset?.connectivityView) return `[data-connectivity-view="${el.dataset.connectivityView}"]`;
             if (el.dataset?.wifiNetworkId) return `[data-wifi-network-id="${CSS.escape(el.dataset.wifiNetworkId)}"]`;
             if (el.dataset?.wifiAction) return `[data-wifi-action="${el.dataset.wifiAction}"]`;
+            if (el.dataset?.soundAction) return `[data-sound-action="${CSS.escape(el.dataset.soundAction)}"]`;
+            if (el.dataset?.soundVolumeControl) return `[data-sound-volume-control="${CSS.escape(el.dataset.soundVolumeControl)}"]`;
+            if (el.dataset?.soundDeviceOption) return `[data-sound-device-option="${CSS.escape(el.dataset.soundDeviceOption)}"]`;
+            if (el.dataset?.soundItem) return `[data-sound-item="${CSS.escape(el.dataset.soundItem)}"]`;
+            if (el.dataset?.soundSlider) return `[data-sound-slider="${CSS.escape(el.dataset.soundSlider)}"]`;
             if (el.dataset?.btMenuId) return `[data-bt-menu-id="${CSS.escape(el.dataset.btMenuId)}"]`;
             if (el.dataset?.deviceId) return `[data-device-id="${CSS.escape(el.dataset.deviceId)}"]`;
             if (el.dataset?.btAction) return `[data-bt-action="${el.dataset.btAction}"]`;
@@ -5087,6 +5969,7 @@
             const sameSection = section === sectionId;
             if (section === 'connectivity' && sectionId !== 'connectivity' && bluetoothStatus?.discovering)
                 postToHost?.({ action: 'stopBluetoothDiscovery' });
+            if (section === 'sound' && sectionId !== 'sound') window.DoorpiSoundUI?.closeDrawer?.('quick');
             section = sectionId || 'updates';
             if (section === 'users') {
                 window._doorpiUserPickerReturnToQuickPanel = true;
@@ -5100,6 +5983,7 @@
             }
             if (section === 'connectivity' && !sameSection) connectivityView = 'hub';
             if (section === 'updates' && !sameSection) updateView = 'hub';
+            if (section === 'sound') postToHost?.({ action: 'requestSoundStatus' });
             depth = 'content';
             if (sameSection && depth === 'content') {
                 const target = document.getElementById('doorpiQuickPanel')?.querySelector(contentFocusFor(section));
@@ -5136,6 +6020,11 @@
         function wireWifi(root) {
             if (section !== 'connectivity' || connectivityView !== 'wifi') return;
             window.DoorpiWifiUI?.bind?.(root, 'quick', focusSelector => render(focusSelector));
+        }
+
+        function wireSound(root) {
+            if (section !== 'sound') return;
+            window.DoorpiSoundUI?.bind?.(root, 'quick', focusSelector => render(focusSelector));
         }
 
         function patchBluetoothContent() {
@@ -5181,6 +6070,22 @@
             wireWifi(next);
             requestAnimationFrame(() => {
                 const target = (focusSelector && next.querySelector(focusSelector)) || next.querySelector('.wifi-focus');
+                target?.focus();
+            });
+        }
+
+        function patchSoundContent() {
+            const overlay = document.getElementById('doorpiQuickPanel');
+            const current = overlay?.querySelector('.dq-content');
+            if (!current || section !== 'sound') return;
+            const focusSelector = currentFocusSelector();
+            const template = document.createElement('template');
+            template.innerHTML = soundContent().trim();
+            const next = template.content.firstElementChild;
+            current.replaceWith(next);
+            wireSound(next);
+            requestAnimationFrame(() => {
+                const target = (focusSelector && next.querySelector(focusSelector)) || next.querySelector('.sound-focus');
                 target?.focus();
             });
         }
@@ -5261,6 +6166,7 @@
         function wire(overlay) {
             wireBluetooth(overlay.querySelector('.dq-content'));
             wireWifi(overlay.querySelector('.dq-content'));
+            wireSound(overlay.querySelector('.dq-content'));
             overlay.querySelectorAll('[data-section]').forEach(btn => {
                 btn.addEventListener('click', () => {
                     enterSection(btn.dataset.section || 'updates');
@@ -5321,6 +6227,14 @@
                         close();
                         postToHost?.({ action: 'requestUsers' });
                     }
+                    else if (action === 'enter-desktop') {
+                        close();
+                        if (typeof window.showDesktopWarning === 'function') {
+                            window.showDesktopWarning('desktop', () => postToHost?.({ action: 'enterDesktopMode' }));
+                        } else {
+                            postToHost?.({ action: 'enterDesktopMode' });
+                        }
+                    }
                     else if (action === 'open-settings') openNavSettings();
                 });
             });
@@ -5341,6 +6255,7 @@
             postToHost?.({ action: 'requestUpdateStatus' });
             postToHost?.({ action: 'requestWindowsUpdateStatus' });
             postToHost?.({ action: 'requestGpuUpdateStatus' });
+            postToHost?.({ action: 'requestSoundStatus' });
             render('.dq-menu-btn');
         }
 
@@ -5358,6 +6273,7 @@
             postToHost?.({ action: 'requestUpdateStatus' });
             postToHost?.({ action: 'requestWindowsUpdateStatus' });
             postToHost?.({ action: 'requestGpuUpdateStatus' });
+            postToHost?.({ action: 'requestSoundStatus' });
             render('.dq-menu-btn');
         }
 
@@ -5369,6 +6285,7 @@
         function close() {
             if (section === 'connectivity' && bluetoothStatus?.discovering)
                 postToHost?.({ action: 'stopBluetoothDiscovery' });
+            if (section === 'sound') window.DoorpiSoundUI?.closeDrawer?.('quick');
             if (document.querySelector('.context-menu.visible')) window._ctxMenuClose?.();
             const overlay = document.getElementById('doorpiQuickPanel');
             if (overlay) {
@@ -5381,6 +6298,13 @@
         }
 
         function back() {
+            if (section === 'sound') {
+                const soundFocusSelector = window.DoorpiSoundUI?.back?.('quick');
+                if (soundFocusSelector) {
+                    if (typeof soundFocusSelector === 'string') render(soundFocusSelector);
+                    return true;
+                }
+            }
             if (section === 'connectivity' && connectivityView === 'bluetooth' && bluetoothStatus?.pairingPrompt) {
                 postToHost?.({ action: 'respondBluetoothPairing', accepted: false, pin: '' });
                 return true;
@@ -5408,6 +6332,7 @@
             if (depth === 'content') {
                 depth = 'menu';
                 const focusSelector = section ? `.dq-menu-btn[data-section="${section}"]` : '.dq-menu-btn';
+                if (section === 'sound') window.DoorpiSoundUI?.closeDrawer?.('quick');
                 section = null;
                 updateView = 'hub';
                 render(focusSelector);
@@ -5419,6 +6344,7 @@
 
         function handleDirection(direction) {
             if (!api.isOpen()) return false;
+            if (section === 'sound' && window.DoorpiSoundUI?.handleDirection?.('quick', direction)) return true;
             const active = document.activeElement;
             if (active?.closest?.('#doorpiQuickPanel .dq-content')) {
                 if (direction === 'LEFT') {
@@ -5457,6 +6383,10 @@
             close,
             toggle,
             back,
+            confirm() {
+                if (!this.isOpen() || section !== 'sound') return false;
+                return !!window.DoorpiSoundUI?.confirm?.('quick');
+            },
             handleDirection,
             isOpen: () => {
                 const overlay = document.getElementById('doorpiQuickPanel');
@@ -5490,6 +6420,12 @@
                 wifiStatus = { ...(wifiStatus || {}), ...(status || {}) };
                 if (this.isOpen() && section === 'connectivity' && connectivityView === 'wifi') {
                     patchWifiContent();
+                }
+            },
+            setSoundStatus(status) {
+                soundStatus = { ...(soundStatus || {}), ...(status || {}) };
+                if (this.isOpen() && section === 'sound') {
+                    patchSoundContent();
                 }
             }
         };
@@ -5568,7 +6504,7 @@
         }
         if (e.target?.closest?.('.vkb-overlay, .doorpi-vkb-overlay, .context-menu.visible')) return;
         if (window.isDoorpiOverlayOpen && window.isDoorpiOverlayOpen()) {
-            const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay, .doorpi-pin-panel'))
+            const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay, .doorpi-pin-panel, .doorpi-update-prompt.is-visible'))
                 .filter(el => el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
             const topOverlay = overlays.at(-1);
 
@@ -5616,7 +6552,7 @@
         const input = e.target.closest?.('input[type="text"], input:not([type]), textarea');
         if (!input) return;
         if (window._vkbIsOpen) return;
-        if (input.closest('.doorpi-manager-overlay, .doorpi-user-overlay, .edit-modal-overlay, #addGameContainer, #setupContainer, .nav-profile-dashboard')) {
+        if (input.closest('.doorpi-manager-overlay, .doorpi-user-overlay, .edit-modal-overlay, .artwork-wizard-overlay, #addGameContainer, #setupContainer, .nav-profile-dashboard')) {
             input.removeAttribute('readonly');
             if (!window._doorpiShouldOpenVkbFromEvent?.(e)) return;
             window._vkbOpen?.(input);
@@ -5627,7 +6563,7 @@
         if (e.key !== 'Enter' || window._vkbIsOpen) return;
         const input = e.target.closest?.('input[type="text"], input:not([type]), textarea');
         if (!input) return;
-        if (input.closest('.doorpi-manager-overlay, .doorpi-user-overlay, .edit-modal-overlay, #addGameContainer, #setupContainer, .nav-profile-dashboard')) {
+        if (input.closest('.doorpi-manager-overlay, .doorpi-user-overlay, .edit-modal-overlay, .artwork-wizard-overlay, #addGameContainer, #setupContainer, .nav-profile-dashboard')) {
             e.preventDefault();
             input.removeAttribute('readonly');
             window._vkbOpen?.(input);
@@ -5697,7 +6633,7 @@
                 const currentTab = (typeof window.getCurrentHomeTab === 'function') ? window.getCurrentHomeTab() : 'games';
                 const grid = document.getElementById(currentTab === 'media' ? 'mediaGrid' : 'gameGrid');
                 if (grid) {
-
+                    window.syncFeaturedCardArt?.(grid);
                     const target = grid.querySelector('.card.featured') || grid.querySelector('.card:not(.add-card)') || grid.querySelector('.card.add-card');
                     if (target) target.focus();
                 }
@@ -5724,6 +6660,9 @@
                 img.src = newUrl;
                 img.style.opacity = '1';
             }
+        }
+        if ((key === 'staticHorizontal' || key === 'staticVertical') && document.activeElement !== card && !card.matches(':hover')) {
+            window.syncFeaturedCardArt?.(card.closest('#gameGrid, #mediaGrid') || document);
         }
         if (isFeatured && key === 'staticHero') switchHeroBackground(newUrl, card.dataset.staticLogo || card.dataset.logo);
     }
@@ -6052,7 +6991,7 @@ document.getElementById('btnAddStore')?.addEventListener('click', () => {
             return `
             <div class="app-item ${isAdded ? 'already-added' : ''} ${isAdminLocked ? 'already-added admin-locked' : ''} ${isPreparing ? 'preparing-artwork' : ''}" ${isAdded || isAdminLocked ? '' : 'tabindex="0"'}
                  data-path="${path.replace(/\\/g, '\\\\')}" data-launch="${launch}"
-                 data-name="${name.replace(/"/g, '&quot;')}" data-source="${source || ''}">
+                 data-name="${name.replace(/"/g, '&quot;')}" data-source="${source || ''}" data-icon-base64="${icon || ''}">
                 ${icon ? `<img class="app-icon" src="data:image/png;base64,${icon}" />` : ''}
                 <div class="app-item-info">
                     <span class="app-name">${name}</span>
@@ -6103,7 +7042,7 @@ document.getElementById('btnAddStore')?.addEventListener('click', () => {
 
             // Lógica normal se estivermos na aba de JOGOS (view-apps)
             const selected = Array.from(appList.querySelectorAll('.app-item.selected')).map(el => ({
-                Name: el.dataset.name, Path: el.dataset.path, LaunchUrl: el.dataset.launch, Source: el.dataset.source || '',
+                Name: el.dataset.name, Path: el.dataset.path, LaunchUrl: el.dataset.launch, Source: el.dataset.source || '', IconBase64: el.dataset.iconBase64 || '',
             }));
 
             if (selected.length > 0) {
@@ -6345,7 +7284,10 @@ function renderFolderList(folders) {
             if (c === card) return;
             c.classList.remove('featured');
             const img = c.querySelector('img');
-            if (img) img.src = c.dataset.staticVertical || c.dataset.vertical || '';
+            if (img) {
+                const src = c.dataset.staticVertical || (c.dataset.isAnimated !== 'true' ? c.dataset.vertical : '');
+                if (src) img.src = src;
+            }
         });
 
         card.classList.add('featured');
@@ -6355,6 +7297,7 @@ function renderFolderList(folders) {
         if (img) {
             img.src = card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical || '';
         }
+        window.syncFeaturedCardArt?.(grid);
 
         grid.scrollTo({ left: 0, behavior: 'smooth' });
     }
@@ -6908,7 +7851,7 @@ function renderFolderList(folders) {
             animation: editOverlayIn 0.15s ease;
             transition: align-items 0.3s ease, padding-top 0.3s ease;
         }
-        .edit-modal-overlay.vkb-active { align-items: flex-start; padding-top: 36px; }
+        .edit-modal-overlay.vkb-active { align-items: center; padding-top: 0; }
         .edit-modal {
             background: rgba(14,14,20,0.99);
             border: 1px solid rgba(255,255,255,0.10);
@@ -6938,6 +7881,51 @@ function renderFolderList(folders) {
             display: flex; flex-direction: column; gap: 18px;
             max-height: 60vh; overflow-y: auto;
         }
+        .edit-artwork-actions { display: flex; flex-direction: column; gap: 10px; }
+        .edit-artwork-btn {
+            border: 1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.055);
+            color: #fff; border-radius: 12px; min-height: 58px; padding: 0 16px;
+            font: inherit; cursor: pointer; outline: none; text-align: left; width: 100%;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .edit-artwork-btn:focus, .edit-artwork-btn:hover, .edit-artwork-btn.nav-focused-el { border-color: rgba(255,255,255,0.72); background: rgba(255,255,255,0.12); box-shadow: 0 0 0 2px rgba(255,255,255,.14); }
+        .artwork-wizard-overlay { position: fixed; inset: 0; z-index: 10020; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.62); backdrop-filter: blur(18px); }
+        .artwork-wizard { width: min(1280px, 96vw); height: min(880px, 92vh); background: rgba(12,12,18,0.99); border: 1px solid rgba(255,255,255,0.11); border-radius: 22px; box-shadow: 0 30px 80px rgba(0,0,0,.82); display: flex; flex-direction: column; overflow: hidden; }
+        .artwork-wizard-head { padding: 20px 24px 14px; border-bottom: 1px solid rgba(255,255,255,.07); }
+        .artwork-wizard-title { margin: 0 0 12px; font-size: 18px; color: #fff; }
+        .artwork-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+        .artwork-step { border: 1px solid rgba(255,255,255,.08); border-radius: 999px; padding: 8px 10px; color: rgba(255,255,255,.35); text-align: center; font-size: 12px; }
+        .artwork-step.active { color: #07101d; background: rgba(255,255,255,.94); border-color: #fff; }
+        .artwork-step.done { color: rgba(130,210,255,.95); border-color: rgba(130,210,255,.28); }
+        .artwork-wizard-body { flex: 1; min-height: 0; padding: 18px 24px; display: flex; flex-direction: column; gap: 14px; }
+        .artwork-results { flex: 1; min-height: 0; overflow: auto; display: grid; gap: 18px; align-content: start; align-items: start; justify-content: stretch; justify-items: stretch; grid-auto-flow: row; grid-auto-rows: max-content; padding: 12px 16px 18px 12px; }
+        .artwork-results.is-vertical { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+        .artwork-results.is-horizontal { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+        .artwork-results.is-banner { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+        .artwork-results.is-logo { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+        .artwork-results.is-local { grid-template-columns: minmax(0, 1fr); }
+        .artwork-choice { width: 100%; box-sizing: border-box; border: 0; border-radius: 0; background: transparent; padding: 0; overflow: visible; cursor: pointer; outline: none; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; scroll-margin: 28px 18px; }
+        .artwork-choice:focus, .artwork-choice:hover, .artwork-choice.nav-focused-el { transform: none; box-shadow: none; }
+        .artwork-choice img { width: 100%; height: auto; object-fit: contain; display: block; border-radius: 0; border: 2px solid transparent; box-sizing: border-box; }
+        .artwork-choice.vertical img { aspect-ratio: 2 / 3; object-fit: cover; }
+        .artwork-choice.horizontal img { aspect-ratio: 460 / 215; object-fit: cover; }
+        .artwork-choice.banner img { aspect-ratio: 1920 / 620; object-fit: cover; }
+        .artwork-choice.logo img { aspect-ratio: 4 / 1; object-fit: contain; min-height: 76px; }
+        .artwork-choice:focus img, .artwork-choice:hover img, .artwork-choice.nav-focused-el img { border-color: #fff; box-shadow: 0 0 0 3px #fff, 0 0 0 7px rgba(255,255,255,.20), 0 18px 42px rgba(0,0,0,.55); }
+        .artwork-status { color: rgba(255,255,255,.46); font-size: 13px; }
+        .artwork-search-row, .artwork-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+        .artwork-actions { grid-template-columns: auto auto minmax(0, 1fr); }
+        .artwork-search-box { position: relative; min-width: 0; display: flex; align-items: center; }
+        .artwork-search-box .edit-modal-input { padding-left: 48px; }
+        .artwork-search-badge { position: absolute; left: 12px; z-index: 1; pointer-events: none; transform: scale(.86); }
+        .artwork-action-btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; }
+        .artwork-local-panel { width: 100%; min-height: 360px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; border: 1px dashed rgba(255,255,255,.14); border-radius: 18px; background: rgba(255,255,255,.035); padding: 28px; box-sizing: border-box; text-align: center; }
+        .artwork-local-title { color: rgba(255,255,255,.9); font-size: 16px; font-weight: 650; }
+        .artwork-local-hint { color: rgba(255,255,255,.42); font-size: 13px; max-width: 460px; line-height: 1.45; }
+        .artwork-local-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px; max-width: 100%; }
+        .artwork-pick-btn { max-width: min(340px, 72vw); min-height: 48px; white-space: normal; line-height: 1.25; text-align: center; }
+        .artwork-local-preview { max-width: min(420px, 68vw); max-height: 250px; border-radius: 14px; object-fit: contain; background: rgba(0,0,0,.25); border: 1px solid rgba(255,255,255,.08); }
+        .artwork-clear-btn { width: 46px; min-width: 46px; height: 46px; padding: 0; color: #ff7777; border-color: rgba(255,90,90,.38); font-size: 18px; font-weight: 800; }
         .edit-modal-field { display: flex; flex-direction: column; gap: 6px; }
         .edit-modal-label {
             font-size: 10px; text-transform: uppercase; letter-spacing: 0.10em;
@@ -6979,7 +7967,7 @@ function renderFolderList(folders) {
         .vkb-overlay {
             position: fixed;
             bottom: 0; left: 0; right: 0;
-            z-index: 10005;
+            z-index: 10040;
             padding: 0 clamp(24px, 4vw, 80px) clamp(24px, 3vh, 48px);
             background: linear-gradient(to top, rgba(5,5,10,1) 65%, rgba(5,5,10,0.96) 85%, transparent 100%);
             transform: translateY(100%);
@@ -7124,7 +8112,7 @@ function renderFolderList(folders) {
 
         .vkb-overlay {
             top: 50%; left: 50%; right: auto; bottom: auto;
-            z-index: 10005;
+            z-index: 10040;
             display: none;
             padding: clamp(10px, 1.2vh, 16px);
             background: rgba(8, 9, 15, 0.96);
@@ -7689,6 +8677,7 @@ function renderFolderList(folders) {
                     next.classList.add('featured');
                     const img = next.querySelector('img');
                     if (img) img.src = next.dataset.staticHorizontal || next.dataset.horizontal || next.dataset.staticVertical || '';
+                    window.syncFeaturedCardArt?.(grid);
                     next._startInteraction?.();
                 } else {
                     if (typeof clearHero === 'function') clearHero();
@@ -7717,6 +8706,285 @@ function renderFolderList(folders) {
 
     let _editCard = null;
     let _editOverlay = null;
+    const ARTWORK_CATEGORIES = [
+        { key: 'vertical', labelKey: 'artworkCategoryVertical' },
+        { key: 'horizontal', labelKey: 'artworkCategoryHorizontal' },
+        { key: 'banner', labelKey: 'artworkCategoryBanner' },
+        { key: 'logo', labelKey: 'artworkCategoryLogo' }
+    ];
+    let _artworkWizard = null;
+
+    function artworkLabel(cat) {
+        return typeof t === 'function' ? t(cat.labelKey) : cat.key;
+    }
+
+    function _artworkPatchFromCategories(images) {
+        const patch = {};
+        if (images.vertical) patch.vertical = images.vertical;
+        if (images.horizontal) patch.horizontal = images.horizontal;
+        if (images.banner) patch.hero = images.banner;
+        if (images.logo) patch.logo = images.logo;
+        return patch;
+    }
+
+    function openArtworkWizard(card, mode, defaultQuery) {
+        const requestId = `art_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+        const isMedia = card.hasAttribute('data-app-id') || card.closest('#mediaGrid') !== null;
+        const gameId = card.dataset.gameId || card.dataset.appId || card.dataset.appUrl || '';
+        const state = {
+            requestId,
+            mode,
+            card,
+            gameId,
+            isMedia,
+            index: 0,
+            query: defaultQuery || card.querySelector('.title')?.innerText?.trim() || '',
+            selected: {},
+            localPreview: {},
+            focusResultsOnLoad: mode === 'steamgrid'
+        };
+
+        const overlay = document.createElement('div');
+        overlay.className = 'artwork-wizard-overlay';
+        overlay.innerHTML = `
+            <div class="artwork-wizard" role="dialog" aria-modal="true">
+                <div class="artwork-wizard-head">
+                    <h3 class="artwork-wizard-title">${t('artworkWizardTitle')}</h3>
+                    <div class="artwork-steps"></div>
+                </div>
+                <div class="artwork-wizard-body">
+                    <div class="artwork-status"></div>
+                    <div class="artwork-results"></div>
+                    <div class="artwork-search-row">
+                        <div class="artwork-search-box">
+                            <span class="gp-face-btn gp-y artwork-search-badge">Y</span>
+                            <input class="edit-modal-input" id="artworkSearchInput" type="text" autocomplete="off" spellcheck="false" />
+                        </div>
+                        <button class="modal-btn secondary" id="artworkSearchBtn">${t('artworkSearch')}</button>
+                    </div>
+                    <div class="artwork-actions">
+                        <button class="modal-btn secondary artwork-action-btn" id="artworkSkipBtn"><span class="gp-face-btn gp-x">X</span><span class="artwork-skip-label">${t('artworkSkip')}</span></button>
+                        <button class="modal-btn cancel artwork-action-btn" id="artworkCancelBtn"><span class="gp-face-btn gp-b">B</span><span>${t('btnCancel')}</span></button>
+                        <span></span>
+                    </div>
+                </div>
+            </div>`;
+        document.body.appendChild(overlay);
+
+        state.overlay = overlay;
+        _artworkWizard = state;
+
+        const searchInput = overlay.querySelector('#artworkSearchInput');
+        if (searchInput) {
+            searchInput._doorpiVkbReturnFocus = searchInput;
+            searchInput._doorpiVkbCallbacks = {
+                onCancel: () => requestAnimationFrame(() => searchInput.focus({ preventScroll: true })),
+                onEnter: () => {
+                    overlay.querySelector('#artworkSearchBtn')?.click();
+                    requestAnimationFrame(() => searchInput.focus({ preventScroll: true }));
+                }
+            };
+        }
+
+        const renderSteps = () => {
+            overlay.querySelector('.artwork-steps').innerHTML = ARTWORK_CATEGORIES.map((cat, i) =>
+                `<div class="artwork-step ${i === state.index ? 'active' : ''} ${i < state.index ? 'done' : ''}">${artworkLabel(cat)}</div>`
+            ).join('');
+        };
+
+        const finish = () => {
+            const images = {};
+            for (const cat of ARTWORK_CATEGORIES) {
+                if (state.selected[cat.key]) images[cat.key] = state.selected[cat.key];
+            }
+            if (Object.keys(images).length === 0) {
+                close();
+                return;
+            }
+            postToHost({
+                action: 'applyArtworkSelection',
+                requestId,
+                gameId,
+                isMedia,
+                localFiles: mode === 'local',
+                images
+            });
+            overlay.querySelector('.artwork-status').textContent = t('artworkApplying');
+        };
+
+        const next = () => {
+            state.index += 1;
+            if (state.index >= ARTWORK_CATEGORIES.length) {
+                finish();
+                return;
+            }
+            render();
+        };
+
+        const close = () => {
+            overlay.remove();
+            if (_artworkWizard === state) _artworkWizard = null;
+        };
+
+        const renderLocal = (cat) => {
+            const preview = state.localPreview[cat.key] || '';
+            overlay.querySelector('.artwork-results').innerHTML = `
+                <div class="artwork-local-panel">
+                    <div class="artwork-local-title">${artworkLabel(cat)}</div>
+                    <div class="artwork-local-hint">${t('artworkLocalHint')}</div>
+                    ${preview ? `<img class="artwork-local-preview" src="${preview}" />` : ''}
+                    <div class="artwork-local-controls">
+                        <button class="modal-btn secondary artwork-pick-btn" id="artworkPickLocalBtn" data-nav-right="#artworkClearLocalBtn" data-nav-down="#artworkSkipBtn">${t('artworkSelectImage')}</button>
+                        ${preview ? `<button class="modal-btn artwork-clear-btn" id="artworkClearLocalBtn" aria-label="${t('artworkClearImage')}" data-nav-left="#artworkPickLocalBtn" data-nav-down="#artworkCancelBtn">X</button>` : ''}
+                    </div>
+                </div>`;
+            overlay.querySelector('#artworkPickLocalBtn')?.addEventListener('click', () => {
+                postToHost({
+                    action: 'pickArtworkImage',
+                    requestId,
+                    category: cat.key,
+                    dialogTitle: t('artworkSelectImage'),
+                    dialogFilter: t('artworkImageFilter')
+                });
+            });
+            overlay.querySelector('#artworkClearLocalBtn')?.addEventListener('click', () => {
+                delete state.selected[cat.key];
+                delete state.localPreview[cat.key];
+                render();
+            });
+        };
+
+        const renderSteamGrid = (cat) => {
+            overlay.querySelector('.artwork-results').innerHTML = '';
+            overlay.querySelector('.artwork-status').textContent = t('artworkSearching', state.query, artworkLabel(cat));
+            state.focusResultsOnLoad = true;
+            postToHost({ action: 'searchSteamGridArtwork', requestId, query: state.query, category: cat.key });
+        };
+
+        const render = () => {
+            const cat = ARTWORK_CATEGORIES[state.index];
+            renderSteps();
+            const results = overlay.querySelector('.artwork-results');
+            results.className = mode === 'local' ? 'artwork-results is-local' : `artwork-results is-${cat.key}`;
+            overlay.querySelector('#artworkSearchInput').value = state.query;
+            overlay.querySelector('.artwork-search-row').style.display = mode === 'steamgrid' ? 'grid' : 'none';
+            overlay.querySelector('#artworkSkipBtn .artwork-skip-label').textContent = mode === 'local'
+                ? t('artworkNext')
+                : t('artworkSkip');
+            overlay.querySelector('.artwork-status').textContent = `${artworkLabel(cat)}`;
+            if (mode === 'local') renderLocal(cat);
+            else renderSteamGrid(cat);
+            if (mode === 'local') {
+                const clearBtn = overlay.querySelector('#artworkClearLocalBtn');
+                overlay.querySelector('#artworkSkipBtn')?.setAttribute('data-nav-up', '#artworkPickLocalBtn');
+                overlay.querySelector('#artworkCancelBtn')?.setAttribute('data-nav-up', clearBtn ? '#artworkClearLocalBtn' : '#artworkPickLocalBtn');
+            } else {
+                overlay.querySelector('#artworkSkipBtn')?.removeAttribute('data-nav-up');
+                overlay.querySelector('#artworkCancelBtn')?.removeAttribute('data-nav-up');
+            }
+        };
+
+        overlay.querySelector('#artworkSearchBtn').addEventListener('click', () => {
+            state.query = overlay.querySelector('#artworkSearchInput').value.trim() || state.query;
+            render();
+        });
+        overlay.querySelector('#artworkSearchInput').addEventListener('keydown', e => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                overlay.querySelector('#artworkSearchBtn')?.click();
+            }
+        });
+        overlay.querySelector('#artworkSkipBtn').addEventListener('click', next);
+        overlay.querySelector('#artworkCancelBtn').addEventListener('click', close);
+        overlay.addEventListener('mousedown', e => { if (e.target === overlay) close(); });
+        overlay.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+
+        state.renderResults = (category, images) => {
+            if (!_artworkWizard || _artworkWizard.requestId !== requestId) return;
+            const cat = ARTWORK_CATEGORIES[state.index];
+            if (!cat || cat.key !== category) return;
+            overlay.querySelector('.artwork-status').textContent = images.length
+                ? t('artworkFound', images.length, state.query)
+                : t('artworkNoneFound', state.query);
+            overlay.querySelector('.artwork-results').innerHTML = images.map(url =>
+                `<button class="artwork-choice ${cat.key}" type="button" data-url="${escapeHtml(url)}"><img src="${escapeHtml(url)}" loading="lazy" /></button>`
+            ).join('');
+            overlay.querySelectorAll('.artwork-choice').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    state.selected[cat.key] = btn.dataset.url;
+                    next();
+                });
+            });
+            if (state.focusResultsOnLoad) {
+                state.focusResultsOnLoad = false;
+                requestAnimationFrame(() => {
+                    const firstChoice = overlay.querySelector('.artwork-choice');
+                    if (!firstChoice) {
+                        overlay.querySelector('#artworkSearchInput')?.focus({ preventScroll: true });
+                        return;
+                    }
+                    firstChoice.focus({ preventScroll: true });
+                    firstChoice.scrollIntoView({
+                        block: 'center',
+                        inline: 'nearest'
+                    });
+                });
+            }
+        };
+
+        state.pickLocal = (category, path, preview) => {
+            if (!_artworkWizard || _artworkWizard.requestId !== requestId) return;
+            state.selected[category] = path;
+            state.localPreview[category] = preview;
+            render();
+        };
+
+        state.applied = (images) => {
+            const patch = _artworkPatchFromCategories(images || {});
+            const channel = isMedia ? 'media' : 'games';
+            window.AppStore?.mutations?.patchItem(channel, gameId, patch);
+            close();
+        };
+
+        render();
+        requestAnimationFrame(() => {
+            const first = mode === 'steamgrid'
+                ? overlay.querySelector('.artwork-results')
+                : overlay.querySelector('#artworkPickLocalBtn');
+            first?.focus?.();
+        });
+    }
+
+    window._artworkWizardHandleResults = data => _artworkWizard?.renderResults?.(data.category, data.images || []);
+    window._artworkWizardHandlePicked = data => _artworkWizard?.pickLocal?.(data.category, data.path, data.preview);
+    window._artworkWizardHandleApplied = data => _artworkWizard?.applied?.(data.images || {});
+    window._artworkWizardIsOpen = () => !!_artworkWizard?.overlay;
+    window._artworkWizardShortcut = action => {
+        if (!_artworkWizard?.overlay) return false;
+        const overlay = _artworkWizard.overlay;
+        if (action === 'search') {
+            const input = overlay.querySelector('#artworkSearchInput');
+            if (!input || input.offsetParent === null) return false;
+            input.focus({ preventScroll: true });
+            requestAnimationFrame(() => window._vkbOpen?.(input));
+            return true;
+        }
+        if (action === 'skip') {
+            overlay.querySelector('#artworkSkipBtn')?.click();
+            return true;
+        }
+        if (action === 'cancel') {
+            overlay.querySelector('#artworkCancelBtn')?.click();
+            return true;
+        }
+        return false;
+    };
+    window._artworkWizardClose = () => {
+        if (!_artworkWizard?.overlay) return false;
+        _artworkWizard.overlay.remove();
+        _artworkWizard = null;
+        return true;
+    };
 
     function openEditGameModal(card) {
         ensureDoorpiOverlayStyles();
@@ -7816,6 +9084,13 @@ function renderFolderList(folders) {
                             ${typeof t === 'function' ? t('editModalHint', 'Pressione enter para alterar') : 'Pressione enter para alterar'}
                         </span>
                     </div>
+                    <div class="edit-modal-field">
+                        <label class="edit-modal-label">${t('artworkWizardTitle')}</label>
+                        <div class="edit-artwork-actions">
+                            <button class="edit-artwork-btn" id="editArtworkSteamGridBtn" type="button" tabindex="0">SteamGrid</button>
+                            <button class="edit-artwork-btn" id="editArtworkLocalBtn" type="button" tabindex="0">${t('artworkChooseComputer')}</button>
+                        </div>
+                    </div>
                     ${mediaExtras}
                     ${isExeApp ? `
                     <div class="edit-modal-field" style="margin-top: 8px;">
@@ -7861,6 +9136,14 @@ function renderFolderList(folders) {
             window._navMenuOpenAccountSharing?.(appId);
         });
 
+        overlay.querySelector('#editArtworkSteamGridBtn')?.addEventListener('click', () => {
+            openArtworkWizard(card, 'steamgrid', input.value.trim() || currentName);
+        });
+
+        overlay.querySelector('#editArtworkLocalBtn')?.addEventListener('click', () => {
+            openArtworkWizard(card, 'local', input.value.trim() || currentName);
+        });
+
         const doSave = () => {
             const newName = input.value.trim();
             const nameChanged = newName && newName !== currentName;
@@ -7875,9 +9158,12 @@ function renderFolderList(folders) {
                 );
 
                 // Gera as novas artes com o nome atualizado
-                const newLogoSvg = window.generateFallbackSvg(newName, 'logo');
-                const newGridSvg = window.generateFallbackSvg(newName, 'grid');
-                const newHorizSvg = window.generateFallbackSvg(newName, 'horizontal');
+                const cardAppType = String(card.dataset.appType || '').toLowerCase();
+                const forceLetterFallback = cardAppType === 'browser' || cardAppType === 'webview';
+                const iconBase64 = card.dataset.iconBase64 || '';
+                const newLogoSvg = window.generateFallbackSvg(newName, 'logo', iconBase64, forceLetterFallback);
+                const newGridSvg = window.generateFallbackSvg(newName, 'grid', iconBase64, forceLetterFallback);
+                const newHorizSvg = window.generateFallbackSvg(newName, 'horizontal', iconBase64, forceLetterFallback);
 
                 allCards.forEach(c => {
                     // Atualiza o texto normal da UI
@@ -8347,7 +9633,10 @@ function renderFolderList(folders) {
             const center = Math.max(16 + width / 2, Math.min(window.innerWidth - 16 - width / 2, rect.left + rect.width / 2));
             const above = rect.top - height - margin;
             const below = rect.bottom + margin;
-            const top = above >= 12 ? above : Math.min(Math.max(12, below), Math.max(12, window.innerHeight - height - 12));
+            const forceBelow = _callbacks.placement === 'below';
+            const top = forceBelow
+                ? Math.min(Math.max(12, below), Math.max(12, window.innerHeight - height - 12))
+                : (above >= 12 ? above : Math.min(Math.max(12, below), Math.max(12, window.innerHeight - height - 12)));
             _el.style.left = `${Math.round(center)}px`;
             _el.style.top = `${Math.round(top)}px`;
         }
@@ -8406,10 +9695,15 @@ function renderFolderList(folders) {
 
         function _submitEnter() {
             _flushPendingAccent();
+            if (window._doorpiVkbConfirmOverride?.()) {
+                _renderPreview();
+                return;
+            }
             const fn = _callbacks.onEnter ?? _callbacks.onOk ?? window._editModalSave;
             if (fn) {
-                _forceClose();
+                if (!_callbacks.keepOpenOnEnter) _forceClose();
                 fn();
+                if (_callbacks.keepOpenOnEnter) _renderPreview();
                 return;
             }
             if (!_inputEl) return;
@@ -8464,12 +9758,15 @@ function renderFolderList(folders) {
             const type = (el.type || '').toLowerCase();
             if (!_TEXT_INPUT_TYPES.has(type) && !window._vkbIsNumericInput(el)) return;
         }
-        const opts = { ...(callbacks || {}) };
+        const opts = { ...((callbacks || el?._doorpiVkbCallbacks) || {}) };
         if (!opts.mode && window._vkbIsNumericInput(el)) opts.mode = 'numeric';
         VKB.open(el, opts);
     };
     window._vkbCancel = () => VKB.cancel();
-    window._vkbConfirm = () => VKB.confirm();
+    window._vkbConfirm = () => {
+        if (window._doorpiVkbConfirmOverride?.()) return;
+        VKB.confirm();
+    };
     window._vkbForceClose = () => VKB.forceClose();
     window._vkbPhysicalKey = (k) => VKB.physicalKey(k);
     window._vkbToggleShift = () => VKB.toggleShift();
@@ -9107,7 +10404,7 @@ function renderFolderList(folders) {
         document.getElementById('btnConfirmAddMedia').addEventListener('click', () => {
             const selected = Array.from(
                 document.querySelectorAll('#appListMedia .app-item.selected')
-            ).map(el => ({ Name: el.dataset.name, Path: el.dataset.path, LaunchUrl: el.dataset.launch }));
+            ).map(el => ({ Name: el.dataset.name, Path: el.dataset.path, LaunchUrl: el.dataset.launch, IconBase64: el.dataset.iconBase64 || '' }));
 
             if (selected.length > 0) {
                 selected.forEach(app => newGameIdsThisSession.add(app.LaunchUrl || app.Path));
@@ -9154,7 +10451,7 @@ function renderFolderList(folders) {
             <div class="app-item ${isAdded ? 'already-added' : ''}" ${isAdded ? '' : 'tabindex="0"'}
                  data-path="${path.replace(/\\/g, '\\\\')}"
                  data-launch="${launch}"
-                 data-name="${name.replace(/"/g, '&quot;')}">
+                 data-name="${name.replace(/"/g, '&quot;')}" data-icon-base64="${icon || ''}">
                 ${icon ? `<img class="app-icon" src="data:image/png;base64,${icon}" />` : ''}
                 <div class="app-item-info">
                     <span class="app-name">${name}</span>

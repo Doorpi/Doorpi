@@ -17,7 +17,7 @@ $testRoot = Join-Path $root ".manual-update-test"
 $installRoot = Join-Path $testRoot "Install"
 $appDataRoot = Join-Path $testRoot "AppData"
 $keysRoot = Join-Path $testRoot "keys"
-$privateKeyPath = Join-Path $keysRoot "manifest.private.xml"
+$privateKeyPath = Join-Path $keysRoot "test-signing-key.xml"
 $logPath = Join-Path $testRoot "test-full-update.log"
 
 function Stop-TestProcessesInRoot([string]$path) {

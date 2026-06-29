@@ -827,7 +827,6 @@ namespace Doorpi
 
         private void StoreInstallGuideMonitorLoop()
         {
-            const ushort guideButton = 0x0400;
             ushort previousButtons = 0;
             try
             {
@@ -843,7 +842,7 @@ namespace Doorpi
                     if (XInputGetStateSecret(0, out var state) == 0)
                     {
                         ushort buttons = state.Gamepad.wButtons;
-                        bool pressed = (buttons & guideButton) != 0 && (previousButtons & guideButton) == 0;
+                        bool pressed = IsDoorpiReturnShortcutJustPressed(buttons, previousButtons);
                         previousButtons = buttons;
 
                         if (pressed)

@@ -36,6 +36,7 @@ window.AppStore = (() => {
                 vertical: raw.imageData || raw.GridImage || raw.vertical || '',
                 horizontal: raw.horizontalImage || raw.GridHorizontalImage || raw.horizontal || '',
                 hero: raw.hero || raw.HeroImage || '', logo: raw.logo || raw.LogoImage || '',
+                iconBase64: raw.iconBase64 || raw.IconBase64 || '',
                 isAnimated: raw.isAnimated || false,
                 source: raw.source || raw.Source || '',
                 isAdminLocked: raw.isAdminLocked || raw.IsAdminLocked || false,
@@ -80,6 +81,7 @@ window.AppStore = (() => {
             vertical: raw.GridImage || raw.gridImage || raw.imageData || '',
             horizontal: raw.GridHorizontalImage || raw.gridHorizontalImage || '',
             hero: raw.HeroImage || raw.heroImage || raw.hero || '', logo: raw.LogoImage || raw.logoImage || raw.logo || '',
+            iconBase64: raw.IconBase64 || raw.iconBase64 || '',
             disableGamepadControl: raw.DisableGamepadControl || raw.disableGamepadControl || false,
             isAnimated: raw.isAnimated || false,
         };
@@ -257,6 +259,11 @@ window.AppStore = (() => {
             if (patch.staticHorizontal || patch.GridHorizontalStaticImage) normalizedPatch.staticHorizontal = patch.staticHorizontal || patch.GridHorizontalStaticImage;
             if (patch.staticHero || patch.HeroStaticImage) normalizedPatch.staticHero = patch.staticHero || patch.HeroStaticImage;
             if (patch.staticLogo || patch.LogoStaticImage) normalizedPatch.staticLogo = patch.staticLogo || patch.LogoStaticImage;
+            if (patch.vertical || patch.imageData || patch.GridImage) normalizedPatch.vertical = patch.vertical || patch.imageData || patch.GridImage;
+            if (patch.horizontal || patch.horizontalImage || patch.GridHorizontalImage) normalizedPatch.horizontal = patch.horizontal || patch.horizontalImage || patch.GridHorizontalImage;
+            if (patch.hero || patch.HeroImage) normalizedPatch.hero = patch.hero || patch.HeroImage;
+            if (patch.logo || patch.LogoImage) normalizedPatch.logo = patch.logo || patch.LogoImage;
+            if (patch.iconBase64 || patch.IconBase64) normalizedPatch.iconBase64 = patch.iconBase64 || patch.IconBase64;
             if (patch.disableGamepadControl != null || patch.DisableGamepadControl != null) normalizedPatch.disableGamepadControl = patch.disableGamepadControl ?? patch.DisableGamepadControl;
             if (patch.isAdminLocked != null || patch.IsAdminLocked != null) normalizedPatch.isAdminLocked = patch.isAdminLocked ?? patch.IsAdminLocked;
             if (patch.adminStoreBlocked != null || patch.AdminStoreBlocked != null) normalizedPatch.adminStoreBlocked = patch.adminStoreBlocked ?? patch.AdminStoreBlocked;

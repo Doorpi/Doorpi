@@ -89,6 +89,7 @@ let _isAddingUserMode = false;
 
     .setup-name-wrap { flex: 1; display: flex; flex-direction: column; gap: clamp(6px, 0.7vw, 10px); }
     .setup-pin-hint { margin: -2px 0 0; color: rgba(255,255,255,0.34); font-size: clamp(0.72rem, 0.78vw, 0.95rem); line-height: 1.28; }
+    .setup-pin-hint.error { color: rgba(255,110,110,0.92); }
     .setup-field-label { font-size: clamp(0.68rem, 0.76vw, 0.9rem); color: rgba(255,255,255,0.45); font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; }
     
     .setup-input { width: 100%; background: rgba(255,255,255,0.09); border: 1px solid rgba(255,255,255,0.18); border-radius: clamp(10px, 1vw, 13px); padding: clamp(14px, 1.5vw, 20px) clamp(16px, 1.7vw, 22px); color: #fff; font-size: clamp(1rem, 1.15vw, 1.5rem); font-family: inherit; font-weight: 400; outline: none; box-sizing: border-box; cursor: pointer; caret-color: transparent; transition: border-color 0.18s, background 0.18s, box-shadow 0.18s; }
@@ -337,6 +338,7 @@ function _loadCurrentUserIntoForm() {
     if (!_currUser) return;
     document.getElementById('setupNameInput').value = _currUser.name;
     document.getElementById('setupPinInput').value = _currUser.pin || '';
+    _setSetupPinHintError(!_isValidSetupPin(_currUser.pin));
     document.getElementById('setupApiInput').value = _currUser.apiKey;
     const btn = document.getElementById('setupPhotoBtn');
     if (_currUser.photoBase64) {
@@ -543,6 +545,8 @@ function openSetup(isAddingUser = false) {
     document.getElementById('btnSetupFinish').textContent = isAddingUser ? (typeof t === 'function' ? t('addUsuario', 'Adicionar Usuário') : 'Adicionar Usuário') : (typeof t === 'function' ? t('setupStep4Finish') : 'Concluir');
     window.isSetupOpen = true;
     isSetupOpen = true;
+    document.body.classList.add('setup-active');
+    window.updateDoorpiQuickMenuAvailability?.();
     const c = document.getElementById('setupContainer');
     c.style.display = 'flex';
     requestAnimationFrame(() => {
@@ -562,6 +566,8 @@ function closeSetup() {
     _stopSetupBg(); // Para a animação do Setup ao fechar para poupar recursos
     window.focusFeaturedCard?.();
     window.isSetupOpen = false;
+    document.body.classList.remove('setup-active');
+    window.updateDoorpiQuickMenuAvailability?.();
 }
 
 function setupBack() { closeSetup(); }
@@ -581,6 +587,24 @@ function _shakeField(el) {
     el.addEventListener('animationend', () => el.classList.remove('shake'), { once: true });
 }
 
+function _normalizeSetupPin(value) {
+    return String(value || '').replace(/\D/g, '').slice(0, 4);
+}
+
+function _isValidSetupPin(value) {
+    const pin = _normalizeSetupPin(value);
+    return pin.length === 0 || pin.length === 4;
+}
+
+function _setSetupPinHintError(isError) {
+    const hint = document.querySelector('.setup-pin-hint');
+    if (!hint) return;
+    hint.textContent = typeof t === 'function'
+        ? t(isError ? 'setupPinLengthError' : 'setupPinHint')
+        : (isError ? 'Use 4 dígitos ou deixe vazio.' : 'Use apenas números. Deixe vazio para entrar sem PIN.');
+    hint.classList.toggle('error', !!isError);
+}
+
 function _validateAndFinish() {
     for (let i = 0; i < _setupUsers.length; i++) {
         const u = _setupUsers[i];
@@ -590,12 +614,26 @@ function _validateAndFinish() {
             setTimeout(() => { _shakeField(document.getElementById('setupNameInput')); document.getElementById('setupNameInput')?.focus(); }, 80);
             return;
         }
+        u.pin = _normalizeSetupPin(u.pin);
+        if (!_isValidSetupPin(u.pin)) {
+            _currUser = u; _loadCurrentUserIntoForm(); _renderSetupUsers();
+            _expandSection(document.getElementById('setupSectionIdentity'));
+            _setSetupPinHintError(true);
+            setTimeout(() => { _shakeField(document.getElementById('setupPinInput')); document.getElementById('setupPinInput')?.focus(); }, 80);
+            return;
+        }
         if (!u.apiKey) {
             _currUser = u; _loadCurrentUserIntoForm(); _renderSetupUsers();
             _expandSection(document.getElementById('setupSectionApiKey'));
             setTimeout(() => { _shakeField(document.getElementById('setupApiInput')); document.getElementById('setupApiInput')?.focus(); }, 80);
             return;
         }
+    }
+
+    if (!_isAddingUserMode) {
+        try {
+            localStorage.setItem('doorpi.firstRunTutorial.pending.v1', 'true');
+        } catch { }
     }
 
     closeSetup();
@@ -668,9 +706,10 @@ function _bindSetupEvents() {
     });
 
     document.getElementById('setupPinInput').addEventListener('input', (e) => {
-        const digits = String(e.target.value || '').replace(/\D/g, '').slice(0, 4);
+        const digits = _normalizeSetupPin(e.target.value);
         if (e.target.value !== digits) e.target.value = digits;
         if (_currUser) _currUser.pin = digits;
+        _setSetupPinHintError(digits.length > 0 && digits.length < 4);
     });
 
     document.getElementById('btnSetupApiLink').addEventListener('click', () => {

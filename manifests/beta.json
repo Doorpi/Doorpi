@@ -1,0 +1,41 @@
+﻿{
+    "schemaVersion":  1,
+    "channel":  "beta",
+    "manifestVersion":  202606282247,
+    "publishedAt":  "2026-06-29T01:48:19.3743939Z",
+    "expiresAt":  "2026-07-13T01:48:19.3743939Z",
+    "minimumSupportedManifestVersion":  1,
+    "doorpi":  {
+                   "version":  "0.1.0",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.0/doorpi-0.1.0.doorpiupdate",
+                   "sha256":  "af2598a840eacc45aa8534b311d08e71941361f3f9d619ea5db06eb937b0d127",
+                   "sizeBytes":  132791066,
+                   "minUpdaterVersion":  "0.1.0",
+                   "forceUpdate":  false,
+                   "allowRollback":  false
+               },
+    "updater":  {
+                    "version":  "0.1.0",
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.0/updater-0.1.0.doorpiupdate",
+                    "sha256":  "b2edcb44fff873eb17ab4f07b464a5c530aba7795040e04a80f6f7fb87a83a06",
+                    "sizeBytes":  69940047,
+                    "forceUpdate":  false,
+                    "allowRollback":  false
+                },
+    "changelog":  [
+                      {
+                          "version":  "0.1.0",
+                          "title":  "Doorpi 0.1.0",
+                          "items":  [
+                                        "Primeira versão beta pública do Doorpi.",
+                                        "Sistema de atualização automática com pacotes assinados.",
+                                        "Browser genérico em Mídia e melhorias no fluxo de lojas, teclado e interface."
+                                    ]
+                      }
+                  ],
+    "signature":  {
+                      "algorithm":  "RSA-SHA256-PKCS1",
+                      "keyId":  "6b65ba1c963d49d6",
+                      "value":  "ROZo0QpfxVpx9pe/sFLoXww1S/f4r6Ml9xRb0P8FUX/vO1HGZadXfW+4wwYqbi2yg8AHrJwQ0L+TJshMTPzoFr2dC+yUS3hMb3c5R5+u1+biLurWBBdh0wA3qi1MpTmLUBJra++IFRf05O8uw6mJQZ5TAJ2pDbd0zuMHBBR0XintEpJZQYCjLBUtIlEzyuI8Bk3U8T7/OHwoMZEkTSP4qJPO2hswviYcFkGC936LY8yw5Ktr2QlRrT6+sSWgOJa4f+mCNe3YQNM+8ge+xCsWaUxJ95RaiHgMOx/6Aro+ctanGDFZZRnMU/kVGQFLuDsWxX67tyU2hXB7HNjYY7HbndT2z8tc5krNlzO188w9HiJzZXVSfHYqpRgsh1C8wjd5fNAPdwj4KqgnMzxOCdidVjAdcjqmkF0KuX7/2jJjJ9Xz1ARbyUMMciizzbFcjH6OPsIF6sAJYgaSsYVvcqgZKjdZb6DadARYb/FcwpXaJI4kkotlisR3vg5v4k9LkOYb"
+                  }
+}

@@ -49,6 +49,7 @@ namespace Doorpi
         public string LogoImage { get; set; } = "";
         public string LogoStaticImage { get; set; } = "";
         public string AssetQuery { get; set; } = "";
+        public string IconBase64 { get; set; } = "";
         public bool DisableGamepadControlConfigured { get; set; } = false;
 
         public DateTime LastPlayed { get; set; } = DateTime.MinValue;
@@ -411,6 +412,9 @@ namespace Doorpi
         private const uint KEYEVENTF_KEYUP = 0x0002;
         private const ushort VK_MENU = 0x12;
         private const ushort VK_TAB = 0x09;
+        private const uint MOUSEEVENTF_LEFTUP_SHARED = 0x0004;
+        private const uint MOUSEEVENTF_RIGHTUP_SHARED = 0x0010;
+        private const uint MOUSEEVENTF_XUP_SHARED = 0x0100;
 
 
 
@@ -725,6 +729,26 @@ namespace Doorpi
             while (ShowCursor(true) < 0) { }
         }
 
+        private static void ApplyProductionWebViewSettings(CoreWebView2 core, bool allowDefaultContextMenus = false)
+        {
+            var settings = core.Settings;
+            settings.AreHostObjectsAllowed = false;
+            settings.AreDevToolsEnabled = false;
+            settings.AreDefaultContextMenusEnabled = allowDefaultContextMenus;
+            settings.AreBrowserAcceleratorKeysEnabled = false;
+            settings.IsStatusBarEnabled = false;
+            settings.IsZoomControlEnabled = false;
+        }
+
+        private void ReleaseMouseButtons()
+        {
+            try
+            {
+                SendMouse(0, 0, MOUSEEVENTF_LEFTUP_SHARED);
+            }
+            catch { }
+        }
+
         private void StartMainScreenMouseWatch()
         {
             GetCursorPos(out _lastKnownCursorPos);
@@ -817,7 +841,7 @@ namespace Doorpi
 
             // Inicializa o WebView2 usando essas opções
             await webView.EnsureCoreWebView2Async(environment);
-            webView.CoreWebView2.Settings.AreHostObjectsAllowed = false;
+            ApplyProductionWebViewSettings(webView.CoreWebView2);
             webView.CoreWebView2.PermissionRequested += OnWebViewPermissionRequested;
             webView.CoreWebView2.ProcessFailed += OnMainWebViewProcessFailed;
             string folderPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot");
@@ -1010,6 +1034,7 @@ namespace Doorpi
                 foreach (var user in users)
                 {
                     UnprotectUserProfile(user);
+                    user.PinCode = NormalizePinCode(user.PinCode);
                     user.AdminBlockedStoreIds ??= new List<string>();
                 }
                 EnsureOneAdmin(users);
@@ -1172,7 +1197,10 @@ namespace Doorpi
         }
 
         private static string NormalizePinCode(string value)
-            => new string((value ?? "").Where(char.IsDigit).Take(4).ToArray());
+        {
+            var pin = new string((value ?? "").Where(char.IsDigit).Take(4).ToArray());
+            return pin.Length == 0 || pin.Length == 4 ? pin : "";
+        }
 
         private static UserProfile CloneUserProfileForStorage(UserProfile profile)
         {
@@ -2008,12 +2036,23 @@ namespace Doorpi
         }
         // ========================= CONTROLE COMPARTILHADO (APP EXE & DIALOGS) =========================
         private const ushort MOUSE_MODE_SHORTCUT_MASK = 0x00C0; // L3 + R3
+        private const ushort DOORPI_RETURN_GUIDE_MASK = 0x0400;
+        private const ushort DOORPI_RETURN_ALT_MASK = 0x0380; // L1 + R1 + R3
         private const double CONTROLLER_MOUSE_BASE_SPEED = 700.0;
         private const double CONTROLLER_NATIVE_MOUSE_BASE_SPEED = 900.0;
-        private const double CONTROLLER_MOUSE_SENSITIVITY_SCALE = 0.64;
+        private const double CONTROLLER_MOUSE_SENSITIVITY_SCALE = 0.92;
 
         private static bool IsMouseModeShortcutPressed(ushort buttons)
             => (buttons & MOUSE_MODE_SHORTCUT_MASK) == MOUSE_MODE_SHORTCUT_MASK;
+
+        private static bool IsDoorpiReturnShortcutPressed(ushort buttons)
+            => (buttons & DOORPI_RETURN_GUIDE_MASK) != 0 ||
+               (buttons & DOORPI_RETURN_ALT_MASK) == DOORPI_RETURN_ALT_MASK;
+
+        private static bool IsDoorpiReturnShortcutJustPressed(ushort buttons, ushort previousButtons)
+            => ((buttons & DOORPI_RETURN_GUIDE_MASK) != 0 && (previousButtons & DOORPI_RETURN_GUIDE_MASK) == 0) ||
+               ((buttons & DOORPI_RETURN_ALT_MASK) == DOORPI_RETURN_ALT_MASK &&
+                (previousButtons & DOORPI_RETURN_ALT_MASK) != DOORPI_RETURN_ALT_MASK);
 
         private void SharedGamepadControllerLoop(
             Func<bool> isActive,
@@ -2021,7 +2060,8 @@ namespace Doorpi
             bool handleXboxButton = true,
             Func<bool>? shouldAcceptInput = null,
             Action? onMouseModeShortcut = null,
-            Func<ushort, bool>? mouseModeShortcutPredicate = null)
+            Func<ushort, bool>? mouseModeShortcutPredicate = null,
+            bool instantPrimaryClick = false)
         {
             var sw = Stopwatch.StartNew();
             ushort prevButtons = 0;
@@ -2106,8 +2146,7 @@ namespace Doorpi
                         }
 
                         // -- Botão Xbox = Voltar/Minimizar Modo Mídia Exe/Dialog --
-                        bool xboxBtn = (btn & 0x0400) != 0;
-                        if (handleXboxButton && xboxBtn)
+                        if (handleXboxButton && IsDoorpiReturnShortcutJustPressed(btn, prevButtons))
                         {
                             onExitCombo?.Invoke();
                             if (!isActive()) break;
@@ -2204,6 +2243,18 @@ namespace Doorpi
                                 aDragOccurred = false; isClicking = true;
                                 clickAccumX = 0; clickAccumY = 0; dragBrokeThreshold = false;
                                 SendMouse(0, 0, MOUSEEVENTF_LEFTDOWN);
+                                if (instantPrimaryClick)
+                                {
+                                    SendMouse(0, 0, MOUSEEVENTF_LEFTUP_SHARED);
+                                    isClicking = false;
+                                    if (aWasOnTextField && IsCursorOnTextField())
+                                    {
+                                        aDoubleClickPending = true;
+                                        lastAReleaseTime = DateTime.Now;
+                                    }
+                                    aWasOnTextField = false;
+                                    aDragOccurred = false;
+                                }
                             }
 
                             // Movimento do mouse
@@ -2492,8 +2543,7 @@ namespace Doorpi
                     if (XInputGetStateSecret(0, out var state) == 0)
                     {
                         ushort btn = state.Gamepad.wButtons;
-                        bool xboxPressed = (btn & 0x0400) != 0 && (prevButtons & 0x0400) == 0;
-                        if (xboxPressed)
+                        if (IsDoorpiReturnShortcutJustPressed(btn, prevButtons))
                         {
                             bool minimized = false;
                             Dispatcher.Invoke(() =>
@@ -2974,16 +3024,110 @@ namespace Doorpi
             {
                 SharedGamepadControllerLoop(
                     () => _dialogModeActive,
-                    () => SendVirtualKey(0x1B)
+                    () => SendVirtualKey(0x1B),
+                    instantPrimaryClick: true
                 );
             })
             { IsBackground = true }.Start();
+        }
+
+        private bool? ShowDialogWithController(Microsoft.Win32.CommonDialog dialog)
+        {
+            StartDialogControllerMode();
+            CenterOwnedDialogSoon();
+            try
+            {
+                return dialog.ShowDialog(this);
+            }
+            finally
+            {
+                StopDialogControllerMode();
+            }
+        }
+
+        private void CenterOwnedDialogSoon()
+        {
+            Task.Run(async () =>
+            {
+                for (int i = 0; i < 12 && _dialogModeActive; i++)
+                {
+                    await Task.Delay(80).ConfigureAwait(false);
+                    if (!_dialogModeActive) return;
+                    if (TryCenterOwnedCommonDialog())
+                        return;
+                }
+            });
+        }
+
+        private bool TryCenterOwnedCommonDialog()
+        {
+            IntPtr dialogHwnd = FindOwnedCommonDialogWindow();
+            if (dialogHwnd == IntPtr.Zero || !GetWindowRect(dialogHwnd, out RECT rect))
+                return false;
+
+            int width = Math.Max(420, rect.Width);
+            int height = Math.Max(260, rect.Height);
+
+            int ownerLeft;
+            int ownerTop;
+            int ownerWidth;
+            int ownerHeight;
+
+            try
+            {
+                var ownerTopLeft = PointToScreen(new Point(0, 0));
+                ownerLeft = (int)ownerTopLeft.X;
+                ownerTop = (int)ownerTopLeft.Y;
+                ownerWidth = (int)(ActualWidth > 0 ? ActualWidth : SystemParameters.PrimaryScreenWidth);
+                ownerHeight = (int)(ActualHeight > 0 ? ActualHeight : SystemParameters.PrimaryScreenHeight);
+            }
+            catch
+            {
+                ownerLeft = 0;
+                ownerTop = 0;
+                ownerWidth = (int)SystemParameters.PrimaryScreenWidth;
+                ownerHeight = (int)SystemParameters.PrimaryScreenHeight;
+            }
+
+            int x = ownerLeft + Math.Max(0, (ownerWidth - width) / 2);
+            int y = ownerTop + Math.Max(0, (ownerHeight - height) / 2);
+
+            SetWindowPos(dialogHwnd, HWND_TOP, x, y, 0, 0, SWP_NOSIZE);
+            SetCursorPos(x + Math.Min(width - 40, Math.Max(40, width / 2)), y + Math.Min(height - 40, Math.Max(40, height / 2)));
+            return true;
+        }
+
+        private IntPtr FindOwnedCommonDialogWindow()
+        {
+            int currentPid = Environment.ProcessId;
+            IntPtr found = IntPtr.Zero;
+
+            EnumWindows((hWnd, _) =>
+            {
+                if (!IsWindowVisible(hWnd)) return true;
+
+                GetWindowProcessId(hWnd, out uint windowPid);
+                if ((int)windowPid != currentPid) return true;
+
+                var className = new StringBuilder(128);
+                if (GetClassName(hWnd, className, className.Capacity) <= 0) return true;
+                if (!string.Equals(className.ToString(), "#32770", StringComparison.Ordinal)) return true;
+
+                if (!GetWindowRect(hWnd, out RECT dialogRect) || dialogRect.Width < 300 || dialogRect.Height < 180)
+                    return true;
+
+                found = hWnd;
+                return false;
+            }, IntPtr.Zero);
+
+            return found;
         }
 
         private void StopDialogControllerMode()
         {
             if (!_dialogModeActive) return;
             _dialogModeActive = false;
+            ReleaseMouseButtons();
 
             Dispatcher.Invoke(() => {
                 _desktopVkb?.Close();
@@ -4366,9 +4510,7 @@ namespace Doorpi
                         }
 
                         // Fechar Modo Desktop apenas com o botão Xbox
-                        bool isXboxButton = (btn & 0x0400) != 0;
-
-                        if (isXboxButton)
+                        if (IsDoorpiReturnShortcutJustPressed(btn, prevButtons))
                         {
                             ExitDesktopMode();
                             break;
@@ -10077,6 +10219,7 @@ namespace Doorpi
                     GridHorizontalImage = steamAssets.Item2,
                     HeroImage = steamAssets.Item3,
                     LogoImage = steamAssets.Item4,
+                    IconBase64 = app.IconBase64,
                     LastPlayed = DateTime.MinValue,
                     DateAdded = DateTime.Now,
                     IsPendingArtwork = !steamReady,
@@ -10432,6 +10575,10 @@ namespace Doorpi
 
                     await Task.WhenAll(tGrid, tHoriz, tHero, tLogo);
 
+                    string iconBase64 = !string.IsNullOrWhiteSpace(app.IconBase64)
+                        ? app.IconBase64
+                        : (!string.IsNullOrWhiteSpace(app.Path) && File.Exists(app.Path) ? GetCachedIcon(app.Path) : "");
+
                     existing.Add(new MediaAppModel
                     {
                         Id = id,
@@ -10445,6 +10592,7 @@ namespace Doorpi
                         GridHorizontalImage = tHoriz.Result != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(tHoriz.Result)}" : "",
                         HeroImage = tHero.Result != null ? $"https://data.local/images/hero/{Path.GetFileName(tHero.Result)}" : "",
                         LogoImage = tLogo.Result != null ? $"https://data.local/images/logo/{Path.GetFileName(tLogo.Result)}" : "",
+                        IconBase64 = iconBase64,
                         DateAdded = DateTime.Now
                     });
 
@@ -10668,6 +10816,19 @@ namespace Doorpi
                 else if (action == "forgetWifiNetwork")
                 {
                     ForgetWifiNetwork(GetStr(root, "networkId"));
+                }
+                else if (action == "requestSoundStatus")
+                {
+                    RequestSoundStatus();
+                }
+                else if (action == "setDefaultSoundDevice")
+                {
+                    SetDefaultSoundDevice(GetStr(root, "deviceId"));
+                }
+                else if (action == "setSystemVolume")
+                {
+                    int volume = root.TryGetProperty("volume", out var volumeElement) ? volumeElement.GetInt32() : 0;
+                    SetSystemVolume(volume);
                 }
                 else if (action == "openGpuUpdater")
                 {
@@ -10982,9 +11143,7 @@ namespace Doorpi
                         {
                             var dlg = new Microsoft.Win32.OpenFileDialog { Filter = dialogFilter, Title = dialogTitle };
 
-                            StartDialogControllerMode();
-                            bool? dialogResult = dlg.ShowDialog();
-                            StopDialogControllerMode();
+                            bool? dialogResult = ShowDialogWithController(dlg);
 
                             if (dialogResult == true)
                             {
@@ -11028,9 +11187,7 @@ namespace Doorpi
                                 Title = dialogTitle
                             };
 
-                            StartDialogControllerMode();
-                            bool? dialogResult = dlg.ShowDialog();
-                            StopDialogControllerMode();
+                            bool? dialogResult = ShowDialogWithController(dlg);
 
                             if (dialogResult == true)
                             {
@@ -11082,9 +11239,7 @@ namespace Doorpi
                         {
                             var dlg = new Microsoft.Win32.OpenFolderDialog { Title = dialogTitle, Multiselect = false };
 
-                            StartDialogControllerMode();
-                            bool? dialogResult = dlg.ShowDialog();
-                            StopDialogControllerMode();
+                            bool? dialogResult = ShowDialogWithController(dlg);
 
                             if (dialogResult == true)
                             {
@@ -11151,9 +11306,7 @@ namespace Doorpi
                         {
                             var dlg = new Microsoft.Win32.OpenFolderDialog { Title = dialogTitle, Multiselect = false };
 
-                            StartDialogControllerMode();
-                            bool? dialogResult = dlg.ShowDialog();
-                            StopDialogControllerMode();
+                            bool? dialogResult = ShowDialogWithController(dlg);
 
                             if (dialogResult == true)
                             {
@@ -11376,6 +11529,102 @@ namespace Doorpi
                                 });
                             }
                         }
+                    }
+                }
+                else if (action == "searchSteamGridArtwork")
+                {
+                    string requestId = GetStr(root, "requestId");
+                    string query = GetStr(root, "query");
+                    string category = GetStr(root, "category");
+
+                    _ = Task.Run(async () =>
+                    {
+                        var images = await FetchSteamGridImageListAsync(query, category).ConfigureAwait(false);
+                        Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(
+                            JsonSerializer.Serialize(new
+                            {
+                                type = "steamGridArtworkResults",
+                                requestId,
+                                query,
+                                category,
+                                images
+                            })));
+                    });
+                }
+                else if (action == "pickArtworkImage")
+                {
+                    string requestId = GetStr(root, "requestId");
+                    string category = GetStr(root, "category");
+                    string dialogTitle = GetStr(root, "dialogTitle", "Select image");
+                    string dialogFilter = GetStr(root, "dialogFilter", "Images (*.png;*.jpg;*.jpeg;*.webp;*.gif)|*.png;*.jpg;*.jpeg;*.webp;*.gif");
+
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        var dlg = new Microsoft.Win32.OpenFileDialog
+                        {
+                            Title = dialogTitle,
+                            Filter = dialogFilter
+                        };
+
+                        bool? dialogResult = ShowDialogWithController(dlg);
+
+                        if (dialogResult == true)
+                        {
+                            string ext = ExtensionForImagePath(dlg.FileName);
+                            string mime = ext is ".jpg" or ".jpeg" ? "image/jpeg" :
+                                ext == ".webp" ? "image/webp" :
+                                ext == ".gif" ? "image/gif" : "image/png";
+                            string b64 = Convert.ToBase64String(File.ReadAllBytes(dlg.FileName));
+                            webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                            {
+                                type = "artworkImagePicked",
+                                requestId,
+                                category,
+                                path = dlg.FileName,
+                                preview = $"data:{mime};base64,{b64}"
+                            }));
+                        }
+                        else
+                        {
+                            webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                            {
+                                type = "artworkImagePickCanceled",
+                                requestId,
+                                category
+                            }));
+                        }
+                    });
+                }
+                else if (action == "applyArtworkSelection" &&
+                         root.TryGetProperty("gameId", out var artworkIdEl) &&
+                         root.TryGetProperty("images", out var artworkImagesEl))
+                {
+                    string gameId = artworkIdEl.GetString() ?? "";
+                    bool isMedia = root.TryGetProperty("isMedia", out var artworkMediaEl) && artworkMediaEl.GetBoolean();
+                    bool localFiles = root.TryGetProperty("localFiles", out var localFilesEl) && localFilesEl.GetBoolean();
+                    string requestId = GetStr(root, "requestId");
+                    var imagesClone = artworkImagesEl.Clone();
+
+                    if (!string.IsNullOrWhiteSpace(gameId))
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            var result = await SaveSelectedArtworkAsync(gameId, isMedia, imagesClone, localFiles).ConfigureAwait(false);
+                            Dispatcher.Invoke(() =>
+                            {
+                                if (isMedia) SendMediaAppsToUI(LoadMediaApps());
+                                else LoadGamesIntoUI();
+
+                                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                                {
+                                    type = "artworkSelectionApplied",
+                                    requestId,
+                                    gameId,
+                                    isMedia,
+                                    images = result
+                                }));
+                            });
+                        });
                     }
                 }
                 else if (action == "editGame" && root.TryGetProperty("gameId", out var editIdEl))
@@ -11670,6 +11919,40 @@ namespace Doorpi
                         SwitchToUser(userId);
                     }
                 }
+                else if (action == "recoverUserPin")
+                {
+                    string userId = GetStr(root, "userId");
+                    string userName = GetStr(root, "userName");
+                    string newPin = NormalizePinCode(GetStr(root, "pin"));
+                    var users = LoadUserProfiles();
+                    var requestedUser = users.FirstOrDefault(u =>
+                        string.Equals(u.Id, userId, StringComparison.OrdinalIgnoreCase));
+
+                    string? reason = null;
+                    if (requestedUser == null)
+                        reason = "pinRecoveryFailed";
+                    else if (!string.Equals(userName, requestedUser.Name, StringComparison.Ordinal))
+                        reason = "pinRecoveryInvalidName";
+                    else if (newPin.Length != 4)
+                        reason = "pinRecoveryInvalidPin";
+
+                    if (reason != null)
+                    {
+                        Dispatcher.Invoke(() =>
+                            webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                            {
+                                type = "userPinRecoveryRejected",
+                                reason,
+                                userId
+                            })));
+                        return;
+                    }
+
+                    requestedUser!.PinCode = newPin;
+                    requestedUser.LastUsed = DateTime.Now;
+                    SaveUserProfiles(users);
+                    SwitchToUser(requestedUser.Id);
+                }
                 else if (action == "requestExtensions")
                 {
                     SendExtensionsToUI();
@@ -11808,9 +12091,7 @@ namespace Doorpi
                             Filter = dialogFilter
                         };
 
-                        StartDialogControllerMode();
-                        bool? dialogResult = dlg.ShowDialog();
-                        StopDialogControllerMode();
+                        bool? dialogResult = ShowDialogWithController(dlg);
 
                         if (dialogResult == true)
                         {
@@ -11969,6 +12250,9 @@ namespace Doorpi
                             string mediaName = media?.Name ?? "App";
                             string heroImg = media?.HeroImage ?? "";
                             string gridImg = media?.GridImage ?? "";
+                            string logoImg = !string.IsNullOrWhiteSpace(media?.LogoStaticImage)
+                                ? media!.LogoStaticImage
+                                : media?.LogoImage ?? "";
 
                             DiscordRpcManager.Instance.UpdateState("media", mediaUrl, mediaName);
 
@@ -11980,7 +12264,7 @@ namespace Doorpi
                                 CenterCursorOnScreen();
                             });
                             bool isGenericBrowser = string.Equals(media?.Id, DoorpiBrowserAppId, StringComparison.OrdinalIgnoreCase);
-                            _ = Dispatcher.InvokeAsync(async () => await OpenWebViewInlineAsync(mediaUrl, mediaUrl.Contains("youtube.com"), mediaName, heroImg, gridImg, isGenericBrowser));
+                            _ = Dispatcher.InvokeAsync(async () => await OpenWebViewInlineAsync(mediaUrl, mediaUrl.Contains("youtube.com"), mediaName, heroImg, gridImg, isGenericBrowser, logoImg));
                         }
                         else if (appType == "exe")
                         {
@@ -12139,9 +12423,7 @@ namespace Doorpi
                     {
                         var dlg = new Microsoft.Win32.OpenFolderDialog { Title = dialogTitle };
 
-                        StartDialogControllerMode();
-                        bool? dialogResult = dlg.ShowDialog();
-                        StopDialogControllerMode();
+                        bool? dialogResult = ShowDialogWithController(dlg);
 
                         if (dialogResult == true)
                         {
@@ -12268,6 +12550,10 @@ namespace Doorpi
 
                 await Task.WhenAll(tGrid, tHoriz, tHero, tLogo).ConfigureAwait(false);
 
+                string iconBase64 = !string.IsNullOrWhiteSpace(app.IconBase64)
+                    ? app.IconBase64
+                    : (!string.IsNullOrWhiteSpace(app.Path) && File.Exists(app.Path) ? GetCachedIcon(app.Path) : "");
+
                 var game = new GameModel
                 {
                     Name = app.Name,
@@ -12277,6 +12563,7 @@ namespace Doorpi
                     GridHorizontalImage = tHoriz.Result != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(tHoriz.Result)}" : "",
                     HeroImage = tHero.Result != null ? $"https://data.local/images/hero/{Path.GetFileName(tHero.Result)}" : "",
                     LogoImage = tLogo.Result != null ? $"https://data.local/images/logo/{Path.GetFileName(tLogo.Result)}" : "",
+                    IconBase64 = iconBase64,
                     LastPlayed = DateTime.MinValue,
                     DateAdded = DateTime.Now,
                     Source = NormalizeStorePolicyKey(app.Source)
@@ -12325,6 +12612,119 @@ namespace Doorpi
                 if (byId.Item1 != null) return byId;
             }
             return await TryFetchByName(treatedName);
+        }
+
+        private async Task<List<int>> ResolveSteamGridGameIdsAsync(string gameName)
+        {
+            try
+            {
+                string safe = Uri.EscapeDataString(PrepareSearchName(gameName));
+                var json = await SgdbGetStringAsync($"https://www.steamgriddb.com/api/v2/search/autocomplete/{safe}");
+                using var doc = JsonDocument.Parse(json);
+                if (!doc.RootElement.GetProperty("success").GetBoolean()) return new List<int>();
+
+                var results = doc.RootElement.GetProperty("data");
+                if (results.GetArrayLength() == 0) return new List<int>();
+                return results.EnumerateArray()
+                    .Take(5)
+                    .Select(item => item.GetProperty("id").GetInt32())
+                    .Distinct()
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[SGDB] Resolve id falhou: " + ex.Message);
+                return new List<int>();
+            }
+        }
+
+        private async Task<List<string>> FetchSteamGridImageListAsync(string query, string category)
+        {
+            var ids = await ResolveSteamGridGameIdsAsync(query).ConfigureAwait(false);
+            if (ids.Count == 0) return new List<string>();
+
+            var urls = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (int gameId in ids)
+            {
+                foreach (string endpoint in SteamGridArtworkEndpoints(gameId, category))
+                {
+                    foreach (string url in await FetchSteamGridArtworkEndpointAsync(endpoint, category).ConfigureAwait(false))
+                    {
+                        if (!seen.Add(url)) continue;
+                        urls.Add(url);
+                        if (urls.Count >= 36) return urls;
+                    }
+                }
+            }
+
+            return urls;
+        }
+
+        private static IEnumerable<string> SteamGridArtworkEndpoints(int gameId, string category)
+        {
+            if (category == "vertical")
+            {
+                yield return $"grids/game/{gameId}?dimensions=600x900,342x482,660x930&types=static,animated&sort=score&nsfw=any&humor=any";
+                yield return $"grids/game/{gameId}?dimensions=600x900&types=static,animated&sort=score&nsfw=any&humor=any";
+                yield return $"grids/game/{gameId}?types=static,animated&sort=score&nsfw=any&humor=any";
+            }
+            else if (category == "horizontal")
+            {
+                yield return $"grids/game/{gameId}?dimensions=460x215,920x430&types=static,animated&sort=score&nsfw=any&humor=any";
+                yield return $"grids/game/{gameId}?dimensions=920x430&types=static,animated&sort=score&nsfw=any&humor=any";
+                yield return $"grids/game/{gameId}?dimensions=460x215&types=static,animated&sort=score&nsfw=any&humor=any";
+                yield return $"grids/game/{gameId}?types=static,animated&sort=score&nsfw=any&humor=any";
+            }
+            else if (category == "banner")
+            {
+                yield return $"heroes/game/{gameId}?types=static,animated&sort=score&nsfw=any&humor=any";
+            }
+            else if (category == "logo")
+            {
+                yield return $"logos/game/{gameId}?types=static,animated&sort=score&nsfw=any&humor=any";
+            }
+        }
+
+        private async Task<List<string>> FetchSteamGridArtworkEndpointAsync(string endpoint, string category)
+        {
+            try
+            {
+                var json = await SgdbGetStringAsync($"https://www.steamgriddb.com/api/v2/{endpoint}");
+                using var doc = JsonDocument.Parse(json);
+                if (!doc.RootElement.GetProperty("success").GetBoolean()) return new List<string>();
+
+                return doc.RootElement.GetProperty("data")
+                    .EnumerateArray()
+                    .Where(item => SteamGridArtworkMatchesCategory(item, category))
+                    .Select(item => item.TryGetProperty("url", out var urlEl) ? urlEl.GetString() ?? "" : "")
+                    .Where(url => !string.IsNullOrWhiteSpace(url))
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[SGDB] Lista de imagens falhou: " + ex.Message);
+                return new List<string>();
+            }
+        }
+
+        private static bool SteamGridArtworkMatchesCategory(JsonElement item, string category)
+        {
+            if (category is "banner" or "logo") return true;
+            if (!item.TryGetProperty("width", out var widthEl) ||
+                !item.TryGetProperty("height", out var heightEl) ||
+                !widthEl.TryGetInt32(out int width) ||
+                !heightEl.TryGetInt32(out int height) ||
+                width <= 0 || height <= 0)
+            {
+                return true;
+            }
+
+            double ratio = width / (double)height;
+            return category == "horizontal"
+                ? ratio >= 1.85 && ratio <= 2.35
+                : ratio < 1.0;
         }
 
         private async Task<(string?, string?, string?, string?)> TryFetchFromSteamCDN(string appId)
@@ -12457,6 +12857,117 @@ namespace Doorpi
             catch { }
             return false;
         }
+
+        private (string Folder, string UrlFolder, string Suffix) ArtworkTargetForCategory(string category)
+            => category switch
+            {
+                "horizontal" => (gridHorizontalFolder, "grid-horizontal", "_h"),
+                "banner" => (heroFolder, "hero", "_hero"),
+                "logo" => (logoFolder, "logo", "_logo"),
+                _ => (gridFolder, "grid", "_grid")
+            };
+
+        private static string ExtensionForImagePath(string path)
+        {
+            string ext = Path.GetExtension(path).ToLowerInvariant();
+            return ext is ".png" or ".jpg" or ".jpeg" or ".webp" or ".gif" ? ext : ".png";
+        }
+
+        private async Task<string?> CopyLocalArtworkAsync(string sourcePath, string folder, string name)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath)) return null;
+                Directory.CreateDirectory(folder);
+                string fullPath = Path.Combine(folder, name + ExtensionForImagePath(sourcePath));
+                await using var source = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                await using var target = new FileStream(fullPath, FileMode.Create, FileAccess.Write, FileShare.None);
+                await source.CopyToAsync(target);
+                return fullPath;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[Artwork] Copia local falhou: " + ex.Message);
+                return null;
+            }
+        }
+
+        private static void ApplyArtworkUrlToGame(GameModel game, string category, string url)
+        {
+            if (category == "horizontal") { game.GridHorizontalImage = url; game.GridHorizontalStaticImage = ""; }
+            else if (category == "banner") { game.HeroImage = url; game.HeroStaticImage = ""; }
+            else if (category == "logo") { game.LogoImage = url; game.LogoStaticImage = ""; }
+            else { game.GridImage = url; game.GridStaticImage = ""; }
+        }
+
+        private static void ApplyArtworkUrlToMedia(MediaAppModel media, string category, string url)
+        {
+            if (category == "horizontal") { media.GridHorizontalImage = url; media.GridHorizontalStaticImage = ""; }
+            else if (category == "banner") { media.HeroImage = url; media.HeroStaticImage = ""; }
+            else if (category == "logo") { media.LogoImage = url; media.LogoStaticImage = ""; }
+            else { media.GridImage = url; media.GridStaticImage = ""; }
+        }
+
+        private async Task<Dictionary<string, string>> SaveSelectedArtworkAsync(string entityId, bool isMedia, JsonElement imagesEl, bool localFiles)
+        {
+            var patch = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            string safeName = "edit_" + StableAssetName(entityId + DateTime.UtcNow.Ticks);
+
+            var selected = imagesEl.EnumerateObject()
+                .Where(p => !string.IsNullOrWhiteSpace(p.Value.GetString()))
+                .Select(p => (Category: p.Name, Value: p.Value.GetString() ?? ""))
+                .ToList();
+
+            if (selected.Count == 0) return patch;
+
+            if (!isMedia)
+            {
+                var games = LoadGames();
+                var game = games.FirstOrDefault(g =>
+                    string.Equals(g.Path, entityId, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(g.LaunchUrl, entityId, StringComparison.OrdinalIgnoreCase));
+                if (game == null) return patch;
+
+                foreach (var item in selected)
+                {
+                    var target = ArtworkTargetForCategory(item.Category);
+                    string? local = localFiles
+                        ? await CopyLocalArtworkAsync(item.Value, target.Folder, safeName + target.Suffix).ConfigureAwait(false)
+                        : await DownloadImageAsync(item.Value, target.Folder, safeName + target.Suffix).ConfigureAwait(false);
+                    if (local == null) continue;
+                    string url = $"https://data.local/images/{target.UrlFolder}/{Path.GetFileName(local)}";
+                    ApplyArtworkUrlToGame(game, item.Category, url);
+                    patch[item.Category] = url;
+                }
+
+                if (patch.Count > 0) SaveGames(games);
+            }
+            else
+            {
+                var medias = LoadMediaAppsForUser(currentUserId);
+                var media = medias.FirstOrDefault(m =>
+                    string.Equals(m.Id, entityId, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(m.Url, entityId, StringComparison.OrdinalIgnoreCase));
+                if (media == null || media.IsSharedFromOtherUser) return patch;
+
+                foreach (var item in selected)
+                {
+                    var target = ArtworkTargetForCategory(item.Category);
+                    string? local = localFiles
+                        ? await CopyLocalArtworkAsync(item.Value, target.Folder, safeName + target.Suffix).ConfigureAwait(false)
+                        : await DownloadImageAsync(item.Value, target.Folder, safeName + target.Suffix).ConfigureAwait(false);
+                    if (local == null) continue;
+                    string url = $"https://data.local/images/{target.UrlFolder}/{Path.GetFileName(local)}";
+                    ApplyArtworkUrlToMedia(media, item.Category, url);
+                    patch[item.Category] = url;
+                }
+
+                if (patch.Count > 0) SaveMediaApps(medias);
+            }
+
+            return patch;
+        }
+
         private async Task<string?> DownloadImageAsync(string url, string folder, string name)
         {
             for (int attempt = 1; attempt <= 3; attempt++)
@@ -13157,6 +13668,9 @@ namespace Doorpi
             string localGridPath = string.IsNullOrEmpty(game.GridImage) ? "" :
                 Path.Combine(dataFolder,
                     new Uri(game.GridImage).AbsolutePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+            string iconBase64 = game.IconBase64;
+            if (string.IsNullOrWhiteSpace(iconBase64) && !string.IsNullOrWhiteSpace(game.Path) && File.Exists(game.Path))
+                iconBase64 = GetCachedIcon(game.Path);
 
             return new
             {
@@ -13173,6 +13687,7 @@ namespace Doorpi
                 staticHero = game.HeroStaticImage,
                 logo = game.LogoImage,
                 staticLogo = game.LogoStaticImage,
+                iconBase64,
                 source = StorePolicyKeyForGame(game),
                 isAdminLocked = IsGameBlockedForCurrentUser(game),
                 adminLockReason = "blocked-store",
@@ -13221,6 +13736,9 @@ namespace Doorpi
             string localGridPath = string.IsNullOrEmpty(game.GridImage) ? "" :
                 Path.Combine(dataFolder,
                     new Uri(game.GridImage).AbsolutePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+            string iconBase64 = game.IconBase64;
+            if (string.IsNullOrWhiteSpace(iconBase64) && !string.IsNullOrWhiteSpace(game.Path) && File.Exists(game.Path))
+                iconBase64 = GetCachedIcon(game.Path);
 
             var data = new
             {
@@ -13236,6 +13754,7 @@ namespace Doorpi
                 staticHero = game.HeroStaticImage,
                 logo = game.LogoImage,
                 staticLogo = game.LogoStaticImage,
+                iconBase64,
                 source = StorePolicyKeyForGame(game),
                 isAdminLocked = IsGameBlockedForCurrentUser(game),
                 adminLockReason = "blocked-store",
@@ -13438,10 +13957,6 @@ namespace Doorpi
             DateTime lastMoveTime = DateTime.MinValue;
             ushort prevButtons = 0;
 
-            // Variáveis de controle para o Combo (L1 + R1 + Select)
-            bool isHoldingMinimizeCombo = false;
-            DateTime minimizeComboStartTime = DateTime.MinValue;
-
             while (_mainUiGamepadActive)
             {
                 try
@@ -13468,29 +13983,9 @@ namespace Doorpi
                                 ushort snapBtn = snap.Gamepad.wButtons;
 
                                 // 1. Botão Xbox (Minimiza instantâneo)
-                                if ((snapBtn & 0x0400) != 0 && (prevButtons & 0x0400) == 0)
+                                if (IsDoorpiReturnShortcutJustPressed(snapBtn, prevButtons))
                                 {
                                     Dispatcher.Invoke(() => MinimizeCurrentGameAndRestoreDoorpi());
-                                }
-
-                                // 2. Combo: L1 (0x0100) + R1 (0x0200) + Select (0x0020) = 0x0320
-                                if ((snapBtn & 0x0320) == 0x0320)
-                                {
-                                    if (!isHoldingMinimizeCombo)
-                                    {
-                                        isHoldingMinimizeCombo = true;
-                                        minimizeComboStartTime = DateTime.UtcNow;
-                                    }
-                                    // Se segurou por 1 segundo (1000ms)
-                                    else if ((DateTime.UtcNow - minimizeComboStartTime).TotalMilliseconds >= 1000)
-                                    {
-                                        isHoldingMinimizeCombo = false; // Reseta para não disparar múltiplas vezes
-                                        Dispatcher.Invoke(() => MinimizeCurrentGameAndRestoreDoorpi());
-                                    }
-                                }
-                                else
-                                {
-                                    isHoldingMinimizeCombo = false; // Soltou algum botão, cancela a contagem
                                 }
 
                                 prevButtons = snapBtn;
@@ -13573,6 +14068,7 @@ namespace Doorpi
             DiscordRpcManager.Instance.Dispose();
             DisposeBluetoothManager();
             DisposeWifiManager();
+            DisposeSoundManager();
             // 1. Força o fechamento de todas as janelas secundárias
             try { _webAppWindow?.Close(); } catch { }
             try { _popupWindow?.Close(); } catch { }
