@@ -336,7 +336,7 @@ namespace Doorpi
             stateStore.Save(state);
 
             var downloader = new PackageDownloader(updateHttpClient);
-            string fileName = $"updater-{release.Version}.doorpiupdate";
+            string fileName = $"updater-{release.Version}.doorpiupdate.zip";
             string packagePath = await downloader.DownloadAndVerifyAsync(
                 release,
                 DoorpiRuntimePaths.DownloadsFolder,

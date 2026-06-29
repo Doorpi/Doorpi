@@ -199,8 +199,8 @@ if (Test-Path $publishedData) {
 Write-PackageManifest $doorpiPublish "doorpi" $DoorpiVersion "Doorpi.exe"
 Write-PackageManifest $updaterPublish "updater" $UpdaterVersion "Updater.exe"
 
-$doorpiPackageName = "doorpi-$DoorpiVersion.doorpiupdate"
-$updaterPackageName = "updater-$UpdaterVersion.doorpiupdate"
+$doorpiPackageName = "doorpi-$DoorpiVersion.doorpiupdate.zip"
+$updaterPackageName = "updater-$UpdaterVersion.doorpiupdate.zip"
 $doorpiPackage = Join-Path $releaseRoot $doorpiPackageName
 $updaterPackage = Join-Path $releaseRoot $updaterPackageName
 
