@@ -1,39 +1,40 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202606300855,
-    "publishedAt":  "2026-06-30T11:55:55.3803934Z",
-    "expiresAt":  "2026-07-14T11:55:55.3803934Z",
+    "manifestVersion":  202606301328,
+    "publishedAt":  "2026-06-30T16:29:14.9373718Z",
+    "expiresAt":  "2026-07-14T16:29:14.9373718Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.1.0",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.0/doorpi-0.1.0.doorpiupdate.zip",
-                   "sha256":  "aa2aee1f5c767ef9b31049a4aa78689c2a46212964c8699645502bdd9c258062",
-                   "sizeBytes":  132813600,
+                   "version":  "0.1.1",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.1/doorpi-0.1.1.doorpiupdate.zip",
+                   "sha256":  "7328a3c4c991a4ff37a79e744c5341bde344e883d0fa6ac9eaef334dc7e318b3",
+                   "sizeBytes":  132819014,
                    "minUpdaterVersion":  "0.1.0",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
                     "version":  "0.1.0",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.0/updater-0.1.0.doorpiupdate.zip",
-                    "sha256":  "d783ba0400bb8c77ac0739b0c2797901a3806b2ac8ee91e818f5346907e021dc",
-                    "sizeBytes":  69942959,
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.1/updater-0.1.0.doorpiupdate.zip",
+                    "sha256":  "d872cb151d554fd294854a7fb7dc84062c19c2a1539d4f50801a341260c0ea79",
+                    "sizeBytes":  69942933,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.1.0",
-                          "title":  "First official release",
+                          "version":  "0.1.1",
+                          "title":  "Doorpi 0.1.1",
                           "items":  [
-                                        "First official release."
+                                        "Ajustes de foco nos aplicativos e Steam.",
+                                        "Teclado em popups de login."
                                     ]
                       }
                   ],
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "cymyrlyWI8XFFYfbEYApb2zPZu6N9jvNiz5zn7BZT/b+88wTzLi1dNkpa6PII280P/bn/R1mwo5DM2VvBSUzrTDneTzW83op1RWrhGd5Qihca8v/LsNfEyXY6PKoaSonnoUEWscJOj38l0RaV16vgodBtgVatI8LoUrckZHCJHClDaZW+vSi83tqzTVW+C3ge2LGrOVog9evob+BcFRzuFG6pR8c5Lha+cOYe1QQVcT5K0KJDGzO8WboeR4XlebawFtMIc90yIFo0BkwMyKVLiUuUEAeuthDhm3TdDZuKj2TkEKf16vUa/VBgBzRQ064+wGScIlc/vF2YIMuzdIvbQtcNAxNBpw51YsiYH/C3KKwMtF0UlRUcd67504eQ35BOIO8We2JFlZBP7DeLJA/0EMGbtZ7NXDsGo5+M+p3YcG2EoSYIbm8Y2UqoDekL6AGr2KpPeN1ZaRUPAMbRnT3PzzbppSpDv9Ocy9ietSqdglU1+5dh3N2X7dnpGG2Yp3y"
+                      "value":  "RKknaaYUQ7q2BW1F3VsxlOgKMDyjgcjtfvNdNvdT6tWto3znB6kP1CIyTl77MbR06DJDLXv0gy3uisFd9tamvNHCDLa5FWhMc+0ULgAR6jvA2wJxAkH8bh8w6xzxDihY2NdEPPKyx2gewBDoMQmEit3cHNuM85AtrS9uEEGovG5Qoh1Q4R717rTUNCrIVGVTeWITpge75/5IS2MqW6tbV+ZWrIKoe+GJHAPx7S7r7zbxg/uWjEZPNZ7oLOdkGiW75qZdxOO/llRTPyG2gDWm2kM+Wd7lJMxLrk3OkXbuSNPwC8jEABCuE0ZtH1HeDPreTeXthF/7hTo5f+r366rzbEYnRl5DEsVhdlvA2KdjgYSWKC/vgovDIqxnvDUUAgCgqk7fh+acdufbdfMDOZ/s50gzyNfeO84zHDTfhl3RQiWNFYps9k0eIPtHcNlXVeAItJ9Dgz36i57d3ElzBBl/ftjprZZuHDeKRbcfw4+0MK13ys4KrsoLakZNIwJs0fi7"
                   }
 }
