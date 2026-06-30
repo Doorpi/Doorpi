@@ -3031,8 +3031,61 @@ namespace Doorpi
             { IsBackground = true }.Start();
         }
 
+        private long _nativeDialogInputShieldToken;
+
+        private void SetNativeDialogInputShield(bool enabled)
+        {
+            try { if (webView != null) webView.IsHitTestVisible = !enabled; } catch { }
+            try { if (_ytWebView != null) _ytWebView.IsHitTestVisible = !enabled; } catch { }
+        }
+
+        private void NotifyNativeDialogReturned(string source = "nativeDialog")
+        {
+            try
+            {
+                string payload = JsonSerializer.Serialize(new
+                {
+                    type = "nativeDialogReturned",
+                    source
+                });
+                webView?.CoreWebView2?.PostWebMessageAsString(payload);
+                _ytWebView?.CoreWebView2?.PostWebMessageAsString(payload);
+            }
+            catch { }
+        }
+
+        private void BeginNativeDialogInputShield()
+        {
+            Interlocked.Increment(ref _nativeDialogInputShieldToken);
+            SetNativeDialogInputShield(true);
+            try
+            {
+                webView?.CoreWebView2?.ExecuteScriptAsync("try{window._doorpiSuppressNativeDialogPointer?.(6000);}catch(e){}");
+                _ytWebView?.CoreWebView2?.ExecuteScriptAsync("try{window._doorpiSuppressNativeDialogPointer?.(6000);}catch(e){}");
+            }
+            catch { }
+        }
+
+        private void EndNativeDialogInputShield(string source = "nativeDialog")
+        {
+            long token = Interlocked.Read(ref _nativeDialogInputShieldToken);
+            NotifyNativeDialogReturned(source);
+
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(1200).ConfigureAwait(false);
+                Dispatcher.Invoke(() =>
+                {
+                    if (Interlocked.Read(ref _nativeDialogInputShieldToken) != token)
+                        return;
+                    SetNativeDialogInputShield(false);
+                });
+            });
+        }
+
         private bool? ShowDialogWithController(Microsoft.Win32.CommonDialog dialog)
         {
+            BeginNativeDialogInputShield();
             StartDialogControllerMode();
             CenterOwnedDialogSoon();
             try
@@ -3042,6 +3095,7 @@ namespace Doorpi
             finally
             {
                 StopDialogControllerMode();
+                EndNativeDialogInputShield();
             }
         }
 
@@ -9662,11 +9716,6 @@ namespace Doorpi
                 string fullPath = Path.GetFullPath(path.Trim('"'));
                 string fileName = Path.GetFileName(fullPath);
 
-                string currentExe = Process.GetCurrentProcess().MainModule?.FileName ?? "";
-                if (!string.IsNullOrWhiteSpace(currentExe) &&
-                    PathsEqual(fullPath, Path.GetFullPath(currentExe)))
-                    return true;
-
                 var internalExecutables = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 {
                     "Doorpi.exe",
@@ -9675,8 +9724,13 @@ namespace Doorpi
                     "DoorpiWindowsUpdateHelper.exe"
                 };
 
-                if (!internalExecutables.Contains(fileName))
-                    return false;
+                if (internalExecutables.Contains(fileName))
+                    return true;
+
+                string currentExe = Process.GetCurrentProcess().MainModule?.FileName ?? "";
+                if (!string.IsNullOrWhiteSpace(currentExe) &&
+                    PathsEqual(fullPath, Path.GetFullPath(currentExe)))
+                    return true;
 
                 string baseDir = Path.GetFullPath(AppDomain.CurrentDomain.BaseDirectory)
                     .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
@@ -9690,8 +9744,29 @@ namespace Doorpi
             }
         }
 
-        private static bool IsDoorpiInternalApp(InstalledApp app)
-            => IsDoorpiInternalExecutable(app.Path);
+        private bool IsDoorpiInternalName(string? name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return false;
+
+            string normalized = NormalizeGameName(name);
+            return normalized.StartsWith("doorpi", StringComparison.OrdinalIgnoreCase)
+                || normalized.Equals("updater", StringComparison.OrdinalIgnoreCase)
+                || normalized.Equals("doorpiinputbridge", StringComparison.OrdinalIgnoreCase)
+                || normalized.Equals("doorpiwindowsupdatehelper", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsDoorpiInternalLaunchUrl(string? launchUrl)
+        {
+            if (string.IsNullOrWhiteSpace(launchUrl)) return false;
+            string value = launchUrl.Trim();
+            return value.StartsWith("doorpi:", StringComparison.OrdinalIgnoreCase)
+                || value.StartsWith("doorpi://", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool IsDoorpiInternalApp(InstalledApp app)
+            => IsDoorpiInternalName(app.Name)
+               || IsDoorpiInternalExecutable(app.Path)
+               || IsDoorpiInternalLaunchUrl(app.LaunchUrl);
 
         private static bool InstalledAppMatchesGame(InstalledApp app, GameModel game)
         {
@@ -11684,6 +11759,12 @@ namespace Doorpi
 
                         bool? dialogResult = ShowDialogWithController(dlg);
 
+                        webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                        {
+                            type = "nativeDialogReturned",
+                            source = "artworkImage"
+                        }));
+
                         if (dialogResult == true)
                         {
                             string ext = ExtensionForImagePath(dlg.FileName);
@@ -11717,6 +11798,7 @@ namespace Doorpi
                 {
                     string gameId = artworkIdEl.GetString() ?? "";
                     bool isMedia = root.TryGetProperty("isMedia", out var artworkMediaEl) && artworkMediaEl.GetBoolean();
+                    bool isStore = root.TryGetProperty("isStore", out var artworkStoreEl) && artworkStoreEl.GetBoolean();
                     bool localFiles = root.TryGetProperty("localFiles", out var localFilesEl) && localFilesEl.GetBoolean();
                     string requestId = GetStr(root, "requestId");
                     var imagesClone = artworkImagesEl.Clone();
@@ -11725,10 +11807,13 @@ namespace Doorpi
                     {
                         _ = Task.Run(async () =>
                         {
-                            var result = await SaveSelectedArtworkAsync(gameId, isMedia, imagesClone, localFiles).ConfigureAwait(false);
+                            var result = isStore
+                                ? await SaveSelectedStoreArtworkAsync(gameId, imagesClone, localFiles).ConfigureAwait(false)
+                                : await SaveSelectedArtworkAsync(gameId, isMedia, imagesClone, localFiles).ConfigureAwait(false);
                             Dispatcher.Invoke(() =>
                             {
-                                if (isMedia) SendMediaAppsToUI(LoadMediaApps());
+                                if (isStore) SendStoresToUI(LoadStoreLaunchers());
+                                else if (isMedia) SendMediaAppsToUI(LoadMediaApps());
                                 else LoadGamesIntoUI();
 
                                 webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
@@ -11737,6 +11822,7 @@ namespace Doorpi
                                     requestId,
                                     gameId,
                                     isMedia,
+                                    isStore,
                                     images = result
                                 }));
                             });
@@ -13059,6 +13145,50 @@ namespace Doorpi
             else if (category == "banner") { media.HeroImage = url; media.HeroStaticImage = ""; }
             else if (category == "logo") { media.LogoImage = url; media.LogoStaticImage = ""; }
             else { media.GridImage = url; media.GridStaticImage = ""; }
+        }
+
+        private static void ApplyArtworkUrlToStore(MediaAppModel store, string category, string url)
+        {
+            if (category == "horizontal") return;
+            if (category == "banner") { store.HeroImage = url; store.HeroStaticImage = ""; }
+            else if (category == "logo") { store.LogoImage = url; store.LogoStaticImage = ""; }
+            else { store.GridImage = url; store.GridStaticImage = ""; }
+        }
+
+        private async Task<Dictionary<string, string>> SaveSelectedStoreArtworkAsync(string storeId, JsonElement imagesEl, bool localFiles)
+        {
+            var patch = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            string safeName = "store_edit_" + StableAssetName(storeId + DateTime.UtcNow.Ticks);
+
+            var selected = imagesEl.EnumerateObject()
+                .Where(p => !string.Equals(p.Name, "horizontal", StringComparison.OrdinalIgnoreCase))
+                .Where(p => !string.IsNullOrWhiteSpace(p.Value.GetString()))
+                .Select(p => (Category: p.Name, Value: p.Value.GetString() ?? ""))
+                .ToList();
+
+            if (selected.Count == 0) return patch;
+
+            var stores = LoadStoreLaunchers();
+            var store = stores.FirstOrDefault(s =>
+                string.Equals(s.Id, storeId, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(s.Url, storeId, StringComparison.OrdinalIgnoreCase));
+            if (store == null) return patch;
+
+            foreach (var item in selected)
+            {
+                var target = ArtworkTargetForCategory(item.Category);
+                string? local = localFiles
+                    ? await CopyLocalArtworkAsync(item.Value, target.Folder, safeName + target.Suffix).ConfigureAwait(false)
+                    : await DownloadImageAsync(item.Value, target.Folder, safeName + target.Suffix).ConfigureAwait(false);
+                if (local == null) continue;
+
+                string url = $"https://data.local/images/{target.UrlFolder}/{Path.GetFileName(local)}";
+                ApplyArtworkUrlToStore(store, item.Category, url);
+                patch[item.Category] = url;
+            }
+
+            if (patch.Count > 0) SaveStoreLaunchers(stores);
+            return patch;
         }
 
         private async Task<Dictionary<string, string>> SaveSelectedArtworkAsync(string entityId, bool isMedia, JsonElement imagesEl, bool localFiles)

@@ -727,6 +727,18 @@
         e.stopImmediatePropagation();
     }, true);
 
+    window._doorpiNativeDialogSuppressUntil = 0;
+    window._doorpiSuppressNativeDialogPointer = function (durationMs = 900) {
+        window._doorpiNativeDialogSuppressUntil = Date.now() + durationMs;
+    };
+    ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'dblclick'].forEach(type => {
+        document.addEventListener(type, (e) => {
+            if (Date.now() >= (window._doorpiNativeDialogSuppressUntil || 0)) return;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+        }, true);
+    });
+
     document.addEventListener('pointerdown', (e) => {
         if (!window.isDoorpiSessionTransitionActive?.()) return;
         e.preventDefault();
@@ -3653,7 +3665,14 @@
                 window._artworkWizardHandleResults?.(data);
             }
             else if (data.type === 'artworkImagePicked') {
+                window._doorpiSuppressNativeDialogPointer?.(650);
                 window._artworkWizardHandlePicked?.(data);
+            }
+            else if (data.type === 'artworkImagePickCanceled') {
+                window._doorpiSuppressNativeDialogPointer?.(650);
+            }
+            else if (data.type === 'nativeDialogReturned') {
+                window._doorpiSuppressNativeDialogPointer?.(900);
             }
             else if (data.type === 'artworkSelectionApplied') {
                 window._artworkWizardHandleApplied?.(data);
@@ -8494,6 +8513,7 @@ function renderFolderList(folders) {
         const updateCount = Object.keys(window._pendingExtensionUpdates || {}).length;
 
         const gameId = card.dataset.gameId || card.dataset.appId || card.dataset.appUrl;
+        const isStoreCard = card.dataset.channel === 'stores' || card.closest('#storesGrid') !== null;
         const isYoutube = (gameId && gameId.toLowerCase().includes('youtube'));
         const isGpuUpdaterCard = card.dataset.gpuUpdaterCard === 'true';
         const isBluetoothDeviceCard = card.dataset.bluetoothDeviceCard === 'true';
@@ -8509,7 +8529,6 @@ function renderFolderList(folders) {
         const ctxStoreGamepadText = _ctxMenu.querySelector('#ctxStoreGamepadControlText');
         const ctxStoreAutoAddBtn = _ctxMenu.querySelector('#ctxStoreAutoAdd');
         const ctxStoreAutoAddText = _ctxMenu.querySelector('#ctxStoreAutoAddText');
-        const isStoreCard = card.dataset.channel === 'stores' || card.closest('#storesGrid') !== null;
         const storeId = card.dataset.appId || card.dataset.id || card.dataset.appUrl || '';
         const isRunning = window.isCardRuntimeRunning?.(card) === true;
         if (ctxRuntimeBtn && ctxRuntimeText) {
@@ -8604,7 +8623,7 @@ function renderFolderList(folders) {
                 card.querySelector('.dq-app-name, .nav-gpu-app-name')?.innerText?.trim() || 'Atualizador';
         } else if (isStoreCard) {
             if (ctxRuntimeBtn) ctxRuntimeBtn.style.display = 'flex';
-            if (ctxEditBtn) ctxEditBtn.style.display = 'none';
+            if (ctxEditBtn) ctxEditBtn.style.display = 'flex';
             if (ctxExtensionsBtn) ctxExtensionsBtn.style.display = 'none';
             if (ctxSharingBtn) ctxSharingBtn.style.display = 'none';
             if (ctxDeleteBtn) ctxDeleteBtn.style.display = 'none';
@@ -8847,14 +8866,20 @@ function renderFolderList(folders) {
 
     function openArtworkWizard(card, mode, defaultQuery) {
         const requestId = `art_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-        const isMedia = card.hasAttribute('data-app-id') || card.closest('#mediaGrid') !== null;
+        const isStore = card.dataset.channel === 'stores' || card.closest('#storesGrid') !== null;
+        const isMedia = !isStore && (card.hasAttribute('data-app-id') || card.closest('#mediaGrid') !== null);
         const gameId = card.dataset.gameId || card.dataset.appId || card.dataset.appUrl || '';
+        const categories = isStore
+            ? ARTWORK_CATEGORIES.filter(cat => cat.key !== 'horizontal')
+            : ARTWORK_CATEGORIES;
         const state = {
             requestId,
             mode,
             card,
             gameId,
             isMedia,
+            isStore,
+            categories,
             index: 0,
             query: defaultQuery || card.querySelector('.title')?.innerText?.trim() || '',
             selected: {},
@@ -8905,14 +8930,14 @@ function renderFolderList(folders) {
         }
 
         const renderSteps = () => {
-            overlay.querySelector('.artwork-steps').innerHTML = ARTWORK_CATEGORIES.map((cat, i) =>
+            overlay.querySelector('.artwork-steps').innerHTML = categories.map((cat, i) =>
                 `<div class="artwork-step ${i === state.index ? 'active' : ''} ${i < state.index ? 'done' : ''}">${artworkLabel(cat)}</div>`
             ).join('');
         };
 
         const finish = () => {
             const images = {};
-            for (const cat of ARTWORK_CATEGORIES) {
+            for (const cat of categories) {
                 if (state.selected[cat.key]) images[cat.key] = state.selected[cat.key];
             }
             if (Object.keys(images).length === 0) {
@@ -8924,6 +8949,7 @@ function renderFolderList(folders) {
                 requestId,
                 gameId,
                 isMedia,
+                isStore,
                 localFiles: mode === 'local',
                 images
             });
@@ -8932,7 +8958,7 @@ function renderFolderList(folders) {
 
         const next = () => {
             state.index += 1;
-            if (state.index >= ARTWORK_CATEGORIES.length) {
+            if (state.index >= categories.length) {
                 finish();
                 return;
             }
@@ -8957,6 +8983,7 @@ function renderFolderList(folders) {
                     </div>
                 </div>`;
             overlay.querySelector('#artworkPickLocalBtn')?.addEventListener('click', () => {
+                window._doorpiSuppressNativeDialogPointer?.(900);
                 postToHost({
                     action: 'pickArtworkImage',
                     requestId,
@@ -8980,7 +9007,7 @@ function renderFolderList(folders) {
         };
 
         const render = () => {
-            const cat = ARTWORK_CATEGORIES[state.index];
+            const cat = categories[state.index];
             renderSteps();
             const results = overlay.querySelector('.artwork-results');
             results.className = mode === 'local' ? 'artwork-results is-local' : `artwork-results is-${cat.key}`;
@@ -9019,7 +9046,7 @@ function renderFolderList(folders) {
 
         state.renderResults = (category, images) => {
             if (!_artworkWizard || _artworkWizard.requestId !== requestId) return;
-            const cat = ARTWORK_CATEGORIES[state.index];
+            const cat = categories[state.index];
             if (!cat || cat.key !== category) return;
             overlay.querySelector('.artwork-status').textContent = images.length
                 ? t('artworkFound', images.length, state.query)
@@ -9059,7 +9086,7 @@ function renderFolderList(folders) {
 
         state.applied = (images) => {
             const patch = _artworkPatchFromCategories(images || {});
-            const channel = isMedia ? 'media' : 'games';
+            const channel = isStore ? 'stores' : (isMedia ? 'media' : 'games');
             window.AppStore?.mutations?.patchItem(channel, gameId, patch);
             close();
         };
@@ -9114,17 +9141,22 @@ function renderFolderList(folders) {
         const gameId = card.dataset.gameId || card.dataset.appId || card.dataset.appUrl;
 
         // 🔹 DETECÇÃO INFALÍVEL DE MÍDIA PARA TÍTULOS DINÂMICOS 🔹
+        const isStoreCard = card.dataset.channel === 'stores' || card.closest('#storesGrid') !== null;
         const isMediaTabActive = typeof window.getCurrentHomeTab === 'function' && window.getCurrentHomeTab() === 'media';
-        const isMediaCard = card.hasAttribute('data-app-id') ||
+        const isMediaCard = !isStoreCard && (card.hasAttribute('data-app-id') ||
             card.closest('#mediaGrid') !== null ||
-            isMediaTabActive;
+            isMediaTabActive);
 
         // Textos Dinâmicos Baseados no Tipo
-        const modalTitle = isMediaCard
+        const modalTitle = isStoreCard
+            ? (typeof t === 'function' ? t('editStoreTitle', 'Editar Loja') : 'Editar Loja')
+            : isMediaCard
             ? (typeof t === 'function' ? t('editAppTitle', 'Editar App') : 'Editar App')
             : (typeof t === 'function' ? t('editGameTitle', 'Editar Jogo') : 'Editar Jogo');
 
-        const modalSubtitle = isMediaCard
+        const modalSubtitle = isStoreCard
+            ? (typeof t === 'function' ? t('editStoreSubtitle', 'Altere apenas as artes desta loja.') : 'Altere apenas as artes desta loja.')
+            : isMediaCard
             ? (typeof t === 'function' ? t('editAppSubtitle', 'Ajuste os detalhes deste aplicativo.') : 'Ajuste os detalhes deste aplicativo.')
             : (typeof t === 'function' ? t('editGameSubtitle', 'Ajuste os detalhes deste jogo.') : 'Ajuste os detalhes deste jogo.');
 
@@ -9233,6 +9265,14 @@ function renderFolderList(folders) {
 
         const input = overlay.querySelector('#editNameInput');
         input.value = currentName;
+        if (isStoreCard) {
+            input.disabled = true;
+            input.setAttribute('aria-readonly', 'true');
+            const hint = overlay.querySelector('.edit-modal-input-hint');
+            if (hint) hint.textContent = typeof t === 'function' ? t('editStoreNameLocked', 'O nome da loja é fixo.') : 'O nome da loja é fixo.';
+            const saveBtn = overlay.querySelector('#editSaveBtn');
+            if (saveBtn) saveBtn.style.display = 'none';
+        }
 
         const doClose = () => {
             isEditModalOpen = false;
@@ -9255,11 +9295,11 @@ function renderFolderList(folders) {
         });
 
         overlay.querySelector('#editArtworkSteamGridBtn')?.addEventListener('click', () => {
-            openArtworkWizard(card, 'steamgrid', input.value.trim() || card.dataset.assetQuery || currentName);
+            openArtworkWizard(card, 'steamgrid', card.dataset.assetQuery || input.value.trim() || currentName);
         });
 
         overlay.querySelector('#editArtworkLocalBtn')?.addEventListener('click', () => {
-            openArtworkWizard(card, 'local', input.value.trim() || card.dataset.assetQuery || currentName);
+            openArtworkWizard(card, 'local', card.dataset.assetQuery || input.value.trim() || currentName);
         });
 
         const doSave = () => {
@@ -9420,8 +9460,12 @@ function renderFolderList(folders) {
         isEditModalOpen = true;
 
         requestAnimationFrame(() => {
-            input.focus();
-            input.setSelectionRange(input.value.length, input.value.length);
+            if (isStoreCard) {
+                overlay.querySelector('#editArtworkSteamGridBtn')?.focus({ preventScroll: true });
+            } else {
+                input.focus();
+                input.setSelectionRange(input.value.length, input.value.length);
+            }
         });
     } 
 

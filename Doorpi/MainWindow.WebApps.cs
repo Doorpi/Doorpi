@@ -2677,6 +2677,34 @@ namespace Doorpi
             DisposePopupWebView(popupView);
         }
 
+        private void EnsurePopupVkbControllerFocus()
+        {
+            var popupView = _popupWebView;
+            if (popupView?.CoreWebView2 == null) return;
+
+            try
+            {
+                popupView.CoreWebView2.ExecuteScriptAsync(
+                    "try{window.__doorpiVkbEnsureFocus?.(true);}catch(e){}");
+            }
+            catch { }
+        }
+
+        private void QueuePopupVkbControllerFocusSync()
+        {
+            if (_popupWebView?.CoreWebView2 == null) return;
+
+            int[] delays = { 80, 220, 520, 950 };
+            foreach (int delay in delays)
+            {
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(delay).ConfigureAwait(false);
+                    Dispatcher.Invoke(EnsurePopupVkbControllerFocus);
+                });
+            }
+        }
+
         private void RegisterMediaWebResourceInterception(CoreWebView2 core, bool isYouTube, bool isUtility)
         {
             if (!isYouTube && !isUtility)
@@ -2957,29 +2985,54 @@ namespace Doorpi
                 return;
             Interlocked.Exchange(ref _lastWebViewPriorityNormalizationUtcTicks, nowTicks);
 
+            List<int> processIds;
+            try
+            {
+                processIds = core.Environment.GetProcessInfos()
+                    .Select(info => info.ProcessId)
+                    .Where(pid => pid > 0 && pid != Environment.ProcessId)
+                    .Distinct()
+                    .ToList();
+            }
+            catch (ObjectDisposedException)
+            {
+                return;
+            }
+            catch (InvalidOperationException)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                LogWebViewDiagnostic($"priority-snapshot-failed reason={reason}: {ex.Message}");
+                return;
+            }
+
+            if (processIds.Count == 0)
+                return;
+
             _ = Task.Run(async () =>
             {
                 foreach (int delay in new[] { 150, 900, 2500, 6500 })
                 {
                     await Task.Delay(delay).ConfigureAwait(false);
-                    await NormalizeWebViewProcessPriorityAsync(core, reason, defaultMode).ConfigureAwait(false);
+                    NormalizeWebViewProcessPriority(processIds, reason, defaultMode);
                 }
             });
         }
 
-        private async Task NormalizeWebViewProcessPriorityAsync(CoreWebView2 core, string reason, string defaultMode)
+        private void NormalizeWebViewProcessPriority(IReadOnlyCollection<int> processIds, string reason, string defaultMode)
         {
             try
             {
-                var infos = await Dispatcher.InvokeAsync(() => core.Environment.GetProcessInfos().ToList());
                 var targetPriority = ResolveWebViewProcessPriority(defaultMode);
                 int changed = 0;
 
-                foreach (var info in infos)
+                foreach (int processId in processIds)
                 {
                     try
                     {
-                        using var process = Process.GetProcessById(info.ProcessId);
+                        using var process = Process.GetProcessById(processId);
                         if (process.HasExited || process.Id == Environment.ProcessId) continue;
                         if (process.PriorityClass != targetPriority)
                         {
@@ -3054,8 +3107,8 @@ namespace Doorpi
                 _popupWindow = new Window
                 {
                     Title = "Login",
-                    Width = 600,
-                    Height = 800,
+                    Width = Math.Max(600, Math.Min(SystemParameters.WorkArea.Width - 48, 1500)),
+                    Height = Math.Max(720, Math.Min(SystemParameters.WorkArea.Height - 48, 860)),
                     WindowStartupLocation = WindowStartupLocation.CenterScreen,
                     Topmost = true,
                     Owner = _webAppWindow ?? this,
@@ -3152,6 +3205,7 @@ namespace Doorpi
                         popup.Focus();
                         _ = popup.CoreWebView2.ExecuteScriptAsync("window.focus();");
                     }
+                    QueuePopupVkbControllerFocusSync();
                     try
                     {
                         string currentUrl = popup.CoreWebView2.Source;
@@ -3919,6 +3973,7 @@ namespace Doorpi
             '.doorpi-vkb-key[data-key=SHIFT]{{font-size:clamp(15px,1.6vw,22px);}}',
             '.doorpi-vkb-key[data-key=SHIFT].shifted{{background:rgba(255,255,255,0.2);border-color:rgba(255,255,255,0.3);color:#fff;}}',
             '.doorpi-vkb-overlay{{top:50%;left:50%;right:auto;bottom:auto;width:min(1080px,calc(100vw - 32px));',
+            '--doorpi-vkb-key-h:clamp(42px,5.2vh,54px);--doorpi-vkb-key-font:clamp(14px,1.05vw,18px);',
             'padding:clamp(10px,1.2vh,16px);background:rgba(8,9,15,.96);border:1px solid rgba(255,255,255,.13);',
             'border-radius:clamp(14px,1.1vw,20px);box-shadow:0 28px 90px rgba(0,0,0,.72),0 0 0 1px rgba(255,255,255,.04) inset;',
             'backdrop-filter:blur(22px) saturate(1.25);opacity:0;transform:translate(-50%,10px) scale(.985);transition:opacity .16s ease,transform .16s ease;}}',
@@ -3926,12 +3981,12 @@ namespace Doorpi
             '.doorpi-vkb-preview-wrap{{gap:clamp(8px,.8vw,14px);margin-bottom:clamp(8px,1vh,14px);}}',
             '.doorpi-vkb-preview-label{{font-size:clamp(9px,.72vw,12px);}}',
             '.doorpi-vkb-preview-text{{font-size:clamp(14px,1.05vw,20px);padding:clamp(7px,.8vh,10px) clamp(10px,1vw,16px);min-height:clamp(34px,4vh,48px);}}',
-            '.doorpi-vkb-grid{{display:grid;grid-template-columns:repeat(13,minmax(0,1fr));gap:clamp(5px,.55vh,8px) clamp(5px,.45vw,8px);width:auto;margin:0;}}',
-            '.doorpi-vkb-key{{height:clamp(36px,3.2vw,58px);border-bottom-width:2px;font-size:clamp(12px,.95vw,17px);}}',
+            '.doorpi-vkb-grid{{display:grid;grid-template-columns:repeat(13,minmax(0,1fr));gap:clamp(5px,.55vh,7px) clamp(5px,.36vw,7px);width:auto;margin:0;}}',
+            '.doorpi-vkb-key{{height:var(--doorpi-vkb-key-h);border-bottom-width:2px;font-size:var(--doorpi-vkb-key-font);}}',
             '.doorpi-vkb-key.focused{{transform:scale(1.06) translateY(-2px);}}',
             '.doorpi-vkb-key[data-controller-hint]::after{{top:4px;right:5px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:rgba(255,255,255,.12);font-size:8px;display:flex;align-items:center;justify-content:center;}}',
-            '.doorpi-vkb-key[data-key=SPACE]{{height:clamp(42px,3.6vw,62px);font-size:clamp(11px,.82vw,14px);}}',
-            '.doorpi-vkb-key[data-key=CANCEL],.doorpi-vkb-key[data-key=ENTER],.doorpi-vkb-key[data-key=BKSP],.doorpi-vkb-key[data-key=SHIFT]{{font-size:clamp(11px,.85vw,15px);}}',
+            '.doorpi-vkb-key[data-key=SPACE]{{height:var(--doorpi-vkb-key-h);font-size:clamp(12px,.9vw,15px);}}',
+            '.doorpi-vkb-key[data-key=CANCEL],.doorpi-vkb-key[data-key=ENTER],.doorpi-vkb-key[data-key=BKSP],.doorpi-vkb-key[data-key=SHIFT]{{height:var(--doorpi-vkb-key-h)!important;font-size:clamp(12px,.92vw,15px);}}',
             '.doorpi-vkb-overlay.numeric{{width:min(360px,calc(100vw - 32px))!important;}}',
             '.doorpi-vkb-overlay.numeric .doorpi-vkb-grid{{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;}}',
             '.doorpi-vkb-overlay.numeric .doorpi-vkb-key{{min-width:0;height:clamp(44px,4.2vw,68px);font-size:clamp(16px,1.3vw,24px);font-weight:650;}}'
@@ -4080,6 +4135,18 @@ namespace Doorpi
         _vkbFocusKey = key;
         _vkbEl?.querySelectorAll('.doorpi-vkb-key').forEach(k =>
             k.classList.toggle('focused', k.dataset.key === key));
+    }}
+
+    function _vkbNotifyHost(message) {{
+        try {{ window.chrome.webview.postMessage(message); }} catch(_) {{}}
+    }}
+
+    function _vkbEnsureControllerFocus(notifyHost) {{
+        if (!_vkbEl || !_vkbInputEl) return false;
+        _vkbSetFocus(_vkbFocusKey || (_vkbMode === 'numeric' ? '1' : 'q'));
+        if (_vkbEl.style.display !== 'none') _vkbPosition();
+        if (notifyHost) _vkbNotifyHost('vkb_opened');
+        return true;
     }}
 
     function _vkbMoveFocusInternal(dir) {{
@@ -4259,6 +4326,7 @@ namespace Doorpi
             _vkbInputEl.addEventListener('input', _vkbRenderPreview);
             _vkbRenderPreview();
             _vkbPosition();
+            _vkbEnsureControllerFocus(true);
             return;
         }}
 
@@ -4269,18 +4337,21 @@ namespace Doorpi
 
         _vkbBuild();
         _vkbRenderKeys(isNumericInput(targetEl) ? 'numeric' : 'text');
+        _vkbSetFocus(_vkbMode === 'numeric' ? '1' : 'q');
+        _vkbNotifyHost('vkb_opening');
         _vkbEl.style.display = 'block';
         if (_vkbMode === 'text') _vkbSetShift(_vkbShifted);
         _vkbRenderPreview();
         _vkbInputEl.addEventListener('input', _vkbRenderPreview);
         _vkbPosition();
+        _vkbEnsureControllerFocus(false);
 
         requestAnimationFrame(() => {{
             _vkbPosition();
             _vkbEl.classList.add('visible');
             window._vkbIsOpen = true;
-            _vkbSetFocus(_vkbMode === 'numeric' ? '1' : 'q');
-            try {{ window.chrome.webview.postMessage('vkb_opened'); }} catch(_) {{}}
+            _vkbEnsureControllerFocus(false);
+            _vkbNotifyHost('vkb_opened');
         }});
     }}
 
@@ -4290,7 +4361,7 @@ namespace Doorpi
         _vkbClosing = true;
         window._vkbIsOpen = false;
         _vkbEl.classList.remove('visible');
-        try {{ window.chrome.webview.postMessage('vkb_closed'); }} catch(_) {{}}
+        _vkbNotifyHost('vkb_closed');
 
         if (_vkbInputEl) {{
             _vkbInputEl.removeEventListener('input', _vkbRenderPreview);
@@ -4316,6 +4387,7 @@ namespace Doorpi
     window.__doorpiVkbToggleShift = ()    => _vkbSetShift(!_vkbShifted);
     window.__doorpiVkbToggleLayer = ()    => _vkbPressKey(_vkbMode === 'special' ? 'ABC' : 'SYM');
     window.__doorpiVkbEnter       = ()    => _vkbPressKey('ENTER');
+    window.__doorpiVkbEnsureFocus = (notifyHost = false) => _vkbEnsureControllerFocus(!!notifyHost);
     window.addEventListener('resize', () => {{ if (window._vkbIsOpen) _vkbPosition(); }});
 
 // DEPOIS
@@ -6139,11 +6211,13 @@ namespace Doorpi
                 return;
             }
 
-            if (msg == "vkb_opened")
+            if (msg == "vkb_opening" || msg == "vkb_opened")
             {
                 _vkbIsOpen = true;
                 _vkbOwnerView = senderView;
                 _vkbHasFocus = true;
+                if (isPopup)
+                    Dispatcher.InvokeAsync(EnsurePopupVkbControllerFocus);
                 return;
             }
             if (msg == "vkb_closed")

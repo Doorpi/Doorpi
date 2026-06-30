@@ -418,8 +418,10 @@ const STRINGS = {
 
         editGameTitle: 'Editar Jogo',
         editAppTitle: 'Editar App',
+        editStoreTitle: 'Editar Loja',
         editGameSubtitle: 'Ajuste os detalhes deste jogo.',
         editAppSubtitle: 'Ajuste os detalhes deste aplicativo.',
+        editStoreSubtitle: 'Altere apenas as artes desta loja.',
         editShortcutsLabel: 'Atalhos do Sistema',
         manageExtensionsDesc: 'Gerenciar plugins nativos',
 
@@ -427,6 +429,7 @@ const STRINGS = {
         editModalSubtitle: 'Clique em um campo para editar',
         editModalFieldName: 'NOME NA BIBLIOTECA',
         editModalHint: '⌨ Clique para abrir o teclado',
+        editStoreNameLocked: 'O nome da loja é fixo.',
         editModalCancel: 'Cancelar',
         editModalSave: 'Salvar',
         artworkWizardTitle: 'Mudar imagem',
@@ -1480,8 +1483,10 @@ const STRINGS = {
         // ---- Edição de App/Jogo ----
         editGameTitle: 'Edit Game',
         editAppTitle: 'Edit App',
+        editStoreTitle: 'Edit Store',
         editGameSubtitle: 'Adjust the details of this game.',
         editAppSubtitle: 'Adjust the details of this application.',
+        editStoreSubtitle: 'Change only this store artwork.',
         editShortcutsLabel: 'System Shortcuts',
         manageExtensionsDesc: 'Manage native plugins',
 
@@ -1489,6 +1494,7 @@ const STRINGS = {
         editModalSubtitle: 'Click a field to edit',
         editModalFieldName: 'Name',
         editModalHint: '⌨ Click to open the keyboard',
+        editStoreNameLocked: 'The store name is fixed.',
         editModalCancel: 'Cancel',
         editModalSave: 'Save',
         artworkWizardTitle: 'Change image',
