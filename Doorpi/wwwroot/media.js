@@ -214,13 +214,55 @@ let _currentHomeTab = 'games';
         align-items: center;
         justify-content: center;
         font-family: 'Outfit', sans-serif;
-        font-size: clamp(2.3rem, 4vw, 5.5rem);
+        font-size: 0;
         font-weight: 800;
         color: rgba(255,255,255,0.78);
         background:
             radial-gradient(circle at 28% 18%, rgba(255,255,255,0.18), transparent 32%),
             linear-gradient(135deg, rgba(32,42,76,0.98), rgba(11,13,26,0.98) 58%, rgba(42,35,72,0.98));
         text-transform: uppercase;
+        overflow: hidden;
+    }
+    .media-card-fallback::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: rgba(3,4,12,0.28);
+        pointer-events: none;
+    }
+    .media-card-fallback-blur {
+        position: absolute;
+        width: 82%;
+        height: 82%;
+        object-fit: contain;
+        opacity: 0.52;
+        filter: blur(24px) saturate(1.28);
+        transform: scale(1.55);
+    }
+    .media-card-fallback-icon {
+        position: relative;
+        z-index: 1;
+        width: 34%;
+        height: 34%;
+        object-fit: contain;
+        opacity: 0.92;
+        filter: drop-shadow(0 18px 34px rgba(0,0,0,0.42));
+    }
+    .media-card-fallback-blur.generic,
+    .media-card-fallback-icon.generic {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: rgba(238,244,255,0.86);
+    }
+    .media-card-fallback-blur.generic {
+        opacity: 0.18;
+        filter: blur(18px);
+        transform: scale(2.05);
+    }
+    .media-card-fallback svg {
+        width: 100%;
+        height: 100%;
     }
     .card.no-art img { display: none; }
 

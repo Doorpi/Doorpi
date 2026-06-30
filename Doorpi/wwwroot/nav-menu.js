@@ -88,7 +88,7 @@ window.isNavMenuOpen = false;
         const title = card.querySelector('.nav-suggestion-card-btn');
         title?.insertAdjacentHTML('afterend', `
             <span class="nav-shortcut-row">
-                <span>${_t('sysDoorpiReturnShortcut', 'Retorno alternativo:')}</span>
+                <span>${_t('sysDoorpiReturnShortcut', 'Retornar ao sistema')}</span>
                 ${_doorpiReturnShortcutHtml()}
             </span>
         `);
@@ -882,7 +882,7 @@ window.isNavMenuOpen = false;
             <h2>${_t('navSetSystem', 'Sistema')}</h2>
         </div>
 
-        <div style="max-width: 900px;">
+        <div class="nav-system-startup-panel nav-system-startup-panel-compact">
             <h3 style="font-size:1.1rem;font-weight:500;color:#fff;margin-bottom:12px;">${_t('sysBootBehavior', 'Comportamento de Inicialização')}</h3>
 
             <div class="nav-radio-group">
@@ -1138,8 +1138,8 @@ window.isNavMenuOpen = false;
         if (_systemSubView === 'updates') { _renderSettingsSystemUpdatesV2(body); return; }
 
         const svgPower = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>`;
-        const svgUpdate = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v6h-6"/><path d="M12 8v5l3 2"/></svg>`;
-        const svgDevices = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="8" height="14" rx="2"/><rect x="14" y="4" width="7" height="5" rx="1.5"/><path d="M15 14a5 5 0 0 1 5 0"/><path d="M16.6 16.6a2.7 2.7 0 0 1 2.8 0"/><circle cx="18" cy="19" r=".7" fill="currentColor" stroke="none"/></svg>`;
+        const svgUpdate = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v6h-6"/></svg>`;
+        const svgDevices = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5.2" width="9.4" height="13.6" rx="2.1"/><circle cx="7.7" cy="14.1" r="2.15"/><circle cx="7.7" cy="9.1" r=".72" fill="currentColor" stroke="none"/><path d="M16.5 6.2v11.6l3.6-3.6-3.6-2.2 3.6-2.2-3.6-3.6Z"/></svg>`;
 
         body.innerHTML = `
         <div class="nav-settings-subheader">
@@ -1165,9 +1165,10 @@ window.isNavMenuOpen = false;
                 <div class="settings-card-icon">${svgDevices}</div>
                 <div class="settings-card-info">
                     <h3>${_t('navSetDevices', 'Dispositivos')}</h3>
-                    <p>${_t('navSetDevicesDesc', 'Bluetooth, Wi-Fi, som e acessórios conectados')}</p>
+                    <p>${_t('navSetDevicesDesc', 'Bluetooth, som e acessórios conectados')}</p>
                 </div>
             </button>
+            </div>
         </div>`;
 
         _wireSystemItems(body, ['#setBackSystemHub', '#setSystemStartup', '#setSystemUpdates', '#setSystemDevices']);
@@ -1203,7 +1204,6 @@ window.isNavMenuOpen = false;
 
     function _renderSettingsSystemStartupV2(body) {
         if (typeof postToHost === 'function') postToHost({ action: 'requestBootMode' });
-        const svgDesktop = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:20px;height:20px;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`;
 
         body.innerHTML = `
         <div class="nav-settings-subheader">
@@ -1211,7 +1211,7 @@ window.isNavMenuOpen = false;
             <h2>Inicialização</h2>
         </div>
 
-        <div style="max-width: 900px;">
+        <div class="nav-system-startup-panel nav-system-startup-panel-compact">
             <h3 style="font-size:1.1rem;font-weight:500;color:#fff;margin-bottom:12px;">${_t('sysBootBehavior', 'Comportamento de Inicialização')}</h3>
 
             <div class="nav-radio-group">
@@ -1238,7 +1238,7 @@ window.isNavMenuOpen = false;
                 </button>
             </div>
 
-            <div class="nav-suggestions-grid" id="navSuggestionsGrid" style="display:flex;flex-direction:column;">
+            <div class="nav-suggestions-grid nav-startup-suggestions" id="navSuggestionsGrid">
                 <button class="nav-suggestion-card" id="navCardSignIn" tabindex="-1">
                     <div class="nav-suggestion-card-btn">${_t('sysBootNoticeBtn', 'Opções de Entrada')}</div>
                     <span class="nav-suggestion-card-text">${_t('sysBootNoticeText', 'Desative a senha de login para iniciar direto no Doorpi sem teclado.')}</span>
@@ -1250,27 +1250,13 @@ window.isNavMenuOpen = false;
                 <button class="nav-suggestion-card" id="navCardGameBar" tabindex="-1">
                     <div class="nav-suggestion-card-btn">${_t('sysGameBarNoticeBtn', 'Xbox Game Bar')}</div>
                     <span class="nav-shortcut-row">
-                        <span>${_t('sysDoorpiReturnShortcut', 'Retorno alternativo:')}</span>
+                        <span>${_t('sysDoorpiReturnShortcut', 'Retornar ao sistema')}</span>
                         ${_doorpiReturnShortcutHtml()}
                     </span>
                     <span class="nav-suggestion-card-text">${_t('sysGameBarNoticeText', 'Desative o atalho do botão Xbox para não abrir a overlay durante o uso do Doorpi.')}</span>
                 </button>
             </div>
 
-            <h3 style="font-size:1.1rem;font-weight:500;color:#fff;margin:18px 0 12px;">${_t('sysActionsHeader', 'Ações do Sistema')}</h3>
-
-            <div class="nav-shortcut-row" style="margin:0 0 18px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.08);">
-                <span>${_t('sysDoorpiReturnShortcut', 'Retorno alternativo:')}</span>
-                ${_doorpiReturnShortcutHtml()}
-            </div>
-
-            <button class="nav-settings-card" id="btnEnterDesktop" tabindex="-1" style="width:100%;">
-                <div class="settings-card-icon" style="width:36px;height:36px;">${svgDesktop}</div>
-                <div class="settings-card-info">
-                    <h3>${_t('sysActionDesktopTitle', 'Acessar Área de Trabalho')}</h3>
-                    <p>${_t('sysActionDesktopDesc', 'O controle assume a função de mouse e teclado com uma disposição de botões específica para este modo. Acesse a interface padrão do Windows para gerenciamento do sistema.')}</p>
-                </div>
-            </button>
         </div>`;
 
         _decorateDoorpiReturnShortcut(body);
@@ -1289,8 +1275,7 @@ window.isNavMenuOpen = false;
                 '#bootModeShell',
                 '#navCardSignIn',
                 '#navCardTaskbar',
-                '#navCardGameBar',
-                '#btnEnterDesktop'
+                '#navCardGameBar'
             ]);
         };
 
@@ -1320,9 +1305,6 @@ window.isNavMenuOpen = false;
         });
         body.querySelector('#navCardGameBar')?.addEventListener('click', () => {
             _showDesktopWarning('settings', () => postToHost?.({ action: 'openXboxGameBarSettings' }));
-        });
-        body.querySelector('#btnEnterDesktop')?.addEventListener('click', () => {
-            _showDesktopWarning('desktop', () => postToHost?.({ action: 'enterDesktopMode' }));
         });
     }
 
@@ -1818,7 +1800,7 @@ window.isNavMenuOpen = false;
 #navPaneGames, #navPaneMedia {
     position: absolute; inset: 0;
     overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
-    padding: 24px; box-sizing: border-box;
+    padding: clamp(24px, 2.4vw, 38px); box-sizing: border-box;
     transition: opacity 0.22s ease;
 }
 #navPaneGames::-webkit-scrollbar,
@@ -1936,10 +1918,12 @@ window.isNavMenuOpen = false;
 .nav-cat-label { font-size: clamp(0.9rem, 1.1vw, 1.2rem); font-weight: 500; letter-spacing: 0.02em; }
 
 .nav-content {
+    --nav-focus-gutter: clamp(26px, 2vw, 46px);
     flex: 1; display: flex; flex-direction: column;
     padding: clamp(10px, 2vh, 40px) clamp(20px, 3vw, 60px);
-    overflow: visible;
+    overflow: hidden;
     min-width: 0;
+    min-height: 0;
 }
 .nav-content-header {
     margin-bottom: clamp(20px, 3vh, 32px); flex-shrink: 0; text-align: left;
@@ -1949,11 +1933,17 @@ window.isNavMenuOpen = false;
 .nav-content-subtitle { font-size: clamp(0.85rem, 0.9vw, 1.1rem); color: rgba(255,255,255,0.4); margin: 0; font-weight: 400; }
 
 .nav-content-body {
-    flex: 1; margin: 0; padding: 0;
-    overflow: visible;
+    flex: 1; margin: 0; padding: 10px var(--nav-focus-gutter) 42px;
+    overflow-x: visible;
+    overflow-y: auto;
+    min-height: 0;
     position: relative;
+    scrollbar-width: none;
+    scroll-padding: 18px var(--nav-focus-gutter) 46px;
+    box-sizing: border-box;
 }
 .nav-content-body::-webkit-scrollbar { display: none; }
+.nav-content-body.dual-pane-active { padding: 0; scroll-padding: 0; }
 
 @keyframes fadeInTop { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }
 
@@ -1961,17 +1951,19 @@ window.isNavMenuOpen = false;
 
 /* SUBSTITUA O .nav-big-grid POR ISSO: */
 .nav-big-grid {
-    --gap-x: clamp(16px, 1.5vw, 24px);
-    --gap-y: clamp(40px, 4vw, 64px);
+    --gap-x: clamp(20px, 1.8vw, 30px);
+    --gap-y: clamp(32px, 3vw, 54px);
 
     --rows: 2;
 
-    --padding-y: 48px;
+    --padding-y: clamp(30px, 3.8vh, 52px);
     --available-h: calc(100cqh - var(--padding-y));
     --total-gap-h: calc(var(--gap-y) * (var(--rows) - 1));
 
     /* 🔹 Subtrai 1px para evitar que dízimas infinitas do Windows quebrem o grid */
-    --card-h: calc(((var(--available-h) - var(--total-gap-h)) / var(--rows)) - 1px);
+    --card-h-raw: calc(((var(--available-h) - var(--total-gap-h)) / var(--rows)) - 1px);
+    --card-h-limit: clamp(270px, 29vh, 390px);
+    --card-h: min(var(--card-h-raw), var(--card-h-limit));
     --card-w: calc(var(--card-h) * (2 / 3));
 
     display: grid;
@@ -1986,8 +1978,8 @@ window.isNavMenuOpen = false;
 
 /* 🔹 Escada Matemática: Adiciona +1 linha conforme a tela cresce para manter a capa no tamanho perfeito */
 @container pane (max-height: 480px) { .nav-big-grid { --rows: 1; } } /* Somente para janelas super amassadas */
-@container pane (min-height: 900px) { .nav-big-grid { --rows: 3; } } /* Telas 1080p "puras" (sem zoom do Windows) */
-@container pane (min-height: 1300px) { .nav-big-grid { --rows: 4; } } /* Telas 2K puras / 4K com scaling */
+@container pane (min-height: 980px) { .nav-big-grid { --rows: 3; } } /* 1080p real fica em 2 linhas; areas maiores sobem para 3 */
+@container pane (min-height: 1500px) { .nav-big-grid { --rows: 4; } } /* Telas 2K puras / 4K com scaling */
 @container pane (min-height: 1800px) { .nav-big-grid { --rows: 5; } } /* Telas 4K puras / 5K */
 @container pane (min-height: 2400px) { .nav-big-grid { --rows: 6; } } /* Telas 8K */
 
@@ -2082,12 +2074,37 @@ window.isNavMenuOpen = false;
 .nav-profile-recent-date { font-size: clamp(0.7rem, 0.8vw, 0.85rem); color: rgba(255,255,255,0.6); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
 
 /* ── Dashboard de Configurações ── */
-.nav-settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(200px, 22vw, 320px), 1fr)); gap: clamp(12px, 1.5vh, 24px); animation: fadeInTop 0.4s ease; max-width: 1400px; }
-.nav-settings-grid.nav-connectivity-grid { grid-template-columns: repeat(3, minmax(240px, 340px)); }
+.nav-settings-grid {
+    --settings-focus-pad-y: clamp(16px, 1.8vh, 28px);
+    --settings-focus-pad-x: clamp(20px, 2vw, 36px);
+    --settings-card-w: clamp(320px, 22vw, 380px);
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(0, var(--settings-card-w)));
+    justify-content: start;
+    gap: clamp(12px, 1.5vh, 24px);
+    animation: fadeInTop 0.4s ease;
+    width: min(100%, 1400px);
+    padding: var(--settings-focus-pad-y) var(--settings-focus-pad-x) clamp(20px, 2vh, 34px);
+    margin: calc(var(--settings-focus-pad-y) * -1) calc(var(--settings-focus-pad-x) * -1) 0;
+    box-sizing: border-box;
+}
+.nav-settings-grid.nav-connectivity-grid {
+    --settings-card-w: clamp(250px, 18vw, 320px);
+    grid-template-columns: repeat(2, minmax(0, var(--settings-card-w)));
+    width: fit-content;
+    max-width: 100%;
+    column-gap: clamp(14px, 1.4vw, 28px);
+}
 .nav-settings-card {
     background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 16px;
+    min-height: clamp(112px, 10vh, 138px);
     padding: clamp(16px, 2.5vh, 30px) clamp(16px, 1.8vw, 24px); display: flex; align-items: flex-start; gap: clamp(12px, 1.5vw, 20px); cursor: pointer; outline: none;
     text-align: left; transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1); color: inherit; font-family: inherit;
+}
+.nav-settings-grid > .nav-settings-card {
+    width: min(100%, var(--settings-card-w));
+    max-width: var(--settings-card-w);
+    justify-self: start;
 }
 .settings-card-icon { width: clamp(36px, 4.5vh, 54px); height: clamp(36px, 4.5vh, 54px); flex-shrink: 0; color: rgba(255,255,255,0.4); transition: color 0.2s; }
 .settings-card-icon svg { width: 100%; height: 100%; }
@@ -2100,6 +2117,111 @@ window.isNavMenuOpen = false;
 .nav-back-btn { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 30px; padding: 10px 24px; color: #fff; font-family: inherit; font-size: 1rem; cursor: pointer; outline: none; transition: all 0.2s; font-weight: 500; }
 .nav-back-btn.nav-focused-el { background: #fff; color: #000; transform: scale(1.05); }
 .nav-settings-subheader h2 { margin: 0; font-size: 1.8rem; font-weight: 300; color: #fff; }
+.nav-system-startup-panel { width: 100%; max-width: 900px; padding-bottom: 18px; }
+.nav-system-startup-panel-compact {
+    display: flex;
+    flex-direction: column;
+    gap: clamp(8px, 1.1vh, 14px);
+    max-width: min(900px, 100%);
+    padding-bottom: clamp(8px, 1.2vh, 16px);
+    transform-origin: top left;
+}
+.nav-system-startup-panel-compact > h3 {
+    font-size: clamp(0.92rem, 1.1vw, 1.08rem) !important;
+    font-weight: 500 !important;
+    color: #fff !important;
+    margin: 0 !important;
+    line-height: 1.2;
+}
+.nav-system-startup-panel-compact .nav-radio-group {
+    gap: clamp(7px, .9vh, 11px);
+    margin-bottom: clamp(2px, .6vh, 8px);
+}
+.nav-system-startup-panel-compact .nav-radio-btn {
+    min-height: 0;
+    padding: clamp(9px, 1.15vh, 14px) clamp(12px, 1.2vw, 18px);
+    gap: clamp(9px, 1vw, 14px);
+}
+.nav-system-startup-panel-compact .nav-radio-text strong {
+    font-size: clamp(.84rem, .95vw, .98rem);
+    line-height: 1.16;
+}
+.nav-system-startup-panel-compact .nav-radio-text span {
+    font-size: clamp(.72rem, .78vw, .84rem);
+    line-height: 1.28;
+}
+.nav-system-startup-panel-compact .nav-startup-suggestions {
+    display: flex;
+    flex-direction: column;
+    gap: clamp(7px, .9vh, 10px);
+    margin: 0;
+}
+.nav-system-startup-panel-compact .nav-suggestion-card {
+    min-height: 0;
+    padding: clamp(9px, 1.1vh, 13px) clamp(12px, 1.2vw, 16px);
+    gap: clamp(5px, .7vh, 9px);
+}
+.nav-system-startup-panel-compact .nav-suggestion-card-btn {
+    padding: 5px 9px;
+    font-size: clamp(.68rem, .7vw, .78rem);
+}
+.nav-system-startup-panel-compact .nav-suggestion-card-text {
+    font-size: clamp(.68rem, .74vw, .78rem);
+    line-height: 1.3;
+}
+.nav-system-startup-panel-compact > .nav-shortcut-row {
+    margin: 0 !important;
+    padding: clamp(8px, .95vh, 10px) clamp(10px, 1vw, 12px) !important;
+    border-radius: 10px !important;
+    background: rgba(255,255,255,.045) !important;
+    border: 1px solid rgba(255,255,255,.08) !important;
+}
+.nav-system-startup-panel-compact > #btnEnterDesktop {
+    width: 100%;
+    min-height: 0;
+    padding: clamp(10px, 1.2vh, 14px) clamp(14px, 1.4vw, 18px);
+}
+.nav-system-startup-panel-compact > #btnEnterDesktop .settings-card-icon {
+    width: clamp(30px, 3.4vh, 36px) !important;
+    height: clamp(30px, 3.4vh, 36px) !important;
+}
+.nav-system-startup-panel-v2 {
+    max-width: min(1120px, 100%);
+    display: grid;
+    grid-template-columns: minmax(320px, 1fr) minmax(320px, .92fr);
+    gap: clamp(18px, 2.2vw, 34px);
+    align-items: start;
+}
+.nav-startup-section {
+    min-width: 0;
+}
+.nav-startup-section-title {
+    font-size: 1.1rem;
+    font-weight: 500;
+    color: #fff;
+    margin: 0 0 12px;
+}
+.nav-startup-actions {
+    display: flex;
+    flex-direction: column;
+    gap: clamp(8px, 1.1vh, 12px);
+}
+.nav-startup-actions .nav-suggestions-grid {
+    margin: 0;
+}
+.nav-startup-actions .nav-shortcut-row {
+    margin: 0 !important;
+    padding: clamp(8px, .95vh, 10px) clamp(10px, 1vw, 12px) !important;
+}
+.nav-startup-actions #btnEnterDesktop {
+    width: 100%;
+    min-height: 0;
+    padding: clamp(10px, 1.2vh, 14px) clamp(14px, 1.4vw, 18px);
+}
+.nav-startup-actions #btnEnterDesktop .settings-card-icon {
+    width: clamp(30px, 3.4vh, 36px) !important;
+    height: clamp(30px, 3.4vh, 36px) !important;
+}
 
 .nav-profile-dashboard { display: flex; align-items: flex-start; gap: clamp(30px, 4vw, 60px); animation: fadeInTop 0.3s ease; max-width: 1000px; }
 .nav-profile-avatar-sec { display: flex; flex-direction: column; align-items: center; gap: 16px; }
@@ -2137,6 +2259,15 @@ window.isNavMenuOpen = false;
     .nav-settings-subheader h2 { font-size: clamp(1.2rem, 2.5vh, 1.8rem); }
 }
 
+@media (max-height: 1080px) {
+    .nav-topbar { padding-top: clamp(2rem, 4vh, 3.4rem); gap: clamp(10px, 1.5vh, 18px); }
+    .nav-content { padding-top: clamp(8px, 1.35vh, 18px); padding-bottom: 10px; }
+    .nav-content-header { margin-bottom: clamp(10px, 1.6vh, 18px); }
+    .nav-system-startup-panel-compact { zoom: .94; }
+    .nav-system-startup-panel-v2 { gap: clamp(12px, 1.5vw, 20px); }
+    .nav-startup-section-title { font-size: .98rem; margin-bottom: 8px; }
+}
+
 /* ── Sistema (Radios) ── */
 .nav-radio-group { display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px; animation: fadeInTop 0.3s ease;}
 .nav-radio-btn { display: flex; align-items: center; gap: 16px; padding: 16px 20px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; cursor: pointer; color: #fff; text-align: left; transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1); font-family: inherit; outline: none; }
@@ -2159,32 +2290,41 @@ window.isNavMenuOpen = false;
 .nav-suggestion-card.nav-focused-el .nav-suggestion-card-btn { background: rgba(255,255,255,0.2); border-color: rgba(255,255,255,0.5); }
 .nav-suggestion-card-text { font-size: 0.78rem; color: rgba(255,255,255,0.75); line-height: 1.45; }
 .nav-suggestion-card.nav-focused-el .nav-suggestion-card-text { color: #fff; }
-.nav-gpu-app-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:12px; width:100%; }
-.nav-gpu-app-card { min-height:168px; border:1px solid rgba(255,255,255,.12); border-radius:10px; background:linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.035)); color:#fff; outline:none; cursor:pointer; padding:14px; display:flex; flex-direction:column; justify-content:space-between; gap:12px; text-align:left; transition:all .2s cubic-bezier(.25,1,.5,1); }
+.nav-gpu-app-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:14px; width:100%; }
+.nav-gpu-app-card { min-height:238px; border:1px solid rgba(255,255,255,.12); border-radius:12px; background:radial-gradient(circle at 50% 0%, rgba(255,255,255,.12), transparent 42%), linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.035)); color:#fff; outline:none; cursor:pointer; padding:15px 15px 18px; display:flex; flex-direction:column; justify-content:flex-start; gap:15px; text-align:left; transition:all .2s cubic-bezier(.25,1,.5,1); overflow:hidden; }
 .nav-gpu-app-card.nav-focused-el { transform:translateY(-3px) scale(1.02); background:rgba(255,255,255,.09); border-color:rgba(255,255,255,.48); box-shadow:0 15px 35px rgba(0,0,0,.4); }
-.nav-gpu-app-art { height:78px; border-radius:8px; background:radial-gradient(circle at 25% 20%, rgba(125,203,255,.24), transparent 34%), rgba(255,255,255,.06); display:flex; align-items:center; justify-content:center; overflow:hidden; }
-.nav-gpu-app-art img { width:46px; height:46px; object-fit:contain; filter:drop-shadow(0 8px 18px rgba(0,0,0,.34)); }
-.nav-gpu-app-cover { width:100%; height:100%; background-size:cover; background-position:center; }
-.nav-gpu-app-fallback { width:46px; height:46px; border-radius:12px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,.12); color:#fff; font-weight:800; letter-spacing:.04em; }
-.nav-gpu-app-name { color:#fff; font-size:.95rem; font-weight:700; line-height:1.22; min-height:2.4em; overflow:hidden; }
-.nav-gpu-app-meta { margin-top:4px; color:rgba(255,255,255,.58); font-size:.74rem; line-height:1.35; }
-.nav-gpu-app-footer { display:flex; align-items:center; justify-content:flex-start; gap:10px; }
-.nav-gpu-app-open { padding:4px 9px; border-radius:999px; background:rgba(125,203,255,.13); color:#9dd8ff; font-size:.66rem; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
-.nav-gpu-app-add { align-items:center; text-align:center; justify-content:center; border-style:dashed; }
+.nav-gpu-app-art { min-height:128px; border-radius:10px; background:radial-gradient(circle at 50% 18%, rgba(255,255,255,.24), transparent 32%), radial-gradient(circle at 20% 10%, rgba(125,203,255,.28), transparent 36%), linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.03)); display:flex; align-items:center; justify-content:center; overflow:hidden; box-shadow:inset 0 1px 0 rgba(255,255,255,.08), 0 18px 28px rgba(0,0,0,.16); }
+.nav-gpu-app-art img { width:min(72%, 108px); height:min(72%, 108px); object-fit:contain; filter:drop-shadow(0 14px 28px rgba(0,0,0,.34)); }
+.nav-gpu-app-cover { width:100%; height:100%; background-size:contain; background-repeat:no-repeat; background-position:center; filter:drop-shadow(0 14px 24px rgba(90,180,255,.18)); transform:scale(1.03); }
+.nav-gpu-app-fallback { width:58px; height:58px; border-radius:16px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,.12); color:#fff; font-weight:800; letter-spacing:.04em; }
+.nav-gpu-app-copy { display:grid; gap:6px; align-content:start; }
+.nav-gpu-app-name { color:#fff; font-size:.95rem; font-weight:700; line-height:1.24; overflow:hidden; }
+.nav-gpu-app-meta { color:rgba(255,255,255,.58); font-size:.74rem; line-height:1.38; }
+.nav-gpu-app-add { border-style:dashed; }
+.nav-gpu-app-add .nav-gpu-app-art { background:none; box-shadow:none; min-height:128px; }
+.nav-gpu-app-add .nav-gpu-app-fallback { width:62px; height:62px; background:#fff; color:#0d1018; box-shadow:0 12px 28px rgba(255,255,255,.18); }
 
 @media (max-width: 1366px), (max-height: 780px) {
 
     .nav-topbar { padding-top: 1.8rem; gap: 12px; }
     .nav-cat-item { padding: 6px; }
     .nav-cat-label { font-size: 0.82rem; }
-    .nav-content { padding: 12px 32px; }
+    .nav-content { --nav-focus-gutter: clamp(28px, 2.4vw, 40px); padding: 12px 32px; }
+    .nav-content-body { padding: 8px var(--nav-focus-gutter) 28px; scroll-padding: 14px var(--nav-focus-gutter) 34px; }
+    .nav-content-body.dual-pane-active { padding: 0; scroll-padding: 0; }
+    .nav-system-startup-panel { max-width: 840px; padding-bottom: 8px; }
+    .nav-system-startup-panel-v2 {
+        max-width: 100%;
+        grid-template-columns: minmax(0, 1.08fr) minmax(300px, .92fr);
+        gap: 14px;
+    }
     .nav-content-header { margin-bottom: 8px; }
     .nav-content-title { font-size: 1.5rem; }
     .nav-content-subtitle { font-size: 0.78rem; }
-    #navPaneGames, #navPaneMedia { padding: 16px; scroll-padding-top: 16px; scroll-padding-bottom: 16px; }
-    .nav-big-grid { --padding-y: 32px; }
-    .nav-settings-grid { gap: 10px; }
-    .nav-settings-card { padding: 12px 16px; gap: 12px; border-radius: 10px; }
+    #navPaneGames, #navPaneMedia { padding: clamp(20px, 2.2vw, 30px); scroll-padding-top: 22px; scroll-padding-bottom: 22px; }
+    .nav-big-grid { --padding-y: clamp(26px, 3.5vh, 42px); --card-h-limit: clamp(250px, 31vh, 350px); }
+    .nav-settings-grid { --settings-card-w: 260px; --settings-focus-pad-y: 18px; --settings-focus-pad-x: clamp(24px, 2.4vw, 34px); gap: 10px; }
+    .nav-settings-card { min-height: 112px; padding: 18px 16px; gap: 12px; border-radius: 10px; }
     .settings-card-icon { width: 28px; height: 28px; }
     .settings-card-info h3 { font-size: 1rem; margin-bottom: 2px; }
     .settings-card-info p { font-size: 0.78rem; line-height: 1.35; }
@@ -2227,6 +2367,93 @@ window.isNavMenuOpen = false;
     .nav-sharing-avatar { width: 28px; height: 28px; font-size: 0.8rem; }
     .nav-sharing-save { min-height: 32px; font-size: 0.8rem; padding: 0 12px; border-radius: 6px; }
     .nav-sharing-note { font-size: 0.8rem; min-height: auto; }
+}
+
+@media (max-height: 920px) {
+    .nav-content {
+        padding-top: clamp(8px, 1.1vh, 14px);
+        padding-bottom: 8px;
+    }
+    .nav-content-body {
+        padding-top: 18px;
+        padding-bottom: 28px;
+        scroll-padding-top: 24px;
+        scroll-padding-bottom: 30px;
+    }
+    .nav-system-startup-panel-compact {
+        zoom: .88;
+        gap: 8px;
+        padding-bottom: 6px;
+    }
+    .nav-system-startup-panel-compact .nav-radio-group {
+        gap: 7px;
+        margin-bottom: 2px;
+    }
+    .nav-system-startup-panel-compact .nav-radio-btn {
+        padding: 9px 13px;
+    }
+    .nav-system-startup-panel-compact .nav-startup-suggestions {
+        gap: 7px;
+    }
+    .nav-system-startup-panel-compact .nav-suggestion-card {
+        padding: 9px 12px;
+    }
+    .nav-system-startup-panel-compact > .nav-shortcut-row {
+        padding: 8px 10px !important;
+    }
+    .nav-system-startup-panel-compact > #btnEnterDesktop {
+        padding: 10px 12px;
+    }
+}
+
+@media (max-height: 820px) {
+    .nav-content-body {
+        padding-top: 16px;
+        padding-bottom: 24px;
+        scroll-padding-top: 22px;
+        scroll-padding-bottom: 30px;
+    }
+    .nav-system-startup-panel-compact {
+        zoom: .82;
+        gap: 6px;
+        padding-bottom: 4px;
+    }
+    .nav-system-startup-panel-compact > h3 {
+        font-size: .86rem !important;
+        line-height: 1.1;
+    }
+    .nav-system-startup-panel-compact .nav-radio-group,
+    .nav-system-startup-panel-compact .nav-startup-suggestions {
+        gap: 6px;
+    }
+    .nav-system-startup-panel-compact .nav-radio-btn {
+        padding: 8px 11px;
+        gap: 8px;
+    }
+    .nav-system-startup-panel-compact .nav-radio-text span,
+    .nav-system-startup-panel-compact .nav-suggestion-card-text {
+        line-height: 1.22;
+    }
+    .nav-system-startup-panel-compact .nav-suggestion-card {
+        padding: 8px 10px;
+        gap: 4px;
+    }
+    .nav-system-startup-panel-compact .nav-suggestion-card-btn {
+        padding: 4px 8px;
+    }
+    .nav-system-startup-panel-compact > .nav-shortcut-row {
+        padding: 7px 9px !important;
+    }
+    .nav-system-startup-panel-compact > #btnEnterDesktop {
+        padding: 8px 10px;
+    }
+}
+
+@media (max-width: 980px), (max-height: 680px) {
+    .nav-system-startup-panel-v2 {
+        display: flex;
+        flex-direction: column;
+    }
 }
         `;
         document.head.appendChild(s);
@@ -2736,7 +2963,6 @@ window.isNavMenuOpen = false;
 
     function _renderSettingsDevicesHub(body) {
         const svgBluetooth = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v20l6-6-6-4 6-4-6-6Z"/><path d="M6.5 6.5 12 12l-5.5 5.5"/></svg>`;
-        const svgWifi = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.5 8.5a12 12 0 0 1 17 0"/><path d="M6.7 11.7a7.5 7.5 0 0 1 10.6 0"/><path d="M9.8 14.8a3.1 3.1 0 0 1 4.4 0"/><circle cx="12" cy="18" r="1" fill="currentColor" stroke="none"/></svg>`;
         const svgSound = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4Z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg>`;
         body.innerHTML = `
             <div class="nav-settings-subheader">
@@ -2751,13 +2977,6 @@ window.isNavMenuOpen = false;
                         <p>${_t('bluetoothSettingsDesc', 'Parear e gerenciar controles, áudio, teclados e outros dispositivos')}</p>
                     </div>
                 </button>
-                <button class="nav-settings-card" id="setWifi" tabindex="-1">
-                    <div class="settings-card-icon">${svgWifi}</div>
-                    <div class="settings-card-info">
-                        <h3>Wi-Fi</h3>
-                        <p>${_t('wifiSettingsDesc', 'Conectar e gerenciar redes sem fio')}</p>
-                    </div>
-                </button>
                 <button class="nav-settings-card" id="setSound" tabindex="-1">
                     <div class="settings-card-icon">${svgSound}</div>
                     <div class="settings-card-info">
@@ -2767,7 +2986,7 @@ window.isNavMenuOpen = false;
                 </button>
             </div>`;
 
-        _contentItems = [body.querySelector('#setBackConnectivity'), body.querySelector('#setBluetooth'), body.querySelector('#setWifi'), body.querySelector('#setSound')].filter(Boolean);
+        _contentItems = [body.querySelector('#setBackConnectivity'), body.querySelector('#setBluetooth'), body.querySelector('#setSound')].filter(Boolean);
         _contentItems.forEach((el, idx) => el.addEventListener('mouseenter', () => {
             _topbarFocus = false; _contentIdx = idx; _updateContentFocus();
         }));
@@ -2776,9 +2995,6 @@ window.isNavMenuOpen = false;
         });
         body.querySelector('#setBluetooth')?.addEventListener('click', () => {
             _settingsSubView = 'bluetooth'; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
-        });
-        body.querySelector('#setWifi')?.addEventListener('click', () => {
-            _settingsSubView = 'wifi'; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
         });
         body.querySelector('#setSound')?.addEventListener('click', () => {
             _settingsSubView = 'sound'; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
@@ -3200,18 +3416,15 @@ window.isNavMenuOpen = false;
                             <div class="nav-gpu-app-art">
                                 ${imageUrl ? `<div class="nav-gpu-app-cover" style="background-image:url('${_esc(imageUrl)}')"></div>` : (iconDataUrl ? `<img src="${_esc(iconDataUrl)}" alt="">` : `<div class="nav-gpu-app-fallback">${_esc(_gpuUpdaterInitials(app))}</div>`)}
                             </div>
-                            <div>
+                            <div class="nav-gpu-app-copy">
                                 <div class="nav-gpu-app-name">${_esc(name)}</div>
                                 <div class="nav-gpu-app-meta">${_esc(_gpuVendorName(vendor))} · ${_esc(source === 'manual' ? 'Adicionado manualmente' : 'Detectado automaticamente')}</div>
-                            </div>
-                            <div class="nav-gpu-app-footer">
-                                <span class="nav-gpu-app-open">Abrir</span>
                             </div>
                         </div>
                     `}).join('')}
                     <div class="nav-gpu-app-card nav-gpu-app-add" data-gpu-action="add" tabindex="-1" role="button">
                         <div class="nav-gpu-app-art"><div class="nav-gpu-app-fallback">+</div></div>
-                        <div>
+                        <div class="nav-gpu-app-copy">
                             <div class="nav-gpu-app-name">Adicionar app</div>
                             <div class="nav-gpu-app-meta">Escolha outro atualizador instalado no Windows.</div>
                         </div>

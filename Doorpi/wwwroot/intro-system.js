@@ -104,14 +104,16 @@
             .doorpi-intro-ambient-blob { position: absolute; border-radius: 50%; filter: blur(45px); will-change: transform; transform: translate3d(0, 0, 0); }
             .doorpi-intro-ambient-vig { position: absolute; inset: 0; z-index: 2; background: var(--doorpi-intro-vignette, radial-gradient(circle at 50% 50%, transparent 25%, rgba(0, 0, 18, 0.85) 95%)); }
             
-            body.doorpi-intro-handoff-active .doorpi-user-overlay.doorpi-intro-handoff { 
+            body.doorpi-intro-handoff-active .doorpi-user-overlay.doorpi-intro-handoff,
+            body.doorpi-intro-handoff-active #setupContainer.doorpi-intro-handoff { 
                 background: transparent; 
                 backdrop-filter: none; 
                 -webkit-backdrop-filter: none; 
             }
 
             /* Animação de Surgimento do Fundo Estática */
-            body.doorpi-intro-handoff-active .doorpi-user-overlay.doorpi-intro-handoff .doorpi-user-panel { 
+            body.doorpi-intro-handoff-active .doorpi-user-overlay.doorpi-intro-handoff .doorpi-user-panel,
+            body.doorpi-intro-handoff-active #setupContainer.doorpi-intro-handoff .setup-form { 
                 /* Garante que a escala parta do centro exato */
                 transform-origin: center center !important;
                 /* 1.2s para uma entrada suave */
@@ -276,7 +278,7 @@
         const clickGuard = (e) => {
             if (!state.started || state.completed) return;
             e.preventDefault();
-            e.stopImmediatePropagation();
+            e.stopPropagation();
         };
         document.addEventListener('keydown', keyGuard, true);
         document.addEventListener('click', clickGuard, true);
@@ -405,6 +407,16 @@
             return [
                 transparent ? 'doorpi-intro-handoff' : '',
                 ...classListFrom(userPicker.className || userPicker.class || cfg.userPickerClass)
+            ].filter(Boolean);
+        },
+        getSetupClasses: () => {
+            const cfg = state.handoffConfig || {};
+            const setup = cfg.setup || {};
+            const userPicker = cfg.userPicker || {};
+            const transparent = setup.transparentBackdrop ?? userPicker.transparentBackdrop ?? cfg.transparentBackdrop ?? true;
+            return [
+                transparent ? 'doorpi-intro-handoff' : '',
+                ...classListFrom(setup.className || setup.class || cfg.setupClass || userPicker.className || userPicker.class || cfg.userPickerClass)
             ].filter(Boolean);
         },
         shouldDeferUserPicker: () => state.started && !state.completed

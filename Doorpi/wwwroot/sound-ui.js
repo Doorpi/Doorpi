@@ -861,15 +861,20 @@
         const style = document.createElement('style');
         style.id = 'doorpiSoundStyles';
         style.textContent = `
-            .sound-view{max-width:1220px;display:flex;flex-direction:column;position:relative}
-            .sound-view.drawer-open{max-width:1220px}
-            .sound-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:18px;align-items:start}
-            .sound-view.drawer-open .sound-layout{grid-template-columns:minmax(0,1fr)}
-            .sound-main{display:grid;gap:14px}
+            .sound-view{width:100%;max-width:min(1220px,100%);display:flex;flex-direction:column;position:relative}
+            .sound-view-quick{max-width:100%}
+            .sound-view-settings{max-width:min(1220px,100%)}
+            .sound-view.drawer-open{max-width:min(1220px,100%)}
+            .sound-view-quick.drawer-open{max-width:100%}
+            .sound-layout{width:100%;min-width:0;display:grid;grid-template-columns:minmax(0,1fr);gap:18px;align-items:start}
+            .sound-view-quick .sound-layout{grid-template-columns:minmax(360px,1fr) minmax(280px,clamp(320px,34%,480px));gap:clamp(12px,1.2vw,18px)}
+            .sound-view-settings .sound-layout{grid-template-columns:minmax(360px,1fr) minmax(280px,clamp(320px,34%,480px));gap:clamp(12px,1.2vw,18px)}
+            .sound-view.drawer-open .sound-layout{grid-template-columns:minmax(360px,1fr) minmax(280px,clamp(320px,34%,480px));gap:clamp(12px,1.2vw,18px)}
+            .sound-main{min-width:0;display:grid;gap:14px}
             .sound-panel,.sound-drawer{border:1px solid rgba(255,255,255,.09);border-radius:8px;background:linear-gradient(180deg,rgba(255,255,255,.052),rgba(255,255,255,.026));backdrop-filter:blur(14px)}
             .sound-panel{padding:16px;display:grid;gap:12px}
-            .sound-drawer{padding:18px;display:grid;gap:14px;overflow:hidden;max-height:min(76vh,920px)}
-            .sound-view.drawer-open .sound-drawer{position:absolute;left:calc(100% + 18px);top:0;width:clamp(400px,26vw,660px)}
+            .sound-drawer{min-width:0;padding:18px;display:grid;gap:14px;overflow:hidden;max-height:min(76vh,920px)}
+            .sound-view.drawer-open .sound-drawer{position:static;width:auto}
             .sound-section-head{display:grid;gap:4px}
             .sound-section-head p{margin:0;color:rgba(255,255,255,.5);font-size:.84rem;line-height:1.4}
             .sound-eyebrow{font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.5);font-weight:800}
@@ -954,12 +959,19 @@
             .sound-volume-slider.sound-focus.nav-focused-el + *, .sound-volume-slider.sound-focus:focus + *{outline:none}
             @media(min-width:3000px) and (min-height:1600px){
                 .sound-view{max-width:1440px}.sound-view.drawer-open{max-width:1440px}
-                .sound-view.drawer-open .sound-drawer{width:clamp(520px,24vw,680px)}
+                .sound-view.drawer-open .sound-layout{grid-template-columns:minmax(0,1fr) minmax(420px,clamp(520px,28%,680px))}
                 .sound-panel,.sound-drawer{padding:24px}
                 .sound-current-device,.sound-device-option{min-height:92px}
                 .sound-inline-action,.sound-system-group,.sound-system-toggle,.sound-volume-slider{min-height:58px}
             }
+            @media(max-width:1280px){
+                .sound-view-quick .sound-layout{grid-template-columns:minmax(300px,1fr) minmax(260px,clamp(280px,32%,380px))}
+                .sound-view-settings .sound-layout{grid-template-columns:minmax(300px,1fr) minmax(260px,clamp(280px,32%,380px))}
+                .sound-view.drawer-open .sound-layout{grid-template-columns:minmax(300px,1fr) minmax(260px,clamp(280px,32%,380px))}
+            }
             @media(max-width:1100px){
+                .sound-view-quick .sound-layout{grid-template-columns:1fr}
+                .sound-view-settings .sound-layout{grid-template-columns:1fr}
                 .sound-view.drawer-open .sound-layout{grid-template-columns:1fr}
                 .sound-view.drawer-open .sound-drawer{position:static;width:auto}
                 .sound-drawer{max-height:min(48vh,520px)}

@@ -134,6 +134,12 @@ body:not(.nav-menu-active) #heroImage {
     --fs-app-item: clamp(0.7rem, min(0.78vw, 1.39vh), 1.35rem);
     --accent: rgba(255,255,255,0.92);
 }
+
+@media (min-height: 801px) and (max-height: 1100px) {
+    :root {
+        --logo-bottom: clamp(425px, 48vh, 530px);
+    }
+}
 /* ══════════════════════════════════════════════════════
    GAMEPAD HINTS - ESTILO XBOX (PAI COLORIDO)
    ══════════════════════════════════════════════════════ */
@@ -143,10 +149,10 @@ body:not(.nav-menu-active) #heroImage {
 .gp-face-btn {
     display: inline-flex;
     justify-content: center;
-    width: clamp(20px, 1.5vw, 33px);
-    height: clamp(20px, 1.5vw, 32px);
+    width: clamp(22px, 1.65vw, 38px);
+    height: clamp(22px, 1.65vw, 38px);
     border-radius: 50%;
-    font-size: clamp(10px, 0.7vw, 18px);
+    font-size: clamp(11px, 0.78vw, 20px);
     font-weight: 900;
     line-height: 1;
     flex-shrink: 0;
@@ -212,13 +218,13 @@ body:not(.nav-menu-active) #heroImage {
 }
 
 .gp-start svg {
-    width: 12px;
-    height: 12px;
+    width: clamp(13px, 0.8vw, 22px);
+    height: clamp(13px, 0.8vw, 22px);
 }
 
 .gp-select svg {
-    width: 16px;
-    height: 16px;
+    width: clamp(17px, 1vw, 25px);
+    height: clamp(17px, 1vw, 25px);
 }
 
 *, *::before, *::after {
@@ -3258,13 +3264,13 @@ body {
 }
 
 .gp-hints-inner {
-    gap: clamp(8px, 1.2vw, 22px);
+    gap: clamp(10px, 1.35vw, 26px);
 }
 
 .home-tabs-hint {
     gap: 8px;
     font-family: 'Outfit', sans-serif;
-    font-size: clamp(0.6rem, 1vw, 1.4rem);
+    font-size: clamp(0.68rem, 1.05vw, 1.5rem);
     color: rgba(255, 255, 255, 0.4);
     letter-spacing: 0.05em;
     user-select: none;
@@ -3310,9 +3316,9 @@ body {
     align-items: center;
     justify-content: center;
     border-radius: 50%;
-    width: clamp(15px, 1.2vw, 24px);
-    height: clamp(15px, 1.2vw, 24px);
-    font-size: clamp(7px, 0.6vw, 12px);
+    width: clamp(18px, 1.35vw, 30px);
+    height: clamp(18px, 1.35vw, 30px);
+    font-size: clamp(8px, 0.72vw, 14px);
     font-weight: 900;
     letter-spacing: -0.02em;
     line-height: 1;
@@ -3351,14 +3357,14 @@ body {
 }
 
     .gp-face-btn.gp-start svg {
-        width: clamp(12px, 0.65vw, 20px);
-        height: clamp(12px, 0.65vw, 20px);
+        width: clamp(13px, 0.78vw, 22px);
+        height: clamp(13px, 0.78vw, 22px);
     }
 
 /* Rótulo ao lado do botão */
 .gp-hint-label {
     font-family: 'Outfit', sans-serif;
-    font-size: clamp(12px, 0.62vw, 15px);
+    font-size: clamp(13px, 0.74vw, 17px);
     font-weight: 500;
     color: rgba(255, 255, 255, 1);
     letter-spacing: 0.035em;

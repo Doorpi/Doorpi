@@ -16,12 +16,12 @@ namespace Doorpi
     {
 
 
-        private static string? _cachedBrandedUA = null;
+        private static string? _cachedNativeUA = null;
 
 
         private async Task<string> BuildBrandedUserAgentAsync(CoreWebView2 cw)
         {
-            if (_cachedBrandedUA != null) return _cachedBrandedUA;
+            if (_cachedNativeUA != null) return _cachedNativeUA;
             try
             {
                 // ExecuteScriptAsync retorna JSON; deserializamos para obter a string limpa.
@@ -30,9 +30,9 @@ namespace Doorpi
 
                 if (!string.IsNullOrWhiteSpace(ua))
                 {
-                    _cachedBrandedUA = ua.TrimEnd() + " Doorpi/1.6.1";
-                    Debug.WriteLine($"[UA] Branded UA gerado: {_cachedBrandedUA}");
-                    return _cachedBrandedUA;
+                    _cachedNativeUA = ua.Trim();
+                    Debug.WriteLine($"[UA] UA nativo do Chromium: {_cachedNativeUA}");
+                    return _cachedNativeUA;
                 }
             }
             catch (Exception ex)
@@ -42,8 +42,8 @@ namespace Doorpi
 
             // Fallback estático seguro para o caso de falha na leitura do UA.
             const string fallback = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                                    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Doorpi/1.6.1";
-            _cachedBrandedUA = fallback;
+                                    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+            _cachedNativeUA = fallback;
             return fallback;
         }
 

@@ -2590,6 +2590,12 @@
             postToHost({ action: 'requestUsers' });
         });
 
+        const fallbackUserIcon = `
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="12" cy="8.2" r="3.6" stroke="currentColor" stroke-width="1.8"/>
+                <path d="M5.8 19.2c1-3.2 3.2-5 6.2-5s5.2 1.8 6.2 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>`;
+
         function applyTopProfileUser(user) {
             const u = user || window._doorpiProfile || {};
             const avatar = btn.querySelector('.doorpi-avatar');
@@ -2599,6 +2605,7 @@
                     ? `<img src="data:image/png;base64,${u.PhotoBase64}" />`
                     : (u?.Name ? u.Name.charAt(0).toUpperCase() : '•');
             }
+            if (avatar && !u?.PhotoBase64) avatar.innerHTML = fallbackUserIcon;
             if (name) name.textContent = u?.Name ?? '';
             btn.classList.add('is-loaded');
         }
@@ -2702,6 +2709,7 @@
                 border-color: #fff;
             }
             .top-profile-btn img { width: 100%; height: 100%; object-fit: cover; }
+            .top-profile-btn .doorpi-avatar svg { width: 54%; height: 54%; color: rgba(255,255,255,.76); }
             .top-profile-name {
                 font-size: clamp(17px, 1vw, 19px);
                 font-weight: 500;
@@ -3319,6 +3327,11 @@
         const makeSvg = (svg) => "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
         const safeIcon = String(iconBase64 || '').replace(/"/g, '&quot;').trim();
         const hasIcon = safeIcon && !forceLetter;
+        const genericIcon = `<g fill="none" stroke="#eef4ff" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="150" y="210" width="300" height="300" rx="72"/>
+            <path d="M210 330h180M300 270v180"/>
+            <path d="M210 600h180M300 540v120"/>
+        </g>`;
         const iconSvg = (w, h, mainSize, blurSize) => {
             const xMain = (w - mainSize) / 2;
             const yMain = (h - mainSize) / 2;
@@ -3338,14 +3351,35 @@
                 <image href="data:image/png;base64,${safeIcon}" x="${xMain}" y="${yMain}" width="${mainSize}" height="${mainSize}" preserveAspectRatio="xMidYMid meet"/>
             </svg>`;
         };
+        const genericSvg = (w, h, scale = 1) => {
+            const iconW = 600 * scale;
+            const iconH = 900 * scale;
+            const tx = (w - iconW) / 2;
+            const ty = (h - iconH) / 2;
+            return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}">
+                <defs>
+                    <radialGradient id="doorpiGenericShade" cx="50%" cy="35%" r="78%">
+                        <stop offset="0%" stop-color="#30365f"/>
+                        <stop offset="55%" stop-color="#11162c"/>
+                        <stop offset="100%" stop-color="#070812"/>
+                    </radialGradient>
+                    <filter id="doorpiGenericGlow"><feGaussianBlur stdDeviation="${Math.round(Math.min(w, h) * 0.045)}"/></filter>
+                </defs>
+                <rect width="${w}" height="${h}" fill="url(#doorpiGenericShade)"/>
+                <g transform="translate(${tx} ${ty}) scale(${scale})" opacity="0.16" filter="url(#doorpiGenericGlow)">${genericIcon}</g>
+                <g transform="translate(${tx} ${ty}) scale(${scale})" opacity="0.78">${genericIcon}</g>
+            </svg>`;
+        };
 
         if (type === 'grid') {
             if (hasIcon) return makeSvg(iconSvg(600, 900, 190, 760));
+            if (!forceLetter) return makeSvg(genericSvg(600, 900, 1));
             // GRID VERTICAL: Fundo Escuro + Inicial
             return makeSvg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900"><rect width="600" height="900" fill="#1a1a2e"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#ffffff" font-family="sans-serif" font-size="350" font-weight="bold">${initial}</text></svg>`);
 
         } else if (type === 'horizontal') {
             if (hasIcon) return makeSvg(iconSvg(920, 430, 150, 560));
+            if (!forceLetter) return makeSvg(genericSvg(920, 430, 0.42));
             // GRID HORIZONTAL: Fundo Escuro + Inicial
             return makeSvg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 430"><rect width="920" height="430" fill="#1a1a2e"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#ffffff" font-family="sans-serif" font-size="200" font-weight="bold">${initial}</text></svg>`);
 
@@ -3371,21 +3405,19 @@
             // ── INJEÇÃO DE FALLBACKS (SEM ARTE) ──────────────────────────────────
             const applyFallbacks = (item) => {
                 const name = item.name || item.Name || "App";
-                const appType = String(item.appType || item.Type || item.type || '').toLowerCase();
-                const isWebApp = appType === 'browser' || appType === 'webview';
                 const iconBase64 = item.iconBase64 || item.IconBase64 || '';
 
                 // 1. Grid Vertical (Inicial)
                 const gridKey = item.imageData !== undefined ? 'imageData' : (item.GridImage !== undefined ? 'GridImage' : null);
-                if (gridKey && !item[gridKey]) item[gridKey] = window.generateFallbackSvg(name, 'grid', iconBase64, isWebApp);
+                if (gridKey && !item[gridKey]) item[gridKey] = window.generateFallbackSvg(name, 'grid', iconBase64);
 
                 // 2. Grid Horizontal (Inicial)
                 const horizKey = item.horizontalImage !== undefined ? 'horizontalImage' : (item.GridHorizontalImage !== undefined ? 'GridHorizontalImage' : null);
-                if (horizKey && !item[horizKey]) item[horizKey] = window.generateFallbackSvg(name, 'horizontal', iconBase64, isWebApp);
+                if (horizKey && !item[horizKey]) item[horizKey] = window.generateFallbackSvg(name, 'horizontal', iconBase64);
 
                 // 3. Logo (Nome)
                 const logoKey = item.logo !== undefined ? 'logo' : (item.LogoImage !== undefined ? 'LogoImage' : null);
-                if (logoKey && !item[logoKey]) item[logoKey] = window.generateFallbackSvg(name, 'logo', iconBase64, isWebApp);
+                if (logoKey && !item[logoKey]) item[logoKey] = window.generateFallbackSvg(name, 'logo', iconBase64);
 
                 // 4. Banner (Transparente para o Blob)
                 const bannerKey = item.hero !== undefined ? 'hero' : (item.HeroImage !== undefined ? 'HeroImage' : null);
@@ -3609,7 +3641,6 @@
             }
             else if (data.type === 'showSetup') {
                 const open = () => {
-                    window.DoorpiIntro?.finishHandoff?.();
                     if (typeof openSetup === 'function') openSetup();
                 };
                 if (window.DoorpiIntro?.isRunning?.()) window.DoorpiIntro.runAfterIntro(open);
@@ -4733,9 +4764,14 @@
         prompt.className = 'doorpi-pin-panel';
         prompt.dataset.mode = 'pin';
         prompt.dataset.failedAttempts = '0';
+        const fallbackPinAvatar = `
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="12" cy="8.2" r="3.6" stroke="currentColor" stroke-width="1.8"/>
+                <path d="M5.8 19.2c1-3.2 3.2-5 6.2-5s5.2 1.8 6.2 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>`;
         const pinAvatar = user.PhotoBase64
             ? `<img src="data:image/png;base64,${user.PhotoBase64}" />`
-            : escapeHtml((user.Name || '?').charAt(0).toUpperCase());
+            : fallbackPinAvatar;
         prompt.innerHTML = `
             <div class="doorpi-pin-box">
                 <div class="doorpi-pin-identity">
@@ -5235,7 +5271,9 @@ function showUserPicker(users, requireSelection = false) {
                     font-family: inherit;
                     padding: 0;
                     box-sizing: border-box;
+                    overflow: hidden;
                 }
+                .doorpi-quick-panel *, .doorpi-quick-panel *::before, .doorpi-quick-panel *::after { box-sizing: border-box; }
                 .doorpi-quick-panel.visible { display: flex; }
                 .doorpi-quick-panel.has-opened .dq-sidebar {
                     animation: none;
@@ -5248,6 +5286,9 @@ function showUserPicker(users, requireSelection = false) {
                 }
                 .dq-sidebar {
                     width: clamp(300px, 24vw, 380px);
+                    flex: 0 0 clamp(300px, 24vw, 380px);
+                    max-width: 42vw;
+                    min-width: 0;
                     padding: clamp(34px, 4.5vh, 58px) clamp(24px, 2vw, 34px);
                     border-right: 1px solid rgba(255,255,255,.09);
                 background: #060710;
@@ -5298,17 +5339,28 @@ function showUserPicker(users, requireSelection = false) {
                 .dq-content {
                     flex: 1;
                     min-width: 0;
+                    max-width: calc(100vw - clamp(300px, 24vw, 380px));
                     padding: clamp(42px, 5vh, 72px) clamp(38px, 4.5vw, 86px);
                     display: flex;
                     flex-direction: column;
                     gap: 18px;
+                    overflow-x: hidden;
+                    overflow-y: auto;
+                    scrollbar-width: none;
                     animation: dqContentIn .22s ease both;
                 }
+                .dq-content::-webkit-scrollbar { display:none; }
                 @keyframes dqContentIn { from { opacity:.35; transform:translateX(-10px); } to { opacity:1; transform:none; } }
                 .dq-kicker { color:rgba(255,255,255,.42); font-size:.78rem; font-weight:700; letter-spacing:.14em; text-transform:uppercase; }
                 .dq-heading { margin:0; font-size:clamp(2.2rem, 3.25vw, 4rem); line-height:1.02; font-weight:340; letter-spacing:0; }
                 .dq-sub { margin:0; max-width:720px; color:rgba(255,255,255,.60); line-height:1.48; font-size:clamp(.96rem, 1vw, 1.12rem); }
-                .dq-grid { display:grid; grid-template-columns: repeat(3, minmax(260px, 1fr)); gap:16px; max-width:980px; margin-top:12px; }
+                .dq-grid { display:grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap:16px; width:100%; max-width:980px; margin-top:12px; }
+                .dq-grid.connectivity-grid {
+                    grid-template-columns: minmax(0, 360px);
+                    width: min(100%, 380px);
+                    max-width: 380px;
+                    justify-content: start;
+                }
                 .dq-card, .dq-action {
                     border:1px solid rgba(255,255,255,.10);
                     border-radius:8px;
@@ -5321,6 +5373,11 @@ function showUserPicker(users, requireSelection = false) {
                     transition:transform .18s, background .18s, border-color .18s, box-shadow .18s;
                 }
                 .dq-card { min-height:178px; padding:22px; display:flex; flex-direction:column-reverse; justify-content:space-between; gap:22px; }
+                .dq-grid.connectivity-grid .dq-card {
+                    flex-direction: column;
+                    justify-content: flex-start;
+                    min-height: 150px;
+                }
                 .dq-action { min-height:60px; padding:0 18px; display:flex; align-items:center; justify-content:space-between; gap:14px; }
                 .dq-card.nav-focused-el, .dq-action.nav-focused-el, .dq-card:focus, .dq-action:focus {
                     transform:translateY(-2px);
@@ -5333,7 +5390,7 @@ function showUserPicker(users, requireSelection = false) {
                 .dq-pill { display:inline-flex; align-self:flex-start; padding:4px 9px; border-radius:999px; background:rgba(125,203,255,.12); color:#9dd8ff; font-size:.68rem; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
                 .dq-pill.warn { background:rgba(255,205,90,.13); color:#ffd872; }
                 .dq-pill.err { background:rgba(255,90,90,.13); color:#ff9696; }
-                .dq-panel { max-width:880px; border:1px solid rgba(255,255,255,.10); border-radius:8px; background:rgba(255,255,255,.04); padding:20px; }
+                .dq-panel { width:100%; max-width:880px; border:1px solid rgba(255,255,255,.10); border-radius:8px; background:rgba(255,255,255,.04); padding:20px; }
                 .dq-tabs { display:flex; gap:8px; margin:4px 0 2px; }
                 .dq-tab { min-width:132px; min-height:42px; border-radius:8px; border:1px solid rgba(255,255,255,.10); background:rgba(255,255,255,.035); color:rgba(255,255,255,.74); font:inherit; outline:none; cursor:pointer; }
                 .dq-tab.active { color:#fff; background:rgba(125,203,255,.10); border-color:rgba(125,203,255,.36); }
@@ -5348,8 +5405,8 @@ function showUserPicker(users, requireSelection = false) {
                 .dq-update-progress-state.restart { color:#ffd872; }
                 .dq-progress-track { height:4px; overflow:hidden; border-radius:2px; background:rgba(255,255,255,.10); }
                 .dq-progress-fill { height:100%; width:var(--progress); background:#7dcbff; transition:width .18s linear; }
-                .dq-actions { display:grid; grid-template-columns: repeat(2, minmax(230px, 1fr)); gap:12px; max-width:740px; margin-top:6px; }
-                .dq-power-list { display: flex; flex-direction: column; gap: 12px; max-width: 540px; margin-top: 12px; }
+                .dq-actions { display:grid; grid-template-columns: repeat(2, minmax(210px, 1fr)); gap:12px; width:100%; max-width:740px; margin-top:6px; }
+                .dq-power-list { display: flex; flex-direction: column; gap: 12px; width:100%; max-width: 540px; margin-top: 12px; }
                 .dq-power-list .dq-action { width: 100%; justify-content: flex-start; gap: 18px; min-height: 64px; font-size: 1.05rem; }
                 .dq-power-list .dq-action-ico { color: rgba(255,255,255,0.4); transition: color 0.18s; }
                 .dq-power-list .dq-action:focus .dq-action-ico, .dq-power-list .dq-action:hover .dq-action-ico { color: #fff; }
@@ -5374,22 +5431,25 @@ function showUserPicker(users, requireSelection = false) {
                 .dq-action.compact { min-height:48px; font-size:.92rem; }
                 .dq-action[disabled] { opacity:.38; cursor:default; pointer-events:none; }
                 .dq-action[data-busy="true"] { opacity:.72; cursor:default; }
-                .dq-app-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:14px; max-width:880px; margin-top:4px; }
+                .dq-app-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:16px; width:100%; max-width:980px; margin-top:4px; }
                 .dq-app-card {
-                    min-height:176px;
+                    min-height:248px;
                     border:1px solid rgba(255,255,255,.10);
-                    border-radius:8px;
-                    background:linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.035));
+                    border-radius:12px;
+                    background:
+                        radial-gradient(circle at 50% 0%, rgba(255,255,255,.12), transparent 42%),
+                        linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.035));
                     color:#fff;
                     outline:none;
                     cursor:pointer;
-                    padding:16px;
+                    padding:16px 16px 18px;
                     display:flex;
                     flex-direction:column;
-                    justify-content:space-between;
-                    gap:14px;
+                    justify-content:flex-start;
+                    gap:16px;
                     text-align:left;
                     transition:transform .18s, background .18s, border-color .18s, box-shadow .18s;
+                    overflow:hidden;
                 }
                 .dq-app-card.nav-focused-el, .dq-app-card:focus {
                     transform:translateY(-2px);
@@ -5398,21 +5458,27 @@ function showUserPicker(users, requireSelection = false) {
                     box-shadow:0 0 0 2px rgba(255,255,255,.15), 0 18px 42px rgba(0,0,0,.38);
                 }
                 .dq-app-art {
-                    height:86px;
-                    border-radius:7px;
-                    background:radial-gradient(circle at 24% 18%, rgba(125,203,255,.22), transparent 34%), rgba(255,255,255,.06);
+                    min-height:132px;
+                    border-radius:10px;
+                    background:
+                        radial-gradient(circle at 50% 18%, rgba(255,255,255,.24), transparent 32%),
+                        radial-gradient(circle at 20% 10%, rgba(125,203,255,.28), transparent 36%),
+                        linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.03));
                     display:flex;
                     align-items:center;
                     justify-content:center;
                     overflow:hidden;
+                    box-shadow:inset 0 1px 0 rgba(255,255,255,.08), 0 18px 28px rgba(0,0,0,.16);
                 }
-                .dq-app-art img { width:48px; height:48px; object-fit:contain; filter:drop-shadow(0 8px 18px rgba(0,0,0,.36)); }
-                .dq-app-cover { width:100%; height:100%; background-size:cover; background-position:center; }
-                .dq-app-fallback { width:48px; height:48px; border-radius:12px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,.12); font-weight:800; letter-spacing:.04em; }
-                .dq-app-name { font-size:1rem; font-weight:650; line-height:1.22; min-height:2.44em; overflow:hidden; }
-                .dq-app-meta { color:rgba(255,255,255,.54); font-size:.78rem; line-height:1.35; }
-                .dq-app-footer { display:flex; align-items:center; justify-content:space-between; gap:10px; }
-                .dq-app-add { align-items:center; text-align:center; justify-content:center; border-style:dashed; }
+                .dq-app-art img { width:min(72%, 108px); height:min(72%, 108px); object-fit:contain; filter:drop-shadow(0 14px 28px rgba(0,0,0,.34)); }
+                .dq-app-cover { width:100%; height:100%; background-size:contain; background-repeat:no-repeat; background-position:center; filter:drop-shadow(0 14px 24px rgba(90,180,255,.18)); transform:scale(1.03); }
+                .dq-app-fallback { width:58px; height:58px; border-radius:16px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,.14); font-weight:800; letter-spacing:.04em; }
+                .dq-app-copy { display:grid; gap:6px; align-content:start; }
+                .dq-app-name { font-size:1rem; font-weight:650; line-height:1.24; overflow:hidden; }
+                .dq-app-meta { color:rgba(255,255,255,.58); font-size:.78rem; line-height:1.38; }
+                .dq-app-add { border-style:dashed; }
+                .dq-app-add .dq-app-art { background:none; box-shadow:none; min-height:132px; }
+                .dq-app-add .dq-app-fallback { width:62px; height:62px; background:#fff; color:#0d1018; box-shadow:0 12px 28px rgba(255,255,255,.18); }
                 .dq-gpu-guidance { max-width:880px; display:grid; gap:8px; padding-left:14px; border-left:2px solid rgba(125,203,255,.48); }
                 .dq-gpu-guidance p { margin:0; color:rgba(255,255,255,.56); font-size:.86rem; line-height:1.42; }
                 .dq-gpu-guidance strong { color:rgba(255,255,255,.84); font-weight:650; }
@@ -5434,17 +5500,39 @@ function showUserPicker(users, requireSelection = false) {
                     .dq-action, .dq-power-list .dq-action { min-height:80px; padding:0 24px; font-size:1.2rem; }
                     .dq-panel, .dq-app-grid, .dq-gpu-guidance, .dq-windows-guidance { max-width:1100px; }
                     .dq-actions { max-width:920px; gap:16px; }
-                    .dq-app-grid { grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:18px; }
-                    .dq-app-card { min-height:220px; padding:20px; }
-                    .dq-app-art { height:108px; }
+                    .dq-app-grid { grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:18px; }
+                    .dq-app-card { min-height:288px; padding:22px; }
+                    .dq-app-art { min-height:156px; }
                     .dq-tab { min-width:165px; min-height:52px; }
                 }
                 @media (max-width: 900px) {
-                    .dq-sidebar { width: 230px; padding-inline:18px; }
-                    .dq-content { padding-inline:26px; }
+                    .dq-sidebar { width: 230px; flex-basis:230px; padding-inline:18px; }
+                    .dq-content { max-width:calc(100vw - 230px); padding-inline:26px; }
                     .dq-grid, .dq-actions { grid-template-columns:1fr; }
                     .dq-actions.windows-update-actions { grid-template-areas: none; }
                     .dq-action.verify, .dq-action.manual, .dq-action.install, .dq-action.restart { grid-area: auto; }
+                }
+                @media (max-width: 1366px), (max-height: 780px) {
+                    .dq-sidebar { width:260px; flex-basis:260px; padding:28px 18px; gap:12px; }
+                    .dq-brand { min-height:34px; margin-bottom:4px; }
+                    .dq-title { font-size:1.08rem; }
+                    .dq-menu { gap:7px; margin-top:4px; }
+                    .dq-menu-btn { min-height:52px; padding:0 12px; }
+                    .dq-menu-label { gap:10px; font-size:.9rem; }
+                    .dq-menu-ico, .dq-menu-ico svg { width:22px; height:22px; }
+                    .dq-content { max-width:calc(100vw - 260px); padding:28px; gap:12px; }
+                    .dq-heading { font-size:clamp(1.65rem, 3.2vw, 2.35rem); }
+                    .dq-sub { font-size:.88rem; line-height:1.38; }
+                    .dq-grid { grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; }
+                    .dq-card { min-height:132px; padding:16px; gap:14px; }
+                    .dq-card h3 { font-size:1rem; }
+                    .dq-card p { font-size:.78rem; line-height:1.3; }
+                    .dq-panel { padding:14px; }
+                    .dq-actions { grid-template-columns:repeat(2,minmax(170px,1fr)); gap:10px; }
+                    .dq-action, .dq-power-list .dq-action { min-height:50px; font-size:.9rem; }
+                    .dq-app-grid { grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; }
+                    .dq-app-card { min-height:198px; padding:12px; gap:12px; }
+                    .dq-app-art { min-height:96px; }
                 }
             `;
             document.head.appendChild(s);
@@ -5568,7 +5656,7 @@ function showUserPicker(users, requireSelection = false) {
         function iconSvg(id, cls = '') {
             const icons = {
                 updates: '<path d="M21 12a9 9 0 0 1-15.5 6.2"/><path d="M3 12A9 9 0 0 1 18.5 5.8"/><path d="M18.5 2.8v3h-3"/><path d="M5.5 21.2v-3h3"/>',
-                connectivity: '<path d="M7 7.5a7 7 0 0 1 10 0"/><path d="M9.7 10.2a3.3 3.3 0 0 1 4.6 0"/><circle cx="12" cy="13" r=".7" fill="currentColor"/><path d="m16.5 3 4 4-3 2.5 3 2.5-4 4V3Z"/>',
+                connectivity: '<path d="M12 2v20l6-6-6-4 6-4-6-6Z"/><path d="M6.5 6.5 12 12l-5.5 5.5"/>',
                 sound: '<path d="M4 9v6h4l5 4V5L8 9H4Z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/>',
                 users: '<path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.85"/><path d="M16 3.15a4 4 0 0 1 0 7.7"/>',
                 power: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>',
@@ -5785,18 +5873,15 @@ function showUserPicker(users, requireSelection = false) {
                                 <div class="dq-app-art">
                                     ${imageUrl ? `<div class="dq-app-cover" style="background-image:url('${esc(imageUrl)}')"></div>` : (iconDataUrl ? `<img src="${esc(iconDataUrl)}" alt="">` : `<div class="dq-app-fallback">${esc(updaterInitials(app))}</div>`)}
                                 </div>
-                                <div>
+                                <div class="dq-app-copy">
                                     <div class="dq-app-name">${esc(name)}</div>
                                     <div class="dq-app-meta">${esc(vendorName(vendor))} · ${esc(source === 'manual' ? t('quickAddedManually') : t('quickDetectedAutomatically'))}</div>
-                                </div>
-                                <div class="dq-app-footer">
-                                    <span class="dq-pill">${t('quickOpen')}</span>
                                 </div>
                             </div>
                         `}).join('')}
                         <div class="dq-app-card dq-app-add" data-action="add-gpu-updater" tabindex="0" role="button">
                             <div class="dq-app-art"><div class="dq-app-fallback">+</div></div>
-                            <div>
+                            <div class="dq-app-copy">
                                 <div class="dq-app-name">${t('quickAddApp')}</div>
                                 <div class="dq-app-meta">${t('quickAddUpdaterDesc')}</div>
                             </div>
@@ -5881,9 +5966,8 @@ function showUserPicker(users, requireSelection = false) {
                     <div class="dq-kicker">${t('quickPanel')}</div>
                     <h1 class="dq-heading">${t('navSetConnectivity')}</h1>
                     <p class="dq-sub">${t('quickConnectivityDesc')}</p>
-                    <div class="dq-grid">
+                    <div class="dq-grid connectivity-grid">
                         <button class="dq-card" data-connectivity-view="bluetooth" tabindex="0"><div><h3>Bluetooth</h3><p>${t('bluetoothSettingsDesc')}</p></div></button>
-                        <button class="dq-card" data-connectivity-view="wifi" tabindex="0"><div><h3>Wi-Fi</h3><p>${t('wifiSettingsDesc')}</p></div></button>
                     </div>
                 </section>`;
         }
@@ -7572,7 +7656,7 @@ function renderFolderList(folders) {
         align-items: center;
         gap: 8px;
         font-family: 'Outfit', sans-serif;
-        font-size: clamp(0.6rem, 1vw, 1.4rem);
+        font-size: clamp(0.68rem, 1.05vw, 1.5rem);
         color: rgba(255, 255, 255, 1);
         letter-spacing: 0.05em;
         user-select: none;
@@ -7722,9 +7806,9 @@ function renderFolderList(folders) {
         transition: opacity 0.3s ease;
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: clamp(12px, 1.1vw, 18px);
         color: rgba(255,255,255,.58);
-        font-size: 12px;
+        font-size: clamp(13px, .82vw, 18px);
         font-weight: 800;
         letter-spacing: .05em;
         text-transform: uppercase;
@@ -7735,9 +7819,9 @@ function renderFolderList(folders) {
     .nav-hint-chip {
         display: inline-flex;
         align-items: center;
-        gap: 7px;
-        min-height: 28px;
-        padding: 0 10px;
+        gap: clamp(7px, .6vw, 10px);
+        min-height: clamp(32px, 2vw, 40px);
+        padding: 0 clamp(12px, .9vw, 18px);
         border-radius: 999px;
         border: 1px solid rgba(255,255,255,.12);
         background: rgba(8,9,18,.34);
@@ -7745,8 +7829,8 @@ function renderFolderList(folders) {
         -webkit-backdrop-filter: blur(10px);
     }
     .nav-hint-chip svg {
-        width: 18px;
-        height: 18px;
+        width: clamp(20px, 1.1vw, 28px);
+        height: clamp(20px, 1.1vw, 28px);
         flex: 0 0 auto;
     }
         .context-menu {
@@ -7803,21 +7887,33 @@ function renderFolderList(folders) {
         .ctx-item {
             display: flex; align-items: center; gap: 10px;
             padding: 10px 14px;
-            border: none; background: none;
+            min-height: 42px;
+            border: 1px solid transparent; background: none;
             color: rgba(255,255,255,0.82);
             font-size: 13.5px; font-family: inherit; font-weight: 450;
             border-radius: 8px; cursor: pointer;
             text-align: left; width: 100%;
-            transition: background 0.1s, color 0.1s;
+            transition: background 0.1s, color 0.1s, border-color 0.1s, box-shadow 0.1s;
         }
-        .ctx-item:hover, .ctx-item:focus { background: rgba(255,255,255,0.09); color: #fff; outline: none; }
+        .ctx-item:hover, .ctx-item:focus {
+            background: rgba(255,255,255,0.10);
+            color: #fff;
+            border-color: rgba(255,255,255,0.28);
+            box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05);
+            outline: none;
+        }
         .ctx-item.ctx-danger:hover, .ctx-item.ctx-danger:focus { background: rgba(220,50,50,0.18); color: #ff6e6e; }
         .ctx-item .ctx-icon { width: 16px; text-align: center; opacity: 0.6; font-size: 15px; flex-shrink: 0; }
-        .ctx-item.ctx-toggle-item { justify-content: space-between; gap: 14px; }
+        .ctx-item.ctx-toggle-item { justify-content: space-between; gap: 16px; min-height: 50px; }
+        .ctx-item.ctx-toggle-item span:not(.ctx-icon) {
+            flex: 1;
+            min-width: 0;
+            line-height: 1.25;
+        }
         .ctx-item.ctx-toggle-item .ctx-icon {
-            width: 20px;
-            height: 20px;
-            min-width: 20px;
+            width: 24px;
+            height: 24px;
+            min-width: 24px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -7829,6 +7925,11 @@ function renderFolderList(folders) {
             font-size: 12px;
             font-weight: 700;
             transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease, transform 0.12s ease;
+        }
+        .ctx-item.ctx-toggle-item:focus .ctx-icon,
+        .ctx-item.ctx-toggle-item:hover .ctx-icon {
+            border-color: rgba(255,255,255,0.75);
+            box-shadow: 0 0 0 3px rgba(255,255,255,0.14);
         }
         .ctx-item.ctx-toggle-item.on {
             background: rgba(90,150,255,0.12);
@@ -8204,12 +8305,12 @@ function renderFolderList(folders) {
 
             @media (min-height: 1080px) {
             #navHintDown { bottom: 3px; padding:6px 90px; }
-            #navHintDown svg { width: 28px; height: 28px; }
+            #navHintDown svg { width: clamp(28px, 1.5vw, 34px); height: clamp(28px, 1.5vw, 34px); }
         }
 
     /* Texto opcional abaixo da seta se quiser (ou deixe vazio) */
     .nav-hint-text {
-        font-size: clamp(10px, 1.2vmin, 14px);
+        font-size: clamp(11px, 1.3vmin, 16px);
         color: rgba(255, 255, 255, 0.5);
         text-transform: uppercase;
         letter-spacing: 0.1em;
@@ -8225,7 +8326,7 @@ function renderFolderList(folders) {
         border: 1px solid rgba(255,255,255,0.15);
         border-radius: clamp(4px, 0.8vw, 8px);
         padding: clamp(3px, 0.5vw, 6px) clamp(6px, 1vw, 12px);
-        font-size: clamp(11px, 1.2vw, 14px);
+        font-size: clamp(12px, 1.25vw, 16px);
         color: #fff;
         display: flex;
         align-items: center;
@@ -8318,10 +8419,10 @@ function renderFolderList(folders) {
                 <span class="ctx-icon">▶</span> <span id="ctxRuntimeActionText">${t('ctxStart')}</span>
             </button>
             <button class="ctx-item ctx-toggle-item" id="ctxStoreGamepadControl" role="menuitem">
-                <span class="ctx-icon"></span> <span id="ctxStoreGamepadControlText">${t('storeDisableGamepadControl')}</span>
+                <span id="ctxStoreGamepadControlText">${t('storeDisableGamepadControl')}</span> <span class="ctx-icon"></span>
             </button>
             <button class="ctx-item ctx-toggle-item" id="ctxStoreAutoAdd" role="menuitem">
-                <span class="ctx-icon"></span> <span id="ctxStoreAutoAddText">${t('storeAutoAddQuickToggle')}</span>
+                <span id="ctxStoreAutoAddText">${t('storeAutoAddQuickToggle')}</span> <span class="ctx-icon"></span>
             </button>
             <div class="ctx-separator"></div>
             <button class="ctx-item" id="ctxExtensions" role="menuitem">
@@ -9137,11 +9238,11 @@ function renderFolderList(folders) {
         });
 
         overlay.querySelector('#editArtworkSteamGridBtn')?.addEventListener('click', () => {
-            openArtworkWizard(card, 'steamgrid', input.value.trim() || currentName);
+            openArtworkWizard(card, 'steamgrid', input.value.trim() || card.dataset.assetQuery || currentName);
         });
 
         overlay.querySelector('#editArtworkLocalBtn')?.addEventListener('click', () => {
-            openArtworkWizard(card, 'local', input.value.trim() || currentName);
+            openArtworkWizard(card, 'local', input.value.trim() || card.dataset.assetQuery || currentName);
         });
 
         const doSave = () => {
@@ -9158,12 +9259,10 @@ function renderFolderList(folders) {
                 );
 
                 // Gera as novas artes com o nome atualizado
-                const cardAppType = String(card.dataset.appType || '').toLowerCase();
-                const forceLetterFallback = cardAppType === 'browser' || cardAppType === 'webview';
                 const iconBase64 = card.dataset.iconBase64 || '';
-                const newLogoSvg = window.generateFallbackSvg(newName, 'logo', iconBase64, forceLetterFallback);
-                const newGridSvg = window.generateFallbackSvg(newName, 'grid', iconBase64, forceLetterFallback);
-                const newHorizSvg = window.generateFallbackSvg(newName, 'horizontal', iconBase64, forceLetterFallback);
+                const newLogoSvg = window.generateFallbackSvg(newName, 'logo', iconBase64);
+                const newGridSvg = window.generateFallbackSvg(newName, 'grid', iconBase64);
+                const newHorizSvg = window.generateFallbackSvg(newName, 'horizontal', iconBase64);
 
                 allCards.forEach(c => {
                     // Atualiza o texto normal da UI
@@ -9710,7 +9809,7 @@ function renderFolderList(folders) {
             const down = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter' });
             _inputEl.dispatchEvent(down);
             _inputEl.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Enter', code: 'Enter' }));
-            _renderPreview();
+            _forceClose();
         }
 
         function _physicalKey(key) {
