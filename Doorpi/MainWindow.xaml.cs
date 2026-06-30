@@ -3818,6 +3818,7 @@ namespace Doorpi
                                 if (this.Topmost) this.Topmost = false;
                                 // Empurra o Doorpi para o fundo da pilha Z-order, atrás de todos os apps
                                 SetWindowPos(_mainWindowHandle, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                                FocusExternalWindow(activeHwnd);
 
                             });
 
@@ -7334,6 +7335,31 @@ namespace Doorpi
             try
             {
                 await Task.Delay(delayMs).ConfigureAwait(false);
+                bool focusRetried = false;
+                Dispatcher.Invoke(() =>
+                {
+                    if (!_gameSessionActive || _gameIsMinimized)
+                        return;
+
+                    if (IsForegroundOwnedByCurrentGame())
+                    {
+                        _gameIsRunningAndDoorpiHidden = true;
+                        ClearGameFocusFallbackPrompt();
+                        SendGameLaunchStatus("gameLaunchDone");
+                        SendRuntimeSessionsToUI();
+                        return;
+                    }
+
+                    if (IsForegroundDoorpi() && IsRestorableGameWindow(hwnd))
+                    {
+                        FocusExternalWindow(hwnd);
+                        focusRetried = true;
+                    }
+                });
+
+                if (focusRetried)
+                    await Task.Delay(500).ConfigureAwait(false);
+
                 Dispatcher.Invoke(() =>
                 {
                     if (!_gameSessionActive || _gameIsMinimized)
@@ -7826,6 +7852,24 @@ namespace Doorpi
                 return false;
 
             _mediaExeProcess = aliveProcess;
+            var hwnd = FindAnyWindowForProcess(aliveProcess.Id);
+            if (hwnd == IntPtr.Zero) hwnd = aliveProcess.MainWindowHandle;
+            if (hwnd != IntPtr.Zero && IsForegroundDoorpi())
+            {
+                var session = GetExecutableAppSession(mediaUrl);
+                bool shouldTryFocus = session?.FocusedWindowHandles.Add(hwnd) ?? true;
+                if (shouldTryFocus)
+                {
+                    FocusExternalWindow(hwnd);
+                    _ = Dispatcher.BeginInvoke(async () =>
+                    {
+                        await Task.Delay(650);
+                        if (IsForegroundDoorpi() && FindAliveMediaExeProcess(mediaUrl, _mediaExeProcess) != null)
+                            ShowExecutionLockForMediaExe(mediaUrl);
+                    });
+                    return false;
+                }
+            }
 
             ShowExecutionLock(
                 "exe",

@@ -325,7 +325,7 @@ namespace Doorpi
             return style;
         }
 
-        private void OpenGenericBrowserKeyboard(GenericBrowserKeyboardTarget target, int? targetScreenY = null)
+        private void OpenGenericBrowserKeyboard(GenericBrowserKeyboardTarget target, int? targetScreenY = null, WebView2? ownerView = null)
         {
             if (target == GenericBrowserKeyboardTarget.AddressBar && _genericBrowserAddressBox == null) return;
             if (target == GenericBrowserKeyboardTarget.WebInput &&
@@ -338,7 +338,7 @@ namespace Doorpi
             {
                 _genericBrowserKeyboardTarget = target;
                 _vkbIsOpen = true;
-                _vkbOwnerView = _ytWebView;
+                _vkbOwnerView = ownerView ?? _ytWebView;
                 _vkbHasFocus = true;
                 _genericBrowserVkbSuppressAUntilRelease = true;
 
@@ -369,8 +369,9 @@ namespace Doorpi
                 }
                 else
                 {
-                    _ytWebView?.Focus();
-                    _ = _ytWebView?.CoreWebView2?.ExecuteScriptAsync("try{window.focus();}catch(e){}");
+                    var webOwner = _vkbOwnerView ?? _ytWebView;
+                    webOwner?.Focus();
+                    _ = webOwner?.CoreWebView2?.ExecuteScriptAsync("try{window.focus();}catch(e){}");
                 }
             });
         }
@@ -379,8 +380,9 @@ namespace Doorpi
         {
             Dispatcher.Invoke(() =>
             {
+                var ownerView = _vkbOwnerView;
                 if (notifyWeb)
-                    _ = _ytWebView?.CoreWebView2?.ExecuteScriptAsync("try{window.__doorpiNativeVkbClose?.();}catch(e){}");
+                    _ = ownerView?.CoreWebView2?.ExecuteScriptAsync("try{window.__doorpiNativeVkbClose?.();}catch(e){}");
 
                 _genericBrowserVkbSuppressUntilUtc = DateTime.UtcNow.AddMilliseconds(650);
                 try { _desktopVkb?.Close(); } catch { }
@@ -396,13 +398,13 @@ namespace Doorpi
         private void OpenGenericBrowserAddressKeyboard() =>
             OpenGenericBrowserKeyboard(GenericBrowserKeyboardTarget.AddressBar);
 
-        private void OpenGenericBrowserWebKeyboard(int targetScreenY) =>
-            OpenGenericBrowserKeyboard(GenericBrowserKeyboardTarget.WebInput, targetScreenY);
+        private void OpenGenericBrowserWebKeyboard(int targetScreenY, WebView2? ownerView = null) =>
+            OpenGenericBrowserKeyboard(GenericBrowserKeyboardTarget.WebInput, targetScreenY, ownerView);
 
         private void MarkGenericBrowserControllerInputIntent()
         {
             _genericBrowserControllerInputUntilUtc = DateTime.UtcNow.AddMilliseconds(520);
-            var view = _ytWebView;
+            var view = _popupWebView ?? _ytWebView;
             if (view == null) return;
 
             Dispatcher.InvokeAsync(() =>
@@ -419,16 +421,17 @@ namespace Doorpi
         private bool HasRecentGenericBrowserControllerInputIntent() =>
             DateTime.UtcNow <= _genericBrowserControllerInputUntilUtc;
 
-        private int GenericBrowserWebYToScreen(double webY)
+        private int GenericBrowserWebYToScreen(double webY, WebView2? ownerView = null)
         {
-            if (_ytWebView == null)
+            var view = ownerView ?? _ytWebView;
+            if (view == null)
             {
                 return GetCursorPos(out var pt) ? pt.Y : (int)(SystemParameters.PrimaryScreenHeight * 0.55);
             }
 
             try
             {
-                var screenPoint = _ytWebView.PointToScreen(new Point(0, Math.Max(0, webY)));
+                var screenPoint = view.PointToScreen(new Point(0, Math.Max(0, webY)));
                 return (int)Math.Round(screenPoint.Y);
             }
             catch
@@ -460,15 +463,16 @@ namespace Doorpi
                 }
 
                 string json = System.Text.Json.JsonSerializer.Serialize(key);
-                _ = _ytWebView?.CoreWebView2?.ExecuteScriptAsync($"try{{window.__doorpiNativeVkbKey?.({json});}}catch(e){{}}");
+                var ownerView = _vkbOwnerView ?? _ytWebView;
+                _ = ownerView?.CoreWebView2?.ExecuteScriptAsync($"try{{window.__doorpiNativeVkbKey?.({json});}}catch(e){{}}");
                 if (key == "ENTER")
                 {
                     CloseGenericBrowserKeyboard(false);
-                    _ytWebView?.Focus();
+                    ownerView?.Focus();
                     return;
                 }
 
-                _ytWebView?.Focus();
+                ownerView?.Focus();
             });
         }
 
@@ -3635,8 +3639,11 @@ namespace Doorpi
         const path = e.composedPath?.() || [];
         return path.some(item => item?.classList?.contains?.(className));
     }}
+    function _doorpiIsLoginPopup() {{
+        return window.name === 'doorpi_popup';
+    }}
     function _doorpiVkbOpenedByController() {{
-        return Date.now() - (window.__doorpiVkbControllerIntentAt || 0) < 520;
+        return _doorpiIsLoginPopup() || Date.now() - (window.__doorpiVkbControllerIntentAt || 0) < 520;
     }}
 
     if (__doorpiUseNativeKeyboard) {{
@@ -6101,7 +6108,7 @@ namespace Doorpi
             bool isPopup = (_popupWebView != null && sender == _popupWebView.CoreWebView2);
             WebView2 senderView = isPopup ? _popupWebView! : _ytWebView!;
 
-            if (_isGenericBrowserMode && !isPopup && msg.StartsWith("native_vkb_open:"))
+            if (_isGenericBrowserMode && msg.StartsWith("native_vkb_open:"))
             {
                 if (DateTime.UtcNow < _genericBrowserVkbSuppressUntilUtc)
                     return;
@@ -6112,8 +6119,8 @@ namespace Doorpi
                     var node = JsonNode.Parse(payload);
                     double bottom = node?["bottom"]?.GetValue<double>() ?? 0;
                     double top = node?["top"]?.GetValue<double>() ?? bottom;
-                    int screenY = GenericBrowserWebYToScreen(bottom > 0 ? bottom : top);
-                    Dispatcher.Invoke(() => OpenGenericBrowserWebKeyboard(screenY));
+                    int screenY = GenericBrowserWebYToScreen(bottom > 0 ? bottom : top, senderView);
+                    Dispatcher.Invoke(() => OpenGenericBrowserWebKeyboard(screenY, senderView));
                 }
                 catch (Exception ex)
                 {
@@ -6122,7 +6129,7 @@ namespace Doorpi
                 return;
             }
 
-            if (_isGenericBrowserMode && !isPopup && msg == "native_vkb_closed")
+            if (_isGenericBrowserMode && msg == "native_vkb_closed")
             {
                 Dispatcher.Invoke(() =>
                 {

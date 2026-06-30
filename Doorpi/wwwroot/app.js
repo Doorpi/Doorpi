@@ -3519,7 +3519,7 @@
                 window.isDoorpiFocused = true;
 
                 if (!window._vkbIsOpen) {
-                    recoverGlobalFocus();
+                    scheduleDoorpiFocusRecovery();
                 }
 
                 if (window._isExternalAppRunning) {
@@ -4101,6 +4101,7 @@
                 window._executionOverlayVisualKey = '';
                 GameLaunchOverlay.hide();
                 _stopExecutionOverlayRefreshLoop();
+                scheduleDoorpiFocusRecovery();
             }
             else if (data.type === 'storeSessionReturnedToDoorpi') {
                 const addModal = document.getElementById('addGameContainer');
@@ -4234,6 +4235,22 @@
         // 3. Fallback: Qualquer coisa clicável na tela
         const fallback = document.querySelector('button, [tabindex="0"]');
         if (fallback) fallback.focus();
+    }
+    function scheduleDoorpiFocusRecovery() {
+        const delays = [0, 80, 220, 520];
+        delays.forEach(delay => {
+            setTimeout(() => {
+                if (window._vkbIsOpen) return;
+                if (window.isMediaAppActive || window.isGameLaunchActive) return;
+                const active = document.activeElement;
+                const hasUsefulFocus = active &&
+                    active !== document.body &&
+                    active !== document.documentElement &&
+                    typeof active.focus === 'function' &&
+                    active.offsetParent !== null;
+                if (!hasUsefulFocus) recoverGlobalFocus();
+            }, delay);
+        });
     }
     function postToHost(payload) {
 
