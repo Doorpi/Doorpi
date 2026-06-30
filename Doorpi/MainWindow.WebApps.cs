@@ -90,6 +90,8 @@ namespace Doorpi
         private Popup? _genericBrowserWidgetsPopup;
         private WebView2? _genericBrowserExtensionPopupView;
         private CoreWebView2Environment? _genericBrowserEnvironment;
+        private readonly object _webViewEnvironmentCacheLock = new();
+        private readonly Dictionary<string, Task<CoreWebView2Environment>> _webViewEnvironmentCache = new(StringComparer.OrdinalIgnoreCase);
         private bool _genericBrowserExtensionOutsideCloseHooked;
         private DateTime _genericBrowserIgnoreOutsideClickUntilUtc = DateTime.MinValue;
         private bool _isGenericBrowserMode;
@@ -100,6 +102,8 @@ namespace Doorpi
         private DateTime _genericBrowserVkbSuppressUntilUtc = DateTime.MinValue;
         private bool _genericBrowserVkbSuppressAUntilRelease;
         private long _lastWebAppDeactivatedUtcTicks;
+        private volatile bool _mediaWebViewProcessDegraded;
+        private long _lastWebViewPriorityNormalizationUtcTicks;
         private Grid? _webAppLoadingOverlay;
         private bool _webAppLoadingActive;
         private bool _webAppLoadingReleaseStarted;
@@ -457,6 +461,13 @@ namespace Doorpi
 
                 string json = System.Text.Json.JsonSerializer.Serialize(key);
                 _ = _ytWebView?.CoreWebView2?.ExecuteScriptAsync($"try{{window.__doorpiNativeVkbKey?.({json});}}catch(e){{}}");
+                if (key == "ENTER")
+                {
+                    CloseGenericBrowserKeyboard(false);
+                    _ytWebView?.Focus();
+                    return;
+                }
+
                 _ytWebView?.Focus();
             });
         }
@@ -2017,7 +2028,8 @@ namespace Doorpi
             var sw = Stopwatch.StartNew();
             ushort prevButtons = 0;
             double speedMult = 1.0;
-            double exactX = -1, exactY = -1;
+            double mouseRemainderX = 0;
+            double mouseRemainderY = 0;
 
             // Repetição de direção no VKB
             ushort vkbLastDir = 0;
@@ -2054,6 +2066,23 @@ namespace Doorpi
                 { VkbHoldAction.Press, false }
             };
 
+            void SendMediaMouse(int dx, int dy, uint flags, uint data)
+            {
+                mouse_event(flags, dx, dy, data, UIntPtr.Zero);
+            }
+
+            void SendMediaVirtualKey(ushort vk)
+            {
+                SendVirtualKey((byte)vk);
+            }
+
+            void ReleaseMediaLeftMouseIfDown()
+            {
+                if (!leftMouseDown) return;
+                SendMediaMouse(0, 0, MOUSEEVENTF_LEFTUP, 0);
+                leftMouseDown = false;
+            }
+
             while (_mediaMouseActive)
             {
                 double dt = sw.Elapsed.TotalSeconds;
@@ -2080,11 +2109,7 @@ namespace Doorpi
                     // Isso evita input duplicado ao alternar WebApp -> Jogo.
                     if (!IsForegroundOwnedByProcess(Environment.ProcessId))
                     {
-                        if (leftMouseDown)
-                        {
-                            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
-                            leftMouseDown = false;
-                        }
+                        ReleaseMediaLeftMouseIfDown();
                         prevButtons = btn;
                         Thread.Sleep(25);
                         continue;
@@ -2096,11 +2121,7 @@ namespace Doorpi
 
                     if (_webAppTutorialOpen)
                     {
-                        if (leftMouseDown)
-                        {
-                            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
-                            leftMouseDown = false;
-                        }
+                        ReleaseMediaLeftMouseIfDown();
 
                         if (Pressed(XI_A) || Pressed(XI_B) || Pressed(XI_START))
                             Dispatcher.Invoke(DismissWebAppTutorial);
@@ -2133,9 +2154,7 @@ namespace Doorpi
                                 return;
                             }
 
-                            try { _popupWindow?.Close(); } catch { }
-                            _popupWindow = null;
-                            _popupWebView = null;
+                            ClosePopupWindowAndDispose();
 
                             if (_webAppWindow != null)
                                 _webAppWindow.WindowState = WindowState.Minimized;
@@ -2147,6 +2166,7 @@ namespace Doorpi
                     }
 
                     bool useNativeMouse = !_isCurrentSiteYouTube || _popupWindow != null;
+                    bool useNativeWebNavigation = !_isCurrentSiteYouTube || _popupWindow != null || _isGenericBrowserMode;
 
                     if (!_vkbIsOpen)
                     {
@@ -2168,11 +2188,7 @@ namespace Doorpi
                             if (!bCloseFired && nowMs - bHoldStartMs >= WEB_CLOSE_HOLD_MS)
                             {
                                 bCloseFired = true;
-                                if (leftMouseDown)
-                                {
-                                    mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
-                                    leftMouseDown = false;
-                                }
+                                ReleaseMediaLeftMouseIfDown();
                                 HideWebAppCloseHoldOverlay();
                                 Dispatcher.Invoke(() => CloseYouTubeInline());
                                 prevButtons = btn;
@@ -2192,7 +2208,7 @@ namespace Doorpi
                                 bool handled = false;
                                 if (_isGenericBrowserMode)
                                     Dispatcher.Invoke(() => handled = HandleGenericBrowserExtensionsBack());
-                                if (!handled)
+                                if (!handled && !_isCurrentSiteYouTube)
                                 {
                                     Dispatcher.Invoke(() =>
                                     {
@@ -2212,30 +2228,30 @@ namespace Doorpi
                     }
 
                     // ════════════════════════════════════════════════════════
-                    if (!_vkbIsOpen)
+                    if (useNativeWebNavigation && !_vkbIsOpen)
                     {
                         if (Pressed(XI_R3))
-                            SendVirtualKey(0xAD);
+                            SendMediaVirtualKey(0xAD);
 
                         if (Pressed(XI_Y))
-                            SendVirtualKey(0x46);
+                            SendMediaVirtualKey(0x46);
 
                         if (Pressed(XI_X))
                         {
-                            mouse_event(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, UIntPtr.Zero);
-                            mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, UIntPtr.Zero);
+                            SendMediaMouse(0, 0, MOUSEEVENTF_RIGHTDOWN, 0);
+                            SendMediaMouse(0, 0, MOUSEEVENTF_RIGHTUP, 0);
                         }
 
                         if (Pressed(XI_L1))
                         {
-                            mouse_event(MOUSEEVENTF_XDOWN, 0, 0, XBUTTON1, UIntPtr.Zero);
-                            mouse_event(MOUSEEVENTF_XUP, 0, 0, XBUTTON1, UIntPtr.Zero);
+                            SendMediaMouse(0, 0, MOUSEEVENTF_XDOWN, XBUTTON1);
+                            SendMediaMouse(0, 0, MOUSEEVENTF_XUP, XBUTTON1);
                         }
 
                         if (Pressed(XI_R1))
                         {
-                            mouse_event(MOUSEEVENTF_XDOWN, 0, 0, XBUTTON2, UIntPtr.Zero);
-                            mouse_event(MOUSEEVENTF_XUP, 0, 0, XBUTTON2, UIntPtr.Zero);
+                            SendMediaMouse(0, 0, MOUSEEVENTF_XDOWN, XBUTTON2);
+                            SendMediaMouse(0, 0, MOUSEEVENTF_XUP, XBUTTON2);
                         }
 
                         ushort navDirBtn = 0;
@@ -2252,13 +2268,13 @@ namespace Doorpi
                                 webNavLastDir = navDirBtn;
                                 webNavDirStartMs = nowMs;
                                 webNavDirLastRepeat = nowMs;
-                                SendVirtualKey(navVk);
+                                SendMediaVirtualKey(navVk);
                             }
                             else if ((nowMs - webNavDirStartMs) > WEB_NAV_INITIAL_MS &&
                                      (nowMs - webNavDirLastRepeat) > WEB_NAV_REPEAT_MS)
                             {
                                 webNavDirLastRepeat = nowMs;
-                                SendVirtualKey(navVk);
+                                SendMediaVirtualKey(navVk);
                             }
                         }
                         else
@@ -2280,22 +2296,29 @@ namespace Doorpi
                             speedMult = Math.Min(speedMult + (0.8 * dt), 2.5);
                             const double SENSE = CONTROLLER_MOUSE_BASE_SPEED * CONTROLLER_MOUSE_SENSITIVITY_SCALE;
 
-                            if (exactX < 0)
-                                Dispatcher.Invoke(() => { if (GetCursorPos(out var pt)) { exactX = pt.X; exactY = pt.Y; } });
+                            double moveX = lx * SENSE * speedMult * dt + mouseRemainderX;
+                            double moveY = ly * -SENSE * speedMult * dt + mouseRemainderY;
+                            int dx = (int)moveX;
+                            int dy = (int)moveY;
+                            mouseRemainderX = moveX - dx;
+                            mouseRemainderY = moveY - dy;
 
-                            exactX += lx * SENSE * speedMult * dt;
-                            exactY += ly * -SENSE * speedMult * dt;
-
-                            Dispatcher.Invoke(() => SetCursorPos((int)Math.Round(exactX), (int)Math.Round(exactY)));
+                            if (dx != 0 || dy != 0)
+                                SendMediaMouse(dx, dy, MOUSEEVENTF_MOVE, 0);
                         }
-                        else { speedMult = 1.0; exactX = -1; }
+                        else
+                        {
+                            speedMult = 1.0;
+                            mouseRemainderX = 0;
+                            mouseRemainderY = 0;
+                        }
 
                         // Scroll pelo analógico direito
                         double ry = gp.sThumbRY / 32767.0;
                         if (Math.Abs(ry) > 0.18)
                         {
                             int scroll = (int)(ry * 2800 * dt);
-                            if (scroll != 0) mouse_event(MOUSEEVENTF_WHEEL, 0, 0, (uint)scroll, UIntPtr.Zero);
+                            if (scroll != 0) SendMediaMouse(0, 0, MOUSEEVENTF_WHEEL, (uint)scroll);
                         }
                     }
 
@@ -2304,11 +2327,7 @@ namespace Doorpi
                     // ════════════════════════════════════════════════════════
                     if (_vkbIsOpen)
                     {
-                        if (leftMouseDown)
-                        {
-                            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
-                            leftMouseDown = false;
-                        }
+                        ReleaseMediaLeftMouseIfDown();
 
                         if (_isGenericBrowserMode && _desktopVkb != null)
                         {
@@ -2432,8 +2451,8 @@ namespace Doorpi
                             {
                                 if (_isGenericBrowserMode) MarkGenericBrowserControllerInputIntent();
                                 else MarkCurrentWebViewControllerInputIntent();
-                                mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
-                                mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+                                SendMediaMouse(0, 0, MOUSEEVENTF_LEFTDOWN, 0);
+                                SendMediaMouse(0, 0, MOUSEEVENTF_LEFTUP, 0);
                             }
                         }
 
@@ -2471,13 +2490,12 @@ namespace Doorpi
                             {
                                 if (_isGenericBrowserMode) MarkGenericBrowserControllerInputIntent();
                                 else MarkCurrentWebViewControllerInputIntent();
-                                mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+                                SendMediaMouse(0, 0, MOUSEEVENTF_LEFTDOWN, 0);
                                 leftMouseDown = true;
                             }
                             if (leftMouseDown && Released(XI_A))
                             {
-                                mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
-                                leftMouseDown = false;
+                                ReleaseMediaLeftMouseIfDown();
                             }
                         }
                     }
@@ -2488,8 +2506,7 @@ namespace Doorpi
                 Thread.Sleep(10);
             }
 
-            if (leftMouseDown)
-                mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+            ReleaseMediaLeftMouseIfDown();
             HideWebAppCloseHoldOverlay();
         }
 
@@ -2505,6 +2522,478 @@ namespace Doorpi
         }
 
         // ── Abrir app de mídia ────────────────────────────────────────────────
+
+        private string BuildWebViewAdditionalArguments(string renderModeEnvironmentVariable, string defaultRenderMode, string extraArgsEnvironmentVariable = "")
+        {
+            var args = new List<string> { "--autoplay-policy=no-user-gesture-required" };
+            string requestedMode = (Environment.GetEnvironmentVariable(renderModeEnvironmentVariable) ?? "").Trim().ToLowerInvariant();
+            string mode = string.IsNullOrWhiteSpace(requestedMode) ? defaultRenderMode : requestedMode;
+
+            switch (mode)
+            {
+                case "default":
+                case "hardware":
+                case "gpu":
+                case "auto":
+                    break;
+
+                case "disable-gpu":
+                case "nogpu":
+                    args.Add("--disable-gpu");
+                    args.Add("--disable-gpu-compositing");
+                    break;
+
+                case "disable-direct-composition":
+                case "nodcomp":
+                    args.Add("--disable-direct-composition");
+                    break;
+
+                case "warp":
+                    args.Add("--use-angle=warp");
+                    break;
+
+                case "software-video":
+                    args.Add("--disable-accelerated-video-decode");
+                    args.Add("--disable-gpu-memory-buffer-video-frames");
+                    break;
+
+                case "safe":
+                    args.Add("--disable-gpu");
+                    args.Add("--disable-gpu-compositing");
+                    args.Add("--disable-direct-composition");
+                    args.Add("--disable-accelerated-video-decode");
+                    args.Add("--disable-gpu-memory-buffer-video-frames");
+                    break;
+            }
+
+            string extraArgs = (Environment.GetEnvironmentVariable("DOORPI_WEBVIEW_EXTRA_ARGS") ?? "").Trim();
+            if (!string.IsNullOrWhiteSpace(extraArgs))
+                args.Add(extraArgs);
+
+            if (!string.IsNullOrWhiteSpace(extraArgsEnvironmentVariable))
+            {
+                string contextExtraArgs = (Environment.GetEnvironmentVariable(extraArgsEnvironmentVariable) ?? "").Trim();
+                if (!string.IsNullOrWhiteSpace(contextExtraArgs))
+                    args.Add(contextExtraArgs);
+            }
+
+            return string.Join(" ", args.Where(arg => !string.IsNullOrWhiteSpace(arg)));
+        }
+
+        private Task<CoreWebView2Environment> GetWebAppEnvironmentAsync(string userDataPath, bool enableExtensions, string browserArgs)
+        {
+            string fullPath = Path.GetFullPath(userDataPath);
+            string key = $"{fullPath}|ext:{enableExtensions}|args:{browserArgs}";
+            lock (_webViewEnvironmentCacheLock)
+            {
+                if (_webViewEnvironmentCache.TryGetValue(key, out var cached))
+                    return cached;
+
+                LogWebViewDiagnostic($"environment-create profile={fullPath} extensions={enableExtensions} args={browserArgs}");
+                var options = new CoreWebView2EnvironmentOptions(browserArgs)
+                {
+                    AreBrowserExtensionsEnabled = enableExtensions
+                };
+                var created = CoreWebView2Environment.CreateAsync(null, fullPath, options);
+                _webViewEnvironmentCache[key] = created;
+                _ = created.ContinueWith(t =>
+                {
+                    if (!t.IsFaulted && !t.IsCanceled) return;
+                    lock (_webViewEnvironmentCacheLock)
+                    {
+                        if (_webViewEnvironmentCache.TryGetValue(key, out var current) && ReferenceEquals(current, created))
+                            _webViewEnvironmentCache.Remove(key);
+                    }
+                }, TaskScheduler.Default);
+                return created;
+            }
+        }
+
+        private async Task TrySuspendDoorpiHomeWebViewAsync()
+        {
+            if (string.Equals(Environment.GetEnvironmentVariable("DOORPI_DISABLE_HOME_WEBVIEW_SUSPEND"), "1", StringComparison.OrdinalIgnoreCase))
+            {
+                LogWebViewDiagnostic("diagnostic: home WebView suspend disabled by DOORPI_DISABLE_HOME_WEBVIEW_SUSPEND=1");
+                return;
+            }
+
+            try
+            {
+                var core = webView?.CoreWebView2;
+                var method = core?.GetType().GetMethod("TrySuspendAsync", Type.EmptyTypes);
+                if (method?.Invoke(core, null) is Task task)
+                    await task.ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[WebView2] Nao foi possivel suspender home: " + ex.Message);
+            }
+        }
+
+        private void ResumeDoorpiHomeWebView()
+        {
+            try
+            {
+                var core = webView?.CoreWebView2;
+                core?.GetType().GetMethod("Resume", Type.EmptyTypes)?.Invoke(core, null);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[WebView2] Nao foi possivel retomar home: " + ex.Message);
+            }
+        }
+
+        private void DisposePopupWebView(WebView2? popupView)
+        {
+            if (popupView == null) return;
+            if (_vkbOwnerView == popupView)
+            {
+                _vkbIsOpen = false;
+                _vkbOwnerView = null;
+                _vkbHasFocus = false;
+            }
+            try { popupView.Dispose(); } catch { }
+        }
+
+        private void ClosePopupWindowAndDispose()
+        {
+            var popupWindow = _popupWindow;
+            var popupView = _popupWebView;
+            _popupWindow = null;
+            _popupWebView = null;
+            try
+            {
+                if (popupWindow != null)
+                {
+                    popupWindow.Content = null;
+                    popupWindow.Close();
+                }
+            }
+            catch { }
+            DisposePopupWebView(popupView);
+        }
+
+        private void RegisterMediaWebResourceInterception(CoreWebView2 core, bool isYouTube, bool isUtility)
+        {
+            if (!isYouTube && !isUtility)
+                return;
+
+            core.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
+            core.WebResourceRequested += YtOnWebResourceRequested;
+        }
+
+        private void LogWebViewDiagnostic(string message)
+        {
+            try
+            {
+                string dir = Path.Combine(dataFolder, "logs");
+                Directory.CreateDirectory(dir);
+                File.AppendAllText(
+                    Path.Combine(dir, "webview-diagnostics.log"),
+                    $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}{Environment.NewLine}");
+            }
+            catch { }
+        }
+
+        private void LogWebViewSiteDiagnostic(string message)
+        {
+            try
+            {
+                string dir = Path.Combine(dataFolder, "logs");
+                Directory.CreateDirectory(dir);
+                File.AppendAllText(
+                    Path.Combine(dir, "webview-site-diagnostics.log"),
+                    $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}{Environment.NewLine}");
+            }
+            catch { }
+        }
+
+        private static string TruncateForLog(string value, int maxLength = 900)
+        {
+            if (string.IsNullOrEmpty(value)) return "";
+            value = value.Replace("\r", "\\r").Replace("\n", "\\n");
+            return value.Length <= maxLength ? value : value[..maxLength] + "...";
+        }
+
+        private static bool IsInterestingWebViewDiagnosticUrl(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return false;
+            string lower = url.ToLowerInvariant();
+            return lower.Contains("anime") ||
+                   lower.Contains("cloudflare") ||
+                   lower.Contains("challenges.cloudflare") ||
+                   lower.Contains("turnstile") ||
+                   lower.Contains("/cdn-cgi/") ||
+                   lower.Contains("cf_clearance") ||
+                   lower.Contains("m3u8") ||
+                   lower.Contains(".ts") ||
+                   lower.Contains("mp4") ||
+                   lower.Contains("webm") ||
+                   lower.Contains("manifest") ||
+                   lower.Contains("player") ||
+                   lower.Contains("stream");
+        }
+
+        private void LogDevToolsPayload(string source, string payload)
+        {
+            try
+            {
+                var node = JsonNode.Parse(payload);
+
+                if (source == "Network.responseReceived")
+                {
+                    var response = node?["response"];
+                    string url = response?["url"]?.ToString() ?? "";
+                    int status = response?["status"]?.GetValue<int>() ?? 0;
+                    string mime = response?["mimeType"]?.ToString() ?? "";
+                    string fromDisk = response?["fromDiskCache"]?.ToString() ?? "";
+                    string fromServiceWorker = response?["fromServiceWorker"]?.ToString() ?? "";
+
+                    if (status >= 400 || IsInterestingWebViewDiagnosticUrl(url))
+                    {
+                        LogWebViewSiteDiagnostic(
+                            $"network-response status={status} mime={mime} disk={fromDisk} sw={fromServiceWorker} url={TruncateForLog(url)}");
+                    }
+                    return;
+                }
+
+                if (source == "Network.requestWillBeSent")
+                {
+                    var request = node?["request"];
+                    string url = request?["url"]?.ToString() ?? "";
+                    string method = request?["method"]?.ToString() ?? "";
+                    string type = node?["type"]?.ToString() ?? "";
+                    string documentUrl = node?["documentURL"]?.ToString() ?? "";
+                    string initiatorType = node?["initiator"]?["type"]?.ToString() ?? "";
+
+                    if (IsInterestingWebViewDiagnosticUrl(url))
+                    {
+                        LogWebViewSiteDiagnostic(
+                            $"network-request method={method} type={type} initiator={initiatorType} url={TruncateForLog(url)} document={TruncateForLog(documentUrl)}");
+                    }
+                    return;
+                }
+
+                if (source == "Network.loadingFailed")
+                {
+                    string errorText = node?["errorText"]?.ToString() ?? "";
+                    string type = node?["type"]?.ToString() ?? "";
+                    string canceled = node?["canceled"]?.ToString() ?? "";
+                    string blockedReason = node?["blockedReason"]?.ToString() ?? "";
+                    LogWebViewSiteDiagnostic(
+                        $"network-failed type={type} canceled={canceled} blocked={blockedReason} error={TruncateForLog(errorText)} payload={TruncateForLog(payload)}");
+                    return;
+                }
+
+                if (source == "Runtime.consoleAPICalled")
+                {
+                    string type = node?["type"]?.ToString() ?? "";
+                    var args = node?["args"]?.AsArray();
+                    string text = "";
+                    if (args != null)
+                    {
+                        text = string.Join(" ", args.Select(arg =>
+                            arg?["value"]?.ToString() ??
+                            arg?["description"]?.ToString() ??
+                            arg?["type"]?.ToString() ??
+                            ""));
+                    }
+
+                    string lower = text.ToLowerInvariant();
+                    if (type is "error" or "warning" ||
+                        lower.Contains("cloudflare") ||
+                        lower.Contains("turnstile") ||
+                        lower.Contains("reconnect") ||
+                        lower.Contains("captcha") ||
+                        lower.Contains("doorpi-nav") ||
+                        lower.Contains("player") ||
+                        lower.Contains("network"))
+                    {
+                        LogWebViewSiteDiagnostic($"console type={type} text={TruncateForLog(text)}");
+                    }
+                    return;
+                }
+
+                if (source == "Log.entryAdded")
+                {
+                    var entry = node?["entry"];
+                    string level = entry?["level"]?.ToString() ?? "";
+                    string text = entry?["text"]?.ToString() ?? "";
+                    string url = entry?["url"]?.ToString() ?? "";
+                    if (level is "error" or "warning" || IsInterestingWebViewDiagnosticUrl(url) || IsInterestingWebViewDiagnosticUrl(text))
+                        LogWebViewSiteDiagnostic($"log level={level} text={TruncateForLog(text)} url={TruncateForLog(url)}");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogWebViewSiteDiagnostic($"{source}: failed-to-parse payload={TruncateForLog(payload)} error={ex.Message}");
+            }
+        }
+
+        private async Task AttachMediaWebViewDiagnosticsAsync(
+            CoreWebView2 core,
+            string initialUrl,
+            string appName,
+            bool isGenericBrowser,
+            bool isYouTube,
+            bool isUtility)
+        {
+            try
+            {
+                LogWebViewSiteDiagnostic(
+                    $"session-start app={TruncateForLog(appName, 120)} url={TruncateForLog(initialUrl)} generic={isGenericBrowser} youtube={isYouTube} utility={isUtility}");
+
+                core.WebResourceResponseReceived += async (_, e) =>
+                {
+                    try
+                    {
+                        string uri = e.Request?.Uri ?? "";
+                        int status = e.Response?.StatusCode ?? 0;
+                        string reason = e.Response?.ReasonPhrase ?? "";
+                        if (status >= 400 || IsInterestingWebViewDiagnosticUrl(uri))
+                            LogWebViewSiteDiagnostic($"response-received status={status} reason={reason} url={TruncateForLog(uri)}");
+                    }
+                    catch (Exception ex)
+                    {
+                        LogWebViewSiteDiagnostic("response-received-handler-error: " + ex.Message);
+                    }
+                    await Task.CompletedTask;
+                };
+
+                await core.CallDevToolsProtocolMethodAsync("Network.enable", "{}");
+                await core.CallDevToolsProtocolMethodAsync("Runtime.enable", "{}");
+                await core.CallDevToolsProtocolMethodAsync("Log.enable", "{}");
+
+                var networkResponse = core.GetDevToolsProtocolEventReceiver("Network.responseReceived");
+                networkResponse.DevToolsProtocolEventReceived += (_, e) =>
+                    LogDevToolsPayload("Network.responseReceived", e.ParameterObjectAsJson);
+
+                var networkRequest = core.GetDevToolsProtocolEventReceiver("Network.requestWillBeSent");
+                networkRequest.DevToolsProtocolEventReceived += (_, e) =>
+                    LogDevToolsPayload("Network.requestWillBeSent", e.ParameterObjectAsJson);
+
+                var networkFailed = core.GetDevToolsProtocolEventReceiver("Network.loadingFailed");
+                networkFailed.DevToolsProtocolEventReceived += (_, e) =>
+                    LogDevToolsPayload("Network.loadingFailed", e.ParameterObjectAsJson);
+
+                var console = core.GetDevToolsProtocolEventReceiver("Runtime.consoleAPICalled");
+                console.DevToolsProtocolEventReceived += (_, e) =>
+                    LogDevToolsPayload("Runtime.consoleAPICalled", e.ParameterObjectAsJson);
+
+                var log = core.GetDevToolsProtocolEventReceiver("Log.entryAdded");
+                log.DevToolsProtocolEventReceived += (_, e) =>
+                    LogDevToolsPayload("Log.entryAdded", e.ParameterObjectAsJson);
+            }
+            catch (Exception ex)
+            {
+                LogWebViewSiteDiagnostic("diagnostics-attach-failed: " + ex.Message);
+            }
+        }
+
+        private void LogWebViewProcessSnapshot(string reason, CoreWebView2? core = null)
+        {
+            try
+            {
+                core ??= _ytWebView?.CoreWebView2;
+                if (core == null)
+                {
+                    LogWebViewDiagnostic($"{reason}: CoreWebView2 indisponivel.");
+                    return;
+                }
+
+                var infos = core.Environment.GetProcessInfos()
+                    .Select(info =>
+                    {
+                        string proc = "";
+                        try
+                        {
+                            using var process = Process.GetProcessById(info.ProcessId);
+                            proc = $"{process.ProcessName} cpu={process.TotalProcessorTime.TotalMilliseconds:0}ms";
+                        }
+                        catch { proc = "processo indisponivel"; }
+                        return $"{info.Kind}:{info.ProcessId}:{proc}";
+                    });
+
+                LogWebViewDiagnostic($"{reason}: {string.Join(" | ", infos)}");
+            }
+            catch (Exception ex)
+            {
+                LogWebViewDiagnostic($"{reason}: falha ao obter processos: {ex.Message}");
+            }
+        }
+
+        private ProcessPriorityClass ResolveWebViewProcessPriority(string defaultMode)
+        {
+            string mode = (Environment.GetEnvironmentVariable("DOORPI_WEBVIEW_PROCESS_PRIORITY") ?? defaultMode)
+                .Trim()
+                .ToLowerInvariant();
+
+            return mode switch
+            {
+                "normal" => ProcessPriorityClass.Normal,
+                "idle" => ProcessPriorityClass.Idle,
+                "low" => ProcessPriorityClass.Idle,
+                "abovenormal" => ProcessPriorityClass.AboveNormal,
+                _ => ProcessPriorityClass.BelowNormal
+            };
+        }
+
+        private void QueueWebViewProcessPriorityNormalization(CoreWebView2? core, string reason, string defaultMode = "belownormal")
+        {
+            if (core == null) return;
+            string mode = (Environment.GetEnvironmentVariable("DOORPI_WEBVIEW_PROCESS_PRIORITY") ?? defaultMode)
+                .Trim()
+                .ToLowerInvariant();
+            if (mode is "off" or "disabled")
+                return;
+
+            long nowTicks = DateTime.UtcNow.Ticks;
+            long lastTicks = Interlocked.Read(ref _lastWebViewPriorityNormalizationUtcTicks);
+            if (nowTicks - lastTicks < TimeSpan.FromSeconds(1).Ticks)
+                return;
+            Interlocked.Exchange(ref _lastWebViewPriorityNormalizationUtcTicks, nowTicks);
+
+            _ = Task.Run(async () =>
+            {
+                foreach (int delay in new[] { 150, 900, 2500, 6500 })
+                {
+                    await Task.Delay(delay).ConfigureAwait(false);
+                    await NormalizeWebViewProcessPriorityAsync(core, reason, defaultMode).ConfigureAwait(false);
+                }
+            });
+        }
+
+        private async Task NormalizeWebViewProcessPriorityAsync(CoreWebView2 core, string reason, string defaultMode)
+        {
+            try
+            {
+                var infos = await Dispatcher.InvokeAsync(() => core.Environment.GetProcessInfos().ToList());
+                var targetPriority = ResolveWebViewProcessPriority(defaultMode);
+                int changed = 0;
+
+                foreach (var info in infos)
+                {
+                    try
+                    {
+                        using var process = Process.GetProcessById(info.ProcessId);
+                        if (process.HasExited || process.Id == Environment.ProcessId) continue;
+                        if (process.PriorityClass != targetPriority)
+                        {
+                            process.PriorityClass = targetPriority;
+                            changed++;
+                        }
+                    }
+                    catch { }
+                }
+
+                if (changed > 0)
+                    LogWebViewDiagnostic($"priority-normalized reason={reason} priority={targetPriority} changed={changed}");
+            }
+            catch (Exception ex)
+            {
+                LogWebViewDiagnostic($"priority-normalize-failed reason={reason}: {ex.Message}");
+            }
+        }
 
         private void MarkCurrentWebViewControllerInputIntent()
         {
@@ -2534,6 +3023,8 @@ namespace Doorpi
         private void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
         {
             e.Handled = true;
+            LogWebViewSiteDiagnostic(
+                $"new-window uri={TruncateForLog(e.Uri ?? "")} generic={_isGenericBrowserMode} loading={_webAppLoadingActive} source={TruncateForLog(_ytWebView?.CoreWebView2?.Source ?? "")}");
 
             if (_isGenericBrowserMode)
             {
@@ -2553,9 +3044,7 @@ namespace Doorpi
             Dispatcher.Invoke(async () =>
             {
                 bool keepPopupBehindLoading = _webAppLoadingActive;
-                try { _popupWindow?.Close(); } catch { }
-                _popupWindow = null;
-                _popupWebView = null;
+                ClosePopupWindowAndDispose();
 
                 // Definimos o Owner para que o Windows saiba para quem deve devolver o foco após fecharmos.
                 _popupWindow = new Window
@@ -2585,12 +3074,8 @@ namespace Doorpi
 
                 _popupWindow.Closed += (s, _) =>
                 {
-                    if (_vkbOwnerView == _popupWebView)
-                    {
-                        _vkbIsOpen = false;
-                        _vkbOwnerView = null;
-                        _vkbHasFocus = false;
-                    }
+                    var closedPopupView = _popupWebView;
+                    DisposePopupWebView(closedPopupView);
                     _popupWebView = null;
                     _popupWindow = null;
 
@@ -2626,6 +3111,13 @@ namespace Doorpi
                 await _popupWebView.EnsureCoreWebView2Async(env);
 
                 await _popupWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync("window.name = 'doorpi_popup';");
+                try
+                {
+                    var popupTrackingLevel = _ytWebView.CoreWebView2.Profile.PreferredTrackingPreventionLevel;
+                    _popupWebView.CoreWebView2.Profile.PreferredTrackingPreventionLevel = popupTrackingLevel;
+                    LogWebViewSiteDiagnostic($"popup-tracking-prevention level={popupTrackingLevel} uri={TruncateForLog(e.Uri ?? "")}");
+                }
+                catch { }
                 _popupWebView.CoreWebView2.Settings.UserAgent = await BuildBrandedUserAgentAsync(_popupWebView.CoreWebView2);
                 ApplyProductionWebViewSettings(_popupWebView.CoreWebView2, allowDefaultContextMenus: true);
                 _popupWebView.CoreWebView2.PermissionRequested += OnWebViewPermissionRequested;
@@ -2795,14 +3287,23 @@ namespace Doorpi
             }
             catch { return false; }
         }
+
         private async Task YtInjectGenericSiteAsync(CoreWebView2 cw, bool useNativeDoorpiKeyboard = false)
         {
             string script = $@"
 (function() {{
     if (window.__doorpiGenericInjected) return;
     window.__doorpiGenericInjected = true;
+    const __doorpiHost = String(location.hostname || '').toLowerCase();
+    const __doorpiIsPrimeVideoHost =
+        __doorpiHost === 'primevideo.com' ||
+        __doorpiHost.endsWith('.primevideo.com') ||
+        __doorpiHost === 'amazon.com' ||
+        __doorpiHost.endsWith('.amazon.com') ||
+        __doorpiHost.includes('amazonvideo.com');
 
     // ── FIX: ANTI-CRASH PARA PRIME VIDEO ─────────────────────────────────────
+    if (__doorpiIsPrimeVideoHost) {{
     try {{
         if (window.chrome && window.chrome.webview) {{
             delete window.chrome.webview.hostObjects;
@@ -2826,6 +3327,7 @@ namespace Doorpi
             window.ramp.que = _safeQue;
         }}
     }} catch(e) {{}}
+    }}
     // ── 1. REDIRECIONAMENTO STEAMGRIDDB ──────────────────────────────────────
     // Removido do JavaScript para evitar conflito/crash com o React do SteamGridDB.
     // Agora o redirecionamento é controlado 100% pelo C# via NavigationStarting.
@@ -2898,6 +3400,8 @@ namespace Doorpi
 
     // ── 5. BOTÃO CHROME WEB STORE ────────────────────────────────────────────
     function injectChromeWebStoreBtn() {{
+        if (location.hostname !== 'chromewebstore.google.com') return;
+
         let btn = document.getElementById('doorpi-ext-btn');
         let positionAnchored = false;
         let lastRenderedState = null;
@@ -3285,6 +3789,7 @@ namespace Doorpi
                 if (typeof form.requestSubmit === 'function') form.requestSubmit();
                 else form.submit?.();
             }}
+            _nativeVkbClose(true, true);
         }}
 
         window.__doorpiNativeVkbKey = (key) => {{
@@ -3728,7 +4233,7 @@ namespace Doorpi
             const form = el.form || el.closest?.('form');
             if (form) typeof form.requestSubmit === 'function' ? form.requestSubmit() : form.submit?.();
         }}
-        _vkbRenderPreview();
+        _vkbClose();
     }}
 
     function _vkbOpen(targetEl) {{
@@ -4935,9 +5440,7 @@ namespace Doorpi
             if (elapsed < minDuration)
                 await Task.Delay(minDuration - elapsed);
 
-            try { _popupWindow?.Close(); } catch { }
-            _popupWindow = null;
-            _popupWebView = null;
+            ClosePopupWindowAndDispose();
 
             var overlay = _webAppLoadingOverlay;
             if (overlay == null)
@@ -5022,6 +5525,7 @@ namespace Doorpi
             if (!isUtility) SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg, "app");
 
             _ytClosing = false;
+            _mediaWebViewProcessDegraded = false;
             _isCurrentSiteYouTube = isYouTube;
             _isGenericBrowserMode = isGenericBrowser;
             _vkbIsOpen = false;
@@ -5029,6 +5533,45 @@ namespace Doorpi
             _webAppLoadingActive = false;
             _webAppLoadingReleaseStarted = false;
             _webAppLoadingOverlay = null;
+            bool webAppReadySent = false;
+            bool doorpiLaunchReleasedToWebApp = false;
+
+            void ReleaseDoorpiLaunchToWebAppWindow()
+            {
+                if (doorpiLaunchReleasedToWebApp || isUtility || _webAppWindow == null)
+                    return;
+
+                doorpiLaunchReleasedToWebApp = true;
+
+                try
+                {
+                    if (_webAppWindow.WindowState == WindowState.Minimized)
+                        _webAppWindow.WindowState = WindowState.Maximized;
+
+                    _webAppWindow.Activate();
+                    _ytWebView?.Focus();
+                }
+                catch { }
+
+                SendGameLaunchStatus("gameLaunchDone");
+
+                _ = TrySuspendDoorpiHomeWebViewAsync();
+
+                if (this.WindowState != WindowState.Minimized)
+                    this.WindowState = WindowState.Minimized;
+            }
+
+            async Task MarkWebAppReadyAsync(bool allowTutorial)
+            {
+                if (webAppReadySent || _ytClosing)
+                    return;
+
+                webAppReadySent = true;
+                ReleaseDoorpiLaunchToWebAppWindow();
+                await ReleaseWebAppLoadingOverlayAsync();
+                if (allowTutorial && !isYouTube)
+                    Dispatcher.Invoke(TryShowWebAppTutorial);
+            }
 
 
             _ytWebView = new WebView2
@@ -5040,6 +5583,7 @@ namespace Doorpi
             if (isUtility)
             {
                 webView.Visibility = Visibility.Collapsed;
+                _ = TrySuspendDoorpiHomeWebViewAsync();
                 Panel.SetZIndex(_ytWebView, 1000);
                 RootGrid.Children.Add(_ytWebView);
                 AttachWebAppCloseHoldOverlay(RootGrid);
@@ -5080,23 +5624,32 @@ namespace Doorpi
                     if (_webAppWindow.WindowState == WindowState.Minimized && !_ytClosing)
                     {
                         StopMediaControllerMode();
+                        ResumeDoorpiHomeWebView();
                         Dispatcher.Invoke(() => FocusDoorpiKeepSession());
                     }
                 };
 
                 _webAppWindow.Show();
+                await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
+                ReleaseDoorpiLaunchToWebAppWindow();
             }
 
             string profileName = GetBrowserProfileNameForUrl(url, isYouTube);
             string userDataPath = Path.Combine(DoorpiPaths.BrowserProfilesFolder, profileName);
 
-            var options = new CoreWebView2EnvironmentOptions { AreBrowserExtensionsEnabled = !isUtility };
-
-
-            var env = await CoreWebView2Environment.CreateAsync(null, userDataPath, options);
+            bool enableBrowserExtensions = !isUtility;
+            string renderModeEnv = isYouTube ? "DOORPI_YOUTUBE_WEBVIEW_RENDER_MODE" : "DOORPI_WEBVIEW_RENDER_MODE";
+            string defaultRenderMode = isYouTube ? "hardware" : "disable-gpu";
+            string extraArgsEnv = isYouTube ? "DOORPI_YOUTUBE_WEBVIEW_EXTRA_ARGS" : "DOORPI_MEDIA_WEBVIEW_EXTRA_ARGS";
+            string browserArgs = BuildWebViewAdditionalArguments(renderModeEnv, defaultRenderMode, extraArgsEnv);
+            string defaultProcessPriority = isYouTube ? "normal" : "belownormal";
+            var env = await GetWebAppEnvironmentAsync(userDataPath, enableExtensions: enableBrowserExtensions, browserArgs);
             if (isGenericBrowser)
                 _genericBrowserEnvironment = env;
             await _ytWebView.EnsureCoreWebView2Async(env);
+            LogWebViewProcessSnapshot($"open-start url={url} generic={isGenericBrowser} youtube={isYouTube} utility={isUtility}", _ytWebView.CoreWebView2);
+            await AttachMediaWebViewDiagnosticsAsync(_ytWebView.CoreWebView2, url, appName, isGenericBrowser, isYouTube, isUtility);
+            QueueWebViewProcessPriorityNormalization(_ytWebView.CoreWebView2, "open-start", defaultProcessPriority);
             try
             {
                 string folderPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot");
@@ -5107,16 +5660,28 @@ namespace Doorpi
             }
             catch { }
 
-            _ytWebView.CoreWebView2.Profile.PreferredTrackingPreventionLevel = CoreWebView2TrackingPreventionLevel.Balanced;
+            var trackingPreventionLevel = (!isYouTube && !isUtility)
+                ? CoreWebView2TrackingPreventionLevel.None
+                : CoreWebView2TrackingPreventionLevel.Balanced;
+            _ytWebView.CoreWebView2.Profile.PreferredTrackingPreventionLevel = trackingPreventionLevel;
+            LogWebViewSiteDiagnostic($"tracking-prevention level={trackingPreventionLevel} url={TruncateForLog(url)}");
 
             _ytWebView.CoreWebView2.NewWindowRequested += OnNewWindowRequested;
-            if (!isUtility)
+            _ytWebView.CoreWebView2.ProcessFailed += OnMediaWebViewProcessFailed;
+            if (enableBrowserExtensions)
                 await LoadExtensionsAsync(_ytWebView.CoreWebView2);
 
             if (isYouTube)
+            {
                 _ytWebView.CoreWebView2.Settings.UserAgent = YT_UA;
+                LogWebViewSiteDiagnostic($"user-agent mode=youtube value={TruncateForLog(YT_UA)}");
+            }
             else
-                _ytWebView.CoreWebView2.Settings.UserAgent = await BuildBrandedUserAgentAsync(_ytWebView.CoreWebView2);
+            {
+                string nativeUserAgent = await BuildBrandedUserAgentAsync(_ytWebView.CoreWebView2);
+                _ytWebView.CoreWebView2.Settings.UserAgent = nativeUserAgent;
+                LogWebViewSiteDiagnostic($"user-agent mode=native value={TruncateForLog(nativeUserAgent)}");
+            }
             ApplyProductionWebViewSettings(_ytWebView.CoreWebView2, allowDefaultContextMenus: true);
 
             if (isGenericBrowser)
@@ -5132,8 +5697,7 @@ namespace Doorpi
                 _ytWebView.CoreWebView2.ContainsFullScreenElementChanged += OnGenericBrowserContainsFullScreenElementChanged;
             }
 
-            _ytWebView.CoreWebView2.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
-            _ytWebView.CoreWebView2.WebResourceRequested += YtOnWebResourceRequested;
+            RegisterMediaWebResourceInterception(_ytWebView.CoreWebView2, isYouTube, isUtility);
             _ytWebView.CoreWebView2.WebMessageReceived += YtOnWebMessageReceived;
             _ytWebView.CoreWebView2.PermissionRequested += OnWebViewPermissionRequested;
 
@@ -5166,14 +5730,24 @@ namespace Doorpi
                 }
 
                 string? currentUri = e.Uri?.TrimEnd('/');
+                string sourceBefore = _ytWebView?.CoreWebView2?.Source ?? "";
+                LogWebViewSiteDiagnostic(
+                    $"navigation-start uri={TruncateForLog(e.Uri ?? "")} userInitiated={e.IsUserInitiated} redirect={e.IsRedirected} sourceBefore={TruncateForLog(sourceBefore)}");
+
                 if (isGenericBrowser && !string.IsNullOrWhiteSpace(e.Uri))
                     UpdateGenericBrowserActiveTab(pendingUrl: e.Uri, isLoading: true);
 
                 if (currentUri == "https://www.steamgriddb.com")
                 {
                     e.Cancel = true;
-                    _ytWebView.CoreWebView2.Navigate("https://www.steamgriddb.com/profile/preferences/api");
+                    _ytWebView?.CoreWebView2?.Navigate("https://www.steamgriddb.com/profile/preferences/api");
                 }
+            };
+
+            _ytWebView.CoreWebView2.DOMContentLoaded += async (_, _) =>
+            {
+                if (!isUtility && !isYouTube)
+                    await MarkWebAppReadyAsync(allowTutorial: true);
             };
 
             if (isYouTube)
@@ -5195,6 +5769,10 @@ namespace Doorpi
 
             _ytWebView.CoreWebView2.NavigationCompleted += async (s, e) =>
             {
+                QueueWebViewProcessPriorityNormalization(_ytWebView.CoreWebView2, "navigation-completed", defaultProcessPriority);
+                LogWebViewSiteDiagnostic(
+                    $"navigation-completed success={e.IsSuccess} status={e.HttpStatusCode} error={e.WebErrorStatus} source={TruncateForLog(_ytWebView.CoreWebView2.Source ?? "")}");
+
                 if (isGenericBrowser)
                 {
                     string currentSource = _ytWebView.CoreWebView2.Source ?? _genericBrowserActiveTab.Url;
@@ -5212,20 +5790,8 @@ namespace Doorpi
                     return;
                 }
 
-                if (!_ytClosing && this.WindowState != WindowState.Minimized)
-                {
-                    await ReleaseWebAppLoadingOverlayAsync();
-                    if (!isYouTube)
-                        Dispatcher.Invoke(TryShowWebAppTutorial);
-                    SendGameLaunchStatus("gameLaunchReady");
-                    await Task.Delay(800);
-
-                    if (_mediaMouseActive && _webAppWindow != null && _webAppWindow.WindowState != WindowState.Minimized)
-                    {
-                        this.WindowState = WindowState.Minimized;
-                    }
-                    SendGameLaunchStatus("gameLaunchDone");
-                }
+                if (!isUtility)
+                    await MarkWebAppReadyAsync(allowTutorial: true);
             };
 
             if (isGenericBrowser)
@@ -5238,6 +5804,8 @@ namespace Doorpi
 
             _ytWebView.CoreWebView2.SourceChanged += async (s, args) =>
             {
+                QueueWebViewProcessPriorityNormalization(_ytWebView.CoreWebView2, "source-changed", defaultProcessPriority);
+
                 string newUrl = _ytWebView.CoreWebView2.Source;
                 if (isGenericBrowser)
                 {
@@ -5347,46 +5915,58 @@ namespace Doorpi
             EnsureCursorHidden();
             _mainScreenMouseVisible = false;
 
-            try { _popupWindow?.Close(); } catch { }
-            _popupWindow = null;
-            _popupWebView = null;
+            ClosePopupWindowAndDispose();
 
             var coreWebView = ytWebView.CoreWebView2;
+            LogWebViewProcessSnapshot("close-start", coreWebView);
 
-            try
+            if (!_mediaWebViewProcessDegraded)
             {
-                if (coreWebView != null)
+                try
                 {
-                    _ = coreWebView.ExecuteScriptAsync(
-                        "try{document.querySelectorAll('video').forEach(v=>v.pause());}catch(e){}");
+                    if (coreWebView != null)
+                    {
+                        _ = coreWebView.ExecuteScriptAsync(
+                            "try{document.querySelectorAll('video').forEach(v=>v.pause());}catch(e){}");
+                    }
                 }
+                catch { }
             }
-            catch { }
 
             ytWebView.KeyDown -= YtOnKeyDown;
             ytWebView.GotFocus -= OnGenericBrowserMainWebViewGotFocus;
             if (coreWebView != null)
             {
-                coreWebView.WebResourceRequested -= YtOnWebResourceRequested;
-                coreWebView.WebMessageReceived -= YtOnWebMessageReceived;
-                coreWebView.NewWindowRequested -= OnNewWindowRequested;
-                coreWebView.DownloadStarting -= OnGenericBrowserDownloadStarting;
-                coreWebView.ContainsFullScreenElementChanged -= OnGenericBrowserContainsFullScreenElementChanged;
+                try { coreWebView.WebResourceRequested -= YtOnWebResourceRequested; } catch { }
+                try { coreWebView.WebMessageReceived -= YtOnWebMessageReceived; } catch { }
+                try { coreWebView.NewWindowRequested -= OnNewWindowRequested; } catch { }
+                try { coreWebView.ProcessFailed -= OnMediaWebViewProcessFailed; } catch { }
+                try { coreWebView.DownloadStarting -= OnGenericBrowserDownloadStarting; } catch { }
+                try { coreWebView.ContainsFullScreenElementChanged -= OnGenericBrowserContainsFullScreenElementChanged; } catch { }
             }
 
             if (_genericBrowserKeyboardTarget != GenericBrowserKeyboardTarget.None)
                 CloseGenericBrowserKeyboard(false);
 
-            try { _webAppWindow?.Close(); } catch { }
+            var webAppWindow = _webAppWindow;
             _webAppWindow = null;
+            try
+            {
+                if (webAppWindow != null)
+                {
+                    webAppWindow.Content = null;
+                    webAppWindow.Close();
+                }
+            }
+            catch { }
             CloseGenericBrowserExtensionsPopup();
             if (_webAppTutorialPlacementTarget != null)
                 _webAppTutorialPlacementTarget.SizeChanged -= OnWebAppTutorialPlacementTargetSizeChanged;
-            if (_webAppWindow != null)
+            if (webAppWindow != null)
             {
-                _webAppWindow.LocationChanged -= OnWebAppTutorialHostChanged;
-                _webAppWindow.SizeChanged -= OnWebAppTutorialPlacementTargetSizeChanged;
-                _webAppWindow.StateChanged -= OnWebAppTutorialHostChanged;
+                webAppWindow.LocationChanged -= OnWebAppTutorialHostChanged;
+                webAppWindow.SizeChanged -= OnWebAppTutorialPlacementTargetSizeChanged;
+                webAppWindow.StateChanged -= OnWebAppTutorialHostChanged;
             }
             try { _webAppTutorialWindow?.Close(); } catch { }
             _webAppTutorialWindow = null;
@@ -5394,9 +5974,17 @@ namespace Doorpi
             _webAppTutorialOverlay = null;
             _webAppTutorialOpen = false;
 
-            RootGrid.Children.Remove(ytWebView);
+            try
+            {
+                if (ytWebView.Parent is Panel parent)
+                    parent.Children.Remove(ytWebView);
+                else
+                    RootGrid.Children.Remove(ytWebView);
+            }
+            catch { }
 
             try { ytWebView.Dispose(); } catch { }
+            LogWebViewDiagnostic("close-end");
             _ytWebView = null;
             _genericBrowserShell = null;
             _genericBrowserToolbarRow = null;
@@ -5433,6 +6021,7 @@ namespace Doorpi
             StopGenericBrowserWebAppUrlCapture();
             ClearWebAppSession();
 
+            ResumeDoorpiHomeWebView();
             webView.Visibility = Visibility.Visible;
             this.WindowState = WindowState.Maximized;
             ForceFocus();
@@ -5454,6 +6043,35 @@ namespace Doorpi
         }
 
         // ── Handlers ─────────────────────────────────────────────────────────
+        private async void OnMediaWebViewProcessFailed(object? sender, CoreWebView2ProcessFailedEventArgs e)
+        {
+            Debug.WriteLine("[WebApp] WebView2 falhou: " + e.ProcessFailedKind);
+            _mediaWebViewProcessDegraded = true;
+            LogWebViewDiagnostic($"process-failed kind={e.ProcessFailedKind} reason={e.Reason} exitCode={e.ExitCode} description={e.ProcessDescription}");
+            LogWebViewProcessSnapshot("process-failed-snapshot", sender as CoreWebView2);
+
+            if (e.ProcessFailedKind is not (CoreWebView2ProcessFailedKind.RenderProcessExited
+                or CoreWebView2ProcessFailedKind.RenderProcessUnresponsive
+                or CoreWebView2ProcessFailedKind.FrameRenderProcessExited
+                or CoreWebView2ProcessFailedKind.BrowserProcessExited))
+                return;
+
+            await Dispatcher.InvokeAsync(async () =>
+            {
+                try
+                {
+                    if (_webAppLoadingActive)
+                        await ReleaseWebAppLoadingOverlayAsync();
+                    SendGameLaunchStatus("gameLaunchDone");
+                    EnsureCursorVisible();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[WebApp] Falha ao recuperar WebView degradado: " + ex.Message);
+                }
+            });
+        }
+
         private void YtOnKeyDown(object sender, KeyEventArgs e)
         {
             if (e.Key == Key.Escape || e.Key == Key.BrowserBack)

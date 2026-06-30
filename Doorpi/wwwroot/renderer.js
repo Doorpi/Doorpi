@@ -300,6 +300,40 @@ const CardRenderer = (() => {
             <path d="M8.5 10V7.5a3.5 3.5 0 0 1 7 0V10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
         </svg>`;
 
+    const FALLBACK_APP_ICON_SVG = `
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <rect x="4" y="4" width="16" height="16" rx="4.2" stroke="currentColor" stroke-width="1.8"/>
+            <path d="M8.2 12h7.6M12 8.2v7.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>`;
+
+    function _safeIconBase64(value) {
+        return String(value || '').replace(/"/g, '&quot;').trim();
+    }
+
+    function _fallbackMarkup(iconBase64) {
+        const safeIcon = _safeIconBase64(iconBase64);
+        if (safeIcon) {
+            return `
+                <img class="media-card-fallback-blur" src="data:image/png;base64,${safeIcon}" alt="" />
+                <img class="media-card-fallback-icon" src="data:image/png;base64,${safeIcon}" alt="" />
+            `;
+        }
+
+        return `
+            <span class="media-card-fallback-blur generic">${FALLBACK_APP_ICON_SVG}</span>
+            <span class="media-card-fallback-icon generic">${FALLBACK_APP_ICON_SVG}</span>
+        `;
+    }
+
+    function _syncFallback(card, iconBase64) {
+        const fallbackEl = card?.querySelector?.('.media-card-fallback');
+        if (!fallbackEl) return;
+        const nextIcon = _safeIconBase64(iconBase64);
+        if (fallbackEl.dataset.iconBase64 === nextIcon) return;
+        fallbackEl.dataset.iconBase64 = nextIcon;
+        fallbackEl.innerHTML = _fallbackMarkup(nextIcon);
+    }
+
     function _syncAdminLockIcon(card, locked) {
         let icon = card.querySelector('.admin-lock-icon');
         if (locked) {
@@ -351,7 +385,7 @@ const CardRenderer = (() => {
         if (title) title.textContent = '';
 
         const fallback = card.querySelector('.media-card-fallback');
-        if (fallback) { fallback.textContent = ''; fallback.style.display = ''; }
+        if (fallback) { fallback.innerHTML = ''; fallback.style.display = ''; delete fallback.dataset.iconBase64; }
 
         Array.from(card.children).forEach(child => {
             if (!child.classList.contains('title') &&
@@ -398,6 +432,7 @@ const CardRenderer = (() => {
         card.dataset.staticHero = item.staticHero || '';
         card.dataset.staticLogo = item.staticLogo || '';
         card.dataset.iconBase64 = item.iconBase64 || '';
+        card.dataset.assetQuery = item.assetQuery || item.AssetQuery || '';
         card.dataset.isAnimated = item.isAnimated ? 'true' : 'false';
         if (item.disableGamepadControl != null) {
             card.dataset.disableGamepadControl = item.disableGamepadControl ? 'true' : 'false';
@@ -411,8 +446,8 @@ const CardRenderer = (() => {
 
         _syncAdminLockIcon(card, !!item.isAdminLocked);
 
+        _syncFallback(card, item.iconBase64 || '');
         const fallbackEl = card.querySelector('.media-card-fallback');
-        if (fallbackEl) fallbackEl.textContent = (item.name || '?').charAt(0).toUpperCase();
 
         const img = card.querySelector('img');
         const src = _selectedImageSrc(item, isFeatured);
@@ -503,6 +538,7 @@ const CardRenderer = (() => {
         const fallbackEl = card.querySelector('.media-card-fallback');
 
         titleEl.textContent = item.name;
+        _syncFallback(card, item.iconBase64 || '');
         window.applyRuntimeStateToCard?.(card);
 
         if (item.isAdminLocked) {
@@ -511,10 +547,7 @@ const CardRenderer = (() => {
 
         const staticSrc = _selectedImageSrc(item, isFeatured);
 
-        if (fallbackEl) {
-            fallbackEl.textContent = (item.name || '?').charAt(0).toUpperCase();
-            fallbackEl.style.display = staticSrc ? 'none' : '';
-        }
+        if (fallbackEl) fallbackEl.style.display = staticSrc ? 'none' : '';
         if (!staticSrc) {
             card.classList.add('no-art');
         }
@@ -681,11 +714,6 @@ const CardRenderer = (() => {
         if (patch.name != null) {
             const titleEl = card.querySelector('.title');
             if (titleEl) titleEl.textContent = patch.name;
-
-            const fallbackEl = card.querySelector('.media-card-fallback');
-            if (fallbackEl) {
-                fallbackEl.textContent = patch.name.charAt(0).toUpperCase();
-            }
         }
         if (patch.staticVertical) card.dataset.staticVertical = patch.staticVertical;
         if (patch.staticHorizontal) card.dataset.staticHorizontal = patch.staticHorizontal;
@@ -696,6 +724,7 @@ const CardRenderer = (() => {
         if (patch.hero) card.dataset.hero = patch.hero;
         if (patch.logo) card.dataset.logo = patch.logo;
         if (patch.iconBase64) card.dataset.iconBase64 = patch.iconBase64;
+        if (patch.iconBase64 != null) _syncFallback(card, card.dataset.iconBase64 || '');
         if (patch.shareMode) card.dataset.shareMode = patch.shareMode;
         if (patch.disableGamepadControl != null) card.dataset.disableGamepadControl = String(patch.disableGamepadControl);
         const img = card.querySelector('img');

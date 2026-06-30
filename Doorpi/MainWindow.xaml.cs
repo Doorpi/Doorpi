@@ -4855,7 +4855,7 @@ namespace Doorpi
             ("netflix",     "Netflix",      "Netflix (Website)",         "https://www.netflix.com",      "browser", true ),
             ("twitch",      "Twitch",       "Twitch (Website)",          "https://www.twitch.tv",        "browser", false),
             ("kick",        "Kick",         "Kick (Website)",            "https://www.kick.com",         "browser", false),
-            (DoorpiBrowserAppId, "Browser", "Google Chrome (Browser)",   "https://www.google.com",       "browser", false),
+            (DoorpiBrowserAppId, "Browser", "Google (Website)",          "https://www.google.com",       "browser", false),
             ("disneyplus",  "Disney +",      "Disney + (Website)",     "https://www.disneyplus.com",   "browser", true ),
             ("primevideo",  "Prime Vídeo",  "Prime Video (Website)",     "https://www.primevideo.com",   "browser", true ),
             ("appletv",     "Apple TV",    "Apple TV (Website)",   "https://tv.apple.com",         "browser", true ),
@@ -4878,6 +4878,7 @@ namespace Doorpi
         private MediaAppModel BuildNativeMediaApp(
             string id,
             string name,
+            string assetQuery,
             string url,
             string type,
             bool multiUser,
@@ -4895,6 +4896,7 @@ namespace Doorpi
                 Name = name,
                 Url = url,
                 Type = type,
+                AssetQuery = !string.IsNullOrWhiteSpace(existingEntry.AssetQuery) ? existingEntry.AssetQuery : assetQuery,
                 MultiUser = multiUser,
                 OwnerUserId = targetUserId,
                 ShareMode = existingEntry.ShareMode,
@@ -4957,7 +4959,31 @@ namespace Doorpi
                 if (targetUserId == currentUserId) PostProgress(id, "active");
 
                 var existingEntry = existingById.TryGetValue(id, out var prev) ? prev : new MediaAppModel();
-                apps.Add(BuildNativeMediaApp(id, name, url, type, multiUser, targetUserId, existingEntry));
+                if (id.Equals(DoorpiBrowserAppId, StringComparison.OrdinalIgnoreCase) &&
+                    string.IsNullOrWhiteSpace(existingEntry.GridImage) &&
+                    string.IsNullOrWhiteSpace(existingEntry.HeroImage) &&
+                    string.IsNullOrWhiteSpace(FindNativeAssetUrl(id, "grid")))
+                {
+                    try
+                    {
+                        var (gridUrl, horizontalUrl, heroUrl, logoUrl) = await FetchMediaAppAssetsAsync(name, query).ConfigureAwait(false);
+                        string safeName = id;
+                        string? localGrid = gridUrl != null ? await DownloadImageAsync(gridUrl, gridFolder, safeName).ConfigureAwait(false) : null;
+                        string? localHorizontal = horizontalUrl != null ? await DownloadImageAsync(horizontalUrl, gridHorizontalFolder, safeName + "_h").ConfigureAwait(false) : null;
+                        string? localHero = heroUrl != null ? await DownloadImageAsync(heroUrl, heroFolder, safeName).ConfigureAwait(false) : null;
+                        string? localLogo = logoUrl != null ? await DownloadImageAsync(logoUrl, logoFolder, safeName + "_logo").ConfigureAwait(false) : null;
+
+                        existingEntry.GridImage = localGrid != null ? $"https://data.local/images/grid/{Path.GetFileName(localGrid)}" : existingEntry.GridImage;
+                        existingEntry.GridHorizontalImage = localHorizontal != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(localHorizontal)}" : existingEntry.GridHorizontalImage;
+                        existingEntry.HeroImage = localHero != null ? $"https://data.local/images/hero/{Path.GetFileName(localHero)}" : existingEntry.HeroImage;
+                        existingEntry.LogoImage = localLogo != null ? $"https://data.local/images/logo/{Path.GetFileName(localLogo)}" : existingEntry.LogoImage;
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine("[Media] Arte do Browser nao encontrada: " + ex.Message);
+                    }
+                }
+                apps.Add(BuildNativeMediaApp(id, name, query, url, type, multiUser, targetUserId, existingEntry));
 
                 if (targetUserId == currentUserId) PostProgress(id, "done");
             }
@@ -6055,6 +6081,7 @@ namespace Doorpi
         private void FocusDoorpiKeepSession()
         {
           
+            try { webView?.CoreWebView2?.GetType().GetMethod("Resume", Type.EmptyTypes)?.Invoke(webView.CoreWebView2, null); } catch { }
             _mainUiGamepadSuspendedForGame = false;
             Interlocked.Exchange(ref _mainUiGamepadSuppressUntilUtcTicks, 0);
             Interlocked.Exchange(ref _focusRestoredAtTicks, DateTime.UtcNow.Ticks);
@@ -9582,6 +9609,46 @@ namespace Doorpi
                 .Where(k => !string.IsNullOrWhiteSpace(k))
                 .Distinct(StringComparer.OrdinalIgnoreCase);
 
+        private static bool IsDoorpiInternalExecutable(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return false;
+
+            try
+            {
+                string fullPath = Path.GetFullPath(path.Trim('"'));
+                string fileName = Path.GetFileName(fullPath);
+
+                string currentExe = Process.GetCurrentProcess().MainModule?.FileName ?? "";
+                if (!string.IsNullOrWhiteSpace(currentExe) &&
+                    PathsEqual(fullPath, Path.GetFullPath(currentExe)))
+                    return true;
+
+                var internalExecutables = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    "Doorpi.exe",
+                    "Updater.exe",
+                    "DoorpiInputBridge.exe",
+                    "DoorpiWindowsUpdateHelper.exe"
+                };
+
+                if (!internalExecutables.Contains(fileName))
+                    return false;
+
+                string baseDir = Path.GetFullPath(AppDomain.CurrentDomain.BaseDirectory)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                    + Path.DirectorySeparatorChar;
+
+                return fullPath.StartsWith(baseDir, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool IsDoorpiInternalApp(InstalledApp app)
+            => IsDoorpiInternalExecutable(app.Path);
+
         private static bool InstalledAppMatchesGame(InstalledApp app, GameModel game)
         {
             var gameKeys = AutoAddKeysForGame(game).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -9838,6 +9905,7 @@ namespace Doorpi
             all.AddRange(xbox);
             all.AddRange(windows);
             all.AddRange(folders);
+            all = all.Where(app => !IsDoorpiInternalApp(app)).ToList();
 
             foreach (var app in all)
             {
@@ -9922,6 +9990,7 @@ namespace Doorpi
             all.AddRange(xbox);
             all.AddRange(windows);
             all.AddRange(folders);
+            all = all.Where(app => !IsDoorpiInternalApp(app)).ToList();
 
             foreach (var app in all)
             {
@@ -10545,6 +10614,9 @@ namespace Doorpi
 
                 foreach (var app in selectedApps)
                 {
+                    if (IsDoorpiInternalApp(app))
+                        continue;
+
                     string key = !string.IsNullOrWhiteSpace(app.LaunchUrl) ? app.LaunchUrl : (app.Path ?? "");
                     if (string.IsNullOrWhiteSpace(key)) continue;
                     if (existing.Any(a => string.Equals(a.Url, key, StringComparison.OrdinalIgnoreCase)))
@@ -12525,6 +12597,9 @@ namespace Doorpi
 
             foreach (var app in selectedApps)
             {
+                if (IsDoorpiInternalApp(app))
+                    continue;
+
                 if (!string.IsNullOrWhiteSpace(app.Source) && IsStoreBlockedForCurrentUser(app.Source))
                     continue;
 

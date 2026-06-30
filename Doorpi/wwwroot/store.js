@@ -82,6 +82,7 @@ window.AppStore = (() => {
             horizontal: raw.GridHorizontalImage || raw.gridHorizontalImage || '',
             hero: raw.HeroImage || raw.heroImage || raw.hero || '', logo: raw.LogoImage || raw.logoImage || raw.logo || '',
             iconBase64: raw.IconBase64 || raw.iconBase64 || '',
+            assetQuery: raw.AssetQuery || raw.assetQuery || '',
             disableGamepadControl: raw.DisableGamepadControl || raw.disableGamepadControl || false,
             isAnimated: raw.isAnimated || false,
         };

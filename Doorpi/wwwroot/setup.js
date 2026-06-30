@@ -548,6 +548,15 @@ function openSetup(isAddingUser = false) {
     document.body.classList.add('setup-active');
     window.updateDoorpiQuickMenuAvailability?.();
     const c = document.getElementById('setupContainer');
+    if (c.dataset.introSetupClasses) {
+        c.classList.remove(...c.dataset.introSetupClasses.split(/\s+/).filter(Boolean));
+    }
+    const introSetupClasses = window.DoorpiIntro?.isHandoffActive?.()
+        ? (window.DoorpiIntro.getSetupClasses?.() || [])
+        : [];
+    if (introSetupClasses.length) c.classList.add(...introSetupClasses);
+    c.dataset.introSetupClasses = introSetupClasses.join(' ');
+
     c.style.display = 'flex';
     requestAnimationFrame(() => {
         c.classList.add('visible');
@@ -555,6 +564,7 @@ function openSetup(isAddingUser = false) {
         if (header && !_currentSection) _toggleSection(header.parentElement);
         header?.focus();
         _startSetupBg(); // Inicia o background animado nativo
+        requestAnimationFrame(() => window.DoorpiIntro?.finishHandoff?.());
     });
 }
 
@@ -563,6 +573,10 @@ function closeSetup() {
     const c = document.getElementById('setupContainer');
     c.style.display = 'none';
     c.classList.remove('visible');
+    if (c.dataset.introSetupClasses) {
+        c.classList.remove(...c.dataset.introSetupClasses.split(/\s+/).filter(Boolean));
+        delete c.dataset.introSetupClasses;
+    }
     _stopSetupBg(); // Para a animação do Setup ao fechar para poupar recursos
     window.focusFeaturedCard?.();
     window.isSetupOpen = false;
