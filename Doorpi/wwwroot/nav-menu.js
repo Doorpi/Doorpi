@@ -2290,18 +2290,19 @@ window.isNavMenuOpen = false;
 .nav-suggestion-card.nav-focused-el .nav-suggestion-card-btn { background: rgba(255,255,255,0.2); border-color: rgba(255,255,255,0.5); }
 .nav-suggestion-card-text { font-size: 0.78rem; color: rgba(255,255,255,0.75); line-height: 1.45; }
 .nav-suggestion-card.nav-focused-el .nav-suggestion-card-text { color: #fff; }
-.nav-gpu-app-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:12px; width:100%; }
-.nav-gpu-app-card { min-height:168px; border:1px solid rgba(255,255,255,.12); border-radius:10px; background:linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.035)); color:#fff; outline:none; cursor:pointer; padding:14px; display:flex; flex-direction:column; justify-content:space-between; gap:12px; text-align:left; transition:all .2s cubic-bezier(.25,1,.5,1); }
+.nav-gpu-app-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:14px; width:100%; }
+.nav-gpu-app-card { min-height:238px; border:1px solid rgba(255,255,255,.12); border-radius:12px; background:radial-gradient(circle at 50% 0%, rgba(255,255,255,.12), transparent 42%), linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.035)); color:#fff; outline:none; cursor:pointer; padding:15px 15px 18px; display:flex; flex-direction:column; justify-content:flex-start; gap:15px; text-align:left; transition:all .2s cubic-bezier(.25,1,.5,1); overflow:hidden; }
 .nav-gpu-app-card.nav-focused-el { transform:translateY(-3px) scale(1.02); background:rgba(255,255,255,.09); border-color:rgba(255,255,255,.48); box-shadow:0 15px 35px rgba(0,0,0,.4); }
-.nav-gpu-app-art { height:78px; border-radius:8px; background:radial-gradient(circle at 25% 20%, rgba(125,203,255,.24), transparent 34%), rgba(255,255,255,.06); display:flex; align-items:center; justify-content:center; overflow:hidden; }
-.nav-gpu-app-art img { width:46px; height:46px; object-fit:contain; filter:drop-shadow(0 8px 18px rgba(0,0,0,.34)); }
-.nav-gpu-app-cover { width:100%; height:100%; background-size:cover; background-position:center; }
-.nav-gpu-app-fallback { width:46px; height:46px; border-radius:12px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,.12); color:#fff; font-weight:800; letter-spacing:.04em; }
-.nav-gpu-app-name { color:#fff; font-size:.95rem; font-weight:700; line-height:1.22; min-height:2.4em; overflow:hidden; }
-.nav-gpu-app-meta { margin-top:4px; color:rgba(255,255,255,.58); font-size:.74rem; line-height:1.35; }
-.nav-gpu-app-footer { display:flex; align-items:center; justify-content:flex-start; gap:10px; }
-.nav-gpu-app-open { padding:4px 9px; border-radius:999px; background:rgba(125,203,255,.13); color:#9dd8ff; font-size:.66rem; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
-.nav-gpu-app-add { align-items:center; text-align:center; justify-content:center; border-style:dashed; }
+.nav-gpu-app-art { min-height:128px; border-radius:10px; background:radial-gradient(circle at 50% 18%, rgba(255,255,255,.24), transparent 32%), radial-gradient(circle at 20% 10%, rgba(125,203,255,.28), transparent 36%), linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.03)); display:flex; align-items:center; justify-content:center; overflow:hidden; box-shadow:inset 0 1px 0 rgba(255,255,255,.08), 0 18px 28px rgba(0,0,0,.16); }
+.nav-gpu-app-art img { width:min(72%, 108px); height:min(72%, 108px); object-fit:contain; filter:drop-shadow(0 14px 28px rgba(0,0,0,.34)); }
+.nav-gpu-app-cover { width:100%; height:100%; background-size:contain; background-repeat:no-repeat; background-position:center; filter:drop-shadow(0 14px 24px rgba(90,180,255,.18)); transform:scale(1.03); }
+.nav-gpu-app-fallback { width:58px; height:58px; border-radius:16px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,.12); color:#fff; font-weight:800; letter-spacing:.04em; }
+.nav-gpu-app-copy { display:grid; gap:6px; align-content:start; }
+.nav-gpu-app-name { color:#fff; font-size:.95rem; font-weight:700; line-height:1.24; overflow:hidden; }
+.nav-gpu-app-meta { color:rgba(255,255,255,.58); font-size:.74rem; line-height:1.38; }
+.nav-gpu-app-add { border-style:dashed; }
+.nav-gpu-app-add .nav-gpu-app-art { background:none; box-shadow:none; min-height:128px; }
+.nav-gpu-app-add .nav-gpu-app-fallback { width:62px; height:62px; background:#fff; color:#0d1018; box-shadow:0 12px 28px rgba(255,255,255,.18); }
 
 @media (max-width: 1366px), (max-height: 780px) {
 
@@ -3415,18 +3416,15 @@ window.isNavMenuOpen = false;
                             <div class="nav-gpu-app-art">
                                 ${imageUrl ? `<div class="nav-gpu-app-cover" style="background-image:url('${_esc(imageUrl)}')"></div>` : (iconDataUrl ? `<img src="${_esc(iconDataUrl)}" alt="">` : `<div class="nav-gpu-app-fallback">${_esc(_gpuUpdaterInitials(app))}</div>`)}
                             </div>
-                            <div>
+                            <div class="nav-gpu-app-copy">
                                 <div class="nav-gpu-app-name">${_esc(name)}</div>
                                 <div class="nav-gpu-app-meta">${_esc(_gpuVendorName(vendor))} · ${_esc(source === 'manual' ? 'Adicionado manualmente' : 'Detectado automaticamente')}</div>
-                            </div>
-                            <div class="nav-gpu-app-footer">
-                                <span class="nav-gpu-app-open">Abrir</span>
                             </div>
                         </div>
                     `}).join('')}
                     <div class="nav-gpu-app-card nav-gpu-app-add" data-gpu-action="add" tabindex="-1" role="button">
                         <div class="nav-gpu-app-art"><div class="nav-gpu-app-fallback">+</div></div>
-                        <div>
+                        <div class="nav-gpu-app-copy">
                             <div class="nav-gpu-app-name">Adicionar app</div>
                             <div class="nav-gpu-app-meta">Escolha outro atualizador instalado no Windows.</div>
                         </div>

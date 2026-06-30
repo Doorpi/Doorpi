@@ -233,6 +233,16 @@ namespace Doorpi
                     if (string.IsNullOrWhiteSpace(updater.Id) || !string.IsNullOrWhiteSpace(updater.ImageUrl))
                         continue;
 
+                    if (string.Equals(updater.Vendor, "intel", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!string.IsNullOrWhiteSpace(updater.IconDataUrl) &&
+                            GpuUpdates.SetUpdaterImage(updater.Id, updater.IconDataUrl))
+                        {
+                            changed = true;
+                        }
+                        continue;
+                    }
+
                     string query = BuildGpuUpdaterArtworkQuery(updater);
                     if (string.IsNullOrWhiteSpace(query)) continue;
 
@@ -270,12 +280,13 @@ namespace Doorpi
             string name = updater.Name ?? "";
             string vendor = (updater.Vendor ?? "").ToLowerInvariant();
             if (name.Contains("NVCleanstall", StringComparison.OrdinalIgnoreCase)) return "NVCleanstall";
-            if (name.Contains("GeForce Experience", StringComparison.OrdinalIgnoreCase)) return "NVIDIA GeForce Experience";
-            if (name.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase) || vendor == "nvidia") return "NVIDIA App";
+            if (name.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("GeForce Experience", StringComparison.OrdinalIgnoreCase) ||
+                vendor == "nvidia") return "NVIDIA Control Panel (Program)";
             if (name.Contains("AMD", StringComparison.OrdinalIgnoreCase) ||
-                name.Contains("Adrenalin", StringComparison.OrdinalIgnoreCase) || vendor == "amd") return "AMD Software Adrenalin";
-            if (name.Contains("Arc", StringComparison.OrdinalIgnoreCase)) return "Intel Arc Control";
-            if (name.Contains("Intel", StringComparison.OrdinalIgnoreCase) || vendor == "intel") return "Intel Driver Support Assistant";
+                name.Contains("Adrenalin", StringComparison.OrdinalIgnoreCase) ||
+                vendor == "amd") return "AMD Driver Updater, Vista and 7";
+            if (name.Contains("Intel", StringComparison.OrdinalIgnoreCase) || vendor == "intel") return "";
             return name;
         }
 

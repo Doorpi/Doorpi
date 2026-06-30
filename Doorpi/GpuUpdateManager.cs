@@ -70,18 +70,26 @@ namespace Doorpi
                 var adapters = DetectAdapters();
                 var detected = DetectUpdaterApps();
                 MergeDetected(config, detected);
+                RemoveUnsupportedDetectedUpdaters(config);
                 SaveConfig(config);
+                bool hasIntelAdapter = adapters.Any(adapter =>
+                    string.Equals(adapter.Vendor, "intel", StringComparison.OrdinalIgnoreCase));
+                string message = adapters.Count > 0
+                    ? "Drivers de video detectados."
+                    : "Nenhuma placa de video detectada pelo Windows.";
+                if (hasIntelAdapter)
+                    message += " GPU Intel detectada: adicione manualmente o app da Intel.";
 
                 return new GpuUpdateStatus
                 {
                     Status = "ready",
-                    Message = adapters.Count > 0
+                    Message = hasIntelAdapter ? message : adapters.Count > 0
                         ? "Drivers de vídeo detectados."
                         : "Nenhuma placa de vídeo detectada pelo Windows.",
                     LastCheckedAt = DateTimeOffset.Now,
                     Adapters = adapters,
                     Updaters = config.Updaters
-                        .Where(app => !string.IsNullOrWhiteSpace(app.Path))
+                        .Where(app => IsLaunchableUpdaterPath(app.Path))
                         .OrderBy(app => VendorRank(app.Vendor))
                         .ThenBy(app => app.Name)
                         .Select(WithRuntimeIcon)
@@ -103,9 +111,17 @@ namespace Doorpi
             if (string.IsNullOrWhiteSpace(id)) return null;
             lock (_lock)
             {
-                var updater = LoadConfig().Updaters.FirstOrDefault(app =>
+                var config = LoadConfig();
+                var updater = config.Updaters.FirstOrDefault(app =>
                     string.Equals(app.Id, id, StringComparison.OrdinalIgnoreCase));
-                return updater == null ? null : WithRuntimeIcon(updater);
+                if (updater != null && TryRepairDetectedUpdater(config, updater))
+                {
+                    SaveConfig(config);
+                }
+
+                return updater == null || !IsLaunchableUpdaterPath(updater.Path)
+                    ? null
+                    : WithRuntimeIcon(updater);
             }
         }
 
@@ -234,6 +250,13 @@ namespace Doorpi
                 if (string.IsNullOrWhiteSpace(existing.ImageUrl))
                     existing.ImageUrl = app.ImageUrl;
             }
+        }
+
+        private static void RemoveUnsupportedDetectedUpdaters(GpuUpdateConfig config)
+        {
+            config.Updaters.RemoveAll(app =>
+                string.Equals(app.Source, "detected", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(app.Vendor, "intel", StringComparison.OrdinalIgnoreCase));
         }
 
         private static List<GpuAdapterInfo> DetectAdapters()
@@ -383,7 +406,7 @@ namespace Doorpi
                 var match = MatchKnownUpdater(app.Name, app.Path);
                 if (match == null) continue;
 
-                string path = ResolveUpdaterPath(match.Value.Vendor, app.Path, app.InstallLocation);
+                string path = ResolveUpdaterPath(match.Value.Id, app.Path, app.InstallLocation);
                 if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) continue;
 
                 candidates.Add(new GpuUpdaterApp
@@ -450,30 +473,59 @@ namespace Doorpi
                 return ("nvidia-geforce-experience", "GeForce Experience", "nvidia");
             if (text.Contains("amd software") || text.Contains("adrenalin"))
                 return ("amd-software", "AMD Software", "amd");
-            if (text.Contains("intel driver") && text.Contains("support assistant"))
-                return ("intel-dsa", "Intel Driver & Support Assistant", "intel");
-            if (text.Contains("intel arc control"))
-                return ("intel-arc-control", "Intel Arc Control", "intel");
             return null;
         }
 
-        private static string ResolveUpdaterPath(string vendor, string registryPath, string installLocation)
+        private static bool TryRepairDetectedUpdater(GpuUpdateConfig config, GpuUpdaterApp updater)
         {
-            if (!string.IsNullOrWhiteSpace(registryPath) && File.Exists(registryPath))
-                return registryPath;
+            if (!string.Equals(updater.Source, "detected", StringComparison.OrdinalIgnoreCase) ||
+                IsLaunchableUpdaterPath(updater.Path))
+            {
+                return false;
+            }
+
+            var repaired = DetectUpdaterApps().FirstOrDefault(app =>
+                string.Equals(app.Id, updater.Id, StringComparison.OrdinalIgnoreCase));
+            if (repaired == null || !IsLaunchableUpdaterPath(repaired.Path))
+                return false;
+
+            updater.Name = repaired.Name;
+            updater.Vendor = repaired.Vendor;
+            updater.Path = repaired.Path;
+            updater.Source = "detected";
+            updater.LastSeenAt = DateTime.Now;
+            return true;
+        }
+
+        private static string ResolveUpdaterPath(string expectedId, string registryPath, string installLocation)
+        {
+            if (IsLaunchableUpdaterPath(registryPath))
+            {
+                var registryMatch = MatchKnownUpdater(Path.GetFileNameWithoutExtension(registryPath), registryPath);
+                if (registryMatch != null &&
+                    string.Equals(registryMatch.Value.Id, expectedId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return registryPath;
+                }
+            }
 
             foreach (var known in KnownUpdaterPaths().Where(path =>
-                         string.Equals(path.Vendor, vendor, StringComparison.OrdinalIgnoreCase)))
+                         string.Equals(path.Id, expectedId, StringComparison.OrdinalIgnoreCase)))
             {
-                if (File.Exists(known.Path)) return known.Path;
+                if (IsLaunchableUpdaterPath(known.Path)) return known.Path;
             }
 
             if (!string.IsNullOrWhiteSpace(installLocation) && Directory.Exists(installLocation))
             {
                 var exe = Directory.EnumerateFiles(installLocation, "*.exe", SearchOption.AllDirectories)
-                    .Where(path => !Path.GetFileName(path).Contains("unins", StringComparison.OrdinalIgnoreCase))
+                    .Where(IsLaunchableUpdaterPath)
                     .OrderBy(path => path.Length)
-                    .FirstOrDefault(path => MatchKnownUpdater(Path.GetFileNameWithoutExtension(path), path) != null);
+                    .FirstOrDefault(path =>
+                    {
+                        var match = MatchKnownUpdater(Path.GetFileNameWithoutExtension(path), path);
+                        return match != null &&
+                               string.Equals(match.Value.Id, expectedId, StringComparison.OrdinalIgnoreCase);
+                    });
                 if (!string.IsNullOrWhiteSpace(exe)) return exe;
             }
 
@@ -483,21 +535,18 @@ namespace Doorpi
         private static IEnumerable<(string Id, string Name, string Vendor, string Path)> KnownUpdaterPaths()
         {
             string pf = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-            string pfx86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
             string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
 
             yield return ("nvidia-app", "NVIDIA App", "nvidia",
-                Path.Combine(pf, "NVIDIA Corporation", "NVIDIA app", "CEF", "NVIDIA app.exe"));
+                Path.Combine(pf, "NVIDIA Corporation", "NVIDIA App", "NVIDIA App.exe"));
+            yield return ("nvidia-app", "NVIDIA App", "nvidia",
+                Path.Combine(pf, "NVIDIA Corporation", "NVIDIA App", "CEF", "NVIDIA App.exe"));
             yield return ("nvidia-geforce-experience", "GeForce Experience", "nvidia",
                 Path.Combine(pf, "NVIDIA Corporation", "NVIDIA GeForce Experience", "NVIDIA GeForce Experience.exe"));
             yield return ("amd-software", "AMD Software", "amd",
                 Path.Combine(pf, "AMD", "CNext", "CNext", "RadeonSoftware.exe"));
             yield return ("amd-software-local", "AMD Software", "amd",
                 Path.Combine(local, "AMD", "CN", "RadeonSoftware.exe"));
-            yield return ("intel-dsa", "Intel Driver & Support Assistant", "intel",
-                Path.Combine(pfx86, "Intel", "Driver and Support Assistant", "DSATray.exe"));
-            yield return ("intel-arc-control", "Intel Arc Control", "intel",
-                Path.Combine(pf, "Intel", "Intel Arc Control", "ArcControl.exe"));
         }
 
         private static string DisplayNameFromFile(string path)
@@ -650,6 +699,32 @@ namespace Doorpi
             int exeIndex = value.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
             if (exeIndex >= 0) return value.Substring(0, exeIndex + 4).Trim().Trim('"');
             return value.Split(',')[0].Trim().Trim('"');
+        }
+
+        private static bool IsLaunchableUpdaterPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return false;
+
+            string extension = Path.GetExtension(path);
+            if (!extension.Equals(".exe", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            string fileName = Path.GetFileNameWithoutExtension(path);
+            string text = path.Replace('/', '\\');
+
+            if (fileName.Contains("unins", StringComparison.OrdinalIgnoreCase) ||
+                fileName.Contains("uninstall", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (text.Contains("\\Installer2\\", StringComparison.OrdinalIgnoreCase) ||
+                text.Contains("\\InstallerCore\\", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return true;
         }
 
         private static string StableHash(string value)

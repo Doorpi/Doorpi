@@ -5431,22 +5431,25 @@ function showUserPicker(users, requireSelection = false) {
                 .dq-action.compact { min-height:48px; font-size:.92rem; }
                 .dq-action[disabled] { opacity:.38; cursor:default; pointer-events:none; }
                 .dq-action[data-busy="true"] { opacity:.72; cursor:default; }
-                .dq-app-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:14px; width:100%; max-width:880px; margin-top:4px; }
+                .dq-app-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:16px; width:100%; max-width:980px; margin-top:4px; }
                 .dq-app-card {
-                    min-height:176px;
+                    min-height:248px;
                     border:1px solid rgba(255,255,255,.10);
-                    border-radius:8px;
-                    background:linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.035));
+                    border-radius:12px;
+                    background:
+                        radial-gradient(circle at 50% 0%, rgba(255,255,255,.12), transparent 42%),
+                        linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.035));
                     color:#fff;
                     outline:none;
                     cursor:pointer;
-                    padding:16px;
+                    padding:16px 16px 18px;
                     display:flex;
                     flex-direction:column;
-                    justify-content:space-between;
-                    gap:14px;
+                    justify-content:flex-start;
+                    gap:16px;
                     text-align:left;
                     transition:transform .18s, background .18s, border-color .18s, box-shadow .18s;
+                    overflow:hidden;
                 }
                 .dq-app-card.nav-focused-el, .dq-app-card:focus {
                     transform:translateY(-2px);
@@ -5455,21 +5458,27 @@ function showUserPicker(users, requireSelection = false) {
                     box-shadow:0 0 0 2px rgba(255,255,255,.15), 0 18px 42px rgba(0,0,0,.38);
                 }
                 .dq-app-art {
-                    height:86px;
-                    border-radius:7px;
-                    background:radial-gradient(circle at 24% 18%, rgba(125,203,255,.22), transparent 34%), rgba(255,255,255,.06);
+                    min-height:132px;
+                    border-radius:10px;
+                    background:
+                        radial-gradient(circle at 50% 18%, rgba(255,255,255,.24), transparent 32%),
+                        radial-gradient(circle at 20% 10%, rgba(125,203,255,.28), transparent 36%),
+                        linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.03));
                     display:flex;
                     align-items:center;
                     justify-content:center;
                     overflow:hidden;
+                    box-shadow:inset 0 1px 0 rgba(255,255,255,.08), 0 18px 28px rgba(0,0,0,.16);
                 }
-                .dq-app-art img { width:48px; height:48px; object-fit:contain; filter:drop-shadow(0 8px 18px rgba(0,0,0,.36)); }
-                .dq-app-cover { width:100%; height:100%; background-size:cover; background-position:center; }
-                .dq-app-fallback { width:48px; height:48px; border-radius:12px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,.12); font-weight:800; letter-spacing:.04em; }
-                .dq-app-name { font-size:1rem; font-weight:650; line-height:1.22; min-height:2.44em; overflow:hidden; }
-                .dq-app-meta { color:rgba(255,255,255,.54); font-size:.78rem; line-height:1.35; }
-                .dq-app-footer { display:flex; align-items:center; justify-content:space-between; gap:10px; }
-                .dq-app-add { align-items:center; text-align:center; justify-content:center; border-style:dashed; }
+                .dq-app-art img { width:min(72%, 108px); height:min(72%, 108px); object-fit:contain; filter:drop-shadow(0 14px 28px rgba(0,0,0,.34)); }
+                .dq-app-cover { width:100%; height:100%; background-size:contain; background-repeat:no-repeat; background-position:center; filter:drop-shadow(0 14px 24px rgba(90,180,255,.18)); transform:scale(1.03); }
+                .dq-app-fallback { width:58px; height:58px; border-radius:16px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,.14); font-weight:800; letter-spacing:.04em; }
+                .dq-app-copy { display:grid; gap:6px; align-content:start; }
+                .dq-app-name { font-size:1rem; font-weight:650; line-height:1.24; overflow:hidden; }
+                .dq-app-meta { color:rgba(255,255,255,.58); font-size:.78rem; line-height:1.38; }
+                .dq-app-add { border-style:dashed; }
+                .dq-app-add .dq-app-art { background:none; box-shadow:none; min-height:132px; }
+                .dq-app-add .dq-app-fallback { width:62px; height:62px; background:#fff; color:#0d1018; box-shadow:0 12px 28px rgba(255,255,255,.18); }
                 .dq-gpu-guidance { max-width:880px; display:grid; gap:8px; padding-left:14px; border-left:2px solid rgba(125,203,255,.48); }
                 .dq-gpu-guidance p { margin:0; color:rgba(255,255,255,.56); font-size:.86rem; line-height:1.42; }
                 .dq-gpu-guidance strong { color:rgba(255,255,255,.84); font-weight:650; }
@@ -5491,9 +5500,9 @@ function showUserPicker(users, requireSelection = false) {
                     .dq-action, .dq-power-list .dq-action { min-height:80px; padding:0 24px; font-size:1.2rem; }
                     .dq-panel, .dq-app-grid, .dq-gpu-guidance, .dq-windows-guidance { max-width:1100px; }
                     .dq-actions { max-width:920px; gap:16px; }
-                    .dq-app-grid { grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:18px; }
-                    .dq-app-card { min-height:220px; padding:20px; }
-                    .dq-app-art { height:108px; }
+                    .dq-app-grid { grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:18px; }
+                    .dq-app-card { min-height:288px; padding:22px; }
+                    .dq-app-art { min-height:156px; }
                     .dq-tab { min-width:165px; min-height:52px; }
                 }
                 @media (max-width: 900px) {
@@ -5521,9 +5530,9 @@ function showUserPicker(users, requireSelection = false) {
                     .dq-panel { padding:14px; }
                     .dq-actions { grid-template-columns:repeat(2,minmax(170px,1fr)); gap:10px; }
                     .dq-action, .dq-power-list .dq-action { min-height:50px; font-size:.9rem; }
-                    .dq-app-grid { grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
-                    .dq-app-card { min-height:146px; padding:12px; }
-                    .dq-app-art { height:62px; }
+                    .dq-app-grid { grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; }
+                    .dq-app-card { min-height:198px; padding:12px; gap:12px; }
+                    .dq-app-art { min-height:96px; }
                 }
             `;
             document.head.appendChild(s);
@@ -5864,18 +5873,15 @@ function showUserPicker(users, requireSelection = false) {
                                 <div class="dq-app-art">
                                     ${imageUrl ? `<div class="dq-app-cover" style="background-image:url('${esc(imageUrl)}')"></div>` : (iconDataUrl ? `<img src="${esc(iconDataUrl)}" alt="">` : `<div class="dq-app-fallback">${esc(updaterInitials(app))}</div>`)}
                                 </div>
-                                <div>
+                                <div class="dq-app-copy">
                                     <div class="dq-app-name">${esc(name)}</div>
                                     <div class="dq-app-meta">${esc(vendorName(vendor))} · ${esc(source === 'manual' ? t('quickAddedManually') : t('quickDetectedAutomatically'))}</div>
-                                </div>
-                                <div class="dq-app-footer">
-                                    <span class="dq-pill">${t('quickOpen')}</span>
                                 </div>
                             </div>
                         `}).join('')}
                         <div class="dq-app-card dq-app-add" data-action="add-gpu-updater" tabindex="0" role="button">
                             <div class="dq-app-art"><div class="dq-app-fallback">+</div></div>
-                            <div>
+                            <div class="dq-app-copy">
                                 <div class="dq-app-name">${t('quickAddApp')}</div>
                                 <div class="dq-app-meta">${t('quickAddUpdaterDesc')}</div>
                             </div>
