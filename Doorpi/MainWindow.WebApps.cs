@@ -101,6 +101,20 @@ namespace Doorpi
         private DateTime _genericBrowserControllerInputUntilUtc = DateTime.MinValue;
         private DateTime _genericBrowserVkbSuppressUntilUtc = DateTime.MinValue;
         private bool _genericBrowserVkbSuppressAUntilRelease;
+        private int _genericBrowserVkbOpenRequestId;
+        private volatile bool _genericBrowserNativeVkbWebInputValid;
+        private long _genericBrowserNativeVkbValidationInFlight;
+        private DateTime _genericBrowserNativeVkbLastValidationUtc = DateTime.MinValue;
+        private DateTime _genericBrowserNativeVkbOpenedAtUtc = DateTime.MinValue;
+        private volatile bool _webJsVkbVisibleValid;
+        private long _webJsVkbValidationInFlight;
+        private DateTime _webJsVkbLastValidationUtc = DateTime.MinValue;
+        private DateTime _webJsVkbOpenedAtUtc = DateTime.MinValue;
+        private int _mediaMouseAbortGeneration;
+        private readonly object _mediaControllerLogLock = new();
+        private long _lastMediaControllerForegroundRejectLogTicks;
+        private long _lastMediaControllerHeartbeatLogTicks;
+        private long _lastMediaControllerStateLogTicks;
         private long _lastWebAppDeactivatedUtcTicks;
         private volatile bool _mediaWebViewProcessDegraded;
         private long _lastWebViewPriorityNormalizationUtcTicks;
@@ -329,6 +343,11 @@ namespace Doorpi
         {
             if (target == GenericBrowserKeyboardTarget.AddressBar && _genericBrowserAddressBox == null) return;
             if (target == GenericBrowserKeyboardTarget.WebInput &&
+                (!_isGenericBrowserMode || (ownerView ?? _ytWebView)?.CoreWebView2 == null))
+            {
+                return;
+            }
+            if (target == GenericBrowserKeyboardTarget.WebInput &&
                 DateTime.UtcNow < _genericBrowserVkbSuppressUntilUtc)
             {
                 return;
@@ -336,11 +355,7 @@ namespace Doorpi
 
             Dispatcher.Invoke(() =>
             {
-                _genericBrowserKeyboardTarget = target;
-                _vkbIsOpen = true;
-                _vkbOwnerView = ownerView ?? _ytWebView;
-                _vkbHasFocus = true;
-                _genericBrowserVkbSuppressAUntilRelease = true;
+                var webOwner = ownerView ?? _ytWebView;
 
                 if (_desktopVkb == null)
                 {
@@ -362,6 +377,29 @@ namespace Doorpi
                 if (!_desktopVkb.IsVisible)
                     _desktopVkb.Show();
 
+                if (_desktopVkb?.IsVisible != true)
+                {
+                    _genericBrowserKeyboardTarget = GenericBrowserKeyboardTarget.None;
+                    _vkbIsOpen = false;
+                    _vkbOwnerView = null;
+                    _vkbHasFocus = false;
+                    _genericBrowserVkbSuppressAUntilRelease = false;
+                    _genericBrowserNativeVkbWebInputValid = false;
+                    _genericBrowserNativeVkbOpenedAtUtc = DateTime.MinValue;
+                    return;
+                }
+
+                _genericBrowserKeyboardTarget = target;
+                _vkbIsOpen = true;
+                _vkbOwnerView = webOwner;
+                _vkbHasFocus = true;
+                _genericBrowserVkbSuppressAUntilRelease = true;
+                _genericBrowserNativeVkbWebInputValid = target == GenericBrowserKeyboardTarget.WebInput;
+                _genericBrowserNativeVkbLastValidationUtc = DateTime.MinValue;
+                _genericBrowserNativeVkbOpenedAtUtc = target == GenericBrowserKeyboardTarget.WebInput
+                    ? DateTime.UtcNow
+                    : DateTime.MinValue;
+
                 if (target == GenericBrowserKeyboardTarget.AddressBar && _genericBrowserAddressBox != null)
                 {
                     _genericBrowserAddressBox.Focus();
@@ -369,7 +407,6 @@ namespace Doorpi
                 }
                 else
                 {
-                    var webOwner = _vkbOwnerView ?? _ytWebView;
                     webOwner?.Focus();
                     _ = webOwner?.CoreWebView2?.ExecuteScriptAsync("try{window.focus();}catch(e){}");
                 }
@@ -378,21 +415,76 @@ namespace Doorpi
 
         private void CloseGenericBrowserKeyboard(bool notifyWeb)
         {
-            Dispatcher.Invoke(() =>
-            {
-                var ownerView = _vkbOwnerView;
-                if (notifyWeb)
-                    _ = ownerView?.CoreWebView2?.ExecuteScriptAsync("try{window.__doorpiNativeVkbClose?.();}catch(e){}");
+            var ownerView = _vkbOwnerView;
+            LogMediaControllerDiagnostic("keyboard-close-request", extra: $"notifyWeb={notifyWeb}");
+            ClearGenericBrowserKeyboardStateForControllerAbort();
+            if (Dispatcher.CheckAccess())
+                CloseGenericBrowserKeyboardOnUiThread(notifyWeb, ownerView);
+            else
+                _ = Dispatcher.BeginInvoke(() => CloseGenericBrowserKeyboardOnUiThread(notifyWeb, ownerView));
+        }
 
-                _genericBrowserVkbSuppressUntilUtc = DateTime.UtcNow.AddMilliseconds(650);
-                try { _desktopVkb?.Close(); } catch { }
-                _desktopVkb = null;
-                _genericBrowserKeyboardTarget = GenericBrowserKeyboardTarget.None;
-                _vkbIsOpen = false;
-                _vkbOwnerView = null;
-                _vkbHasFocus = false;
-                _genericBrowserVkbSuppressAUntilRelease = false;
-            });
+        private void CloseGenericBrowserKeyboardOnUiThread(bool notifyWeb, WebView2? ownerView)
+        {
+            if (notifyWeb)
+                _ = ownerView?.CoreWebView2?.ExecuteScriptAsync("try{window.__doorpiNativeVkbClose?.();}catch(e){}");
+
+            _genericBrowserVkbSuppressUntilUtc = DateTime.UtcNow.AddMilliseconds(650);
+            try { _desktopVkb?.Close(); } catch { }
+            _desktopVkb = null;
+            ClearGenericBrowserKeyboardStateForControllerAbort();
+        }
+
+        private void ClearGenericBrowserKeyboardStateForControllerAbort()
+        {
+            _genericBrowserKeyboardTarget = GenericBrowserKeyboardTarget.None;
+            _vkbIsOpen = false;
+            _vkbOwnerView = null;
+            _vkbHasFocus = false;
+            _genericBrowserVkbSuppressAUntilRelease = false;
+            _genericBrowserNativeVkbWebInputValid = false;
+            _genericBrowserNativeVkbOpenedAtUtc = DateTime.MinValue;
+            _webJsVkbVisibleValid = false;
+            _webJsVkbOpenedAtUtc = DateTime.MinValue;
+        }
+
+        private void RequestMediaMouseInputAbort()
+        {
+            Interlocked.Increment(ref _mediaMouseAbortGeneration);
+        }
+
+        private void ResetGenericBrowserKeyboardForNavigation()
+        {
+            Interlocked.Increment(ref _genericBrowserVkbOpenRequestId);
+            RequestMediaMouseInputAbort();
+            LogMediaControllerDiagnostic("keyboard-reset-navigation");
+            ClearGenericBrowserKeyboardStateForControllerAbort();
+            if (Dispatcher.CheckAccess())
+                ResetGenericBrowserKeyboardForNavigationOnUiThread();
+            else
+                _ = Dispatcher.BeginInvoke(ResetGenericBrowserKeyboardForNavigationOnUiThread);
+        }
+
+        private void ResetGenericBrowserKeyboardForNavigationOnUiThread()
+        {
+            var ownerView = _vkbOwnerView ?? _ytWebView;
+            try
+            {
+                _ = ownerView?.CoreWebView2?.ExecuteScriptAsync(
+                    "try{window.__doorpiNativeVkbClose?.();window._vkbIsOpen=false;}catch(e){}");
+            }
+            catch { }
+            _genericBrowserVkbSuppressUntilUtc = DateTime.UtcNow.AddMilliseconds(1200);
+            try { _desktopVkb?.StopHold(); } catch { }
+            try { _desktopVkb?.Close(); } catch { }
+            _desktopVkb = null;
+            _genericBrowserKeyboardTarget = GenericBrowserKeyboardTarget.None;
+            _vkbIsOpen = false;
+            _vkbOwnerView = null;
+            _vkbHasFocus = false;
+            _genericBrowserVkbSuppressAUntilRelease = false;
+            _genericBrowserNativeVkbWebInputValid = false;
+            _genericBrowserNativeVkbOpenedAtUtc = DateTime.MinValue;
         }
 
         private void OpenGenericBrowserAddressKeyboard() =>
@@ -438,6 +530,116 @@ namespace Doorpi
             {
                 return GetCursorPos(out var pt) ? pt.Y : (int)(SystemParameters.PrimaryScreenHeight * 0.55);
             }
+        }
+
+        private void QueueGenericBrowserNativeVkbValidation()
+        {
+            if (!_isGenericBrowserMode ||
+                _genericBrowserKeyboardTarget != GenericBrowserKeyboardTarget.WebInput)
+            {
+                return;
+            }
+
+            var now = DateTime.UtcNow;
+            if (now - _genericBrowserNativeVkbLastValidationUtc < TimeSpan.FromMilliseconds(180))
+                return;
+
+            if (Interlocked.Exchange(ref _genericBrowserNativeVkbValidationInFlight, 1) == 1)
+                return;
+
+            _genericBrowserNativeVkbLastValidationUtc = now;
+            var view = _vkbOwnerView ?? _ytWebView;
+
+            _ = Dispatcher.InvokeAsync(async () =>
+            {
+                try
+                {
+                    bool valid = false;
+                    if (view?.CoreWebView2 != null)
+                    {
+                        string raw = await view.CoreWebView2.ExecuteScriptAsync(
+                            "try{!!window.__doorpiNativeVkbHasActiveInput?.()}catch(e){false}");
+                        valid = raw.Contains("true", StringComparison.OrdinalIgnoreCase);
+                    }
+
+                    _genericBrowserNativeVkbWebInputValid = valid;
+                    if (!valid &&
+                        _genericBrowserKeyboardTarget == GenericBrowserKeyboardTarget.WebInput)
+                    {
+                        LogMediaControllerDiagnostic("native-vkb-validation-invalid", extra: "ExecuteScript returned false");
+                        Interlocked.Increment(ref _genericBrowserVkbOpenRequestId);
+                        RequestMediaMouseInputAbort();
+                        ResetGenericBrowserKeyboardForNavigationOnUiThread();
+                    }
+                }
+                catch
+                {
+                    _genericBrowserNativeVkbWebInputValid = false;
+                    if (_genericBrowserKeyboardTarget == GenericBrowserKeyboardTarget.WebInput)
+                    {
+                        LogMediaControllerDiagnostic("native-vkb-validation-error");
+                        Interlocked.Increment(ref _genericBrowserVkbOpenRequestId);
+                        RequestMediaMouseInputAbort();
+                        ResetGenericBrowserKeyboardForNavigationOnUiThread();
+                    }
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _genericBrowserNativeVkbValidationInFlight, 0);
+                }
+            });
+        }
+
+        private void QueueWebJsVkbValidation()
+        {
+            if (_isGenericBrowserMode || !_vkbIsOpen)
+                return;
+
+            var now = DateTime.UtcNow;
+            if (now - _webJsVkbLastValidationUtc < TimeSpan.FromMilliseconds(180))
+                return;
+
+            if (Interlocked.Exchange(ref _webJsVkbValidationInFlight, 1) == 1)
+                return;
+
+            _webJsVkbLastValidationUtc = now;
+            var view = _vkbOwnerView;
+
+            _ = Dispatcher.BeginInvoke(async () =>
+            {
+                try
+                {
+                    bool valid = false;
+                    if (view?.CoreWebView2 != null)
+                    {
+                        string raw = await view.CoreWebView2.ExecuteScriptAsync(
+                            "try{!!window.__doorpiVkbIsActuallyOpen?.()}catch(e){false}");
+                        valid = raw.Contains("true", StringComparison.OrdinalIgnoreCase);
+                    }
+
+                    _webJsVkbVisibleValid = valid;
+                    if (!valid && !_isGenericBrowserMode && _vkbIsOpen)
+                    {
+                        LogMediaControllerDiagnostic("js-vkb-validation-invalid", extra: "ExecuteScript returned false");
+                        RequestMediaMouseInputAbort();
+                        ClearGenericBrowserKeyboardStateForControllerAbort();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _webJsVkbVisibleValid = false;
+                    if (!_isGenericBrowserMode && _vkbIsOpen)
+                    {
+                        LogMediaControllerDiagnostic("js-vkb-validation-error", extra: ex.Message);
+                        RequestMediaMouseInputAbort();
+                        ClearGenericBrowserKeyboardStateForControllerAbort();
+                    }
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _webJsVkbValidationInFlight, 0);
+                }
+            });
         }
 
         private void HandleGenericBrowserKeyboardKey(string key)
@@ -2013,8 +2215,13 @@ namespace Doorpi
 
         private void StartMediaControllerMode()
         {
-            if (_mediaControllerThread?.IsAlive == true) return;
+            if (_mediaControllerThread?.IsAlive == true)
+            {
+                LogMediaControllerDiagnostic("media-controller-start-skip-alive");
+                return;
+            }
             _mediaMouseActive = true;
+            LogMediaControllerDiagnostic("media-controller-start");
             _mediaControllerThread = new Thread(MediaControllerLoop) { IsBackground = true };
             _mediaControllerThread.Start();
         }
@@ -2022,6 +2229,79 @@ namespace Doorpi
         private void StopMediaControllerMode()
         {
             _mediaMouseActive = false;
+            LogMediaControllerDiagnostic("media-controller-stop");
+        }
+
+        private bool IsForegroundAcceptableForMediaController()
+        {
+            try
+            {
+                if (_gameSessionActive && !_gameIsMinimized)
+                    return false;
+
+                var foreground = GetForegroundWindow();
+                if (foreground == IntPtr.Zero || foreground == GetShellWindow())
+                    return false;
+
+                if (IsForegroundOwnedByProcess(Environment.ProcessId))
+                    return true;
+
+                var mainHwnd = _mainWindowHandle;
+                if (mainHwnd != IntPtr.Zero &&
+                    (foreground == mainHwnd || IsChild(mainHwnd, foreground)))
+                {
+                    return true;
+                }
+
+                GetWindowProcessId(foreground, out var pidRaw);
+                if (pidRaw == 0 || pidRaw == Environment.ProcessId)
+                    return true;
+
+                string className = GetWindowClassName(foreground);
+                string processName = "";
+                try
+                {
+                    using var process = Process.GetProcessById((int)pidRaw);
+                    processName = SafeProcessName(process);
+                }
+                catch { }
+
+                if (IsMediaWebViewProcess(processName))
+                    return true;
+
+                if (LooksLikeNativeDialogWindow(foreground, className, processName))
+                    return true;
+            }
+            catch { }
+
+            return false;
+        }
+
+        private static bool IsMediaWebViewProcess(string processName)
+        {
+            return string.Equals(processName, "msedgewebview2", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(processName, "MicrosoftEdgeWebView2", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool LooksLikeNativeDialogWindow(IntPtr hwnd, string className, string processName)
+        {
+            if (hwnd == IntPtr.Zero)
+                return false;
+
+            if (string.Equals(className, "#32770", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (className.Contains("Dialog", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (string.Equals(processName, "explorer", StringComparison.OrdinalIgnoreCase) &&
+                (className.Contains("Cabinet", StringComparison.OrdinalIgnoreCase) ||
+                 className.Contains("Explore", StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+
+            return false;
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -2069,6 +2349,7 @@ namespace Doorpi
                 { VkbHoldAction.ToggleLayer, false },
                 { VkbHoldAction.Press, false }
             };
+            int observedMediaMouseAbortGeneration = Volatile.Read(ref _mediaMouseAbortGeneration);
 
             void SendMediaMouse(int dx, int dy, uint flags, uint data)
             {
@@ -2087,8 +2368,122 @@ namespace Doorpi
                 leftMouseDown = false;
             }
 
+            void ResetNativeVkbHolds()
+            {
+                foreach (var action in nativeVkbHoldActive.Keys.ToList())
+                    nativeVkbHoldActive[action] = false;
+                vkbLastDir = 0;
+                webNavLastDir = 0;
+                xWasHeld = false;
+                ltWasHeld = false;
+                _genericBrowserVkbSuppressAUntilRelease = false;
+                _vkbHasFocus = false;
+            }
+
+            void ResetMediaControllerTransientState()
+            {
+                ReleaseMediaLeftMouseIfDown();
+                ResetNativeVkbHolds();
+                bHoldActive = false;
+                bCloseFired = false;
+                HideWebAppCloseHoldOverlay();
+            }
+
+            bool TryReadControllerVkbUiVisible(out bool visible)
+            {
+                visible = false;
+
+                bool ReadVisibleOnUiThread() =>
+                    _genericBrowserKeyboardTarget != GenericBrowserKeyboardTarget.None &&
+                    _desktopVkb?.IsVisible == true &&
+                    (_vkbOwnerView ?? _ytWebView)?.CoreWebView2 != null;
+
+                try
+                {
+                    if (Dispatcher.CheckAccess())
+                    {
+                        visible = ReadVisibleOnUiThread();
+                        return true;
+                    }
+
+                    var op = Dispatcher.BeginInvoke(new Func<bool>(ReadVisibleOnUiThread));
+                    var status = op.Wait(TimeSpan.FromMilliseconds(45));
+                    if (status == System.Windows.Threading.DispatcherOperationStatus.Completed)
+                    {
+                        visible = op.Result is bool value && value;
+                        return true;
+                    }
+
+                    try { op.Abort(); } catch { }
+                    LogMediaControllerDiagnostic("vkb-ui-visible-timeout");
+                    return false;
+                }
+                catch
+                {
+                    LogMediaControllerDiagnostic("vkb-ui-visible-error");
+                    return false;
+                }
+            }
+
+            bool IsControllerVkbActuallyVisible()
+            {
+                if (!_vkbIsOpen)
+                    return false;
+
+                if (!_isGenericBrowserMode)
+                {
+                    if (_vkbOwnerView == null)
+                        return false;
+
+                    QueueWebJsVkbValidation();
+                    if (!_webJsVkbVisibleValid &&
+                        _webJsVkbOpenedAtUtc != DateTime.MinValue &&
+                        DateTime.UtcNow - _webJsVkbOpenedAtUtc > TimeSpan.FromMilliseconds(350))
+                    {
+                        LogMediaControllerDiagnostic("js-vkb-visible-invalid");
+                        ClearGenericBrowserKeyboardStateForControllerAbort();
+                        RequestMediaMouseInputAbort();
+                        ResetMediaControllerTransientState();
+                        return false;
+                    }
+
+                    return true;
+                }
+
+                if (!TryReadControllerVkbUiVisible(out bool visible))
+                {
+                    ClearGenericBrowserKeyboardStateForControllerAbort();
+                    RequestMediaMouseInputAbort();
+                    ResetMediaControllerTransientState();
+                    return false;
+                }
+
+                if (visible)
+                {
+                    if (_genericBrowserKeyboardTarget == GenericBrowserKeyboardTarget.WebInput)
+                    {
+                        QueueGenericBrowserNativeVkbValidation();
+                        if (!_genericBrowserNativeVkbWebInputValid &&
+                            _genericBrowserNativeVkbOpenedAtUtc != DateTime.MinValue &&
+                            DateTime.UtcNow - _genericBrowserNativeVkbOpenedAtUtc > TimeSpan.FromMilliseconds(350))
+                        {
+                            visible = false;
+                        }
+                    }
+                }
+
+                if (visible)
+                    return true;
+
+                ResetMediaControllerTransientState();
+                try { ResetGenericBrowserKeyboardForNavigation(); } catch { }
+                return false;
+            }
+
             while (_mediaMouseActive)
             {
+                try
+                {
                 double dt = sw.Elapsed.TotalSeconds;
                 sw.Restart();
                 if (dt > 0.08) dt = 0.016;
@@ -2107,21 +2502,71 @@ namespace Doorpi
                     var gp = state.Gamepad;
                     ushort btn = gp.wButtons;
                     long nowMs = Environment.TickCount64;
+                    if (ShouldLogMediaControllerHeartbeat(5000))
+                        LogMediaControllerDiagnostic("loop-heartbeat", btn, prevButtons);
+
+                    int abortGeneration = Volatile.Read(ref _mediaMouseAbortGeneration);
+                    if (abortGeneration != observedMediaMouseAbortGeneration)
+                    {
+                        observedMediaMouseAbortGeneration = abortGeneration;
+                        LogMediaControllerDiagnostic("abort-generation-observed", btn, prevButtons);
+                        ResetMediaControllerTransientState();
+                    }
 
                     // Nunca manter emulação de mouse/teclado ativa quando nenhuma janela
                     // do Doorpi está em foco (ex.: jogo em primeiro plano).
                     // Isso evita input duplicado ao alternar WebApp -> Jogo.
-                    if (!IsForegroundOwnedByProcess(Environment.ProcessId))
+                    bool Pressed(ushort m) => (btn & m) != 0 && (prevButtons & m) == 0;
+                    bool Held(ushort m) => (btn & m) != 0;
+                    bool Released(ushort m) => (btn & m) == 0 && (prevButtons & m) != 0;
+
+                    if (IsDoorpiReturnShortcutJustPressed(btn, prevButtons))
                     {
-                        ReleaseMediaLeftMouseIfDown();
+                        Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil,
+                            DateTime.UtcNow.AddMilliseconds(350).Ticks);
+
+                        LogMediaControllerDiagnostic("return-shortcut", btn, prevButtons);
+                        RequestMediaMouseInputAbort();
+                        ResetMediaControllerTransientState();
+                        if (_genericBrowserKeyboardTarget != GenericBrowserKeyboardTarget.None)
+                        {
+                            try { ResetGenericBrowserKeyboardForNavigation(); } catch { }
+                        }
+
+                        _ = Dispatcher.BeginInvoke(() =>
+                        {
+                            if (_isGenericBrowserMode && _genericBrowserCaptureWebAppUrl)
+                            {
+                                CloseYouTubeInline(skipStoreCompletion: true);
+                                return;
+                            }
+
+                            if (_isStoreLauncherSession)
+                            {
+                                MinimizeStoreSessionAndShowMenu();
+                                return;
+                            }
+
+                            ClosePopupWindowAndDispose();
+
+                            if (_webAppWindow != null)
+                                _webAppWindow.WindowState = WindowState.Minimized;
+                            FocusDoorpiKeepSession();
+                        });
+                        prevButtons = btn;
+                        Thread.Sleep(100);
+                        continue;
+                    }
+
+                    if (!IsForegroundAcceptableForMediaController())
+                    {
+                        if (ShouldLogMediaControllerForegroundReject(900))
+                            LogMediaControllerDiagnostic("foreground-rejected", btn, prevButtons);
+                        ResetMediaControllerTransientState();
                         prevButtons = btn;
                         Thread.Sleep(25);
                         continue;
                     }
-
-                    bool Pressed(ushort m) => (btn & m) != 0 && (prevButtons & m) == 0;
-                    bool Held(ushort m) => (btn & m) != 0;
-                    bool Released(ushort m) => (btn & m) == 0 && (prevButtons & m) != 0;
 
                     if (_webAppTutorialOpen)
                     {
@@ -2141,11 +2586,16 @@ namespace Doorpi
                         Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil,
                             DateTime.UtcNow.AddMilliseconds(350).Ticks);
 
-                        Dispatcher.Invoke(() =>
+                        LogMediaControllerDiagnostic("return-shortcut-late", btn, prevButtons);
+                        RequestMediaMouseInputAbort();
+                        ResetMediaControllerTransientState();
+                        if (_genericBrowserKeyboardTarget != GenericBrowserKeyboardTarget.None)
                         {
-                            if (_genericBrowserKeyboardTarget != GenericBrowserKeyboardTarget.None)
-                                CloseGenericBrowserKeyboard(_genericBrowserKeyboardTarget == GenericBrowserKeyboardTarget.WebInput);
+                            try { ResetGenericBrowserKeyboardForNavigation(); } catch { }
+                        }
 
+                        _ = Dispatcher.BeginInvoke(() =>
+                        {
                             if (_isGenericBrowserMode && _genericBrowserCaptureWebAppUrl)
                             {
                                 CloseYouTubeInline(skipStoreCompletion: true);
@@ -2171,8 +2621,9 @@ namespace Doorpi
 
                     bool useNativeMouse = !_isCurrentSiteYouTube || _popupWindow != null;
                     bool useNativeWebNavigation = !_isCurrentSiteYouTube || _popupWindow != null || _isGenericBrowserMode;
+                    bool vkbInputVisible = IsControllerVkbActuallyVisible();
 
-                    if (!_vkbIsOpen)
+                    if (!vkbInputVisible)
                     {
                         if (Pressed(XI_B))
                         {
@@ -2232,7 +2683,7 @@ namespace Doorpi
                     }
 
                     // ════════════════════════════════════════════════════════
-                    if (useNativeWebNavigation && !_vkbIsOpen)
+                    if (useNativeWebNavigation && !vkbInputVisible)
                     {
                         if (Pressed(XI_R3))
                             SendMediaVirtualKey(0xAD);
@@ -2287,7 +2738,7 @@ namespace Doorpi
                         }
                     }
 
-                    if (useNativeMouse && !_vkbIsOpen)
+                    if (useNativeMouse && !vkbInputVisible)
                     {
                         double lx = gp.sThumbLX / 32767.0;
                         double ly = gp.sThumbLY / 32767.0;
@@ -2329,7 +2780,7 @@ namespace Doorpi
                     // ════════════════════════════════════════════════════════
                     // BOTÕES E VKB
                     // ════════════════════════════════════════════════════════
-                    if (_vkbIsOpen)
+                    if (vkbInputVisible)
                     {
                         ReleaseMediaLeftMouseIfDown();
 
@@ -2345,12 +2796,12 @@ namespace Doorpi
                                 if (isDown && !wasDown)
                                 {
                                     nativeVkbHoldActive[action] = true;
-                                    Dispatcher.Invoke(() => _desktopVkb?.BeginHold(action));
+                                    _ = Dispatcher.BeginInvoke(() => _desktopVkb?.BeginHold(action));
                                 }
                                 else if (!isDown && wasDown)
                                 {
                                     nativeVkbHoldActive[action] = false;
-                                    Dispatcher.Invoke(() => _desktopVkb?.EndHold(action));
+                                    _ = Dispatcher.BeginInvoke(() => _desktopVkb?.EndHold(action));
                                 }
                             }
 
@@ -2372,22 +2823,22 @@ namespace Doorpi
                             if (Pressed(XI_B))
                             {
                                 bool notifyWeb = _genericBrowserKeyboardTarget == GenericBrowserKeyboardTarget.WebInput;
-                                Dispatcher.Invoke(() => CloseGenericBrowserKeyboard(notifyWeb));
+                                CloseGenericBrowserKeyboard(notifyWeb);
                             }
 
                             if (Pressed(XI_Y))
-                                Dispatcher.Invoke(() => HandleGenericBrowserKeyboardKey("SPACE"));
+                                _ = Dispatcher.BeginInvoke(() => HandleGenericBrowserKeyboardKey("SPACE"));
 
                             if (Pressed(XI_START))
-                                Dispatcher.Invoke(() => HandleGenericBrowserKeyboardKey("ENTER"));
+                                _ = Dispatcher.BeginInvoke(() => HandleGenericBrowserKeyboardKey("ENTER"));
 
                             bool nativeLtNow = gp.bLeftTrigger > 128;
                             if (nativeLtNow && !ltWasHeld)
-                                Dispatcher.Invoke(() => _desktopVkb?.ToggleAlphaSpecialLayer());
+                                _ = Dispatcher.BeginInvoke(() => _desktopVkb?.ToggleAlphaSpecialLayer());
                             ltWasHeld = nativeLtNow;
 
                             if (Pressed(XI_L3))
-                                Dispatcher.Invoke(() => _desktopVkb?.ToggleShift());
+                                _ = Dispatcher.BeginInvoke(() => _desktopVkb?.ToggleShift());
 
                             bool xNow = Held(XI_X);
                             if (xNow)
@@ -2397,13 +2848,13 @@ namespace Doorpi
                                     xWasHeld = true;
                                     xHoldStartMs = nowMs;
                                     xLastRepeat = nowMs;
-                                    Dispatcher.Invoke(() => HandleGenericBrowserKeyboardKey("BKSP"));
+                                    _ = Dispatcher.BeginInvoke(() => HandleGenericBrowserKeyboardKey("BKSP"));
                                 }
                                 else if ((nowMs - xHoldStartMs) > VKB_INITIAL_MS &&
                                          (nowMs - xLastRepeat) > VKB_REPEAT_MS)
                                 {
                                     xLastRepeat = nowMs;
-                                    Dispatcher.Invoke(() => HandleGenericBrowserKeyboardKey("BKSP"));
+                                    _ = Dispatcher.BeginInvoke(() => HandleGenericBrowserKeyboardKey("BKSP"));
                                 }
                             }
                             else
@@ -2506,8 +2957,23 @@ namespace Doorpi
 
                     prevButtons = btn;
                 }
+                else if (ShouldLogMediaControllerHeartbeat(5000))
+                {
+                    LogMediaControllerDiagnostic("xinput-no-state", previousButtons: prevButtons, extra: $"result={result}");
+                }
 
                 Thread.Sleep(10);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[MediaController] Loop recuperado apos falha: " + ex.Message);
+                    LogMediaControllerDiagnostic("loop-exception", extra: ex.ToString());
+                    RequestMediaMouseInputAbort();
+                    ResetMediaControllerTransientState();
+                    ClearGenericBrowserKeyboardStateForControllerAbort();
+                    prevButtons = 0;
+                    Thread.Sleep(25);
+                }
             }
 
             ReleaseMediaLeftMouseIfDown();
@@ -2738,6 +3204,123 @@ namespace Doorpi
                     $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}{Environment.NewLine}");
             }
             catch { }
+        }
+
+        private bool ShouldLogMediaControllerHeartbeat(int milliseconds)
+        {
+            long nowTicks = DateTime.UtcNow.Ticks;
+            long previousTicks = Interlocked.Read(ref _lastMediaControllerHeartbeatLogTicks);
+            if (nowTicks - previousTicks < TimeSpan.FromMilliseconds(milliseconds).Ticks)
+                return false;
+
+            Interlocked.Exchange(ref _lastMediaControllerHeartbeatLogTicks, nowTicks);
+            return true;
+        }
+
+        private bool ShouldLogMediaControllerForegroundReject(int milliseconds)
+        {
+            long nowTicks = DateTime.UtcNow.Ticks;
+            long previousTicks = Interlocked.Read(ref _lastMediaControllerForegroundRejectLogTicks);
+            if (nowTicks - previousTicks < TimeSpan.FromMilliseconds(milliseconds).Ticks)
+                return false;
+
+            Interlocked.Exchange(ref _lastMediaControllerForegroundRejectLogTicks, nowTicks);
+            return true;
+        }
+
+        private bool ShouldLogMediaControllerState(int milliseconds)
+        {
+            long nowTicks = DateTime.UtcNow.Ticks;
+            long previousTicks = Interlocked.Read(ref _lastMediaControllerStateLogTicks);
+            if (nowTicks - previousTicks < TimeSpan.FromMilliseconds(milliseconds).Ticks)
+                return false;
+
+            Interlocked.Exchange(ref _lastMediaControllerStateLogTicks, nowTicks);
+            return true;
+        }
+
+        private void LogMediaControllerDiagnostic(string reason, ushort buttons = 0, ushort previousButtons = 0, string extra = "")
+        {
+            try
+            {
+                string dir = Path.Combine(dataFolder, "logs");
+                Directory.CreateDirectory(dir);
+                string path = Path.Combine(dir, "media-controller.log");
+
+                lock (_mediaControllerLogLock)
+                {
+                    try
+                    {
+                        if (File.Exists(path) && new FileInfo(path).Length > 768 * 1024)
+                        {
+                            string oldPath = Path.Combine(dir, "media-controller.old.log");
+                            try { if (File.Exists(oldPath)) File.Delete(oldPath); } catch { }
+                            try { File.Move(path, oldPath); } catch { File.WriteAllText(path, ""); }
+                        }
+                    }
+                    catch { }
+
+                    File.AppendAllText(path,
+                        $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {reason} {BuildMediaControllerStateSnapshot(buttons, previousButtons, extra)}{Environment.NewLine}");
+                }
+            }
+            catch { }
+        }
+
+        private string BuildMediaControllerStateSnapshot(ushort buttons, ushort previousButtons, string extra)
+        {
+            string foreground = DescribeForegroundForMediaControllerLog();
+            string source = "";
+            try { source = _ytWebView?.CoreWebView2?.Source ?? ""; } catch { }
+
+            return
+                $"btn=0x{buttons:X4} prev=0x{previousButtons:X4} " +
+                $"mediaActive={_mediaMouseActive} generic={_isGenericBrowserMode} youtube={_isCurrentSiteYouTube} " +
+                $"gameActive={_gameSessionActive} gameMin={_gameIsMinimized} storeSession={_isStoreLauncherSession} " +
+                $"vkbOpen={_vkbIsOpen} vkbTarget={_genericBrowserKeyboardTarget} vkbOwner={_vkbOwnerView != null} " +
+                $"vkbFocus={_vkbHasFocus} desktopVkb={_desktopVkb != null} webInputValid={_genericBrowserNativeVkbWebInputValid} " +
+                $"jsVkbValid={_webJsVkbVisibleValid} jsVkbOpened={_webJsVkbOpenedAtUtc:HH:mm:ss.fff} " +
+                $"abortGen={Volatile.Read(ref _mediaMouseAbortGeneration)} uiAccess={Dispatcher.CheckAccess()} " +
+                $"foreground=[{foreground}] source={TruncateForLog(source, 220)} extra={TruncateForLog(extra, 360)}";
+        }
+
+        private string DescribeForegroundForMediaControllerLog()
+        {
+            try
+            {
+                var foreground = GetForegroundWindow();
+                if (foreground == IntPtr.Zero)
+                    return "hwnd=0";
+
+                GetWindowProcessId(foreground, out var pidRaw);
+                string processName = "";
+                try
+                {
+                    if (pidRaw != 0)
+                    {
+                        using var process = Process.GetProcessById((int)pidRaw);
+                        processName = SafeProcessName(process);
+                    }
+                }
+                catch { }
+
+                string className = "";
+                string title = "";
+                try { className = GetWindowClassName(foreground); } catch { }
+                try { title = GetWindowTitle(foreground); } catch { }
+
+                bool own = pidRaw == Environment.ProcessId;
+                bool child = false;
+                try { child = _mainWindowHandle != IntPtr.Zero && IsChild(_mainWindowHandle, foreground); } catch { }
+
+                return
+                    $"hwnd=0x{foreground.ToInt64():X} pid={pidRaw} proc={processName} class={className} " +
+                    $"own={own} child={child} shell={foreground == GetShellWindow()} title={TruncateForLog(title, 120)}";
+            }
+            catch (Exception ex)
+            {
+                return "foreground-error=" + ex.Message;
+            }
         }
 
         private static string TruncateForLog(string value, int maxLength = 900)
@@ -3853,6 +4436,20 @@ namespace Doorpi
             _nativeVkbClose(true, true);
         }}
 
+        window.__doorpiNativeVkbHasActiveInput = () => {{
+            try {{
+                const active = deepActiveElement();
+                const el = _nativeVkbInputEl;
+                return !!(window._vkbIsOpen &&
+                          el &&
+                          el.isConnected &&
+                          isInput(el) &&
+                          active === el);
+            }} catch(_) {{
+                return false;
+            }}
+        }};
+
         window.__doorpiNativeVkbKey = (key) => {{
             if (key === 'BKSP') _nativeBackspace();
             else if (key === 'ENTER') _nativeEnter();
@@ -3875,6 +4472,9 @@ namespace Doorpi
             _installedExtIds = new Set((exts || []).map(e => e.id));
             window.__doorpiUpdateExtBtn?.(true);
         }};
+
+        window.addEventListener('pagehide', () => _nativeVkbClose(false, false), true);
+        window.addEventListener('beforeunload', () => _nativeVkbClose(false, false), true);
 
         document.addEventListener('focusin', e => {{
             if (Date.now() < _nativeVkbSuppressUntil) return;
@@ -4388,6 +4988,23 @@ namespace Doorpi
     window.__doorpiVkbToggleLayer = ()    => _vkbPressKey(_vkbMode === 'special' ? 'ABC' : 'SYM');
     window.__doorpiVkbEnter       = ()    => _vkbPressKey('ENTER');
     window.__doorpiVkbEnsureFocus = (notifyHost = false) => _vkbEnsureControllerFocus(!!notifyHost);
+    window.__doorpiVkbIsActuallyOpen = () => {{
+        try {{
+            const visible = !!(window._vkbIsOpen &&
+                               _vkbEl &&
+                               _vkbEl.isConnected &&
+                               _vkbEl.style.display !== 'none' &&
+                               _vkbEl.classList.contains('visible'));
+            const inputOk = !!(_vkbInputEl && _vkbInputEl.isConnected && isInput(_vkbInputEl));
+            if (visible && inputOk && !_vkbFocusKey)
+                _vkbEnsureControllerFocus(false);
+            return !!(visible && inputOk && _vkbFocusKey);
+        }} catch(_) {{
+            return false;
+        }}
+    }};
+    window.addEventListener('pagehide', () => {{ try {{ _vkbClose(); }} catch(_) {{ window._vkbIsOpen = false; }} }}, true);
+    window.addEventListener('beforeunload', () => {{ try {{ _vkbClose(); }} catch(_) {{ window._vkbIsOpen = false; }} }}, true);
     window.addEventListener('resize', () => {{ if (window._vkbIsOpen) _vkbPosition(); }});
 
 // DEPOIS
@@ -5801,11 +6418,17 @@ namespace Doorpi
             _ytWebView.CoreWebView2.NavigationStarting += (s, e) =>
             {
 
-                if (_vkbOwnerView == _ytWebView)
+                if (isGenericBrowser)
+                    LogMediaControllerDiagnostic("navigation-starting", extra: $"uri={TruncateForLog(e.Uri ?? "", 260)} redirect={e.IsRedirected} user={e.IsUserInitiated}");
+
+                if (isGenericBrowser)
+                    RequestMediaMouseInputAbort();
+
+                if (_vkbOwnerView == _ytWebView ||
+                    _genericBrowserKeyboardTarget != GenericBrowserKeyboardTarget.None ||
+                    (_isGenericBrowserMode && _vkbIsOpen))
                 {
-                    _vkbIsOpen = false;
-                    _vkbOwnerView = null;
-                    _vkbHasFocus = false;
+                    ResetGenericBrowserKeyboardForNavigation();
                 }
 
                 string? currentUri = e.Uri?.TrimEnd('/');
@@ -5888,6 +6511,14 @@ namespace Doorpi
                 string newUrl = _ytWebView.CoreWebView2.Source;
                 if (isGenericBrowser)
                 {
+                    LogMediaControllerDiagnostic("source-changed", extra: $"url={TruncateForLog(newUrl, 260)}");
+                    RequestMediaMouseInputAbort();
+                    if (_genericBrowserKeyboardTarget != GenericBrowserKeyboardTarget.None ||
+                        _vkbOwnerView == _ytWebView ||
+                        _vkbIsOpen)
+                    {
+                        ResetGenericBrowserKeyboardForNavigation();
+                    }
                     UpdateGenericBrowserActiveTab(newUrl, newUrl);
                     Dispatcher.Invoke(UpdateGenericBrowserChrome);
                 }
@@ -6172,7 +6803,7 @@ namespace Doorpi
             }
         }
 
-        private void YtOnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+        private async void YtOnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
         {
             var msg = e.TryGetWebMessageAsString();
             if (msg == null) return;
@@ -6183,7 +6814,10 @@ namespace Doorpi
             if (_isGenericBrowserMode && msg.StartsWith("native_vkb_open:"))
             {
                 if (DateTime.UtcNow < _genericBrowserVkbSuppressUntilUtc)
+                {
+                    LogMediaControllerDiagnostic("native-vkb-open-suppressed", extra: $"msg={TruncateForLog(msg, 260)}");
                     return;
+                }
 
                 try
                 {
@@ -6191,7 +6825,31 @@ namespace Doorpi
                     var node = JsonNode.Parse(payload);
                     double bottom = node?["bottom"]?.GetValue<double>() ?? 0;
                     double top = node?["top"]?.GetValue<double>() ?? bottom;
-                    int screenY = GenericBrowserWebYToScreen(bottom > 0 ? bottom : top, senderView);
+                    int requestId = Interlocked.Increment(ref _genericBrowserVkbOpenRequestId);
+                    string sourceAtRequest = "";
+                    try { sourceAtRequest = senderView.CoreWebView2?.Source ?? ""; } catch { }
+                    LogMediaControllerDiagnostic("native-vkb-open-request", extra: $"request={requestId} source={TruncateForLog(sourceAtRequest, 260)} payload={TruncateForLog(payload, 220)}");
+
+                    await Task.Delay(180).ConfigureAwait(false);
+
+                    if (requestId != Interlocked.CompareExchange(ref _genericBrowserVkbOpenRequestId, requestId, requestId) ||
+                        DateTime.UtcNow < _genericBrowserVkbSuppressUntilUtc ||
+                        !_isGenericBrowserMode)
+                    {
+                        LogMediaControllerDiagnostic("native-vkb-open-canceled", extra: $"request={requestId} suppress={DateTime.UtcNow < _genericBrowserVkbSuppressUntilUtc} generic={_isGenericBrowserMode}");
+                        return;
+                    }
+
+                    string sourceNow = "";
+                    try { sourceNow = Dispatcher.Invoke(() => senderView.CoreWebView2?.Source ?? ""); } catch { return; }
+                    if (!string.Equals(sourceAtRequest, sourceNow, StringComparison.Ordinal))
+                    {
+                        LogMediaControllerDiagnostic("native-vkb-open-source-changed", extra: $"request={requestId} before={TruncateForLog(sourceAtRequest, 220)} now={TruncateForLog(sourceNow, 220)}");
+                        return;
+                    }
+
+                    int screenY = Dispatcher.Invoke(() => GenericBrowserWebYToScreen(bottom > 0 ? bottom : top, senderView));
+                    LogMediaControllerDiagnostic("native-vkb-open-dispatch", extra: $"request={requestId} screenY={screenY}");
                     Dispatcher.Invoke(() => OpenGenericBrowserWebKeyboard(screenY, senderView));
                 }
                 catch (Exception ex)
@@ -6203,6 +6861,7 @@ namespace Doorpi
 
             if (_isGenericBrowserMode && msg == "native_vkb_closed")
             {
+                LogMediaControllerDiagnostic("native-vkb-closed-message");
                 Dispatcher.Invoke(() =>
                 {
                     if (_genericBrowserKeyboardTarget == GenericBrowserKeyboardTarget.WebInput)
@@ -6213,18 +6872,25 @@ namespace Doorpi
 
             if (msg == "vkb_opening" || msg == "vkb_opened")
             {
+                LogMediaControllerDiagnostic("js-vkb-open-message", extra: msg);
                 _vkbIsOpen = true;
                 _vkbOwnerView = senderView;
                 _vkbHasFocus = true;
+                _webJsVkbVisibleValid = true;
+                _webJsVkbLastValidationUtc = DateTime.MinValue;
+                _webJsVkbOpenedAtUtc = DateTime.UtcNow;
                 if (isPopup)
-                    Dispatcher.InvokeAsync(EnsurePopupVkbControllerFocus);
+                    _ = Dispatcher.InvokeAsync(EnsurePopupVkbControllerFocus);
                 return;
             }
             if (msg == "vkb_closed")
             {
+                LogMediaControllerDiagnostic("js-vkb-closed-message");
                 _vkbIsOpen = false;
                 _vkbOwnerView = null;
                 _vkbHasFocus = false;
+                _webJsVkbVisibleValid = false;
+                _webJsVkbOpenedAtUtc = DateTime.MinValue;
                 return;
             }
             else if (msg.StartsWith("smtc:"))

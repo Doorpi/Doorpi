@@ -869,7 +869,9 @@ namespace Doorpi
 
                 Dispatcher.InvokeAsync(() =>
                 {
-                    Topmost = true; Activate(); Topmost = false; webView.Focus();
+                    ReleaseDoorpiTopmost();
+                    Activate();
+                    webView.Focus();
                 });
 
                 BeginStartupUpdateCheck();
@@ -2784,6 +2786,41 @@ namespace Doorpi
             return TryFindStoreWindow(storeId, exe ?? "", out process, out hwnd);
         }
 
+        private bool TryFindLaunchStoreInteractiveWindow(string storeId, out Process process, out IntPtr hwnd)
+        {
+            process = null!;
+            hwnd = IntPtr.Zero;
+
+            if (string.IsNullOrWhiteSpace(storeId))
+                return false;
+
+            if (string.Equals(storeId, "Steam", StringComparison.OrdinalIgnoreCase))
+                return TryFindSteamInteractiveWindow(out process, out hwnd) ||
+                       TryFindSteamWindow(out process, out hwnd);
+
+            if (string.Equals(storeId, "GOG", StringComparison.OrdinalIgnoreCase))
+            {
+                string exe = ResolveStoreLauncherExe(storeId) ?? "";
+                return TryFindGogInteractiveWindow(out process, out hwnd) ||
+                       TryFindGogWindow(exe, out process, out hwnd);
+            }
+
+            if (IsEpicStoreId(storeId))
+            {
+                string exe = ResolveStoreLauncherExe(storeId) ?? "";
+                return !string.IsNullOrWhiteSpace(exe) &&
+                       TryFindEpicWindow(exe, out process, out hwnd);
+            }
+
+            if (string.Equals(storeId, "Xbox", StringComparison.OrdinalIgnoreCase))
+            {
+                string exe = ResolveStoreLauncherExe(storeId) ?? "";
+                return TryFindXboxStoreWindow(exe, out process, out hwnd);
+            }
+
+            return TryFindLaunchStoreWindow(storeId, out process, out hwnd);
+        }
+
         private bool IsForegroundOwnedByLaunchStoreWindow(string storeId)
         {
             try
@@ -2917,12 +2954,11 @@ namespace Doorpi
             if (string.IsNullOrWhiteSpace(storeId))
                 return false;
 
-            if (!TryFindLaunchStoreWindow(storeId, out _, out var hwnd))
+            if (!TryFindLaunchStoreInteractiveWindow(storeId, out _, out var hwnd))
                 return false;
 
-            ShowWindow(hwnd, 3);
-            FocusExternalWindow(hwnd);
-            StartGameLaunchStoreMouseMode(storeId, hwnd);
+            RestoreAndCenterInteractiveLauncherWindow(hwnd);
+            StartGameLaunchStoreMouseMode(storeId, hwnd, force: true);
             return true;
         }
 
@@ -4049,7 +4085,7 @@ namespace Doorpi
                 }
 
                 if (WindowState != WindowState.Maximized) WindowState = WindowState.Maximized;
-                if (GetBootMode() == 2) this.Topmost = true;
+                ReleaseDoorpiTopmost();
 
                 SetWindowPos(_mainWindowHandle, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
                 Activate();
@@ -4075,7 +4111,7 @@ namespace Doorpi
                     : new System.Windows.Interop.WindowInteropHelper(this).Handle;
 
                 if (WindowState != WindowState.Maximized) WindowState = WindowState.Maximized;
-                if (GetBootMode() == 2) this.Topmost = true;
+                ReleaseDoorpiTopmost();
 
                 this.Show();
                 SetForegroundWindow(hwnd);
@@ -4241,7 +4277,7 @@ namespace Doorpi
 
                 WindowState = WindowState.Maximized;
 
-                if (GetBootMode() == 2) this.Topmost = true;
+                ReleaseDoorpiTopmost();
 
                 Activate();
                 ForceFocus();
@@ -4764,11 +4800,16 @@ namespace Doorpi
         private void EnsureExplorerIsRunningInBackstage()
         {
             // Se o explorer já estiver rodando, não fazemos nada
-            if (Process.GetProcessesByName("explorer").Length > 0) return;
+            if (Process.GetProcessesByName("explorer").Length > 0)
+            {
+                ReleaseDoorpiTopmost();
+                return;
+            }
 
             try
             {
-                this.Topmost = true;
+                if (GetBootMode() == 2)
+                    this.Topmost = true;
 
                 Process.Start(new ProcessStartInfo
                 {
@@ -4788,6 +4829,8 @@ namespace Doorpi
                             SetForegroundWindow(_mainWindowHandle);
                             Activate();
                         }
+
+                        ReleaseDoorpiTopmost();
                     });
                 });
 
@@ -4795,8 +4838,22 @@ namespace Doorpi
             }
             catch (Exception ex)
             {
+                ReleaseDoorpiTopmost();
                 Debug.WriteLine($"[Boot] Erro ao iniciar explorer: {ex.Message}");
             }
+        }
+        private void ReleaseDoorpiTopmost()
+        {
+            try
+            {
+                if (this.Topmost) this.Topmost = false;
+                if (_mainWindowHandle != IntPtr.Zero)
+                {
+                    SetWindowPos(_mainWindowHandle, HWND_NOTOPMOST, 0, 0, 0, 0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                }
+            }
+            catch { }
         }
         private void SendBootModeToUI()
         {
@@ -6103,7 +6160,7 @@ namespace Doorpi
                     : new System.Windows.Interop.WindowInteropHelper(this).Handle;
 
                 if (WindowState != WindowState.Maximized) WindowState = WindowState.Maximized;
-                if (GetBootMode() == 2) this.Topmost = true;
+                ReleaseDoorpiTopmost();
 
                 this.Show();
                 SetForegroundWindow(hwnd);
@@ -6151,7 +6208,7 @@ namespace Doorpi
                     : new System.Windows.Interop.WindowInteropHelper(this).Handle;
 
                 if (WindowState != WindowState.Maximized) WindowState = WindowState.Maximized;
-                if (GetBootMode() == 2) this.Topmost = true;
+                ReleaseDoorpiTopmost();
 
                 this.Show();
                 SetForegroundWindow(hwnd);
@@ -6314,6 +6371,42 @@ namespace Doorpi
         private bool ShouldIgnoreSteamAccountSelectionWindow(Process process)
             => _steamAccountSelectionWindowGuardActive &&
                IsSteamClientProcessName(SafeProcessName(process));
+
+        private void CloseVisibleSteamWindowsAfterGameLaunch(IntPtr gameHwnd = default)
+        {
+            try
+            {
+                foreach (var hwnd in EnumerateTopLevelWindows())
+                {
+                    if (hwnd == IntPtr.Zero ||
+                        hwnd == _mainWindowHandle ||
+                        hwnd == gameHwnd ||
+                        !IsWindow(hwnd) ||
+                        !IsWindowVisible(hwnd))
+                    {
+                        continue;
+                    }
+
+                    GetWindowProcessId(hwnd, out uint pidRaw);
+                    if (pidRaw == 0 || pidRaw == Environment.ProcessId)
+                        continue;
+
+                    using var process = Process.GetProcessById((int)pidRaw);
+                    string processName = SafeProcessName(process);
+                    if (!string.Equals(processName, "steam", StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(processName, "steamwebhelper", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    PostMessage(hwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[Steam] Falha ao fechar janelas visiveis apos launch: " + ex.Message);
+            }
+        }
 
         private bool ShouldAlwaysIgnoreGameWindowProcess(Process process)
         {
@@ -6570,6 +6663,8 @@ namespace Doorpi
                                 _lockedGameProcessName = lockedProcessName; // ? NOVO: promove para classe
                                 _currentLauncherHwnd = IntPtr.Zero;         // ? NOVO: esquece o launcher
                                 _pendingLaunchProcess = null;               // jogo real identificado: launcher intermediário deixa de ser referência
+                                if (string.Equals(StorePolicyKeyForGame(game), "Steam", StringComparison.OrdinalIgnoreCase))
+                                    CloseVisibleSteamWindowsAfterGameLaunch(candidates[0]);
                                 StopGameLaunchStoreMouseMode();
                                 DelayGameMinimizeAvailability();
                                 StopSteamAccountSelectionControlsForGame();

@@ -100,7 +100,7 @@ function signalNavigation() {
 }
 
 function triggerContextMenu() {
-    if (isModalOpen || isCtxMenuOpen || isEditModalOpen || window._vkbIsOpen || window.isGlobalLoading) return;
+    if (isModalOpen || isCtxMenuOpen || isEditModalOpen || isVkbOpenForNavigation() || window.isGlobalLoading) return;
     if (window.isNavMenuOpen) { window._navMenuTriggerCtxMenu?.(); return; }
 
     const focused = document.activeElement;
@@ -156,7 +156,7 @@ function getModalGroups() {
 }
 
 function getNavigableItems() {
-    if (window._vkbIsOpen) return Array.from(document.querySelectorAll('.vkb-key[tabindex="0"]'));
+    if (isVkbOpenForNavigation()) return Array.from(document.querySelectorAll('.vkb-key[tabindex="0"]'));
     if (window.isDoorpiOverlayOpen?.()) return window.getDoorpiOverlayItems?.() || [];
     if (isSetupOpen) return typeof getSetupItems === 'function' ? getSetupItems() : [];
     if (isCtxMenuOpen) return getCtxMenuItems();
@@ -626,7 +626,7 @@ function gamepadTriangle() { if (isModalOpen && !window.isGlobalLoading) documen
 function moveFocus(direction) {
     if (window.isGlobalLoading) return;
 
-    if (window._vkbIsOpen) {
+    if (isVkbOpenForNavigation()) {
         const items = Array.from(document.querySelectorAll('.vkb-key'));
         const current = document.activeElement;
 
@@ -847,7 +847,7 @@ function moveFocus(direction) {
 }
 
 window.focusFeaturedCard = function () {
-    if (isModalOpen || isEditModalOpen || window._vkbIsOpen || isSetupOpen) return;
+    if (isModalOpen || isEditModalOpen || isVkbOpenForNavigation() || isSetupOpen) return;
     const ht = window.getCurrentHomeTab?.() || 'games';
     const activeGridId = ht === 'media' ? 'mediaGrid' : (ht === 'stores' ? 'storesGrid' : 'gameGrid');
     const grid = document.getElementById(activeGridId);
@@ -1018,7 +1018,7 @@ document.addEventListener('keydown', e => {
     }
 
     if (window.isGlobalLoading) { e.preventDefault(); return; }
-    if (window.isDoorpiOverlayOpen?.() && !window._vkbIsOpen) {
+    if (window.isDoorpiOverlayOpen?.() && !isVkbOpenForNavigation()) {
         const dirMapOverlay = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' };
         if (dirMapOverlay[e.key]) {
             e.preventDefault();
@@ -1068,7 +1068,7 @@ document.addEventListener('keydown', e => {
         return;
     }
 
-    if (window._vkbIsOpen) {
+    if (isVkbOpenForNavigation()) {
         const dirMap = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' };
         if (dirMap[e.key]) { e.preventDefault(); moveFocus(dirMap[e.key]); return; }
         if (e.key === 'Escape') { e.preventDefault(); window.requestDoorpiBackAction?.(); return; }
@@ -1137,6 +1137,32 @@ let _cursorHoldState = { l1: 0, r1: 0 }, _cursorLastTime = { l1: 0, r1: 0 };
 window._gpNavigating = false;
 let _gpNavigatingTimeout = null;
 window._doorpiGameInputSuppressedUntil = 0;
+
+window.resetDoorpiGamepadInputState = function () {
+    _btnCooldown = {};
+    _moveState = 0;
+    _currentDirection = null;
+    _executionLockHeldDir = null;
+    _sessionConflictHeldDir = null;
+    _gameFocusFallbackHeldDir = null;
+    _cursorHoldState = { l1: 0, r1: 0, sq: 0 };
+    _cursorLastTime = { l1: 0, r1: 0, sq: 0 };
+    window._gpNavigating = false;
+    if (_gpNavigatingTimeout) {
+        clearTimeout(_gpNavigatingTimeout);
+        _gpNavigatingTimeout = null;
+    }
+};
+
+function isVkbOpenForNavigation() {
+    if (!window._vkbIsOpen) return false;
+    const overlay = document.querySelector('.vkb-overlay.visible');
+    if (overlay && overlay.offsetWidth > 0 && overlay.offsetHeight > 0) return true;
+
+    window._vkbIsOpen = false;
+    window.resetDoorpiGamepadInputState?.();
+    return false;
+}
 
 window.suspendDoorpiGameInput = function (durationMs = 15000) {
     window._doorpiGameInputSuppressedUntil = performance.now() + durationMs;
@@ -1230,7 +1256,7 @@ window.requestDoorpiBackAction = function () {
         return true;
     }
 
-    if (window._vkbIsOpen) {
+    if (isVkbOpenForNavigation()) {
         window._vkbCancel?.();
         window.DoorpiUiSound?.play('back');
         return true;
@@ -1284,7 +1310,7 @@ function buttonJustPressed(btn, index) {
 }
 
 function handleArtworkWizardGamepadShortcuts(buttons) {
-    if (window._vkbIsOpen || !window._artworkWizardIsOpen?.()) return false;
+    if (isVkbOpenForNavigation() || !window._artworkWizardIsOpen?.()) return false;
 
     if (buttonJustPressed(buttons[NAV.GAMEPAD.BTN_TRIANGLE], NAV.GAMEPAD.BTN_TRIANGLE)) {
         return window._artworkWizardShortcut?.('search') === true;
@@ -1515,7 +1541,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         }
         // -------------------------------
 
-        if (window.isDoorpiOverlayOpen?.() && !window._vkbIsOpen) {
+        if (window.isDoorpiOverlayOpen?.() && !isVkbOpenForNavigation()) {
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
                 if (window.DoorpiQuickPanel?.confirm?.()) return;
                 const el = document.activeElement;
@@ -1541,7 +1567,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         }
 
         if (window.isNavMenuOpen) {
-            if (!window._vkbIsOpen) {
+            if (!isVkbOpenForNavigation()) {
                 if (typeof isEditModalOpen !== 'undefined' && isEditModalOpen) {
                     if (handleArtworkWizardGamepadShortcuts(buttons)) return;
                     if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
@@ -1585,7 +1611,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             }
         }
 
-        if (window._vkbIsOpen) {
+        if (isVkbOpenForNavigation()) {
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
                 if (window.requestDoorpiBackAction?.()) return;

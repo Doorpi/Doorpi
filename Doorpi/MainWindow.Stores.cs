@@ -1048,6 +1048,8 @@ namespace Doorpi
 
             MarkStoreChildGameAsPlayed(candidate.Game, gameId);
 
+            if (string.Equals(storeId, "Steam", StringComparison.OrdinalIgnoreCase))
+                CloseVisibleSteamWindowsAfterGameLaunch(candidate.Hwnd);
             StopSteamAccountSelectionControlsForGame();
             ClearStorePendingChildWindows();
             _storeMinimizeState = StoreMinimizeState.StoreChildGameValid;
@@ -1325,6 +1327,8 @@ namespace Doorpi
                                     if (hwnd != IntPtr.Zero)
                                     {
                                         _currentGameHwnd = hwnd;
+                                        if (string.Equals(_storeChildGameStoreId, "Steam", StringComparison.OrdinalIgnoreCase))
+                                            CloseVisibleSteamWindowsAfterGameLaunch(hwnd);
                                         Dispatcher.Invoke(() =>
                                         {
                                             _gameIsRunningAndDoorpiHidden = true;

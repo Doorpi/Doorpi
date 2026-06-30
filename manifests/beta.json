@@ -1,40 +1,41 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202606301328,
-    "publishedAt":  "2026-06-30T16:29:14.9373718Z",
-    "expiresAt":  "2026-07-14T16:29:14.9373718Z",
+    "manifestVersion":  202606302029,
+    "publishedAt":  "2026-06-30T23:30:06.1786360Z",
+    "expiresAt":  "2026-07-14T23:30:06.1786360Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.1.1",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.1/doorpi-0.1.1.doorpiupdate.zip",
-                   "sha256":  "7328a3c4c991a4ff37a79e744c5341bde344e883d0fa6ac9eaef334dc7e318b3",
-                   "sizeBytes":  132819014,
+                   "version":  "0.1.2",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.2/doorpi-0.1.2.doorpiupdate.zip",
+                   "sha256":  "d9a328c40fc7e39af0553d93232a314518f5095b5d6bb5888e367e5431bc0087",
+                   "sizeBytes":  132826881,
                    "minUpdaterVersion":  "0.1.0",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
                     "version":  "0.1.0",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.1/updater-0.1.0.doorpiupdate.zip",
-                    "sha256":  "d872cb151d554fd294854a7fb7dc84062c19c2a1539d4f50801a341260c0ea79",
-                    "sizeBytes":  69942933,
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.2/updater-0.1.0.doorpiupdate.zip",
+                    "sha256":  "286f5a3ef8cb38d3e35d2999b96ac1f86aae9a75316a597f054a75ca72ca6e7d",
+                    "sizeBytes":  69942951,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.1.1",
-                          "title":  "Doorpi 0.1.1",
+                          "version":  "0.1.2",
+                          "title":  "Doorpi 0.1.2",
                           "items":  [
-                                        "Ajustes de foco nos aplicativos e Steam.",
-                                        "Teclado em popups de login."
+                                        "Hotfix: teclados fantasma segurando input.",
+                                        "Topmost em modo console.",
+                                        "Correção de foco da Steam ao minimizar para o Doorpi em cenários específicos."
                                     ]
                       }
                   ],
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "RKknaaYUQ7q2BW1F3VsxlOgKMDyjgcjtfvNdNvdT6tWto3znB6kP1CIyTl77MbR06DJDLXv0gy3uisFd9tamvNHCDLa5FWhMc+0ULgAR6jvA2wJxAkH8bh8w6xzxDihY2NdEPPKyx2gewBDoMQmEit3cHNuM85AtrS9uEEGovG5Qoh1Q4R717rTUNCrIVGVTeWITpge75/5IS2MqW6tbV+ZWrIKoe+GJHAPx7S7r7zbxg/uWjEZPNZ7oLOdkGiW75qZdxOO/llRTPyG2gDWm2kM+Wd7lJMxLrk3OkXbuSNPwC8jEABCuE0ZtH1HeDPreTeXthF/7hTo5f+r366rzbEYnRl5DEsVhdlvA2KdjgYSWKC/vgovDIqxnvDUUAgCgqk7fh+acdufbdfMDOZ/s50gzyNfeO84zHDTfhl3RQiWNFYps9k0eIPtHcNlXVeAItJ9Dgz36i57d3ElzBBl/ftjprZZuHDeKRbcfw4+0MK13ys4KrsoLakZNIwJs0fi7"
+                      "value":  "iL3a88yfu5ECpUpfjHdxCl14lkwxmXDA7TBXlG4NwoTfU6MyoDGonWP/M4109FP5hoe21EBH/gxqS2h77LhldTpR2KL/swIxeCjZL6DIrS8XqbpaoDqP2LgpbEVRroUYoTuQKuXGZYncNcYUk9FAN2nQJJ/FsMJLuQVTLBQuf1E1LDtNY4yfOuS9UY2QH3PcNdpwZVhA6U23CY8dN3dmTtr27XAKQkxHnRGIDi/SI/cC//li2MyJzv5gkRhXXf9DDu+m3rBUv2p9TzrJtFvyAlDLlurVntVmk7PdGV1F7KiFeXAfHcZ80dLUCA/SGgnfn2D1SjIBIKOJ6e5UW6Ee8Y1QP5njEfeghuTIJbWt/B5TZrBMo7+xd67Rqyui8i1EuZOH3Ek8AgPXReL5SMt4vzRLs8YMa45haYqDE6mDFLh41W7r0XX+BEW6N5u/RV3rIuqfcFU0I1Q979BsM0QaKnrzezEGCOVCtO/ls7lQGiLxFiMfF6khItjMkztH+11a"
                   }
 }

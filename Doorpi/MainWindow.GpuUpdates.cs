@@ -1224,9 +1224,8 @@ namespace Doorpi
 
                 Dispatcher.InvokeAsync(() =>
                 {
-                    Topmost = true;
+                    ReleaseDoorpiTopmost();
                     Activate();
-                    Topmost = false;
                     webView.Focus();
                     System.Windows.Input.Keyboard.Focus(webView);
                     EnsureCursorHidden();
