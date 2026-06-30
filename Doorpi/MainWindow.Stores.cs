@@ -4806,7 +4806,8 @@ namespace Doorpi
                             s.HeroImage,
                             s.HeroStaticImage,
                             s.LogoImage,
-                            s.LogoStaticImage
+                            s.LogoStaticImage,
+                            s.AssetQuery
                         }).ToList(),
                         apps = installedStores.Select(s => new
                         {
@@ -4825,6 +4826,7 @@ namespace Doorpi
                             s.HeroStaticImage,
                             s.LogoImage,
                             s.LogoStaticImage,
+                            s.AssetQuery,
                             isAdminLocked = !isAdmin && blockedStores.Contains(NormalizeStorePolicyKey(s.Id)),
                             adminLockReason = "blocked-store",
                             adminStoreBlocked = blockedStores.Contains(NormalizeStorePolicyKey(s.Id)),

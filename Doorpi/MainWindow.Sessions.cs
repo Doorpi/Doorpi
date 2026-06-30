@@ -47,6 +47,7 @@ namespace Doorpi
             public HashSet<int> ProcessGroupIds = new();
             public HashSet<int> BaselineProcessIds = new();
             public HashSet<IntPtr> AttachedWindowHandles = new();
+            public HashSet<IntPtr> FocusedWindowHandles = new();
             public string ProcessGroupRootDirectory = "";
             public string ProcessGroupExeName = "";
             public int SessionId;

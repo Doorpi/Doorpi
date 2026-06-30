@@ -1,15 +1,15 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202606282300,
-    "publishedAt":  "2026-06-29T02:00:41.7248783Z",
-    "expiresAt":  "2026-07-13T02:00:41.7248783Z",
+    "manifestVersion":  202606300855,
+    "publishedAt":  "2026-06-30T11:55:55.3803934Z",
+    "expiresAt":  "2026-07-14T11:55:55.3803934Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
                    "version":  "0.1.0",
                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.0/doorpi-0.1.0.doorpiupdate.zip",
-                   "sha256":  "66d4336531dfbba259767d3a1ae4212de2f9b934a159089185638ab21dc54ad8",
-                   "sizeBytes":  132791013,
+                   "sha256":  "aa2aee1f5c767ef9b31049a4aa78689c2a46212964c8699645502bdd9c258062",
+                   "sizeBytes":  132813600,
                    "minUpdaterVersion":  "0.1.0",
                    "forceUpdate":  false,
                    "allowRollback":  false
@@ -17,25 +17,23 @@
     "updater":  {
                     "version":  "0.1.0",
                     "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.0/updater-0.1.0.doorpiupdate.zip",
-                    "sha256":  "f635f565a60eb4fbf666a977bcb46e6bf1bd778edfecafc44d105beae285d151",
-                    "sizeBytes":  69940043,
+                    "sha256":  "d783ba0400bb8c77ac0739b0c2797901a3806b2ac8ee91e818f5346907e021dc",
+                    "sizeBytes":  69942959,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
                           "version":  "0.1.0",
-                          "title":  "Doorpi 0.1.0",
+                          "title":  "First official release",
                           "items":  [
-                                        "Primeira versão beta pública do Doorpi.",
-                                        "Sistema de atualização automática com pacotes assinados.",
-                                        "Browser genérico em Mídia e melhorias no fluxo de lojas, teclado e interface."
+                                        "First official release."
                                     ]
                       }
                   ],
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "DMIPPIlyT9dXg0b82op3XavbRl0CrizKSQYNzSOUYIni9NpdcdgusQNl2tS8EUr+UZvdLmiLx40fnqtHagkQ/ls4h0jmCYOXqZ0wFvtSM4IAJpeSU0cEV44ee4iy8Jv9Fd2nv+aHHdd5qUT9kmLSYrv5oojhTnb/H5jnX7t9ySb7Fvoxs+/tLksk51BwmaivnAehVvoeEc2L/YWIGc53SVKwVyYSnjrGnkYi62o92CH7pgJV0ciktU004hICDR0E4R2w8ydVJkT3gX9mksoH0w6OnzXQ0OzBQP9Z/jfuyH20kTvAxSHk0GIh+jilsZLvuUZH9rI5II5IOi8CRs2i3Aeu4nhoVdb+Z9FGB78J1pPlX895Hfai/OZnPuaVvYfVKxhOYUp8smkYsR88QG0kwXKcNix/utQA32EMSF2Vinv6kdk/Y141QfMIKGt6KA/gjIGkTJnkR19ebeDx/pDBoWOeItN871J03ubQ4+mt7uTRByX90iakVA3Lbpd4JugX"
+                      "value":  "cymyrlyWI8XFFYfbEYApb2zPZu6N9jvNiz5zn7BZT/b+88wTzLi1dNkpa6PII280P/bn/R1mwo5DM2VvBSUzrTDneTzW83op1RWrhGd5Qihca8v/LsNfEyXY6PKoaSonnoUEWscJOj38l0RaV16vgodBtgVatI8LoUrckZHCJHClDaZW+vSi83tqzTVW+C3ge2LGrOVog9evob+BcFRzuFG6pR8c5Lha+cOYe1QQVcT5K0KJDGzO8WboeR4XlebawFtMIc90yIFo0BkwMyKVLiUuUEAeuthDhm3TdDZuKj2TkEKf16vUa/VBgBzRQ064+wGScIlc/vF2YIMuzdIvbQtcNAxNBpw51YsiYH/C3KKwMtF0UlRUcd67504eQ35BOIO8We2JFlZBP7DeLJA/0EMGbtZ7NXDsGo5+M+p3YcG2EoSYIbm8Y2UqoDekL6AGr2KpPeN1ZaRUPAMbRnT3PzzbppSpDv9Ocy9ietSqdglU1+5dh3N2X7dnpGG2Yp3y"
                   }
 }
