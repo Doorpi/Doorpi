@@ -9831,8 +9831,9 @@ function renderFolderList(folders) {
             });
         }
 
-        function _forceClose() {
+        function _forceClose(options = {}) {
             if (!_el) return;
+            const restoreFocus = options?.restoreFocus !== false && document.visibilityState !== 'hidden';
             _callbacks = {};
             _pendingAccent = null;
             window._vkbIsOpen = false;
@@ -9843,7 +9844,11 @@ function renderFolderList(folders) {
 
             const returnTo = _returnFocusEl;
             _returnFocusEl = null;
-            setTimeout(() => { returnTo?.focus?.(); window.updateNavHint?.(); }, 180);
+            if (restoreFocus) {
+                setTimeout(() => { returnTo?.focus?.(); window.updateNavHint?.(); }, 180);
+            } else {
+                window.resetDoorpiGamepadInputState?.();
+            }
             setTimeout(() => { if (_el && !_el.classList.contains('visible')) _el.style.display = 'none'; }, 180);
         }
 
@@ -9890,6 +9895,16 @@ function renderFolderList(folders) {
             if (window._vkbIsOpen) _positionOverlay();
         });
 
+        const _closeForPageTransition = () => {
+            if (!window._vkbIsOpen) return;
+            _forceClose({ restoreFocus: false });
+        };
+        window.addEventListener('pagehide', _closeForPageTransition);
+        window.addEventListener('beforeunload', _closeForPageTransition);
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') _closeForPageTransition();
+        });
+
         return {
             open: _open,
             forceClose: _forceClose,
@@ -9927,7 +9942,7 @@ function renderFolderList(folders) {
         if (window._doorpiVkbConfirmOverride?.()) return;
         VKB.confirm();
     };
-    window._vkbForceClose = () => VKB.forceClose();
+    window._vkbForceClose = (options) => VKB.forceClose(options);
     window._vkbPhysicalKey = (k) => VKB.physicalKey(k);
     window._vkbToggleShift = () => VKB.toggleShift();
     window._vkbToggleLayer = () => VKB.toggleLayer();
