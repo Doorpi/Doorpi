@@ -22,7 +22,9 @@ AppVersion={#AppVersion}
 AppPublisher=Doorpi
 DefaultDirName={localappdata}\Programs\Doorpi
 DefaultGroupName=Doorpi
+DisableDirPage=no
 DisableProgramGroupPage=yes
+UsePreviousAppDir=no
 OutputDir={#OutputDir}
 OutputBaseFilename=DoorpiSetup-{#AppVersion}
 Compression=lzma2
@@ -43,10 +45,10 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [CustomMessages]
 brazilianportuguese.UninstallRemoveDataPrompt=Remover tambem os dados do Doorpi deste usuario?%n%nIsso apaga perfis, configuracoes, logs, cache de update e arquivos em %LOCALAPPDATA%\Doorpi.
 english.UninstallRemoveDataPrompt=Also remove this user's Doorpi data?%n%nThis deletes profiles, settings, logs, update cache, and files under %LOCALAPPDATA%\Doorpi.
-brazilianportuguese.InstallDirProtectedError=Essa pasta exige permissao administrativa. Para o Doorpi atualizar sem pedir elevacao, escolha uma pasta gravavel pelo usuario atual, como:%n%n%s
-english.InstallDirProtectedError=This folder requires administrator permission. For Doorpi to update without elevation, choose a folder writable by the current user, such as:%n%n%s
-brazilianportuguese.InstallDirWritableError=A conta atual nao consegue gravar na pasta escolhida. O Doorpi precisa instalar e atualizar em uma pasta gravavel sem elevacao, como:%n%n%s
-english.InstallDirWritableError=The current account cannot write to the selected folder. Doorpi must install and update in a folder writable without elevation, such as:%n%n%s
+brazilianportuguese.InstallDirProtectedError=Essa pasta exige permissao administrativa. Para o Doorpi atualizar sem pedir elevacao, escolha uma pasta gravavel pelo usuario atual, como:%n%n%1
+english.InstallDirProtectedError=This folder requires administrator permission. For Doorpi to update without elevation, choose a folder writable by the current user, such as:%n%n%1
+brazilianportuguese.InstallDirWritableError=A conta atual nao consegue gravar na pasta escolhida. O Doorpi precisa instalar e atualizar em uma pasta gravavel sem elevacao, como:%n%n%1
+english.InstallDirWritableError=The current account cannot write to the selected folder. Doorpi must install and update in a folder writable without elevation, such as:%n%n%1
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
@@ -79,6 +81,12 @@ var
   NormalizedCandidate: string;
   NormalizedRoot: string;
 begin
+  if RootPath = '' then
+  begin
+    Result := False;
+    exit;
+  end;
+
   NormalizedCandidate := Uppercase(NormalizePath(Candidate));
   NormalizedRoot := Uppercase(NormalizePath(RootPath));
 
@@ -110,8 +118,9 @@ end;
 function IsProtectedInstallRoot(const DirName: string): Boolean;
 begin
   Result :=
-    IsSameOrSubPath(DirName, ExpandConstant('{autopf}')) or
-    IsSameOrSubPath(DirName, ExpandConstant('{autopf32}')) or
+    IsSameOrSubPath(DirName, GetEnv('ProgramFiles')) or
+    IsSameOrSubPath(DirName, GetEnv('ProgramFiles(x86)')) or
+    IsSameOrSubPath(DirName, GetEnv('ProgramW6432')) or
     IsSameOrSubPath(DirName, ExpandConstant('{win}')) or
     IsSameOrSubPath(DirName, ExpandConstant('{sys}'));
 end;
