@@ -61,7 +61,6 @@ const CardInteraction = (() => {
         const channel = card.dataset.channel;
         if (channel === 'media' && window.getCurrentHomeTab?.() !== 'media') return;
         if (channel === 'stores' && window.getCurrentHomeTab?.() !== 'stores') return;
-        if (channel === 'stores') return;
 
         if (currentActiveCard && currentActiveCard !== card) {
             stop(currentActiveCard);
@@ -72,9 +71,11 @@ const CardInteraction = (() => {
         if (animTimer) clearTimeout(animTimer);
 
         const bgSrc = card.dataset.staticVertical || card.dataset.vertical;
-        const heroSrc = card.dataset.staticHero || card.dataset.hero
-            || card.dataset.staticHorizontal || card.dataset.horizontal
-            || bgSrc;
+        const heroSrc = channel === 'stores'
+            ? (card.dataset.staticHero || card.dataset.hero || bgSrc)
+            : (card.dataset.staticHero || card.dataset.hero
+                || card.dataset.staticHorizontal || card.dataset.horizontal
+                || bgSrc);
 
         // ← MUDANÇA: logoSrc removido — triggerAnimations assume controle total do logo
         const heroDelay = window._gpNavigating ? 120 : 60;
@@ -117,7 +118,10 @@ const CardInteraction = (() => {
     function triggerAnimations(card) {
         const isFeatured = card.classList.contains('featured');
 
-        const animSrc = isFeatured
+        const isStore = card.dataset.channel === 'stores';
+        const animSrc = isStore
+            ? card.dataset.vertical
+            : isFeatured
             ? (card.dataset.horizontal || card.dataset.vertical)
             : card.dataset.vertical;
         const staticSrc = isFeatured

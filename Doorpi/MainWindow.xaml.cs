@@ -12903,6 +12903,40 @@ namespace Doorpi
             catch (Exception ex) { Debug.WriteLine("Erro ao buscar imagem: " + ex.Message); return null; }
         }
 
+        private async Task<string?> TryGetSteamGridImageUrlByIdAsync(int gridId)
+        {
+            foreach (string endpoint in new[] { $"grids/id/{gridId}", $"grids/{gridId}" })
+            {
+                try
+                {
+                    var json = await SgdbGetStringAsync($"https://www.steamgriddb.com/api/v2/{endpoint}").ConfigureAwait(false);
+                    using var doc = JsonDocument.Parse(json);
+                    if (!doc.RootElement.TryGetProperty("success", out var successEl) || !successEl.GetBoolean())
+                        continue;
+                    if (!doc.RootElement.TryGetProperty("data", out var dataEl))
+                        continue;
+
+                    if (dataEl.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var item in dataEl.EnumerateArray())
+                            if (item.TryGetProperty("url", out var urlEl))
+                                return urlEl.GetString();
+                    }
+                    else if (dataEl.ValueKind == JsonValueKind.Object &&
+                             dataEl.TryGetProperty("url", out var urlEl))
+                    {
+                        return urlEl.GetString();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[SGDB] Grid por ID {gridId} falhou em {endpoint}: {ex.Message}");
+                }
+            }
+
+            return null;
+        }
+
         private static bool IsLocalFileAnimated(string localFilePath)
         {
             if (string.IsNullOrEmpty(localFilePath) || !File.Exists(localFilePath))
