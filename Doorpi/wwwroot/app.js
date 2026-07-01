@@ -301,6 +301,10 @@
 
         function show() {
             if (!shouldShow()) return false;
+            if (window._userSwitching || window.isDoorpiSessionTransitionActive?.()) {
+                window._doorpiFirstRunTutorialDeferred = true;
+                return false;
+            }
             if (isOpen()) return true;
             ensureStyles();
             let overlay = document.getElementById('doorpiFirstRunTutorial');
@@ -353,12 +357,13 @@
 
     function _libraryUpdateShouldWait() {
         const phase = window._navMenuPhase || 'closed';
+        const allowSessionRender = window._doorpiAllowLibraryRenderDuringSessionTransition === true;
         return phase === 'opening'
             || phase === 'closing'
             || document.body.classList.contains('nav-menu-closing')
-            || window._userSwitching === true
-            || (window._doorpiSessionTransitionBlockUntil && Date.now() < window._doorpiSessionTransitionBlockUntil)
-            || window.isDoorpiSessionTransitionActive?.() === true;
+            || (!allowSessionRender && window._userSwitching === true)
+            || (!allowSessionRender && window._doorpiSessionTransitionBlockUntil && Date.now() < window._doorpiSessionTransitionBlockUntil)
+            || (!allowSessionRender && window.isDoorpiSessionTransitionActive?.() === true);
     }
 
     function _enqueueNewGameForLibrary(channel, data) {
@@ -10172,7 +10177,90 @@ function renderFolderList(folders) {
             }, 80);
         }
     });
+    function _delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    function _nextFrame() {
+        return new Promise(resolve => requestAnimationFrame(() => resolve()));
+    }
+
+    async function _afterFrames(count = 1) {
+        for (let i = 0; i < count; i++) await _nextFrame();
+    }
+
+    function _getActiveHomeGrid() {
+        const currentTab = (typeof window.getCurrentHomeTab === 'function') ? window.getCurrentHomeTab() : 'games';
+        const gridId = typeof window.getHomeGridId === 'function'
+            ? window.getHomeGridId(currentTab)
+            : (currentTab === 'media' ? 'mediaGrid' : (currentTab === 'stores' ? 'storesGrid' : 'gameGrid'));
+        return document.getElementById(gridId) || document.getElementById('gameGrid');
+    }
+
+    function _isImageReady(img) {
+        if (!img || !img.src) return true;
+        if (img.complete && img.naturalWidth > 0) return true;
+        if (img.src.startsWith('data:image/svg+xml')) return true;
+        return false;
+    }
+
+    function _waitImageReady(img, timeoutMs = 900) {
+        if (_isImageReady(img)) return Promise.resolve();
+        return new Promise(resolve => {
+            let done = false;
+            const finish = () => {
+                if (done) return;
+                done = true;
+                img.removeEventListener('load', finish);
+                img.removeEventListener('error', finish);
+                resolve();
+            };
+            img.addEventListener('load', finish, { once: true });
+            img.addEventListener('error', finish, { once: true });
+            if (typeof img.decode === 'function') img.decode().then(finish).catch(() => { });
+            setTimeout(finish, timeoutMs);
+        });
+    }
+
+    async function _waitForDoorpiHomeReady() {
+        const started = performance.now();
+        await _afterFrames(2);
+
+        while (performance.now() - started < 2200) {
+            const grid = _getActiveHomeGrid();
+            const hasRenderableCard = !!grid?.querySelector('.card:not(.loading-card)');
+            const hasLoadingCards = !!document.querySelector('.card.loading-card');
+            const hasPendingRender = !!_pendingRenderGamesPayload || !!_pendingRenderGamesTimer;
+            if (hasRenderableCard && !hasLoadingCards && !hasPendingRender) break;
+            await _delay(60);
+        }
+
+        await _afterFrames(2);
+
+        const grid = _getActiveHomeGrid();
+        const cardImages = Array.from(grid?.querySelectorAll('.card:not(.loading-card) img') || []).slice(0, 12);
+        const heroImages = ['heroImage', 'gridBgImg', 'bgBlur', 'gameLogo']
+            .map(id => document.getElementById(id))
+            .filter(Boolean);
+        await Promise.all([...cardImages, ...heroImages].map(img => _waitImageReady(img)));
+        await _afterFrames(2);
+    }
+
+    function _runDeferredFirstRunTutorial() {
+        if (!window._doorpiFirstRunTutorialDeferred) return;
+        window._doorpiFirstRunTutorialDeferred = false;
+        window.DoorpiFirstRunTutorial?.maybeShow?.();
+    }
+
     function _getUserSwitchOverlayCopy(mode = 'switch') {
+        if (mode === 'initial') {
+            return {
+                mark: 'Conta',
+                title: 'Entrando',
+                sub: 'Preparando sua tela inicial',
+            };
+        }
+
         if (mode === 'delete') {
             return {
                 mark: typeof t === 'function' ? t('sessionDeleteMark') : 'Conta',
@@ -10188,16 +10276,26 @@ function renderFolderList(folders) {
         };
     }
 
-    function _ensureUserSwitchLogoutOverlay(mode = 'switch') {
+    function _userSwitchAvatarHtml(user = {}) {
+        const photo = user.PhotoBase64 || user.photoBase64 || '';
+        const name = user.Name || user.name || '';
+        if (photo) return `<div class="logout-avatar"><img src="${escapeHtml(photo)}" alt=""></div>`;
+        const initial = (name || 'D').trim().charAt(0).toUpperCase() || 'D';
+        return `<div class="logout-avatar logout-avatar-fallback">${escapeHtml(initial)}</div>`;
+    }
+
+    function _ensureUserSwitchLogoutOverlay(mode = 'switch', user = {}) {
         const copy = _getUserSwitchOverlayCopy(mode);
         let overlay = document.getElementById('doorpiUserSwitchLogout');
         if (!overlay) {
             overlay = document.createElement('div');
             overlay.id = 'doorpiUserSwitchLogout';
             overlay.innerHTML = `
+                <div class="logout-avatar-slot">${_userSwitchAvatarHtml(user)}</div>
                 <div class="logout-mark">${copy.mark}</div>
                 <div class="logout-title">${copy.title}</div>
                 <div class="logout-sub">${copy.sub}</div>
+                <div class="logout-spinner" aria-hidden="true"></div>
                 <div class="logout-dots"><span></span><span></span><span></span></div>
             `;
             document.body.appendChild(overlay);
@@ -10205,6 +10303,8 @@ function renderFolderList(folders) {
             const mark = overlay.querySelector('.logout-mark');
             const title = overlay.querySelector('.logout-title');
             const sub = overlay.querySelector('.logout-sub');
+            const avatar = overlay.querySelector('.logout-avatar-slot');
+            if (avatar) avatar.innerHTML = _userSwitchAvatarHtml(user);
             if (mark) mark.textContent = copy.mark;
             if (title) title.textContent = copy.title;
             if (sub) sub.textContent = copy.sub;
@@ -10216,6 +10316,7 @@ function renderFolderList(folders) {
         if (data.showTransition === false) return;
         // Limpa o hero na hora, sem delay, e bloqueia novos switches
         window._userSwitching = true;
+        window._doorpiAllowLibraryRenderDuringSessionTransition = true;
         window._userSwitchStartedAt = performance.now();
         window._stopSystemAudio?.();
         _currentBgSrc = '';
@@ -10231,7 +10332,7 @@ function renderFolderList(folders) {
         if (logoEl) logoEl.classList.remove('visible');
         if (gridBg) gridBg.removeAttribute('src');
 
-        const logoutOverlay = _ensureUserSwitchLogoutOverlay(data.mode || 'switch');
+        const logoutOverlay = _ensureUserSwitchLogoutOverlay(data.mode || 'switch', data.user || window._doorpiProfile || {});
         logoutOverlay.style.display = 'flex';
         requestAnimationFrame(() => logoutOverlay.classList.add('visible'));
 
@@ -10242,7 +10343,7 @@ function renderFolderList(folders) {
         wrap.style.pointerEvents = 'none';
     }
 
-    function _userSwitchFadeIn(data = {}) {
+    async function _userSwitchFadeIn(data = {}) {
         const shouldShowTransition = data.showTransition !== false && window._userSwitching;
         const shouldRestartAudio = !!data.restartAudio;
 
@@ -10265,7 +10366,11 @@ function renderFolderList(folders) {
             }
             if (shouldRestartAudio) window._restartSystemAudioForNewSession?.();
             window._doorpiSessionTransitionBlockUntil = Date.now() + 450;
+            window._doorpiAllowLibraryRenderDuringSessionTransition = false;
             window._userSwitching = false;
+            window.focusFeaturedCard?.();
+            scheduleDoorpiFocusRecovery?.();
+            _runDeferredFirstRunTutorial();
             return;
         }
 
@@ -10278,6 +10383,12 @@ function renderFolderList(folders) {
             return;
         }
 
+        if (data.waitForHomeReady !== false && !data._homeReadyWaited) {
+            try { await _waitForDoorpiHomeReady(); } catch { }
+            _userSwitchFadeIn({ ...data, _homeReadyWaited: true, _delayed: true });
+            return;
+        }
+
         const wrap = document.querySelector('.main-content-wrapper');
         if (!wrap) {
             const logoutOverlay = document.getElementById('doorpiUserSwitchLogout');
@@ -10287,7 +10398,11 @@ function renderFolderList(folders) {
             }
             if (shouldRestartAudio) window._restartSystemAudioForNewSession?.();
             window._doorpiSessionTransitionBlockUntil = Date.now() + 450;
+            window._doorpiAllowLibraryRenderDuringSessionTransition = false;
             window._userSwitching = false;
+            window.focusFeaturedCard?.();
+            scheduleDoorpiFocusRecovery?.();
+            _runDeferredFirstRunTutorial();
             return;
         }
 
@@ -10324,7 +10439,11 @@ function renderFolderList(folders) {
             wrap.style.removeProperty('transition');
             wrap.style.transform = '';
             window._doorpiSessionTransitionBlockUntil = Date.now() + 450;
+            window._doorpiAllowLibraryRenderDuringSessionTransition = false;
             window._userSwitching = false;
+            window.focusFeaturedCard?.();
+            scheduleDoorpiFocusRecovery?.();
+            _runDeferredFirstRunTutorial();
         }, 320);
     }
 

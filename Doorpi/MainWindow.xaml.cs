@@ -825,22 +825,17 @@ namespace Doorpi
 
         {
 
-            if (GetBootMode() == 2)
-            {
-
-                _ = Task.Run(async () =>
-                {
-
-                    await Task.Delay(1500);
-                    Dispatcher.Invoke(() => EnsureExplorerIsRunningInBackstage());
-                });
-            }
             // Configura o navegador para permitir áudio automático (autoplay) sem interação do usuário
+            StartConsoleShellExplorerStartupForIntro();
+
             var options = new CoreWebView2EnvironmentOptions("--autoplay-policy=no-user-gesture-required");
             var environment = await CoreWebView2Environment.CreateAsync(null, null, options);
 
             // Inicializa o WebView2 usando essas opções
             await webView.EnsureCoreWebView2Async(environment);
+            int bootMode = GetBootMode();
+            await webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
+                $"window.__doorpiBootMode = {bootMode}; window.__doorpiConsoleShellExplorerReady = {(Volatile.Read(ref _consoleShellExplorerReady) == 1 ? "true" : "false")};");
             ApplyProductionWebViewSettings(webView.CoreWebView2);
             webView.CoreWebView2.PermissionRequested += OnWebViewPermissionRequested;
             webView.CoreWebView2.ProcessFailed += OnMainWebViewProcessFailed;
@@ -857,6 +852,12 @@ namespace Doorpi
 
             {
                 UpdateHoverStateInWebView();
+                SendBootModeToUI();
+                if (Volatile.Read(ref _consoleShellExplorerReady) == 1)
+                {
+                    try { webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"consoleShellExplorerReady\"}"); } catch { }
+                }
+
                 if (NeedsSetup())
                 {
                     Dispatcher.InvokeAsync(() =>
@@ -1486,6 +1487,281 @@ namespace Doorpi
             HasPin = !string.IsNullOrWhiteSpace(user.PinCode)
         };
 
+        private void PostUserTransitionStart(string mode, UserProfile user, bool showTransition = true)
+        {
+            void Send() =>
+                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                {
+                    type = "userSwitchStart",
+                    mode,
+                    showTransition,
+                    user = UserProfilePickerPayload(user)
+                }));
+
+            if (Dispatcher.CheckAccess()) Send();
+            else Dispatcher.Invoke(Send);
+        }
+
+        private void PostUserTransitionComplete(string mode, bool showTransition, bool restartAudio, bool waitForHomeReady = true)
+        {
+            void Send() =>
+                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                {
+                    type = "userSwitchComplete",
+                    mode,
+                    showTransition,
+                    restartAudio,
+                    waitForHomeReady
+                }));
+
+            if (Dispatcher.CheckAccess()) Send();
+            else Dispatcher.Invoke(Send);
+        }
+
+        private int _consoleShellExplorerStartupStarted = 0;
+        private int _consoleShellExplorerReady = 0;
+        private int _consoleShellPostIntroFocusRunning = 0;
+        private MediaPlayer? _nativeIntroMediaPlayer;
+
+        private void StartConsoleShellExplorerStartupForIntro()
+        {
+            if (GetBootMode() != 2)
+                return;
+
+            if (Interlocked.Exchange(ref _consoleShellExplorerStartupStarted, 1) == 1)
+                return;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Dispatcher.InvokeAsync(EnsureExplorerIsRunningInBackstage);
+                    bool ready = await WaitForExplorerProcessReadyAsync().ConfigureAwait(false);
+                    if (!ready) return;
+
+                    Interlocked.Exchange(ref _consoleShellExplorerReady, 1);
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        ReleaseDoorpiTopmost();
+                        FocusDoorpiMainWebView(onlyIfFocusLost: false);
+
+                        try
+                        {
+                            webView?.CoreWebView2?.PostWebMessageAsString(
+                                "{\"type\":\"consoleShellExplorerReady\"}");
+                        }
+                        catch { }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[Boot] Falha ao preparar explorer para intro: " + ex.Message);
+                }
+            });
+        }
+
+        private async Task<bool> WaitForExplorerProcessReadyAsync()
+        {
+            bool sawExplorerProcess = false;
+            int shellReadySamples = 0;
+
+            for (int i = 0; i < 70; i++)
+            {
+                try
+                {
+                    if (Process.GetProcessesByName("explorer").Length > 0)
+                    {
+                        sawExplorerProcess = true;
+                        if (IsExplorerShellSurfaceReady())
+                        {
+                            shellReadySamples++;
+                            if (shellReadySamples >= 3)
+                            {
+                                await Task.Delay(700).ConfigureAwait(false);
+                                return true;
+                            }
+                        }
+                        else
+                        {
+                            shellReadySamples = 0;
+                        }
+                    }
+                }
+                catch { }
+
+                await Task.Delay(100).ConfigureAwait(false);
+            }
+
+            if (sawExplorerProcess)
+            {
+                await Task.Delay(2200).ConfigureAwait(false);
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool IsExplorerShellSurfaceReady()
+        {
+            try
+            {
+                if (FindWindow("Shell_TrayWnd", null) != IntPtr.Zero)
+                    return true;
+
+                var shell = GetShellWindow();
+                return shell != IntPtr.Zero && shell != _mainWindowHandle;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private async Task WaitForConsoleShellReadyForUserTransitionAsync()
+        {
+            if (GetBootMode() != 2)
+                return;
+
+            await WaitForExplorerProcessReadyAsync().ConfigureAwait(false);
+
+            await Dispatcher.InvokeAsync(() =>
+            {
+                ReleaseDoorpiTopmost();
+                FocusDoorpiMainWebView(onlyIfFocusLost: false);
+            });
+        }
+
+        private void RestoreDoorpiFocusAfterIntroHandoff()
+        {
+            if (GetBootMode() != 2)
+                return;
+
+            if (Interlocked.Exchange(ref _consoleShellPostIntroFocusRunning, 1) == 1)
+                return;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    int[] delays = { 0, 120, 320, 700, 1200, 1900, 2800 };
+                    foreach (int delay in delays)
+                    {
+                        if (delay > 0)
+                            await Task.Delay(delay).ConfigureAwait(false);
+
+                        await Dispatcher.InvokeAsync(() =>
+                        {
+                            ReleaseDoorpiTopmost();
+                            FocusDoorpiMainWebView(onlyIfFocusLost: true);
+                        });
+                    }
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _consoleShellPostIntroFocusRunning, 0);
+                }
+            });
+        }
+
+        private void FocusDoorpiMainWebView(bool onlyIfFocusLost)
+        {
+            if (WindowState == WindowState.Minimized)
+                WindowState = WindowState.Maximized;
+
+            this.Show();
+            var hwnd = _mainWindowHandle != IntPtr.Zero
+                ? _mainWindowHandle
+                : new System.Windows.Interop.WindowInteropHelper(this).Handle;
+
+            if (onlyIfFocusLost && GetForegroundWindow() == hwnd)
+                return;
+
+            if (IsIconic(hwnd)) ShowWindow(hwnd, 9);
+            else ShowWindow(hwnd, 5);
+
+            SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+            BringWindowToTop(hwnd);
+            SwitchToThisWindow(hwnd, true);
+            SetForegroundWindow(hwnd);
+            Activate();
+            webView?.Focus();
+            Keyboard.Focus(webView);
+        }
+
+        private void PlayNativeIntroAudio(string asset, double volume)
+        {
+            string? path = ResolveIntroAssetPath(asset);
+            if (string.IsNullOrWhiteSpace(path))
+                return;
+
+            Dispatcher.Invoke(() =>
+            {
+                try
+                {
+                    _nativeIntroMediaPlayer?.Stop();
+                    _nativeIntroMediaPlayer?.Close();
+
+                    var player = new MediaPlayer
+                    {
+                        Volume = Math.Clamp(volume, 0.0, 1.0)
+                    };
+
+                    player.MediaEnded += (_, _) =>
+                    {
+                        try { player.Close(); } catch { }
+                        if (ReferenceEquals(_nativeIntroMediaPlayer, player))
+                            _nativeIntroMediaPlayer = null;
+                    };
+                    player.MediaFailed += (_, e) =>
+                    {
+                        Debug.WriteLine("[IntroAudio] Falha ao tocar audio nativo: " + e.ErrorException.Message);
+                        try { player.Close(); } catch { }
+                        if (ReferenceEquals(_nativeIntroMediaPlayer, player))
+                            _nativeIntroMediaPlayer = null;
+                    };
+
+                    _nativeIntroMediaPlayer = player;
+                    player.Open(new Uri(path, UriKind.Absolute));
+                    player.Play();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[IntroAudio] Falha ao iniciar audio nativo: " + ex.Message);
+                }
+            });
+        }
+
+        private string? ResolveIntroAssetPath(string asset)
+        {
+            if (string.IsNullOrWhiteSpace(asset))
+                return null;
+
+            try
+            {
+                string normalized = asset.Trim().Replace('/', Path.DirectorySeparatorChar);
+                const string appLocalPrefix = "https://app.local/";
+                if (asset.StartsWith(appLocalPrefix, StringComparison.OrdinalIgnoreCase))
+                    normalized = asset[appLocalPrefix.Length..].Replace('/', Path.DirectorySeparatorChar);
+
+                if (Path.IsPathRooted(normalized))
+                    return null;
+
+                string wwwroot = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot"));
+                string introRoot = Path.GetFullPath(Path.Combine(wwwroot, "intros"));
+                string fullPath = Path.GetFullPath(Path.Combine(wwwroot, normalized));
+                string introRootWithSlash = introRoot.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+
+                if (!fullPath.StartsWith(introRootWithSlash, StringComparison.OrdinalIgnoreCase))
+                    return null;
+
+                return File.Exists(fullPath) ? fullPath : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         private object BuildCurrentUserPayload(UserProfile user)
         {
             var blockedStores = GetAdminBlockedStoreIds();
@@ -1590,15 +1866,12 @@ namespace Doorpi
                 _interactiveUserSessionStarted &&
                 !string.Equals(currentUserId, user.Id, StringComparison.OrdinalIgnoreCase);
 
-            if (isRealAccountSwitch)
-            {
-                Dispatcher.Invoke(() =>
-                    webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
-                    {
-                        type = "userSwitchStart",
-                        mode = "switch"
-                    })));
-            }
+            bool isInitialLogin = !_interactiveUserSessionStarted;
+            bool shouldShowTransition = isInitialLogin || isRealAccountSwitch;
+            string transitionMode = isRealAccountSwitch ? "switch" : "initial";
+
+            if (shouldShowTransition)
+                PostUserTransitionStart(transitionMode, user);
 
             _ = Task.Run(async () =>
             {
@@ -1623,31 +1896,25 @@ namespace Doorpi
                     RestartWatchers();
                     await InitializeNativeAppsAsync(currentUserId, mediaFile, silent: true).ConfigureAwait(false);
 
-                    Dispatcher.Invoke(() =>
-                    {
-                        LoadCurrentUserIntoUI();
-                        webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
-                        {
-                            type = "userSwitchComplete",
-                            mode = isRealAccountSwitch ? "switch" : "initial",
-                            showTransition = isRealAccountSwitch,
-                            restartAudio = isRealAccountSwitch
-                        }));
-                    });
+                    await Dispatcher.InvokeAsync(LoadCurrentUserIntoUI);
+                    await WaitForConsoleShellReadyForUserTransitionAsync().ConfigureAwait(false);
+
+                    PostUserTransitionComplete(
+                        transitionMode,
+                        showTransition: shouldShowTransition,
+                        restartAudio: isRealAccountSwitch,
+                        waitForHomeReady: shouldShowTransition);
                 }
                 catch (Exception ex)
                 {
                     Debug.WriteLine("[Users] Falha ao trocar usuario: " + ex.Message);
                     try
                     {
-                        Dispatcher.Invoke(() =>
-                            webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
-                            {
-                                type = "userSwitchComplete",
-                                mode = isRealAccountSwitch ? "switch" : "initial",
-                                showTransition = isRealAccountSwitch,
-                                restartAudio = false
-                            })));
+                        PostUserTransitionComplete(
+                            transitionMode,
+                            showTransition: shouldShowTransition,
+                            restartAudio: false,
+                            waitForHomeReady: false);
                     }
                     catch { }
                 }
@@ -11020,6 +11287,22 @@ namespace Doorpi
                 {
                     SendBootModeToUI();
                 }
+                else if (action == "introSystemReadyForFocus")
+                {
+                    RestoreDoorpiFocusAfterIntroHandoff();
+                }
+                else if (action == "playNativeIntroAudio")
+                {
+                    double volume = 0.8;
+                    if (root.TryGetProperty("volume", out var volumeElement) &&
+                        volumeElement.ValueKind == JsonValueKind.Number &&
+                        volumeElement.TryGetDouble(out var parsedVolume))
+                    {
+                        volume = parsedVolume;
+                    }
+
+                    PlayNativeIntroAudio(GetStr(root, "asset"), volume);
+                }
                 else if (action == "requestUpdateStatus")
                 {
                     SendCachedUpdateStatusToUI();
@@ -12024,6 +12307,7 @@ namespace Doorpi
                         var active = savedProfiles[activeIndex].Profile;
                         SetActiveUser(active, migrateLegacyFiles: wasEmpty && File.Exists(Path.Combine(dataFolder, "games.json")));
                         RestartWatchers();
+                        PostUserTransitionStart("initial", active);
 
                         _ = Task.Run(async () =>
                         {
@@ -12039,17 +12323,20 @@ namespace Doorpi
 
                                 await Task.WhenAll(initTasks).ConfigureAwait(false);
 
+                                await Dispatcher.InvokeAsync(LoadCurrentUserIntoUI);
+                                await WaitForConsoleShellReadyForUserTransitionAsync().ConfigureAwait(false);
                                 _ = Dispatcher.BeginInvoke(() =>
                                 {
-                                    LoadCurrentUserIntoUI();
                                     webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideSystemLoading\"}");
                                 });
+                                PostUserTransitionComplete("initial", showTransition: true, restartAudio: false);
                             }
                             catch (Exception ex)
                             {
                                 Debug.WriteLine("[SetupBatch] Erro: " + ex.Message);
                                 _ = Dispatcher.BeginInvoke(() =>
                                     webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideSystemLoading\"}"));
+                                try { PostUserTransitionComplete("initial", showTransition: true, restartAudio: false, waitForHomeReady: false); } catch { }
                             }
                         });
                     }
@@ -12135,9 +12422,12 @@ namespace Doorpi
                     SaveUserProfiles(users);
 
                     bool isFirstEver = users.Count == 1;
+                    bool shouldShowInitialTransition = isFirstEver && isLast && !skipTasks;
                     SetActiveUser(profile, migrateLegacyFiles: isFirstEver && !createNew);
                     RestartWatchers();
                     SaveUserProfile(profile);
+                    if (shouldShowInitialTransition)
+                        PostUserTransitionStart("initial", profile);
 
                     if (root.TryGetProperty("folders", out var foldersEl))
                     {
@@ -12166,14 +12456,24 @@ namespace Doorpi
                                 await InitializeNativeAppsAsync(taskUserId, taskMediaFile);
                                 if (isLast)
                                 {
+                                    await Dispatcher.InvokeAsync(LoadCurrentUserIntoUI);
+                                    await WaitForConsoleShellReadyForUserTransitionAsync().ConfigureAwait(false);
                                     Dispatcher.Invoke(() =>
                                     {
-                                        LoadCurrentUserIntoUI();
                                         webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideSystemLoading\"}");
                                     });
+                                    if (shouldShowInitialTransition)
+                                        PostUserTransitionComplete("initial", showTransition: true, restartAudio: false);
                                 }
                             }
-                            catch (Exception ex) { Debug.WriteLine("[Setup] Erro: " + ex.Message); }
+                            catch (Exception ex)
+                            {
+                                Debug.WriteLine("[Setup] Erro: " + ex.Message);
+                                if (shouldShowInitialTransition)
+                                {
+                                    try { PostUserTransitionComplete("initial", showTransition: true, restartAudio: false, waitForHomeReady: false); } catch { }
+                                }
+                            }
                         });
                     }
                     else
