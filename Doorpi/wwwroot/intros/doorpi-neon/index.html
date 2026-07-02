@@ -309,23 +309,6 @@
                 try { window.parent?.postMessage({ type, ...payload }, '*'); } catch (_) { }
                 window.dispatchEvent(new CustomEvent(type, { detail: payload }));
             }
-            function isConsoleShellMode() {
-                try { return Number(window.parent?.__doorpiBootMode || 0) === 2; }
-                catch (_) { return false; }
-            }
-            function playIntroAudio() {
-                if (isConsoleShellMode()) {
-                    post('doorpi:intro:native-audio', {
-                        asset: 'intros/doorpi-neon/intro.wav',
-                        volume: 0.8 * introVolumeScale
-                    });
-                    return;
-                }
-
-                introAudio.currentTime = 0;
-                introAudio.play().catch(() => { });
-            }
-
             /* ── BLOB PHYSICS (Mantido para a transição final) ──────── */
             const blobs = [];
             const colors = [
@@ -417,7 +400,8 @@
             /* ── BOOT SEQUENCE ───────────────────────────────────────── */
             async function runBootSequence() {
                 await wait(500);
-                playIntroAudio();
+                introAudio.currentTime = 0;
+                introAudio.play();
                 await wait(450);
 
                 body.classList.add('boot-step-draw');

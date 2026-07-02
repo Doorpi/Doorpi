@@ -34,6 +34,7 @@
         handoffStyleEl: null,
         handoffBodyClasses: [],
         bootMode: Number(window.__doorpiBootMode || 0),
+        consoleIntroSkippable: window.__doorpiConsoleShellIntroSkippable === true,
         consoleExplorerReady: window.__doorpiConsoleShellExplorerReady === true,
         systemPrepOverlay: null,
         finishDispatched: false
@@ -182,8 +183,20 @@
         return Number(state.bootMode || window.__doorpiBootMode || 0) === 2;
     }
 
-    function needsSystemPrepWait() {
+    function isConsoleShellPending() {
         return isConsoleShellMode() && state.consoleExplorerReady !== true && window.__doorpiConsoleShellExplorerReady !== true;
+    }
+
+    function isConsoleShellSkipPending() {
+        return isConsoleShellMode() &&
+            state.consoleExplorerReady !== true &&
+            window.__doorpiConsoleShellExplorerReady !== true &&
+            state.consoleIntroSkippable !== true &&
+            window.__doorpiConsoleShellIntroSkippable !== true;
+    }
+
+    function needsSystemPrepWait() {
+        return isConsoleShellPending();
     }
 
     function showSystemPrepOverlay() {
@@ -345,7 +358,7 @@
 
     function skipIntro() {
         if (!state.started || state.completed) return false;
-        if (isConsoleShellMode()) return false;
+        if (isConsoleShellSkipPending()) return false;
         createAmbient();
         completeIntro('skip', true);
         return true;
@@ -429,15 +442,6 @@
         if (type === 'doorpi:intro:handoff') createAmbient(typeof data === 'object' ? data.handoff : {});
         else if (type === 'doorpi:intro:complete') completeIntro('message');
         else if (type === 'doorpi:intro:error') { state.failed = true; completeIntro('error'); }
-        else if (type === 'doorpi:intro:native-audio' && typeof data === 'object') {
-            try {
-                window.chrome?.webview?.postMessage(JSON.stringify({
-                    action: 'playNativeIntroAudio',
-                    asset: String(data.asset || ''),
-                    volume: Math.max(0, Math.min(1, Number(data.volume) || 0))
-                }));
-            } catch { }
-        }
     }
 
     function handleHostMessage(event) {
@@ -459,6 +463,12 @@
             if (state.completed && !state.finishDispatched) {
                 finalizeIntroCompletion('system-ready');
             }
+            return;
+        }
+
+        if (data.type === 'consoleShellIntroSkippable') {
+            state.consoleIntroSkippable = true;
+            window.__doorpiConsoleShellIntroSkippable = true;
         }
     }
 
@@ -474,6 +484,7 @@
         if (state.started) return;
         state.started = true;
         state.bootMode = Number(window.__doorpiBootMode || state.bootMode || 0);
+        state.consoleIntroSkippable = window.__doorpiConsoleShellIntroSkippable === true || state.consoleIntroSkippable === true;
         state.consoleExplorerReady = window.__doorpiConsoleShellExplorerReady === true || state.consoleExplorerReady === true;
 
         injectStyles();

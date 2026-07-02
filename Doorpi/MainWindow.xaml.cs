@@ -835,7 +835,7 @@ namespace Doorpi
             await webView.EnsureCoreWebView2Async(environment);
             int bootMode = GetBootMode();
             await webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
-                $"window.__doorpiBootMode = {bootMode}; window.__doorpiConsoleShellExplorerReady = {(Volatile.Read(ref _consoleShellExplorerReady) == 1 ? "true" : "false")};");
+                $"window.__doorpiBootMode = {bootMode}; window.__doorpiConsoleShellExplorerReady = {(Volatile.Read(ref _consoleShellExplorerReady) == 1 ? "true" : "false")}; window.__doorpiConsoleShellIntroSkippable = {(Volatile.Read(ref _consoleShellIntroSkippable) == 1 ? "true" : "false")};");
             ApplyProductionWebViewSettings(webView.CoreWebView2);
             webView.CoreWebView2.PermissionRequested += OnWebViewPermissionRequested;
             webView.CoreWebView2.ProcessFailed += OnMainWebViewProcessFailed;
@@ -856,6 +856,10 @@ namespace Doorpi
                 if (Volatile.Read(ref _consoleShellExplorerReady) == 1)
                 {
                     try { webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"consoleShellExplorerReady\"}"); } catch { }
+                }
+                if (Volatile.Read(ref _consoleShellIntroSkippable) == 1)
+                {
+                    try { webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"consoleShellIntroSkippable\"}"); } catch { }
                 }
 
                 if (NeedsSetup())
@@ -1519,9 +1523,9 @@ namespace Doorpi
         }
 
         private int _consoleShellExplorerStartupStarted = 0;
+        private int _consoleShellIntroSkippable = 0;
         private int _consoleShellExplorerReady = 0;
         private int _consoleShellPostIntroFocusRunning = 0;
-        private MediaPlayer? _nativeIntroMediaPlayer;
 
         private void StartConsoleShellExplorerStartupForIntro()
         {
@@ -1535,22 +1539,31 @@ namespace Doorpi
             {
                 try
                 {
-                    await Dispatcher.InvokeAsync(EnsureExplorerIsRunningInBackstage);
-                    bool ready = await WaitForExplorerProcessReadyAsync().ConfigureAwait(false);
+                    var baselineProcessIds = SnapshotProcessIds();
+                    var startupProcessHints = SnapshotWindowsStartupProcessNameHints();
+                    bool explorerAlreadyRunning = await WaitForExplorerAlreadyRunningInFirstSecondAsync().ConfigureAwait(false);
+
+                    if (explorerAlreadyRunning)
+                    {
+                        await Dispatcher.InvokeAsync(MarkConsoleShellIntroSkippable);
+                    }
+                    else
+                    {
+                        await Dispatcher.InvokeAsync(EnsureExplorerIsRunningInBackstage);
+                    }
+
+                    bool ready = await MonitorConsoleShellStartupForegroundAsync(
+                        baselineProcessIds,
+                        startupProcessHints,
+                        maxWaitMs: explorerAlreadyRunning ? 12000 : 18000,
+                        stableMs: 4200).ConfigureAwait(false);
                     if (!ready) return;
 
-                    Interlocked.Exchange(ref _consoleShellExplorerReady, 1);
                     await Dispatcher.InvokeAsync(() =>
                     {
                         ReleaseDoorpiTopmost();
                         FocusDoorpiMainWebView(onlyIfFocusLost: false);
-
-                        try
-                        {
-                            webView?.CoreWebView2?.PostWebMessageAsString(
-                                "{\"type\":\"consoleShellExplorerReady\"}");
-                        }
-                        catch { }
+                        MarkConsoleShellExplorerReady();
                     });
                 }
                 catch (Exception ex)
@@ -1558,6 +1571,251 @@ namespace Doorpi
                     Debug.WriteLine("[Boot] Falha ao preparar explorer para intro: " + ex.Message);
                 }
             });
+        }
+
+        private async Task<bool> WaitForExplorerAlreadyRunningInFirstSecondAsync()
+        {
+            for (int i = 0; i < 10; i++)
+            {
+                if (IsExplorerProcessRunning())
+                    return true;
+
+                await Task.Delay(100).ConfigureAwait(false);
+            }
+
+            return IsExplorerProcessRunning();
+        }
+
+        private bool IsExplorerProcessRunning()
+        {
+            try { return Process.GetProcessesByName("explorer").Length > 0; }
+            catch { return false; }
+        }
+
+        private HashSet<string> SnapshotWindowsStartupProcessNameHints()
+        {
+            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "explorer",
+                "shellexperiencehost",
+                "startmenuexperiencehost"
+            };
+
+            AddRegistryStartupProcessHints(result, Registry.CurrentUser, @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run");
+            AddRegistryStartupProcessHints(result, Registry.CurrentUser, @"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce");
+            AddRegistryStartupProcessHints(result, Registry.LocalMachine, @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run");
+            AddRegistryStartupProcessHints(result, Registry.LocalMachine, @"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce");
+            AddRegistryStartupProcessHints(result, Registry.LocalMachine, @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run");
+            AddRegistryStartupProcessHints(result, Registry.LocalMachine, @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce");
+
+            AddStartupFolderProcessHints(result, Environment.GetFolderPath(Environment.SpecialFolder.Startup));
+            AddStartupFolderProcessHints(result, Environment.GetFolderPath(Environment.SpecialFolder.CommonStartup));
+
+            return result;
+        }
+
+        private void AddRegistryStartupProcessHints(HashSet<string> result, RegistryKey root, string subKey)
+        {
+            try
+            {
+                using var key = root.OpenSubKey(subKey);
+                if (key == null) return;
+
+                foreach (var valueName in key.GetValueNames())
+                {
+                    var value = key.GetValue(valueName);
+                    if (value is string command)
+                        AddStartupCommandProcessHint(result, command);
+                    else if (value is string[] commands)
+                    {
+                        foreach (var item in commands)
+                            AddStartupCommandProcessHint(result, item);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private void AddStartupFolderProcessHints(HashSet<string> result, string folder)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+                    return;
+
+                foreach (var file in Directory.EnumerateFiles(folder))
+                    AddProcessNameHint(result, Path.GetFileNameWithoutExtension(file));
+            }
+            catch { }
+        }
+
+        private void AddStartupCommandProcessHint(HashSet<string> result, string command)
+        {
+            if (string.IsNullOrWhiteSpace(command))
+                return;
+
+            try
+            {
+                command = Environment.ExpandEnvironmentVariables(command.Trim());
+                string candidate = "";
+
+                if (command.StartsWith("\"", StringComparison.Ordinal))
+                {
+                    int endQuote = command.IndexOf('"', 1);
+                    if (endQuote > 1)
+                        candidate = command[1..endQuote];
+                }
+
+                if (string.IsNullOrWhiteSpace(candidate))
+                {
+                    var match = Regex.Match(command, @"[A-Za-z]:\\[^\r\n""]+?\.exe|[^\s""]+\.exe", RegexOptions.IgnoreCase);
+                    candidate = match.Success ? match.Value : command.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+                }
+
+                AddProcessNameHint(result, Path.GetFileNameWithoutExtension(candidate));
+            }
+            catch { }
+        }
+
+        private void AddProcessNameHint(HashSet<string> result, string? name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return;
+
+            name = name.Trim();
+            if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                name = Path.GetFileNameWithoutExtension(name);
+
+            if (!string.IsNullOrWhiteSpace(name))
+                result.Add(name);
+        }
+
+        private async Task<bool> MonitorConsoleShellStartupForegroundAsync(
+            HashSet<int> baselineProcessIds,
+            HashSet<string> startupProcessHints,
+            int maxWaitMs,
+            int stableMs)
+        {
+            var startedAt = DateTime.UtcNow;
+            DateTime? explorerDetectedAt = null;
+            var lastFocusRepairUtc = DateTime.UtcNow;
+            var observedForegroundPids = new HashSet<int>();
+
+            while ((DateTime.UtcNow - startedAt).TotalMilliseconds < maxWaitMs)
+            {
+                if (IsExplorerProcessRunning() && explorerDetectedAt == null)
+                {
+                    explorerDetectedAt = DateTime.UtcNow;
+                    await Dispatcher.InvokeAsync(MarkConsoleShellIntroSkippable);
+                }
+
+                bool repairedFocus = await Dispatcher.InvokeAsync(() =>
+                    TryRepairConsoleShellStartupForeground(baselineProcessIds, startupProcessHints, observedForegroundPids));
+
+                if (repairedFocus)
+                    lastFocusRepairUtc = DateTime.UtcNow;
+
+                if (explorerDetectedAt != null &&
+                    (DateTime.UtcNow - explorerDetectedAt.Value).TotalMilliseconds >= 1200 &&
+                    (DateTime.UtcNow - lastFocusRepairUtc).TotalMilliseconds >= stableMs)
+                {
+                    return true;
+                }
+
+                await Task.Delay(100).ConfigureAwait(false);
+            }
+
+            Debug.WriteLine("[Boot] Timeout aguardando estabilidade de foreground dos apps de inicializacao.");
+            return explorerDetectedAt != null;
+        }
+
+        private bool TryRepairConsoleShellStartupForeground(
+            HashSet<int> baselineProcessIds,
+            HashSet<string> startupProcessHints,
+            HashSet<int> observedForegroundPids)
+        {
+            var foreground = GetForegroundWindow();
+            if (foreground == IntPtr.Zero)
+                return false;
+
+            var doorpi = _mainWindowHandle != IntPtr.Zero
+                ? _mainWindowHandle
+                : new System.Windows.Interop.WindowInteropHelper(this).Handle;
+
+            if (foreground == doorpi || IsChild(doorpi, foreground))
+                return false;
+
+            bool shouldRepair = foreground == GetShellWindow();
+            uint pidRaw = 0;
+
+            try { GetWindowProcessId(foreground, out pidRaw); }
+            catch { }
+
+            if (pidRaw > 0)
+            {
+                int pid = (int)pidRaw;
+                observedForegroundPids.Add(pid);
+
+                bool isNewProcess = !baselineProcessIds.Contains(pid);
+                try
+                {
+                    var process = Process.GetProcessById(pid);
+                    string processName = SafeProcessName(process);
+                    string exeName = Path.GetFileNameWithoutExtension(SafeProcessPath(process));
+                    bool isStartupProcess =
+                        startupProcessHints.Contains(processName) ||
+                        (!string.IsNullOrWhiteSpace(exeName) && startupProcessHints.Contains(exeName));
+                    bool isShellProcess = _shellProcessNames.Contains(processName) ||
+                        string.Equals(processName, "explorer", StringComparison.OrdinalIgnoreCase);
+
+                    shouldRepair = shouldRepair || isNewProcess || isStartupProcess || isShellProcess;
+                }
+                catch
+                {
+                    shouldRepair = shouldRepair || IsNewProcessLikely(pid, baselineProcessIds);
+                }
+            }
+
+            if (!shouldRepair)
+            {
+                // Durante o boot protegido do modo console, qualquer foreground externo
+                // ao Doorpi deve ser tratado como foco roubado por inicializacao tardia.
+                shouldRepair = true;
+            }
+
+            FocusDoorpiMainWebView(onlyIfFocusLost: false);
+            return true;
+        }
+
+        private static bool IsNewProcessLikely(int pid, HashSet<int> baselineProcessIds)
+        {
+            return pid > 0 && !baselineProcessIds.Contains(pid);
+        }
+
+        private void MarkConsoleShellExplorerReady()
+        {
+            if (Interlocked.Exchange(ref _consoleShellExplorerReady, 1) == 1)
+                return;
+
+            try
+            {
+                webView?.CoreWebView2?.PostWebMessageAsString(
+                    "{\"type\":\"consoleShellExplorerReady\"}");
+            }
+            catch { }
+        }
+
+        private void MarkConsoleShellIntroSkippable()
+        {
+            if (Interlocked.Exchange(ref _consoleShellIntroSkippable, 1) == 1)
+                return;
+
+            try
+            {
+                webView?.CoreWebView2?.PostWebMessageAsString(
+                    "{\"type\":\"consoleShellIntroSkippable\"}");
+            }
+            catch { }
         }
 
         private async Task<bool> WaitForExplorerProcessReadyAsync()
@@ -1622,6 +1880,9 @@ namespace Doorpi
             if (GetBootMode() != 2)
                 return;
 
+            if (Volatile.Read(ref _consoleShellExplorerReady) == 1)
+                return;
+
             await WaitForExplorerProcessReadyAsync().ConfigureAwait(false);
 
             await Dispatcher.InvokeAsync(() =>
@@ -1643,7 +1904,7 @@ namespace Doorpi
             {
                 try
                 {
-                    int[] delays = { 0, 120, 320, 700, 1200, 1900, 2800 };
+                    int[] delays = { 0, 180, 420 };
                     foreach (int delay in delays)
                     {
                         if (delay > 0)
@@ -1652,7 +1913,7 @@ namespace Doorpi
                         await Dispatcher.InvokeAsync(() =>
                         {
                             ReleaseDoorpiTopmost();
-                            FocusDoorpiMainWebView(onlyIfFocusLost: true);
+                            FocusDoorpiMainWebView(onlyIfFocusLost: false);
                         });
                     }
                 }
@@ -1686,80 +1947,27 @@ namespace Doorpi
             Activate();
             webView?.Focus();
             Keyboard.Focus(webView);
+            NotifyDoorpiWebFocusRestored();
         }
 
-        private void PlayNativeIntroAudio(string asset, double volume)
+        private void NotifyDoorpiWebFocusRestored()
         {
-            string? path = ResolveIntroAssetPath(asset);
-            if (string.IsNullOrWhiteSpace(path))
-                return;
-
-            Dispatcher.Invoke(() =>
-            {
-                try
-                {
-                    _nativeIntroMediaPlayer?.Stop();
-                    _nativeIntroMediaPlayer?.Close();
-
-                    var player = new MediaPlayer
-                    {
-                        Volume = Math.Clamp(volume, 0.0, 1.0)
-                    };
-
-                    player.MediaEnded += (_, _) =>
-                    {
-                        try { player.Close(); } catch { }
-                        if (ReferenceEquals(_nativeIntroMediaPlayer, player))
-                            _nativeIntroMediaPlayer = null;
-                    };
-                    player.MediaFailed += (_, e) =>
-                    {
-                        Debug.WriteLine("[IntroAudio] Falha ao tocar audio nativo: " + e.ErrorException.Message);
-                        try { player.Close(); } catch { }
-                        if (ReferenceEquals(_nativeIntroMediaPlayer, player))
-                            _nativeIntroMediaPlayer = null;
-                    };
-
-                    _nativeIntroMediaPlayer = player;
-                    player.Open(new Uri(path, UriKind.Absolute));
-                    player.Play();
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine("[IntroAudio] Falha ao iniciar audio nativo: " + ex.Message);
-                }
-            });
-        }
-
-        private string? ResolveIntroAssetPath(string asset)
-        {
-            if (string.IsNullOrWhiteSpace(asset))
-                return null;
-
             try
             {
-                string normalized = asset.Trim().Replace('/', Path.DirectorySeparatorChar);
-                const string appLocalPrefix = "https://app.local/";
-                if (asset.StartsWith(appLocalPrefix, StringComparison.OrdinalIgnoreCase))
-                    normalized = asset[appLocalPrefix.Length..].Replace('/', Path.DirectorySeparatorChar);
-
-                if (Path.IsPathRooted(normalized))
-                    return null;
-
-                string wwwroot = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot"));
-                string introRoot = Path.GetFullPath(Path.Combine(wwwroot, "intros"));
-                string fullPath = Path.GetFullPath(Path.Combine(wwwroot, normalized));
-                string introRootWithSlash = introRoot.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-
-                if (!fullPath.StartsWith(introRootWithSlash, StringComparison.OrdinalIgnoreCase))
-                    return null;
-
-                return File.Exists(fullPath) ? fullPath : null;
+                webView?.CoreWebView2?.ExecuteScriptAsync(@"
+                    (() => {
+                        window._isDoorpiFocused = true;
+                        window.isDoorpiFocused = true;
+                        try { window.dispatchEvent(new Event('doorpi:native-focus-restored')); } catch {}
+                        try {
+                            if (window._isIntroComplete) {
+                                window._startSystemAudio?.(true);
+                            }
+                        } catch {}
+                    })();
+                ");
             }
-            catch
-            {
-                return null;
-            }
+            catch { }
         }
 
         private object BuildCurrentUserPayload(UserProfile user)
@@ -1902,7 +2110,7 @@ namespace Doorpi
                     PostUserTransitionComplete(
                         transitionMode,
                         showTransition: shouldShowTransition,
-                        restartAudio: isRealAccountSwitch,
+                        restartAudio: shouldShowTransition,
                         waitForHomeReady: shouldShowTransition);
                 }
                 catch (Exception ex)
@@ -11291,18 +11499,6 @@ namespace Doorpi
                 {
                     RestoreDoorpiFocusAfterIntroHandoff();
                 }
-                else if (action == "playNativeIntroAudio")
-                {
-                    double volume = 0.8;
-                    if (root.TryGetProperty("volume", out var volumeElement) &&
-                        volumeElement.ValueKind == JsonValueKind.Number &&
-                        volumeElement.TryGetDouble(out var parsedVolume))
-                    {
-                        volume = parsedVolume;
-                    }
-
-                    PlayNativeIntroAudio(GetStr(root, "asset"), volume);
-                }
                 else if (action == "requestUpdateStatus")
                 {
                     SendCachedUpdateStatusToUI();
@@ -12329,7 +12525,7 @@ namespace Doorpi
                                 {
                                     webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideSystemLoading\"}");
                                 });
-                                PostUserTransitionComplete("initial", showTransition: true, restartAudio: false);
+                                PostUserTransitionComplete("initial", showTransition: true, restartAudio: true);
                             }
                             catch (Exception ex)
                             {
@@ -12463,7 +12659,7 @@ namespace Doorpi
                                         webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideSystemLoading\"}");
                                     });
                                     if (shouldShowInitialTransition)
-                                        PostUserTransitionComplete("initial", showTransition: true, restartAudio: false);
+                                        PostUserTransitionComplete("initial", showTransition: true, restartAudio: true);
                                 }
                             }
                             catch (Exception ex)

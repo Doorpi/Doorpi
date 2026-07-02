@@ -10346,6 +10346,12 @@ function renderFolderList(folders) {
     async function _userSwitchFadeIn(data = {}) {
         const shouldShowTransition = data.showTransition !== false && window._userSwitching;
         const shouldRestartAudio = !!data.restartAudio;
+        const resumeTransitionAudio = () => {
+            window._isDoorpiFocused = true;
+            window.isDoorpiFocused = true;
+            if (shouldRestartAudio) window._restartSystemAudioForNewSession?.();
+            else window._startSystemAudio?.(true);
+        };
 
         if (!shouldShowTransition) {
             const wrap = document.querySelector('.main-content-wrapper');
@@ -10364,7 +10370,7 @@ function renderFolderList(folders) {
                     }
                 }, 300);
             }
-            if (shouldRestartAudio) window._restartSystemAudioForNewSession?.();
+            resumeTransitionAudio();
             window._doorpiSessionTransitionBlockUntil = Date.now() + 450;
             window._doorpiAllowLibraryRenderDuringSessionTransition = false;
             window._userSwitching = false;
@@ -10396,7 +10402,7 @@ function renderFolderList(folders) {
                 logoutOverlay.classList.remove('visible');
                 logoutOverlay.style.display = 'none';
             }
-            if (shouldRestartAudio) window._restartSystemAudioForNewSession?.();
+            resumeTransitionAudio();
             window._doorpiSessionTransitionBlockUntil = Date.now() + 450;
             window._doorpiAllowLibraryRenderDuringSessionTransition = false;
             window._userSwitching = false;
@@ -10431,16 +10437,13 @@ function renderFolderList(folders) {
             }, 300);
         }
 
-        if (shouldRestartAudio) {
-            window._restartSystemAudioForNewSession?.();
-        }
-
         setTimeout(() => {
             wrap.style.removeProperty('transition');
             wrap.style.transform = '';
             window._doorpiSessionTransitionBlockUntil = Date.now() + 450;
             window._doorpiAllowLibraryRenderDuringSessionTransition = false;
             window._userSwitching = false;
+            resumeTransitionAudio();
             window.focusFeaturedCard?.();
             scheduleDoorpiFocusRecovery?.();
             _runDeferredFirstRunTutorial();
