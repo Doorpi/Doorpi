@@ -32,7 +32,12 @@
         inputHandlersInstalled: false,
         handoffConfig: null,
         handoffStyleEl: null,
-        handoffBodyClasses: []
+        handoffBodyClasses: [],
+        bootMode: Number(window.__doorpiBootMode || 0),
+        consoleIntroSkippable: window.__doorpiConsoleShellIntroSkippable === true,
+        consoleExplorerReady: window.__doorpiConsoleShellExplorerReady === true,
+        systemPrepOverlay: null,
+        finishDispatched: false
     };
 
     async function fetchIntroConfig() {
@@ -95,6 +100,29 @@
                 z-index: 99999; background: #020309; color-scheme: dark;
                 transition: opacity 520ms cubic-bezier(0.4, 0, 0.2, 1);
             }
+            #doorpiIntroSystemPrep {
+                position: fixed; inset: 0; z-index: 99998;
+                display: flex; flex-direction: column; align-items: center; justify-content: center;
+                gap: 16px; background: #020309; color: #fff; opacity: 0;
+                transition: opacity 220ms ease; pointer-events: all;
+            }
+            #doorpiIntroSystemPrep.visible { opacity: 1; }
+            #doorpiIntroSystemPrep .prep-spinner {
+                width: 38px; height: 38px; border-radius: 50%;
+                border: 2px solid rgba(255,255,255,.16);
+                border-top-color: rgba(255,255,255,.88);
+                border-right-color: rgba(255,255,255,.48);
+                animation: doorpiIntroPrepSpin .82s linear infinite;
+            }
+            #doorpiIntroSystemPrep .prep-title {
+                font-size: clamp(1.7rem, 3.4vw, 3.8rem);
+                font-weight: 300; line-height: 1; letter-spacing: 0;
+            }
+            #doorpiIntroSystemPrep .prep-sub {
+                color: rgba(255,255,255,.58); font-size: clamp(.86rem, 1.15vw, 1.08rem);
+                text-transform: uppercase; letter-spacing: .1em; font-weight: 650;
+            }
+            @keyframes doorpiIntroPrepSpin { to { transform: rotate(360deg); } }
             #doorpiIntroAmbient {
                 position: fixed; inset: 0; z-index: 9100; overflow: hidden; pointer-events: none;
                 background: var(--doorpi-intro-bg, #07071a); opacity: 0; transition: opacity 900ms ease;
@@ -151,14 +179,82 @@
         for (const waiter of waiters) { try { waiter(); } catch (err) { } }
     }
 
+    function isConsoleShellMode() {
+        return Number(state.bootMode || window.__doorpiBootMode || 0) === 2;
+    }
+
+    function isConsoleShellPending() {
+        return isConsoleShellMode() && state.consoleExplorerReady !== true && window.__doorpiConsoleShellExplorerReady !== true;
+    }
+
+    function isConsoleShellSkipPending() {
+        return isConsoleShellMode() &&
+            state.consoleExplorerReady !== true &&
+            window.__doorpiConsoleShellExplorerReady !== true &&
+            state.consoleIntroSkippable !== true &&
+            window.__doorpiConsoleShellIntroSkippable !== true;
+    }
+
+    function needsSystemPrepWait() {
+        return isConsoleShellPending();
+    }
+
+    function showSystemPrepOverlay() {
+        let overlay = state.systemPrepOverlay || document.getElementById('doorpiIntroSystemPrep');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'doorpiIntroSystemPrep';
+            overlay.innerHTML = `
+                <div class="prep-spinner" aria-hidden="true"></div>
+                <div class="prep-title">Preparando sistema</div>
+                <div class="prep-sub">Aguardando ambiente do Windows</div>
+            `;
+            document.body.appendChild(overlay);
+        }
+        state.systemPrepOverlay = overlay;
+        overlay.style.display = 'flex';
+        requestAnimationFrame(() => overlay.classList.add('visible'));
+    }
+
+    function hideSystemPrepOverlay() {
+        const overlay = state.systemPrepOverlay || document.getElementById('doorpiIntroSystemPrep');
+        if (!overlay) return;
+        overlay.classList.remove('visible');
+        setTimeout(() => {
+            if (!overlay.classList.contains('visible')) overlay.remove();
+        }, 240);
+        state.systemPrepOverlay = null;
+    }
+
+    function notifyHostIntroReadyForFocus(reason) {
+        const send = () => {
+            try {
+                window.chrome?.webview?.postMessage(JSON.stringify({
+                    action: 'introSystemReadyForFocus',
+                    reason: String(reason || 'complete')
+                }));
+            } catch { }
+        };
+
+        requestAnimationFrame(() => requestAnimationFrame(send));
+    }
+
+    function finalizeIntroCompletion(reason) {
+        if (state.finishDispatched) return;
+        state.finishDispatched = true;
+        hideSystemPrepOverlay();
+        if (!state.handoffActive) {
+            revealMainSystemUI();
+        }
+        flushWaiters();
+        window.dispatchEvent(new CustomEvent('doorpi:intro-complete', { detail: { reason } }));
+        notifyHostIntroReadyForFocus(reason);
+    }
+
     function completeIntro(reason = 'complete', immediate = false) {
         if (state.completed) return;
         state.completed = true;
         window.clearTimeout(state.completeTimer);
-
-        if (!state.handoffActive) {
-            revealMainSystemUI();
-        }
 
         const iframe = state.iframe;
         const fadeMs = immediate ? 0 : Math.max(0, Number(state.config?.exitFadeMs ?? 520));
@@ -166,8 +262,11 @@
         const finish = () => {
             iframe?.remove();
             state.iframe = null;
-            flushWaiters();
-            window.dispatchEvent(new CustomEvent('doorpi:intro-complete', { detail: { reason } }));
+            if (needsSystemPrepWait()) {
+                showSystemPrepOverlay();
+                return;
+            }
+            finalizeIntroCompletion(reason);
         };
 
         if (iframe && fadeMs > 0) {
@@ -259,6 +358,7 @@
 
     function skipIntro() {
         if (!state.started || state.completed) return false;
+        if (isConsoleShellSkipPending()) return false;
         createAmbient();
         completeIntro('skip', true);
         return true;
@@ -344,6 +444,34 @@
         else if (type === 'doorpi:intro:error') { state.failed = true; completeIntro('error'); }
     }
 
+    function handleHostMessage(event) {
+        let data = event.data;
+        try {
+            if (typeof data === 'string') data = JSON.parse(data);
+        } catch { return; }
+        if (!data || typeof data !== 'object') return;
+
+        if (data.type === 'bootModeState') {
+            state.bootMode = Number(data.mode || 0);
+            window.__doorpiBootMode = state.bootMode;
+            return;
+        }
+
+        if (data.type === 'consoleShellExplorerReady') {
+            state.consoleExplorerReady = true;
+            window.__doorpiConsoleShellExplorerReady = true;
+            if (state.completed && !state.finishDispatched) {
+                finalizeIntroCompletion('system-ready');
+            }
+            return;
+        }
+
+        if (data.type === 'consoleShellIntroSkippable') {
+            state.consoleIntroSkippable = true;
+            window.__doorpiConsoleShellIntroSkippable = true;
+        }
+    }
+
     function postIntroVolume(value) {
         const safe = Math.max(0, Math.min(1, Number(value) || 0));
         try {
@@ -355,6 +483,9 @@
     async function start() {
         if (state.started) return;
         state.started = true;
+        state.bootMode = Number(window.__doorpiBootMode || state.bootMode || 0);
+        state.consoleIntroSkippable = window.__doorpiConsoleShellIntroSkippable === true || state.consoleIntroSkippable === true;
+        state.consoleExplorerReady = window.__doorpiConsoleShellExplorerReady === true || state.consoleExplorerReady === true;
 
         injectStyles();
         installInputGuards();
@@ -424,6 +555,9 @@
 
     // INJEÇÃO ULTRA-RÁPIDA (Não espera o resto da página carregar)
     injectStyles();
+    try {
+        window.chrome?.webview?.addEventListener('message', handleHostMessage);
+    } catch { }
     if (document.body) {
         start();
     } else {

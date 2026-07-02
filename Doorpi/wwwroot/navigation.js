@@ -1137,6 +1137,23 @@ let _cursorHoldState = { l1: 0, r1: 0 }, _cursorLastTime = { l1: 0, r1: 0 };
 window._gpNavigating = false;
 let _gpNavigatingTimeout = null;
 window._doorpiGameInputSuppressedUntil = 0;
+let _lastDoorpiInputBlockReason = '';
+let _lastDoorpiInputBlockLogAt = 0;
+
+function logDoorpiInputBlock(reason) {
+    const now = performance.now();
+    if (reason === _lastDoorpiInputBlockReason && now - _lastDoorpiInputBlockLogAt < 900) return;
+    _lastDoorpiInputBlockReason = reason;
+    _lastDoorpiInputBlockLogAt = now;
+    console.debug(`[DoorpiInput] blocked: ${reason}`, {
+        isGlobalLoading: !!window.isGlobalLoading,
+        mediaActive: !!window.isMediaAppActive,
+        gameLaunchActive: !!window.isGameLaunchActive,
+        suppressedUntil: window._doorpiGameInputSuppressedUntil || 0,
+        sessionTransition: window.isDoorpiSessionTransitionActive?.() === true,
+        focused: document.hasFocus()
+    });
+}
 
 window.resetDoorpiGamepadInputState = function () {
     _btnCooldown = {};
@@ -1301,12 +1318,19 @@ function buttonJustPressed(btn, index) {
     if (btn?.pressed) {
         if (!_btnCooldown[index]) {
             _btnCooldown[index] = true;
-            if (index === NAV.GAMEPAD.BTN_CONFIRM) window.DoorpiUiSound?.play('confirm');
             return true;
         }
         return false;
     }
     _btnCooldown[index] = false; return false;
+}
+
+function primaryJustPressed(buttons, gamepad = NAV.GAMEPAD) {
+    const confirmPressed = buttonJustPressed(buttons[gamepad.BTN_CONFIRM], gamepad.BTN_CONFIRM);
+    const r2Pressed = buttonJustPressed(buttons[gamepad.BTN_R2], gamepad.BTN_R2);
+    const pressed = confirmPressed || r2Pressed;
+    if (pressed) window.DoorpiUiSound?.play('confirm');
+    return pressed;
 }
 
 function handleArtworkWizardGamepadShortcuts(buttons) {
@@ -1351,7 +1375,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
 
         if (window.DoorpiIntro?.isRunning?.()) {
             const introButtons = gamepad.buttons;
-            const confirmPressed = buttonJustPressed(introButtons[NAV.GAMEPAD.BTN_CONFIRM], NAV.GAMEPAD.BTN_CONFIRM);
+            const confirmPressed = primaryJustPressed(introButtons, NAV.GAMEPAD);
             const startPressed = buttonJustPressed(introButtons[NAV.GAMEPAD.BTN_START], NAV.GAMEPAD.BTN_START);
             if (confirmPressed || startPressed) {
                 window.DoorpiIntro.skip?.();
@@ -1365,14 +1389,32 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         const isWaitingLaunch = !isSessionConflict && launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('state-loading');
         const isGameFocusFallback = window.isGameFocusFallbackPopupOpen?.() === true;
 
-        if (window.isDoorpiSessionTransitionActive?.()) return;
-        if (window.isGlobalLoading || (!isWaitingLaunch && !isExecutionLock && !isSessionConflict && !isGameFocusFallback && (window.isMediaAppActive || isDoorpiGameInputSuppressed())) || !document.hasFocus()) return;
+        if (window.isDoorpiSessionTransitionActive?.()) {
+            logDoorpiInputBlock('session-transition');
+            return;
+        }
+        if (window.isGlobalLoading) {
+            logDoorpiInputBlock('global-loading');
+            return;
+        }
+        if (!isWaitingLaunch && !isExecutionLock && !isSessionConflict && !isGameFocusFallback && window.isMediaAppActive) {
+            logDoorpiInputBlock('media-active');
+            return;
+        }
+        if (!isWaitingLaunch && !isExecutionLock && !isSessionConflict && !isGameFocusFallback && isDoorpiGameInputSuppressed()) {
+            logDoorpiInputBlock('game-input-suppressed');
+            return;
+        }
+        if (!document.hasFocus()) {
+            logDoorpiInputBlock('document-blur');
+            return;
+        }
 
         const { GAMEPAD } = NAV, buttons = gamepad.buttons;
         const ax = gamepad.axes[0], ay = gamepad.axes[1], thr = GAMEPAD.AXIS_THRESHOLD, now = performance.now();
 
         if (isWaitingLaunch) {
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
+            if (primaryJustPressed(buttons, GAMEPAD)) {
                 const btn = document.getElementById('overlayCancelLaunchBtn');
                 if (btn && document.activeElement === btn) {
                     btn.click();
@@ -1409,7 +1451,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             _currentDirection = null;
             _moveState = 0;
 
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
+            if (primaryJustPressed(buttons, GAMEPAD)) document.activeElement?.click();
             if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) document.getElementById('executionLockClose')?.click();
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
                 if (window.requestDoorpiBackAction?.()) return;
@@ -1452,7 +1494,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             _currentDirection = null;
             _moveState = 0;
 
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
+            if (primaryJustPressed(buttons, GAMEPAD)) {
                 window.activateSessionConflictPopup?.();
             }
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
@@ -1491,7 +1533,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             _currentDirection = null;
             _moveState = 0;
 
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
+            if (primaryJustPressed(buttons, GAMEPAD)) {
                 const active = document.activeElement;
                 if (active && active.closest?.('#gameFocusFallbackActions')) active.click();
                 else document.getElementById('gameFocusFallbackManual')?.focus();
@@ -1521,7 +1563,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         if (isCtxMenuOpen) {
             _currentDirection = null;
             _moveState = 0;
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
+            if (primaryJustPressed(buttons, GAMEPAD)) {
                 document.activeElement?.click();
             }
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
@@ -1532,7 +1574,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         }
 
         if (window.isDesktopWarningOpen) {
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) window._dwAction?.('CONFIRM');
+            if (primaryJustPressed(buttons, GAMEPAD)) window._dwAction?.('CONFIRM');
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
                 if (window.requestDoorpiBackAction?.()) return;
                 window._dwAction?.('CANCEL');
@@ -1542,7 +1584,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         // -------------------------------
 
         if (window.isDoorpiOverlayOpen?.() && !isVkbOpenForNavigation()) {
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
+            if (primaryJustPressed(buttons, GAMEPAD)) {
                 if (window.DoorpiQuickPanel?.confirm?.()) return;
                 const el = document.activeElement;
                 if (el && el.tagName === 'INPUT') window._vkbOpen?.(el);
@@ -1570,7 +1612,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             if (!isVkbOpenForNavigation()) {
                 if (typeof isEditModalOpen !== 'undefined' && isEditModalOpen) {
                     if (handleArtworkWizardGamepadShortcuts(buttons)) return;
-                    if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
+                    if (primaryJustPressed(buttons, GAMEPAD)) {
                         const el = document.activeElement;
                         if (el && el.tagName === 'INPUT') window._vkbOpen?.(el);
                         else if (el && el.tagName === 'SELECT') {
@@ -1590,7 +1632,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
                     return;
                 }
                 else if (isCtxMenuOpen) {
-                    if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
+                    if (primaryJustPressed(buttons, GAMEPAD)) document.activeElement?.click();
                     if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
                         if (window.requestDoorpiBackAction?.()) return;
                         closeCtxMenu();
@@ -1598,7 +1640,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
                     return;
                 }
                 else {
-                    if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) window._navMenuHandleKey?.('Enter');
+                    if (primaryJustPressed(buttons, GAMEPAD)) window._navMenuHandleKey?.('Enter');
                     if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
                         if (window.requestDoorpiBackAction?.()) return;
                         window._navMenuHandleKey?.('Escape');
@@ -1612,7 +1654,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         }
 
         if (isVkbOpenForNavigation()) {
-            if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) document.activeElement?.click();
+            if (primaryJustPressed(buttons, GAMEPAD)) document.activeElement?.click();
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
                 if (window.requestDoorpiBackAction?.()) return;
                 window._vkbCancel?.();
@@ -1644,7 +1686,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         if (handleArtworkWizardGamepadShortcuts(buttons)) return;
 
         // Botões de ação globais
-        if (buttonJustPressed(buttons[GAMEPAD.BTN_CONFIRM], GAMEPAD.BTN_CONFIRM)) {
+        if (primaryJustPressed(buttons, GAMEPAD)) {
             const el = document.activeElement;
             if (el && el.tagName === 'INPUT')window._vkbOpen(el); 
 

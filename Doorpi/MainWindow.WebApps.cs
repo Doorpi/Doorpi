@@ -2549,8 +2549,12 @@ namespace Doorpi
 
                             ClosePopupWindowAndDispose();
 
-                            if (_webAppWindow != null)
+                            if (_webAppWindow != null && _webAppWindow.WindowState != WindowState.Minimized)
+                            {
                                 _webAppWindow.WindowState = WindowState.Minimized;
+                                return;
+                            }
+
                             FocusDoorpiKeepSession();
                         });
                         prevButtons = btn;
@@ -2610,8 +2614,12 @@ namespace Doorpi
 
                             ClosePopupWindowAndDispose();
 
-                            if (_webAppWindow != null)
+                            if (_webAppWindow != null && _webAppWindow.WindowState != WindowState.Minimized)
+                            {
                                 _webAppWindow.WindowState = WindowState.Minimized;
+                                return;
+                            }
+
                             FocusDoorpiKeepSession();
                         });
                         prevButtons = btn;
@@ -3081,6 +3089,12 @@ namespace Doorpi
 
         private async Task TrySuspendDoorpiHomeWebViewAsync()
         {
+            if (GetBootMode() == 2)
+            {
+                LogWebViewDiagnostic("diagnostic: home WebView suspend skipped in console shell mode");
+                return;
+            }
+
             if (string.Equals(Environment.GetEnvironmentVariable("DOORPI_DISABLE_HOME_WEBVIEW_SUSPEND"), "1", StringComparison.OrdinalIgnoreCase))
             {
                 LogWebViewDiagnostic("diagnostic: home WebView suspend disabled by DOORPI_DISABLE_HOME_WEBVIEW_SUSPEND=1");
@@ -6170,6 +6184,7 @@ namespace Doorpi
                 url = "https://www.steamgriddb.com/profile/preferences/api";
 
             bool isUtility = url.Contains("steamgriddb.com") || url.Contains("chromewebstore.google.com");
+            bool isConsoleShellMode = GetBootMode() == 2;
 
             if (_ytWebView != null)
             {
@@ -6194,7 +6209,8 @@ namespace Doorpi
                         SendGameLaunchStatus("gameLaunchReady");
                         await Task.Delay(800);
 
-                        this.WindowState = WindowState.Minimized;
+                        if (!isConsoleShellMode)
+                            this.WindowState = WindowState.Minimized;
                         StartMediaControllerMode();
 
                         if (!isYouTube)
@@ -6251,10 +6267,19 @@ namespace Doorpi
 
                 SendGameLaunchStatus("gameLaunchDone");
 
-                _ = TrySuspendDoorpiHomeWebViewAsync();
+                if (!isConsoleShellMode)
+                {
+                    _ = TrySuspendDoorpiHomeWebViewAsync();
 
-                if (this.WindowState != WindowState.Minimized)
-                    this.WindowState = WindowState.Minimized;
+                    if (this.WindowState != WindowState.Minimized)
+                        this.WindowState = WindowState.Minimized;
+                }
+                else
+                {
+                    ReleaseDoorpiTopmost();
+                    if (this.WindowState == WindowState.Minimized)
+                        this.WindowState = WindowState.Maximized;
+                }
             }
 
             async Task MarkWebAppReadyAsync(bool allowTutorial)
@@ -6327,7 +6352,6 @@ namespace Doorpi
 
                 _webAppWindow.Show();
                 await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
-                ReleaseDoorpiLaunchToWebAppWindow();
             }
 
             string profileName = GetBrowserProfileNameForUrl(url, isYouTube);
@@ -6335,10 +6359,10 @@ namespace Doorpi
 
             bool enableBrowserExtensions = !isUtility;
             string renderModeEnv = isYouTube ? "DOORPI_YOUTUBE_WEBVIEW_RENDER_MODE" : "DOORPI_WEBVIEW_RENDER_MODE";
-            string defaultRenderMode = isYouTube ? "hardware" : "disable-gpu";
+            string defaultRenderMode = (isYouTube || isConsoleShellMode) ? "hardware" : "disable-gpu";
             string extraArgsEnv = isYouTube ? "DOORPI_YOUTUBE_WEBVIEW_EXTRA_ARGS" : "DOORPI_MEDIA_WEBVIEW_EXTRA_ARGS";
             string browserArgs = BuildWebViewAdditionalArguments(renderModeEnv, defaultRenderMode, extraArgsEnv);
-            string defaultProcessPriority = isYouTube ? "normal" : "belownormal";
+            string defaultProcessPriority = "normal";
             var env = await GetWebAppEnvironmentAsync(userDataPath, enableExtensions: enableBrowserExtensions, browserArgs);
             if (isGenericBrowser)
                 _genericBrowserEnvironment = env;

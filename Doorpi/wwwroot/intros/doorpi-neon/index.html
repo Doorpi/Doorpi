@@ -309,7 +309,6 @@
                 try { window.parent?.postMessage({ type, ...payload }, '*'); } catch (_) { }
                 window.dispatchEvent(new CustomEvent(type, { detail: payload }));
             }
-
             /* ── BLOB PHYSICS (Mantido para a transição final) ──────── */
             const blobs = [];
             const colors = [
