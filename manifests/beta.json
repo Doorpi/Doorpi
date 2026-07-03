@@ -1,41 +1,41 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202607012128,
-    "publishedAt":  "2026-07-02T00:28:50.5040945Z",
-    "expiresAt":  "2026-07-16T00:28:50.5040945Z",
+    "manifestVersion":  202607031747,
+    "publishedAt":  "2026-07-03T20:47:50.1966473Z",
+    "expiresAt":  "2026-07-17T20:47:50.1966473Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.1.3",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.3/doorpi-0.1.3.doorpiupdate.zip",
-                   "sha256":  "46ad4f780df0b3673aa8543daf5a2842475942df3c14d04497bb9210f655cddc",
-                   "sizeBytes":  132835339,
+                   "version":  "0.1.4",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.4/doorpi-0.1.4.doorpiupdate.zip",
+                   "sha256":  "52d8efa14f16d8eba1418e129f1cf899fb84d8cc1c765e598cd5de6a9ae27b38",
+                   "sizeBytes":  132867073,
                    "minUpdaterVersion":  "0.1.0",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
                     "version":  "0.1.0",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.3/updater-0.1.0.doorpiupdate.zip",
-                    "sha256":  "298504602c585c18b6806cfc09bb080cdd708fe5fc232f0f49f858b7b5dbcdbf",
-                    "sizeBytes":  69942935,
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.4/updater-0.1.0.doorpiupdate.zip",
+                    "sha256":  "461c80a0aaeb6277dca24d66ac3a2f90eb0adbf149b16ab578727d427bc0d474",
+                    "sizeBytes":  69942955,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.1.3",
-                          "title":  "Doorpi 0.1.3",
+                          "version":  "0.1.4",
+                          "title":  "Doorpi 0.1.4",
                           "items":  [
-                                        "Corrigido desempenho degradado no modo console.",
-                                        "Corrigido roubo de foco da janela pelo inicializar do Explorer.",
-                                        "Corrigidos inputs travados no início do sistema."
+                                        "Inicialização mais estável e rápida, com bootstrap separado e menos travamentos no arranque.",
+                                        "Entrada e navegação mais consistentes em perfis, troca de conta, teclado, gamepad, mouse, lojas, web apps e diálogos do Windows.",
+                                        "Limpeza automática de cache do WebView e ajustes visuais/responsivos no menu e na home para telas menores."
                                     ]
                       }
                   ],
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "P+VsBS83+O8nRFlLLC0WvU45qamSpdZWSJTwxq/DlEaStJlWjmp5fMrDhoq1to+smeCg8yOFTNJga3LemIzuaiAhjhE9eFNKNXQUgP2JvGiP4q0ygGF/54ygqKHsstz2A3V3qJWyWEa3oOPvOOJOKi3cWVSlts7dbzM1wwycroOQWK9QRf9irmBOz6Dot1oFvXLEe6bo3/PD0221sX5uJ47pNpP18xEzp4GdCcPXv1RdM44HoqpTLiU62mDH1rZuNydCJQSsHPafNgd/BQUPnKz/OlsKqO1ocDCLYUAZu7ZbJSPylV3nfaY692rOR137+w/HJKCbWYwz1OMfyZyu9jNusfll0Jtkpn715kllAdGUs6LPvyT7V6dfGlPs3QoDt+jpdTfLHwaAZFwRJBTVudcSZK35A8O6hgFLVBfyY6LKP8P3ftFohIfIzXft5Qqs17a6Zrix1CcXSVQgB9y3zyN/EqilyzdgJ8igcqHvT2nvqUYR6HFlnYkCPJh66kWu"
+                      "value":  "Z7XITvORy+2iv56xygYbpakWdp8UpcwKNyOgQNGl4wEd24sRvWIRNz1Vi+m5MjawQGtgi6hjoqRfo8fAHRwnFsagOmMQ58nAG4D10Vuf35/tiveu+hqPZo3BfL4PDkxBzV16vtH4WcUkF0yZ/CtCcqkBwNZd52+jJ5yXSs8rGx+9mW+qjO24u0tQ1Z/KHg6U1Jk1uZNS0KxXkSxBHO+MTyVga/6yO9xtSUsssSOmlZxoo+kWx1kV0iPfinhtpL4icZpd3Z6n6ray34twarQUa45w4mDLLTRTEvV7TZlgUl7Q0ze33syfDV79waRiQgV05A3mSjYxiCEMk5tN+oCmaY1z67WhxoKizs0eGs4Ej0ncFqGiGOF4Ap9aG9ppQoGNhssqXb3+Fwsbmipsn8+9KrO+94bXb0JjwPDVd85XNHRpeI+78rAg2RQtBoRVHbDNuKhs4ESZDK88AMi8L+gNjrWlXtFej2WXjLeuU8aJGofnltygdovEaP0Uypdjt2nf"
                   }
 }
