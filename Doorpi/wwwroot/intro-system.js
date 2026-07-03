@@ -9,10 +9,10 @@
             background: '#07071a',
             vignette: 'radial-gradient(circle at 50% 50%, transparent 25%, rgba(0, 0, 18, 0.85) 95%)',
             colors: [
-                'rgba(15,25,85,0.7)', 'rgba(10,30,85,0.7)',
-                'rgba(25,15,70,0.7)', 'rgba(5,40,75,0.7)',
-                'rgba(20,20,90,0.6)', 'rgba(15,35,70,0.6)',
-                'rgba(10,15,60,0.7)', 'rgba(30,20,80,0.6)'
+                'rgba(45,65,185,0.86)', 'rgba(28,85,210,0.78)',
+                'rgba(70,50,165,0.82)', 'rgba(22,110,175,0.72)',
+                'rgba(90,70,195,0.70)', 'rgba(30,130,190,0.68)',
+                'rgba(110,140,190,0.50)', 'rgba(80,110,220,0.58)'
             ]
         }
     };
@@ -34,6 +34,7 @@
         handoffStyleEl: null,
         handoffBodyClasses: [],
         bootMode: Number(window.__doorpiBootMode || 0),
+        nativeIntro: window.__doorpiUseNativeIntro === true,
         consoleIntroSkippable: window.__doorpiConsoleShellIntroSkippable === true,
         consoleExplorerReady: window.__doorpiConsoleShellExplorerReady === true,
         systemPrepOverlay: null,
@@ -179,8 +180,27 @@
         for (const waiter of waiters) { try { waiter(); } catch (err) { } }
     }
 
+    function isElementReady(el) {
+        if (!el) return false;
+        const style = window.getComputedStyle?.(el);
+        if (style && (style.display === 'none' || style.visibility === 'hidden')) return false;
+        return el.offsetWidth > 0 && el.offsetHeight > 0;
+    }
+
+    function isInitialUiReadyForSkip() {
+        if (window.__doorpiInitialUiReady === true) return true;
+        if (window._doorpiUserSessionReady === true) return true;
+        if (isElementReady(document.getElementById('doorpiUserPicker'))) return true;
+        if (isElementReady(document.getElementById('setupContainer'))) return true;
+        return false;
+    }
+
     function isConsoleShellMode() {
         return Number(state.bootMode || window.__doorpiBootMode || 0) === 2;
+    }
+
+    function isNativeIntroMode() {
+        return state.nativeIntro === true || window.__doorpiUseNativeIntro === true;
     }
 
     function isConsoleShellPending() {
@@ -199,15 +219,30 @@
         return isConsoleShellPending();
     }
 
+    function getSystemPrepText() {
+        const lang = String(navigator.language || navigator.userLanguage || '').toLowerCase();
+        if (lang.startsWith('pt')) {
+            return {
+                title: 'Preparando sistema',
+                subtitle: 'Aguardando ambiente do Windows'
+            };
+        }
+        return {
+            title: 'Preparing system',
+            subtitle: 'Waiting for Windows environment'
+        };
+    }
+
     function showSystemPrepOverlay() {
         let overlay = state.systemPrepOverlay || document.getElementById('doorpiIntroSystemPrep');
         if (!overlay) {
+            const text = getSystemPrepText();
             overlay = document.createElement('div');
             overlay.id = 'doorpiIntroSystemPrep';
             overlay.innerHTML = `
                 <div class="prep-spinner" aria-hidden="true"></div>
-                <div class="prep-title">Preparando sistema</div>
-                <div class="prep-sub">Aguardando ambiente do Windows</div>
+                <div class="prep-title">${text.title}</div>
+                <div class="prep-sub">${text.subtitle}</div>
             `;
             document.body.appendChild(overlay);
         }
@@ -242,6 +277,8 @@
     function finalizeIntroCompletion(reason) {
         if (state.finishDispatched) return;
         state.finishDispatched = true;
+        window._doorpiIntroInputBlockUntil = performance.now() + 450;
+        window._doorpiWaitForIntroInputNeutral = true;
         hideSystemPrepOverlay();
         if (!state.handoffActive) {
             revealMainSystemUI();
@@ -334,10 +371,10 @@
         layer.innerHTML = '<div class="doorpi-intro-ambient-vig"></div>';
         document.body.appendChild(layer);
 
-        const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
-        const ratio = Math.max(1, window.innerWidth / Math.max(1, window.innerHeight));
         state.ambientBlobs = [];
 
+        const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+        const ratio = Math.max(1, window.innerWidth / Math.max(1, window.innerHeight));
         for (let i = 0; i < Math.max(4, colors.length); i++) {
             const blob = document.createElement('div');
             blob.className = 'doorpi-intro-ambient-blob';
@@ -353,11 +390,48 @@
 
         state.ambient = layer;
         requestAnimationFrame(() => layer.classList.add('is-active'));
-        runAmbientPhysics();
+        if (state.ambientBlobs.length) runAmbientPhysics();
+    }
+
+    function createNativeHandoffAmbient() {
+        createAmbient({
+            background: '#07071a',
+            vignette: 'radial-gradient(circle at 50% 50%, transparent 25%, rgba(0,0,18,0.85) 95%)',
+            colors: [
+                'rgba(15,25,85,0.7)', 'rgba(10,30,85,0.7)',
+                'rgba(25,15,70,0.7)', 'rgba(5,40,75,0.7)',
+                'rgba(20,20,90,0.6)', 'rgba(15,35,70,0.6)',
+                'rgba(10,15,60,0.7)', 'rgba(30,20,80,0.6)'
+            ],
+            userPicker: {
+                transparentBackdrop: true
+            }
+        });
+    }
+
+    function waitForConsoleShellReady() {
+        if (!isConsoleShellPending()) return Promise.resolve();
+        showSystemPrepOverlay();
+        return new Promise(resolve => {
+            const done = () => {
+                if (isConsoleShellPending()) return;
+                window.removeEventListener('doorpi:console-shell-ready', done);
+                hideSystemPrepOverlay();
+                resolve();
+            };
+            window.addEventListener('doorpi:console-shell-ready', done);
+        });
     }
 
     function skipIntro() {
         if (!state.started || state.completed) return false;
+        if (!isInitialUiReadyForSkip()) return false;
+        if (isNativeIntroMode()) {
+            try {
+                window.chrome?.webview?.postMessage(JSON.stringify({ action: 'nativeIntroSkip' }));
+            } catch { }
+            return true;
+        }
         if (isConsoleShellSkipPending()) return false;
         createAmbient();
         completeIntro('skip', true);
@@ -371,9 +445,6 @@
             if (!state.started || state.completed) return;
             e.preventDefault();
             e.stopImmediatePropagation();
-            if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'Enter') {
-                skipIntro();
-            }
         };
         const clickGuard = (e) => {
             if (!state.started || state.completed) return;
@@ -418,6 +489,7 @@
         clearHandoffAssets();
 
         revealMainSystemUI();
+        try { window._startBlobBg?.(); } catch { }
 
         if (state.ambientRaf) cancelAnimationFrame(state.ambientRaf);
         state.ambientRaf = 0;
@@ -442,6 +514,13 @@
         if (type === 'doorpi:intro:handoff') createAmbient(typeof data === 'object' ? data.handoff : {});
         else if (type === 'doorpi:intro:complete') completeIntro('message');
         else if (type === 'doorpi:intro:error') { state.failed = true; completeIntro('error'); }
+        else if (type === 'nativeBootIntroComplete') {
+            window.__doorpiNativeIntroComplete = true;
+            if (isNativeIntroMode()) {
+                createNativeHandoffAmbient();
+                completeIntro('native', true);
+            }
+        }
     }
 
     function handleHostMessage(event) {
@@ -457,9 +536,19 @@
             return;
         }
 
+        if (data.type === 'nativeBootIntroComplete') {
+            window.__doorpiNativeIntroComplete = true;
+            if (isNativeIntroMode()) {
+                createNativeHandoffAmbient();
+                completeIntro('native', true);
+            }
+            return;
+        }
+
         if (data.type === 'consoleShellExplorerReady') {
             state.consoleExplorerReady = true;
             window.__doorpiConsoleShellExplorerReady = true;
+            window.dispatchEvent(new CustomEvent('doorpi:console-shell-ready'));
             if (state.completed && !state.finishDispatched) {
                 finalizeIntroCompletion('system-ready');
             }
@@ -484,11 +573,23 @@
         if (state.started) return;
         state.started = true;
         state.bootMode = Number(window.__doorpiBootMode || state.bootMode || 0);
+        state.nativeIntro = window.__doorpiUseNativeIntro === true || state.nativeIntro === true;
         state.consoleIntroSkippable = window.__doorpiConsoleShellIntroSkippable === true || state.consoleIntroSkippable === true;
         state.consoleExplorerReady = window.__doorpiConsoleShellExplorerReady === true || state.consoleExplorerReady === true;
 
         injectStyles();
         installInputGuards();
+
+        await waitForConsoleShellReady();
+
+        if (isNativeIntroMode()) {
+            state.config = { ...DEFAULT_CONFIG, enabled: false, exitFadeMs: 0 };
+            if (window.__doorpiNativeIntroComplete === true) {
+                createNativeHandoffAmbient();
+                completeIntro('native-ready', true);
+            }
+            return;
+        }
 
         // Use o await para esperar a leitura do JSON que criamos acima
         state.config = await fetchIntroConfig();
@@ -550,7 +651,8 @@
                 ...classListFrom(setup.className || setup.class || cfg.setupClass || userPicker.className || userPicker.class || cfg.userPickerClass)
             ].filter(Boolean);
         },
-        shouldDeferUserPicker: () => state.started && !state.completed
+        canSkip: () => state.started && !state.completed && isInitialUiReadyForSkip(),
+        shouldDeferUserPicker: () => false
     };
 
     // INJEÇÃO ULTRA-RÁPIDA (Não espera o resto da página carregar)

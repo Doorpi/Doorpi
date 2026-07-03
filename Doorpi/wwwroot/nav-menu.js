@@ -2260,9 +2260,16 @@ window.isNavMenuOpen = false;
 }
 
 @media (max-height: 1080px) {
-    .nav-topbar { padding-top: clamp(2rem, 4vh, 3.4rem); gap: clamp(10px, 1.5vh, 18px); }
+    .nav-topbar { padding-top: clamp(4.4rem, 7vh, 5.25rem); gap: clamp(10px, 1.5vh, 18px); }
     .nav-content { padding-top: clamp(8px, 1.35vh, 18px); padding-bottom: 10px; }
     .nav-content-header { margin-bottom: clamp(10px, 1.6vh, 18px); }
+    .nav-big-grid {
+        --gap-x: clamp(16px, 1.45vw, 24px);
+        --gap-y: clamp(24px, 2.4vh, 38px);
+        --padding-y: clamp(20px, 2.8vh, 34px);
+        --card-h-limit: clamp(230px, 25.5vh, 300px);
+    }
+    .nav-vertical-card.nav-focused { transform: scale(1.035); }
     .nav-system-startup-panel-compact { zoom: .94; }
     .nav-system-startup-panel-v2 { gap: clamp(12px, 1.5vw, 20px); }
     .nav-startup-section-title { font-size: .98rem; margin-bottom: 8px; }
@@ -2304,9 +2311,76 @@ window.isNavMenuOpen = false;
 .nav-gpu-app-add .nav-gpu-app-art { background:none; box-shadow:none; min-height:128px; }
 .nav-gpu-app-add .nav-gpu-app-fallback { width:62px; height:62px; background:#fff; color:#0d1018; box-shadow:0 12px 28px rgba(255,255,255,.18); }
 
+/* Foco unificado do nav-menu: mesmo idioma visual da home */
+#navMenuOverlay {
+    --nav-focus-bg: rgba(255,255,255,0.15);
+    --nav-focus-border: rgba(255,255,255,0.82);
+    --nav-focus-shadow: 0 0 0 2px rgba(255,255,255,0.20), 0 10px 24px rgba(0,0,0,0.34);
+    --nav-focus-shadow-strong: 0 0 0 2px rgba(255,255,255,0.22), 0 16px 38px rgba(0,0,0,0.46);
+}
+
+#navMenuOverlay .nav-cat-item.nav-focused {
+    color: #fff;
+    background: var(--nav-focus-bg);
+    border-radius: 8px;
+    box-shadow: var(--nav-focus-shadow);
+    transform: none;
+}
+
+#navMenuOverlay .nav-cat-item.nav-focused::after {
+    transform: scaleX(1);
+    height: 2px;
+}
+
+#navMenuOverlay :is(
+    .nav-settings-card,
+    .nav-back-btn,
+    .nav-radio-btn,
+    .nav-suggestion-card,
+    .nav-gpu-app-card,
+    .nav-profile-edit-btn,
+    .nav-profile-photo,
+    .nav-profile-field-input,
+    .nav-icon-btn,
+    .nav-btn-danger,
+    .nav-system-tab,
+    .nav-sharing-app,
+    .nav-sharing-mode,
+    .nav-sharing-user,
+    .nav-sharing-save,
+    .nav-sharing-tab,
+    .nav-sharing-toggle,
+    .nav-store-policy-toggle,
+    .nav-ext-btn
+).nav-focused-el {
+    background: var(--nav-focus-bg) !important;
+    border-color: var(--nav-focus-border) !important;
+    color: #fff !important;
+    box-shadow: var(--nav-focus-shadow) !important;
+}
+
+#navMenuOverlay :is(
+    .nav-settings-card,
+    .nav-suggestion-card,
+    .nav-gpu-app-card,
+    .nav-profile-recent-card
+).nav-focused-el {
+    box-shadow: var(--nav-focus-shadow-strong) !important;
+}
+
+#navMenuOverlay :is(.nav-vertical-card.nav-focused, .nav-profile-recent-card.nav-focused-el) {
+    border-color: #fff !important;
+    box-shadow: var(--nav-focus-shadow-strong) !important;
+}
+
+#navMenuOverlay :is(.nav-settings-card, .nav-suggestion-card, .nav-gpu-app-card).nav-focused-el,
+#navMenuOverlay :is(.nav-vertical-card.nav-focused, .nav-profile-recent-card.nav-focused-el) {
+    transform: translateY(-2px) scale(1.03);
+}
+
 @media (max-width: 1366px), (max-height: 780px) {
 
-    .nav-topbar { padding-top: 1.8rem; gap: 12px; }
+    .nav-topbar { padding-top: clamp(3.9rem, 7.5vh, 4.9rem); gap: 12px; }
     .nav-cat-item { padding: 6px; }
     .nav-cat-label { font-size: 0.82rem; }
     .nav-content { --nav-focus-gutter: clamp(28px, 2.4vw, 40px); padding: 12px 32px; }
@@ -2322,7 +2396,12 @@ window.isNavMenuOpen = false;
     .nav-content-title { font-size: 1.5rem; }
     .nav-content-subtitle { font-size: 0.78rem; }
     #navPaneGames, #navPaneMedia { padding: clamp(20px, 2.2vw, 30px); scroll-padding-top: 22px; scroll-padding-bottom: 22px; }
-    .nav-big-grid { --padding-y: clamp(26px, 3.5vh, 42px); --card-h-limit: clamp(250px, 31vh, 350px); }
+    .nav-big-grid {
+        --padding-y: clamp(18px, 2.6vh, 32px);
+        --gap-x: clamp(14px, 1.4vw, 22px);
+        --gap-y: clamp(20px, 2.4vh, 34px);
+        --card-h-limit: clamp(210px, 27vh, 275px);
+    }
     .nav-settings-grid { --settings-card-w: 260px; --settings-focus-pad-y: 18px; --settings-focus-pad-x: clamp(24px, 2.4vw, 34px); gap: 10px; }
     .nav-settings-card { min-height: 112px; padding: 18px 16px; gap: 12px; border-radius: 10px; }
     .settings-card-icon { width: 28px; height: 28px; }

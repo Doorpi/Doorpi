@@ -1,0 +1,45 @@
+<Window x:Class="Doorpi.BootIntroWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None"
+        WindowState="Maximized"
+        ResizeMode="NoResize"
+        Topmost="True"
+        ShowInTaskbar="False"
+        Background="#020309"
+        AllowsTransparency="False">
+    <Grid x:Name="Root" Background="#020309" Opacity="1">
+        <StackPanel HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Orientation="Vertical"
+                    Opacity="0.96">
+            <Grid Width="44" Height="44" HorizontalAlignment="Center" Margin="0,0,0,22">
+                <Ellipse Stroke="#20FFFFFF" StrokeThickness="2" />
+                <Path Stroke="#D8FFFFFF"
+                      StrokeThickness="2"
+                      StrokeStartLineCap="Round"
+                      StrokeEndLineCap="Round"
+                      Data="M 22,4 A 18,18 0 0 1 40,22">
+                    <Path.RenderTransform>
+                        <RotateTransform x:Name="SpinnerRotate" Angle="0" CenterX="22" CenterY="22" />
+                    </Path.RenderTransform>
+                </Path>
+            </Grid>
+
+            <TextBlock x:Name="TitleText"
+                       Text="Preparing system"
+                       HorizontalAlignment="Center"
+                       Foreground="#E6FFFFFF"
+                       FontSize="28"
+                       FontWeight="Light" />
+            <TextBlock x:Name="SubtitleText"
+                       Text="Waiting for Windows environment"
+                       HorizontalAlignment="Center"
+                       Foreground="#8CFFFFFF"
+                       FontSize="12"
+                       FontWeight="SemiBold"
+                       Margin="0,12,0,0"
+                       TextOptions.TextFormattingMode="Display" />
+        </StackPanel>
+    </Grid>
+</Window>

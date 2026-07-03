@@ -721,7 +721,8 @@ body {
     }
 
     .card:focus,
-    .card:hover {
+    .card:hover,
+    .card.nav-focused-el {
         opacity: 1;
         filter: saturate(1.1) brightness(1.05);
         transform: scale(1.02) translateY(3px);
@@ -761,15 +762,17 @@ body {
 .add-card {
     justify-content: center;
     align-items: center;
-    border: 1.5px dashed rgba(255,255,255,0.12);
+    border: 3px solid rgba(255,255,255,0.14);
     background: rgba(255,255,255,0.02);
     box-shadow: none;
 }
 
     .add-card:focus,
-    .add-card:hover {
-        border-color: rgba(255,255,255,0.5);
-        background: rgba(255,255,255,0.04);
+    .add-card:hover,
+    .add-card.nav-focused-el {
+        border-color: #fff;
+        background: rgba(255,255,255,0.11);
+        box-shadow: 0 0 0 3px rgba(255,255,255,0.18), 0 18px 42px rgba(0,0,0,0.46);
     }
 
     .add-card .plus {
@@ -782,8 +785,9 @@ body {
     }
 
     .add-card:focus .plus,
-    .add-card:hover .plus {
-        color: rgba(255,255,255,0.7);
+    .add-card:hover .plus,
+    .add-card.nav-focused-el .plus {
+        color: rgba(255,255,255,0.9);
         transform: rotate(90deg) scale(1.1);
     }
 

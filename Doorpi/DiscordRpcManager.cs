@@ -13,10 +13,14 @@ namespace Doorpi
         public static readonly DiscordRpcManager Instance = new();
 
         private const string CLIENT_ID = "1508628714408120451";
+        private const string DOORPI_DISCORD_ICON_URL =
+            "https://cdn.discordapp.com/app-icons/1508628714408120451/1f57651102a32270951c45264bc75f19.png?size=512";
 
         // ── Campos internos ───────────────────────────────────────────────────
         private DiscordRpcClient? _client;
         private bool _initialized;
+        private bool _ready;
+        private bool _disabledAfterError;
         private string _lastContext = "";
         private string _lastDetail = "";
 
@@ -35,28 +39,33 @@ namespace Doorpi
 
                 // Eventos informativos — falhas são silenciosas para o usuário final
                 _client.OnReady += (_, e) =>
+                {
+                    _ready = true;
                     Debug.WriteLine($"[Discord] RPC conectado como: {e.User.Username}");
+                    UpdateStateCore("menu", "", "", "", force: true);
+                };
                 _client.OnError += (_, e) =>
                     Debug.WriteLine($"[Discord] Erro RPC: {e.Message}");
                 _client.OnConnectionFailed += (_, _) =>
+                {
+                    _ready = false;
                     Debug.WriteLine("[Discord] Discord não está aberto; RPC desativado silenciosamente.");
+                };
                 _client.OnClose += (_, e) =>
+                {
+                    _ready = false;
                     Debug.WriteLine($"[Discord] Conexão encerrada: {e.Reason}");
+                };
 
                 _initialized = _client.Initialize();
                 Debug.WriteLine($"[Discord] Inicializado: {_initialized}");
-
-                if (_initialized)
-                {
-                    // Estado inicial ao abrir o app
-                    UpdateState("menu");
-                }
             }
             catch (Exception ex)
             {
                 // Nunca deve travar o Doorpi. Discord pode não estar instalado.
                 Debug.WriteLine($"[Discord] Falha ao inicializar (Discord pode não estar instalado): {ex.Message}");
                 _initialized = false;
+                _ready = false;
             }
         }
 
@@ -247,28 +256,21 @@ namespace Doorpi
         }
         public void UpdateState(string context, string nameOrUrl = "", string title = "", string channelName = "")
         {
-            if (!_initialized || _client == null) return;
+            UpdateStateCore(context, nameOrUrl, title, channelName, force: false);
+        }
+
+        private void UpdateStateCore(string context, string nameOrUrl, string title, string channelName, bool force)
+        {
+            if (!_initialized || !_ready || _disabledAfterError || _client == null) return;
 
             string key = $"{context}|{nameOrUrl}|{title}|{channelName}";
-            if (key == _lastDetail && context == _lastContext) return;
-            _lastContext = context;
-            _lastDetail = key;
+            if (!force && key == _lastDetail && context == _lastContext) return;
 
             try
             {
                 var presence = new RichPresence()
                 {
-                   
-                    Assets = new Assets()
-                    {
-                       
-                        LargeImageKey = "doorpi_logo",
-
-                     
-                        LargeImageText = "Doorpi"
-
-
-                    }
+                    Assets = CreateDoorpiAssets()
                 };
 
                 switch (context.ToLowerInvariant())
@@ -313,13 +315,33 @@ namespace Doorpi
                         break;
                 }
 
+                presence.Details = NormalizePresenceText(presence.Details, "Doorpi");
+                presence.State = NormalizePresenceText(presence.State, "Navegando");
+
                 _client.SetPresence(presence);
+                _lastContext = context;
+                _lastDetail = key;
                 Debug.WriteLine($"[Discord] Presença: {context} | {presence.Details} | {presence.State}");
+            }
+            catch (NullReferenceException ex) when (IsDiscordRpcInternalException(ex))
+            {
+                DisableRpcAfterInternalError(ex);
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[Discord] Erro ao atualizar presença: {ex.Message}");
             }
+        }
+
+        private static Assets CreateDoorpiAssets()
+        {
+            return new Assets
+            {
+                LargeImageKey = DOORPI_DISCORD_ICON_URL,
+                LargeImageText = "Doorpi",
+                SmallImageKey = DOORPI_DISCORD_ICON_URL,
+                SmallImageText = "Doorpi"
+            };
         }
 
         public void Dispose()
@@ -336,6 +358,7 @@ namespace Doorpi
             finally
             {
                 _initialized = false;
+                _ready = false;
             }
         }
 
@@ -346,6 +369,28 @@ namespace Doorpi
         {
             if (string.IsNullOrEmpty(value) || value.Length <= maxLength) return value;
             return value[..maxLength].TrimEnd() + "…";
+        }
+
+        private static string NormalizePresenceText(string? value, string fallback)
+        {
+            return string.IsNullOrWhiteSpace(value) ? fallback : TruncateForDiscord(value.Trim(), 120);
+        }
+
+        private static bool IsDiscordRpcInternalException(Exception ex)
+        {
+            return ex.StackTrace?.Contains("DiscordRPC", StringComparison.OrdinalIgnoreCase) == true;
+        }
+
+        private void DisableRpcAfterInternalError(Exception ex)
+        {
+            Debug.WriteLine($"[Discord] RPC desativado nesta sessão por erro interno da lib: {ex.Message}");
+            _disabledAfterError = true;
+            _ready = false;
+            _initialized = false;
+
+            try { _client?.ClearPresence(); } catch { }
+            try { _client?.Dispose(); } catch { }
+            _client = null;
         }
     }
 }

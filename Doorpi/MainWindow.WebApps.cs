@@ -64,6 +64,8 @@ namespace Doorpi
         private const ushort XI_B = 0x2000;
         private const ushort XI_X = 0x4000;
         private const ushort XI_Y = 0x8000;
+        private const int VK_ESCAPE = 0x1B;
+        private const int VK_HOME = 0x24;
 
         // ── Campos ────────────────────────────────────────────────────────────
 
@@ -74,6 +76,8 @@ namespace Doorpi
         private const string YT_TV_URL = "https://www.youtube.com/tv";
         private const string DoorpiBrowserAppId = "doorpi-browser";
         private const string DoorpiBrowserHomeUrl = "https://www.google.com";
+        private volatile bool _webKeyboardBackHeld;
+        private int _webKeyboardHomeRequested;
         private static readonly HttpClient _ytHttp = new();
         // ── EasyList ──────────────────────────────────────────────────────────────
         private static readonly HashSet<string> _easyListDomains = new(StringComparer.OrdinalIgnoreCase);
@@ -92,10 +96,13 @@ namespace Doorpi
         private CoreWebView2Environment? _genericBrowserEnvironment;
         private readonly object _webViewEnvironmentCacheLock = new();
         private readonly Dictionary<string, Task<CoreWebView2Environment>> _webViewEnvironmentCache = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly object _webViewCacheTrimLock = new();
+        private static readonly Dictionary<string, DateTime> _webViewCacheTrimLastRunUtc = new(StringComparer.OrdinalIgnoreCase);
         private bool _genericBrowserExtensionOutsideCloseHooked;
         private DateTime _genericBrowserIgnoreOutsideClickUntilUtc = DateTime.MinValue;
         private bool _isGenericBrowserMode;
         private bool _genericBrowserCaptureWebAppUrl;
+        private string _activeMediaWebViewProfilePath = "";
         private string _genericBrowserCaptureInitialClipboard = "";
         private System.Windows.Threading.DispatcherTimer? _genericBrowserCaptureClipboardTimer;
         private DateTime _genericBrowserControllerInputUntilUtc = DateTime.MinValue;
@@ -2386,6 +2393,7 @@ namespace Doorpi
                 ResetNativeVkbHolds();
                 bHoldActive = false;
                 bCloseFired = false;
+                _webKeyboardBackHeld = false;
                 HideWebAppCloseHoldOverlay();
             }
 
@@ -2501,6 +2509,14 @@ namespace Doorpi
                 {
                     var gp = state.Gamepad;
                     ushort btn = gp.wButtons;
+                    if (gp.bRightTrigger > 128)
+                        btn |= XI_A;
+                    if (_webKeyboardBackHeld || (GetAsyncKeyState(VK_ESCAPE) & 0x8000) != 0)
+                        btn |= XI_B;
+                    if (Interlocked.Exchange(ref _webKeyboardHomeRequested, 0) == 1 ||
+                        (GetAsyncKeyState(VK_HOME) & 0x8000) != 0)
+                        btn |= XI_GUIDE;
+
                     long nowMs = Environment.TickCount64;
                     if (ShouldLogMediaControllerHeartbeat(5000))
                         LogMediaControllerDiagnostic("loop-heartbeat", btn, prevButtons);
@@ -3067,6 +3083,7 @@ namespace Doorpi
                 if (_webViewEnvironmentCache.TryGetValue(key, out var cached))
                     return cached;
 
+                QueueWebViewProfileCacheTrim(fullPath, "before-environment-create");
                 LogWebViewDiagnostic($"environment-create profile={fullPath} extensions={enableExtensions} args={browserArgs}");
                 var options = new CoreWebView2EnvironmentOptions(browserArgs)
                 {
@@ -3087,14 +3104,88 @@ namespace Doorpi
             }
         }
 
-        private async Task TrySuspendDoorpiHomeWebViewAsync()
+        private static void QueueWebViewProfileCacheTrim(string profilePath, string reason, int delayMs = 0)
         {
-            if (GetBootMode() == 2)
-            {
-                LogWebViewDiagnostic("diagnostic: home WebView suspend skipped in console shell mode");
+            if (string.IsNullOrWhiteSpace(profilePath))
                 return;
+
+            string fullPath;
+            try { fullPath = Path.GetFullPath(profilePath); }
+            catch { return; }
+
+            lock (_webViewCacheTrimLock)
+            {
+                if (_webViewCacheTrimLastRunUtc.TryGetValue(fullPath, out var lastRun) &&
+                    DateTime.UtcNow - lastRun < TimeSpan.FromHours(6))
+                {
+                    return;
+                }
+
+                _webViewCacheTrimLastRunUtc[fullPath] = DateTime.UtcNow;
             }
 
+            _ = Task.Run(async () =>
+            {
+                if (delayMs > 0)
+                    await Task.Delay(delayMs).ConfigureAwait(false);
+
+                TrimWebViewProfileCache(fullPath, reason);
+            });
+        }
+
+        private static void TrimWebViewProfileCache(string profilePath, string reason)
+        {
+            try
+            {
+                if (!Directory.Exists(profilePath))
+                    return;
+
+                string root = Path.GetFullPath(DoorpiPaths.BrowserProfilesFolder);
+                string full = Path.GetFullPath(profilePath);
+                if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                string[] relativeCacheDirs =
+                {
+                    "Default\\Cache",
+                    "Default\\Code Cache",
+                    "Default\\GPUCache",
+                    "Default\\DawnCache",
+                    "Default\\Media Cache",
+                    "Default\\Service Worker\\CacheStorage",
+                    "Default\\blob_storage",
+                    "GrShaderCache",
+                    "GraphiteDawnCache",
+                    "ShaderCache"
+                };
+
+                foreach (string relative in relativeCacheDirs)
+                {
+                    string candidate = Path.Combine(full, relative);
+                    try
+                    {
+                        if (Directory.Exists(candidate))
+                            Directory.Delete(candidate, recursive: true);
+                    }
+                    catch { }
+                }
+
+                try
+                {
+                    string browserMetrics = Path.Combine(full, "BrowserMetrics");
+                    if (Directory.Exists(browserMetrics))
+                        Directory.Delete(browserMetrics, recursive: true);
+                }
+                catch { }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[WebView2] Falha ao limpar cache do perfil ({reason}): {ex.Message}");
+            }
+        }
+
+        private async Task TrySuspendDoorpiHomeWebViewAsync()
+        {
             if (string.Equals(Environment.GetEnvironmentVariable("DOORPI_DISABLE_HOME_WEBVIEW_SUSPEND"), "1", StringComparison.OrdinalIgnoreCase))
             {
                 LogWebViewDiagnostic("diagnostic: home WebView suspend disabled by DOORPI_DISABLE_HOME_WEBVIEW_SUSPEND=1");
@@ -3196,6 +3287,9 @@ namespace Doorpi
 
         private void LogWebViewDiagnostic(string message)
         {
+#if !DEBUG
+            return;
+#else
             try
             {
                 string dir = Path.Combine(dataFolder, "logs");
@@ -3205,10 +3299,17 @@ namespace Doorpi
                     $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}{Environment.NewLine}");
             }
             catch { }
+#endif
         }
 
         private void LogWebViewSiteDiagnostic(string message)
         {
+#if !DEBUG
+            return;
+#else
+            if (!IsWebViewSiteDiagnosticsEnabled())
+                return;
+
             try
             {
                 string dir = Path.Combine(dataFolder, "logs");
@@ -3218,7 +3319,14 @@ namespace Doorpi
                     $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}{Environment.NewLine}");
             }
             catch { }
+#endif
         }
+
+        private static bool IsWebViewSiteDiagnosticsEnabled()
+            => string.Equals(
+                Environment.GetEnvironmentVariable("DOORPI_WEBVIEW_SITE_DIAGNOSTICS"),
+                "1",
+                StringComparison.OrdinalIgnoreCase);
 
         private bool ShouldLogMediaControllerHeartbeat(int milliseconds)
         {
@@ -3255,6 +3363,9 @@ namespace Doorpi
 
         private void LogMediaControllerDiagnostic(string reason, ushort buttons = 0, ushort previousButtons = 0, string extra = "")
         {
+#if !DEBUG
+            return;
+#else
             try
             {
                 string dir = Path.Combine(dataFolder, "logs");
@@ -3279,6 +3390,7 @@ namespace Doorpi
                 }
             }
             catch { }
+#endif
         }
 
         private string BuildMediaControllerStateSnapshot(ushort buttons, ushort previousButtons, string extra)
@@ -3467,6 +3579,13 @@ namespace Doorpi
             bool isYouTube,
             bool isUtility)
         {
+#if !DEBUG
+            await Task.CompletedTask;
+            return;
+#else
+            if (!IsWebViewSiteDiagnosticsEnabled())
+                return;
+
             try
             {
                 LogWebViewSiteDiagnostic(
@@ -3517,6 +3636,7 @@ namespace Doorpi
             {
                 LogWebViewSiteDiagnostic("diagnostics-attach-failed: " + ex.Message);
             }
+#endif
         }
 
         private void LogWebViewProcessSnapshot(string reason, CoreWebView2? core = null)
@@ -4047,10 +4167,15 @@ namespace Doorpi
 
     // ── 4. FECHAR COM ESC ────────────────────────────────────────────────────
     window.addEventListener('keydown', function(e) {{
+        if (e.key !== 'Escape' && e.key !== 'Home') return;
+        try {{ e.preventDefault(); e.stopImmediatePropagation(); }} catch(_) {{}}
+        if (e.key === 'Escape' && window._vkbIsOpen) {{ _vkbClose(); return; }}
+        try {{ window.chrome.webview.postMessage(e.key === 'Home' ? 'web_keyboard_home' : 'web_keyboard_back_down'); }} catch(_) {{}}
+    }}, true);
+    window.addEventListener('keyup', function(e) {{
         if (e.key !== 'Escape') return;
         try {{ e.preventDefault(); e.stopImmediatePropagation(); }} catch(_) {{}}
-        if (window._vkbIsOpen) {{ _vkbClose(); return; }}
-        try {{ window.chrome.webview.postMessage('close_app'); }} catch(_) {{}}
+        try {{ window.chrome.webview.postMessage('web_keyboard_back_up'); }} catch(_) {{}}
     }}, true);
 
     // ── 5. BOTÃO CHROME WEB STORE ────────────────────────────────────────────
@@ -6184,7 +6309,6 @@ namespace Doorpi
                 url = "https://www.steamgriddb.com/profile/preferences/api";
 
             bool isUtility = url.Contains("steamgriddb.com") || url.Contains("chromewebstore.google.com");
-            bool isConsoleShellMode = GetBootMode() == 2;
 
             if (_ytWebView != null)
             {
@@ -6209,7 +6333,8 @@ namespace Doorpi
                         SendGameLaunchStatus("gameLaunchReady");
                         await Task.Delay(800);
 
-                        if (!isConsoleShellMode)
+                        ReleaseDoorpiTopmost();
+                        if (this.WindowState != WindowState.Minimized)
                             this.WindowState = WindowState.Minimized;
                         StartMediaControllerMode();
 
@@ -6267,19 +6392,11 @@ namespace Doorpi
 
                 SendGameLaunchStatus("gameLaunchDone");
 
-                if (!isConsoleShellMode)
-                {
-                    _ = TrySuspendDoorpiHomeWebViewAsync();
+                ReleaseDoorpiTopmost();
+                _ = TrySuspendDoorpiHomeWebViewAsync();
 
-                    if (this.WindowState != WindowState.Minimized)
-                        this.WindowState = WindowState.Minimized;
-                }
-                else
-                {
-                    ReleaseDoorpiTopmost();
-                    if (this.WindowState == WindowState.Minimized)
-                        this.WindowState = WindowState.Maximized;
-                }
+                if (this.WindowState != WindowState.Minimized)
+                    this.WindowState = WindowState.Minimized;
             }
 
             async Task MarkWebAppReadyAsync(bool allowTutorial)
@@ -6356,10 +6473,11 @@ namespace Doorpi
 
             string profileName = GetBrowserProfileNameForUrl(url, isYouTube);
             string userDataPath = Path.Combine(DoorpiPaths.BrowserProfilesFolder, profileName);
+            _activeMediaWebViewProfilePath = userDataPath;
 
             bool enableBrowserExtensions = !isUtility;
             string renderModeEnv = isYouTube ? "DOORPI_YOUTUBE_WEBVIEW_RENDER_MODE" : "DOORPI_WEBVIEW_RENDER_MODE";
-            string defaultRenderMode = (isYouTube || isConsoleShellMode) ? "hardware" : "disable-gpu";
+            string defaultRenderMode = isYouTube ? "hardware" : "disable-gpu";
             string extraArgsEnv = isYouTube ? "DOORPI_YOUTUBE_WEBVIEW_EXTRA_ARGS" : "DOORPI_MEDIA_WEBVIEW_EXTRA_ARGS";
             string browserArgs = BuildWebViewAdditionalArguments(renderModeEnv, defaultRenderMode, extraArgsEnv);
             string defaultProcessPriority = "normal";
@@ -6479,7 +6597,9 @@ namespace Doorpi
             if (isYouTube)
             {
                 await YtInjectAdBlockerAsync(_ytWebView.CoreWebView2);
+#if DEBUG
                 await YtInjectStateLoggerAsync(_ytWebView.CoreWebView2);
+#endif
                 await YtInjectGamepadAsync(_ytWebView.CoreWebView2);
                 await YtInjectZoomHackAsync(_ytWebView.CoreWebView2);
                 await YtInjectForceUserSelectionAsync(_ytWebView.CoreWebView2);
@@ -6525,6 +6645,7 @@ namespace Doorpi
             _ytWebView.CoreWebView2.Navigate(url);
             _ytWebView.Focus();
             _ytWebView.KeyDown += YtOnKeyDown;
+            _ytWebView.KeyUp += YtOnKeyUp;
             if (isGenericBrowser)
                 _ytWebView.GotFocus += OnGenericBrowserMainWebViewGotFocus;
 
@@ -6642,6 +6763,19 @@ namespace Doorpi
                 _isStoreLauncherSession &&
                 string.Equals(_storeSessionKind, "web", StringComparison.OrdinalIgnoreCase);
             bool shouldReturnToWebAppForm = _isGenericBrowserMode && _genericBrowserCaptureWebAppUrl;
+            bool doorpiRestoredAfterWebClose = false;
+
+            void RestoreDoorpiAfterWebAppWindowClosed()
+            {
+                if (doorpiRestoredAfterWebClose)
+                    return;
+
+                doorpiRestoredAfterWebClose = true;
+                ResumeDoorpiHomeWebView();
+                webView.Visibility = Visibility.Visible;
+                this.WindowState = WindowState.Maximized;
+                ForceFocus();
+            }
 
             StopMediaControllerMode();
             _vkbIsOpen = false;
@@ -6667,7 +6801,8 @@ namespace Doorpi
                 catch { }
             }
 
-            ytWebView.KeyDown -= YtOnKeyDown;
+                    ytWebView.KeyDown -= YtOnKeyDown;
+                    ytWebView.KeyUp -= YtOnKeyUp;
             ytWebView.GotFocus -= OnGenericBrowserMainWebViewGotFocus;
             if (coreWebView != null)
             {
@@ -6693,6 +6828,9 @@ namespace Doorpi
                 }
             }
             catch { }
+            if (webAppWindow != null)
+                RestoreDoorpiAfterWebAppWindowClosed();
+
             CloseGenericBrowserExtensionsPopup();
             if (_webAppTutorialPlacementTarget != null)
                 _webAppTutorialPlacementTarget.SizeChanged -= OnWebAppTutorialPlacementTargetSizeChanged;
@@ -6717,8 +6855,12 @@ namespace Doorpi
             }
             catch { }
 
+            RestoreDoorpiAfterWebAppWindowClosed();
             try { ytWebView.Dispose(); } catch { }
             LogWebViewDiagnostic("close-end");
+            string closedProfilePath = _activeMediaWebViewProfilePath;
+            _activeMediaWebViewProfilePath = "";
+            QueueWebViewProfileCacheTrim(closedProfilePath, "after-close", delayMs: 1800);
             _ytWebView = null;
             _genericBrowserShell = null;
             _genericBrowserToolbarRow = null;
@@ -6755,10 +6897,7 @@ namespace Doorpi
             StopGenericBrowserWebAppUrlCapture();
             ClearWebAppSession();
 
-            ResumeDoorpiHomeWebView();
-            webView.Visibility = Visibility.Visible;
-            this.WindowState = WindowState.Maximized;
-            ForceFocus();
+            RestoreDoorpiAfterWebAppWindowClosed();
             if (shouldReturnToWebAppForm)
             {
                 try
@@ -6808,7 +6947,21 @@ namespace Doorpi
 
         private void YtOnKeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Key == Key.Escape || e.Key == Key.BrowserBack)
+            if (e.Key == Key.Home)
+            {
+                Interlocked.Exchange(ref _webKeyboardHomeRequested, 1);
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.Escape)
+            {
+                _webKeyboardBackHeld = true;
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.BrowserBack)
             {
                 if (HandleGenericBrowserExtensionsBack())
                 {
@@ -6824,6 +6977,15 @@ namespace Doorpi
                         _ytWebView.CoreWebView2.GoBack();
                     }
                 }
+            }
+        }
+
+        private void YtOnKeyUp(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Escape)
+            {
+                _webKeyboardBackHeld = false;
+                e.Handled = true;
             }
         }
 
@@ -6932,6 +7094,18 @@ namespace Doorpi
             {
                 Dispatcher.Invoke(() => { if (_ytWebView != null) _ytWebView.ZoomFactor = 1.0; });
             }
+            else if (msg == "web_keyboard_back_down")
+            {
+                _webKeyboardBackHeld = true;
+            }
+            else if (msg == "web_keyboard_back_up")
+            {
+                _webKeyboardBackHeld = false;
+            }
+            else if (msg == "web_keyboard_home")
+            {
+                Interlocked.Exchange(ref _webKeyboardHomeRequested, 1);
+            }
             else if (msg == "close_app")
             {
                 Dispatcher.Invoke(() => { if (isPopup) _popupWindow?.Close(); else CloseYouTubeInline(); });
@@ -6975,6 +7149,9 @@ namespace Doorpi
 
         private static void LogYouTubeTvState(string payload)
         {
+#if !DEBUG
+            return;
+#else
             try
             {
                 string dir = DoorpiPaths.LogsFolder;
@@ -6985,6 +7162,7 @@ namespace Doorpi
                 Debug.WriteLine("[YouTubeTV] " + payload);
             }
             catch { }
+#endif
         }
 
         private static bool IsWebMessageFromHost(CoreWebView2WebMessageReceivedEventArgs e, string expectedHost)
