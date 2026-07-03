@@ -5099,6 +5099,11 @@ function showUserPicker(users, requireSelection = false) {
     }
 
     if (requireSelection) window._doorpiUserSessionReady = false;
+    const openedAt = performance.now();
+    const blockInheritedActivationUntil = openedAt + 420;
+    const blockStrayPointerReleaseUntil = openedAt + 1500;
+    let pointerDownAfterOpen = false;
+    let suppressNextPointerClick = false;
 
     ensureDoorpiOverlayStyles();
     let overlay = document.getElementById('doorpiUserPicker');
@@ -5187,6 +5192,61 @@ function showUserPicker(users, requireSelection = false) {
         document.body.appendChild(overlay);
     }
 
+    const shouldBlockInheritedUserPickerActivation = (event = null) => {
+        const now = performance.now();
+        const type = event?.type || '';
+
+        if (now < (overlay._doorpiUserPickerBlockUntil || 0)) return true;
+        if (type === 'click' && suppressNextPointerClick) {
+            suppressNextPointerClick = false;
+            return true;
+        }
+        return false;
+    };
+
+    const handleUserPickerActivationGuard = (event) => {
+        const now = performance.now();
+        const type = event?.type || '';
+        const isPointerStart = type === 'pointerdown' || type === 'mousedown' || type === 'touchstart';
+        const isPointerEnd = type === 'pointerup' || type === 'mouseup' || type === 'touchend';
+
+        if (isPointerStart) {
+            pointerDownAfterOpen = true;
+            if (now < blockInheritedActivationUntil) {
+                suppressNextPointerClick = true;
+                event.preventDefault();
+                event.stopImmediatePropagation();
+            }
+            return;
+        }
+
+        if (isPointerEnd) {
+            if (now < blockInheritedActivationUntil || (!pointerDownAfterOpen && now < blockStrayPointerReleaseUntil)) {
+                suppressNextPointerClick = true;
+                event.preventDefault();
+                event.stopImmediatePropagation();
+            }
+            return;
+        }
+
+        if (shouldBlockInheritedUserPickerActivation(event)) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+        }
+    };
+
+    const guardedActivationEvents = ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'click'];
+    if (overlay._doorpiUserPickerActivationGuard) {
+        guardedActivationEvents.forEach(type => {
+            overlay.removeEventListener(type, overlay._doorpiUserPickerActivationGuard, true);
+        });
+    }
+    overlay._doorpiUserPickerActivationGuard = handleUserPickerActivationGuard;
+    overlay._doorpiUserPickerBlockUntil = blockInheritedActivationUntil;
+    guardedActivationEvents.forEach(type => {
+        overlay.addEventListener(type, handleUserPickerActivationGuard, true);
+    });
+
     overlay.dataset.required = requireSelection ? 'true' : 'false';
     overlay.dataset.returnToQuickPanel = (window._doorpiUserPickerReturnToQuickPanel && !requireSelection) ? 'true' : 'false';
     window._doorpiUserPickerReturnToQuickPanel = false;
@@ -5265,7 +5325,12 @@ function showUserPicker(users, requireSelection = false) {
     };
 
     overlay.querySelectorAll('[data-user-id]').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', (event) => {
+            if (shouldBlockInheritedUserPickerActivation(event)) {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
             const user = users.find(u => String(u.Id) === String(btn.dataset.userId));
             if (user?.HasPin || user?.hasPin) {
                 showUserPinPrompt(user);
@@ -5280,7 +5345,12 @@ function showUserPicker(users, requireSelection = false) {
         });
     });
 
-    overlay.querySelector('#doorpiCreateUserCard')?.addEventListener('click', () => {
+    overlay.querySelector('#doorpiCreateUserCard')?.addEventListener('click', (event) => {
+        if (shouldBlockInheritedUserPickerActivation(event)) {
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+        }
         hidePicker();
         openCreateUserDialog();
     });
