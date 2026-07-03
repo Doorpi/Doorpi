@@ -4215,7 +4215,10 @@
                 const autoAddedGames = data.games.filter(g => g.autoAdded);
                 autoAddedGames.forEach(game => {
                     const id = game.LaunchUrl || game.launchUrl || game.Path || game.path;
-                    if (id) window.newGameIdsThisSession?.add(id);
+                    if (id) {
+                        window.newGameIdsThisSession?.add(id);
+                        window.AppStore?.mutations?.markNew?.(id);
+                    }
                 });
                 if (autoAddedGames.length > 0) window._navMenuDataChanged?.('games');
             }
@@ -4341,7 +4344,10 @@
     }
         .doorpi-user-overlay, .doorpi-manager-overlay {
             position: fixed; inset: 0; z-index: 9200;
-            background: rgba(6, 6, 14, 0.75);
+            background:
+                radial-gradient(ellipse at 80% -18%, rgba(255,255,255,0.075), transparent 38%),
+                radial-gradient(ellipse at -14% 112%, rgba(110,140,190,0.10), transparent 42%),
+                rgba(6, 6, 14, 0.62);
             backdrop-filter: blur(40px) saturate(1.5);
             -webkit-backdrop-filter: blur(40px) saturate(1.5);
             display: flex; align-items: center; justify-content: center;
@@ -10279,9 +10285,16 @@ function renderFolderList(folders) {
     function _userSwitchAvatarHtml(user = {}) {
         const photo = user.PhotoBase64 || user.photoBase64 || '';
         const name = user.Name || user.name || '';
-        if (photo) return `<div class="logout-avatar"><img src="${escapeHtml(photo)}" alt=""></div>`;
+        if (photo) return `<div class="logout-avatar"><img src="${escapeHtml(_normalizeUserPhotoSrc(photo))}" alt=""></div>`;
         const initial = (name || 'D').trim().charAt(0).toUpperCase() || 'D';
         return `<div class="logout-avatar logout-avatar-fallback">${escapeHtml(initial)}</div>`;
+    }
+
+    function _normalizeUserPhotoSrc(photo) {
+        const value = String(photo || '').trim();
+        if (!value) return '';
+        if (/^(data:|blob:|https?:)/i.test(value)) return value;
+        return `data:image/png;base64,${value}`;
     }
 
     function _ensureUserSwitchLogoutOverlay(mode = 'switch', user = {}) {
@@ -11311,6 +11324,12 @@ function renderFolderList(folders) {
                 closeAction.textContent = isStoreInstallLock
                     ? t('executionLockCancelInstall')
                     : t('executionLockCloseProcess');
+            }
+            const restoreAction = document.getElementById('executionLockRestore');
+            if (restoreAction) {
+                restoreAction.textContent = isStoreInstallLock
+                    ? t('executionLockReturnInstall')
+                    : t('executionLockRestore');
             }
             if (bg && (data.heroImage || !isSameContextVisible)) {
                 bg.style.backgroundImage = data.heroImage ? `url('${data.heroImage}')` : 'none';

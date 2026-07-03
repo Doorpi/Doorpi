@@ -3,6 +3,7 @@ using Microsoft.Web.WebView2.Wpf;
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
@@ -27,6 +28,7 @@ namespace Doorpi
         private readonly TextBlock _detailLabel;
         private readonly StackPanel _actions;
         private readonly Button _retryButton;
+        private readonly Button _returnButton;
         private readonly Button _cancelButton;
         private CoreWebView2DownloadOperation? _activeDownload;
         private bool _downloadStarted;
@@ -85,6 +87,7 @@ namespace Doorpi
         public event Action? DownloadIntent;
         public event Action? RetryRequested;
         public event Action? ContinueRequested;
+        public event Action? ReturnRequested;
         public event Action? CancelRequested;
         public event Action? BrowserClosedBeforeDownload;
 
@@ -117,6 +120,7 @@ namespace Doorpi
                 out _detailLabel,
                 out _actions,
                 out _retryButton,
+                out _returnButton,
                 out _cancelButton);
             _statusPanel.Visibility = Visibility.Collapsed;
             root.Children.Add(_statusPanel);
@@ -130,7 +134,9 @@ namespace Doorpi
             };
             _cancelButton.Click += (_, _) => CancelRequested?.Invoke();
             _retryButton.GotFocus += (_, _) => _focusedActionIndex = 0;
-            _cancelButton.GotFocus += (_, _) => _focusedActionIndex = 1;
+            _returnButton.Click += (_, _) => ReturnRequested?.Invoke();
+            _returnButton.GotFocus += (_, _) => _focusedActionIndex = 1;
+            _cancelButton.GotFocus += (_, _) => _focusedActionIndex = 2;
             PreviewKeyDown += OnPreviewKeyDown;
 
             Content = root;
@@ -244,13 +250,13 @@ namespace Doorpi
                 ShowStatusPanel();
                 _title.Text = $"Instalando {_storeName}";
                 _subtitle.Text = "O instalador foi aberto. Conclua o setup e mantenha esta janela aberta.";
-                _stepLabel.Text = "Permissao temporaria";
-                _detailLabel.Text = "Se o Windows pedir permissao, autorize o assistente do Doorpi. Se o setup for cancelado ou travar, use Cancelar processo para voltar imediatamente.";
+                _stepLabel.Text = "Permissão temporária";
+                _detailLabel.Text = "Se o Windows pedir permissão, autorize o assistente do Doorpi. Use Retornar ao instalador para trazer o setup de volta se ele ficar atrás de outra janela.";
                 _progress.IsIndeterminate = true;
                 _progress.Value = 100;
                 _progressText.Text = "";
-                SetActionsVisible(true, false, "", "Cancelar processo", ActionMode.Retry);
-                _cancelButton.Focus();
+                SetActionsVisible(true, false, "", "Cancelar instalação", ActionMode.Retry, canReturn: true);
+                _returnButton.Focus();
             });
         }
 
@@ -261,9 +267,26 @@ namespace Doorpi
                 _cancelPromptVisible = false;
                 ShowStatusPanel();
                 _title.Text = $"Finalizando {_storeName}";
-                _subtitle.Text = "A loja ja foi encontrada. O Doorpi esta fechando a instalacao com seguranca.";
-                _stepLabel.Text = "Instalacao confirmada";
+                _subtitle.Text = "A loja já foi encontrada. O Doorpi está fechando a instalação com segurança.";
+                _stepLabel.Text = "Instalação confirmada";
                 _detailLabel.Text = "Aguarde alguns instantes enquanto verificamos se outra janela da loja ainda vai abrir.";
+                _progress.IsIndeterminate = true;
+                _progress.Value = 100;
+                _progressText.Text = "";
+                SetActionsVisible(false);
+            });
+        }
+
+        public void ShowEpicInstallFinalizing()
+        {
+            Dispatcher.Invoke(() =>
+            {
+                _cancelPromptVisible = false;
+                ShowStatusPanel();
+                _title.Text = $"Finalizando {_storeName}";
+                _subtitle.Text = "Instalação concluída. Aguardando a Epic finalizar atualizações.";
+                _stepLabel.Text = "Aguardando Epic";
+                _detailLabel.Text = "A Epic pode abrir atualizadores e helpers antes da loja principal. Mantenha essas janelas em primeiro plano e aguarde.";
                 _progress.IsIndeterminate = true;
                 _progress.Value = 100;
                 _progressText.Text = "";
@@ -281,7 +304,7 @@ namespace Doorpi
                 _title.Text = $"Preparando download";
                 _subtitle.Text = $"Aguardando o download da {_storeName} iniciar...";
                 _stepLabel.Text = "Aguardando navegador";
-                _detailLabel.Text = "Se nada acontecer, tente clicar novamente no botao de download da loja.";
+                _detailLabel.Text = "Se nada acontecer, tente clicar novamente no botão de download da loja.";
                 _progress.IsIndeterminate = true;
                 _progress.Value = 0;
                 _progressText.Text = "";
@@ -295,11 +318,11 @@ namespace Doorpi
             {
                 _cancelPromptVisible = false;
                 ShowStatusPanel();
-                _title.Text = "Nao foi possivel instalar";
+                _title.Text = "Não foi possível instalar";
                 _subtitle.Text = string.IsNullOrWhiteSpace(message)
-                    ? "O download ou instalacao nao foi concluido."
+                    ? "O download ou instalação não foi concluído."
                     : message;
-                _stepLabel.Text = "Acao necessaria";
+                _stepLabel.Text = "Ação necessária";
                 _detailLabel.Text = canRetry
                     ? "Use A para tentar novamente ou B para cancelar e voltar ao Doorpi."
                     : "Use A ou B para voltar ao Doorpi.";
@@ -311,16 +334,18 @@ namespace Doorpi
             });
         }
 
-        public void ShowInstallSuccess()
+        public void ShowInstallSuccess(bool returnFocusToDoorpi = true)
         {
             Dispatcher.Invoke(() =>
             {
                 _cancelPromptVisible = false;
                 ShowStatusPanel();
                 _title.Text = "Loja instalada";
-                _subtitle.Text = $"{_storeName} ja esta disponivel no Doorpi.";
-                _stepLabel.Text = "Concluido";
-                _detailLabel.Text = "Voltando para o Doorpi com a loja atualizada.";
+                _subtitle.Text = $"{_storeName} já está disponível no Doorpi.";
+                _stepLabel.Text = "Concluído";
+                _detailLabel.Text = returnFocusToDoorpi
+                    ? "Voltando para o Doorpi com a loja atualizada."
+                    : "A Epic pode continuar finalizando atualizações em primeiro plano.";
                 _progress.IsIndeterminate = false;
                 _progress.Value = 100;
                 _progressText.Text = "100%";
@@ -360,10 +385,10 @@ namespace Doorpi
 
                 _cancelPromptVisible = true;
                 ShowStatusPanel();
-                _title.Text = "Cancelar instalacao?";
-                _subtitle.Text = $"O download ou instalacao da {_storeName} sera interrompido e voce voltara ao Doorpi.";
+                _title.Text = "Cancelar instalação?";
+                _subtitle.Text = $"O download ou instalação da {_storeName} será interrompido e você voltará ao Doorpi.";
                 _stepLabel.Text = "Processo em andamento";
-                _detailLabel.Text = "Use Continuar para voltar ao instalador/site. Use Cancelar processo apenas se quiser desistir desta instalacao.";
+                _detailLabel.Text = "Use Continuar para voltar ao instalador/site. Use Cancelar processo apenas se quiser desistir desta instalação.";
                 _progress.IsIndeterminate = false;
                 _progress.Value = 0;
                 _progressText.Text = "";
@@ -455,10 +480,10 @@ namespace Doorpi
                                 return;
 
                             _cancelPromptVisible = false;
-                            _title.Text = $"Download concluido";
+                            _title.Text = $"Download concluído";
                             _subtitle.Text = "Abrindo instalador...";
                             _stepLabel.Text = "Preparando instalador";
-                            _detailLabel.Text = "O arquivo baixado sera removido automaticamente quando o processo terminar ou for cancelado.";
+                            _detailLabel.Text = "O arquivo baixado será removido automaticamente quando o processo terminar ou for cancelado.";
                             _progress.IsIndeterminate = false;
                             _progress.Value = 100;
                             _progressText.Text = "100%";
@@ -479,7 +504,7 @@ namespace Doorpi
             {
                 Debug.WriteLine("[StoreDownloadWindow] Falha ao iniciar download: " + ex.Message);
                 _completedOrHandedOff = true;
-                DownloadFailed?.Invoke("Nao foi possivel iniciar o download.");
+                DownloadFailed?.Invoke("Não foi possível iniciar o download.");
             }
         }
 
@@ -537,6 +562,7 @@ namespace Doorpi
             out TextBlock detailLabel,
             out StackPanel actions,
             out Button retryButton,
+            out Button returnButton,
             out Button cancelButton)
         {
             var overlay = new Grid
@@ -619,8 +645,10 @@ namespace Doorpi
                 Visibility = Visibility.Collapsed
             };
             retryButton = BuildActionButton("Tentar novamente", true);
+            returnButton = BuildActionButton("Retornar ao instalador", true);
             cancelButton = BuildActionButton("Cancelar", false);
             actions.Children.Add(retryButton);
+            actions.Children.Add(returnButton);
             actions.Children.Add(cancelButton);
 
             main.Children.Add(eyebrow);
@@ -673,18 +701,22 @@ namespace Doorpi
             bool canRetry = true,
             string retryText = "Tentar novamente",
             string cancelText = "Cancelar",
-            ActionMode actionMode = ActionMode.Retry)
+            ActionMode actionMode = ActionMode.Retry,
+            bool canReturn = false,
+            string returnText = "Retornar ao instalador")
         {
             _actionMode = actionMode;
             _retryButton.Content = retryText;
+            _returnButton.Content = returnText;
             _cancelButton.Content = cancelText;
             _actions.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
             _retryButton.Visibility = canRetry ? Visibility.Visible : Visibility.Collapsed;
+            _returnButton.Visibility = canReturn ? Visibility.Visible : Visibility.Collapsed;
             _cancelButton.Visibility = Visibility.Visible;
 
             if (visible)
             {
-                _focusedActionIndex = canRetry ? 0 : 1;
+                _focusedActionIndex = canRetry ? 0 : (canReturn ? 1 : 2);
                 FocusCurrentAction();
                 StartControllerNavigation();
             }
@@ -774,17 +806,17 @@ namespace Doorpi
             Key key = e.Key == Key.System ? e.SystemKey : e.Key;
             if (key == Key.Left || key == Key.Up)
             {
-                SetFocusedAction(0);
+                MoveFocusedAction(-1);
                 e.Handled = true;
             }
             else if (key == Key.Right || key == Key.Down)
             {
-                SetFocusedAction(1);
+                MoveFocusedAction(1);
                 e.Handled = true;
             }
             else if (key == Key.Tab)
             {
-                SetFocusedAction((Keyboard.Modifiers & ModifierKeys.Shift) != 0 ? 0 : 1);
+                MoveFocusedAction((Keyboard.Modifiers & ModifierKeys.Shift) != 0 ? -1 : 1);
                 e.Handled = true;
             }
         }
@@ -806,13 +838,9 @@ namespace Doorpi
                 ushort buttons = 0;
                 try
                 {
-                    for (int i = 0; i < 4; i++)
+                    if (XInputGetState(0, out var state) == 0)
                     {
-                        if (XInputGetState(i, out var state) == 0)
-                        {
-                            buttons = state.Gamepad.wButtons;
-                            break;
-                        }
+                        buttons = state.Gamepad.wButtons;
                     }
                 }
                 catch
@@ -832,7 +860,7 @@ namespace Doorpi
                     Dispatcher.Invoke(() =>
                     {
                         if (!IsActive) return;
-                        SetFocusedAction(leftPressed ? 0 : 1);
+                        MoveFocusedAction(leftPressed ? -1 : 1);
                     });
                 }
 
@@ -843,19 +871,7 @@ namespace Doorpi
                     Dispatcher.Invoke(() =>
                     {
                         if (!IsActive) return;
-                        if (ReferenceEquals(FocusManager.GetFocusedElement(this), _cancelButton) ||
-                            Keyboard.FocusedElement == _cancelButton)
-                        {
-                            _cancelButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                        }
-                        else if (_focusedActionIndex == 0 && _retryButton.Visibility == Visibility.Visible)
-                        {
-                            _retryButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                        }
-                        else
-                        {
-                            _cancelButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                        }
+                        ActivateFocusedAction();
                     });
                 }
                 else if ((pressed & bButton) != 0 &&
@@ -878,16 +894,50 @@ namespace Doorpi
 
         private void FocusCurrentAction()
         {
-            if (_focusedActionIndex == 0 && _retryButton.Visibility == Visibility.Visible)
-                _retryButton.Focus();
-            else
-                _cancelButton.Focus();
+            var buttons = VisibleActionButtons();
+            if (buttons.Count == 0) return;
+
+            var target = buttons.FirstOrDefault(b => FixedActionIndex(b) == _focusedActionIndex) ?? buttons[0];
+            _focusedActionIndex = FixedActionIndex(target);
+            target.Focus();
         }
 
-        private void SetFocusedAction(int index)
+        private void MoveFocusedAction(int delta)
         {
-            _focusedActionIndex = index == 0 && _retryButton.Visibility == Visibility.Visible ? 0 : 1;
+            var buttons = VisibleActionButtons();
+            if (buttons.Count == 0) return;
+
+            var current = buttons.FirstOrDefault(b => ReferenceEquals(Keyboard.FocusedElement, b)) ??
+                          buttons.FirstOrDefault(b => FixedActionIndex(b) == _focusedActionIndex) ??
+                          buttons[0];
+            int currentIndex = Math.Max(0, buttons.IndexOf(current));
+            int nextIndex = Math.Clamp(currentIndex + delta, 0, buttons.Count - 1);
+            _focusedActionIndex = FixedActionIndex(buttons[nextIndex]);
             FocusCurrentAction();
+        }
+
+        private void ActivateFocusedAction()
+        {
+            var focused = FocusManager.GetFocusedElement(this) as Button;
+            if (focused == null || focused.Visibility != Visibility.Visible || !ReferenceEquals(focused.Parent, _actions))
+            {
+                FocusCurrentAction();
+                focused = FocusManager.GetFocusedElement(this) as Button;
+            }
+
+            focused?.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        }
+
+        private List<Button> VisibleActionButtons()
+            => new[] { _retryButton, _returnButton, _cancelButton }
+                .Where(button => button.Visibility == Visibility.Visible)
+                .ToList();
+
+        private int FixedActionIndex(Button button)
+        {
+            if (ReferenceEquals(button, _retryButton)) return 0;
+            if (ReferenceEquals(button, _returnButton)) return 1;
+            return 2;
         }
 
         private double CalculateSpeed(long receivedBytes)

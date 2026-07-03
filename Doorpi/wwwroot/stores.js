@@ -131,7 +131,10 @@ window._storesHandleMessage = (data) => {
         games.forEach(game => {
             if (!game.autoAdded) return;
             const url = game.LaunchUrl || game.launchUrl || game.Path || game.path;
-            if (url) window.newGameIdsThisSession?.add(url);
+            if (url) {
+                window.newGameIdsThisSession?.add(url);
+                window.AppStore?.mutations?.markNew?.(url);
+            }
         });
     }
 };

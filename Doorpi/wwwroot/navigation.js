@@ -1333,6 +1333,53 @@ function primaryJustPressed(buttons, gamepad = NAV.GAMEPAD) {
     return pressed;
 }
 
+function axisDirection(gamepad, threshold = NAV.GAMEPAD.AXIS_THRESHOLD) {
+    const axes = Array.from(gamepad?.axes || []);
+    let bestDir = null;
+    let bestMag = 0;
+    const pairs = [[0, 1], [2, 3], [4, 5]];
+
+    for (const [xIndex, yIndex] of pairs) {
+        const x = Number(axes[xIndex] || 0);
+        const y = Number(axes[yIndex] || 0);
+        const absX = Math.abs(x);
+        const absY = Math.abs(y);
+        const mag = Math.max(absX, absY);
+        if (mag < threshold || mag <= bestMag) continue;
+
+        bestMag = mag;
+        bestDir = absX >= absY ? (x > 0 ? 'RIGHT' : 'LEFT') : (y > 0 ? 'DOWN' : 'UP');
+    }
+
+    for (const value of axes) {
+        if (typeof value !== 'number') continue;
+        if (value > 0.9 || value < -0.9) continue;
+
+        const hat = Math.round(((value + 1) / 2) * 7);
+        const dirs = [
+            'UP', 'UP_RIGHT', 'RIGHT', 'DOWN_RIGHT',
+            'DOWN', 'DOWN_LEFT', 'LEFT', 'UP_LEFT'
+        ];
+        const mapped = dirs[hat];
+        if (!mapped) continue;
+        if (mapped.includes('UP')) return 'UP';
+        if (mapped.includes('DOWN')) return 'DOWN';
+        if (mapped.includes('LEFT')) return 'LEFT';
+        if (mapped.includes('RIGHT')) return 'RIGHT';
+    }
+
+    return bestDir;
+}
+
+function gamepadDirection(gamepad, buttons, threshold = NAV.GAMEPAD.AXIS_THRESHOLD) {
+    const { GAMEPAD } = NAV;
+    if (buttons[GAMEPAD.BTN_RIGHT]?.pressed) return 'RIGHT';
+    if (buttons[GAMEPAD.BTN_LEFT]?.pressed) return 'LEFT';
+    if (buttons[GAMEPAD.BTN_DOWN]?.pressed) return 'DOWN';
+    if (buttons[GAMEPAD.BTN_UP]?.pressed) return 'UP';
+    return axisDirection(gamepad, threshold);
+}
+
 function handleArtworkWizardGamepadShortcuts(buttons) {
     if (isVkbOpenForNavigation() || !window._artworkWizardIsOpen?.()) return false;
 
@@ -1348,15 +1395,63 @@ function handleArtworkWizardGamepadShortcuts(buttons) {
     return false;
 }
 
+function setPrimaryGamepad(gamepad) {
+    if (!gamepad) {
+        _gamepadIndex = null;
+        isGamepadConnected = false;
+        updateGamepadUI(false, _controllerType);
+        window.resetDoorpiGamepadInputState?.();
+        return;
+    }
+
+    _gamepadIndex = gamepad.index;
+    _controllerType = detectControllerType(gamepad);
+    isGamepadConnected = true;
+    updateGamepadUI(true, _controllerType);
+    window.resetDoorpiGamepadInputState?.();
+}
+
+function getConnectedGamepads() {
+    return Array.from(navigator.getGamepads?.() || []).filter(Boolean);
+}
+
+function refreshGamepadPresence() {
+    const first = getConnectedGamepads()[0] || null;
+    isGamepadConnected = !!first;
+    if (first) _controllerType = detectControllerType(first);
+    updateGamepadUI(!!first, _controllerType);
+}
+
+function getPrimaryGamepad() {
+    if (_gamepadIndex === null) return null;
+    return navigator.getGamepads?.()[_gamepadIndex] || null;
+}
+
+function selectFirstAvailableGamepad() {
+    const first = getConnectedGamepads()[0] || null;
+    setPrimaryGamepad(first);
+}
+
+function hasRawGamepadInteraction(gamepad) {
+    if (!gamepad) return false;
+    if (Array.from(gamepad.buttons || []).some(btn => btn?.pressed)) return true;
+    return Array.from(gamepad.axes || []).some(value => Math.abs(Number(value) || 0) >= NAV.GAMEPAD.AXIS_THRESHOLD);
+}
+
+function findInteractingGamepad() {
+    return getConnectedGamepads().find(hasRawGamepadInteraction) || null;
+}
+
 window.addEventListener('gamepadconnected', e => {
-    _gamepadIndex = e.gamepad.index; _controllerType = detectControllerType(e.gamepad);
-    isGamepadConnected = true; updateGamepadUI(true, _controllerType);
+    if (getPrimaryGamepad()) return;
+    refreshGamepadPresence();
 });
 window.addEventListener('gamepaddisconnected', e => {
-    if (e.gamepad.index !== _gamepadIndex) return;
-    _gamepadIndex = null; isGamepadConnected = false; updateGamepadUI(false, _controllerType);
-    const pads = navigator.getGamepads();
-    for (const pad of pads) if (pad) { _gamepadIndex = pad.index; _controllerType = detectControllerType(pad); isGamepadConnected = true; updateGamepadUI(true, _controllerType); break; }
+    if (e.gamepad.index !== _gamepadIndex) {
+        if (!getPrimaryGamepad()) refreshGamepadPresence();
+        return;
+    }
+    selectFirstAvailableGamepad();
 });
 
 
@@ -1370,8 +1465,15 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         // ── NOVO: Se o Doorpi não for a janela ativa no Windows, ignora o controle 100% ──
         if (!window.isDoorpiFocused) return;
 
-        const gamepad = _gamepadIndex !== null ? navigator.getGamepads()[_gamepadIndex] : null;
-        if (!gamepad) return;
+        let gamepad = getPrimaryGamepad();
+        if (!gamepad) {
+            gamepad = findInteractingGamepad();
+            if (gamepad) setPrimaryGamepad(gamepad);
+            else {
+                refreshGamepadPresence();
+                return;
+            }
+        }
 
         if (window.DoorpiIntro?.isRunning?.()) {
             const introButtons = gamepad.buttons;
@@ -1411,7 +1513,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         }
 
         const { GAMEPAD } = NAV, buttons = gamepad.buttons;
-        const ax = gamepad.axes[0], ay = gamepad.axes[1], thr = GAMEPAD.AXIS_THRESHOLD, now = performance.now();
+        const thr = GAMEPAD.AXIS_THRESHOLD, now = performance.now();
 
         if (isWaitingLaunch) {
             if (primaryJustPressed(buttons, GAMEPAD)) {
@@ -1424,20 +1526,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         }
 
         if (isExecutionLock) {
-            let lockDir = null;
-            if (buttons[GAMEPAD.BTN_RIGHT]?.pressed) lockDir = 'RIGHT';
-            else if (buttons[GAMEPAD.BTN_LEFT]?.pressed) lockDir = 'LEFT';
-            else if (buttons[GAMEPAD.BTN_DOWN]?.pressed) lockDir = 'DOWN';
-            else if (buttons[GAMEPAD.BTN_UP]?.pressed) lockDir = 'UP';
-            else {
-                const lockAxisThreshold = Math.max(thr, 0.72);
-                const absX = Math.abs(ax);
-                const absY = Math.abs(ay);
-                if (absX >= lockAxisThreshold || absY >= lockAxisThreshold) {
-                    if (absX >= absY) lockDir = ax > 0 ? 'RIGHT' : 'LEFT';
-                    else lockDir = ay > 0 ? 'DOWN' : 'UP';
-                }
-            }
+            let lockDir = gamepadDirection(gamepad, buttons, Math.max(thr, 0.72));
 
             if (lockDir) {
                 if (_executionLockHeldDir !== lockDir) {
@@ -1463,20 +1552,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         _executionLockHeldDir = null;
 
         if (isSessionConflict) {
-            let conflictDir = null;
-            if (buttons[GAMEPAD.BTN_RIGHT]?.pressed) conflictDir = 'RIGHT';
-            else if (buttons[GAMEPAD.BTN_LEFT]?.pressed) conflictDir = 'LEFT';
-            else if (buttons[GAMEPAD.BTN_DOWN]?.pressed) conflictDir = 'DOWN';
-            else if (buttons[GAMEPAD.BTN_UP]?.pressed) conflictDir = 'UP';
-            else {
-                const conflictAxisThreshold = Math.max(thr, 0.72);
-                const absX = Math.abs(ax);
-                const absY = Math.abs(ay);
-                if (absX >= conflictAxisThreshold || absY >= conflictAxisThreshold) {
-                    if (absX >= absY) conflictDir = ax > 0 ? 'RIGHT' : 'LEFT';
-                    else conflictDir = ay > 0 ? 'DOWN' : 'UP';
-                }
-            }
+            let conflictDir = gamepadDirection(gamepad, buttons, Math.max(thr, 0.72));
 
             if (conflictDir) {
                 if (_sessionConflictHeldDir !== conflictDir) {
@@ -1506,20 +1582,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         _sessionConflictHeldDir = null;
 
         if (isGameFocusFallback) {
-            let fallbackDir = null;
-            if (buttons[GAMEPAD.BTN_RIGHT]?.pressed) fallbackDir = 'RIGHT';
-            else if (buttons[GAMEPAD.BTN_LEFT]?.pressed) fallbackDir = 'LEFT';
-            else if (buttons[GAMEPAD.BTN_DOWN]?.pressed) fallbackDir = 'DOWN';
-            else if (buttons[GAMEPAD.BTN_UP]?.pressed) fallbackDir = 'UP';
-            else {
-                const fallbackAxisThreshold = Math.max(thr, 0.72);
-                const absX = Math.abs(ax);
-                const absY = Math.abs(ay);
-                if (absX >= fallbackAxisThreshold || absY >= fallbackAxisThreshold) {
-                    if (absX >= absY) fallbackDir = ax > 0 ? 'RIGHT' : 'LEFT';
-                    else fallbackDir = ay > 0 ? 'DOWN' : 'UP';
-                }
-            }
+            let fallbackDir = gamepadDirection(gamepad, buttons, Math.max(thr, 0.72));
 
             if (fallbackDir) {
                 if (_gameFocusFallbackHeldDir === null) {
@@ -1546,12 +1609,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
 
         _gameFocusFallbackHeldDir = null;
 
-        let dir = null;
-
-        if (ax > thr || buttons[GAMEPAD.BTN_RIGHT]?.pressed) dir = 'RIGHT';
-        else if (ax < -thr || buttons[GAMEPAD.BTN_LEFT]?.pressed) dir = 'LEFT';
-        else if (ay > thr || buttons[GAMEPAD.BTN_DOWN]?.pressed) dir = 'DOWN';
-        else if (ay < -thr || buttons[GAMEPAD.BTN_UP]?.pressed) dir = 'UP';
+        let dir = gamepadDirection(gamepad, buttons, thr);
 
         if (dir) {
             window._gpNavigating = true;
@@ -1755,14 +1813,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
 })();
 
 window.addEventListener('load', () => {
-    const pads = navigator.getGamepads();
-    for (const pad of pads) if (pad) {
-        _gamepadIndex = pad.index;
-        _controllerType = detectControllerType(pad);
-        isGamepadConnected = true;
-        updateGamepadUI(true, _controllerType);
-        break;
-    }
+    refreshGamepadPresence();
     setTimeout(() => window.focusFeaturedCard(), 600);
 });
 

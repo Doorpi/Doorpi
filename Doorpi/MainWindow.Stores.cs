@@ -20,11 +20,10 @@ namespace Doorpi
         private Process? _storeLauncherProcess;
         private CancellationTokenSource? _storeLauncherWatcherCts;
         private Thread? _storeControllerThread;
-        private Thread? _storeShortcutThread;
         private int _storeSessionId;
-        private bool _storeControllerActive;
         private bool _storeGamepadDisabled;
         private bool _storeMouseModeRequested;
+        private bool _storeMouseModeActive;
         private bool _storeMouseModeInitialized;
         private StoreMinimizeState _storeMinimizeState = StoreMinimizeState.Opening;
         private bool _steamAccountSelectionControlsActive;
@@ -127,7 +126,7 @@ namespace Doorpi
         };
 
         private static bool IsStoreMouseModeDisabledByDefault(string storeId)
-            => storeId.Equals("Xbox", StringComparison.OrdinalIgnoreCase);
+            => false;
 
         private static bool IsStoreMouseModeEnabledByDefault(string storeId)
             => !IsStoreMouseModeDisabledByDefault(storeId);
@@ -1053,7 +1052,7 @@ namespace Doorpi
             StopSteamAccountSelectionControlsForGame();
             ClearStorePendingChildWindows();
             _storeMinimizeState = StoreMinimizeState.StoreChildGameValid;
-            _storeControllerActive = false;
+            _storeMouseModeActive = false;
 
             CancellationTokenSource cts;
             lock (_gameLaunchMonitorLock)
@@ -1135,7 +1134,6 @@ namespace Doorpi
 
             StopSteamAccountSelectionControlsForGame();
             _storeMinimizeState = StoreMinimizeState.StorePendingChild;
-            _storeControllerActive = false;
             _storeChildGameActive = true;
             _storeChildGameStoreId = storeId;
             _storeChildGameId = gameId;
@@ -2380,6 +2378,7 @@ namespace Doorpi
             _isStoreLauncherSession = true;
             _storePausedByDoorpi = false;
             _storeMouseModeRequested = false;
+            _storeMouseModeActive = false;
             _storeMouseModeInitialized = false;
             _storeLauncherWindowSeen = false;
             _storeTrayCloseInProgress = false;
@@ -2426,6 +2425,21 @@ namespace Doorpi
             var card = LoadStoreLaunchers().FirstOrDefault(s => string.Equals(s.Id, storeId, StringComparison.OrdinalIgnoreCase));
             string heroImg = card?.HeroImage ?? "";
             string gridImg = card?.GridImage ?? "";
+            string? resolvedLauncherExe = ResolveStoreLauncherExe(store.Id);
+
+            if (string.IsNullOrWhiteSpace(resolvedLauncherExe) &&
+                StoreDownloadUrls.TryGetValue(store.Id, out string? downloadUrl) &&
+                !string.IsNullOrWhiteSpace(downloadUrl))
+            {
+                if (HasBlockingSessionForStoreDownload())
+                {
+                    PromptStoreDownloadBlockedBySessions(store.Id, downloadUrl, store.Name);
+                    return;
+                }
+
+                await OpenStoreDownloadSiteAsync(store.Id, downloadUrl, store.Name).ConfigureAwait(false);
+                return;
+            }
 
             if (_isStoreLauncherSession)
             {
@@ -2464,7 +2478,7 @@ namespace Doorpi
                 catch { }
             }
             BeginStoreLauncherSession(store.Id);
-            _storeLauncherExe = ResolveStoreLauncherExe(store.Id);
+            _storeLauncherExe = resolvedLauncherExe;
 
             SuspendMainUiGamepadForGameLaunch();
             if (string.Equals(store.Id, "Xbox", StringComparison.OrdinalIgnoreCase))
@@ -2582,7 +2596,7 @@ namespace Doorpi
             if (hwnd != IntPtr.Zero)
             {
                 _storePausedByDoorpi = true;
-                _storeControllerActive = false;
+                _storeMouseModeActive = false;
                 _gameIsMinimized = false;
                 _gameIsRunningAndDoorpiHidden = true;
                 ClearExecutionLock();
@@ -3494,7 +3508,7 @@ namespace Doorpi
             _storePausedByDoorpi = false;
             _storeMouseModeRequested = startMouseMode;
             _storeGamepadDisabled = !startMouseMode;
-            _storeControllerActive = startMouseMode;
+            _storeMouseModeActive = startMouseMode;
             int sessionId = Interlocked.Increment(ref _storeSessionId);
             var watcherCts = _storeLauncherWatcherCts;
             var watcherToken = watcherCts?.Token ?? CancellationToken.None;
@@ -3526,8 +3540,6 @@ namespace Doorpi
                     CenterCursorOnScreen();
                     UpdateHoverStateInWebView();
                 });
-                _storeControllerThread = new Thread(() => StoreExeControllerLoop(sessionId)) { IsBackground = true };
-                _storeControllerThread.Start();
             }
             SendRuntimeSessionsToUI();
         }
@@ -3670,9 +3682,8 @@ namespace Doorpi
 
                         if (!IsForegroundDoorpi() &&
                             (_executionLockActive ||
-                             _storeShortcutThread?.IsAlive != true ||
-                             (!_storeGamepadDisabled &&
-                              (_storeControllerThread?.IsAlive != true || !_storeControllerActive))))
+                             _storeControllerThread?.IsAlive != true ||
+                             (!_storeGamepadDisabled && !_storeMouseModeActive)))
                         {
                             Dispatcher.Invoke(ReactivateStoreControlsForForeground);
                         }
@@ -3691,7 +3702,7 @@ namespace Doorpi
             if (!CanMinimizeStoreSession()) return;
 
             _storePausedByDoorpi = true;
-            _storeControllerActive = false;
+            _storeMouseModeActive = false;
 
            
             _mainUiGamepadSuspendedForGame = false;
@@ -4278,20 +4289,13 @@ namespace Doorpi
             }
 
             _storeGamepadDisabled = !_storeMouseModeRequested;
-            _storeControllerActive = _storeMouseModeRequested;
+            _storeMouseModeActive = _storeMouseModeRequested;
             EnsureStoreShortcutThread(_storeSessionId);
 
             if (_storeMouseModeRequested)
             {
                 EnsureCursorVisible();
                 _mainScreenMouseVisible = true;
-            }
-
-            int sessionId = _storeSessionId;
-            if (_storeMouseModeRequested && _storeControllerThread?.IsAlive != true)
-            {
-                _storeControllerThread = new Thread(() => StoreExeControllerLoop(sessionId)) { IsBackground = true };
-                _storeControllerThread.Start();
             }
 
             SendRuntimeSessionsToUI();
@@ -4337,9 +4341,9 @@ namespace Doorpi
             _storeAttachedProcessIds.Clear();
             _storeAttachedWindowHandles.Clear();
             ClearStorePendingChildWindows();
-            _storeControllerActive = false;
             _storeGamepadDisabled = false;
             _storeMouseModeRequested = false;
+            _storeMouseModeActive = false;
             _storeMouseModeInitialized = false;
             _storeMinimizeState = StoreMinimizeState.Opening;
             ResetStoreMinimizeGrace();
@@ -4414,8 +4418,8 @@ namespace Doorpi
             _storeChildGameStoreId = "";
             _storeChildGameId = "";
             ClearStorePendingChildWindows();
-            _storeControllerActive = false;
             _storeMouseModeRequested = false;
+            _storeMouseModeActive = false;
             _storeMouseModeInitialized = false;
             _storeMinimizeState = StoreMinimizeState.Opening;
             ResetStoreMinimizeGrace();
@@ -4715,6 +4719,13 @@ namespace Doorpi
                     changed = true;
                 }
                 else if (string.Equals(id, "GOG", StringComparison.OrdinalIgnoreCase) &&
+                         entry.DisableGamepadControlConfigured &&
+                         entry.DisableGamepadControl)
+                {
+                    entry.DisableGamepadControl = false;
+                    changed = true;
+                }
+                else if (string.Equals(id, "Xbox", StringComparison.OrdinalIgnoreCase) &&
                          entry.DisableGamepadControlConfigured &&
                          entry.DisableGamepadControl)
                 {
@@ -5025,17 +5036,11 @@ namespace Doorpi
                             if (sub == null) continue;
 
                             string displayName = sub.GetValue("DisplayName") as string ?? "";
-                            string publisher = sub.GetValue("Publisher") as string ?? "";
                             string icon = sub.GetValue("DisplayIcon") as string ?? "";
                             string installLocation = sub.GetValue("InstallLocation") as string ?? "";
 
-                            bool isGogGalaxy =
-                                displayName.Contains("GOG Galaxy", StringComparison.OrdinalIgnoreCase) ||
-                                displayName.Contains("GOG GALAXY", StringComparison.OrdinalIgnoreCase) ||
-                                publisher.Contains("GOG", StringComparison.OrdinalIgnoreCase) ||
-                                icon.Contains("GalaxyClient.exe", StringComparison.OrdinalIgnoreCase);
-
-                            if (!isGogGalaxy) continue;
+                            if (!IsGogGalaxyUninstallEntry(displayName, icon, installLocation))
+                                continue;
 
                             AddCandidate(installLocation);
                             AddCandidate(icon);
@@ -5049,6 +5054,16 @@ namespace Doorpi
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .FirstOrDefault(File.Exists);
+        }
+
+        private static bool IsGogGalaxyUninstallEntry(string displayName, string icon, string installLocation)
+        {
+            return displayName.Equals("GOG Galaxy", StringComparison.OrdinalIgnoreCase) ||
+                   displayName.Equals("GOG GALAXY", StringComparison.OrdinalIgnoreCase) ||
+                   displayName.Contains("GOG Galaxy", StringComparison.OrdinalIgnoreCase) ||
+                   displayName.Contains("GOG GALAXY", StringComparison.OrdinalIgnoreCase) ||
+                   icon.Contains("GalaxyClient.exe", StringComparison.OrdinalIgnoreCase) ||
+                   installLocation.Contains("GOG Galaxy", StringComparison.OrdinalIgnoreCase);
         }
 
         private static string? ResolveRiotExe()

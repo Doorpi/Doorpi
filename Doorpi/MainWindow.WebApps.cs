@@ -64,6 +64,8 @@ namespace Doorpi
         private const ushort XI_B = 0x2000;
         private const ushort XI_X = 0x4000;
         private const ushort XI_Y = 0x8000;
+        private const int VK_ESCAPE = 0x1B;
+        private const int VK_HOME = 0x24;
 
         // ── Campos ────────────────────────────────────────────────────────────
 
@@ -74,6 +76,8 @@ namespace Doorpi
         private const string YT_TV_URL = "https://www.youtube.com/tv";
         private const string DoorpiBrowserAppId = "doorpi-browser";
         private const string DoorpiBrowserHomeUrl = "https://www.google.com";
+        private volatile bool _webKeyboardBackHeld;
+        private int _webKeyboardHomeRequested;
         private static readonly HttpClient _ytHttp = new();
         // ── EasyList ──────────────────────────────────────────────────────────────
         private static readonly HashSet<string> _easyListDomains = new(StringComparer.OrdinalIgnoreCase);
@@ -2386,6 +2390,7 @@ namespace Doorpi
                 ResetNativeVkbHolds();
                 bHoldActive = false;
                 bCloseFired = false;
+                _webKeyboardBackHeld = false;
                 HideWebAppCloseHoldOverlay();
             }
 
@@ -2501,6 +2506,14 @@ namespace Doorpi
                 {
                     var gp = state.Gamepad;
                     ushort btn = gp.wButtons;
+                    if (gp.bRightTrigger > 128)
+                        btn |= XI_A;
+                    if (_webKeyboardBackHeld || (GetAsyncKeyState(VK_ESCAPE) & 0x8000) != 0)
+                        btn |= XI_B;
+                    if (Interlocked.Exchange(ref _webKeyboardHomeRequested, 0) == 1 ||
+                        (GetAsyncKeyState(VK_HOME) & 0x8000) != 0)
+                        btn |= XI_GUIDE;
+
                     long nowMs = Environment.TickCount64;
                     if (ShouldLogMediaControllerHeartbeat(5000))
                         LogMediaControllerDiagnostic("loop-heartbeat", btn, prevButtons);
@@ -4047,10 +4060,15 @@ namespace Doorpi
 
     // ── 4. FECHAR COM ESC ────────────────────────────────────────────────────
     window.addEventListener('keydown', function(e) {{
+        if (e.key !== 'Escape' && e.key !== 'Home') return;
+        try {{ e.preventDefault(); e.stopImmediatePropagation(); }} catch(_) {{}}
+        if (e.key === 'Escape' && window._vkbIsOpen) {{ _vkbClose(); return; }}
+        try {{ window.chrome.webview.postMessage(e.key === 'Home' ? 'web_keyboard_home' : 'web_keyboard_back_down'); }} catch(_) {{}}
+    }}, true);
+    window.addEventListener('keyup', function(e) {{
         if (e.key !== 'Escape') return;
         try {{ e.preventDefault(); e.stopImmediatePropagation(); }} catch(_) {{}}
-        if (window._vkbIsOpen) {{ _vkbClose(); return; }}
-        try {{ window.chrome.webview.postMessage('close_app'); }} catch(_) {{}}
+        try {{ window.chrome.webview.postMessage('web_keyboard_back_up'); }} catch(_) {{}}
     }}, true);
 
     // ── 5. BOTÃO CHROME WEB STORE ────────────────────────────────────────────
@@ -6525,6 +6543,7 @@ namespace Doorpi
             _ytWebView.CoreWebView2.Navigate(url);
             _ytWebView.Focus();
             _ytWebView.KeyDown += YtOnKeyDown;
+            _ytWebView.KeyUp += YtOnKeyUp;
             if (isGenericBrowser)
                 _ytWebView.GotFocus += OnGenericBrowserMainWebViewGotFocus;
 
@@ -6667,7 +6686,8 @@ namespace Doorpi
                 catch { }
             }
 
-            ytWebView.KeyDown -= YtOnKeyDown;
+                    ytWebView.KeyDown -= YtOnKeyDown;
+                    ytWebView.KeyUp -= YtOnKeyUp;
             ytWebView.GotFocus -= OnGenericBrowserMainWebViewGotFocus;
             if (coreWebView != null)
             {
@@ -6808,7 +6828,21 @@ namespace Doorpi
 
         private void YtOnKeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Key == Key.Escape || e.Key == Key.BrowserBack)
+            if (e.Key == Key.Home)
+            {
+                Interlocked.Exchange(ref _webKeyboardHomeRequested, 1);
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.Escape)
+            {
+                _webKeyboardBackHeld = true;
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.BrowserBack)
             {
                 if (HandleGenericBrowserExtensionsBack())
                 {
@@ -6824,6 +6858,15 @@ namespace Doorpi
                         _ytWebView.CoreWebView2.GoBack();
                     }
                 }
+            }
+        }
+
+        private void YtOnKeyUp(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Escape)
+            {
+                _webKeyboardBackHeld = false;
+                e.Handled = true;
             }
         }
 
@@ -6931,6 +6974,18 @@ namespace Doorpi
             if (msg == "player_loaded")
             {
                 Dispatcher.Invoke(() => { if (_ytWebView != null) _ytWebView.ZoomFactor = 1.0; });
+            }
+            else if (msg == "web_keyboard_back_down")
+            {
+                _webKeyboardBackHeld = true;
+            }
+            else if (msg == "web_keyboard_back_up")
+            {
+                _webKeyboardBackHeld = false;
+            }
+            else if (msg == "web_keyboard_home")
+            {
+                Interlocked.Exchange(ref _webKeyboardHomeRequested, 1);
             }
             else if (msg == "close_app")
             {

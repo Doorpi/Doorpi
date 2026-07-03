@@ -84,7 +84,7 @@ namespace Doorpi
                 }
                 catch
                 {
-                    // Configuracao invalida apenas cai no default.
+                    // Configuração inválida apenas cai no default.
                 }
             }
 
@@ -126,7 +126,7 @@ namespace Doorpi
                 }
                 catch
                 {
-                    // Configuracao invalida apenas cai nas regras padrao.
+                    // Configuração inválida apenas cai nas regras padrão.
                 }
             }
 
@@ -183,13 +183,13 @@ namespace Doorpi
             await _updateCheckLock.WaitAsync().ConfigureAwait(false);
             try
             {
-                SendUpdateStatusToUI("checking", "Verificando atualizacoes...", null);
+                SendUpdateStatusToUI("checking", "Verificando atualizações...", null);
 
                 string manifestUrl = GetConfiguredManifestUrl();
                 if (string.IsNullOrWhiteSpace(manifestUrl)
                     || manifestUrl.Contains("example.com", StringComparison.OrdinalIgnoreCase))
                 {
-                    SendUpdateStatusToUI("not-configured", "Canal de atualizacao ainda nao configurado.", null);
+                    SendUpdateStatusToUI("not-configured", "Canal de atualização ainda não configurado.", null);
                     return;
                 }
 
@@ -197,7 +197,7 @@ namespace Doorpi
                 bool isLocalManifest = TryGetManifestFilePath(manifestUrl, out string manifestFilePath);
                 var policy = UpdateSecurityPolicy.Current;
                 if (isLocalManifest && !policy.AllowLocalManifest)
-                    throw new InvalidDataException("Manifesto local nao permitido em build de producao.");
+                    throw new InvalidDataException("Manifesto local não permitido em build de produção.");
 
                 if (isLocalManifest)
                 {
@@ -206,7 +206,7 @@ namespace Doorpi
                 else
                 {
                     if (!Uri.TryCreate(manifestUrl, UriKind.Absolute, out var manifestUri))
-                        throw new InvalidDataException("URL do manifesto invalida.");
+                        throw new InvalidDataException("URL do manifesto inválida.");
 
                     var client = new UpdateManifestClient(updateHttpClient);
                     manifest = await client.GetManifestAsync(manifestUri).ConfigureAwait(false);
@@ -247,7 +247,7 @@ namespace Doorpi
 
                 string status = decision.HasAnyUpdate ? "available" : "up-to-date";
                 string message = decision.HasAnyUpdate
-                    ? "Atualizacao disponivel."
+                    ? "Atualização disponível."
                     : "Sistema atualizado.";
                 SendUpdateStatusToUI(status, message, decision);
 
@@ -258,10 +258,10 @@ namespace Doorpi
             }
             catch (Exception ex)
             {
-                Debug.WriteLine("[Updates] Falha ao verificar atualizacoes: " + ex);
+                Debug.WriteLine("[Updates] Falha ao verificar atualizações: " + ex);
                 SendUpdateStatusToUI("error", userInitiated
-                    ? "Nao foi possivel verificar atualizacoes."
-                    : "Verificacao de atualizacao falhou em segundo plano.", _lastUpdateDecision);
+                    ? "Não foi possível verificar atualizações."
+                    : "Verificação de atualização falhou em segundo plano.", _lastUpdateDecision);
             }
             finally
             {
@@ -306,22 +306,22 @@ namespace Doorpi
                 }
 
                 SendUpdateStatusToUI("complete", "Componentes do sistema atualizados.", decision);
-                ShowUpdateProgress("Atualizacao concluida", "Componentes do sistema atualizados.", 1);
+                ShowUpdateProgress("Atualização concluída", "Componentes do sistema atualizados.", 1);
                 await Task.Delay(900).ConfigureAwait(false);
                 CloseUpdateProgress();
             }
             catch (Exception ex)
             {
-                Debug.WriteLine("[Updates] Falha ao iniciar atualizacao: " + ex);
-                SendUpdateStatusToUI("error", "Falha ao aplicar atualizacao: " + ex.Message, _lastUpdateDecision);
+                Debug.WriteLine("[Updates] Falha ao iniciar atualização: " + ex);
+                SendUpdateStatusToUI("error", "Falha ao aplicar atualização: " + ex.Message, _lastUpdateDecision);
             }
         }
 
         private async Task InstallUpdaterUpdateAsync(ComponentRelease release)
         {
-            SendUpdateStatusToUI("downloading", "Baixando atualizacao do Updater...", _lastUpdateDecision);
+            SendUpdateStatusToUI("downloading", "Baixando atualização do Updater...", _lastUpdateDecision);
             ShowUpdateProgress("Atualizando componentes do sistema...",
-                "Baixando atualizacao do Updater...",
+                "Baixando atualização do Updater...",
                 0.16);
 
             Directory.CreateDirectory(DoorpiRuntimePaths.UpdatesFolder);
@@ -342,7 +342,7 @@ namespace Doorpi
                 DoorpiRuntimePaths.DownloadsFolder,
                 fileName,
                 new Progress<double>(p => ShowUpdateProgress("Atualizando componentes do sistema...",
-                    "Baixando atualizacao do Updater...",
+                    "Baixando atualização do Updater...",
                     0.16 + (p * 0.34))),
                 cancellationToken: CancellationToken.None).ConfigureAwait(false);
 
@@ -378,13 +378,13 @@ namespace Doorpi
         private async Task LaunchUpdaterForDoorpiAsync(UpdateDecision decision)
         {
             if (decision.Manifest == null)
-                throw new InvalidOperationException("Manifesto nao carregado.");
+                throw new InvalidOperationException("Manifesto não carregado.");
 
             UpdateManifestClient.SaveToFile(decision.Manifest, ManifestCachePath);
 
             string updaterPath = GetUpdaterExecutablePath();
             if (!File.Exists(updaterPath))
-                throw new FileNotFoundException("Updater.exe nao encontrado.", updaterPath);
+                throw new FileNotFoundException("Updater.exe não encontrado.", updaterPath);
 
             string readySignal = Path.Combine(DoorpiRuntimePaths.UpdatesFolder, $"updater-ready-{Guid.NewGuid():N}.signal");
             if (File.Exists(readySignal)) File.Delete(readySignal);
@@ -420,7 +420,7 @@ namespace Doorpi
                 await Task.Delay(100).ConfigureAwait(false);
 
             if (!File.Exists(readySignal))
-                throw new TimeoutException("O Updater nao sinalizou prontidao.");
+                throw new TimeoutException("O Updater não sinalizou prontidão.");
 
             Dispatcher.Invoke(() =>
             {
@@ -444,7 +444,7 @@ namespace Doorpi
                     bool healthyVersion = !UpdateVersionComparer.IsRemoteNewer(state.TargetVersion, DoorpiVersion);
                     if (!healthyVersion)
                     {
-                        state.Error = $"Versao iniciada ({DoorpiVersion}) nao corresponde ao alvo ({state.TargetVersion}).";
+                        state.Error = $"Versão iniciada ({DoorpiVersion}) não corresponde ao alvo ({state.TargetVersion}).";
                         state.Phase = "doorpi-health-check-failed";
                         stateStore.Save(state);
                         return;
@@ -507,12 +507,12 @@ namespace Doorpi
             if (_lastUpdateDecision != null)
             {
                 SendUpdateStatusToUI(_lastUpdateDecision.HasAnyUpdate ? "available" : "up-to-date",
-                    _lastUpdateDecision.HasAnyUpdate ? "Atualizacao disponivel." : "Sistema atualizado.",
+                    _lastUpdateDecision.HasAnyUpdate ? "Atualização disponível." : "Sistema atualizado.",
                     _lastUpdateDecision);
                 return;
             }
 
-            SendUpdateStatusToUI("idle", "Atualizacoes ainda nao verificadas.", null);
+            SendUpdateStatusToUI("idle", "Atualizações ainda não verificadas.", null);
         }
 
         private async Task RefreshWindowsUpdateStatusAsync(bool scan)

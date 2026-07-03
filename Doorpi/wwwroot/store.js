@@ -235,6 +235,16 @@ window.AppStore = (() => {
             _notify(channel, { type: 'remove', id });
         },
 
+        markNew(id) {
+            if (!id) return;
+            _state.newIds.add(id);
+            ['games', 'media'].forEach(channel => {
+                if (_state[channel].some(item => item.id === id || item.path === id || item.launchUrl === id || item.url === id)) {
+                    _notify(channel, { type: 'refresh-new-state' });
+                }
+            });
+        },
+
         trackOpened(id) {
             ['games', 'media'].forEach(channel => {
                 const idx = _state[channel].findIndex(i => i.id === id);

@@ -61,6 +61,12 @@ window.GridController = (() => {
                 case 'update':
                     CardRenderer.applyPatch(mutation.id, mutation.patch, el);
                     break;
+                case 'refresh-new-state':
+                    el.querySelectorAll('.card:not(.add-card):not(.loading-card)').forEach(card => {
+                        const id = card.dataset.id;
+                        card.classList.toggle('new-game', !!id && window.AppStore.queries.isNew(id));
+                    });
+                    break;
             }
         });
     }

@@ -23,18 +23,18 @@ public partial class MainWindow : Window
     {
         Activate();
         Focus();
-        SetStatus("Atualizando componentes do sistema...", "Preparando ambiente seguro de atualizacao.", 0.12);
+        SetStatus("Atualizando componentes do sistema...", "Preparando ambiente seguro de atualização.", 0.12);
 
         if (_options.Mode.Equals("update-doorpi", StringComparison.OrdinalIgnoreCase))
         {
             SetStatus("Atualizando Doorpi...",
-                "Aguardando o Doorpi finalizar para aplicar o pacote com seguranca.",
+                "Aguardando o Doorpi finalizar para aplicar o pacote com segurança.",
                 0.12);
             _ = RunDoorpiUpdateAsync();
         }
         else
         {
-            SetStatus("Doorpi Updater", "Nenhuma operacao de update foi informada.", 0);
+            SetStatus("Doorpi Updater", "Nenhuma operação de update foi informada.", 0);
         }
 
         SignalReady();
@@ -53,16 +53,16 @@ public partial class MainWindow : Window
 
             await WaitForParentExitAsync();
 
-            SetStatus("Lendo manifesto de atualizacao...", 0.12);
+            SetStatus("Lendo manifesto de atualização...", 0.12);
             if (string.IsNullOrWhiteSpace(_options.ManifestCachePath) || !File.Exists(_options.ManifestCachePath))
-                throw new FileNotFoundException("Manifesto cacheado nao encontrado.", _options.ManifestCachePath);
+                throw new FileNotFoundException("Manifesto cacheado não encontrado.", _options.ManifestCachePath);
 
             var manifest = UpdateManifestClient.LoadFromFile(_options.ManifestCachePath);
             ValidateCachedManifest(manifest, installFolder);
 
             var release = manifest.Doorpi;
             if (string.IsNullOrWhiteSpace(release.Version))
-                throw new InvalidDataException("Manifesto sem versao do Doorpi.");
+                throw new InvalidDataException("Manifesto sem versão do Doorpi.");
 
             state = new UpdateOperationState
             {
@@ -102,11 +102,11 @@ public partial class MainWindow : Window
             if (File.Exists(state.HealthSignalPath))
                 File.Delete(state.HealthSignalPath);
             stateStore.Save(state);
-            SetStatus("Concluido. Reiniciando Doorpi para validacao...", 0.92);
+            SetStatus("Concluído. Reiniciando Doorpi para validação...", 0.92);
 
             await Task.Delay(900);
             if (!File.Exists(doorpiExe))
-                throw new FileNotFoundException("Doorpi.exe nao encontrado apos update.", doorpiExe);
+                throw new FileNotFoundException("Doorpi.exe não encontrado após update.", doorpiExe);
 
             var startInfo = new ProcessStartInfo
             {
@@ -118,16 +118,16 @@ public partial class MainWindow : Window
             startInfo.Environment["DOORPI_UPDATE_HEALTH_SIGNAL"] = state.HealthSignalPath;
             launchedDoorpi = Process.Start(startInfo);
 
-            SetStatus("Aguardando o Doorpi confirmar inicializacao saudavel...", 0.96);
+            SetStatus("Aguardando o Doorpi confirmar inicialização saudável...", 0.96);
             bool healthy = await WaitForHealthSignalAsync(state.HealthSignalPath, launchedDoorpi, TimeSpan.FromSeconds(30));
             if (!healthy)
-                throw new InvalidDataException("O Doorpi atualizado nao confirmou inicializacao saudavel.");
+                throw new InvalidDataException("O Doorpi atualizado não confirmou inicialização saudável.");
 
             state.Phase = "succeeded";
             stateStore.Save(state);
             stateStore.Clear();
 
-            SetStatus("Atualizacao concluida.", 1);
+            SetStatus("Atualização concluída.", 1);
             await Task.Delay(800);
             Dispatcher.Invoke(() => Application.Current.Shutdown());
         }
@@ -173,7 +173,7 @@ public partial class MainWindow : Window
                 Debug.WriteLine("[Updater] Falha no rollback: " + rollbackEx);
             }
 
-            SetStatus("Nao foi possivel concluir a atualizacao: " + ex.Message, 1);
+            SetStatus("Não foi possível concluir a atualização: " + ex.Message, 1);
         }
     }
 
@@ -291,13 +291,13 @@ public partial class MainWindow : Window
         try
         {
             using var process = Process.GetProcessById(_options.ParentProcessId);
-            SetStatus("Aguardando o Doorpi encerrar com seguranca...", 0.10);
+            SetStatus("Aguardando o Doorpi encerrar com segurança...", 0.10);
             while (!process.HasExited)
                 await Task.Delay(150);
         }
         catch (ArgumentException)
         {
-            // Processo ja encerrou.
+            // Processo já encerrou.
         }
     }
 
@@ -313,7 +313,7 @@ public partial class MainWindow : Window
         }
         catch
         {
-            // A falha do sinal nao deve derrubar a tela de update.
+            // A falha do sinal não deve derrubar a tela de update.
         }
     }
 

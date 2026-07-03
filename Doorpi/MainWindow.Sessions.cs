@@ -36,6 +36,7 @@ namespace Doorpi
             public Process? Process;
             public string Url = "";
             public bool ControllerActive;
+            public bool MouseModeActive;
             public bool WatcherPaused;
             public bool GamepadDisabled;
             public bool MouseModeRequested;
@@ -301,8 +302,8 @@ namespace Doorpi
 
         private bool _mediaExeModeActive
         {
-            get => ActiveExecutableAppSession?.ControllerActive == true;
-            set => EnsureExecutableAppSession().ControllerActive = value;
+            get => ActiveExecutableAppSession?.MouseModeActive == true;
+            set => EnsureExecutableAppSession().MouseModeActive = value;
         }
 
         private Thread? _mediaExeThread

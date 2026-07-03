@@ -9,10 +9,10 @@
             background: '#07071a',
             vignette: 'radial-gradient(circle at 50% 50%, transparent 25%, rgba(0, 0, 18, 0.85) 95%)',
             colors: [
-                'rgba(15,25,85,0.7)', 'rgba(10,30,85,0.7)',
-                'rgba(25,15,70,0.7)', 'rgba(5,40,75,0.7)',
-                'rgba(20,20,90,0.6)', 'rgba(15,35,70,0.6)',
-                'rgba(10,15,60,0.7)', 'rgba(30,20,80,0.6)'
+                'rgba(45,65,185,0.86)', 'rgba(28,85,210,0.78)',
+                'rgba(70,50,165,0.82)', 'rgba(22,110,175,0.72)',
+                'rgba(90,70,195,0.70)', 'rgba(30,130,190,0.68)',
+                'rgba(110,140,190,0.50)', 'rgba(80,110,220,0.58)'
             ]
         }
     };
@@ -34,6 +34,7 @@
         handoffStyleEl: null,
         handoffBodyClasses: [],
         bootMode: Number(window.__doorpiBootMode || 0),
+        nativeIntro: window.__doorpiUseNativeIntro === true,
         consoleIntroSkippable: window.__doorpiConsoleShellIntroSkippable === true,
         consoleExplorerReady: window.__doorpiConsoleShellExplorerReady === true,
         systemPrepOverlay: null,
@@ -181,6 +182,10 @@
 
     function isConsoleShellMode() {
         return Number(state.bootMode || window.__doorpiBootMode || 0) === 2;
+    }
+
+    function isNativeIntroMode() {
+        return state.nativeIntro === true || window.__doorpiUseNativeIntro === true;
     }
 
     function isConsoleShellPending() {
@@ -334,10 +339,10 @@
         layer.innerHTML = '<div class="doorpi-intro-ambient-vig"></div>';
         document.body.appendChild(layer);
 
-        const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
-        const ratio = Math.max(1, window.innerWidth / Math.max(1, window.innerHeight));
         state.ambientBlobs = [];
 
+        const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+        const ratio = Math.max(1, window.innerWidth / Math.max(1, window.innerHeight));
         for (let i = 0; i < Math.max(4, colors.length); i++) {
             const blob = document.createElement('div');
             blob.className = 'doorpi-intro-ambient-blob';
@@ -353,11 +358,33 @@
 
         state.ambient = layer;
         requestAnimationFrame(() => layer.classList.add('is-active'));
-        runAmbientPhysics();
+        if (state.ambientBlobs.length) runAmbientPhysics();
+    }
+
+    function createNativeHandoffAmbient() {
+        createAmbient({
+            background: '#07071a',
+            vignette: 'radial-gradient(circle at 50% 50%, transparent 25%, rgba(0,0,18,0.85) 95%)',
+            colors: [
+                'rgba(15,25,85,0.7)', 'rgba(10,30,85,0.7)',
+                'rgba(25,15,70,0.7)', 'rgba(5,40,75,0.7)',
+                'rgba(20,20,90,0.6)', 'rgba(15,35,70,0.6)',
+                'rgba(10,15,60,0.7)', 'rgba(30,20,80,0.6)'
+            ],
+            userPicker: {
+                transparentBackdrop: true
+            }
+        });
     }
 
     function skipIntro() {
         if (!state.started || state.completed) return false;
+        if (isNativeIntroMode()) {
+            try {
+                window.chrome?.webview?.postMessage(JSON.stringify({ action: 'nativeIntroSkip' }));
+            } catch { }
+            return true;
+        }
         if (isConsoleShellSkipPending()) return false;
         createAmbient();
         completeIntro('skip', true);
@@ -418,6 +445,7 @@
         clearHandoffAssets();
 
         revealMainSystemUI();
+        try { window._startBlobBg?.(); } catch { }
 
         if (state.ambientRaf) cancelAnimationFrame(state.ambientRaf);
         state.ambientRaf = 0;
@@ -442,6 +470,13 @@
         if (type === 'doorpi:intro:handoff') createAmbient(typeof data === 'object' ? data.handoff : {});
         else if (type === 'doorpi:intro:complete') completeIntro('message');
         else if (type === 'doorpi:intro:error') { state.failed = true; completeIntro('error'); }
+        else if (type === 'nativeBootIntroComplete') {
+            window.__doorpiNativeIntroComplete = true;
+            if (isNativeIntroMode()) {
+                createNativeHandoffAmbient();
+                completeIntro('native', true);
+            }
+        }
     }
 
     function handleHostMessage(event) {
@@ -454,6 +489,15 @@
         if (data.type === 'bootModeState') {
             state.bootMode = Number(data.mode || 0);
             window.__doorpiBootMode = state.bootMode;
+            return;
+        }
+
+        if (data.type === 'nativeBootIntroComplete') {
+            window.__doorpiNativeIntroComplete = true;
+            if (isNativeIntroMode()) {
+                createNativeHandoffAmbient();
+                completeIntro('native', true);
+            }
             return;
         }
 
@@ -484,11 +528,21 @@
         if (state.started) return;
         state.started = true;
         state.bootMode = Number(window.__doorpiBootMode || state.bootMode || 0);
+        state.nativeIntro = window.__doorpiUseNativeIntro === true || state.nativeIntro === true;
         state.consoleIntroSkippable = window.__doorpiConsoleShellIntroSkippable === true || state.consoleIntroSkippable === true;
         state.consoleExplorerReady = window.__doorpiConsoleShellExplorerReady === true || state.consoleExplorerReady === true;
 
         injectStyles();
         installInputGuards();
+
+        if (isNativeIntroMode()) {
+            state.config = { ...DEFAULT_CONFIG, enabled: false, exitFadeMs: 0 };
+            if (window.__doorpiNativeIntroComplete === true) {
+                createNativeHandoffAmbient();
+                completeIntro('native-ready', true);
+            }
+            return;
+        }
 
         // Use o await para esperar a leitura do JSON que criamos acima
         state.config = await fetchIntroConfig();

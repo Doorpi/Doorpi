@@ -178,6 +178,12 @@ namespace Doorpi
         private readonly object _gamesFileLock = new();
 
         private string _currentToastTitle = "";
+        private bool _useNativeBootIntro = false;
+        private BootIntroWindow? _nativeBootIntroWindow;
+        private int _nativeBootIntroVisualComplete = 0;
+        private int _nativeBootIntroHandoffComplete = 0;
+        private int _nativeBootIntroPreparingShown = 0;
+        private int _homeNavigationCompleted = 0;
         private string _currentToastSub = "";
 
         private string _vkbStrBackspace = "Apagar";
@@ -433,6 +439,9 @@ namespace Doorpi
         }
         public MainWindow()
         {
+            _useNativeBootIntro = ShouldUseNativeBootIntro();
+            StartNativeBootIntroIfNeeded();
+            DoorpiBootDiagnostics.Log("mainwindow-constructor-start");
             RegisterProtocolAndAppId();
             DiscordRpcManager.Instance.Initialize();
             _ = LoadEasyListAsync();
@@ -453,6 +462,7 @@ namespace Doorpi
             SourceInitialized += (_, _) =>
             {
                 _mainWindowHandle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                DoorpiBootDiagnostics.Log("mainwindow-source-initialized", $"hwnd=0x{_mainWindowHandle.ToInt64():X}");
                 InitializeSmtc();
             };
             this.Activated += (s, e) =>
@@ -625,10 +635,8 @@ namespace Doorpi
 
             InitializeUserStorage();
 
-            InitializeAsync();
-            StartMainUiGamepadNavigation();
-            EnsureCursorHidden();
-            StartMainScreenMouseWatch();
+            DoorpiBootDiagnostics.Log("mainwindow-constructor-ready", $"bootMode={GetBootMode()} locked={DoorpiBootDiagnostics.IsWorkstationLocked()}");
+            StartDoorpiRuntimeWhenSessionUnlocked();
             this.PreviewMouseDown += (s, e) =>
             {
                 if (_systemControllerActive) ExitDesktopMode();
@@ -642,6 +650,158 @@ namespace Doorpi
             };
 
         }
+        private bool ShouldUseNativeBootIntro()
+        {
+            return true;
+        }
+
+        private void StartNativeBootIntroIfNeeded()
+        {
+            if (!_useNativeBootIntro)
+                return;
+
+            try
+            {
+                _nativeBootIntroWindow = new BootIntroWindow();
+                _ = RunNativeBootIntroAsync();
+            }
+            catch (Exception ex)
+            {
+                DoorpiBootDiagnostics.Log("native-intro-start-error", ex.Message);
+                _useNativeBootIntro = false;
+            }
+        }
+
+        private async Task RunNativeBootIntroAsync()
+        {
+            try
+            {
+                if (_nativeBootIntroWindow == null)
+                    return;
+
+                await _nativeBootIntroWindow.RunIntroAsync();
+            }
+            catch (Exception ex)
+            {
+                DoorpiBootDiagnostics.Log("native-intro-run-error", ex.Message);
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _nativeBootIntroVisualComplete, 1);
+                TryCompleteNativeBootIntroHandoff();
+            }
+        }
+
+        private void TryCompleteNativeBootIntroHandoff()
+        {
+            if (!_useNativeBootIntro)
+                return;
+
+            if (Volatile.Read(ref _nativeBootIntroHandoffComplete) == 1)
+                return;
+
+            if (Volatile.Read(ref _nativeBootIntroVisualComplete) == 0)
+                return;
+
+            bool homeReady = Volatile.Read(ref _homeNavigationCompleted) == 1;
+            bool shellReady = GetBootMode() != 2 || Volatile.Read(ref _consoleShellExplorerReady) == 1;
+
+            if (!homeReady || !shellReady)
+            {
+                if (Interlocked.Exchange(ref _nativeBootIntroPreparingShown, 1) == 0)
+                {
+                    Dispatcher.InvokeAsync(() => _nativeBootIntroWindow?.ShowPreparingSystem());
+                }
+                DoorpiBootDiagnostics.Log("native-intro-waiting", $"homeReady={homeReady} shellReady={shellReady}");
+                return;
+            }
+
+            if (Interlocked.Exchange(ref _nativeBootIntroHandoffComplete, 1) == 1)
+                return;
+
+            _ = Dispatcher.InvokeAsync(async () =>
+            {
+                DoorpiBootDiagnostics.Log("native-intro-handoff-complete");
+                try
+                {
+                    if (_nativeBootIntroWindow != null)
+                    {
+                        NotifyNativeBootIntroCompleteToWeb();
+                        await _nativeBootIntroWindow.PlayReleaseAsync();
+                        await _nativeBootIntroWindow.FadeOutAndCloseAsync();
+                        _nativeBootIntroWindow = null;
+                    }
+                    else
+                    {
+                        NotifyNativeBootIntroCompleteToWeb();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    DoorpiBootDiagnostics.Log("native-intro-close-error", ex.Message);
+                }
+
+                FocusDoorpiMainWebView(onlyIfFocusLost: false);
+            });
+        }
+
+        private void RequestNativeBootIntroSkip()
+        {
+            if (!_useNativeBootIntro)
+                return;
+
+            DoorpiBootDiagnostics.Log("native-intro-skip");
+            _nativeBootIntroWindow?.RequestSkip();
+            Interlocked.Exchange(ref _nativeBootIntroVisualComplete, 1);
+            TryCompleteNativeBootIntroHandoff();
+        }
+
+        private void NotifyNativeBootIntroCompleteToWeb()
+        {
+            const string message = "{\"type\":\"nativeBootIntroComplete\"}";
+            try { webView?.CoreWebView2?.PostWebMessageAsString(message); } catch { }
+            try
+            {
+                webView?.CoreWebView2?.ExecuteScriptAsync(
+                    "window.__doorpiNativeIntroComplete=true; window.postMessage({type:'nativeBootIntroComplete'}, '*');");
+            }
+            catch { }
+        }
+
+        private void StartDoorpiRuntimeWhenSessionUnlocked()
+        {
+            if (!DoorpiBootDiagnostics.IsWorkstationLocked())
+            {
+                StartDoorpiRuntimeOnce("session-unlocked");
+                return;
+            }
+
+            DoorpiBootDiagnostics.Log("initialize-delayed-session-locked");
+            _ = Task.Run(async () =>
+            {
+                while (DoorpiBootDiagnostics.IsWorkstationLocked())
+                    await Task.Delay(500).ConfigureAwait(false);
+
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    DoorpiBootDiagnostics.Log("initialize-resuming-after-unlock");
+                    StartDoorpiRuntimeOnce("session-unlock-detected");
+                });
+            });
+        }
+
+        private void StartDoorpiRuntimeOnce(string reason)
+        {
+            if (Interlocked.Exchange(ref _initializeStarted, 1) == 1)
+                return;
+
+            DoorpiBootDiagnostics.Log("initialize-runtime-start", reason);
+            InitializeAsync();
+            StartMainUiGamepadNavigation();
+            EnsureCursorHidden();
+            StartMainScreenMouseWatch();
+        }
+
         private bool IsForegroundWindowNativeWindows()
         {
             try
@@ -826,16 +986,24 @@ namespace Doorpi
         {
 
             // Configura o navegador para permitir áudio automático (autoplay) sem interação do usuário
+            DoorpiBootDiagnostics.Log("initialize-start", $"bootMode={GetBootMode()}");
             StartConsoleShellExplorerStartupForIntro();
 
-            var options = new CoreWebView2EnvironmentOptions("--autoplay-policy=no-user-gesture-required");
+            string homeRenderMode = "hardware";
+            string homeBrowserArgs = BuildWebViewAdditionalArguments(
+                "DOORPI_HOME_WEBVIEW_RENDER_MODE",
+                homeRenderMode,
+                "DOORPI_HOME_WEBVIEW_EXTRA_ARGS");
+            DoorpiBootDiagnostics.Log("home-webview-args", homeBrowserArgs);
+            var options = new CoreWebView2EnvironmentOptions(homeBrowserArgs);
             var environment = await CoreWebView2Environment.CreateAsync(null, null, options);
 
             // Inicializa o WebView2 usando essas opções
             await webView.EnsureCoreWebView2Async(environment);
+            DoorpiBootDiagnostics.Log("webview-ready", $"bootMode={GetBootMode()}");
             int bootMode = GetBootMode();
             await webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
-                $"window.__doorpiBootMode = {bootMode}; window.__doorpiConsoleShellExplorerReady = {(Volatile.Read(ref _consoleShellExplorerReady) == 1 ? "true" : "false")}; window.__doorpiConsoleShellIntroSkippable = {(Volatile.Read(ref _consoleShellIntroSkippable) == 1 ? "true" : "false")};");
+                $"window.__doorpiBootMode = {bootMode}; window.__doorpiUseNativeIntro = {(_useNativeBootIntro ? "true" : "false")}; window.__doorpiNativeIntroComplete = {(Volatile.Read(ref _nativeBootIntroHandoffComplete) == 1 ? "true" : "false")}; window.__doorpiConsoleShellExplorerReady = {(Volatile.Read(ref _consoleShellExplorerReady) == 1 ? "true" : "false")}; window.__doorpiConsoleShellIntroSkippable = {(Volatile.Read(ref _consoleShellIntroSkippable) == 1 ? "true" : "false")};");
             ApplyProductionWebViewSettings(webView.CoreWebView2);
             webView.CoreWebView2.PermissionRequested += OnWebViewPermissionRequested;
             webView.CoreWebView2.ProcessFailed += OnMainWebViewProcessFailed;
@@ -851,6 +1019,9 @@ namespace Doorpi
             webView.CoreWebView2.NavigationCompleted += (s, e) =>
 
             {
+                Interlocked.Exchange(ref _homeNavigationCompleted, 1);
+                DoorpiBootDiagnostics.Log("home-navigation-completed", $"success={e.IsSuccess} status={e.WebErrorStatus}");
+                TryCompleteNativeBootIntroHandoff();
                 UpdateHoverStateInWebView();
                 SendBootModeToUI();
                 if (Volatile.Read(ref _consoleShellExplorerReady) == 1)
@@ -887,6 +1058,7 @@ namespace Doorpi
             _ = timeBeginPeriod(1);
             StartWatchers();
             _ = Task.Run(WatchWindowsRegistry);
+            DoorpiBootDiagnostics.Log("initialize-watchers-started");
         }
         private HashSet<string> GetSteamFingerprint()
         {
@@ -1526,6 +1698,7 @@ namespace Doorpi
         private int _consoleShellIntroSkippable = 0;
         private int _consoleShellExplorerReady = 0;
         private int _consoleShellPostIntroFocusRunning = 0;
+        private int _initializeStarted = 0;
 
         private void StartConsoleShellExplorerStartupForIntro()
         {
@@ -1535,13 +1708,13 @@ namespace Doorpi
             if (Interlocked.Exchange(ref _consoleShellExplorerStartupStarted, 1) == 1)
                 return;
 
+            DoorpiBootDiagnostics.Log("console-shell-start");
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    var baselineProcessIds = SnapshotProcessIds();
-                    var startupProcessHints = SnapshotWindowsStartupProcessNameHints();
                     bool explorerAlreadyRunning = await WaitForExplorerAlreadyRunningInFirstSecondAsync().ConfigureAwait(false);
+                    DoorpiBootDiagnostics.Log("console-shell-first-second", $"explorerAlreadyRunning={explorerAlreadyRunning}");
 
                     if (explorerAlreadyRunning)
                     {
@@ -1552,11 +1725,9 @@ namespace Doorpi
                         await Dispatcher.InvokeAsync(EnsureExplorerIsRunningInBackstage);
                     }
 
-                    bool ready = await MonitorConsoleShellStartupForegroundAsync(
-                        baselineProcessIds,
-                        startupProcessHints,
-                        maxWaitMs: explorerAlreadyRunning ? 12000 : 18000,
-                        stableMs: 4200).ConfigureAwait(false);
+                    bool ready = await WaitForConsoleShellPassiveStabilizationAsync(
+                        explorerAlreadyRunning ? 5000 : 9000).ConfigureAwait(false);
+                    DoorpiBootDiagnostics.Log("console-shell-passive-stabilization", $"ready={ready}");
                     if (!ready) return;
 
                     await Dispatcher.InvokeAsync(() =>
@@ -1568,6 +1739,7 @@ namespace Doorpi
                 }
                 catch (Exception ex)
                 {
+                    DoorpiBootDiagnostics.Log("console-shell-error", ex.Message);
                     Debug.WriteLine("[Boot] Falha ao preparar explorer para intro: " + ex.Message);
                 }
             });
@@ -1592,204 +1764,26 @@ namespace Doorpi
             catch { return false; }
         }
 
-        private HashSet<string> SnapshotWindowsStartupProcessNameHints()
-        {
-            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            {
-                "explorer",
-                "shellexperiencehost",
-                "startmenuexperiencehost"
-            };
-
-            AddRegistryStartupProcessHints(result, Registry.CurrentUser, @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run");
-            AddRegistryStartupProcessHints(result, Registry.CurrentUser, @"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce");
-            AddRegistryStartupProcessHints(result, Registry.LocalMachine, @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run");
-            AddRegistryStartupProcessHints(result, Registry.LocalMachine, @"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce");
-            AddRegistryStartupProcessHints(result, Registry.LocalMachine, @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run");
-            AddRegistryStartupProcessHints(result, Registry.LocalMachine, @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce");
-
-            AddStartupFolderProcessHints(result, Environment.GetFolderPath(Environment.SpecialFolder.Startup));
-            AddStartupFolderProcessHints(result, Environment.GetFolderPath(Environment.SpecialFolder.CommonStartup));
-
-            return result;
-        }
-
-        private void AddRegistryStartupProcessHints(HashSet<string> result, RegistryKey root, string subKey)
-        {
-            try
-            {
-                using var key = root.OpenSubKey(subKey);
-                if (key == null) return;
-
-                foreach (var valueName in key.GetValueNames())
-                {
-                    var value = key.GetValue(valueName);
-                    if (value is string command)
-                        AddStartupCommandProcessHint(result, command);
-                    else if (value is string[] commands)
-                    {
-                        foreach (var item in commands)
-                            AddStartupCommandProcessHint(result, item);
-                    }
-                }
-            }
-            catch { }
-        }
-
-        private void AddStartupFolderProcessHints(HashSet<string> result, string folder)
-        {
-            try
-            {
-                if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
-                    return;
-
-                foreach (var file in Directory.EnumerateFiles(folder))
-                    AddProcessNameHint(result, Path.GetFileNameWithoutExtension(file));
-            }
-            catch { }
-        }
-
-        private void AddStartupCommandProcessHint(HashSet<string> result, string command)
-        {
-            if (string.IsNullOrWhiteSpace(command))
-                return;
-
-            try
-            {
-                command = Environment.ExpandEnvironmentVariables(command.Trim());
-                string candidate = "";
-
-                if (command.StartsWith("\"", StringComparison.Ordinal))
-                {
-                    int endQuote = command.IndexOf('"', 1);
-                    if (endQuote > 1)
-                        candidate = command[1..endQuote];
-                }
-
-                if (string.IsNullOrWhiteSpace(candidate))
-                {
-                    var match = Regex.Match(command, @"[A-Za-z]:\\[^\r\n""]+?\.exe|[^\s""]+\.exe", RegexOptions.IgnoreCase);
-                    candidate = match.Success ? match.Value : command.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
-                }
-
-                AddProcessNameHint(result, Path.GetFileNameWithoutExtension(candidate));
-            }
-            catch { }
-        }
-
-        private void AddProcessNameHint(HashSet<string> result, string? name)
-        {
-            if (string.IsNullOrWhiteSpace(name))
-                return;
-
-            name = name.Trim();
-            if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-                name = Path.GetFileNameWithoutExtension(name);
-
-            if (!string.IsNullOrWhiteSpace(name))
-                result.Add(name);
-        }
-
-        private async Task<bool> MonitorConsoleShellStartupForegroundAsync(
-            HashSet<int> baselineProcessIds,
-            HashSet<string> startupProcessHints,
-            int maxWaitMs,
-            int stableMs)
+        private async Task<bool> WaitForConsoleShellPassiveStabilizationAsync(int settleMs)
         {
             var startedAt = DateTime.UtcNow;
-            DateTime? explorerDetectedAt = null;
-            var lastFocusRepairUtc = DateTime.UtcNow;
-            var observedForegroundPids = new HashSet<int>();
-
-            while ((DateTime.UtcNow - startedAt).TotalMilliseconds < maxWaitMs)
+            bool sawExplorer = false;
+            while ((DateTime.UtcNow - startedAt).TotalMilliseconds < 12000)
             {
-                if (IsExplorerProcessRunning() && explorerDetectedAt == null)
+                if (IsExplorerProcessRunning())
                 {
-                    explorerDetectedAt = DateTime.UtcNow;
-                    await Dispatcher.InvokeAsync(MarkConsoleShellIntroSkippable);
+                    sawExplorer = true;
+                    _ = Dispatcher.BeginInvoke(new Action(MarkConsoleShellIntroSkippable));
+                    break;
                 }
-
-                bool repairedFocus = await Dispatcher.InvokeAsync(() =>
-                    TryRepairConsoleShellStartupForeground(baselineProcessIds, startupProcessHints, observedForegroundPids));
-
-                if (repairedFocus)
-                    lastFocusRepairUtc = DateTime.UtcNow;
-
-                if (explorerDetectedAt != null &&
-                    (DateTime.UtcNow - explorerDetectedAt.Value).TotalMilliseconds >= 1200 &&
-                    (DateTime.UtcNow - lastFocusRepairUtc).TotalMilliseconds >= stableMs)
-                {
-                    return true;
-                }
-
                 await Task.Delay(100).ConfigureAwait(false);
             }
 
-            Debug.WriteLine("[Boot] Timeout aguardando estabilidade de foreground dos apps de inicializacao.");
-            return explorerDetectedAt != null;
-        }
-
-        private bool TryRepairConsoleShellStartupForeground(
-            HashSet<int> baselineProcessIds,
-            HashSet<string> startupProcessHints,
-            HashSet<int> observedForegroundPids)
-        {
-            var foreground = GetForegroundWindow();
-            if (foreground == IntPtr.Zero)
+            if (!sawExplorer)
                 return false;
 
-            var doorpi = _mainWindowHandle != IntPtr.Zero
-                ? _mainWindowHandle
-                : new System.Windows.Interop.WindowInteropHelper(this).Handle;
-
-            if (foreground == doorpi || IsChild(doorpi, foreground))
-                return false;
-
-            bool shouldRepair = foreground == GetShellWindow();
-            uint pidRaw = 0;
-
-            try { GetWindowProcessId(foreground, out pidRaw); }
-            catch { }
-
-            if (pidRaw > 0)
-            {
-                int pid = (int)pidRaw;
-                observedForegroundPids.Add(pid);
-
-                bool isNewProcess = !baselineProcessIds.Contains(pid);
-                try
-                {
-                    var process = Process.GetProcessById(pid);
-                    string processName = SafeProcessName(process);
-                    string exeName = Path.GetFileNameWithoutExtension(SafeProcessPath(process));
-                    bool isStartupProcess =
-                        startupProcessHints.Contains(processName) ||
-                        (!string.IsNullOrWhiteSpace(exeName) && startupProcessHints.Contains(exeName));
-                    bool isShellProcess = _shellProcessNames.Contains(processName) ||
-                        string.Equals(processName, "explorer", StringComparison.OrdinalIgnoreCase);
-
-                    shouldRepair = shouldRepair || isNewProcess || isStartupProcess || isShellProcess;
-                }
-                catch
-                {
-                    shouldRepair = shouldRepair || IsNewProcessLikely(pid, baselineProcessIds);
-                }
-            }
-
-            if (!shouldRepair)
-            {
-                // Durante o boot protegido do modo console, qualquer foreground externo
-                // ao Doorpi deve ser tratado como foco roubado por inicializacao tardia.
-                shouldRepair = true;
-            }
-
-            FocusDoorpiMainWebView(onlyIfFocusLost: false);
+            await Task.Delay(settleMs).ConfigureAwait(false);
             return true;
-        }
-
-        private static bool IsNewProcessLikely(int pid, HashSet<int> baselineProcessIds)
-        {
-            return pid > 0 && !baselineProcessIds.Contains(pid);
         }
 
         private void MarkConsoleShellExplorerReady()
@@ -1797,6 +1791,8 @@ namespace Doorpi
             if (Interlocked.Exchange(ref _consoleShellExplorerReady, 1) == 1)
                 return;
 
+            DoorpiBootDiagnostics.Log("console-shell-explorer-ready");
+            TryCompleteNativeBootIntroHandoff();
             try
             {
                 webView?.CoreWebView2?.PostWebMessageAsString(
@@ -1810,6 +1806,7 @@ namespace Doorpi
             if (Interlocked.Exchange(ref _consoleShellIntroSkippable, 1) == 1)
                 return;
 
+            DoorpiBootDiagnostics.Log("console-shell-intro-skippable");
             try
             {
                 webView?.CoreWebView2?.PostWebMessageAsString(
@@ -2518,9 +2515,37 @@ namespace Doorpi
         private const double CONTROLLER_MOUSE_BASE_SPEED = 700.0;
         private const double CONTROLLER_NATIVE_MOUSE_BASE_SPEED = 900.0;
         private const double CONTROLLER_MOUSE_SENSITIVITY_SCALE = 0.92;
+        private long _mediaExeMouseModeShortcutSuppressUntilTicks = 0;
 
         private static bool IsMouseModeShortcutPressed(ushort buttons)
             => (buttons & MOUSE_MODE_SHORTCUT_MASK) == MOUSE_MODE_SHORTCUT_MASK;
+
+        private static bool IsMouseModeShortcutJustPressed(ushort buttons, ref long lastL3PressedAt, ref long lastR3PressedAt, ref bool shortcutLatched)
+        {
+            const long ComboWindowMs = 450;
+            long now = Environment.TickCount64;
+            bool l3Down = (buttons & 0x0040) != 0;
+            bool r3Down = (buttons & 0x0080) != 0;
+
+            if (l3Down) lastL3PressedAt = now;
+            if (r3Down) lastR3PressedAt = now;
+
+            bool comboDown = l3Down && r3Down;
+            bool comboInGrace = l3Down && r3Down &&
+                now - lastL3PressedAt <= ComboWindowMs &&
+                now - lastR3PressedAt <= ComboWindowMs;
+
+            if (!comboDown)
+                shortcutLatched = false;
+
+            if ((comboDown || comboInGrace) && !shortcutLatched)
+            {
+                shortcutLatched = true;
+                return true;
+            }
+
+            return false;
+        }
 
         private static bool IsDoorpiReturnShortcutPressed(ushort buttons)
             => (buttons & DOORPI_RETURN_GUIDE_MASK) != 0 ||
@@ -2536,14 +2561,20 @@ namespace Doorpi
             Action onExitCombo,
             bool handleXboxButton = true,
             Func<bool>? shouldAcceptInput = null,
+            Func<bool>? shouldAcceptMouseModeShortcut = null,
             Action? onMouseModeShortcut = null,
             Func<ushort, bool>? mouseModeShortcutPredicate = null,
-            bool instantPrimaryClick = false)
+            bool instantPrimaryClick = false,
+            bool instantPrimaryDoubleClick = false)
         {
             var sw = Stopwatch.StartNew();
             ushort prevButtons = 0;
             if (XInputGetStateSecret(0, out var initState) == 0)
+            {
                 prevButtons = initState.Gamepad.wButtons;
+                if (initState.Gamepad.bRightTrigger > 128)
+                    prevButtons |= 0x1000;
+            }
 
             double remainderX = 0, remainderY = 0;
 
@@ -2551,6 +2582,9 @@ namespace Doorpi
             double clickAccumX = 0, clickAccumY = 0;
             bool dragBrokeThreshold = false;
             bool ignoreNextBRelease = false;
+            long mouseShortcutLastL3PressedAt = long.MinValue;
+            long mouseShortcutLastR3PressedAt = long.MinValue;
+            bool mouseShortcutLatched = false;
 
             // ===== ESTADO DO DUPLO CLIQUE INTELIGENTE =====
             bool aDoubleClickPending = false;
@@ -2592,29 +2626,20 @@ namespace Doorpi
                     {
                         var gp = state.Gamepad;
                         ushort btn = gp.wButtons;
+                        if (gp.bRightTrigger > 128)
+                            btn |= 0x1000;
 
                         acceptsInputNow = shouldAcceptInput?.Invoke() ?? true;
-                        if (!acceptsInputNow)
-                        {
-                            if (isClicking)
-                            {
-                                SendMouse(0, 0, 0x0004); // MOUSEEVENTF_LEFTUP
-                                isClicking = false;
-                            }
-
-                            aDoubleClickPending = false;
-                            prevButtons = btn;
-                            Thread.Sleep(25);
-                            continue;
-                        }
-
                         bool Pressed(ushort m) => (btn & m) != 0 && (prevButtons & m) == 0;
                         bool Released(ushort m) => (btn & m) == 0 && (prevButtons & m) != 0;
 
                         var shortcutPredicate = mouseModeShortcutPredicate ?? IsMouseModeShortcutPressed;
-                        if (onMouseModeShortcut != null &&
-                            shortcutPredicate(btn) &&
-                            !shortcutPredicate(prevButtons))
+                        bool mouseShortcutPressed = mouseModeShortcutPredicate != null
+                            ? shortcutPredicate(btn) && !shortcutPredicate(prevButtons)
+                            : IsMouseModeShortcutJustPressed(btn, ref mouseShortcutLastL3PressedAt, ref mouseShortcutLastR3PressedAt, ref mouseShortcutLatched);
+
+                        bool acceptsMouseShortcut = shouldAcceptMouseModeShortcut?.Invoke() ?? acceptsInputNow;
+                        if (onMouseModeShortcut != null && mouseShortcutPressed && acceptsMouseShortcut)
                         {
                             onMouseModeShortcut.Invoke();
                             prevButtons = btn;
@@ -2630,6 +2655,20 @@ namespace Doorpi
 
                             prevButtons = btn;
                             Thread.Sleep(10);
+                            continue;
+                        }
+
+                        if (!acceptsInputNow)
+                        {
+                            if (isClicking)
+                            {
+                                SendMouse(0, 0, 0x0004); // MOUSEEVENTF_LEFTUP
+                                isClicking = false;
+                            }
+
+                            aDoubleClickPending = false;
+                            prevButtons = btn;
+                            Thread.Sleep(25);
                             continue;
                         }
 
@@ -2723,6 +2762,12 @@ namespace Doorpi
                                 if (instantPrimaryClick)
                                 {
                                     SendMouse(0, 0, MOUSEEVENTF_LEFTUP_SHARED);
+                                    if (instantPrimaryDoubleClick)
+                                    {
+                                        Thread.Sleep(35);
+                                        SendMouse(0, 0, MOUSEEVENTF_LEFTDOWN);
+                                        SendMouse(0, 0, MOUSEEVENTF_LEFTUP_SHARED);
+                                    }
                                     isClicking = false;
                                     if (aWasOnTextField && IsCursorOnTextField())
                                     {
@@ -2804,6 +2849,9 @@ namespace Doorpi
                                 if (Released(0x2000)) SendMouse(0, 0, MOUSEEVENTF_XUP, XBUTTON1);
                             }
 
+                            if (instantPrimaryClick && Pressed(0x0010))
+                                SendVirtualKey(0x0D);
+
                             // X (quadrado) = clique direito
                             if (Pressed(0x4000)) SendMouse(0, 0, MOUSEEVENTF_RIGHTDOWN);
                             if (Released(0x4000)) SendMouse(0, 0, MOUSEEVENTF_RIGHTUP);
@@ -2834,63 +2882,21 @@ namespace Doorpi
         private void MediaExeControllerLoop(int sessionId)
         {
             SharedGamepadControllerLoop(
-                () => _mediaExeModeActive && _mediaExeSessionId == sessionId,
+                () => IsMediaExeLogicalSessionActive(sessionId),
                 () =>
                 {
-                    if (_mediaExeSessionId != sessionId) return;
-
-                    bool vkbWasOpen = false;
-                    Dispatcher.Invoke(() =>
-                    {
-                        vkbWasOpen = _desktopVkb?.IsVisible == true;
-                        if (vkbWasOpen)
-                        {
-                            _desktopVkb?.Close();
-                            _desktopVkb = null;
-                        }
-                    });
-                    if (vkbWasOpen) return;
-
-                    _mediaExeModeActive = false;
-                    _mediaExeWatcherCts?.Cancel();
-                    _doorpiSuspendedForMedia = true;
-                    SuspendExecutionLockWatch();
-                    if (_isStoreLauncherSession)
-                    {
-                        _storePausedByDoorpi = true;
-                        _storeControllerActive = false;
-                    }
-
-                    EnsureCursorHidden();
-                    _mainScreenMouseVisible = false;
-                    _lastKnownCursorPos = new POINT { X = 0, Y = 0 };
-                    try { SetCursorPos(0, 0); } catch { }
-
-                    Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil, DateTime.UtcNow.AddMilliseconds(350).Ticks);
-
-                    if (_mediaExeProcess != null && !_mediaExeProcess.HasExited)
-                    {
-                        IntPtr hwnd = FindVisibleWindowForProcess(_mediaExeProcess.Id);
-                        if (hwnd != IntPtr.Zero) ShowWindow(hwnd, 6);
-                    }
-
-                    SendGameLaunchStatus("gameLaunchDone");
-
-                    Dispatcher.Invoke(() =>
-                    {
-                        _desktopVkb?.Close();
-                        _desktopVkb = null;
-                        EnsureCursorVisible();
-                        EnsureCursorHidden();
-                        _mainScreenMouseVisible = false;
-                        _lastKnownCursorPos = new POINT { X = 0, Y = 0 };
-                        SetCursorPos(0, 0);
-                        FocusDoorpiKeepSession();
-                    });
+                    ReturnToDoorpiFromMediaExeSession(sessionId);
                 },
-                shouldAcceptInput: IsForegroundAllowedForExternalSessionInput,
+                shouldAcceptInput: () => _mediaExeModeActive,
+                shouldAcceptMouseModeShortcut: () =>
+                    DateTime.UtcNow.Ticks >= Interlocked.Read(ref _mediaExeMouseModeShortcutSuppressUntilTicks) &&
+                    IsMediaExeLogicalSessionActive(sessionId),
                 onMouseModeShortcut: () => ToggleMediaExeMouseModeForSession(sessionId)
             );
+
+            var session = ActiveExecutableAppSession;
+            if (session != null && session.SessionId == sessionId)
+                session.ControllerActive = false;
         }
 
         private static bool ShouldStartMouseMode(MediaAppModel? media)
@@ -2906,21 +2912,18 @@ namespace Doorpi
 
         private void StartMediaExeMouseModeForSession(int sessionId, bool centerCursor)
         {
-            if (_mediaExeSessionId != sessionId ||
-                _mediaExeProcess == null ||
-                SafeHasExited(_mediaExeProcess))
+            if (_mediaExeSessionId != sessionId)
             {
                 return;
             }
+
+            if (!IsMediaExeLogicalSessionActive(sessionId))
+                return;
 
             _mediaExeMouseModeRequested = true;
             _mediaExeMouseModeInitialized = true;
             _mediaExeGamepadDisabled = false;
 
-            if (_mediaExeModeActive && _mediaExeThread?.IsAlive == true)
-                return;
-
-            _mediaExeModeActive = true;
             Dispatcher.Invoke(() =>
             {
                 EnsureCursorVisible();
@@ -2929,9 +2932,34 @@ namespace Doorpi
                 UpdateHoverStateInWebView();
             });
 
-            _mediaExeThread = new Thread(() => MediaExeControllerLoop(sessionId)) { IsBackground = true };
-            _mediaExeThread.Start();
+            _mediaExeModeActive = true;
+            EnsureMediaExeControllerThread(sessionId);
             SendRuntimeSessionsToUI();
+        }
+
+        private bool IsMediaExeLogicalSessionActive(int sessionId)
+        {
+            var session = ActiveExecutableAppSession;
+            return session != null &&
+                   session.SessionId == sessionId &&
+                   !string.IsNullOrWhiteSpace(session.Url);
+        }
+
+        private void EnsureMediaExeControllerThread(int sessionId)
+        {
+            var session = ActiveExecutableAppSession;
+            if (session == null || session.SessionId != sessionId)
+                return;
+
+            if (session.ControllerThread?.IsAlive == true)
+                return;
+
+            session.ControllerActive = true;
+            session.ControllerThread = new Thread(() => MediaExeControllerLoop(sessionId))
+            {
+                IsBackground = true
+            };
+            session.ControllerThread.Start();
         }
 
         private void StopMediaExeMouseModeForSession(int sessionId)
@@ -2959,29 +2987,110 @@ namespace Doorpi
 
         private void ToggleMediaExeMouseModeForSession(int sessionId)
         {
+            Interlocked.Exchange(ref _mediaExeMouseModeShortcutSuppressUntilTicks,
+                DateTime.UtcNow.AddMilliseconds(650).Ticks);
+
             if (_mediaExeMouseModeRequested || _mediaExeModeActive)
                 StopMediaExeMouseModeForSession(sessionId);
             else
                 StartMediaExeMouseModeForSession(sessionId, centerCursor: true);
         }
 
+        private void ReturnToDoorpiFromMediaExeSession(int sessionId)
+        {
+            if (_mediaExeSessionId != sessionId)
+                return;
+
+            bool vkbWasOpen = false;
+            Dispatcher.Invoke(() =>
+            {
+                vkbWasOpen = _desktopVkb?.IsVisible == true;
+                if (vkbWasOpen)
+                {
+                    _desktopVkb?.Close();
+                    _desktopVkb = null;
+                }
+            });
+
+            if (vkbWasOpen)
+                return;
+
+            _mediaExeModeActive = false;
+            _mediaExeWatcherCts?.Cancel();
+            _doorpiSuspendedForMedia = true;
+            SuspendExecutionLockWatch();
+
+            if (_isStoreLauncherSession)
+            {
+                _storePausedByDoorpi = true;
+                _storeMouseModeActive = false;
+            }
+
+            EnsureCursorHidden();
+            _mainScreenMouseVisible = false;
+            _lastKnownCursorPos = new POINT { X = 0, Y = 0 };
+            try { SetCursorPos(0, 0); } catch { }
+
+            Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil, DateTime.UtcNow.AddMilliseconds(350).Ticks);
+
+            var process = FindAliveMediaExeProcess(_mediaExeCurrentUrl, _mediaExeProcess);
+            if (process != null && !SafeHasExited(process))
+            {
+                try { MinimizeProcessWindows(process); }
+                catch
+                {
+                    IntPtr hwnd = FindVisibleWindowForProcess(process.Id);
+                    if (hwnd != IntPtr.Zero) ShowWindow(hwnd, 6);
+                }
+            }
+
+            SendGameLaunchStatus("gameLaunchDone");
+
+            Dispatcher.Invoke(() =>
+            {
+                _desktopVkb?.Close();
+                _desktopVkb = null;
+                EnsureCursorVisible();
+                EnsureCursorHidden();
+                _mainScreenMouseVisible = false;
+                _lastKnownCursorPos = new POINT { X = 0, Y = 0 };
+                SetCursorPos(0, 0);
+                FocusDoorpiKeepSession();
+            });
+        }
+
         private void MediaExeShortcutLoop(int sessionId)
         {
             ushort prevButtons = 0;
+            long mouseShortcutLastL3PressedAt = long.MinValue;
+            long mouseShortcutLastR3PressedAt = long.MinValue;
+            bool mouseShortcutLatched = false;
+            DateTime nextProcessCheckUtc = DateTime.MinValue;
 
-            while (_mediaExeSessionId == sessionId &&
-                   _mediaExeProcess != null &&
-                   !SafeHasExited(_mediaExeProcess))
+            while (IsMediaExeLogicalSessionActive(sessionId))
             {
                 try
                 {
                     if (XInputGetStateSecret(0, out var state) == 0)
                     {
                         ushort btn = state.Gamepad.wButtons;
-                        bool shortcutPressed = IsMouseModeShortcutPressed(btn) && !IsMouseModeShortcutPressed(prevButtons);
+                        if (IsDoorpiReturnShortcutJustPressed(btn, prevButtons))
+                        {
+                            ReturnToDoorpiFromMediaExeSession(sessionId);
+                            prevButtons = btn;
+                            Thread.Sleep(100);
+                            continue;
+                        }
+
+                        bool mouseShortcutPressed = IsMouseModeShortcutJustPressed(
+                            btn,
+                            ref mouseShortcutLastL3PressedAt,
+                            ref mouseShortcutLastR3PressedAt,
+                            ref mouseShortcutLatched);
 
                         if (!_mediaExeModeActive &&
-                            shortcutPressed &&
+                            mouseShortcutPressed &&
+                            DateTime.UtcNow.Ticks >= Interlocked.Read(ref _mediaExeMouseModeShortcutSuppressUntilTicks) &&
                             IsForegroundOwnedByActiveMediaExe())
                         {
                             ToggleMediaExeMouseModeForSession(sessionId);
@@ -2998,18 +3107,15 @@ namespace Doorpi
 
         private void EnsureMediaExeShortcutThread(int sessionId)
         {
-            if (_mediaExeShortcutThread?.IsAlive == true) return;
-
-            _mediaExeShortcutThread = new Thread(() => MediaExeShortcutLoop(sessionId))
-            {
-                IsBackground = true
-            };
-            _mediaExeShortcutThread.Start();
+            new Thread(() => MediaExeShortcutLoop(sessionId)) { IsBackground = true }.Start();
         }
 
         private void StoreLauncherShortcutLoop(int sessionId)
         {
             ushort prevButtons = 0;
+            long mouseShortcutLastL3PressedAt = long.MinValue;
+            long mouseShortcutLastR3PressedAt = long.MinValue;
+            bool mouseShortcutLatched = false;
             while (_isStoreLauncherSession &&
                    !_storePausedByDoorpi &&
                    !IsStoreChildGameBlockingStoreControls() &&
@@ -3035,7 +3141,11 @@ namespace Doorpi
                                 break;
                         }
 
-                        bool mouseShortcutPressed = IsMouseModeShortcutPressed(btn) && !IsMouseModeShortcutPressed(prevButtons);
+                        bool mouseShortcutPressed = IsMouseModeShortcutJustPressed(
+                            btn,
+                            ref mouseShortcutLastL3PressedAt,
+                            ref mouseShortcutLastR3PressedAt,
+                            ref mouseShortcutLatched);
                         if (mouseShortcutPressed &&
                             IsForegroundOwnedByActiveStore())
                         {
@@ -3053,33 +3163,39 @@ namespace Doorpi
 
         private void EnsureStoreShortcutThread(int sessionId)
         {
-            if (_storeShortcutThread?.IsAlive == true) return;
+            new Thread(() => StoreLauncherShortcutLoop(sessionId)) { IsBackground = true }.Start();
+        }
 
-            _storeShortcutThread = new Thread(() => StoreLauncherShortcutLoop(sessionId))
-            {
-                IsBackground = true
-            };
-            _storeShortcutThread.Start();
+        private bool IsStoreLogicalSessionActive(int sessionId)
+        {
+            return _isStoreLauncherSession &&
+                   !_storePausedByDoorpi &&
+                   !IsStoreChildGameBlockingStoreControls() &&
+                   _storeSessionId == sessionId;
+        }
+
+        private void EnsureStoreControllerThread(int sessionId)
+        {
+            if (!IsStoreLogicalSessionActive(sessionId))
+                return;
+
+            if (_storeControllerThread?.IsAlive == true)
+                return;
+
+            _storeControllerThread = new Thread(() => StoreExeControllerLoop(sessionId)) { IsBackground = true };
+            _storeControllerThread.Start();
         }
 
         private void StartStoreMouseModeForSession(int sessionId, bool centerCursor)
         {
-            if (!_isStoreLauncherSession ||
-                _storeSessionId != sessionId ||
-                _storePausedByDoorpi ||
-                IsStoreChildGameBlockingStoreControls() ||
-                !IsActiveStoreLauncherProcessAlive())
+            if (!IsStoreLogicalSessionActive(sessionId))
             {
                 return;
             }
 
             _storeMouseModeRequested = true;
             _storeGamepadDisabled = false;
-
-            if (_storeControllerActive && _storeControllerThread?.IsAlive == true)
-                return;
-
-            _storeControllerActive = true;
+            _storeMouseModeActive = true;
             Dispatcher.Invoke(() =>
             {
                 EnsureCursorVisible();
@@ -3088,8 +3204,7 @@ namespace Doorpi
                 UpdateHoverStateInWebView();
             });
 
-            _storeControllerThread = new Thread(() => StoreExeControllerLoop(sessionId)) { IsBackground = true };
-            _storeControllerThread.Start();
+            EnsureStoreControllerThread(sessionId);
             SendRuntimeSessionsToUI();
         }
 
@@ -3100,7 +3215,7 @@ namespace Doorpi
 
             _storeMouseModeRequested = false;
             _storeGamepadDisabled = true;
-            _storeControllerActive = false;
+            _storeMouseModeActive = false;
 
             Dispatcher.Invoke(() =>
             {
@@ -3161,8 +3276,8 @@ namespace Doorpi
             int sessionId = Interlocked.Increment(ref _storeSessionId);
             _steamAccountSelectionControlsActive = true;
             _storeMouseModeRequested = true;
+            _storeMouseModeActive = true;
             _storeGamepadDisabled = false;
-            _storeControllerActive = true;
 
             Dispatcher.Invoke(() =>
             {
@@ -3172,8 +3287,7 @@ namespace Doorpi
                 UpdateHoverStateInWebView();
             });
 
-            _storeControllerThread = new Thread(() => StoreExeControllerLoop(sessionId)) { IsBackground = true };
-            _storeControllerThread.Start();
+            EnsureStoreControllerThread(sessionId);
             SendRuntimeSessionsToUI();
         }
 
@@ -3184,8 +3298,8 @@ namespace Doorpi
 
             _steamAccountSelectionControlsActive = false;
             _storeMouseModeRequested = false;
+            _storeMouseModeActive = false;
             _storeGamepadDisabled = true;
-            _storeControllerActive = false;
             Interlocked.Increment(ref _storeSessionId);
 
             Dispatcher.Invoke(() =>
@@ -3229,7 +3343,7 @@ namespace Doorpi
 
         private void ToggleStoreMouseModeForSession(int sessionId)
         {
-            if (_storeMouseModeRequested || _storeControllerActive)
+            if (_storeMouseModeRequested || _storeMouseModeActive)
                 StopStoreMouseModeForSession(sessionId);
             else
                 StartStoreMouseModeForSession(sessionId, centerCursor: true);
@@ -3493,11 +3607,7 @@ namespace Doorpi
         private void StoreExeControllerLoop(int sessionId)
         {
             SharedGamepadControllerLoop(
-                () => _storeControllerActive &&
-                      _storeSessionId == sessionId &&
-                      _isStoreLauncherSession &&
-                      !_storePausedByDoorpi &&
-                      !IsStoreChildGameBlockingStoreControls(),
+                () => IsStoreLogicalSessionActive(sessionId),
                 () =>
                 {
                     if (_storeSessionId != sessionId) return;
@@ -3517,9 +3627,11 @@ namespace Doorpi
                     Dispatcher.Invoke(MinimizeStoreSessionAndShowMenu);
                 },
                 handleXboxButton: false,
-                shouldAcceptInput: IsForegroundAllowedForExternalSessionInput,
+                shouldAcceptInput: () => _storeMouseModeActive,
+                shouldAcceptMouseModeShortcut: () => IsStoreLogicalSessionActive(sessionId),
                 onMouseModeShortcut: () => ToggleStoreMouseModeForSession(sessionId)
             );
+
         }
 
         private void StartDialogControllerMode()
@@ -3536,7 +3648,8 @@ namespace Doorpi
                 SharedGamepadControllerLoop(
                     () => _dialogModeActive,
                     () => SendVirtualKey(0x1B),
-                    instantPrimaryClick: true
+                    instantPrimaryClick: true,
+                    instantPrimaryDoubleClick: true
                 );
             })
             { IsBackground = true }.Start();
@@ -4487,11 +4600,15 @@ namespace Doorpi
             _mediaExeWatcherPaused = false;
             _doorpiSuspendedForMedia = false;
 
-            KillMediaExeProcessTree(resolvedUrl, process);
             ClearExecutableAppSession();
             ClearExecutionLock();
             SendRuntimeSessionsToUI();
             ForceFocus();
+
+            _ = Task.Run(() =>
+            {
+                try { KillMediaExeProcessTree(resolvedUrl, process); } catch { }
+            });
         }
 
         // Helper para centralizar a volta ao Doorpi
@@ -4526,6 +4643,9 @@ namespace Doorpi
 
             SendGameLaunchStatus("gameLaunchDone");
 
+            var aliveProcess = FindAliveMediaExeProcess(capturedUrl, _mediaExeProcess);
+            bool processStillAlive = aliveProcess != null;
+
             Dispatcher.Invoke(() =>
             {
                 if (!string.IsNullOrWhiteSpace(capturedUrl))
@@ -4536,8 +4656,6 @@ namespace Doorpi
                 _desktopVkb?.Close();
                 _desktopVkb = null;
 
-                var aliveProcess = FindAliveMediaExeProcess(capturedUrl, _mediaExeProcess);
-                bool processStillAlive = aliveProcess != null;
                 if (processStillAlive)
                 {
                     _mediaExeProcess = aliveProcess;
@@ -4619,7 +4737,7 @@ namespace Doorpi
                 await Task.Delay(180);
                 if (!string.IsNullOrWhiteSpace(mediaUrl))
                     ActivateExecutableAppSession(mediaUrl);
-                ShowExecutionLockForMediaExe(mediaUrl);
+                ShowExecutionLockForMediaExe(mediaUrl, showInDoorpiWhenForeground: true);
             });
         }
         private void MinimizeAllWindowsExcept(IntPtr excludeHwnd)
@@ -4676,10 +4794,7 @@ namespace Doorpi
             SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg, "app");
             _ = TryMaximizeExternalWindowAsync(proc, url, token: _mediaExeWatcherCts.Token);
             StartMediaExeWatcher(proc, url, appName, _mediaExeWatcherCts.Token);
-            EnsureMediaExeShortcutThread(sessionId);
-
-            _mediaExeThread = new Thread(() => MediaExeControllerLoop(sessionId)) { IsBackground = true };
-            _mediaExeThread.Start();
+            EnsureMediaExeControllerThread(sessionId);
             SendRuntimeSessionsToUI();
         }
         private void ExitMediaExeMode()
@@ -4812,8 +4927,6 @@ namespace Doorpi
             double clickAccumX = 0;
             double clickAccumY = 0;
             bool dragBrokeThreshold = false;
-            bool prevR2 = false;
-
             while (_systemControllerActive)
             {
                 // Verifica se o tempo de tolerância do duplo clique expirou (Single Click confirmado)
@@ -4867,6 +4980,8 @@ namespace Doorpi
                     {
                         var gp = state.Gamepad;
                         ushort btn = gp.wButtons;
+                        if (gp.bRightTrigger > 128)
+                            btn |= 0x1000;
 
                         bool Pressed(ushort m) => (btn & m) != 0 && (prevButtons & m) == 0;
                         bool Released(ushort m) => (btn & m) == 0 && (prevButtons & m) != 0;
@@ -4964,16 +5079,8 @@ namespace Doorpi
 
                         int deltaX = 0, deltaY = 0;
 
-                  
-
-
-                        bool r2Down = gp.bRightTrigger > 128;
-                        bool r2Pressed = r2Down && !prevR2;
-                        bool r2Released = !r2Down && prevR2;
-                        prevR2 = r2Down;
-
-                        // GATILHO (R2) - PRESSIONOU
-                        if (r2Pressed)
+                        // A/R2 pressionado = botão esquerdo do mouse down
+                        if (Pressed(0x1000))
                         {
                             aWasOnTextField = IsCursorOnTextField();
                             aDragOccurred = false;
@@ -5033,8 +5140,8 @@ namespace Doorpi
                             else { remainderX = 0; remainderY = 0; }
                         }
 
-                        // GATILHO (R2) - SOLTOU
-                        if (r2Released)
+                        // A/R2 solto = botão esquerdo up + tratamento inteligente de IBEAM
+                        if (Released(0x1000))
                         {
                             isClicking = false;
                             SendMouse(0, 0, 0x0004); // MOUSEEVENTF_LEFTUP
@@ -5277,6 +5384,7 @@ namespace Doorpi
             // Se o explorer já estiver rodando, não fazemos nada
             if (Process.GetProcessesByName("explorer").Length > 0)
             {
+                DoorpiBootDiagnostics.Log("ensure-explorer-skip", "already-running");
                 ReleaseDoorpiTopmost();
                 return;
             }
@@ -5309,11 +5417,13 @@ namespace Doorpi
                     });
                 });
 
+                DoorpiBootDiagnostics.Log("ensure-explorer-started");
                 Debug.WriteLine("[Boot] Explorer.exe iniciado em background com sucesso.");
             }
             catch (Exception ex)
             {
                 ReleaseDoorpiTopmost();
+                DoorpiBootDiagnostics.Log("ensure-explorer-error", ex.Message);
                 Debug.WriteLine($"[Boot] Erro ao iniciar explorer: {ex.Message}");
             }
         }
@@ -6359,7 +6469,7 @@ namespace Doorpi
                         channel = "media",
                         url = session.Url,
                         kind = "exe",
-                        status = session.DoorpiSuspended ? "minimized" : (session.ControllerActive ? "active" : "running"),
+                        status = session.DoorpiSuspended ? "minimized" : (session.MouseModeActive ? "active" : "running"),
                         name = media?.Name ?? Path.GetFileNameWithoutExtension(session.Url) ?? "Aplicativo",
                         heroImage = MediaHeroVisual(media),
                         gridImage = MediaGridVisual(media)
@@ -6561,8 +6671,14 @@ namespace Doorpi
                 var process = FindAliveMediaExeProcess(mediaUrl, session?.Process);
                 if (session != null || process != null || File.Exists(mediaUrl))
                 {
+                    Interlocked.Exchange(ref _executionLockSuppressUntilUtcTicks,
+                        DateTime.UtcNow.AddSeconds(3).Ticks);
                     try { session?.WatcherCts?.Cancel(); } catch { }
-                    KillMediaExeProcessTree(mediaUrl, process);
+
+                    _ = Task.Run(() =>
+                    {
+                        try { KillMediaExeProcessTree(mediaUrl, process); } catch { }
+                    });
 
                     if (session != null)
                     {
@@ -8115,7 +8231,7 @@ namespace Doorpi
             if (_storeChildGameActive && _isStoreLauncherSession)
             {
                 _storePausedByDoorpi = true;
-                _storeControllerActive = false;
+                _storeMouseModeActive = false;
             }
 
             ClearExecutionLock();
@@ -8340,7 +8456,7 @@ namespace Doorpi
             _executionLockAppType = appType;
 
             _mediaExeModeActive = false;
-            _storeControllerActive = false;
+            _storeMouseModeActive = false;
             StopMediaControllerMode();
             _launcherMouseActive = false;
             EnsureCursorHidden();
@@ -8457,7 +8573,7 @@ namespace Doorpi
             });
         }
 
-        private bool ShowExecutionLockForMediaExe(string? mediaUrlOverride = null)
+        private bool ShowExecutionLockForMediaExe(string? mediaUrlOverride = null, bool showInDoorpiWhenForeground = false)
         {
             string mediaUrl = !string.IsNullOrWhiteSpace(mediaUrlOverride)
                 ? mediaUrlOverride!
@@ -8478,7 +8594,7 @@ namespace Doorpi
             _mediaExeProcess = aliveProcess;
             var hwnd = FindAnyWindowForProcess(aliveProcess.Id);
             if (hwnd == IntPtr.Zero) hwnd = aliveProcess.MainWindowHandle;
-            if (hwnd != IntPtr.Zero && IsForegroundDoorpi())
+            if (!showInDoorpiWhenForeground && hwnd != IntPtr.Zero && IsForegroundDoorpi())
             {
                 var session = GetExecutableAppSession(mediaUrl);
                 bool shouldTryFocus = session?.FocusedWindowHandles.Add(hwnd) ?? true;
@@ -8859,6 +8975,13 @@ namespace Doorpi
                 return;
             }
 
+            if (string.Equals(kind, "exe", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(appType, "exe", StringComparison.OrdinalIgnoreCase))
+            {
+                Interlocked.Exchange(ref _executionLockSuppressUntilUtcTicks,
+                    DateTime.UtcNow.AddSeconds(3).Ticks);
+            }
+
             ClearExecutionLock();
 
             if (string.Equals(kind, "storeInstall", StringComparison.OrdinalIgnoreCase))
@@ -9109,7 +9232,7 @@ namespace Doorpi
             if (bindToActiveStoreContext)
             {
                 MarkStoreChildGameAsPlayed(game, gameId);
-                _storeControllerActive = false;
+                _storeMouseModeActive = false;
                 _storePausedByDoorpi = false;
                 ClearStorePendingChildWindows();
                 _storeMinimizeState = StoreMinimizeState.StoreChildGameValid;
@@ -11499,6 +11622,10 @@ namespace Doorpi
                 {
                     RestoreDoorpiFocusAfterIntroHandoff();
                 }
+                else if (action == "nativeIntroSkip")
+                {
+                    Dispatcher.Invoke(RequestNativeBootIntroSkip);
+                }
                 else if (action == "requestUpdateStatus")
                 {
                     SendCachedUpdateStatusToUI();
@@ -11913,6 +12040,9 @@ namespace Doorpi
                             if (dialogResult == true)
                             {
                                 string filePath = dlg.FileName;
+                                string filePathJson = JsonSerializer.Serialize(filePath);
+                                await webView.CoreWebView2.ExecuteScriptAsync(
+                                    $"window.newGameIdsThisSession?.add({filePathJson}); window.AppStore?.mutations?.markNew?.({filePathJson});");
                                 string cleanName = GetGameNameFromFile(filePath) ?? Path.GetFileNameWithoutExtension(filePath);
                                 webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
                                 { type = "updateLoadingText", title = loadTitle, subtitle = loadSub }));
@@ -11963,6 +12093,9 @@ namespace Doorpi
                                     subtitle = loadSub
                                 }));
                                 string filePath = dlg.FileName;
+                                string filePathJson = JsonSerializer.Serialize(filePath);
+                                await webView.CoreWebView2.ExecuteScriptAsync(
+                                    $"window.newGameIdsThisSession?.add({filePathJson}); window.AppStore?.mutations?.markNew?.({filePathJson});");
                                 string cleanName = GetGameNameFromFile(filePath) ?? Path.GetFileNameWithoutExtension(filePath);
                                 var manualApp = new List<InstalledApp>
                                 {
@@ -14820,6 +14953,467 @@ namespace Doorpi
 
         private long _returnFromExternalModeSuppressUntil = 0;
 
+        private enum MainUiGamepadSourceKind
+        {
+            None,
+            XInput,
+            WindowsGamepad,
+            RawGameController
+        }
+
+        private MainUiGamepadSourceKind _mainUiPrimaryGamepadSource = MainUiGamepadSourceKind.None;
+        private int _mainUiPrimaryXInputSlot = -1;
+        private Windows.Gaming.Input.Gamepad? _mainUiPrimaryWindowsGamepad;
+        private Windows.Gaming.Input.RawGameController? _mainUiPrimaryRawGameController;
+
+        private readonly struct MainUiGamepadSnapshot
+        {
+            public MainUiGamepadSnapshot(
+                double axisX,
+                double axisY,
+                ushort buttons,
+                MainUiGamepadSourceKind sourceKind,
+                int sourceKey,
+                bool hasAnyInteraction)
+            {
+                AxisX = axisX;
+                AxisY = axisY;
+                Buttons = buttons;
+                SourceKind = sourceKind;
+                SourceKey = sourceKey;
+                HasAnyInteraction = hasAnyInteraction;
+            }
+
+            public double AxisX { get; }
+            public double AxisY { get; }
+            public ushort Buttons { get; }
+            public bool IsXInput => SourceKind == MainUiGamepadSourceKind.XInput;
+            public MainUiGamepadSourceKind SourceKind { get; }
+            public int SourceKey { get; }
+            public bool HasAnyInteraction { get; }
+        }
+
+        private bool TryReadMainUiGamepadSnapshot(out MainUiGamepadSnapshot snapshot)
+        {
+            bool hadPrimary = _mainUiPrimaryGamepadSource != MainUiGamepadSourceKind.None;
+
+            if (TryReadSelectedMainUiGamepadSnapshot(out snapshot))
+                return true;
+
+            if (hadPrimary && TrySelectAnyConnectedMainUiGamepadSnapshot(out snapshot))
+                return true;
+
+            if (TrySelectOnlyConnectedXInputMainUiGamepadSnapshot(out snapshot))
+                return true;
+
+            return TrySelectActiveMainUiGamepadSnapshot(out snapshot);
+        }
+
+        private bool TryReadSelectedMainUiGamepadSnapshot(out MainUiGamepadSnapshot snapshot)
+        {
+            if (_mainUiPrimaryGamepadSource == MainUiGamepadSourceKind.XInput)
+            {
+                if (_mainUiPrimaryXInputSlot >= 0 &&
+                    TryReadXInputMainUiGamepadSnapshot(_mainUiPrimaryXInputSlot, out snapshot))
+                    return true;
+
+                ClearMainUiPrimaryGamepad();
+            }
+            else if (_mainUiPrimaryGamepadSource == MainUiGamepadSourceKind.WindowsGamepad)
+            {
+                var selectedPad = _mainUiPrimaryWindowsGamepad;
+                if (selectedPad != null)
+                {
+                    try
+                    {
+                        var pads = Windows.Gaming.Input.Gamepad.Gamepads;
+                        for (int i = 0; i < pads.Count; i++)
+                        {
+                            if (!ReferenceEquals(pads[i], selectedPad))
+                                continue;
+
+                            if (TryReadWindowsMainUiGamepadSnapshot(selectedPad, i, out snapshot))
+                                return true;
+
+                            break;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[MainUiGamepad] Windows.Gaming.Input selecionado falhou: {ex.Message}");
+                    }
+                }
+
+                ClearMainUiPrimaryGamepad();
+            }
+            else if (_mainUiPrimaryGamepadSource == MainUiGamepadSourceKind.RawGameController)
+            {
+                var selectedPad = _mainUiPrimaryRawGameController;
+                if (selectedPad != null)
+                {
+                    try
+                    {
+                        var pads = Windows.Gaming.Input.RawGameController.RawGameControllers;
+                        for (int i = 0; i < pads.Count; i++)
+                        {
+                            if (!IsSameRawGameController(pads[i], selectedPad))
+                                continue;
+
+                            if (TryReadRawMainUiGamepadSnapshot(selectedPad, i, out snapshot))
+                                return true;
+
+                            break;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[MainUiGamepad] RawGameController selecionado falhou: {ex.Message}");
+                    }
+                }
+
+                ClearMainUiPrimaryGamepad();
+            }
+
+            snapshot = default;
+            return false;
+        }
+
+        private bool TrySelectActiveMainUiGamepadSnapshot(out MainUiGamepadSnapshot snapshot)
+        {
+            for (int i = 0; i < 4; i++)
+            {
+                if (!TryReadXInputMainUiGamepadSnapshot(i, out snapshot) ||
+                    !HasMainUiGamepadInteraction(snapshot))
+                    continue;
+
+                _mainUiPrimaryGamepadSource = MainUiGamepadSourceKind.XInput;
+                _mainUiPrimaryXInputSlot = i;
+                _mainUiPrimaryWindowsGamepad = null;
+                _mainUiPrimaryRawGameController = null;
+                return true;
+            }
+
+            try
+            {
+                var pads = Windows.Gaming.Input.Gamepad.Gamepads;
+                for (int i = 0; i < pads.Count; i++)
+                {
+                    var pad = pads[i];
+                    if (!TryReadWindowsMainUiGamepadSnapshot(pad, i, out snapshot) ||
+                        !HasMainUiGamepadInteraction(snapshot))
+                        continue;
+
+                    _mainUiPrimaryGamepadSource = MainUiGamepadSourceKind.WindowsGamepad;
+                    _mainUiPrimaryXInputSlot = -1;
+                    _mainUiPrimaryWindowsGamepad = pad;
+                    _mainUiPrimaryRawGameController = null;
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[MainUiGamepad] Windows.Gaming.Input selecao falhou: {ex.Message}");
+            }
+
+            try
+            {
+                var pads = Windows.Gaming.Input.RawGameController.RawGameControllers;
+                for (int i = 0; i < pads.Count; i++)
+                {
+                    var pad = pads[i];
+                    if (!TryReadRawMainUiGamepadSnapshot(pad, i, out snapshot) ||
+                        !HasMainUiGamepadInteraction(snapshot))
+                        continue;
+
+                    _mainUiPrimaryGamepadSource = MainUiGamepadSourceKind.RawGameController;
+                    _mainUiPrimaryXInputSlot = -1;
+                    _mainUiPrimaryWindowsGamepad = null;
+                    _mainUiPrimaryRawGameController = pad;
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[MainUiGamepad] RawGameController selecao falhou: {ex.Message}");
+            }
+
+            snapshot = default;
+            return false;
+        }
+
+        private bool TrySelectAnyConnectedMainUiGamepadSnapshot(out MainUiGamepadSnapshot snapshot)
+        {
+            for (int i = 0; i < 4; i++)
+            {
+                if (!TryReadXInputMainUiGamepadSnapshot(i, out snapshot))
+                    continue;
+
+                _mainUiPrimaryGamepadSource = MainUiGamepadSourceKind.XInput;
+                _mainUiPrimaryXInputSlot = i;
+                _mainUiPrimaryWindowsGamepad = null;
+                _mainUiPrimaryRawGameController = null;
+                return true;
+            }
+
+            try
+            {
+                var pads = Windows.Gaming.Input.Gamepad.Gamepads;
+                if (pads.Count > 0 &&
+                    TryReadWindowsMainUiGamepadSnapshot(pads[0], 0, out snapshot))
+                {
+                    _mainUiPrimaryGamepadSource = MainUiGamepadSourceKind.WindowsGamepad;
+                    _mainUiPrimaryXInputSlot = -1;
+                    _mainUiPrimaryWindowsGamepad = pads[0];
+                    _mainUiPrimaryRawGameController = null;
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[MainUiGamepad] Windows.Gaming.Input promocao falhou: {ex.Message}");
+            }
+
+            try
+            {
+                var pads = Windows.Gaming.Input.RawGameController.RawGameControllers;
+                if (pads.Count > 0 &&
+                    TryReadRawMainUiGamepadSnapshot(pads[0], 0, out snapshot))
+                {
+                    _mainUiPrimaryGamepadSource = MainUiGamepadSourceKind.RawGameController;
+                    _mainUiPrimaryXInputSlot = -1;
+                    _mainUiPrimaryWindowsGamepad = null;
+                    _mainUiPrimaryRawGameController = pads[0];
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[MainUiGamepad] RawGameController promocao falhou: {ex.Message}");
+            }
+
+            snapshot = default;
+            return false;
+        }
+
+        private bool TrySelectOnlyConnectedXInputMainUiGamepadSnapshot(out MainUiGamepadSnapshot snapshot)
+        {
+            int connectedSlot = -1;
+            MainUiGamepadSnapshot selected = default;
+
+            for (int i = 0; i < 4; i++)
+            {
+                if (!TryReadXInputMainUiGamepadSnapshot(i, out var candidate))
+                    continue;
+
+                if (connectedSlot >= 0)
+                {
+                    snapshot = default;
+                    return false;
+                }
+
+                connectedSlot = i;
+                selected = candidate;
+            }
+
+            if (connectedSlot < 0)
+            {
+                snapshot = default;
+                return false;
+            }
+
+            _mainUiPrimaryGamepadSource = MainUiGamepadSourceKind.XInput;
+            _mainUiPrimaryXInputSlot = connectedSlot;
+            _mainUiPrimaryWindowsGamepad = null;
+            _mainUiPrimaryRawGameController = null;
+            snapshot = selected;
+            return true;
+        }
+
+        private static bool TryReadWindowsMainUiGamepadSnapshot(
+            Windows.Gaming.Input.Gamepad pad,
+            int sourceKey,
+            out MainUiGamepadSnapshot snapshot)
+        {
+            var reading = pad.GetCurrentReading();
+            var b = reading.Buttons;
+            ushort buttons = 0;
+
+            if ((b & Windows.Gaming.Input.GamepadButtons.DPadUp) != 0) buttons |= 0x0001;
+            if ((b & Windows.Gaming.Input.GamepadButtons.DPadDown) != 0) buttons |= 0x0002;
+            if ((b & Windows.Gaming.Input.GamepadButtons.DPadLeft) != 0) buttons |= 0x0004;
+            if ((b & Windows.Gaming.Input.GamepadButtons.DPadRight) != 0) buttons |= 0x0008;
+            if ((b & Windows.Gaming.Input.GamepadButtons.View) != 0) buttons |= 0x0020;
+
+            snapshot = new MainUiGamepadSnapshot(
+                reading.LeftThumbstickX,
+                reading.LeftThumbstickY,
+                buttons,
+                MainUiGamepadSourceKind.WindowsGamepad,
+                sourceKey + 100,
+                b != Windows.Gaming.Input.GamepadButtons.None ||
+                Math.Abs(reading.LeftThumbstickX) > 0.35 ||
+                Math.Abs(reading.LeftThumbstickY) > 0.35 ||
+                reading.LeftTrigger > 0.35 ||
+                reading.RightTrigger > 0.35);
+            return true;
+        }
+
+        private static bool TryReadRawMainUiGamepadSnapshot(
+            Windows.Gaming.Input.RawGameController pad,
+            int sourceKey,
+            out MainUiGamepadSnapshot snapshot)
+        {
+            var rawButtons = new bool[Math.Max(0, pad.ButtonCount)];
+            var rawSwitches = new Windows.Gaming.Input.GameControllerSwitchPosition[Math.Max(0, pad.SwitchCount)];
+            var rawAxes = new double[Math.Max(0, pad.AxisCount)];
+
+            pad.GetCurrentReading(rawButtons, rawSwitches, rawAxes);
+
+            ushort buttons = 0;
+            foreach (var position in rawSwitches)
+                buttons |= MapRawSwitchToMainUiButtons(position);
+
+            if (rawButtons.Length > 15)
+            {
+                if (rawButtons[12]) buttons |= 0x0001;
+                if (rawButtons[13]) buttons |= 0x0002;
+                if (rawButtons[14]) buttons |= 0x0004;
+                if (rawButtons[15]) buttons |= 0x0008;
+            }
+
+            double axisX = 0;
+            double axisY = 0;
+            double bestMagnitude = 0;
+            for (int i = 0; i + 1 < rawAxes.Length; i += 2)
+            {
+                var candidate = NormalizeRawAxisPair(rawAxes[i], rawAxes[i + 1]);
+                double magnitude = Math.Max(Math.Abs(candidate.X), Math.Abs(candidate.Y));
+                if (magnitude <= bestMagnitude)
+                    continue;
+
+                axisX = candidate.X;
+                axisY = candidate.Y;
+                bestMagnitude = magnitude;
+            }
+
+            bool hasAnyInteraction = rawButtons.Any(v => v) ||
+                rawSwitches.Any(v => v != Windows.Gaming.Input.GameControllerSwitchPosition.Center) ||
+                bestMagnitude > 0.35;
+
+            snapshot = new MainUiGamepadSnapshot(
+                axisX,
+                axisY,
+                buttons,
+                MainUiGamepadSourceKind.RawGameController,
+                sourceKey + 1000,
+                hasAnyInteraction);
+            return true;
+        }
+
+        private static ushort MapRawSwitchToMainUiButtons(Windows.Gaming.Input.GameControllerSwitchPosition position)
+        {
+            return position switch
+            {
+                Windows.Gaming.Input.GameControllerSwitchPosition.Up => 0x0001,
+                Windows.Gaming.Input.GameControllerSwitchPosition.UpRight => 0x0001 | 0x0008,
+                Windows.Gaming.Input.GameControllerSwitchPosition.Right => 0x0008,
+                Windows.Gaming.Input.GameControllerSwitchPosition.DownRight => 0x0002 | 0x0008,
+                Windows.Gaming.Input.GameControllerSwitchPosition.Down => 0x0002,
+                Windows.Gaming.Input.GameControllerSwitchPosition.DownLeft => 0x0002 | 0x0004,
+                Windows.Gaming.Input.GameControllerSwitchPosition.Left => 0x0004,
+                Windows.Gaming.Input.GameControllerSwitchPosition.UpLeft => 0x0001 | 0x0004,
+                _ => 0
+            };
+        }
+
+        private static (double X, double Y) NormalizeRawAxisPair(double rawX, double rawY)
+        {
+            double absX = Math.Abs(rawX);
+            double absY = Math.Abs(rawY);
+            bool inUnitRange = rawX >= -0.001 && rawX <= 1.001 && rawY >= -0.001 && rawY <= 1.001;
+            bool bothNearZero = absX < 0.12 && absY < 0.12;
+            double signedX = ClampMainUiAxis(rawX);
+            double signedY = ClampMainUiAxis(rawY);
+
+            if (!inUnitRange || bothNearZero)
+                return (signedX, signedY);
+
+            double centeredX = ClampMainUiAxis((rawX - 0.5) * 2.0);
+            double centeredY = ClampMainUiAxis((rawY - 0.5) * 2.0);
+            double signedMagnitude = Math.Max(Math.Abs(signedX), Math.Abs(signedY));
+            double centeredMagnitude = Math.Max(Math.Abs(centeredX), Math.Abs(centeredY));
+
+            if (centeredMagnitude > signedMagnitude + 0.15 ||
+                (signedMagnitude < 0.6 && centeredMagnitude > 0.6))
+                return (centeredX, centeredY);
+
+            return (signedX, signedY);
+        }
+
+        private static double ClampMainUiAxis(double value)
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value))
+                return 0;
+
+            if (value > 1) return 1;
+            if (value < -1) return -1;
+            return value;
+        }
+
+        private static bool TryReadXInputMainUiGamepadSnapshot(int slot, out MainUiGamepadSnapshot snapshot)
+        {
+            if (XInputGetStateSecret(slot, out var state) == 0)
+            {
+                var gp = state.Gamepad;
+                double axisX = gp.sThumbLX / 32767.0;
+                double axisY = gp.sThumbLY / 32767.0;
+                snapshot = new MainUiGamepadSnapshot(
+                    axisX,
+                    axisY,
+                    gp.wButtons,
+                    MainUiGamepadSourceKind.XInput,
+                    slot,
+                    gp.wButtons != 0 ||
+                    Math.Abs(axisX) > 0.35 ||
+                    Math.Abs(axisY) > 0.35 ||
+                    gp.bLeftTrigger > 30 ||
+                    gp.bRightTrigger > 30);
+                return true;
+            }
+
+            snapshot = default;
+            return false;
+        }
+
+        private static bool HasMainUiGamepadInteraction(MainUiGamepadSnapshot snapshot)
+            => snapshot.HasAnyInteraction;
+
+        private static bool IsSameRawGameController(
+            Windows.Gaming.Input.RawGameController first,
+            Windows.Gaming.Input.RawGameController second)
+        {
+            if (ReferenceEquals(first, second))
+                return true;
+
+            try
+            {
+                return !string.IsNullOrWhiteSpace(first.NonRoamableId) &&
+                    string.Equals(first.NonRoamableId, second.NonRoamableId, StringComparison.Ordinal);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void ClearMainUiPrimaryGamepad()
+        {
+            _mainUiPrimaryGamepadSource = MainUiGamepadSourceKind.None;
+            _mainUiPrimaryXInputSlot = -1;
+            _mainUiPrimaryWindowsGamepad = null;
+            _mainUiPrimaryRawGameController = null;
+        }
+
         private void MainUiGamepadLoop()
         {
             const int INITIAL_DELAY_MS = 400;
@@ -14830,6 +15424,9 @@ namespace Doorpi
             string? currentDir = null;
             DateTime lastMoveTime = DateTime.MinValue;
             ushort prevButtons = 0;
+            bool hadPreviousInput = false;
+            bool previousWasXInput = true;
+            int previousSourceKey = -1;
 
             while (_mainUiGamepadActive)
             {
@@ -14876,16 +15473,33 @@ namespace Doorpi
                         continue;
                     }
 
-                    if (XInputGetStateSecret(0, out var state) != 0) { Thread.Sleep(10); continue; }
+                    if (!TryReadMainUiGamepadSnapshot(out var input))
+                    {
+                        prevButtons = 0;
+                        hadPreviousInput = false;
+                        Thread.Sleep(10);
+                        continue;
+                    }
 
-                    var gp = state.Gamepad;
-                    double ax = gp.sThumbLX / 32767.0;
-                    double ay = gp.sThumbLY / 32767.0;
-                    ushort btn = gp.wButtons;
+                    if (!hadPreviousInput ||
+                        input.IsXInput != previousWasXInput ||
+                        input.SourceKey != previousSourceKey)
+                    {
+                        prevButtons = 0;
+                        moveState = 0;
+                        currentDir = null;
+                    }
+
+                    double ax = input.AxisX;
+                    double ay = input.AxisY;
+                    ushort btn = input.Buttons;
 
                     if (DateTime.UtcNow.Ticks < Interlocked.Read(ref _returnFromExternalModeSuppressUntil))
                     {
                         prevButtons = btn;
+                        hadPreviousInput = true;
+                        previousWasXInput = input.IsXInput;
+                        previousSourceKey = input.SourceKey;
                         Thread.Sleep(10);
                         continue;
                     }
@@ -14926,6 +15540,9 @@ namespace Doorpi
                     else { moveState = 0; currentDir = null; }
 
                     prevButtons = btn;
+                    hadPreviousInput = true;
+                    previousWasXInput = input.IsXInput;
+                    previousSourceKey = input.SourceKey;
                 }
                 catch (Exception ex) { Debug.WriteLine($"[MainUiGamepad] {ex.Message}"); }
                 Thread.Sleep(10);
