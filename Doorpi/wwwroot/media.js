@@ -377,10 +377,6 @@ function switchHomeTab(tab) {
     const feat = document.querySelector(`${gridSel} .card.featured`);
     feat?._startInteraction?.();
 
-    if (tab === 'stores') {
-        const first = document.querySelector('#storesGrid .card');
-        first?.focus();
-    }
 }
 
 function cycleHomeTab(direction) {

@@ -1240,18 +1240,24 @@ namespace Doorpi
             object? sender,
             Microsoft.Web.WebView2.Core.CoreWebView2ProcessFailedEventArgs e)
         {
+            string detail = $"kind={e.ProcessFailedKind} reason={e.Reason} exitCode={e.ExitCode} description={e.ProcessDescription}";
+            DoorpiBootDiagnostics.Log("home-webview-process-failed", detail);
+
             if (e.ProcessFailedKind ==
                 Microsoft.Web.WebView2.Core.CoreWebView2ProcessFailedKind.GpuProcessExited)
             {
                 Debug.WriteLine("[GpuUpdate] Processo GPU do WebView2 foi reiniciado pelo runtime.");
+                StartHomeWebViewHealthWatch("gpu-process-exited", 2500);
                 return;
             }
 
             if (e.ProcessFailedKind is
+                Microsoft.Web.WebView2.Core.CoreWebView2ProcessFailedKind.BrowserProcessExited or
                 Microsoft.Web.WebView2.Core.CoreWebView2ProcessFailedKind.RenderProcessExited or
                 Microsoft.Web.WebView2.Core.CoreWebView2ProcessFailedKind.RenderProcessUnresponsive)
             {
                 Debug.WriteLine("[GpuUpdate] WebView2 degradado: " + e.ProcessFailedKind);
+                StartHomeWebViewHealthWatch("process-failed:" + e.ProcessFailedKind, 800);
             }
         }
 

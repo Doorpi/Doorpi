@@ -155,6 +155,7 @@ namespace Doorpi
                     DoorpiPaths.BrowserProfilesFolder,
                     "store-installer",
                     SafePathSegment(storeId));
+                QueueWebViewProfileCacheTrim(profilePath, "store-installer-before-open");
 
                 string downloadFolder = Path.Combine(
                     DoorpiPaths.DataFolder,

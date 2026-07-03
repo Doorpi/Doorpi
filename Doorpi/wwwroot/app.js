@@ -2804,6 +2804,9 @@
             const force = !!status?.forceUpdate;
             if (isVisible) return false;
             if (!window._isIntroComplete) return true;
+            if (!window._doorpiUserSessionReady) return true;
+            if (document.body.classList.contains('user-picker-open')) return true;
+            if (document.getElementById('doorpiUserPicker')?.style.display === 'flex') return true;
             if (window._isExternalAppRunning) return true;
             if (hasRuntimeSession()) return true;
             if (window.isDoorpiSessionTransitionActive?.()) return true;
@@ -2859,7 +2862,8 @@
 
         function updateBadge() {
             const badge = ensureBadge();
-            const available = hasUpdate(latestStatus);
+            const userReady = !!window._doorpiUserSessionReady && !document.body.classList.contains('user-picker-open');
+            const available = userReady && hasUpdate(latestStatus);
             badge.classList.toggle('is-visible', available);
             badge.classList.toggle('is-force', !!latestStatus?.forceUpdate);
             badge.title = available
@@ -3055,7 +3059,8 @@
             window.updateDoorpiQuickMenuAvailability?.();
             window.DoorpiUiSound?.play('confirm');
             requestAnimationFrame(() => {
-                prompt.querySelector('#doorpiUpdateStartBtn')?.focus();
+                focusPromptPrimary();
+                window.updateNavHint?.();
             });
         }
 
@@ -3119,6 +3124,12 @@
                     opacity: 1;
                     transform: translateY(0);
                     pointer-events: auto;
+                }
+                body.nav-menu-active .doorpi-update-badge,
+                body.nav-menu-closing .doorpi-update-badge {
+                    opacity: 0 !important;
+                    transform: translateY(-8px) !important;
+                    pointer-events: none !important;
                 }
                 .doorpi-update-badge:focus,
                 .doorpi-update-badge:hover {
@@ -3323,6 +3334,8 @@
             const data = event.data;
             const type = typeof data === 'string' ? data : data?.type;
             if (type === 'doorpi:intro:complete') scheduleEvaluate(120);
+            if (type === 'currentUserUpdated') scheduleEvaluate(420);
+            if (type === 'userSwitchComplete') scheduleEvaluate(520);
         });
 
         window.addEventListener('focus', () => scheduleEvaluate(220));
@@ -3740,6 +3753,7 @@
                 }
                 window._doorpiProfile = data.user;
                 if (nextUserId) window._doorpiCurrentUserId = nextUserId;
+                window._doorpiUserSessionReady = !!nextUserId;
                 window._doorpiIsAdmin = !!data.isAdmin || !!(data.user?.IsAdmin || data.user?.isAdmin);
                 window._adminBlockedStoreIds = new Set(data.blockedStoreIds || []);
                 window._steamForceAccountSelection = !!data.steamForceAccountSelection;
@@ -3754,6 +3768,7 @@
                 }
                 window._applyDoorpiTopProfile?.(data.user);
                 window.DoorpiFirstRunTutorial?.maybeShow?.();
+                setTimeout(() => window.DoorpiUpdatePrompt?.evaluate?.(), 420);
                 if (typeof clearHero === 'function') clearHero();
             }
             else if (data.type === 'systemUpdateStatus') {
@@ -4137,10 +4152,12 @@
                 requestAnimationFrame(() => window.focusFeaturedCard?.());
             }
             else if (data.type === 'userSwitchStart') {
+                window._doorpiUserSessionReady = false;
                 _userSwitchFadeOut(data);
             }
             else if (data.type === 'userSwitchComplete') {
                 _userSwitchFadeIn(data);
+                setTimeout(() => window.DoorpiUpdatePrompt?.evaluate?.(), 520);
             }
 
             else if (data.type === 'gameLaunchFailed') {
@@ -5081,6 +5098,8 @@ function showUserPicker(users, requireSelection = false) {
         return;
     }
 
+    if (requireSelection) window._doorpiUserSessionReady = false;
+
     ensureDoorpiOverlayStyles();
     let overlay = document.getElementById('doorpiUserPicker');
     if (!overlay) {
@@ -5229,6 +5248,8 @@ function showUserPicker(users, requireSelection = false) {
 
     if (typeof applyI18n === 'function') applyI18n();
     overlay.style.display = 'flex';
+    window.__doorpiInitialUiReady = true;
+    window.dispatchEvent(new CustomEvent('doorpi:initial-ui-ready', { detail: { target: 'user-picker' } }));
     document.body.classList.add('user-picker-open');
 
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
@@ -5276,7 +5297,21 @@ function showUserPicker(users, requireSelection = false) {
     overlay.querySelector('#doorpiRestart')?.addEventListener('click', () => postToHost({ action: 'restartSystem' }));
     overlay.querySelector('#doorpiShutdown')?.addEventListener('click', () => postToHost({ action: 'shutdownSystem' }));
 
-    requestAnimationFrame(() => requestAnimationFrame(() => overlay.querySelector('.doorpi-user-card')?.focus()));
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+        window.ensureDoorpiGamepadPrimaryReady?.();
+        const first = overlay.querySelector('.doorpi-user-card');
+        first?.focus();
+        window.resetDoorpiGamepadInputState?.();
+        try {
+            postToHost({
+                action: 'doorpiHomeInteractiveReady',
+                mode: requireSelection ? 'user-picker-required' : 'user-picker',
+                activeTag: document.activeElement?.tagName || '',
+                activeId: document.activeElement?.id || '',
+                activeClass: document.activeElement?.className || ''
+            });
+        } catch { }
+    }));
 }
 
     function openCreateUserDialog() {
@@ -6955,7 +6990,6 @@ function buildFilterBar(apps) {
 
 document.getElementById('btnAdd').addEventListener('click', () => {
     if (window.DoorpiIntro?.isRunning?.()) {
-        window.DoorpiIntro.skip?.();
         return;
     }
     isModalOpen = true;
@@ -6977,7 +7011,6 @@ document.getElementById('btnAdd').addEventListener('click', () => {
 
 document.getElementById('btnAddMedia')?.addEventListener('click', () => {
     if (window.DoorpiIntro?.isRunning?.()) {
-        window.DoorpiIntro.skip?.();
         return;
     }
     isModalOpen = true;
@@ -6999,7 +7032,6 @@ document.getElementById('btnAddMedia')?.addEventListener('click', () => {
 
 document.getElementById('btnAddStore')?.addEventListener('click', () => {
     if (window.DoorpiIntro?.isRunning?.()) {
-        window.DoorpiIntro.skip?.();
         return;
     }
     isModalOpen = true;
@@ -10252,6 +10284,48 @@ function renderFolderList(folders) {
         await _afterFrames(2);
     }
 
+    function _focusDoorpiInteractiveTarget() {
+        window.ensureDoorpiGamepadPrimaryReady?.();
+
+        const items = typeof getNavigableItems === 'function'
+            ? getNavigableItems().filter(el =>
+                el &&
+                el.offsetWidth > 0 &&
+                el.offsetHeight > 0 &&
+                !el.disabled &&
+                el.getAttribute('aria-disabled') !== 'true')
+            : [];
+
+        const target = items[0] || null;
+        if (target) {
+            target.focus();
+            target.scrollIntoView?.({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
+            return document.activeElement === target;
+        }
+
+        return window.focusFeaturedCard?.() === true;
+    }
+
+    async function _waitForDoorpiInteractiveReady(data = {}) {
+        const started = performance.now();
+        while (performance.now() - started < 1800) {
+            if (_focusDoorpiInteractiveTarget()) break;
+            await _afterFrames(1);
+            await _delay(60);
+        }
+
+        window.resetDoorpiGamepadInputState?.();
+        try {
+            postToHost({
+                action: 'doorpiHomeInteractiveReady',
+                mode: data.mode || '',
+                activeTag: document.activeElement?.tagName || '',
+                activeId: document.activeElement?.id || '',
+                activeClass: document.activeElement?.className || ''
+            });
+        } catch { }
+    }
+
     function _runDeferredFirstRunTutorial() {
         if (!window._doorpiFirstRunTutorialDeferred) return;
         window._doorpiFirstRunTutorialDeferred = false;
@@ -10384,10 +10458,10 @@ function renderFolderList(folders) {
                 }, 300);
             }
             resumeTransitionAudio();
-            window._doorpiSessionTransitionBlockUntil = Date.now() + 450;
             window._doorpiAllowLibraryRenderDuringSessionTransition = false;
+            await _waitForDoorpiInteractiveReady(data);
+            window._doorpiSessionTransitionBlockUntil = Date.now() + 120;
             window._userSwitching = false;
-            window.focusFeaturedCard?.();
             scheduleDoorpiFocusRecovery?.();
             _runDeferredFirstRunTutorial();
             return;
@@ -10416,10 +10490,10 @@ function renderFolderList(folders) {
                 logoutOverlay.style.display = 'none';
             }
             resumeTransitionAudio();
-            window._doorpiSessionTransitionBlockUntil = Date.now() + 450;
             window._doorpiAllowLibraryRenderDuringSessionTransition = false;
+            await _waitForDoorpiInteractiveReady(data);
+            window._doorpiSessionTransitionBlockUntil = Date.now() + 120;
             window._userSwitching = false;
-            window.focusFeaturedCard?.();
             scheduleDoorpiFocusRecovery?.();
             _runDeferredFirstRunTutorial();
             return;
@@ -10450,14 +10524,14 @@ function renderFolderList(folders) {
             }, 300);
         }
 
-        setTimeout(() => {
+        setTimeout(async () => {
             wrap.style.removeProperty('transition');
             wrap.style.transform = '';
-            window._doorpiSessionTransitionBlockUntil = Date.now() + 450;
             window._doorpiAllowLibraryRenderDuringSessionTransition = false;
-            window._userSwitching = false;
             resumeTransitionAudio();
-            window.focusFeaturedCard?.();
+            await _waitForDoorpiInteractiveReady(data);
+            window._doorpiSessionTransitionBlockUntil = Date.now() + 120;
+            window._userSwitching = false;
             scheduleDoorpiFocusRecovery?.();
             _runDeferredFirstRunTutorial();
         }, 320);

@@ -20,11 +20,16 @@ namespace Doorpi
         private Process? _storeLauncherProcess;
         private CancellationTokenSource? _storeLauncherWatcherCts;
         private Thread? _storeControllerThread;
+        private Thread? _storeShortcutThread;
+        private int _storeControllerThreadSessionId;
+        private int _storeShortcutThreadSessionId;
         private int _storeSessionId;
         private bool _storeGamepadDisabled;
         private bool _storeMouseModeRequested;
         private bool _storeMouseModeActive;
         private bool _storeMouseModeInitialized;
+        private bool _storeMouseInputTemporarilyDisabled;
+        private long _storeMouseModeShortcutSuppressUntilTicks;
         private StoreMinimizeState _storeMinimizeState = StoreMinimizeState.Opening;
         private bool _steamAccountSelectionControlsActive;
         private bool _steamAccountSelectionStoreSessionActive;
@@ -126,7 +131,7 @@ namespace Doorpi
         };
 
         private static bool IsStoreMouseModeDisabledByDefault(string storeId)
-            => false;
+            => string.Equals(storeId, "Xbox", StringComparison.OrdinalIgnoreCase);
 
         private static bool IsStoreMouseModeEnabledByDefault(string storeId)
             => !IsStoreMouseModeDisabledByDefault(storeId);
@@ -1053,6 +1058,7 @@ namespace Doorpi
             ClearStorePendingChildWindows();
             _storeMinimizeState = StoreMinimizeState.StoreChildGameValid;
             _storeMouseModeActive = false;
+            _storeMouseInputTemporarilyDisabled = false;
 
             CancellationTokenSource cts;
             lock (_gameLaunchMonitorLock)
@@ -2380,6 +2386,7 @@ namespace Doorpi
             _storeMouseModeRequested = false;
             _storeMouseModeActive = false;
             _storeMouseModeInitialized = false;
+            _storeMouseInputTemporarilyDisabled = false;
             _storeLauncherWindowSeen = false;
             _storeTrayCloseInProgress = false;
             _storeTransitionOverlayActive = false;
@@ -2597,6 +2604,7 @@ namespace Doorpi
             {
                 _storePausedByDoorpi = true;
                 _storeMouseModeActive = false;
+                _storeMouseInputTemporarilyDisabled = false;
                 _gameIsMinimized = false;
                 _gameIsRunningAndDoorpiHidden = true;
                 ClearExecutionLock();
@@ -3509,6 +3517,7 @@ namespace Doorpi
             _storeMouseModeRequested = startMouseMode;
             _storeGamepadDisabled = !startMouseMode;
             _storeMouseModeActive = startMouseMode;
+            _storeMouseInputTemporarilyDisabled = false;
             int sessionId = Interlocked.Increment(ref _storeSessionId);
             var watcherCts = _storeLauncherWatcherCts;
             var watcherToken = watcherCts?.Token ?? CancellationToken.None;
@@ -3540,6 +3549,7 @@ namespace Doorpi
                     CenterCursorOnScreen();
                     UpdateHoverStateInWebView();
                 });
+                EnsureStoreControllerThread(sessionId);
             }
             SendRuntimeSessionsToUI();
         }
@@ -3703,6 +3713,7 @@ namespace Doorpi
 
             _storePausedByDoorpi = true;
             _storeMouseModeActive = false;
+            _storeMouseInputTemporarilyDisabled = false;
 
            
             _mainUiGamepadSuspendedForGame = false;
@@ -4104,11 +4115,15 @@ namespace Doorpi
 
         private void ResetGogWindowLog()
         {
+#if !DEBUG
+            return;
+#else
             try
             {
                 File.WriteAllText(GetGogWindowLogPath(), "", Encoding.UTF8);
             }
             catch { }
+#endif
         }
 
         private string GetGogWindowLogPath()
@@ -4120,12 +4135,16 @@ namespace Doorpi
 
         private void WriteGogWindowLog(string line)
         {
+#if !DEBUG
+            return;
+#else
             try
             {
                 Debug.WriteLine("[GogWindow] " + line);
                 File.AppendAllText(GetGogWindowLogPath(), line + Environment.NewLine, Encoding.UTF8);
             }
             catch { }
+#endif
         }
 
         private static string LogValue(string? value)
@@ -4290,12 +4309,14 @@ namespace Doorpi
 
             _storeGamepadDisabled = !_storeMouseModeRequested;
             _storeMouseModeActive = _storeMouseModeRequested;
+            _storeMouseInputTemporarilyDisabled = false;
             EnsureStoreShortcutThread(_storeSessionId);
 
             if (_storeMouseModeRequested)
             {
                 EnsureCursorVisible();
                 _mainScreenMouseVisible = true;
+                EnsureStoreControllerThread(_storeSessionId);
             }
 
             SendRuntimeSessionsToUI();
@@ -4345,6 +4366,7 @@ namespace Doorpi
             _storeMouseModeRequested = false;
             _storeMouseModeActive = false;
             _storeMouseModeInitialized = false;
+            _storeMouseInputTemporarilyDisabled = false;
             _storeMinimizeState = StoreMinimizeState.Opening;
             ResetStoreMinimizeGrace();
             _storeLauncherWindowSeen = false;
@@ -4421,6 +4443,7 @@ namespace Doorpi
             _storeMouseModeRequested = false;
             _storeMouseModeActive = false;
             _storeMouseModeInitialized = false;
+            _storeMouseInputTemporarilyDisabled = false;
             _storeMinimizeState = StoreMinimizeState.Opening;
             ResetStoreMinimizeGrace();
             _storeLauncherWindowSeen = false;
@@ -4727,9 +4750,9 @@ namespace Doorpi
                 }
                 else if (string.Equals(id, "Xbox", StringComparison.OrdinalIgnoreCase) &&
                          entry.DisableGamepadControlConfigured &&
-                         entry.DisableGamepadControl)
+                         !entry.DisableGamepadControl)
                 {
-                    entry.DisableGamepadControl = false;
+                    entry.DisableGamepadControl = true;
                     changed = true;
                 }
 

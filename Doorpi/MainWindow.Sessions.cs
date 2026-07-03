@@ -41,10 +41,13 @@ namespace Doorpi
             public bool GamepadDisabled;
             public bool MouseModeRequested;
             public bool MouseModeInitialized;
+            public bool MouseInputTemporarilyDisabled;
             public bool DoorpiSuspended;
             public CancellationTokenSource? WatcherCts;
             public Thread? ControllerThread;
             public Thread? ShortcutThread;
+            public int ControllerThreadSessionId;
+            public int ShortcutThreadSessionId;
             public HashSet<int> ProcessGroupIds = new();
             public HashSet<int> BaselineProcessIds = new();
             public HashSet<IntPtr> AttachedWindowHandles = new();
@@ -292,6 +295,12 @@ namespace Doorpi
         {
             get => ActiveExecutableAppSession?.MouseModeInitialized == true;
             set => EnsureExecutableAppSession().MouseModeInitialized = value;
+        }
+
+        private bool _mediaExeMouseInputTemporarilyDisabled
+        {
+            get => ActiveExecutableAppSession?.MouseInputTemporarilyDisabled == true;
+            set => EnsureExecutableAppSession().MouseInputTemporarilyDisabled = value;
         }
 
         private bool _doorpiSuspendedForMedia

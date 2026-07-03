@@ -34,8 +34,31 @@ namespace Doorpi
             return false;
         }
 
+        public static void CleanupReleaseLogs()
+        {
+#if DEBUG
+            return;
+#else
+            try
+            {
+                string dir = DoorpiPaths.LogsFolder;
+                if (!Directory.Exists(dir))
+                    return;
+
+                foreach (string file in Directory.EnumerateFiles(dir, "*.log", SearchOption.TopDirectoryOnly))
+                {
+                    try { File.Delete(file); } catch { }
+                }
+            }
+            catch { }
+#endif
+        }
+
         public static void Log(string stage, string extra = "")
         {
+#if !DEBUG
+            return;
+#else
             try
             {
                 string dir = DoorpiPaths.LogsFolder;
@@ -46,6 +69,7 @@ namespace Doorpi
                 File.AppendAllText(path, BuildLine(stage, extra), Encoding.UTF8);
             }
             catch { }
+#endif
         }
 
         private static string BuildLine(string stage, string extra)
@@ -72,6 +96,8 @@ namespace Doorpi
                 $"exe={Quote(processPath)} base={Quote(baseDir)} cwd={Quote(Environment.CurrentDirectory)} " +
                 $"cmd={Quote(commandLine)} " +
                 $"explorer={Quote(DescribeProcesses("explorer"))} doorpi={Quote(DescribeProcesses("Doorpi"))} " +
+                $"webview2={Quote(DescribeProcesses("msedgewebview2"))} edge={Quote(DescribeProcesses("msedge"))} edgeUpdate={Quote(DescribeProcesses("MicrosoftEdgeUpdate"))} " +
+                $"webview2Runtime={Quote(DescribeWebView2Runtime())} edgeServices={Quote(DescribeEdgeServices())} " +
                 $"hkcuShell={Quote(hkcuShell)} hkcuRun={Quote(hkcuRun)} " +
                 $"hklmShell64={Quote(hklmShell64)} hklmShell32={Quote(hklmShell32)} " +
                 $"hklmRun64={Quote(hklmRun64)} hklmRun32={Quote(hklmRun32)} " +
@@ -134,6 +160,36 @@ namespace Doorpi
             {
                 return "";
             }
+        }
+
+        private static string DescribeWebView2Runtime()
+        {
+            const string runtimeKey = @"SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}";
+            var parts = new[]
+            {
+                "hklm64=" + ReadRegistryValue(RegistryHive.LocalMachine, RegistryView.Registry64, runtimeKey, "pv"),
+                "hklm32=" + ReadRegistryValue(RegistryHive.LocalMachine, RegistryView.Registry32, runtimeKey, "pv"),
+                "hkcu=" + ReadRegistryValue(RegistryHive.CurrentUser, RegistryView.Default, runtimeKey, "pv")
+            };
+            return string.Join(";", parts);
+        }
+
+        private static string DescribeEdgeServices()
+        {
+            string[] serviceNames =
+            {
+                "edgeupdate",
+                "edgeupdatem",
+                "MicrosoftEdgeElevationService"
+            };
+
+            return string.Join(";",
+                serviceNames.Select(name =>
+                    name + "=" + ReadRegistryValue(
+                        RegistryHive.LocalMachine,
+                        RegistryView.Registry64,
+                        $@"SYSTEM\CurrentControlSet\Services\{name}",
+                        "Start")));
         }
 
         private static void RotateIfNeeded(string path)

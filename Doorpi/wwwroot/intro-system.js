@@ -180,6 +180,21 @@
         for (const waiter of waiters) { try { waiter(); } catch (err) { } }
     }
 
+    function isElementReady(el) {
+        if (!el) return false;
+        const style = window.getComputedStyle?.(el);
+        if (style && (style.display === 'none' || style.visibility === 'hidden')) return false;
+        return el.offsetWidth > 0 && el.offsetHeight > 0;
+    }
+
+    function isInitialUiReadyForSkip() {
+        if (window.__doorpiInitialUiReady === true) return true;
+        if (window._doorpiUserSessionReady === true) return true;
+        if (isElementReady(document.getElementById('doorpiUserPicker'))) return true;
+        if (isElementReady(document.getElementById('setupContainer'))) return true;
+        return false;
+    }
+
     function isConsoleShellMode() {
         return Number(state.bootMode || window.__doorpiBootMode || 0) === 2;
     }
@@ -204,15 +219,30 @@
         return isConsoleShellPending();
     }
 
+    function getSystemPrepText() {
+        const lang = String(navigator.language || navigator.userLanguage || '').toLowerCase();
+        if (lang.startsWith('pt')) {
+            return {
+                title: 'Preparando sistema',
+                subtitle: 'Aguardando ambiente do Windows'
+            };
+        }
+        return {
+            title: 'Preparing system',
+            subtitle: 'Waiting for Windows environment'
+        };
+    }
+
     function showSystemPrepOverlay() {
         let overlay = state.systemPrepOverlay || document.getElementById('doorpiIntroSystemPrep');
         if (!overlay) {
+            const text = getSystemPrepText();
             overlay = document.createElement('div');
             overlay.id = 'doorpiIntroSystemPrep';
             overlay.innerHTML = `
                 <div class="prep-spinner" aria-hidden="true"></div>
-                <div class="prep-title">Preparando sistema</div>
-                <div class="prep-sub">Aguardando ambiente do Windows</div>
+                <div class="prep-title">${text.title}</div>
+                <div class="prep-sub">${text.subtitle}</div>
             `;
             document.body.appendChild(overlay);
         }
@@ -247,6 +277,8 @@
     function finalizeIntroCompletion(reason) {
         if (state.finishDispatched) return;
         state.finishDispatched = true;
+        window._doorpiIntroInputBlockUntil = performance.now() + 450;
+        window._doorpiWaitForIntroInputNeutral = true;
         hideSystemPrepOverlay();
         if (!state.handoffActive) {
             revealMainSystemUI();
@@ -377,8 +409,23 @@
         });
     }
 
+    function waitForConsoleShellReady() {
+        if (!isConsoleShellPending()) return Promise.resolve();
+        showSystemPrepOverlay();
+        return new Promise(resolve => {
+            const done = () => {
+                if (isConsoleShellPending()) return;
+                window.removeEventListener('doorpi:console-shell-ready', done);
+                hideSystemPrepOverlay();
+                resolve();
+            };
+            window.addEventListener('doorpi:console-shell-ready', done);
+        });
+    }
+
     function skipIntro() {
         if (!state.started || state.completed) return false;
+        if (!isInitialUiReadyForSkip()) return false;
         if (isNativeIntroMode()) {
             try {
                 window.chrome?.webview?.postMessage(JSON.stringify({ action: 'nativeIntroSkip' }));
@@ -398,9 +445,6 @@
             if (!state.started || state.completed) return;
             e.preventDefault();
             e.stopImmediatePropagation();
-            if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'Enter') {
-                skipIntro();
-            }
         };
         const clickGuard = (e) => {
             if (!state.started || state.completed) return;
@@ -504,6 +548,7 @@
         if (data.type === 'consoleShellExplorerReady') {
             state.consoleExplorerReady = true;
             window.__doorpiConsoleShellExplorerReady = true;
+            window.dispatchEvent(new CustomEvent('doorpi:console-shell-ready'));
             if (state.completed && !state.finishDispatched) {
                 finalizeIntroCompletion('system-ready');
             }
@@ -534,6 +579,8 @@
 
         injectStyles();
         installInputGuards();
+
+        await waitForConsoleShellReady();
 
         if (isNativeIntroMode()) {
             state.config = { ...DEFAULT_CONFIG, enabled: false, exitFadeMs: 0 };
@@ -604,7 +651,8 @@
                 ...classListFrom(setup.className || setup.class || cfg.setupClass || userPicker.className || userPicker.class || cfg.userPickerClass)
             ].filter(Boolean);
         },
-        shouldDeferUserPicker: () => state.started && !state.completed
+        canSkip: () => state.started && !state.completed && isInitialUiReadyForSkip(),
+        shouldDeferUserPicker: () => false
     };
 
     // INJEÇÃO ULTRA-RÁPIDA (Não espera o resto da página carregar)
