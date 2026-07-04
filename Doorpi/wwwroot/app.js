@@ -3669,6 +3669,9 @@
                 clearLoadingCards(data.tab || 'games');
                 if (!data.tab) clearLoadingCards('media');
             }
+            else if (data.type === 'showLoadingCards') {
+                window.showLoadingCards?.(data.count || 1, data.tab || 'games');
+            }
             else if (data.type === 'showSetup') {
                 const open = () => {
                     if (typeof openSetup === 'function') openSetup();
@@ -3691,6 +3694,7 @@
             }
             else if (data.type === 'nativeDialogReturned') {
                 window._doorpiSuppressNativeDialogPointer?.(900);
+                window.resetDoorpiGamepadInputState?.();
             }
             else if (data.type === 'artworkSelectionApplied') {
                 window._artworkWizardHandleApplied?.(data);
@@ -7116,6 +7120,8 @@ document.getElementById('btnAddStore')?.addEventListener('click', () => {
 });
 
     function closeModal() {
+        window._doorpiSuppressNativeDialogPointer?.(700);
+        window.resetDoorpiGamepadInputState?.();
         document.getElementById('addGameContainer').style.display = 'none';
         document.getElementById('gameGrid').style.overflowX = 'auto';
         document.getElementById('selectionCounter')?.classList.remove('visible');
@@ -7163,6 +7169,7 @@ document.getElementById('btnAddStore')?.addEventListener('click', () => {
 
            
             window.setInlineScanStatus?.(true, t('inlineScanWaitingWindows'));
+            window._doorpiSuppressNativeDialogPointer?.(10 * 60 * 1000);
             postToHost({
                 action: 'browseManual',
                 dialogTitle: t('dlgBrowseTitle'),
@@ -7175,6 +7182,7 @@ document.getElementById('btnAddStore')?.addEventListener('click', () => {
 
         rebind('btnScanFolder', () => {
             window.setInlineScanStatus?.(true, t('inlineScanWaitingWindows'));
+            window._doorpiSuppressNativeDialogPointer?.(10 * 60 * 1000);
             postToHost({
                 action: 'pickFolder',
                 dialogTitle: t('dlgFolderTitle'),
@@ -10846,6 +10854,7 @@ function renderFolderList(folders) {
         document.getElementById('btnCancelAddMedia').addEventListener('click', closeModal);
         document.getElementById('btnSearchMedia').addEventListener('click', () => {
             window.setInlineScanStatus?.(true, t('inlineScanWaitingWindows'));
+            window._doorpiSuppressNativeDialogPointer?.(10 * 60 * 1000);
             postToHost({
                 action: 'browseManualMedia',
                 dialogTitle: t('dlgBrowseTitle'),

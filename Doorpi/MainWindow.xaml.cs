@@ -6859,43 +6859,30 @@ namespace Doorpi
                     return;
                 }
 
-                bool killedAny = false;
-                try
-                {
-                    if (!string.IsNullOrWhiteSpace(_lockedGameProcessName))
-                    {
-                        foreach (var p in Process.GetProcessesByName(_lockedGameProcessName))
-                        {
-                            try
-                            {
-                                if (hadStoreChildContext && IsProcessActiveStoreLauncher(p))
-                                    continue;
+                string lockedGameProcessName = _lockedGameProcessName;
+                Process? pendingLaunchProcess = _pendingLaunchProcess;
 
-                                p.Kill(true);
-                                killedAny = true;
+                _ = Task.Run(() =>
+                {
+                    try
+                    {
+                        if (!string.IsNullOrWhiteSpace(lockedGameProcessName))
+                        {
+                            foreach (var process in Process.GetProcessesByName(lockedGameProcessName))
+                            {
+                                try { if (!SafeHasExited(process)) process.Kill(true); }
+                                catch { }
+                                finally { try { process.Dispose(); } catch { } }
                             }
-                            catch { }
+                        }
+
+                        if (pendingLaunchProcess != null && !SafeHasExited(pendingLaunchProcess))
+                        {
+                            try { pendingLaunchProcess.Kill(true); } catch { }
                         }
                     }
-
-                    if (_pendingLaunchProcess != null &&
-                        !SafeHasExited(_pendingLaunchProcess) &&
-                        (!hadStoreChildContext || !IsProcessActiveStoreLauncher(_pendingLaunchProcess)))
-                    {
-                        _pendingLaunchProcess.Kill(true);
-                        killedAny = true;
-                    }
-                }
-                catch { }
-
-                if (hadStoreChildContext && !killedAny)
-                {
-                    if (IsGogStoreId(storeChildStoreId))
-                        _gogBackInputPendingOnStoreResume = true;
-                    ResumeStoreSession();
-                    SendRuntimeSessionsToUI();
-                    return;
-                }
+                    catch { }
+                });
 
                 CommitActiveSession();
                 ClearGameWindowSession();
@@ -12338,6 +12325,7 @@ namespace Doorpi
                             var dlg = new Microsoft.Win32.OpenFileDialog { Filter = dialogFilter, Title = dialogTitle };
 
                             bool? dialogResult = ShowDialogWithController(dlg);
+                            webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"nativeDialogReturned\"}");
 
                             if (dialogResult == true)
                             {
@@ -12348,11 +12336,12 @@ namespace Doorpi
                                 string cleanName = GetGameNameFromFile(filePath) ?? Path.GetFileNameWithoutExtension(filePath);
                                 webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
                                 { type = "updateLoadingText", title = loadTitle, subtitle = loadSub }));
+                                await webView.CoreWebView2.ExecuteScriptAsync(
+                                    "window._doorpiSuppressNativeDialogPointer?.(900); window.resetDoorpiGamepadInputState?.(); window.showLoadingCards?.(1, 'media'); closeModal();");
                                 await AddMultipleMediaAppsAsync(new List<InstalledApp>
                                 {
                                     new InstalledApp { Name = cleanName, Path = filePath, IconBase64 = GetCachedIcon(filePath) }
                                 });
-                                await webView.CoreWebView2.ExecuteScriptAsync("closeModal();");
                             }
                             else
                             {
@@ -12385,6 +12374,7 @@ namespace Doorpi
                             };
 
                             bool? dialogResult = ShowDialogWithController(dlg);
+                            webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"nativeDialogReturned\"}");
 
                             if (dialogResult == true)
                             {
@@ -12403,8 +12393,9 @@ namespace Doorpi
                                 {
                                     new InstalledApp { Name = cleanName, Path = filePath, IconBase64 = GetCachedIcon(filePath) }
                                 };
+                                await webView.CoreWebView2.ExecuteScriptAsync(
+                                    "window._doorpiSuppressNativeDialogPointer?.(900); window.resetDoorpiGamepadInputState?.(); window.showLoadingCards?.(1, 'games'); closeModal();");
                                 await AddMultipleGamesAsync(manualApp);
-                                await webView.CoreWebView2.ExecuteScriptAsync("closeModal();");
                             }
                             else
                             {
@@ -12440,6 +12431,7 @@ namespace Doorpi
                             var dlg = new Microsoft.Win32.OpenFolderDialog { Title = dialogTitle, Multiselect = false };
 
                             bool? dialogResult = ShowDialogWithController(dlg);
+                            webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"nativeDialogReturned\"}");
 
                             if (dialogResult == true)
                             {
