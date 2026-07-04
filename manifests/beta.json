@@ -1,41 +1,39 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202607031747,
-    "publishedAt":  "2026-07-03T20:47:50.1966473Z",
-    "expiresAt":  "2026-07-17T20:47:50.1966473Z",
+    "manifestVersion":  202607032156,
+    "publishedAt":  "2026-07-04T00:57:20.6758002Z",
+    "expiresAt":  "2026-07-18T00:57:20.6758002Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.1.4",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.4/doorpi-0.1.4.doorpiupdate.zip",
-                   "sha256":  "52d8efa14f16d8eba1418e129f1cf899fb84d8cc1c765e598cd5de6a9ae27b38",
-                   "sizeBytes":  132867073,
+                   "version":  "0.1.5",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.5/doorpi-0.1.5.doorpiupdate.zip",
+                   "sha256":  "1137564a647e35535415a2263a9083f417eeab9dcfa3c912a13b871ca98cb830",
+                   "sizeBytes":  132868115,
                    "minUpdaterVersion":  "0.1.0",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
                     "version":  "0.1.0",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.4/updater-0.1.0.doorpiupdate.zip",
-                    "sha256":  "461c80a0aaeb6277dca24d66ac3a2f90eb0adbf149b16ab578727d427bc0d474",
-                    "sizeBytes":  69942955,
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.5/updater-0.1.0.doorpiupdate.zip",
+                    "sha256":  "c6a285daa4f1291041f5f7b9dbb46a2e76fc1f26ba8b57a5318e84eb2a7ee477",
+                    "sizeBytes":  69942969,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.1.4",
-                          "title":  "Doorpi 0.1.4",
+                          "version":  "0.1.5",
+                          "title":  "Doorpi 0.1.5",
                           "items":  [
-                                        "Inicialização mais estável e rápida, com bootstrap separado e menos travamentos no arranque.",
-                                        "Entrada e navegação mais consistentes em perfis, troca de conta, teclado, gamepad, mouse, lojas, web apps e diálogos do Windows.",
-                                        "Limpeza automática de cache do WebView e ajustes visuais/responsivos no menu e na home para telas menores."
+                                        "Hotfix: corrigidos inputs com cliques duplicados em certos cenários do sistema."
                                     ]
                       }
                   ],
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "Z7XITvORy+2iv56xygYbpakWdp8UpcwKNyOgQNGl4wEd24sRvWIRNz1Vi+m5MjawQGtgi6hjoqRfo8fAHRwnFsagOmMQ58nAG4D10Vuf35/tiveu+hqPZo3BfL4PDkxBzV16vtH4WcUkF0yZ/CtCcqkBwNZd52+jJ5yXSs8rGx+9mW+qjO24u0tQ1Z/KHg6U1Jk1uZNS0KxXkSxBHO+MTyVga/6yO9xtSUsssSOmlZxoo+kWx1kV0iPfinhtpL4icZpd3Z6n6ray34twarQUa45w4mDLLTRTEvV7TZlgUl7Q0ze33syfDV79waRiQgV05A3mSjYxiCEMk5tN+oCmaY1z67WhxoKizs0eGs4Ej0ncFqGiGOF4Ap9aG9ppQoGNhssqXb3+Fwsbmipsn8+9KrO+94bXb0JjwPDVd85XNHRpeI+78rAg2RQtBoRVHbDNuKhs4ESZDK88AMi8L+gNjrWlXtFej2WXjLeuU8aJGofnltygdovEaP0Uypdjt2nf"
+                      "value":  "MudayCHQcCeXVyLl7BDARwuVtuzg8WEzq+4nYxvROzcv9o1bScUX7HDt4oN91XX7MlVOjkY9YvMXZpZAShiC4n91RC7jk5+HqzxiyTXkyt3x2OJjQVdVyAwb/ysLohYJkmpJqWk+6tNi2sH/n9B074vriHlgi+fR/guE9SvnznYTjBk0YIBFVWe0Vl/TQRHJto+6w7P/JvietQrKHwsaKfHQQLMvghZF/EAAXmXeLyhRLFaOk7iYSo4K4xozBQlavCfHIaIEzbqJEGVz8jFXkC5sM1uIsJwTcOKHoeN6u2B5sFnR6RTRTYy57rXWZMmrjWFeP37OJIsfLJ4V/jSC3pUeE4JqjA1xysZMjoV8Xt0bztSDbngg8yDkvKY6HBX5H1ypm++osc9Evd2pg/mSJ2SNf3C2AIma19jWqpi6Vyi9fXkHQ1e8eCkZCT5sM9GT6v9co4AC2nbDKQH+gIPeCR+FzTz9sp02dSoabfsIsXc3u/nVUnYlha7WbyE9LK9n"
                   }
 }
