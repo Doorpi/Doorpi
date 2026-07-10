@@ -435,6 +435,23 @@ namespace Doorpi
             try { _activeDownload?.Cancel(); } catch { }
         }
 
+        internal int[] GetWebViewBrowserProcessIds()
+        {
+            try
+            {
+                return _webView.CoreWebView2.Environment
+                    .GetProcessInfos()
+                    .Where(info => info.Kind == CoreWebView2ProcessKind.Browser)
+                    .Select(info => info.ProcessId)
+                    .Distinct()
+                    .ToArray();
+            }
+            catch
+            {
+                return Array.Empty<int>();
+            }
+        }
+
         private void OnDownloadStarting(object? sender, CoreWebView2DownloadStartingEventArgs e)
         {
             try

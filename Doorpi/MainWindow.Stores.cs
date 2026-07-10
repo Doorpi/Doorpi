@@ -251,6 +251,8 @@ namespace Doorpi
             var found = new List<InstalledApp>();
             foreach (var app in CollectAllCachedPlatformApps(cache))
             {
+                if (!IsAutoAddEligiblePlatformGame(app)) continue;
+
                 string key = AppIdentityKey(app);
                 if (string.IsNullOrWhiteSpace(key) || snapshot.Contains(key) || libraryNow.Contains(key)) continue;
                 var appKeys = AutoAddKeysForApp(app).ToList();
@@ -451,6 +453,8 @@ namespace Doorpi
                 var found = new List<InstalledApp>();
                 foreach (var app in apps)
                 {
+                    if (!IsAutoAddEligiblePlatformGame(app)) continue;
+
                     string key = AppIdentityKey(app);
                     if (string.IsNullOrWhiteSpace(key)) continue;
                     var appKeys = AutoAddKeysForApp(app).ToList();
@@ -490,6 +494,7 @@ namespace Doorpi
 
             var newApps = result.NewApps;
             newApps = newApps
+                .Where(IsAutoAddEligiblePlatformGame)
                 .Where(a => !IsStoreBlockedForCurrentUser(a.Source))
                 .ToList();
             if (newApps.Count == 0 && result.RemovedGames.Count == 0) return;
@@ -659,6 +664,7 @@ namespace Doorpi
 
         private sealed class StoreChildGameCandidate
         {
+            public InstalledApp App { get; init; } = new();
             public GameModel Game { get; init; } = new();
             public IntPtr Hwnd { get; init; }
             public int ProcessId { get; init; }
@@ -735,7 +741,7 @@ namespace Doorpi
             StoreChildGameCandidate? best = null;
             foreach (var hWnd in EnumerateTopLevelWindows())
             {
-                if (!IsGameplayWindow(hWnd)) continue;
+                if (!IsPotentialGameWindow(hWnd)) continue;
 
                 GetWindowProcessId(hWnd, out uint pidRaw);
                 if (pidRaw == 0 || pidRaw == Environment.ProcessId) continue;
@@ -770,6 +776,7 @@ namespace Doorpi
                     {
                         best = new StoreChildGameCandidate
                         {
+                            App = pair.App,
                             Game = pair.Game,
                             Hwnd = hWnd,
                             ProcessId = (int)pidRaw,
@@ -832,6 +839,7 @@ namespace Doorpi
                     {
                         best = new StoreChildGameCandidate
                         {
+                            App = pair.App,
                             Game = pair.Game,
                             Hwnd = hWnd,
                             ProcessId = (int)pidRaw,
@@ -941,7 +949,13 @@ namespace Doorpi
             var exeName = Path.GetFileNameWithoutExtension(processPath);
             var title = GetWindowTitle(hWnd);
             var haystack = $"{processName} {exeName} {title} {processPath}".ToLowerInvariant();
+            if (HasIgnoredGameWindowNameFragment(haystack)) return 0;
             var score = 0;
+            bool foregroundOwned = GetForegroundWindow() == hWnd;
+            bool cursorHidden = foregroundOwned && IsSystemCursorHidden();
+            bool smallWindow = false;
+            long workingSetMb = 0;
+            bool strongNameSignal = false;
 
             void ScorePath(string? path)
             {
@@ -978,37 +992,82 @@ namespace Doorpi
             string firstToken = tokens.FirstOrDefault() ?? "";
             if (!string.IsNullOrWhiteSpace(firstToken))
             {
-                if (exeName.StartsWith(firstToken, StringComparison.OrdinalIgnoreCase)) score += 50;
-                if (processName.StartsWith(firstToken, StringComparison.OrdinalIgnoreCase)) score += 35;
-                if (title.Contains(firstToken, StringComparison.OrdinalIgnoreCase)) score += 30;
+                if (exeName.StartsWith(firstToken, StringComparison.OrdinalIgnoreCase))
+                {
+                    score += 60;
+                    strongNameSignal = true;
+                }
+                if (processName.StartsWith(firstToken, StringComparison.OrdinalIgnoreCase))
+                {
+                    score += 45;
+                    strongNameSignal = true;
+                }
+                if (title.Contains(firstToken, StringComparison.OrdinalIgnoreCase))
+                {
+                    score += 35;
+                    strongNameSignal = true;
+                }
             }
 
             if (!string.IsNullOrWhiteSpace(title) &&
                 (string.Equals(title, game.Name, StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(title, app.Name, StringComparison.OrdinalIgnoreCase)))
             {
-                score += 70;
+                score += 85;
+                strongNameSignal = true;
             }
 
             int tokenMatches = tokens.Count(t => haystack.Contains(t, StringComparison.OrdinalIgnoreCase));
             score += tokenMatches * 18;
-            if (tokenMatches >= Math.Min(2, Math.Max(1, tokens.Length))) score += 30;
+            if (tokenMatches >= Math.Min(2, Math.Max(1, tokens.Length)))
+            {
+                score += 40;
+                strongNameSignal = true;
+            }
 
             int screenW = (int)SystemParameters.PrimaryScreenWidth;
             int screenH = (int)SystemParameters.PrimaryScreenHeight;
             double coverage = screenW > 0 && screenH > 0
                 ? (double)(rect.Width * rect.Height) / (double)(screenW * screenH)
                 : 0;
-            if (coverage >= 0.45) score += 20;
-            if (coverage >= 0.80) score += 25;
+            smallWindow = coverage < 0.18 || rect.Width < 520 || rect.Height < 320;
+            if (IsZoomed(hWnd)) score += 100;
+            if (coverage >= 0.80) score += 120;
+            else if (coverage >= 0.45) score += 35;
+            else if (coverage >= 0.18) score += 15;
+            if (foregroundOwned) score += 25;
+            if (cursorHidden) score += 35;
 
             try
             {
-                var mb = process.WorkingSet64 / 1024 / 1024;
-                if (mb > 180) score += 12;
-                if (mb > 700) score += 18;
+                workingSetMb = process.WorkingSet64 / 1024 / 1024;
+                if (workingSetMb > 180) score += 15;
+                if (workingSetMb > 400) score += 25;
+                if (workingSetMb > 800) score += 35;
             }
             catch { }
+
+            bool directPathMatch =
+                (!string.IsNullOrWhiteSpace(game.Path) &&
+                 !string.IsNullOrWhiteSpace(processPath) &&
+                 File.Exists(game.Path) &&
+                 PathsEqual(game.Path, processPath)) ||
+                (!string.IsNullOrWhiteSpace(app.Path) &&
+                 !string.IsNullOrWhiteSpace(processPath) &&
+                 File.Exists(app.Path) &&
+                 PathsEqual(app.Path, processPath));
+            bool trustedSmallWindow =
+                strongNameSignal &&
+                (workingSetMb >= 180 ||
+                 foregroundOwned ||
+                 cursorHidden ||
+                 directPathMatch);
+
+            if (smallWindow && !trustedSmallWindow)
+                return 0;
+
+            if (smallWindow && score < 95)
+                return 0;
 
             return Math.Max(0, score);
         }
@@ -1246,6 +1305,58 @@ namespace Doorpi
             catch { return false; }
         }
 
+        private bool StoreChildCandidateMatchesGame(StoreChildGameCandidate candidate, GameModel game)
+        {
+            string candidateId = !string.IsNullOrWhiteSpace(candidate.Game.LaunchUrl)
+                ? candidate.Game.LaunchUrl
+                : candidate.Game.Path;
+            string activeId = !string.IsNullOrWhiteSpace(game.LaunchUrl)
+                ? game.LaunchUrl
+                : game.Path;
+
+            if (!string.IsNullOrWhiteSpace(candidateId) &&
+                !string.IsNullOrWhiteSpace(activeId) &&
+                string.Equals(candidateId, activeId, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return InstalledAppMatchesGame(candidate.App, game) ||
+                   InstalledAppMatchesGame(new InstalledApp
+                   {
+                       Name = candidate.Game.Name,
+                       Path = candidate.Game.Path,
+                       LaunchUrl = candidate.Game.LaunchUrl
+                   }, game);
+        }
+
+        private bool TryPromoteStoreChildGameWindow(GameModel game, ref string processName)
+        {
+            if (string.IsNullOrWhiteSpace(_storeChildGameStoreId))
+                return false;
+
+            var candidate = FindStoreChildGameCandidate(_storeChildGameStoreId);
+            if (candidate == null || !StoreChildCandidateMatchesGame(candidate, game))
+                return false;
+
+            var context = BuildStoreChildGameMonitorContext(candidate.Game, candidate.App, Process.GetCurrentProcess());
+            var current = TryScoreGameWindowCandidate(context, _currentGameHwnd);
+            var promotedCandidate = new GameWindowCandidate
+            {
+                Hwnd = candidate.Hwnd,
+                ProcessId = candidate.ProcessId,
+                ProcessName = candidate.ProcessName,
+                Score = candidate.Score
+            };
+
+            if (!ShouldPromoteGameWindowCandidate(promotedCandidate, current))
+                return false;
+
+            AdoptGameWindowCandidate(promotedCandidate, candidate.Game);
+            processName = candidate.ProcessName;
+            return true;
+        }
+
         private void MarkStoreChildGameAsPlayed(GameModel game, string gameId)
         {
             try
@@ -1309,6 +1420,24 @@ namespace Doorpi
                     }
 
                     CaptureStoreAttachedSessionArtifacts();
+                    if (TryPromoteStoreChildGameWindow(game, ref processName))
+                    {
+                        missingChecks = 0;
+                        if (string.Equals(_storeChildGameStoreId, "Steam", StringComparison.OrdinalIgnoreCase))
+                            CloseVisibleSteamWindowsAfterGameLaunch(_currentGameHwnd);
+
+                        Dispatcher.Invoke(() =>
+                        {
+                            _gameIsRunningAndDoorpiHidden = true;
+                            if (!launchDoneSent)
+                            {
+                                SendGameLaunchStatus("gameLaunchDone");
+                                launchDoneSent = true;
+                            }
+                            if (IsForegroundDoorpi())
+                                ShowExecutionLockForGame();
+                        });
+                    }
 
                     bool alive = false;
                     try
@@ -2297,15 +2426,16 @@ namespace Doorpi
                 return;
             }
 
-            _storeTrayCloseInProgress = true;
-            try
-            {
-                CloseStoreSessionCompletely();
-            }
-            finally
-            {
-                _storeTrayCloseInProgress = false;
-            }
+            _storeMouseModeActive = false;
+            _storeMouseInputTemporarilyDisabled = false;
+            _storePausedByDoorpi = false;
+            ClearExecutionLock();
+            SendRuntimeSessionsToUI();
+
+            if (IsForegroundDoorpi())
+                ShowExecutionLockForStore();
+            else
+                ForceFocus();
         }
 
         private bool ShouldDeferEpicTrayCloseForPotentialChildLaunch()
@@ -2659,6 +2789,8 @@ namespace Doorpi
 
         private static bool IsStoreMainWindowLookupAwaited(string storeId, string exePath)
             => IsSteamStoreWindowLookup(storeId, exePath) ||
+               string.Equals(storeId, "Xbox", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(Path.GetFileNameWithoutExtension(exePath), "xboxpcapp", StringComparison.OrdinalIgnoreCase) ||
                IsRiotStoreId(storeId) ||
                IsGogStoreWindowLookup(storeId, exePath);
 
@@ -2695,13 +2827,81 @@ namespace Doorpi
             }
 
             var running = FindRunningStoreProcessWithWindowByExeOnly(exePath);
-            if (running == null) return false;
+            if (running == null)
+                return TryFindGenericStoreWindowCandidate(storeId, exePath, out process, out hwnd);
 
             var window = FindVisibleWindowForProcess(running.Id);
-            if (window == IntPtr.Zero) return false;
+            if (window == IntPtr.Zero)
+                return TryFindGenericStoreWindowCandidate(storeId, exePath, out process, out hwnd);
 
             process = running;
             hwnd = window;
+            return true;
+        }
+
+        private bool TryFindGenericStoreWindowCandidate(string storeId, string exePath, out Process process, out IntPtr hwnd)
+        {
+            process = null!;
+            hwnd = IntPtr.Zero;
+
+            string storeName =
+                LoadStoreLaunchers().FirstOrDefault(s => string.Equals(s.Id, storeId, StringComparison.OrdinalIgnoreCase))?.Name ??
+                StoreCatalog.FirstOrDefault(s => string.Equals(s.Id, storeId, StringComparison.OrdinalIgnoreCase))?.Name ??
+                storeId;
+            string exeName = Path.GetFileNameWithoutExtension(exePath);
+
+            Process? bestProcess = null;
+            IntPtr bestHwnd = IntPtr.Zero;
+            int bestScore = 0;
+
+            foreach (var candidateHwnd in EnumerateTopLevelWindows())
+            {
+                if (!IsValidExternalAppWindow(candidateHwnd))
+                    continue;
+
+                GetWindowProcessId(candidateHwnd, out uint pidRaw);
+                int pid = (int)pidRaw;
+                if (pid <= 0) continue;
+
+                Process candidateProcess;
+                try { candidateProcess = Process.GetProcessById(pid); }
+                catch { continue; }
+
+                string title = GetWindowTitle(candidateHwnd);
+                string processName = SafeProcessName(candidateProcess);
+                string processPath = SafeProcessPath(candidateProcess);
+
+                int score = 0;
+                if (!string.IsNullOrWhiteSpace(processPath) && File.Exists(exePath) && PathsEqual(processPath, exePath))
+                    score += 120;
+                if (!string.IsNullOrWhiteSpace(exeName) &&
+                    string.Equals(processName, exeName, StringComparison.OrdinalIgnoreCase))
+                    score += 80;
+                if (WindowOrProcessMatchesAppName(candidateHwnd, candidateProcess, storeName))
+                    score += 70;
+                if (!_storeProcessSnapshot.Contains(pid) && !_storeWindowSnapshot.Contains(candidateHwnd))
+                    score += 45;
+                if (!string.IsNullOrWhiteSpace(title))
+                    score += 10;
+
+                if (score > bestScore)
+                {
+                    bestProcess?.Dispose();
+                    bestProcess = candidateProcess;
+                    bestHwnd = candidateHwnd;
+                    bestScore = score;
+                }
+                else
+                {
+                    candidateProcess.Dispose();
+                }
+            }
+
+            if (bestProcess == null || bestHwnd == IntPtr.Zero || bestScore < 60)
+                return false;
+
+            process = bestProcess;
+            hwnd = bestHwnd;
             return true;
         }
 
@@ -2907,8 +3107,7 @@ namespace Doorpi
                 string processName = SafeProcessName(candidateProcess);
                 bool isXboxApp = string.Equals(processName, "xboxpcapp", StringComparison.OrdinalIgnoreCase);
                 bool isFrameHost = string.Equals(processName, "applicationframehost", StringComparison.OrdinalIgnoreCase);
-                bool isGamingUi = string.Equals(processName, "gamingservicesui", StringComparison.OrdinalIgnoreCase);
-                if (!isXboxApp && !isFrameHost && !isGamingUi) continue;
+                if (!isXboxApp && !isFrameHost) continue;
 
                 string title = GetWindowTitle(candidateHwnd);
                 if (!GetWindowRect(candidateHwnd, out RECT rect)) continue;
@@ -2924,7 +3123,6 @@ namespace Doorpi
                 int score = 0;
                 if (isXboxApp) score += 60;
                 if (isFrameHost) score += 25;
-                if (isGamingUi) score += 15;
                 if (!string.IsNullOrWhiteSpace(title)) score += 20;
                 if (title.Equals("Xbox", StringComparison.OrdinalIgnoreCase)) score += 50;
                 else if (titleLooksXbox) score += 35;
@@ -3730,6 +3928,12 @@ namespace Doorpi
                 }
                 catch { }
             }
+            else if (!string.IsNullOrWhiteSpace(_storeLauncherExe) &&
+                     TryFindStoreWindow(_activeStoreId ?? "", _storeLauncherExe, out _, out var storeHwnd) &&
+                     storeHwnd != IntPtr.Zero)
+            {
+                ShowWindow(storeHwnd, 6);
+            }
             else if (_storeLauncherProcess != null && !SafeHasExited(_storeLauncherProcess))
             {
                 MinimizeProcessWindows(_storeLauncherProcess);
@@ -3903,6 +4107,13 @@ namespace Doorpi
                         return;
                     }
 
+                    if (!string.IsNullOrWhiteSpace(_storeLauncherExe) &&
+                        TryRestoreStoreLauncherWindowWithFallbacks(out var restoredProc, out var restoredHwnd))
+                    {
+                        RestoreStoreWindow(restoredProc, restoredHwnd);
+                        return;
+                    }
+
                     SendRuntimeSessionsToUI();
                     if (IsForegroundDoorpi())
                         ShowExecutionLockForStore();
@@ -3910,7 +4121,92 @@ namespace Doorpi
                 }
             }
 
+            if (!string.IsNullOrWhiteSpace(_storeLauncherExe) &&
+                TryRestoreStoreLauncherWindowWithFallbacks(out var fallbackProc, out var fallbackHwnd))
+            {
+                RestoreStoreWindow(fallbackProc, fallbackHwnd);
+                return;
+            }
+
             CloseStoreSessionCompletely();
+        }
+
+        private Process? StartStoreLauncherExecutable(string exePath)
+        {
+            if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath))
+                return null;
+
+            try
+            {
+                return Process.Start(new ProcessStartInfo
+                {
+                    FileName = exePath,
+                    UseShellExecute = true,
+                    WorkingDirectory = Path.GetDirectoryName(exePath) ?? "",
+                    WindowStyle = ProcessWindowStyle.Maximized
+                });
+            }
+            catch { return null; }
+        }
+
+        private bool WaitForStoreLauncherWindow(int attempts, int delayMs, out Process process, out IntPtr hwnd)
+        {
+            process = null!;
+            hwnd = IntPtr.Zero;
+
+            if (string.IsNullOrWhiteSpace(_storeLauncherExe))
+                return false;
+
+            for (int i = 0; i < attempts; i++)
+            {
+                if (!_isStoreLauncherSession)
+                    return false;
+
+                if (TryFindStoreWindow(_activeStoreId ?? "", _storeLauncherExe, out process, out hwnd) &&
+                    hwnd != IntPtr.Zero)
+                {
+                    return true;
+                }
+
+                Thread.Sleep(delayMs);
+            }
+
+            return false;
+        }
+
+        private bool TryRestoreStoreLauncherWindowWithFallbacks(out Process process, out IntPtr hwnd)
+        {
+            process = null!;
+            hwnd = IntPtr.Zero;
+
+            if (string.IsNullOrWhiteSpace(_storeLauncherExe))
+                return false;
+
+            if (WaitForStoreLauncherWindow(1, 1, out process, out hwnd))
+                return true;
+
+            bool processAlive = IsActiveStoreLauncherProcessAlive();
+            if (processAlive)
+            {
+                StartStoreLauncherExecutable(_storeLauncherExe);
+                if (WaitForStoreLauncherWindow(24, 125, out process, out hwnd))
+                    return true;
+            }
+
+            if (File.Exists(_storeLauncherExe))
+            {
+                try { KillLauncherProcessTree(_storeLauncherExe); } catch { }
+                Thread.Sleep(250);
+
+                var relaunched = StartStoreLauncherExecutable(_storeLauncherExe);
+                if (relaunched != null)
+                    _storeLauncherProcess = relaunched;
+
+                if (WaitForStoreLauncherWindow(32, 125, out process, out hwnd))
+                    return true;
+            }
+
+            return false;
         }
 
         private void RestoreStoreWindow(Process proc, IntPtr hwnd)
@@ -4645,6 +4941,7 @@ namespace Doorpi
 
             var settings = GetStoreAutoAddSettings();
             var newApps = result.NewApps
+                .Where(IsAutoAddEligiblePlatformGame)
                 .Where(a => !IsStoreBlockedForCurrentUser(a.Source))
                 .ToList();
             var toAutoAdd = newApps.Where(a => IsStoreAutoAddEnabled(settings, a.Source)).ToList();
@@ -5618,14 +5915,25 @@ $result | ConvertTo-Json -Compress -Depth 3";
                 XNamespace ns = doc.Root?.Name.Namespace ?? XNamespace.None;
                 XNamespace uap = "http://schemas.microsoft.com/appx/manifest/uap/windows10";
 
-                var appEl = doc.Descendants(ns + "Application")
+                var applications = doc.Descendants(ns + "Application")
+                    .Where(a =>
+                    {
+                        string id = a.Attribute("Id")?.Value ?? "";
+                        string exe = a.Attribute("Executable")?.Value ?? "";
+                        return !string.IsNullOrWhiteSpace(id) &&
+                               !id.Contains("GameBar", StringComparison.OrdinalIgnoreCase) &&
+                               !exe.Contains("GameBar", StringComparison.OrdinalIgnoreCase);
+                    })
+                    .ToList();
+
+                var appEl = applications
                     .FirstOrDefault(a =>
                     {
                         string? exe = a.Attribute("Executable")?.Value;
                         return !string.IsNullOrWhiteSpace(exe) &&
                                exe.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) &&
                                !exe.Contains("GameBar", StringComparison.OrdinalIgnoreCase);
-                    });
+                    }) ?? applications.FirstOrDefault();
 
                 if (appEl == null) return false;
 

@@ -1136,17 +1136,19 @@ window.isNavMenuOpen = false;
     function _renderSettingsSystemV2(body) {
         if (_systemSubView === 'startup') { _renderSettingsSystemStartupV2(body); return; }
         if (_systemSubView === 'updates') { _renderSettingsSystemUpdatesV2(body); return; }
+        if (_systemSubView === 'video') { _renderSettingsSystemVideo(body); return; }
 
         const svgPower = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>`;
         const svgUpdate = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v6h-6"/></svg>`;
         const svgDevices = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5.2" width="9.4" height="13.6" rx="2.1"/><circle cx="7.7" cy="14.1" r="2.15"/><circle cx="7.7" cy="9.1" r=".72" fill="currentColor" stroke="none"/><path d="M16.5 6.2v11.6l3.6-3.6-3.6-2.2 3.6-2.2-3.6-3.6Z"/></svg>`;
+        const svgVideo = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>`;
 
         body.innerHTML = `
         <div class="nav-settings-subheader">
             <button class="nav-back-btn" id="setBackSystemHub" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
             <h2>${_t('navSetSystem', 'Sistema')}</h2>
         </div>
-        <div class="nav-settings-grid">
+        <div class="nav-settings-grid nav-system-settings-grid">
             <button class="nav-settings-card" id="setSystemStartup" tabindex="-1">
                 <div class="settings-card-icon">${svgPower}</div>
                 <div class="settings-card-info">
@@ -1168,10 +1170,17 @@ window.isNavMenuOpen = false;
                     <p>${_t('navSetDevicesDesc', 'Bluetooth, som e acessórios conectados')}</p>
                 </div>
             </button>
+            <button class="nav-settings-card" id="setSystemVideo" tabindex="-1">
+                <div class="settings-card-icon">${svgVideo}</div>
+                <div class="settings-card-info">
+                    <h3>${_t('navSetVideo', 'Vídeo')}</h3>
+                    <p>${_t('navSetVideoDesc', 'Escala da interface para TVs, monitores 4K e zoom do Windows')}</p>
+                </div>
+            </button>
             </div>
         </div>`;
 
-        _wireSystemItems(body, ['#setBackSystemHub', '#setSystemStartup', '#setSystemUpdates', '#setSystemDevices']);
+        _wireSystemItems(body, ['#setBackSystemHub', '#setSystemStartup', '#setSystemUpdates', '#setSystemDevices', '#setSystemVideo']);
 
         body.querySelector('#setBackSystemHub')?.addEventListener('click', () => {
             _settingsSubView = null;
@@ -1200,6 +1209,98 @@ window.isNavMenuOpen = false;
             _renderContent('settings');
             _updateContentFocus();
         });
+        body.querySelector('#setSystemVideo')?.addEventListener('click', () => {
+            _systemSubView = 'video';
+            _contentIdx = 0;
+            _renderContent('settings');
+            _updateContentFocus();
+        });
+    }
+
+    function _renderSettingsSystemVideo(body) {
+        if (!document.getElementById('nav-system-video-styles')) {
+            const s = document.createElement('style');
+            s.id = 'nav-system-video-styles';
+            s.textContent = `
+                .nav-video-panel { max-width: 980px; display: grid; gap: 18px; }
+                .nav-video-preview { position:relative; height:min(34vh,320px); overflow:hidden; border-radius:16px; border:1px solid rgba(255,255,255,.12); background:linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(0deg,rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(180deg,rgba(8,10,22,.92),rgba(3,4,12,.96)); background-size:34px 34px,34px 34px,auto; }
+                .nav-video-guide { position:absolute; left:50%; top:50%; width:min(88%,620px); height:72%; transform:translate(-50%,-50%); border:1px solid rgba(255,255,255,.28); border-radius:14px; pointer-events:none; box-shadow:inset 0 0 0 1px rgba(120,190,255,.13),0 0 42px rgba(90,145,255,.08); }
+                .nav-video-guide::before,.nav-video-guide::after { content:''; position:absolute; inset:10px; border-radius:10px; border:1px dashed rgba(120,190,255,.24); }
+                .nav-video-guide::after { inset:auto 14px 14px; height:2px; border:0; background:linear-gradient(90deg,transparent,rgba(120,190,255,.48),transparent); }
+                .nav-video-guide.is-calibrated { border-color:rgba(118,220,158,.72); box-shadow:inset 0 0 0 1px rgba(118,220,158,.18),0 0 42px rgba(90,205,145,.10); }
+                .nav-video-reference,.nav-video-stage { position:absolute; left:50%; top:50%; width:min(52%,280px); transform-origin:center center; }
+                .nav-video-reference { transform:translate(-50%,-50%) scale(var(--nav-video-reference-inverse-scale,1)); opacity:.78; }
+                .nav-video-stage { transform:translate(-50%,-50%) scale(var(--nav-video-target-inverse-scale,1)); opacity:.96; transition:transform .12s ease; }
+                .nav-video-size-sample { width:100%; aspect-ratio:16/7; box-sizing:border-box; border-radius:10px; }
+                .nav-video-reference .nav-video-size-sample { border:1px dashed rgba(210,230,255,.62); background:rgba(120,180,255,.04); }
+                .nav-video-stage .nav-video-size-sample { border:1px solid rgba(150,205,255,.76); background:rgba(120,180,255,.30); box-shadow:0 12px 28px rgba(0,0,0,.30); }
+                .nav-video-stage.is-too-small .nav-video-size-sample { border-color:rgba(125,190,255,.85); }
+                .nav-video-stage.is-too-large .nav-video-size-sample { border-color:rgba(255,190,120,.82); }
+                .nav-video-controls { display:grid; gap:12px; padding:18px; border-radius:14px; border:1px solid rgba(255,255,255,.10); background:rgba(255,255,255,.055); }
+                .nav-video-value { color:rgba(255,255,255,.78); font-size:1rem; font-weight:750; }
+                .nav-video-range { width:100%; accent-color:#78beff; outline:none; }
+                .nav-video-range.nav-focused-el { filter:drop-shadow(0 0 12px rgba(120,190,255,.48)); }
+            `;
+            document.head.appendChild(s);
+        }
+
+        const scale = window.DoorpiLayoutScale?.get?.() || 1;
+        const pct = Math.round(scale * 100);
+        const minScale = window.DoorpiLayoutScale?.min ?? 0.25;
+        const maxScale = window.DoorpiLayoutScale?.max ?? 1.80;
+        const clampScale = raw => Math.max(minScale, Math.min(maxScale, Number(raw) || 1));
+        const dpiScale = Math.max(0.5, Number(window.DoorpiDisplayMetrics?.dpiScale) || 1);
+        const referenceScale = clampScale(1 / dpiScale);
+        const relativeScale = scale / referenceScale;
+        const isCalibrated = Math.abs(scale - referenceScale) <= 0.026;
+        body.innerHTML = `
+        <div class="nav-settings-subheader">
+            <button class="nav-back-btn" id="setBackSystemVideo" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
+            <h2>${_t('navSetVideo', 'Vídeo')}</h2>
+        </div>
+        <div class="nav-video-panel">
+            <p class="dq-sub" style="max-width:820px;margin:0;color:rgba(255,255,255,.55);">${_t('videoLayoutDesc', 'Ajuste a escala visual do Doorpi para compensar zoom do Windows, TVs 4K e distância de uso. O padrão foi calibrado em 2K.')}</p>
+            <div class="nav-video-preview" aria-hidden="true">
+                <div class="nav-video-guide ${isCalibrated ? 'is-calibrated' : ''}" id="navVideoGuide"></div>
+                <div class="nav-video-reference" id="navVideoReference" style="--nav-video-reference-inverse-scale:${(1 / scale).toFixed(4)}">
+                    <div class="nav-video-size-sample"></div>
+                </div>
+                <div class="nav-video-stage ${relativeScale < 0.974 ? 'is-too-small' : (relativeScale > 1.026 ? 'is-too-large' : '')}" id="navVideoPreviewStage" style="--nav-video-target-inverse-scale:${(1 / referenceScale).toFixed(4)}">
+                    <div class="nav-video-size-sample"></div>
+                </div>
+            </div>
+            <div class="nav-video-controls">
+                <div class="nav-video-value" id="navVideoScaleValue">${_t('setupLayoutScaleValue', `Escala da interface: ${pct}%`, pct)}</div>
+                <input class="nav-video-range" id="navVideoScale" type="range" min="25" max="180" step="5" value="${pct}" tabindex="-1">
+            </div>
+        </div>`;
+
+        const sync = raw => {
+            const next = window.DoorpiLayoutScale?.save?.(Number(raw) / 100) || 1;
+            const nextPct = Math.round(next * 100);
+            const value = body.querySelector('#navVideoScaleValue');
+            const stage = body.querySelector('#navVideoPreviewStage');
+            const reference = body.querySelector('#navVideoReference');
+            const guide = body.querySelector('#navVideoGuide');
+            const nextRelativeScale = next / referenceScale;
+            if (value) value.textContent = _t('setupLayoutScaleValue', `Escala da interface: ${nextPct}%`, nextPct);
+            if (stage) {
+                stage.style.setProperty('--nav-video-target-inverse-scale', (1 / referenceScale).toFixed(4));
+                stage.classList.toggle('is-too-small', nextRelativeScale < 0.974);
+                stage.classList.toggle('is-too-large', nextRelativeScale > 1.026);
+            }
+            if (reference) reference.style.setProperty('--nav-video-reference-inverse-scale', (1 / next).toFixed(4));
+            guide?.classList.toggle('is-calibrated', Math.abs(next - referenceScale) <= 0.026);
+        };
+
+        _wireSystemItems(body, ['#setBackSystemVideo', '#navVideoScale']);
+        body.querySelector('#setBackSystemVideo')?.addEventListener('click', () => {
+            _systemSubView = null;
+            _contentIdx = 0;
+            _renderContent('settings');
+            _updateContentFocus();
+        });
+        body.querySelector('#navVideoScale')?.addEventListener('input', e => sync(e.currentTarget.value));
     }
 
     function _renderSettingsSystemStartupV2(body) {
@@ -2094,6 +2195,15 @@ window.isNavMenuOpen = false;
     width: fit-content;
     max-width: 100%;
     column-gap: clamp(14px, 1.4vw, 28px);
+}
+.nav-settings-grid.nav-system-settings-grid {
+    --settings-card-w: auto;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    width: min(100%, 1520px);
+}
+.nav-settings-grid.nav-system-settings-grid > .nav-settings-card {
+    width: 100%;
+    max-width: none;
 }
 .nav-settings-card {
     background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 16px;
@@ -5105,10 +5215,7 @@ window.isNavMenuOpen = false;
                 moveFocus(dirMap[e.key]);
             }
             else if (e.key === 'Escape') { window._vkbCancel?.(); }
-            else if (e.key === 'Enter') {
-                if (window._doorpiVkbShouldConfirmEnter?.()) window._vkbConfirm?.();
-                else document.activeElement?.click();
-            }
+            else if (e.key === 'Enter') { window._vkbConfirm?.(); }
             else if (e.key === 'Backspace') { window._vkbPhysicalKey?.('Backspace'); }
             else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
                 window._vkbPhysicalKey?.(e.key);
@@ -5406,6 +5513,20 @@ window.isNavMenuOpen = false;
                     _contentIdx = Math.max(0, Math.min(total - 1, _contentIdx));
                     _updateContentFocus();
                     return;
+                }
+
+                if (_systemSubView === 'video') {
+                    const activeItem = _contentItems[_contentIdx];
+                    if (activeItem?.id === 'navVideoScale' && (key === 'ArrowLeft' || key === 'ArrowRight')) {
+                        const delta = key === 'ArrowRight' ? 5 : -5;
+                        const min = Number(activeItem.min || 25);
+                        const max = Number(activeItem.max || 180);
+                        const next = Math.max(min, Math.min(max, Number(activeItem.value || 100) + delta));
+                        activeItem.value = String(next);
+                        activeItem.dispatchEvent(new Event('input', { bubbles: true }));
+                        _updateContentFocus();
+                        return;
+                    }
                 }
 
                 if (_systemSubView === 'updates') {

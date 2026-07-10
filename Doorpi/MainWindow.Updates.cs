@@ -274,6 +274,11 @@ namespace Doorpi
             if (_startupUpdateCheckStarted) return;
             _startupUpdateCheckStarted = true;
             CompletePendingDoorpiHealthCheck();
+            _ = Task.Run(() =>
+            {
+                var activeState = new UpdateStateStore(UpdateStatePath).Load();
+                UpdateArtifactCleaner.CleanupInactiveArtifacts(activeState);
+            });
 
             _ = Task.Run(() => CheckForUpdatesAsync(userInitiated: false));
             _ = Task.Run(() => RefreshWindowsUpdateStatusAsync(scan: false));
@@ -369,7 +374,9 @@ namespace Doorpi
 
             state.Phase = "succeeded";
             stateStore.Save(state);
+            UpdateArtifactCleaner.CleanupCompletedOperation(state);
             stateStore.Clear();
+            UpdateArtifactCleaner.CleanupInactiveArtifacts();
             ShowUpdateProgress("Atualizando componentes do sistema...",
                 "Updater atualizado com sucesso.",
                 0.92);
@@ -460,7 +467,9 @@ namespace Doorpi
 
                     state.Phase = "succeeded";
                     stateStore.Save(state);
+                    UpdateArtifactCleaner.CleanupCompletedOperation(state);
                     stateStore.Clear();
+                    UpdateArtifactCleaner.CleanupInactiveArtifacts();
                 }
             }
             catch (Exception ex)

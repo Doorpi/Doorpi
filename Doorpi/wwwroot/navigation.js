@@ -186,6 +186,10 @@ function getNavigableItems() {
         const btn = document.getElementById('overlayCancelLaunchBtn');
         return btn && btn.style.display !== 'none' ? [btn] : [];
     }
+    if (window.isDoorpiNotificationCenterOpen?.()) {
+        return Array.from(document.querySelectorAll('#doorpiNotificationPanel [tabindex="0"]'))
+            .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0 && !el.disabled);
+    }
     if (!isModalOpen) {
         const tabs = Array.from(document.querySelectorAll('.home-tab'));
         const homeTab = window.getCurrentHomeTab?.() || 'games';
@@ -197,7 +201,9 @@ function getNavigableItems() {
         const activeGrid = document.getElementById(activeGridId);
         const cards = Array.from(activeGrid?.querySelectorAll("[tabindex='0']") ?? []);
         const profileBtn = document.getElementById('btnTopProfile');
+        const notificationBtn = document.getElementById('doorpiNotificationButton');
         const items = [...tabs, ...cards];
+        if (notificationBtn) items.unshift(notificationBtn);
         if (profileBtn) items.unshift(profileBtn);
         return items;
     }
@@ -1085,7 +1091,7 @@ document.addEventListener('keydown', e => {
         const dirMap = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' };
         if (dirMap[e.key]) { e.preventDefault(); moveFocus(dirMap[e.key]); return; }
         if (e.key === 'Escape') { e.preventDefault(); window.requestDoorpiBackAction?.(); return; }
-        if (e.key === 'Enter') { e.preventDefault(); document.activeElement?.click(); return; }
+        if (e.key === 'Enter') { e.preventDefault(); window._vkbConfirm?.(); return; }
         if (e.key === 'Backspace') { e.preventDefault(); window._vkbPhysicalKey?.('Backspace'); return; }
         if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
             e.preventDefault(); window._vkbPhysicalKey?.(e.key); return;
@@ -1144,9 +1150,22 @@ document.addEventListener('keydown', e => {
     }
 });
 
-let _gamepadIndex = null, _controllerType = 'generic', _btnCooldown = {}, _lastMoveTime = 0, _moveState = 0, _currentDirection = null, _executionLockHeldDir = null, _sessionConflictHeldDir = null, _gameFocusFallbackHeldDir = null;
-let _gamepadSelectionBaselines = new Map();
+let _controllerType = 'generic', _btnCooldown = {}, _lastMoveTime = 0, _moveState = 0, _currentDirection = null, _executionLockHeldDir = null, _executionLockAxisHeld = false, _sessionConflictHeldDir = null, _gameFocusFallbackHeldDir = null;
 let _cursorHoldState = { l1: 0, r1: 0 }, _cursorLastTime = { l1: 0, r1: 0 };
+let _doorpiGamepadActionsBlockedUntilRelease = false;
+let _doorpiControllerActivationToken = 0;
+let _doorpiControllerActivationActive = false;
+
+function markDoorpiControllerActivation() {
+    const token = ++_doorpiControllerActivationToken;
+    _doorpiControllerActivationActive = true;
+    queueMicrotask(() => {
+        if (_doorpiControllerActivationToken === token)
+            _doorpiControllerActivationActive = false;
+    });
+}
+
+window._doorpiIsControllerActivation = () => _doorpiControllerActivationActive;
 
 window._gpNavigating = false;
 let _gpNavigatingTimeout = null;
@@ -1169,11 +1188,22 @@ function logDoorpiInputBlock(reason) {
     });
 }
 
+function seedDoorpiHeldButtonState() {
+    const held = {};
+    for (const pad of Array.from(navigator.getGamepads?.() || []).filter(Boolean)) {
+        for (let buttonIndex = 0; buttonIndex < (pad.buttons?.length || 0); buttonIndex++) {
+            if (pad.buttons[buttonIndex]?.pressed) held[`${pad.index}:${buttonIndex}`] = true;
+        }
+    }
+    _btnCooldown = held;
+}
+
 window.resetDoorpiGamepadInputState = function () {
-    _btnCooldown = {};
+    seedDoorpiHeldButtonState();
     _moveState = 0;
     _currentDirection = null;
     _executionLockHeldDir = null;
+    _executionLockAxisHeld = false;
     _sessionConflictHeldDir = null;
     _gameFocusFallbackHeldDir = null;
     _cursorHoldState = { l1: 0, r1: 0, sq: 0 };
@@ -1183,6 +1213,11 @@ window.resetDoorpiGamepadInputState = function () {
         clearTimeout(_gpNavigatingTimeout);
         _gpNavigatingTimeout = null;
     }
+};
+
+window.blockDoorpiGamepadActionsUntilRelease = function () {
+    _doorpiGamepadActionsBlockedUntilRelease = true;
+    window.resetDoorpiGamepadInputState?.();
 };
 
 function isVkbOpenForNavigation() {
@@ -1258,6 +1293,12 @@ window.requestDoorpiBackAction = function () {
         return true;
     }
 
+    if (window.isDoorpiNotificationCenterOpen?.()) {
+        window.DoorpiNotifications?.close?.();
+        window.DoorpiUiSound?.play('back');
+        return true;
+    }
+
     if (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) {
         closeCtxMenu();
         window.DoorpiUiSound?.play('back');
@@ -1329,6 +1370,14 @@ window.requestDoorpiBackAction = function () {
 };
 
 function buttonJustPressed(btn, index) {
+    if (btn && Object.prototype.hasOwnProperty.call(btn, 'justPressed')) {
+        if (btn.justPressed && !btn._consumed) {
+            btn._consumed = true;
+            return true;
+        }
+        return false;
+    }
+
     if (btn?.pressed) {
         if (!_btnCooldown[index]) {
             _btnCooldown[index] = true;
@@ -1343,7 +1392,10 @@ function primaryJustPressed(buttons, gamepad = NAV.GAMEPAD) {
     const confirmPressed = buttonJustPressed(buttons[gamepad.BTN_CONFIRM], gamepad.BTN_CONFIRM);
     const r2Pressed = buttonJustPressed(buttons[gamepad.BTN_R2], gamepad.BTN_R2);
     const pressed = confirmPressed || r2Pressed;
-    if (pressed) window.DoorpiUiSound?.play('confirm');
+    if (pressed) {
+        markDoorpiControllerActivation();
+        window.DoorpiUiSound?.play('confirm');
+    }
     return pressed;
 }
 
@@ -1416,6 +1468,64 @@ function gamepadDirection(gamepad, buttons, threshold = NAV.GAMEPAD.AXIS_THRESHO
     return axisDirection(gamepad, threshold);
 }
 
+function gamepadDpadDirection(buttons) {
+    const { GAMEPAD } = NAV;
+    if (buttons[GAMEPAD.BTN_RIGHT]?.pressed) return 'RIGHT';
+    if (buttons[GAMEPAD.BTN_LEFT]?.pressed) return 'LEFT';
+    if (buttons[GAMEPAD.BTN_DOWN]?.pressed) return 'DOWN';
+    if (buttons[GAMEPAD.BTN_UP]?.pressed) return 'UP';
+    return null;
+}
+
+function executionLockAxisDirection(gamepad, threshold) {
+    const axes = Array.from(gamepad?.axes || []);
+    let bestDir = null;
+    let bestMag = 0;
+    const pairs = [[0, 1], [2, 3]];
+
+    for (const [xIndex, yIndex] of pairs) {
+        const x = Number(axes[xIndex] || 0);
+        const y = Number(axes[yIndex] || 0);
+        const absX = Math.abs(x);
+        const absY = Math.abs(y);
+        const mag = Math.max(absX, absY);
+        if (mag < threshold || mag <= bestMag) continue;
+
+        bestMag = mag;
+        bestDir = absX >= absY ? (x > 0 ? 'RIGHT' : 'LEFT') : (y > 0 ? 'DOWN' : 'UP');
+    }
+
+    return bestDir;
+}
+
+function areExecutionLockAxesReleased(gamepad, releaseThreshold = 0.42) {
+    const axes = Array.from(gamepad?.axes || []);
+    const pairs = [[0, 1], [2, 3]];
+
+    return pairs.every(([xIndex, yIndex]) =>
+        Math.abs(Number(axes[xIndex] || 0)) <= releaseThreshold &&
+        Math.abs(Number(axes[yIndex] || 0)) <= releaseThreshold);
+}
+
+function executionLockGamepadDirection(gamepad, buttons, threshold) {
+    const dpadDir = gamepadDpadDirection(buttons);
+    if (dpadDir) {
+        _executionLockAxisHeld = false;
+        return dpadDir;
+    }
+
+    if (areExecutionLockAxesReleased(gamepad)) {
+        _executionLockAxisHeld = false;
+        return null;
+    }
+
+    const axisDir = executionLockAxisDirection(gamepad, threshold);
+    if (!axisDir || _executionLockAxisHeld) return null;
+
+    _executionLockAxisHeld = true;
+    return axisDir;
+}
+
 function handleArtworkWizardGamepadShortcuts(buttons) {
     if (isVkbOpenForNavigation() || !window._artworkWizardIsOpen?.()) return false;
 
@@ -1431,49 +1541,6 @@ function handleArtworkWizardGamepadShortcuts(buttons) {
     return false;
 }
 
-function notifyNativeGamepadPrimaryChanged(reason, gamepad = null) {
-    const payload = {
-        action: 'resetMainUiGamepadPrimary',
-        reason,
-        index: gamepad?.index ?? null,
-        id: gamepad?.id ?? ''
-    };
-
-    try {
-        if (typeof postToHost === 'function') {
-            postToHost(payload);
-            return;
-        }
-    } catch { }
-
-    try {
-        window.chrome?.webview?.postMessage(JSON.stringify(payload));
-    } catch { }
-}
-
-function setPrimaryGamepad(gamepad) {
-    const previousIndex = _gamepadIndex;
-    if (!gamepad) {
-        _gamepadIndex = null;
-        isGamepadConnected = false;
-        updateGamepadUI(false, _controllerType);
-        window.resetDoorpiGamepadInputState?.();
-        _gamepadSelectionBaselines.clear();
-        if (previousIndex !== null) notifyNativeGamepadPrimaryChanged('cleared');
-        return;
-    }
-
-    _gamepadIndex = gamepad.index;
-    _controllerType = detectControllerType(gamepad);
-    isGamepadConnected = true;
-    updateGamepadUI(true, _controllerType);
-    window.resetDoorpiGamepadInputState?.();
-    if (previousIndex !== gamepad.index) {
-        _gamepadSelectionBaselines.clear();
-        notifyNativeGamepadPrimaryChanged('selected', gamepad);
-    }
-}
-
 function getConnectedGamepads() {
     return Array.from(navigator.getGamepads?.() || []).filter(Boolean);
 }
@@ -1485,116 +1552,54 @@ function refreshGamepadPresence() {
     updateGamepadUI(!!first, _controllerType);
 }
 
-function getPrimaryGamepad() {
-    if (_gamepadIndex === null) return null;
-    return navigator.getGamepads?.()[_gamepadIndex] || null;
-}
-
-function selectFirstAvailableGamepad() {
-    const first = getConnectedGamepads()[0] || null;
-    setPrimaryGamepad(first);
-    return !!first;
-}
-
-window.ensureDoorpiGamepadPrimaryReady = function () {
+function readAllGamepadInput() {
     const pads = getConnectedGamepads();
-    if (!pads.length) {
-        refreshGamepadPresence();
-        return false;
-    }
+    if (!pads.length) return null;
 
-    if (_gamepadIndex !== null && getPrimaryGamepad()) {
-        refreshGamepadPresence();
-        return true;
-    }
+    const maxButtons = Math.max(...pads.map(pad => pad.buttons?.length || 0), 0);
+    const buttons = Array.from({ length: maxButtons }, (_, buttonIndex) => {
+        let pressed = false;
+        let justPressed = false;
 
-    if (pads.length === 1) {
-        setPrimaryGamepad(pads[0]);
-        return true;
-    }
-
-    refreshGamepadPresence();
-    return false;
-};
-
-function gamepadSelectionKey(gamepad) {
-    return `${gamepad?.index ?? -1}:${gamepad?.id ?? ''}`;
-}
-
-function readGamepadSelectionSnapshot(gamepad) {
-    const buttons = Array.from(gamepad?.buttons || []).map(btn => !!btn?.pressed);
-    const axes = Array.from(gamepad?.axes || []).map(value => Number(value) || 0);
-    return { buttons, axes };
-}
-
-function hasNewButtonInteraction(previous, current) {
-    const count = Math.max(previous.buttons.length, current.buttons.length);
-    for (let i = 0; i < count; i++) {
-        if (current.buttons[i] && !previous.buttons[i]) return true;
-    }
-    return false;
-}
-
-function isKnownHatAxisValue(value) {
-    const hatValues = [-1, -5 / 7, -3 / 7, -1 / 7, 1 / 7, 3 / 7, 5 / 7, 1];
-    return hatValues.some(hat => Math.abs(value - hat) <= 0.08);
-}
-
-function hasNewAxisInteraction(previous, current) {
-    const activeThreshold = NAV.GAMEPAD.AXIS_THRESHOLD;
-    const releaseThreshold = 0.45;
-    const count = Math.max(previous.axes.length, current.axes.length);
-
-    for (let i = 0; i < count; i++) {
-        const prev = previous.axes[i] || 0;
-        const curr = current.axes[i] || 0;
-        const prevAbs = Math.abs(prev);
-        const currAbs = Math.abs(curr);
-
-        if (currAbs > activeThreshold && (prevAbs <= releaseThreshold || Math.sign(prev) !== Math.sign(curr))) {
-            return true;
+        for (const pad of pads) {
+            const isPressed = !!pad.buttons?.[buttonIndex]?.pressed;
+            const key = `${pad.index}:${buttonIndex}`;
+            if (isPressed) {
+                pressed = true;
+                if (!_btnCooldown[key]) justPressed = true;
+                _btnCooldown[key] = true;
+            } else {
+                _btnCooldown[key] = false;
+            }
         }
 
-        if (Math.abs(curr) > 0.08 &&
-            Math.abs(curr - prev) > 0.12 &&
-            isKnownHatAxisValue(curr)) {
-            return true;
+        return { pressed, justPressed };
+    });
+
+    const maxAxes = Math.max(...pads.map(pad => pad.axes?.length || 0), 0);
+    const axes = Array.from({ length: maxAxes }, (_, axisIndex) => {
+        let selected = 0;
+        for (const pad of pads) {
+            const value = Number(pad.axes?.[axisIndex] || 0);
+            if (Math.abs(value) > Math.abs(selected)) selected = value;
         }
-    }
+        return selected;
+    });
 
-    return false;
-}
-
-function hasNewRawGamepadInteraction(gamepad) {
-    if (!gamepad) return false;
-
-    const key = gamepadSelectionKey(gamepad);
-    const current = readGamepadSelectionSnapshot(gamepad);
-    const previous = _gamepadSelectionBaselines.get(key);
-    _gamepadSelectionBaselines.set(key, current);
-
-    if (!previous) return false;
-
-    return hasNewButtonInteraction(previous, current) ||
-        hasNewAxisInteraction(previous, current);
-}
-
-function findInteractingGamepad() {
-    return getConnectedGamepads().find(hasNewRawGamepadInteraction) || null;
+    return {
+        id: pads.map(pad => pad.id).filter(Boolean).join(' | '),
+        index: -1,
+        buttons,
+        axes,
+        connectedGamepads: pads
+    };
 }
 
 window.addEventListener('gamepadconnected', e => {
-    if (getPrimaryGamepad()) return;
     refreshGamepadPresence();
 });
 window.addEventListener('gamepaddisconnected', e => {
-    notifyNativeGamepadPrimaryChanged('disconnected', e.gamepad);
-    _gamepadSelectionBaselines.delete(gamepadSelectionKey(e.gamepad));
-    if (e.gamepad.index !== _gamepadIndex) {
-        if (!getPrimaryGamepad()) refreshGamepadPresence();
-        return;
-    }
-    selectFirstAvailableGamepad();
+    refreshGamepadPresence();
 });
 
 
@@ -1608,13 +1613,19 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         // ── NOVO: Se o Doorpi não for a janela ativa no Windows, ignora o controle 100% ──
         if (!window.isDoorpiFocused) return;
 
-        let gamepad = getPrimaryGamepad();
-        if (!gamepad) {
-            gamepad = findInteractingGamepad();
-            if (gamepad) setPrimaryGamepad(gamepad);
-            else {
-                refreshGamepadPresence();
-                return;
+        let gamepad = readAllGamepadInput();
+        if (!gamepad) return;
+
+        if (_doorpiGamepadActionsBlockedUntilRelease) {
+            const hasHeldButton = gamepad.buttons.some(button => button?.pressed);
+            if (hasHeldButton) {
+                gamepad.buttons.forEach(button => {
+                    if (!button) return;
+                    button.justPressed = false;
+                    button._consumed = true;
+                });
+            } else {
+                _doorpiGamepadActionsBlockedUntilRelease = false;
             }
         }
 
@@ -1678,7 +1689,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         }
 
         if (isExecutionLock) {
-            let lockDir = gamepadDirection(gamepad, buttons, Math.max(thr, 0.72));
+            let lockDir = executionLockGamepadDirection(gamepad, buttons, Math.max(thr, 0.72));
 
             if (lockDir) {
                 if (_executionLockHeldDir !== lockDir) {
@@ -1702,6 +1713,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         }
 
         _executionLockHeldDir = null;
+        _executionLockAxisHeld = false;
 
         if (isSessionConflict) {
             let conflictDir = gamepadDirection(gamepad, buttons, Math.max(thr, 0.72));

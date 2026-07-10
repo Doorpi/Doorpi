@@ -9,6 +9,55 @@
     window._doorpiUsers = [];
     window._doorpiCurrentUserId = '';
     window._pendingExtensionUpdates = {};
+    window.DoorpiDisplayMetrics = { dpiScale: 1 };
+
+    window.DoorpiLayoutScale = (() => {
+        const KEY = 'doorpi.layoutScale.v1';
+        const MIN = 0.25;
+        const MAX = 1.80;
+        const DEFAULT = 1;
+        let value = DEFAULT;
+
+        function clamp(raw) {
+            const n = Number(raw);
+            if (!Number.isFinite(n)) return DEFAULT;
+            return Math.max(MIN, Math.min(MAX, n));
+        }
+
+        function apply(raw, persistLocal = true) {
+            value = clamp(raw);
+            document.documentElement.style.setProperty('--doorpi-layout-scale', value.toFixed(2));
+            if (persistLocal) {
+                try { localStorage.setItem(KEY, value.toFixed(2)); } catch { }
+            }
+            window.dispatchEvent(new CustomEvent('doorpi:layout-scale-changed', { detail: { scale: value } }));
+            return value;
+        }
+
+        function save(raw) {
+            const next = apply(raw, true);
+            if (typeof postToHost === 'function') {
+                postToHost({ action: 'saveDisplaySettings', layoutScale: next });
+            }
+            return next;
+        }
+
+        function get() {
+            return value;
+        }
+
+        function reset() {
+            return save(DEFAULT);
+        }
+
+        try {
+            const saved = localStorage.getItem(KEY);
+            if (saved) value = clamp(saved);
+        } catch { }
+        apply(value, false);
+
+        return { min: MIN, max: MAX, defaultValue: DEFAULT, apply, save, get, reset };
+    })();
 
     document.addEventListener('contextmenu', event => event.preventDefault(), true);
     document.addEventListener('keydown', event => {
@@ -325,6 +374,8 @@
 
         function finish() {
             const overlay = document.getElementById('doorpiFirstRunTutorial');
+            window.blockDoorpiGamepadActionsUntilRelease?.();
+            window._doorpiSuppressPointer?.(320);
             storageSet(FIRST_RUN_TUTORIAL_DONE_KEY, 'true');
             storageRemove(FIRST_RUN_TUTORIAL_PENDING_KEY);
             if (overlay) {
@@ -332,7 +383,10 @@
                 overlay.style.display = 'none';
             }
             window.updateDoorpiQuickMenuAvailability?.();
-            window.focusFeaturedCard?.();
+            requestAnimationFrame(async () => {
+                await _waitForDoorpiInteractiveReady({ mode: 'first-run-tutorial-finished' });
+                scheduleDoorpiFocusRecovery?.();
+            });
             return true;
         }
 
@@ -736,9 +790,17 @@
     window._doorpiSuppressNativeDialogPointer = function (durationMs = 900) {
         window._doorpiNativeDialogSuppressUntil = Date.now() + durationMs;
     };
+    window._doorpiPointerSuppressUntil = 0;
+    window._doorpiSuppressPointer = function (durationMs = 280) {
+        window._doorpiPointerSuppressUntil = Date.now() + durationMs;
+    };
     ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'dblclick'].forEach(type => {
         document.addEventListener(type, (e) => {
-            if (Date.now() >= (window._doorpiNativeDialogSuppressUntil || 0)) return;
+            const now = Date.now();
+            if (now >= (window._doorpiNativeDialogSuppressUntil || 0) &&
+                now >= (window._doorpiPointerSuppressUntil || 0)) {
+                return;
+            }
             e.preventDefault();
             e.stopImmediatePropagation();
         }, true);
@@ -2586,6 +2648,10 @@
     })();
     // 🔹 INJEÇÃO DA FOTO DE PERFIL NO CANTO SUPERIOR ESQUERDO
     (function injectTopProfile() {
+        const cluster = document.createElement('div');
+        cluster.id = 'doorpiTopCluster';
+        cluster.className = 'doorpi-top-cluster';
+
         const btn = document.createElement('button');
         btn.id = 'btnTopProfile';
         btn.className = 'top-profile-btn';
@@ -2601,7 +2667,8 @@
             </span>
             <div class="doorpi-avatar"></div>
             <span class="top-profile-name"></span>`;
-        document.body.appendChild(btn);
+        cluster.appendChild(btn);
+        document.body.appendChild(cluster);
 
         btn.addEventListener('click', () => {
             postToHost({ action: 'requestUsers' });
@@ -2613,6 +2680,12 @@
                 <path d="M5.8 19.2c1-3.2 3.2-5 6.2-5s5.2 1.8 6.2 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
             </svg>`;
 
+        function truncateTopProfileName(value, maxLength = 22) {
+            const text = String(value || '').trim();
+            if (text.length <= maxLength) return text;
+            return text.slice(0, Math.max(0, maxLength - 1)).trimEnd() + '…';
+        }
+
         function applyTopProfileUser(user) {
             const u = user || window._doorpiProfile || {};
             const avatar = btn.querySelector('.doorpi-avatar');
@@ -2623,19 +2696,88 @@
                     : (u?.Name ? u.Name.charAt(0).toUpperCase() : '•');
             }
             if (avatar && !u?.PhotoBase64) avatar.innerHTML = fallbackUserIcon;
-            if (name) name.textContent = u?.Name ?? '';
+            if (name) {
+                const fullName = u?.Name ?? '';
+                name.textContent = truncateTopProfileName(fullName);
+                name.title = fullName;
+            }
             btn.classList.add('is-loaded');
         }
 
+        window._doorpiTopCluster = cluster;
         window._applyDoorpiTopProfile = applyTopProfileUser;
         requestAnimationFrame(() => applyTopProfileUser(window._doorpiProfile));
 
+        function isCleanHomeTopState() {
+            const body = document.body;
+            const launchOverlay = document.getElementById('gameLaunchOverlay');
+            const userPicker = document.getElementById('doorpiUserPicker');
+            const userPickerOpen = body.classList.contains('user-picker-open') ||
+                !!(userPicker && userPicker.style.display !== 'none' && userPicker.offsetWidth > 0 && userPicker.offsetHeight > 0);
+
+            if (!window._doorpiUserSessionReady) return false;
+            if (userPickerOpen) return false;
+            if (window._userSwitching || window.isDoorpiSessionTransitionActive?.()) return false;
+            if (window.DoorpiIntro?.isRunning?.()) return false;
+            if (window.isGlobalLoading) return false;
+            if (window.isModalOpen || window.isSetupOpen || window._vkbIsOpen) return false;
+            if (window.isMediaAppActive || window._isExternalAppRunning) return false;
+            if (window.isDoorpiUpdatePromptOpen?.()) return false;
+            if (window.isDoorpiOverlayOpen?.()) return false;
+            if (window.isNavMenuOpen || ['opening', 'closing'].includes(window._navMenuPhase || 'closed')) return false;
+            if (window.DoorpiQuickPanel?.isOpen?.()) return false;
+            if (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) return false;
+            if (typeof isEditModalOpen !== 'undefined' && isEditModalOpen) return false;
+            if (launchOverlay && launchOverlay.classList.contains('visible')) return false;
+            if (body.classList.contains('nav-menu-active') ||
+                body.classList.contains('nav-menu-closing') ||
+                body.classList.contains('setup-active') ||
+                body.classList.contains('quick-panel-open') ||
+                body.classList.contains('quick-menu-unavailable') ||
+                body.classList.contains('doorpi-session-transition')) return false;
+
+            return true;
+        }
+
+        window.isDoorpiStableHomeState = isCleanHomeTopState;
+
+        function updateTopClusterVisibility() {
+            document.body.classList.toggle('doorpi-home-top-visible', isCleanHomeTopState());
+        }
+
+        window.updateDoorpiTopClusterVisibility = updateTopClusterVisibility;
+        new MutationObserver(updateTopClusterVisibility).observe(document.body, {
+            attributes: true,
+            attributeFilter: ['class']
+        });
+        window.addEventListener('message', () => setTimeout(updateTopClusterVisibility, 0));
+        window.addEventListener('focus', () => setTimeout(updateTopClusterVisibility, 0));
+        document.addEventListener('visibilitychange', () => setTimeout(updateTopClusterVisibility, 0));
+        setInterval(updateTopClusterVisibility, 300);
+        requestAnimationFrame(updateTopClusterVisibility);
+
         const s = document.createElement('style');
         s.textContent = `
-            .top-profile-btn {
+            .doorpi-top-cluster {
                 position: fixed;
                 top: clamp(20px, 3vh, 40px);
                 left: clamp(12px, 1.3vw, 22px);
+                display: flex;
+                align-items: center;
+                gap: clamp(12px, 1vw, 18px);
+                z-index: 17000;
+                opacity: 0;
+                pointer-events: none;
+                transform: translateY(-6px);
+                transition: opacity 0.16s ease, transform 0.16s ease;
+            }
+            body.doorpi-home-top-visible .doorpi-top-cluster {
+                opacity: 1;
+                pointer-events: auto;
+                transform: translateY(0);
+            }
+            .top-profile-btn {
+                position: relative;
                 display: flex;
                 align-items: center;
                 gap: 14px;
@@ -2643,7 +2785,6 @@
                 border: none;
                 cursor: pointer;
                 outline: none;
-                z-index: 17000;
                 padding: 0;
                 opacity: 0;
                 transform: translateX(-15px) scale(0.95);
@@ -2684,9 +2825,6 @@
             body.quick-panel-open .top-profile-btn {
                 pointer-events: none;
             }
-            body.user-picker-open .top-profile-btn,
-            body.setup-active .top-profile-btn,
-            body.quick-menu-unavailable .top-profile-btn,
             .top-profile-btn.nav-menu-hidden {
                 opacity: 0 !important;
                 pointer-events: none;
@@ -2728,6 +2866,10 @@
             .top-profile-btn img { width: 100%; height: 100%; object-fit: cover; }
             .top-profile-btn .doorpi-avatar svg { width: 54%; height: 54%; color: rgba(255,255,255,.76); }
             .top-profile-name {
+                display: inline-block;
+                max-width: clamp(120px, 12vw, 240px);
+                overflow: hidden;
+                text-overflow: ellipsis;
                 font-size: clamp(17px, 1vw, 19px);
                 font-weight: 500;
                 color: rgba(255,255,255,0.7);
@@ -2739,6 +2881,513 @@
             }
         `;
         document.head.appendChild(s);
+    })();
+
+    window.DoorpiNotifications = (() => {
+        const items = new Map();
+        const toastQueue = [];
+        let isOpen = false;
+        let toastTimer = 0;
+        let activeToastTimer = 0;
+
+        function esc(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function iconSvg() {
+            return `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/>
+                <path d="M10 21h4"/>
+            </svg>`;
+        }
+
+        function isHomeReady() {
+            if (!window._doorpiUserSessionReady) return false;
+            if (document.body.classList.contains('user-picker-open')) return false;
+            if (window.isModalOpen || window.isSetupOpen || window._vkbIsOpen) return false;
+            if (window.isNavMenuOpen || ['opening', 'closing'].includes(window._navMenuPhase || 'closed')) return false;
+            if (window.isDoorpiOverlayOpen?.()) return false;
+            if (window.isGlobalLoading || window.isDoorpiSessionTransitionActive?.()) return false;
+            return true;
+        }
+
+        function ensureRoot() {
+            let root = document.getElementById('doorpiNotificationCenter');
+            if (root) return root;
+
+            root = document.createElement('div');
+            root.id = 'doorpiNotificationCenter';
+            root.className = 'doorpi-notification-center';
+            root.innerHTML = `
+                <button id="doorpiNotificationButton" class="doorpi-notification-button" type="button" tabindex="0" title="${esc(t('notificationsTitle'))}">
+                    <span class="doorpi-notification-icon">${iconSvg()}</span>
+                    <span id="doorpiNotificationCount" class="doorpi-notification-count"></span>
+                </button>
+                <div id="doorpiNotificationToast" class="doorpi-notification-toast"></div>
+                <div id="doorpiNotificationPanel" class="doorpi-notification-panel" role="dialog" aria-label="${esc(t('notificationsTitle'))}">
+                    <div class="doorpi-notification-panel-title">${esc(t('notificationsTitle'))}</div>
+                    <div id="doorpiNotificationList" class="doorpi-notification-list"></div>
+                </div>
+            `;
+
+            const cluster = document.getElementById('doorpiTopCluster') || window._doorpiTopCluster;
+            const profile = document.getElementById('btnTopProfile');
+            if (cluster) cluster.appendChild(root);
+            else if (profile && profile.parentNode) profile.insertAdjacentElement('afterend', root);
+            else document.body.appendChild(root);
+
+            const button = root.querySelector('#doorpiNotificationButton');
+            button?.addEventListener('click', toggle);
+            button?.addEventListener('keydown', (e) => {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                e.preventDefault();
+                toggle();
+            });
+
+            root.addEventListener('click', (e) => {
+                const close = e.target?.closest?.('[data-notification-close]');
+                if (close) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    remove(close.dataset.notificationClose || '');
+                    return;
+                }
+
+                const row = e.target?.closest?.('.doorpi-notification-item');
+                if (row?.dataset.action === 'doorpi-update') {
+                    window.DoorpiUpdatePrompt?.show?.();
+                } else if (row?.dataset.action === 'windows-update') {
+                    window.DoorpiQuickPanel?.open?.('updates');
+                }
+            });
+
+            root.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' || e.key === 'Backspace') {
+                    if (isOpen) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        close();
+                    }
+                    return;
+                }
+
+                const closeBtn = e.target?.closest?.('[data-notification-close]');
+                if (!closeBtn || (e.key !== 'Enter' && e.key !== ' ')) return;
+                e.preventDefault();
+                e.stopPropagation();
+                remove(closeBtn.dataset.notificationClose || '');
+            });
+
+            document.addEventListener('pointerdown', (e) => {
+                if (!isOpen || root.contains(e.target)) return;
+                close();
+            }, true);
+
+            document.addEventListener('keydown', (e) => {
+                if (!isOpen) return;
+                if (e.key !== 'Escape' && e.key !== 'Backspace') return;
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                close();
+            }, true);
+
+            injectStyles();
+            render();
+            return root;
+        }
+
+        function injectStyles() {
+            if (document.getElementById('doorpi-notification-styles')) return;
+            const style = document.createElement('style');
+            style.id = 'doorpi-notification-styles';
+            style.textContent = `
+                .doorpi-notification-center {
+                    position: relative;
+                    z-index: 1;
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    opacity: 0;
+                    pointer-events: none;
+                    transform: translateY(-2px);
+                    transition: opacity .22s ease, transform .22s ease;
+                }
+                .doorpi-notification-center.is-visible {
+                    opacity: 1;
+                    pointer-events: auto;
+                    transform: translateY(0);
+                }
+                body.nav-menu-active .doorpi-notification-center,
+                body.nav-menu-closing .doorpi-notification-center,
+                body.quick-panel-open .doorpi-notification-center,
+            body.user-picker-open .doorpi-notification-center,
+            body.setup-active .doorpi-notification-center,
+            body:not(.doorpi-home-top-visible) .doorpi-notification-center {
+                opacity: 0 !important;
+                pointer-events: none !important;
+            }
+                .doorpi-notification-button {
+                    position: relative;
+                    width: 46px;
+                    height: 46px;
+                    border-radius: 50%;
+                    border: 1px solid rgba(255,255,255,.16);
+                    background: rgba(9, 13, 24, .48);
+                    color: rgba(255,255,255,.82);
+                    display: grid;
+                    place-items: center;
+                    box-shadow: 0 14px 34px rgba(0,0,0,.32);
+                    backdrop-filter: blur(18px);
+                    outline: none;
+                    cursor: pointer;
+                }
+                .doorpi-notification-button:focus,
+                .doorpi-notification-button:hover {
+                    color: #fff;
+                    border-color: rgba(255,255,255,.62);
+                }
+                .doorpi-notification-icon svg {
+                    width: 21px;
+                    height: 21px;
+                }
+                .doorpi-notification-count {
+                    position: absolute;
+                    right: -4px;
+                    top: -4px;
+                    min-width: 19px;
+                    height: 19px;
+                    padding: 0 5px;
+                    border-radius: 999px;
+                    display: none;
+                    align-items: center;
+                    justify-content: center;
+                    background: #ff5252;
+                    color: #fff;
+                    font-size: 11px;
+                    font-weight: 800;
+                    line-height: 1;
+                    box-shadow: 0 0 16px rgba(255,82,82,.5);
+                }
+                .doorpi-notification-count.is-visible { display: flex; }
+                .doorpi-notification-toast {
+                    max-width: min(460px, 42vw);
+                    padding: 11px 14px;
+                    border-radius: 8px;
+                    border: 1px solid rgba(255,255,255,.15);
+                    background: rgba(10, 15, 28, .82);
+                    color: rgba(255,255,255,.88);
+                    font-size: 14px;
+                    font-weight: 650;
+                    box-shadow: 0 16px 42px rgba(0,0,0,.36);
+                    backdrop-filter: blur(18px);
+                    opacity: 0;
+                    transform: translateX(10px);
+                    pointer-events: none;
+                    transition: opacity .2s ease, transform .2s ease;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                }
+                .doorpi-notification-toast.is-visible {
+                    opacity: 1;
+                    transform: translateX(0);
+                }
+                .doorpi-notification-panel {
+                    position: absolute;
+                    top: calc(100% + 12px);
+                    left: 0;
+                    width: min(430px, 86vw);
+                    max-height: min(520px, 62vh);
+                    overflow: hidden;
+                    display: none;
+                    border: 1px solid rgba(255,255,255,.16);
+                    border-radius: 8px;
+                    background: rgba(8, 12, 23, .94);
+                    box-shadow: 0 28px 72px rgba(0,0,0,.52);
+                    backdrop-filter: blur(22px);
+                    color: #fff;
+                }
+                .doorpi-notification-center.is-open .doorpi-notification-panel { display: block; }
+                .doorpi-notification-panel-title {
+                    padding: 15px 16px 11px;
+                    border-bottom: 1px solid rgba(255,255,255,.09);
+                    font-size: 12px;
+                    font-weight: 800;
+                    text-transform: uppercase;
+                    letter-spacing: .08em;
+                    color: rgba(255,255,255,.54);
+                }
+                .doorpi-notification-list {
+                    display: grid;
+                    max-height: calc(min(520px, 62vh) - 45px);
+                    overflow: auto;
+                }
+                .doorpi-notification-item {
+                    display: grid;
+                    grid-template-columns: 1fr auto;
+                    gap: 12px;
+                    padding: 13px 14px;
+                    border-bottom: 1px solid rgba(255,255,255,.075);
+                    background: transparent;
+                    color: inherit;
+                    text-align: left;
+                    cursor: pointer;
+                }
+                .doorpi-notification-item:last-child { border-bottom: 0; }
+                .doorpi-notification-item:focus,
+                .doorpi-notification-item:hover {
+                    outline: none;
+                    background: rgba(255,255,255,.055);
+                }
+                .doorpi-notification-title {
+                    font-size: 14px;
+                    font-weight: 750;
+                    color: rgba(255,255,255,.9);
+                }
+                .doorpi-notification-message {
+                    margin-top: 3px;
+                    font-size: 13px;
+                    line-height: 1.35;
+                    color: rgba(255,255,255,.62);
+                }
+                .doorpi-notification-close {
+                    width: 28px;
+                    height: 28px;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    box-sizing: border-box;
+                    padding: 0;
+                    border-radius: 50%;
+                    border: 1px solid rgba(255,255,255,.12);
+                    background: rgba(255,255,255,.05);
+                    color: rgba(255,255,255,.72);
+                    font-size: 18px;
+                    line-height: 1;
+                    text-align: center;
+                    cursor: pointer;
+                }
+                .doorpi-notification-close:focus,
+                .doorpi-notification-close:hover {
+                    outline: none;
+                    color: #fff;
+                    border-color: rgba(255,255,255,.48);
+                }
+                .doorpi-notification-empty {
+                    padding: 18px 16px;
+                    color: rgba(255,255,255,.48);
+                    font-size: 13px;
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        function pendingCount() {
+            return Array.from(items.values()).filter(n => !n.read || n.persistent).length;
+        }
+
+        function render() {
+            const root = ensureRoot();
+            const countEl = root.querySelector('#doorpiNotificationCount');
+            const list = root.querySelector('#doorpiNotificationList');
+            const count = pendingCount();
+            root.classList.toggle('is-visible', !!window._doorpiUserSessionReady);
+            if (countEl) {
+                countEl.textContent = String(Math.min(count, 99));
+                countEl.classList.toggle('is-visible', count > 0);
+            }
+            if (list) {
+                const rows = Array.from(items.values())
+                    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+                list.innerHTML = rows.length
+                    ? rows.map(n => `
+                        <button class="doorpi-notification-item" type="button" tabindex="0" data-notification-id="${esc(n.id)}" data-action="${esc(n.action || '')}">
+                            <span>
+                                <span class="doorpi-notification-title">${esc(n.title)}</span>
+                                <span class="doorpi-notification-message">${esc(n.message)}</span>
+                            </span>
+                            <span class="doorpi-notification-close" role="button" tabindex="0" data-notification-close="${esc(n.id)}" aria-label="${esc(t('notificationsDismiss'))}">&times;</span>
+                        </button>
+                    `).join('')
+                    : `<div class="doorpi-notification-empty">${esc(t('notificationsEmpty'))}</div>`;
+            }
+        }
+
+        function showToast(notification) {
+            const root = ensureRoot();
+            const toast = root.querySelector('#doorpiNotificationToast');
+            if (!toast || !notification?.message) return;
+            toast.textContent = notification.toast || notification.message;
+            toast.classList.add('is-visible');
+            clearTimeout(activeToastTimer);
+            activeToastTimer = setTimeout(() => {
+                toast.classList.remove('is-visible');
+                activeToastTimer = setTimeout(processToastQueue, 260);
+            }, 4300);
+        }
+
+        function processToastQueue() {
+            if (!toastQueue.length) return;
+            if (!isHomeReady()) {
+                scheduleToast();
+                return;
+            }
+            showToast(toastQueue.shift());
+        }
+
+        function scheduleToast() {
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(processToastQueue, isHomeReady() ? 120 : 1200);
+        }
+
+        function upsert(notification = {}) {
+            if (!notification.id) return;
+            const existing = items.get(notification.id);
+            const next = {
+                ...existing,
+                ...notification,
+                title: notification.title || existing?.title || t('notificationsTitle'),
+                message: notification.message || existing?.message || '',
+                createdAt: existing?.createdAt || Date.now(),
+                read: notification.read ?? existing?.read ?? false,
+                persistent: !!(notification.persistent ?? existing?.persistent),
+            };
+            items.set(next.id, next);
+            render();
+            if (!existing && next.message) {
+                toastQueue.push(next);
+                scheduleToast();
+            }
+        }
+
+        function remove(id) {
+            if (!id) return;
+            items.delete(id);
+            render();
+        }
+
+        function open() {
+            const root = ensureRoot();
+            isOpen = true;
+            root.classList.add('is-open');
+            items.forEach(n => {
+                if (!n.persistent) n.read = true;
+            });
+            render();
+        }
+
+        function close() {
+            const root = ensureRoot();
+            isOpen = false;
+            root.classList.remove('is-open');
+            Array.from(items.values()).forEach(n => {
+                if (!n.persistent && n.read) items.delete(n.id);
+            });
+            render();
+        }
+
+        function toggle() {
+            if (isOpen) close();
+            else open();
+        }
+
+        function setSystemUpdateStatus(status = {}) {
+            const hasUpdate = !!(status.doorpiUpdateAvailable || status.updaterUpdateAvailable);
+            if (!hasUpdate) {
+                remove('doorpi-system-update');
+                return;
+            }
+            const parts = [];
+            if (status.doorpiUpdateAvailable) parts.push('Doorpi');
+            if (status.updaterUpdateAvailable) parts.push(t('updatePromptSystemComponents'));
+            upsert({
+                id: 'doorpi-system-update',
+                title: t('updatePromptInitialTitle'),
+                message: t('updatePromptTitle', parts.join(' + ') || 'Doorpi'),
+                toast: t('updateBadgeAvailableTitle'),
+                persistent: true,
+                action: 'doorpi-update',
+            });
+        }
+
+        function setWindowsUpdateStatus(status = {}) {
+            const updates = Array.isArray(status.updates) ? status.updates : [];
+            const hasUpdate = !!status.rebootRequired || updates.length > 0;
+            if (!hasUpdate) {
+                remove('windows-update');
+                return;
+            }
+            upsert({
+                id: 'windows-update',
+                title: status.rebootRequired ? t('windowsUpdateRestartTitle') : t('windowsUpdateFoundTitle'),
+                message: updates.length ? t('windowsUpdatePackages', updates.length) : t('windowsRestartDesc'),
+                toast: status.rebootRequired ? t('windowsUpdateRestartTitle') : t('windowsUpdateFoundTitle'),
+                persistent: true,
+                action: 'windows-update',
+            });
+        }
+
+        function setExtensionUpdates(updates = {}) {
+            const count = Object.keys(updates || {}).length;
+            if (!count) {
+                remove('extension-updates');
+                return;
+            }
+            upsert({
+                id: 'extension-updates',
+                title: t('notificationsExtensionUpdateTitle'),
+                message: t('notificationsExtensionUpdateMessage', count),
+                toast: t('notificationsExtensionUpdateTitle'),
+                persistent: true,
+            });
+        }
+
+        function notifySteamGridDownloadFailure() {
+            upsert({
+                id: 'steamgrid-download-failed',
+                title: t('notificationsSteamGridDownloadTitle'),
+                message: t('notificationsSteamGridDownloadMessage'),
+                toast: t('notificationsSteamGridDownloadMessage'),
+                persistent: false,
+            });
+        }
+
+        function notifySteamGridNotFound(name) {
+            const safeName = String(name || '').trim();
+            upsert({
+                id: `steamgrid-not-found-${safeName.toLowerCase()}`,
+                title: t('notificationsSteamGridNotFoundTitle'),
+                message: t('notificationsSteamGridNotFoundMessage', safeName || t('genericGameName')),
+                persistent: false,
+            });
+        }
+
+        window.addEventListener('message', (event) => {
+            const data = event.data;
+            const type = typeof data === 'string' ? data : data?.type;
+            if (type === 'currentUserUpdated' || type === 'userSwitchComplete') setTimeout(render, 250);
+        });
+
+        window.isDoorpiNotificationCenterOpen = () => isOpen;
+
+        return {
+            upsert,
+            remove,
+            open,
+            close,
+            toggle,
+            render,
+            setSystemUpdateStatus,
+            setWindowsUpdateStatus,
+            setExtensionUpdates,
+            notifySteamGridDownloadFailure,
+            notifySteamGridNotFound,
+        };
     })();
 
     (function initSystemUpdatePrompt() {
@@ -2861,14 +3510,7 @@
         }
 
         function updateBadge() {
-            const badge = ensureBadge();
-            const userReady = !!window._doorpiUserSessionReady && !document.body.classList.contains('user-picker-open');
-            const available = userReady && hasUpdate(latestStatus);
-            badge.classList.toggle('is-visible', available);
-            badge.classList.toggle('is-force', !!latestStatus?.forceUpdate);
-            badge.title = available
-                ? t('updateBadgeAvailableTitle')
-                : t('updateBadgeIdleTitle');
+            window.DoorpiNotifications?.setSystemUpdateStatus?.(latestStatus || {});
         }
 
         function ensurePrompt() {
@@ -3019,7 +3661,7 @@
 
             prompt.classList.toggle('is-force', force);
             if (kicker) kicker.textContent = force ? t('updatePromptForceKicker') : t('updatePromptKicker');
-            if (title) title.textContent = force ? t('updatePromptForceTitle') : t('updatePromptTitle', scope);
+            if (title) title.textContent = force ? t('updatePromptForceTitle') : t('updatePromptInitialTitle');
             if (sub) {
                 sub.textContent = force ? t('updatePromptForceSubtitle') : t('updatePromptSubtitle');
             }
@@ -3155,8 +3797,9 @@
                     align-items: center;
                     justify-content: center;
                     padding: 42px;
-                    background: rgba(1, 5, 15, 0.55);
-                    backdrop-filter: blur(24px);
+                    background:
+                        radial-gradient(ellipse at 50% 42%, rgba(0,0,0,0.18), transparent 46%),
+                        rgba(1, 5, 15, 0.68);
                     opacity: 0;
                     pointer-events: none;
                     transition: opacity .22s ease;
@@ -3167,17 +3810,17 @@
                 }
                 .doorpi-update-shell {
                     position: relative;
-                    width: min(700px, 92vw);
+                    width: min(760px, 92vw);
                     overflow: hidden;
-                    padding: 34px 36px 32px;
-                    border: 1px solid rgba(255,255,255,0.16);
+                    padding: 30px 36px 28px;
+                    border: 1px solid rgba(255,255,255,0.14);
                     border-radius: 8px;
                     background:
-                        linear-gradient(90deg, rgba(255,255,255,0.30), transparent 52%) 0 0 / 100% 3px no-repeat,
-                        linear-gradient(180deg, rgba(13,17,31,0.97), rgba(5,7,16,0.96));
-                    box-shadow: 0 34px 90px rgba(0,0,0,0.52), inset 0 1px 0 rgba(255,255,255,0.07);
-                    color: #fff;
-                    transform: translateY(16px) scale(.985);
+                        linear-gradient(90deg, rgba(255,255,255,0.16), rgba(255,255,255,0.04) 42%, transparent 78%) 0 0 / 100% 2px no-repeat,
+                        linear-gradient(180deg, rgba(24,27,36,0.94), rgba(11,13,20,0.94));
+                    box-shadow: 0 34px 86px rgba(0,0,0,0.66), inset 0 1px 0 rgba(255,255,255,0.08);
+                    color: rgba(255,255,255,0.94);
+                    transform: translateY(14px) scale(.99);
                     transition: transform .22s ease;
                 }
                 .doorpi-update-shell::before {
@@ -3185,43 +3828,60 @@
                     position: absolute;
                     inset: 0;
                     background:
-                        radial-gradient(ellipse at 80% -18%, rgba(255,255,255,0.075), transparent 38%),
-                        radial-gradient(ellipse at -14% 112%, rgba(110,140,190,0.08), transparent 42%);
+                        linear-gradient(90deg, rgba(255,255,255,0.035), transparent 22%, transparent 82%, rgba(255,255,255,0.025)),
+                        radial-gradient(ellipse at 86% -18%, rgba(255,255,255,0.055), transparent 36%);
+                    pointer-events: none;
+                }
+                .doorpi-update-shell::after {
+                    content: '';
+                    position: absolute;
+                    left: 0;
+                    top: 32px;
+                    bottom: 32px;
+                    width: 3px;
+                    border-radius: 0 4px 4px 0;
+                    background: linear-gradient(180deg, transparent, rgba(255,255,255,0.18), transparent);
                     pointer-events: none;
                 }
                 .doorpi-update-prompt.is-visible .doorpi-update-shell {
                     transform: translateY(0) scale(1);
                 }
                 .doorpi-update-prompt.is-force .doorpi-update-shell {
-                    border-color: rgba(255,255,255,0.24);
+                    border-color: rgba(255,255,255,0.18);
                     background:
-                        linear-gradient(90deg, rgba(255,255,255,0.40), transparent 54%) 0 0 / 100% 3px no-repeat,
-                        linear-gradient(180deg, rgba(15,19,34,0.98), rgba(5,7,16,0.97));
+                        linear-gradient(90deg, rgba(255,110,110,0.42), rgba(255,255,255,0.04) 44%, transparent 78%) 0 0 / 100% 2px no-repeat,
+                        linear-gradient(180deg, rgba(25,27,36,0.95), rgba(11,13,20,0.95));
                 }
                 .doorpi-update-header {
                     position: relative;
+                    display: flex;
+                    align-items: flex-start;
+                    justify-content: space-between;
+                    gap: 22px;
                 }
                 .doorpi-update-kicker {
                     position: relative;
-                    margin: 0 0 10px;
-                    color: rgba(255,255,255,0.58);
+                    display: block;
+                    margin: 0 0 12px;
+                    color: rgba(255,255,255,0.50);
                     font-size: 12px;
                     font-weight: 800;
-                    letter-spacing: 0.12em;
+                    letter-spacing: 0.14em;
                     text-transform: uppercase;
                 }
                 .doorpi-update-shell h2 {
                     position: relative;
                     margin: 0;
-                    font-size: clamp(28px, 3.2vw, 42px);
-                    line-height: 1.05;
-                    font-weight: 700;
+                    font-size: clamp(30px, 2.8vw, 42px);
+                    line-height: 1.08;
+                    font-weight: 760;
+                    letter-spacing: 0;
                 }
                 .doorpi-update-subtitle {
                     position: relative;
-                    margin: 16px 0 0;
-                    max-width: 560px;
-                    color: rgba(255,255,255,0.68);
+                    margin: 18px 0 0;
+                    max-width: 620px;
+                    color: rgba(255,255,255,0.62);
                     font-size: 15px;
                     line-height: 1.42;
                 }
@@ -3229,69 +3889,75 @@
                     position: relative;
                     display: flex;
                     flex-wrap: wrap;
-                    gap: 8px;
-                    margin: 20px 0 0;
+                    gap: 10px;
+                    margin: 18px 0 0;
                 }
                 .doorpi-update-version-row span {
-                    padding: 8px 11px;
+                    padding: 7px 10px;
                     border-radius: 6px;
-                    border: 1px solid rgba(255,255,255,0.14);
-                    background: rgba(255,255,255,0.055);
-                    color: rgba(255,255,255,0.86);
-                    font-size: 13px;
+                    border: 1px solid rgba(255,255,255,0.13);
+                    background: rgba(255,255,255,0.07);
+                    color: rgba(255,255,255,0.74);
+                    font-size: 12px;
+                    font-weight: 700;
                 }
                 .doorpi-update-warning {
                     position: relative;
-                    margin: 22px 0 0;
-                    padding-top: 14px;
-                    border-top: 1px solid rgba(255,255,255,0.12);
-                    color: rgba(255,255,255,0.72);
-                    font-size: 13px;
+                    margin: 20px 0 0;
+                    padding-top: 13px;
+                    border-top: 1px solid rgba(255,255,255,0.09);
+                    color: rgba(255,255,255,0.52);
+                    font-size: 12px;
                 }
                 .doorpi-update-actions {
                     position: relative;
                     display: flex;
                     justify-content: flex-end;
-                    gap: 12px;
-                    margin-top: 26px;
+                    gap: 14px;
+                    margin-top: 24px;
                 }
                 .doorpi-update-actions button {
-                    min-width: 158px;
-                    height: 48px;
+                    min-width: 190px;
+                    height: 42px;
                     border-radius: 8px;
-                    border: 1px solid rgba(255,255,255,0.18);
+                    border: 1px solid rgba(255,255,255,0.16);
                     color: #fff;
                     font-size: 15px;
                     font-weight: 800;
                     cursor: pointer;
                     outline: none;
-                    transition: transform .16s ease, border-color .16s ease, background .16s ease;
+                    transition: transform .16s ease, border-color .16s ease, background .16s ease, box-shadow .16s ease;
                 }
                 .doorpi-update-primary {
-                    background: rgba(255,255,255,0.92);
-                    color: #090d18;
-                    box-shadow: 0 14px 32px rgba(0,0,0,0.22);
+                    background: rgba(255,255,255,0.90);
+                    color: #080c16;
+                    box-shadow: 0 12px 28px rgba(0,0,0,0.28);
                 }
                 .doorpi-update-secondary {
-                    background: rgba(255,255,255,0.08);
+                    background: rgba(255,255,255,0.075);
                 }
                 .doorpi-update-actions button:focus,
+                .doorpi-update-actions button.nav-focused-el,
                 .doorpi-update-actions button:hover {
-                    transform: translateY(-1px);
-                    border-color: rgba(255,255,255,0.8);
+                    transform: translateY(-1px) scale(1.015);
+                    border-color: rgba(70,155,255,0.96);
+                    box-shadow:
+                        0 0 0 3px rgba(70,155,255,0.32),
+                        0 0 0 7px rgba(70,155,255,0.10),
+                        0 16px 32px rgba(0,0,0,0.32);
                 }
                 .doorpi-update-actions .doorpi-update-primary,
                 .doorpi-update-actions .doorpi-update-primary:focus,
                 .doorpi-update-actions .doorpi-update-primary:hover,
                 .doorpi-update-actions .doorpi-update-primary.nav-focused-el {
                     background: #fff;
-                    color: #060914;
-                    border-color: rgba(255,255,255,0.92);
+                    color: #080c16;
+                    border-color: rgba(70,155,255,0.96);
                 }
                 .doorpi-update-actions .doorpi-update-secondary:focus,
                 .doorpi-update-actions .doorpi-update-secondary:hover,
                 .doorpi-update-actions .doorpi-update-secondary.nav-focused-el {
-                    background: rgba(255,255,255,0.14);
+                    background: rgba(70,155,255,0.12);
                     color: #fff;
                 }
                 @media (max-width: 720px) {
@@ -3352,11 +4018,9 @@
     /* Seção: Ponte com o host */
     // ── GERADOR DE FALLBACKS SVG ──────────────────────────────────────────
     window.generateFallbackSvg = function (name, type, iconBase64 = '', forceLetter = false) {
-        const initial = (name || "App").charAt(0).toUpperCase();
-        const safeName = (name || "App").replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         const makeSvg = (svg) => "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
         const safeIcon = String(iconBase64 || '').replace(/"/g, '&quot;').trim();
-        const hasIcon = safeIcon && !forceLetter;
+        const hasIcon = !!safeIcon;
         const genericIcon = `<g fill="none" stroke="#eef4ff" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
             <rect x="150" y="210" width="300" height="300" rx="72"/>
             <path d="M210 330h180M300 270v180"/>
@@ -3403,20 +4067,16 @@
 
         if (type === 'grid') {
             if (hasIcon) return makeSvg(iconSvg(600, 900, 190, 760));
-            if (!forceLetter) return makeSvg(genericSvg(600, 900, 1));
-            // GRID VERTICAL: Fundo Escuro + Inicial
-            return makeSvg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900"><rect width="600" height="900" fill="#1a1a2e"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#ffffff" font-family="sans-serif" font-size="350" font-weight="bold">${initial}</text></svg>`);
+            return makeSvg(genericSvg(600, 900, 1));
 
         } else if (type === 'horizontal') {
             if (hasIcon) return makeSvg(iconSvg(920, 430, 150, 560));
-            if (!forceLetter) return makeSvg(genericSvg(920, 430, 0.42));
-            // GRID HORIZONTAL: Fundo Escuro + Inicial
-            return makeSvg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 430"><rect width="920" height="430" fill="#1a1a2e"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#ffffff" font-family="sans-serif" font-size="200" font-weight="bold">${initial}</text></svg>`);
+            return makeSvg(genericSvg(920, 430, 0.42));
 
         } else if (type === 'logo') {
             if (hasIcon) return makeSvg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 150"><image href="data:image/png;base64,${safeIcon}" x="0" y="18" width="112" height="112" preserveAspectRatio="xMidYMid meet"/></svg>`);
             // LOGO: Alinhado à esquerda (x="0") e mais para baixo (y="80%") para casar com a posição real
-            return makeSvg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 150"><text x="0%" y="80%" fill="#ffffff" font-family="sans-serif" font-size="75" font-weight="bold">${safeName}</text></svg>`);
+            return makeSvg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 150"><rect width="800" height="150" fill="transparent"/></svg>`);
 
         } else if (type === 'banner') {
             // BANNER: 100% TRANSPARENTE (Deixa o Blob brilhar!)
@@ -3484,10 +4144,6 @@
             else if (data.type === 'nativeAppsLoaded' && data.apps) data.apps.forEach(applyFallbacks);
             // ─────────────────────────────────────────────────────────────────────
             // ─────────────────────────────────────────────────────────────────────
-
-            if (data.updates) {
-                window._pendingExtensionUpdates = data.updates;
-            }
 
             // 1. Quando o C# envia um ÚNICO jogo novo
             if (data.type === 'newGame') {
@@ -3630,10 +4286,19 @@
                 if (window.isDoorpiUpdatePromptOpen?.()) return;
                 window.DoorpiQuickPanel?.toggle?.();
             }
+            else if (data.type === 'displaySettings') {
+                window.DoorpiDisplayMetrics.dpiScale = Math.max(0.5, Number(data.systemDpiScale) || 1);
+                window.DoorpiLayoutScale?.apply?.(data.layoutScale, true);
+                window._setupRefreshLayoutReference?.();
+            }
             else if (data.type === 'extensionsList' || data.type === 'extensionUpdatesList') {
                 if (data.type === 'extensionUpdatesList') {
                     window._pendingExtensionUpdates = data.updates || {};
                 }
+                if (data.updates) {
+                    window._pendingExtensionUpdates = data.updates || {};
+                }
+                window.DoorpiNotifications?.setExtensionUpdates?.(window._pendingExtensionUpdates);
                 // Atualiza a lista na nova interface do Nav Menu se estiver aberta
                 if (document.getElementById('navExtensionsList')) {
                     window._renderNavExtensionsList?.(data.extensions || [], data.status || '', data.message || '', window._pendingExtensionUpdates);
@@ -3694,7 +4359,7 @@
             }
             else if (data.type === 'nativeDialogReturned') {
                 window._doorpiSuppressNativeDialogPointer?.(900);
-                window.resetDoorpiGamepadInputState?.();
+                window.blockDoorpiGamepadActionsUntilRelease?.();
             }
             else if (data.type === 'artworkSelectionApplied') {
                 window._artworkWizardHandleApplied?.(data);
@@ -3777,14 +4442,30 @@
             }
             else if (data.type === 'systemUpdateStatus') {
                 window.DoorpiUpdatePrompt?.setStatus(data);
+                window.DoorpiNotifications?.setSystemUpdateStatus?.(data);
                 window.DoorpiQuickPanel?.setDoorpiUpdateStatus?.(data);
             }
             else if (data.type === 'windowsUpdateStatus') {
+                window.DoorpiNotifications?.setWindowsUpdateStatus?.(data);
                 window.DoorpiQuickPanel?.setWindowsUpdateStatus?.(data);
             }
             else if (data.type === 'gpuUpdateStatus') {
                 window.DoorpiQuickPanel?.setGpuUpdateStatus?.(data);
                 window._navMenuSetGpuUpdateStatus?.(data);
+            }
+            else if (data.type === 'doorpiNotification') {
+                if (data.category === 'steamgrid-download-failed') {
+                    window.DoorpiNotifications?.notifySteamGridDownloadFailure?.();
+                } else if (data.category === 'steamgrid-art-not-found') {
+                    window.DoorpiNotifications?.notifySteamGridNotFound?.(data.name || data.gameName || '');
+                } else {
+                    window.DoorpiNotifications?.upsert?.({
+                        id: data.id || `notification-${Date.now()}`,
+                        title: data.title || t('notificationsTitle'),
+                        message: data.message || '',
+                        persistent: !!data.persistent,
+                    });
+                }
             }
             else if (data.type === 'bluetoothStatus') {
                 const changed = window.DoorpiBluetoothUI?.setStatus?.(data) !== false;
@@ -4318,6 +4999,8 @@
 
         window.chrome?.webview?.postMessage(JSON.stringify(payload));
     }
+
+    requestAnimationFrame(() => postToHost({ action: 'requestDisplaySettings' }));
 
     function escapeHtml(value) {
         return String(value ?? '').replace(/[&<>"']/g, ch => ({
@@ -5372,7 +6055,6 @@ function showUserPicker(users, requireSelection = false) {
     overlay.querySelector('#doorpiShutdown')?.addEventListener('click', () => postToHost({ action: 'shutdownSystem' }));
 
     requestAnimationFrame(() => requestAnimationFrame(() => {
-        window.ensureDoorpiGamepadPrimaryReady?.();
         const first = overlay.querySelector('.doorpi-user-card');
         first?.focus();
         window.resetDoorpiGamepadInputState?.();
@@ -5701,15 +6383,7 @@ function showUserPicker(users, requireSelection = false) {
         }
 
         function canOpen() {
-            if (window.isDoorpiUpdatePromptOpen?.()) return false;
-            if (window.isDoorpiQuickMenuBlocked?.()) return false;
-            if (window.isDoorpiSessionTransitionActive?.()) return false;
-            if (window.isNavMenuOpen || window.isModalOpen || window.isSetupOpen || window._vkbIsOpen) return false;
-            if (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) return false;
-            if (typeof isEditModalOpen !== 'undefined' && isEditModalOpen) return false;
-            const launchOverlay = document.getElementById('gameLaunchOverlay');
-            if (launchOverlay?.classList.contains('visible')) return false;
-            return true;
+            return window.isDoorpiStableHomeState?.() === true;
         }
 
         function ensure() {
@@ -6799,17 +7473,6 @@ function showUserPicker(users, requireSelection = false) {
         }
     }, true);
 
-    document.addEventListener('keydown', (e) => {
-        if (e.key !== 'Enter' || window._vkbIsOpen) return;
-        const input = e.target.closest?.('input[type="text"], input:not([type]), textarea');
-        if (!input) return;
-        if (input.closest('.doorpi-manager-overlay, .doorpi-user-overlay, .edit-modal-overlay, .artwork-wizard-overlay, #addGameContainer, #setupContainer, .nav-profile-dashboard')) {
-            e.preventDefault();
-            input.removeAttribute('readonly');
-            window._vkbOpen?.(input);
-        }
-    }, true);
-
     /* Seção: Overlay de Loading */
     function showGlobalLoading(titleText, subtitleText) {
         window.isGlobalLoading = true;
@@ -7121,7 +7784,7 @@ document.getElementById('btnAddStore')?.addEventListener('click', () => {
 
     function closeModal() {
         window._doorpiSuppressNativeDialogPointer?.(700);
-        window.resetDoorpiGamepadInputState?.();
+        window.blockDoorpiGamepadActionsUntilRelease?.();
         document.getElementById('addGameContainer').style.display = 'none';
         document.getElementById('gameGrid').style.overflowX = 'auto';
         document.getElementById('selectionCounter')?.classList.remove('visible');
@@ -8635,7 +9298,9 @@ function renderFolderList(folders) {
 
         const gameId = card.dataset.gameId || card.dataset.appId || card.dataset.appUrl;
         const isStoreCard = card.dataset.channel === 'stores' || card.closest('#storesGrid') !== null;
-        const isYoutube = (gameId && gameId.toLowerCase().includes('youtube'));
+        const isYoutube = [card.dataset.gameId, card.dataset.appId]
+            .filter(Boolean)
+            .some(id => String(id).toLowerCase() === 'youtube');
         const isGpuUpdaterCard = card.dataset.gpuUpdaterCard === 'true';
         const isBluetoothDeviceCard = card.dataset.bluetoothDeviceCard === 'true';
         _ctxMenu.classList.toggle('gpu-updater-context', isGpuUpdaterCard);
@@ -8869,7 +9534,10 @@ function renderFolderList(folders) {
         document.querySelector('#ctxStoreAutoAdd .ctx-icon').textContent = next ? '\u2713' : '';
     });
 
-    document.getElementById('ctxRuntimeAction').addEventListener('click', () => {
+    document.getElementById('ctxRuntimeAction').addEventListener('click', event => {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        window._doorpiSuppressPointer?.(360);
         const card = _ctxCard;
         const isRunning = window.isCardRuntimeRunning?.(card) === true;
         _closeCtxMenu();
@@ -8916,7 +9584,7 @@ function renderFolderList(folders) {
         const searchKeys = [id1, id2, id3].filter(Boolean);
         if (searchKeys.length === 0) return;
 
-        if (searchKeys.some(k => k.toLowerCase().includes('youtube'))) return;
+        if (searchKeys.some(k => String(k).toLowerCase() === 'youtube')) return;
 
         const isMedia = card.hasAttribute('data-app-id') || card.closest('#mediaGrid') !== null;
 
@@ -9595,10 +10263,8 @@ function renderFolderList(folders) {
     // ══════════════════════════════════════════════════════════════════════════
 
     window._vkbIsOpen = false;
-    window._doorpiShouldOpenVkbFromEvent = (event) => {
-        if (!event) return true;
-        return Number(event.detail || 0) === 0;
-    };
+    window._doorpiShouldOpenVkbFromEvent = () =>
+        window._doorpiIsControllerActivation?.() === true;
 
     const VKB = (() => {
         const ALPHA_ROWS = [
@@ -9981,18 +10647,20 @@ function renderFolderList(folders) {
 
         function _submitEnter() {
             _flushPendingAccent();
-            if (window._doorpiVkbConfirmOverride?.()) {
-                _renderPreview();
+            if (window._doorpiVkbConfirmOverride?.() === true) {
+                _forceClose();
                 return;
             }
             const fn = _callbacks.onEnter ?? _callbacks.onOk ?? window._editModalSave;
             if (fn) {
-                if (!_callbacks.keepOpenOnEnter) _forceClose();
+                _forceClose();
                 fn();
-                if (_callbacks.keepOpenOnEnter) _renderPreview();
                 return;
             }
-            if (!_inputEl) return;
+            if (!_inputEl) {
+                _forceClose();
+                return;
+            }
             const down = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter' });
             _inputEl.dispatchEvent(down);
             _inputEl.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Enter', code: 'Enter' }));
@@ -10050,19 +10718,18 @@ function renderFolderList(folders) {
             || el.dataset?.vkbMode === 'numeric';
     };
     window._vkbOpen = (el, callbacks) => {
+        if (window._doorpiIsControllerActivation?.() !== true) return false;
         if (el && el.tagName === 'INPUT') {
             const type = (el.type || '').toLowerCase();
-            if (!_TEXT_INPUT_TYPES.has(type) && !window._vkbIsNumericInput(el)) return;
+            if (!_TEXT_INPUT_TYPES.has(type) && !window._vkbIsNumericInput(el)) return false;
         }
         const opts = { ...((callbacks || el?._doorpiVkbCallbacks) || {}) };
         if (!opts.mode && window._vkbIsNumericInput(el)) opts.mode = 'numeric';
         VKB.open(el, opts);
+        return true;
     };
     window._vkbCancel = () => VKB.cancel();
-    window._vkbConfirm = () => {
-        if (window._doorpiVkbConfirmOverride?.()) return;
-        VKB.confirm();
-    };
+    window._vkbConfirm = () => VKB.confirm();
     window._vkbForceClose = (options) => VKB.forceClose(options);
     window._vkbPhysicalKey = (k) => VKB.physicalKey(k);
     window._vkbToggleShift = () => VKB.toggleShift();
@@ -10363,7 +11030,8 @@ function renderFolderList(folders) {
     }
 
     function _focusDoorpiInteractiveTarget() {
-        window.ensureDoorpiGamepadPrimaryReady?.();
+        if (!window.isDoorpiOverlayOpen?.() && window.focusFeaturedCard?.() === true)
+            return true;
 
         const items = typeof getNavigableItems === 'function'
             ? getNavigableItems().filter(el =>
@@ -10405,9 +11073,24 @@ function renderFolderList(folders) {
     }
 
     function _runDeferredFirstRunTutorial() {
-        if (!window._doorpiFirstRunTutorialDeferred) return;
+        if (!window._doorpiFirstRunTutorialDeferred) return false;
         window._doorpiFirstRunTutorialDeferred = false;
-        window.DoorpiFirstRunTutorial?.maybeShow?.();
+        return window.DoorpiFirstRunTutorial?.maybeShow?.() === true;
+    }
+
+    async function _completeUserSwitchInteraction(data = {}) {
+        window._doorpiSessionTransitionBlockUntil = 0;
+        window._userSwitching = false;
+        document.body.classList.remove('doorpi-session-transition');
+
+        if (_runDeferredFirstRunTutorial()) {
+            window.resetDoorpiGamepadInputState?.();
+            return;
+        }
+
+        await _waitForDoorpiInteractiveReady(data);
+        window._doorpiSessionTransitionBlockUntil = Date.now() + 120;
+        scheduleDoorpiFocusRecovery?.();
     }
 
     function _getUserSwitchOverlayCopy(mode = 'switch') {
@@ -10481,6 +11164,7 @@ function renderFolderList(folders) {
         if (data.showTransition === false) return;
         // Limpa o hero na hora, sem delay, e bloqueia novos switches
         window._userSwitching = true;
+        document.body.classList.add('doorpi-session-transition');
         window._doorpiAllowLibraryRenderDuringSessionTransition = true;
         window._userSwitchStartedAt = performance.now();
         window._stopSystemAudio?.();
@@ -10537,11 +11221,7 @@ function renderFolderList(folders) {
             }
             resumeTransitionAudio();
             window._doorpiAllowLibraryRenderDuringSessionTransition = false;
-            await _waitForDoorpiInteractiveReady(data);
-            window._doorpiSessionTransitionBlockUntil = Date.now() + 120;
-            window._userSwitching = false;
-            scheduleDoorpiFocusRecovery?.();
-            _runDeferredFirstRunTutorial();
+            await _completeUserSwitchInteraction(data);
             return;
         }
 
@@ -10569,11 +11249,7 @@ function renderFolderList(folders) {
             }
             resumeTransitionAudio();
             window._doorpiAllowLibraryRenderDuringSessionTransition = false;
-            await _waitForDoorpiInteractiveReady(data);
-            window._doorpiSessionTransitionBlockUntil = Date.now() + 120;
-            window._userSwitching = false;
-            scheduleDoorpiFocusRecovery?.();
-            _runDeferredFirstRunTutorial();
+            await _completeUserSwitchInteraction(data);
             return;
         }
 
@@ -10607,11 +11283,7 @@ function renderFolderList(folders) {
             wrap.style.transform = '';
             window._doorpiAllowLibraryRenderDuringSessionTransition = false;
             resumeTransitionAudio();
-            await _waitForDoorpiInteractiveReady(data);
-            window._doorpiSessionTransitionBlockUntil = Date.now() + 120;
-            window._userSwitching = false;
-            scheduleDoorpiFocusRecovery?.();
-            _runDeferredFirstRunTutorial();
+            await _completeUserSwitchInteraction(data);
         }, 320);
     }
 
@@ -10769,12 +11441,6 @@ function renderFolderList(folders) {
                 if (!window._vkbIsOpen) window._vkbOpen?.(fresh);
             });
 
-            fresh.addEventListener('keydown', e => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    if (!window._vkbIsOpen) window._vkbOpen?.(fresh);
-                }
-            });
         });
 
         if (typeof updateGamepadUI === 'function') updateGamepadUI(isGamepadConnected, _controllerType);
@@ -10935,14 +11601,6 @@ function renderFolderList(folders) {
         );
     }
 
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && e.target.tagName === 'INPUT' && !window._vkbIsOpen) {
-            if (isEditModalOpen || isSetupOpen || isModalOpen) {
-                e.preventDefault();
-                window._vkbOpen?.(e.target);
-            }
-        }
-    });
     // Solicita o status de atualizações de extensões após o carregamento inicial da UI
     const GameLaunchOverlay = (() => {
         const overlay = document.getElementById('gameLaunchOverlay');
