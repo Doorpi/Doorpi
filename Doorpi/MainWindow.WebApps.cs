@@ -2331,15 +2331,7 @@ namespace Doorpi
         private void MediaControllerLoop()
         {
             var sw = Stopwatch.StartNew();
-            ushort[] prevButtons = new ushort[4];
-
-            for (int i = 0; i < 4; i++)
-            {
-                XINPUT_STATE state = default;
-                int result = _canUseXInputEx ? XInputGetStateEx(i, out state) : XInputGetState(i, out state);
-                if (result != 0 && _canUseXInputEx) { _canUseXInputEx = false; result = XInputGetState(i, out state); }
-                if (result == 0) prevButtons[i] = state.Gamepad.wButtons;
-            }
+            ushort prevButtons = GetUnifiedControllerInput().Buttons;
 
             double speedMult = 1.0;
             double mouseRemainderX = 0;
@@ -2671,91 +2663,43 @@ namespace Doorpi
                     byte currentNavVk = 0;
                     string currentVkbDirName = "";
 
-                    ushort mergedButtonsForLog = 0;
 
-                    for (int i = 0; i < 4; i++)
-                    {
-                        XINPUT_STATE state = default;
-                        int result;
-                        if (_canUseXInputEx)
-                        {
-                            try { result = XInputGetStateEx(i, out state); }
-                            catch { _canUseXInputEx = false; result = XInputGetState(i, out state); }
-                        }
-                        else { result = XInputGetState(i, out state); }
+                    var input = GetUnifiedControllerInput();
+                    ushort btn = input.Buttons;
+                    if (Interlocked.Exchange(ref _webKeyboardHomeRequested, 0) == 1 || (GetAsyncKeyState(VK_HOME) & 0x8000) != 0)
+                        btn |= XI_GUIDE;
 
-                        if (result == 0)
-                        {
-                            var gp = state.Gamepad;
-                            ushort btn = gp.wButtons;
-                            if (gp.bRightTrigger > 128) btn |= XI_A;
+                    bool Pressed(ushort mask) => (btn & mask) != 0 && (prevButtons & mask) == 0;
+                    bool Held(ushort mask) => (btn & mask) != 0;
+                    anyReturnShortcut = IsDoorpiReturnShortcutJustPressed(btn, prevButtons);
+                    anyAPressed = Pressed(XI_A); anyAHeld = Held(XI_A);
+                    anyBPressed = Pressed(XI_B); anyBHeld = Held(XI_B);
+                    anyXPressed = Pressed(XI_X); anyXHeld = Held(XI_X);
+                    anyYPressed = Pressed(XI_Y);
+                    anyStartPressed = Pressed(XI_START);
+                    anyL3Pressed = Pressed(XI_L3); anyR3Pressed = Pressed(XI_R3);
+                    anyLBPressed = Pressed(XI_L1); anyRBPressed = Pressed(XI_R1);
+                    anyLBHeld = Held(XI_L1); anyRBHeld = Held(XI_R1);
+                    anyLtHeld = input.LeftTrigger;
 
-                            if (Interlocked.Exchange(ref _webKeyboardHomeRequested, 0) == 1 || (GetAsyncKeyState(VK_HOME) & 0x8000) != 0)
-                                btn |= XI_GUIDE;
+                    const double mergedDeadZone = 0.5;
+                    bool dpadUp = Held(XI_DPAD_UP), dpadDown = Held(XI_DPAD_DOWN);
+                    bool dpadLeft = Held(XI_DPAD_LEFT), dpadRight = Held(XI_DPAD_RIGHT);
+                    if (dpadUp || input.ThumbLY > mergedDeadZone) { anyVkbUp = true; currentVkbDirName = "UP"; }
+                    else if (dpadDown || input.ThumbLY < -mergedDeadZone) { anyVkbDown = true; currentVkbDirName = "DOWN"; }
+                    else if (dpadLeft || input.ThumbLX < -mergedDeadZone) { anyVkbLeft = true; currentVkbDirName = "LEFT"; }
+                    else if (dpadRight || input.ThumbLX > mergedDeadZone) { anyVkbRight = true; currentVkbDirName = "RIGHT"; }
 
-                            mergedButtonsForLog |= btn;
+                    if (dpadUp) { currentNavDirBtn = XI_DPAD_UP; currentNavVk = 0x26; }
+                    else if (dpadDown) { currentNavDirBtn = XI_DPAD_DOWN; currentNavVk = 0x28; }
+                    else if (dpadLeft) { currentNavDirBtn = XI_DPAD_LEFT; currentNavVk = 0x25; }
+                    else if (dpadRight) { currentNavDirBtn = XI_DPAD_RIGHT; currentNavVk = 0x27; }
+                    if (Math.Abs(input.ThumbLX) > 0.14) totalMlx = input.ThumbLX;
+                    if (Math.Abs(input.ThumbLY) > 0.14) totalMly = input.ThumbLY;
+                    if (Math.Abs(input.ThumbRY) > 0.18) totalScrollY = input.ThumbRY;
 
-                            bool Pressed(ushort m) => (btn & m) != 0 && (prevButtons[i] & m) == 0;
-                            bool Held(ushort m) => (btn & m) != 0;
-
-                            if (IsDoorpiReturnShortcutJustPressed(btn, prevButtons[i])) anyReturnShortcut = true;
-
-                            if (Pressed(XI_A)) anyAPressed = true;
-                            if (Held(XI_A)) anyAHeld = true;
-
-                            if (Pressed(XI_B)) anyBPressed = true;
-                            if (Held(XI_B)) anyBHeld = true;
-
-                            if (Pressed(XI_X)) anyXPressed = true;
-                            if (Held(XI_X)) anyXHeld = true;
-
-                            if (Pressed(XI_Y)) anyYPressed = true;
-                            if (Pressed(XI_START)) anyStartPressed = true;
-                            if (Pressed(XI_L3)) anyL3Pressed = true;
-                            if (Pressed(XI_R3)) anyR3Pressed = true;
-                            if (Pressed(XI_L1)) anyLBPressed = true;
-                            if (Pressed(XI_R1)) anyRBPressed = true;
-                            if (Held(XI_L1)) anyLBHeld = true;
-                            if (Held(XI_R1)) anyRBHeld = true;
-
-                            if (gp.bLeftTrigger > 128) anyLtHeld = true;
-
-                            double lx = gp.sThumbLX / 32767.0;
-                            double ly = gp.sThumbLY / 32767.0;
-                            const double DEAD = 0.5;
-
-                            bool dpadUp = Held(XI_DPAD_UP);
-                            bool dpadDown = Held(XI_DPAD_DOWN);
-                            bool dpadLeft = Held(XI_DPAD_LEFT);
-                            bool dpadRight = Held(XI_DPAD_RIGHT);
-
-                            // 1. Direções do Teclado Virtual (Aceita D-pad E Analógico)
-                            if (dpadUp || ly > DEAD) { anyVkbUp = true; currentVkbDirName = "UP"; }
-                            else if (dpadDown || ly < -DEAD) { anyVkbDown = true; currentVkbDirName = "DOWN"; }
-                            else if (dpadLeft || lx < -DEAD) { anyVkbLeft = true; currentVkbDirName = "LEFT"; }
-                            else if (dpadRight || lx > DEAD) { anyVkbRight = true; currentVkbDirName = "RIGHT"; }
-
-                            // 2. Navegação Web Nativa - Scroll na Web (APENAS D-pad)
-                            if (dpadUp) { currentNavDirBtn = XI_DPAD_UP; currentNavVk = 0x26; }
-                            else if (dpadDown) { currentNavDirBtn = XI_DPAD_DOWN; currentNavVk = 0x28; }
-                            else if (dpadLeft) { currentNavDirBtn = XI_DPAD_LEFT; currentNavVk = 0x25; }
-                            else if (dpadRight) { currentNavDirBtn = XI_DPAD_RIGHT; currentNavVk = 0x27; }
-
-                            // 3. Movimentação do Mouse (APENAS Analógico Esquerdo)
-                            if (Math.Abs(lx) > 0.14) totalMlx += lx;
-                            if (Math.Abs(ly) > 0.14) totalMly += ly;
-
-                            // 4. Scroll do Mouse (APENAS Analógico Direito)
-                            double ry = gp.sThumbRY / 32767.0;
-                            if (Math.Abs(ry) > 0.18) totalScrollY += ry;
-
-                            prevButtons[i] = btn;
-                        }
-                        else
-                        {
-                            prevButtons[i] = 0;
-                        }
-                    }
+                    ushort mergedButtonsForLog = btn;
+                    prevButtons = btn;
 
                     if (ShouldLogMediaControllerHeartbeat(5000))
                         LogMediaControllerDiagnostic("loop-heartbeat", mergedButtonsForLog, 0);

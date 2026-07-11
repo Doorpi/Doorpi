@@ -2933,33 +2933,116 @@ namespace Doorpi
 
         private AggregatedGamepadState GetAggregatedGamepadState()
         {
+            return GetUnifiedControllerInput();
+        }
+
+        // All controller-facing modes consume this merged snapshot. It intentionally
+        // keeps no controller identity, so every connected controller has equal access.
+        private AggregatedGamepadState GetUnifiedControllerInput()
+        {
             var result = new AggregatedGamepadState();
+
+            void Merge(ushort buttons, bool leftTrigger, double leftX, double leftY, double rightX, double rightY)
+            {
+                result.Connected = true;
+                result.Buttons |= buttons;
+                result.LeftTrigger |= leftTrigger;
+                if (Math.Abs(leftX) > Math.Abs(result.ThumbLX)) result.ThumbLX = leftX;
+                if (Math.Abs(leftY) > Math.Abs(result.ThumbLY)) result.ThumbLY = leftY;
+                if (Math.Abs(rightX) > Math.Abs(result.ThumbRX)) result.ThumbRX = rightX;
+                if (Math.Abs(rightY) > Math.Abs(result.ThumbRY)) result.ThumbRY = rightY;
+            }
+
             for (int i = 0; i < 4; i++)
             {
-                if (XInputGetStateSecret(i, out var state) == 0)
+                if (XInputGetStateSecret(i, out var state) != 0)
+                    continue;
+
+                var gp = state.Gamepad;
+                ushort buttons = gp.wButtons;
+                if (gp.bRightTrigger > 128) buttons |= XI_A;
+                Merge(buttons, gp.bLeftTrigger > 128,
+                    gp.sThumbLX / 32767.0, gp.sThumbLY / 32767.0,
+                    gp.sThumbRX / 32767.0, gp.sThumbRY / 32767.0);
+            }
+
+            try
+            {
+                var pads = Windows.Gaming.Input.Gamepad.Gamepads;
+                for (int i = 0; i < pads.Count; i++)
                 {
-                    result.Connected = true;
-                    var gp = state.Gamepad;
+                    var reading = pads[i].GetCurrentReading();
+                    var source = reading.Buttons;
+                    ushort buttons = 0;
+                    if ((source & Windows.Gaming.Input.GamepadButtons.DPadUp) != 0) buttons |= XI_DPAD_UP;
+                    if ((source & Windows.Gaming.Input.GamepadButtons.DPadDown) != 0) buttons |= XI_DPAD_DOWN;
+                    if ((source & Windows.Gaming.Input.GamepadButtons.DPadLeft) != 0) buttons |= XI_DPAD_LEFT;
+                    if ((source & Windows.Gaming.Input.GamepadButtons.DPadRight) != 0) buttons |= XI_DPAD_RIGHT;
+                    if ((source & Windows.Gaming.Input.GamepadButtons.View) != 0) buttons |= XI_BACK;
+                    if ((source & Windows.Gaming.Input.GamepadButtons.Menu) != 0) buttons |= XI_START;
+                    if ((source & Windows.Gaming.Input.GamepadButtons.A) != 0 || reading.RightTrigger > 0.5) buttons |= XI_A;
+                    if ((source & Windows.Gaming.Input.GamepadButtons.B) != 0) buttons |= XI_B;
+                    if ((source & Windows.Gaming.Input.GamepadButtons.X) != 0) buttons |= XI_X;
+                    if ((source & Windows.Gaming.Input.GamepadButtons.Y) != 0) buttons |= XI_Y;
+                    if ((source & Windows.Gaming.Input.GamepadButtons.LeftShoulder) != 0) buttons |= XI_L1;
+                    if ((source & Windows.Gaming.Input.GamepadButtons.RightShoulder) != 0) buttons |= XI_R1;
+                    if ((source & Windows.Gaming.Input.GamepadButtons.LeftThumbstick) != 0) buttons |= XI_L3;
+                    if ((source & Windows.Gaming.Input.GamepadButtons.RightThumbstick) != 0) buttons |= XI_R3;
 
-                    // Mescla os botões de todos os controles
-                    result.Buttons |= gp.wButtons;
-                    if (gp.bRightTrigger > 128) result.Buttons |= 0x1000;
-                    if (gp.bLeftTrigger > 128) result.LeftTrigger = true;
-
-                    // Pega a inclinação mais forte (caso um jogador esteja parado e outro movendo)
-                    double curLx = gp.sThumbLX / 32767.0;
-                    double curLy = gp.sThumbLY / 32767.0;
-                    double curRx = gp.sThumbRX / 32767.0;
-                    double curRy = gp.sThumbRY / 32767.0;
-
-                    if (Math.Abs(curLx) > Math.Abs(result.ThumbLX)) result.ThumbLX = curLx;
-                    if (Math.Abs(curLy) > Math.Abs(result.ThumbLY)) result.ThumbLY = curLy;
-                    if (Math.Abs(curRx) > Math.Abs(result.ThumbRX)) result.ThumbRX = curRx;
-                    if (Math.Abs(curRy) > Math.Abs(result.ThumbRY)) result.ThumbRY = curRy;
+                    Merge(buttons, reading.LeftTrigger > 0.5,
+                        reading.LeftThumbstickX, reading.LeftThumbstickY,
+                        reading.RightThumbstickX, reading.RightThumbstickY);
                 }
             }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ControllerInput] Windows.Gaming.Input failed: {ex.Message}");
+            }
+
+            try
+            {
+                var pads = Windows.Gaming.Input.RawGameController.RawGameControllers;
+                for (int i = 0; i < pads.Count; i++)
+                {
+                    var pad = pads[i];
+                    var rawButtons = new bool[Math.Max(0, pad.ButtonCount)];
+                    var rawSwitches = new Windows.Gaming.Input.GameControllerSwitchPosition[Math.Max(0, pad.SwitchCount)];
+                    var rawAxes = new double[Math.Max(0, pad.AxisCount)];
+                    pad.GetCurrentReading(rawButtons, rawSwitches, rawAxes);
+
+                    ushort buttons = 0;
+                    foreach (var position in rawSwitches)
+                        buttons |= MapRawSwitchToMainUiButtons(position);
+
+                    bool IsRawDown(int index) => index >= 0 && index < rawButtons.Length && rawButtons[index];
+                    if (IsRawDown(0) || IsRawDown(7)) buttons |= XI_A;
+                    if (IsRawDown(1)) buttons |= XI_B;
+                    if (IsRawDown(2)) buttons |= XI_X;
+                    if (IsRawDown(3)) buttons |= XI_Y;
+                    if (IsRawDown(4)) buttons |= XI_L1;
+                    if (IsRawDown(5)) buttons |= XI_R1;
+                    if (IsRawDown(8)) buttons |= XI_BACK;
+                    if (IsRawDown(9)) buttons |= XI_START;
+                    if (IsRawDown(10)) buttons |= XI_L3;
+                    if (IsRawDown(11)) buttons |= XI_R3;
+                    if (IsRawDown(12)) buttons |= XI_DPAD_UP;
+                    if (IsRawDown(13)) buttons |= XI_DPAD_DOWN;
+                    if (IsRawDown(14)) buttons |= XI_DPAD_LEFT;
+                    if (IsRawDown(15)) buttons |= XI_DPAD_RIGHT;
+
+                    var left = rawAxes.Length >= 2 ? NormalizeRawAxisPair(rawAxes[0], rawAxes[1]) : (0d, 0d);
+                    var right = rawAxes.Length >= 4 ? NormalizeRawAxisPair(rawAxes[2], rawAxes[3]) : (0d, 0d);
+                    Merge(buttons, IsRawDown(6), left.Item1, left.Item2, right.Item1, right.Item2);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ControllerInput] RawGameController failed: {ex.Message}");
+            }
+
             return result;
         }
+
         private void SharedGamepadControllerLoop(
               Func<bool> isActive,
               Action onExitCombo,
@@ -2972,25 +3055,16 @@ namespace Doorpi
               bool instantPrimaryDoubleClick = false)
         {
             var sw = Stopwatch.StartNew();
-            ushort[] prevButtons = new ushort[4];
-            for (int i = 0; i < 4; i++)
-            {
-                if (XInputGetStateSecret(i, out var initState) == 0)
-                {
-                    prevButtons[i] = initState.Gamepad.wButtons;
-                    if (initState.Gamepad.bRightTrigger > 128) prevButtons[i] |= 0x1000;
-                }
-            }
+            ushort prevButtons = GetUnifiedControllerInput().Buttons;
 
             double remainderX = 0, remainderY = 0;
             bool isClicking = false, aWasOnTextField = false, aDragOccurred = false;
             double clickAccumX = 0, clickAccumY = 0;
             bool dragBrokeThreshold = false;
             bool ignoreNextBRelease = false;
-
-            long[] mouseShortcutLastL3 = new long[4];
-            long[] mouseShortcutLastR3 = new long[4];
-            bool[] mouseShortcutLatched = new bool[4];
+            long mouseShortcutLastL3 = 0;
+            long mouseShortcutLastR3 = 0;
+            bool mouseShortcutLatched = false;
 
             bool aDoubleClickPending = false;
             DateTime lastAReleaseTime = DateTime.MinValue;
@@ -3035,77 +3109,57 @@ namespace Doorpi
 
                     double totalMlx = 0, totalMly = 0, totalScrollY = 0;
 
-                    for (int i = 0; i < 4; i++)
+                    var input = GetUnifiedControllerInput();
+                    ushort btn = input.Buttons;
+                    bool Pressed(ushort m) => (btn & m) != 0 && (prevButtons & m) == 0;
+                    bool Released(ushort m) => (btn & m) == 0 && (prevButtons & m) != 0;
+
+                    anyMouseShortcut = mouseModeShortcutPredicate != null
+                        ? mouseModeShortcutPredicate(btn) && !mouseModeShortcutPredicate(prevButtons)
+                        : IsMouseModeShortcutJustPressed(btn, ref mouseShortcutLastL3, ref mouseShortcutLastR3, ref mouseShortcutLatched);
+                    anyReturnShortcut = handleXboxButton && IsDoorpiReturnShortcutJustPressed(btn, prevButtons);
+
+                    anyAPressed = Pressed(XI_A);
+                    anyAReleased = Released(XI_A);
+                    anyBPressed = Pressed(XI_B);
+                    anyBReleased = Released(XI_B);
+                    anyXPressed = Pressed(XI_X);
+                    anyXReleased = Released(XI_X);
+                    anyYPressed = Pressed(XI_Y);
+                    anyStartPressed = Pressed(XI_START);
+                    anyL3Pressed = Pressed(XI_L3);
+                    anyLBPressed = Pressed(XI_L1);
+                    anyRBPressed = Pressed(XI_R1);
+
+                    if (vkbIsOpen)
                     {
-                        if (XInputGetStateSecret(i, out var state) == 0)
+                        const double DEAD = 0.6;
+                        if (input.ThumbLY > DEAD) anyVkbUp = true;
+                        if (input.ThumbLY < -DEAD) anyVkbDown = true;
+                        if (input.ThumbLX < -DEAD) anyVkbLeft = true;
+                        if (input.ThumbLX > DEAD) anyVkbRight = true;
+                        anyVkbToggleLayer = input.LeftTrigger;
+
+                        bool curX = (btn & XI_X) != 0;
+                        if (curX && (prevButtons & XI_X) == 0)
                         {
-                            var gp = state.Gamepad;
-                            ushort btn = gp.wButtons;
-                            if (gp.bRightTrigger > 128) btn |= 0x1000;
-
-                            bool Pressed(ushort m) => (btn & m) != 0 && (prevButtons[i] & m) == 0;
-                            bool Released(ushort m) => (btn & m) == 0 && (prevButtons[i] & m) != 0;
-
-                            var shortcutPredicate = mouseModeShortcutPredicate ?? IsMouseModeShortcutPressed;
-                            bool mouseShortcutPressed = mouseModeShortcutPredicate != null
-                                ? shortcutPredicate(btn) && !shortcutPredicate(prevButtons[i])
-                                : IsMouseModeShortcutJustPressed(btn, ref mouseShortcutLastL3[i], ref mouseShortcutLastR3[i], ref mouseShortcutLatched[i]);
-
-                            if (mouseShortcutPressed) anyMouseShortcut = true;
-                            if (handleXboxButton && IsDoorpiReturnShortcutJustPressed(btn, prevButtons[i])) anyReturnShortcut = true;
-
-                            if (Pressed(0x1000)) anyAPressed = true;
-                            if (Released(0x1000)) anyAReleased = true;
-                            if (Pressed(0x2000)) anyBPressed = true;
-                            if (Released(0x2000)) anyBReleased = true;
-                            if (Pressed(0x4000)) anyXPressed = true;
-                            if (Released(0x4000)) anyXReleased = true;
-                            if (Pressed(0x8000)) anyYPressed = true;
-                            if (Pressed(0x0010)) anyStartPressed = true;
-                            if (Pressed(0x0040)) anyL3Pressed = true;
-                            if (Pressed(0x0100)) anyLBPressed = true;
-                            if (Pressed(0x0200)) anyRBPressed = true;
-
-                            if (vkbIsOpen)
-                            {
-                                double lx = gp.sThumbLX / 32767.0, ly = gp.sThumbLY / 32767.0;
-                                const double DEAD = 0.6;
-                                if (ly > DEAD) anyVkbUp = true;
-                                if (ly < -DEAD) anyVkbDown = true;
-                                if (lx < -DEAD) anyVkbLeft = true;
-                                if (lx > DEAD) anyVkbRight = true;
-                                if (gp.bLeftTrigger > 128) anyVkbToggleLayer = true;
-
-                                bool curX = (btn & 0x4000) != 0;
-                                if (curX && (prevButtons[i] & 0x4000) == 0)
-                                {
-                                    isHoldingX = true; xPressTime = DateTime.Now;
-                                    SendVirtualKey(0x08); lastBackspaceFired = DateTime.Now;
-                                }
-                                else if (curX && isHoldingX && (DateTime.Now - xPressTime).TotalMilliseconds > 450 && (DateTime.Now - lastBackspaceFired).TotalMilliseconds > 40)
-                                {
-                                    SendVirtualKey(0x08); lastBackspaceFired = DateTime.Now;
-                                }
-                                else if (!curX && isHoldingX) isHoldingX = false;
-                            }
-                            else
-                            {
-                                double mlx = gp.sThumbLX / 32767.0;
-                                double mly = gp.sThumbLY / 32767.0;
-                                double scrollY = gp.sThumbRY / 32767.0;
-
-                                if (Math.Abs(mlx) > 0.15) totalMlx += mlx;
-                                if (Math.Abs(mly) > 0.15) totalMly += mly;
-                                if (Math.Abs(scrollY) > 0.20) totalScrollY += scrollY;
-                            }
-
-                            prevButtons[i] = btn;
+                            isHoldingX = true; xPressTime = DateTime.Now;
+                            SendVirtualKey(0x08); lastBackspaceFired = DateTime.Now;
                         }
-                        else
+                        else if (curX && isHoldingX && (DateTime.Now - xPressTime).TotalMilliseconds > 450 && (DateTime.Now - lastBackspaceFired).TotalMilliseconds > 40)
                         {
-                            prevButtons[i] = 0;
+                            SendVirtualKey(0x08); lastBackspaceFired = DateTime.Now;
                         }
+                        else if (!curX && isHoldingX) isHoldingX = false;
                     }
+                    else
+                    {
+                        if (Math.Abs(input.ThumbLX) > 0.15) totalMlx = input.ThumbLX;
+                        if (Math.Abs(input.ThumbLY) > 0.15) totalMly = input.ThumbLY;
+                        if (Math.Abs(input.ThumbRY) > 0.20) totalScrollY = input.ThumbRY;
+                    }
+
+                    prevButtons = btn;
 
                     if (!isActive()) break;
 
@@ -3469,15 +3523,10 @@ namespace Doorpi
 
         private void MediaExeShortcutLoop(int sessionId)
         {
-            ushort[] prevButtons = new ushort[4];
-            long[] mouseShortcutLastL3 = new long[4];
-            long[] mouseShortcutLastR3 = new long[4];
-            bool[] mouseShortcutLatched = new bool[4];
-
-            for (int i = 0; i < 4; i++)
-            {
-                if (XInputGetStateSecret(i, out var state) == 0) prevButtons[i] = state.Gamepad.wButtons;
-            }
+            ushort prevButtons = GetUnifiedControllerInput().Buttons;
+            long mouseShortcutLastL3 = 0;
+            long mouseShortcutLastR3 = 0;
+            bool mouseShortcutLatched = false;
 
             DateTime nextProcessCheckUtc = DateTime.MinValue;
 
@@ -3485,28 +3534,10 @@ namespace Doorpi
             {
                 try
                 {
-                    bool anyReturnShortcut = false;
-                    bool anyMouseShortcut = false;
-
-                    for (int i = 0; i < 4; i++)
-                    {
-                        if (XInputGetStateSecret(i, out var state) == 0)
-                        {
-                            ushort btn = state.Gamepad.wButtons;
-
-                            if (IsDoorpiReturnShortcutJustPressed(btn, prevButtons[i]))
-                                anyReturnShortcut = true;
-
-                            if (IsMouseModeShortcutJustPressed(btn, ref mouseShortcutLastL3[i], ref mouseShortcutLastR3[i], ref mouseShortcutLatched[i]))
-                                anyMouseShortcut = true;
-
-                            prevButtons[i] = btn;
-                        }
-                        else
-                        {
-                            prevButtons[i] = 0;
-                        }
-                    }
+                    ushort buttons = GetUnifiedControllerInput().Buttons;
+                    bool anyReturnShortcut = IsDoorpiReturnShortcutJustPressed(buttons, prevButtons);
+                    bool anyMouseShortcut = IsMouseModeShortcutJustPressed(buttons, ref mouseShortcutLastL3, ref mouseShortcutLastR3, ref mouseShortcutLatched);
+                    prevButtons = buttons;
 
                     if (anyReturnShortcut)
                     {
@@ -3546,15 +3577,10 @@ namespace Doorpi
 
         private void StoreLauncherShortcutLoop(int sessionId)
         {
-            ushort[] prevButtons = new ushort[4];
-            long[] mouseShortcutLastL3 = new long[4];
-            long[] mouseShortcutLastR3 = new long[4];
-            bool[] mouseShortcutLatched = new bool[4];
-
-            for (int i = 0; i < 4; i++)
-            {
-                if (XInputGetStateSecret(i, out var state) == 0) prevButtons[i] = state.Gamepad.wButtons;
-            }
+            ushort prevButtons = GetUnifiedControllerInput().Buttons;
+            long mouseShortcutLastL3 = 0;
+            long mouseShortcutLastR3 = 0;
+            bool mouseShortcutLatched = false;
 
             while (_isStoreLauncherSession &&
                    !_storePausedByDoorpi &&
@@ -3563,28 +3589,10 @@ namespace Doorpi
             {
                 try
                 {
-                    bool anyReturnShortcut = false;
-                    bool anyMouseShortcut = false;
-
-                    for (int i = 0; i < 4; i++)
-                    {
-                        if (XInputGetStateSecret(i, out var state) == 0)
-                        {
-                            ushort btn = state.Gamepad.wButtons;
-
-                            if (IsDoorpiReturnShortcutJustPressed(btn, prevButtons[i]))
-                                anyReturnShortcut = true;
-
-                            if (IsMouseModeShortcutJustPressed(btn, ref mouseShortcutLastL3[i], ref mouseShortcutLastR3[i], ref mouseShortcutLatched[i]))
-                                anyMouseShortcut = true;
-
-                            prevButtons[i] = btn;
-                        }
-                        else
-                        {
-                            prevButtons[i] = 0;
-                        }
-                    }
+                    ushort buttons = GetUnifiedControllerInput().Buttons;
+                    bool anyReturnShortcut = IsDoorpiReturnShortcutJustPressed(buttons, prevButtons);
+                    bool anyMouseShortcut = IsMouseModeShortcutJustPressed(buttons, ref mouseShortcutLastL3, ref mouseShortcutLastR3, ref mouseShortcutLatched);
+                    prevButtons = buttons;
 
                     if (anyReturnShortcut)
                     {
@@ -5611,15 +5619,7 @@ namespace Doorpi
         private void SystemControllerLoop()
         {
             var sw = Stopwatch.StartNew();
-            ushort[] prevButtons = new ushort[4];
-            for (int i = 0; i < 4; i++)
-            {
-                if (XInputGetStateSecret(i, out var initState) == 0)
-                {
-                    prevButtons[i] = initState.Gamepad.wButtons;
-                    if (initState.Gamepad.bRightTrigger > 128) prevButtons[i] |= 0x1000;
-                }
-            }
+            ushort prevButtons = GetUnifiedControllerInput().Buttons;
 
             double remainderX = 0, remainderY = 0;
             bool aWasOnTextField = false, aDragOccurred = false;
@@ -5685,77 +5685,59 @@ namespace Doorpi
 
                     double totalMlx = 0, totalMly = 0, totalScrollY = 0;
 
-                    for (int i = 0; i < 4; i++)
+                    var input = GetUnifiedControllerInput();
+                    ushort btn = input.Buttons;
+                    bool Pressed(ushort m) => (btn & m) != 0 && (prevButtons & m) == 0;
+                    bool Released(ushort m) => (btn & m) == 0 && (prevButtons & m) != 0;
+
+                    anyReturnShortcut = IsDoorpiReturnShortcutJustPressed(btn, prevButtons);
+                    anyAPressed = Pressed(XI_A);
+                    anyAReleased = Released(XI_A);
+                    anyBPressed = Pressed(XI_B);
+                    anyBReleased = Released(XI_B);
+                    anyXPressed = Pressed(XI_X);
+                    anyXReleased = Released(XI_X);
+                    anyYPressed = Pressed(XI_Y);
+                    anyStartPressed = Pressed(XI_START);
+                    anyL3Pressed = Pressed(XI_L3);
+                    anyUpPressed = Pressed(XI_R3);
+
+                    if (vkbIsOpen)
                     {
-                        if (XInputGetStateSecret(i, out var state) == 0)
+                        const double DEAD = 0.6;
+                        if (input.ThumbLY > DEAD) anyVkbUp = true;
+                        if (input.ThumbLY < -DEAD) anyVkbDown = true;
+                        if (input.ThumbLX < -DEAD) anyVkbLeft = true;
+                        if (input.ThumbLX > DEAD) anyVkbRight = true;
+                        anyVkbToggleLayer = input.LeftTrigger;
+
+                        bool curX = (btn & XI_X) != 0;
+                        if (curX && (prevButtons & XI_X) == 0)
                         {
-                            var gp = state.Gamepad;
-                            ushort btn = gp.wButtons;
-                            if (gp.bRightTrigger > 128) btn |= 0x1000;
-
-                            bool Pressed(ushort m) => (btn & m) != 0 && (prevButtons[i] & m) == 0;
-                            bool Released(ushort m) => (btn & m) == 0 && (prevButtons[i] & m) != 0;
-
-                            if (IsDoorpiReturnShortcutJustPressed(btn, prevButtons[i])) anyReturnShortcut = true;
-
-                            if (Pressed(0x1000)) anyAPressed = true;
-                            if (Released(0x1000)) anyAReleased = true;
-                            if (Pressed(0x2000)) anyBPressed = true;
-                            if (Released(0x2000)) anyBReleased = true;
-                            if (Pressed(0x4000)) anyXPressed = true;
-                            if (Released(0x4000)) anyXReleased = true;
-                            if (Pressed(0x8000)) anyYPressed = true;
-                            if (Pressed(0x0010)) anyStartPressed = true;
-                            if (Pressed(0x0040)) anyL3Pressed = true;
-                            if (Pressed(0x0080)) anyUpPressed = true;
-
-                            if (vkbIsOpen)
-                            {
-                                double lx = gp.sThumbLX / 32767.0, ly = gp.sThumbLY / 32767.0;
-                                const double DEAD = 0.6;
-                                if (ly > DEAD) anyVkbUp = true;
-                                if (ly < -DEAD) anyVkbDown = true;
-                                if (lx < -DEAD) anyVkbLeft = true;
-                                if (lx > DEAD) anyVkbRight = true;
-                                if (gp.bLeftTrigger > 128) anyVkbToggleLayer = true;
-
-                                bool curX = (btn & 0x4000) != 0;
-                                if (curX && (prevButtons[i] & 0x4000) == 0)
-                                {
-                                    isHoldingX = true; xPressTime = DateTime.Now;
-                                    SendVirtualKey(0x08); lastBackspaceFired = DateTime.Now;
-                                }
-                                else if (curX && isHoldingX && (DateTime.Now - xPressTime).TotalMilliseconds > 450 && (DateTime.Now - lastBackspaceFired).TotalMilliseconds > 40)
-                                {
-                                    SendVirtualKey(0x08); lastBackspaceFired = DateTime.Now;
-                                }
-                                else if (!curX && isHoldingX) isHoldingX = false;
-                            }
-                            else
-                            {
-                                if ((btn & 0x0200) != 0) anyRBHeld = true;
-
-                                if ((btn & 0x0200) != 0)
-                                {
-                                    double scrollY = gp.sThumbRY / 32767.0;
-                                    if (Math.Abs(scrollY) > 0.15) totalScrollY += scrollY;
-                                }
-                                else
-                                {
-                                    double mlx = gp.sThumbRX / 32767.0;
-                                    double mly = gp.sThumbRY / 32767.0;
-                                    if (Math.Abs(mlx) > 0.15) totalMlx += mlx;
-                                    if (Math.Abs(mly) > 0.15) totalMly += mly;
-                                }
-                            }
-
-                            prevButtons[i] = btn;
+                            isHoldingX = true; xPressTime = DateTime.Now;
+                            SendVirtualKey(0x08); lastBackspaceFired = DateTime.Now;
+                        }
+                        else if (curX && isHoldingX && (DateTime.Now - xPressTime).TotalMilliseconds > 450 && (DateTime.Now - lastBackspaceFired).TotalMilliseconds > 40)
+                        {
+                            SendVirtualKey(0x08); lastBackspaceFired = DateTime.Now;
+                        }
+                        else if (!curX && isHoldingX) isHoldingX = false;
+                    }
+                    else
+                    {
+                        anyRBHeld = (btn & XI_R1) != 0;
+                        if (anyRBHeld)
+                        {
+                            if (Math.Abs(input.ThumbRY) > 0.15) totalScrollY = input.ThumbRY;
                         }
                         else
                         {
-                            prevButtons[i] = 0;
+                            if (Math.Abs(input.ThumbRX) > 0.15) totalMlx = input.ThumbRX;
+                            if (Math.Abs(input.ThumbRY) > 0.15) totalMly = input.ThumbRY;
                         }
                     }
+
+                    prevButtons = btn;
 
                     if (anyReturnShortcut)
                     {
