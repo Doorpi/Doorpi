@@ -353,6 +353,25 @@ namespace Doorpi
         [DllImport("user32.dll")]
         private static extern bool IsWindow(IntPtr hWnd);
 
+        [DllImport("user32.dll")]
+        private static extern bool IsHungAppWindow(IntPtr hWnd);
+
+        // Windows already waits before flagging a window as unresponsive. Keep a
+        // second grace period so slow games and installers are never terminated on a brief stall.
+        private static readonly TimeSpan HUNG_WINDOW_RECOVERY_GRACE = TimeSpan.FromSeconds(7);
+
+        private static bool IsWindowMarkedNotResponding(IntPtr hwnd)
+        {
+            try
+            {
+                return hwnd != IntPtr.Zero && IsWindow(hwnd) && IsHungAppWindow(hwnd);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         // ========================= DETECÇÃO DO CURSOR (I-BEAM) =========================
         [StructLayout(LayoutKind.Sequential)]
         private struct CURSORINFO
@@ -5112,6 +5131,7 @@ namespace Doorpi
                     // FASE 2: APP EM EXECUÇÃO (Retorno Imediato ao Fechar)
                     // ==============================================================
                     int missingCount = 0;
+                    DateTime unresponsiveSinceUtc = DateTime.MinValue;
                     while (!token.IsCancellationRequested)
                     {
                         if (_storePausedByDoorpi)
@@ -5128,6 +5148,7 @@ namespace Doorpi
                             catch { processList = new List<Process>(); }
                         }
                         bool hasActiveWindow = false;
+                        IntPtr activeWindowHwnd = IntPtr.Zero;
 
                         foreach (var p in processList)
                         {
@@ -5147,8 +5168,30 @@ namespace Doorpi
                                 catch { }
 
                                 hasActiveWindow = true;
+                                activeWindowHwnd = h;
                                 break;
                             }
+                        }
+
+                        if (hasActiveWindow && IsWindowMarkedNotResponding(activeWindowHwnd))
+                        {
+                            if (unresponsiveSinceUtc == DateTime.MinValue)
+                            {
+                                unresponsiveSinceUtc = DateTime.UtcNow;
+                                Debug.WriteLine($"[MediaWatcher] Unresponsive window detected: {appName}");
+                            }
+                            else if (DateTime.UtcNow - unresponsiveSinceUtc >= HUNG_WINDOW_RECOVERY_GRACE)
+                            {
+                                Debug.WriteLine($"[MediaWatcher] Recovering unresponsive app: {appName}");
+                                KillMediaExeProcessTree(mediaUrl, proc);
+                                await Task.Delay(350, token).ConfigureAwait(false);
+                                ReturnToDoorpiFromMedia(mediaUrl);
+                                return;
+                            }
+                        }
+                        else
+                        {
+                            unresponsiveSinceUtc = DateTime.MinValue;
                         }
 
                         if (!hasActiveWindow)
@@ -5175,6 +5218,7 @@ namespace Doorpi
                                 catch { }
 
                                 hasActiveWindow = true;
+                                activeWindowHwnd = inheritedHwnd;
                                 missingCount = 0;
                             }
                         }
@@ -8034,6 +8078,7 @@ namespace Doorpi
                 int missingChecks = 0;
                 var startedUtc = DateTime.UtcNow;
                 string lockedProcessName = "";
+                DateTime unresponsiveSinceUtc = DateTime.MinValue;
                 var context = new GameLaunchMonitorContext
                 {
                     Game = game,
@@ -8062,6 +8107,24 @@ namespace Doorpi
 
                         await Task.Delay(500, token).ConfigureAwait(false);
                         continue;
+                    }
+
+                    if (doorpiHidden && IsWindowMarkedNotResponding(_currentGameHwnd))
+                    {
+                        if (unresponsiveSinceUtc == DateTime.MinValue)
+                        {
+                            unresponsiveSinceUtc = DateTime.UtcNow;
+                            Debug.WriteLine($"[GameLaunchMonitor] Unresponsive game window detected: {game.Name}");
+                        }
+                        else if (DateTime.UtcNow - unresponsiveSinceUtc >= HUNG_WINDOW_RECOVERY_GRACE)
+                        {
+                            await RecoverFromHungGameAsync(game, _currentGameHwnd).ConfigureAwait(false);
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        unresponsiveSinceUtc = DateTime.MinValue;
                     }
 
                     var candidates = FindGameplayWindowCandidates(windowSnapshot, context);
@@ -8244,6 +8307,66 @@ namespace Doorpi
             }
             catch (OperationCanceledException) { }
             catch (Exception ex) { Debug.WriteLine($"[GameLaunchMonitor] {ex.Message}"); }
+        }
+
+        private async Task RecoverFromHungGameAsync(GameModel game, IntPtr hwnd)
+        {
+            int processId = 0;
+            try
+            {
+                GetWindowProcessId(hwnd, out uint pid);
+                processId = (int)pid;
+                if (processId > 0)
+                {
+                    using var process = Process.GetProcessById(processId);
+                    if (!SafeHasExited(process))
+                    {
+                        Debug.WriteLine($"[GameLaunchMonitor] Recovering unresponsive game: {game.Name} pid={processId}");
+                        process.Kill(entireProcessTree: true);
+                        try { process.WaitForExit(1500); } catch { }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[GameLaunchMonitor] Failed to close unresponsive game pid={processId}: {ex.Message}");
+            }
+
+            await Dispatcher.InvokeAsync(() =>
+            {
+                // Ignore a stale recovery after another game has already replaced this session.
+                if (_currentGameHwnd != hwnd)
+                    return;
+
+                bool hadStoreChildContext =
+                    _storeChildGameActive &&
+                    string.Equals(_gameSessionParentKind, "store", StringComparison.OrdinalIgnoreCase);
+                string storeId = hadStoreChildContext ? _storeChildGameStoreId : "";
+
+                _launchCancelled = true;
+                CommitActiveSession();
+                ClearGameWindowSession();
+                _storeChildGameActive = false;
+                _storeChildGameStoreId = "";
+                _storeChildGameId = "";
+
+                if (hadStoreChildContext &&
+                    _isStoreLauncherSession &&
+                    string.Equals(_activeStoreId, storeId, StringComparison.OrdinalIgnoreCase))
+                {
+                    DelayStorePendingChildClosedGrace();
+                    _storeMinimizeState = StoreMinimizeState.StoreReturningToValid;
+                }
+
+                ForceFocus();
+                SendGameLaunchStatus(
+                    "gameLaunchFailed",
+                    game.Name,
+                    game.HeroImage ?? "",
+                    game.GridImage ?? "",
+                    "notResponding");
+                SendRuntimeSessionsToUI();
+            });
         }
 
         private void CancelUnresolvedGameLaunch(GameModel? game = null)
