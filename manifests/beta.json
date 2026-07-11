@@ -1,72 +1,54 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202607110346,
-    "publishedAt":  "2026-07-11T06:46:49.5873302Z",
-    "expiresAt":  "2026-07-25T06:46:49.5873302Z",
+    "manifestVersion":  202607110940,
+    "publishedAt":  "2026-07-11T12:41:37.6409786Z",
+    "expiresAt":  "2026-07-25T12:41:37.6409786Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.1.6",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.6/doorpi-0.1.6.doorpiupdate.zip",
-                   "sha256":  "6bce5aef386a8bf1734c19c6d324426e2be29ab4cc79a39c7f893d0b4ed0c4f0",
-                   "sizeBytes":  132910739,
+                   "version":  "0.1.7",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.7/doorpi-0.1.7.doorpiupdate.zip",
+                   "sha256":  "916da554ce30505a4dd0343a85d0988c2200625f2f6d787043a090339c24b5ef",
+                   "sizeBytes":  132910753,
                    "minUpdaterVersion":  "0.1.0",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
                     "version":  "0.1.0",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.6/updater-0.1.0.doorpiupdate.zip",
-                    "sha256":  "2ebe008938e7fe37466fd1586824cdcbb757ac2a44849afde71bf77cd02dfd15",
-                    "sizeBytes":  69944473,
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.7/updater-0.1.0.doorpiupdate.zip",
+                    "sha256":  "cc5c924cfbf41f72bdaf4024335e0cf51f7028fb6714b607bf0478dd9b83d203",
+                    "sizeBytes":  69944469,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.1.6",
-                          "title":  "Doorpi 0.1.6",
+                          "version":  "0.1.7",
+                          "title":  "Doorpi 0.1.7",
                           "items":  [
-                                        "Compatibilidade com YouTube Music.",
-                                        "Tela de perfil com histórico completo de jogos, artes e horas registradas.",
-                                        "Nova opção de ajuste de responsividade do layout.",
-                                        "Maior velocidade no SteamGrid.",
-                                        "Central de notificações na Home.",
-                                        "Recuperação automática de jogos e aplicativos “Não respondendo”.",
-                                        "Corrigida a identificação de janela errada na loja Xbox.",
-                                        "Correções no quick panel.",
-                                        "Cliques não devem mais vazar ao interagir com o sistema.",
-                                        "Sistema responsivo a múltiplos controles."
+                                        "Corrigido o movimento diagonal do mouse em janelas do Windows.",
+                                        "Corrigida a adição manual de aplicativos sendo classificada como jogo.",
+                                        "Corrigidos cliques que vazavam do seletor de arquivos para a Home.",
+                                        "Melhorada a detecção de jogos iniciados por launchers externos."
                                     ],
                           "locales":  {
                                           "pt-BR":  {
-                                                        "title":  "Doorpi 0.1.6",
+                                                        "title":  "Doorpi 0.1.7",
                                                         "items":  [
-                                                                      "Compatibilidade com YouTube Music.",
-                                                                      "Tela de perfil com histórico completo de jogos, artes e horas registradas.",
-                                                                      "Nova opção de ajuste de responsividade do layout.",
-                                                                      "Maior velocidade no SteamGrid.",
-                                                                      "Central de notificações na Home.",
-                                                                      "Recuperação automática de jogos e aplicativos “Não respondendo”.",
-                                                                      "Corrigida a identificação de janela errada na loja Xbox.",
-                                                                      "Correções no quick panel.",
-                                                                      "Cliques não devem mais vazar ao interagir com o sistema.",
-                                                                      "Sistema responsivo a múltiplos controles."
+                                                                      "Corrigido o movimento diagonal do mouse em janelas do Windows.",
+                                                                      "Corrigida a adição manual de aplicativos sendo classificada como jogo.",
+                                                                      "Corrigidos cliques que vazavam do seletor de arquivos para a Home.",
+                                                                      "Melhorada a detecção de jogos iniciados por launchers externos."
                                                                   ]
                                                     },
                                           "en":  {
-                                                     "title":  "Doorpi 0.1.6",
+                                                     "title":  "Doorpi 0.1.7",
                                                      "items":  [
-                                                                   "YouTube Music compatibility.",
-                                                                   "Profile screen with complete game history, artwork, and recorded play time.",
-                                                                   "New layout responsiveness adjustment option.",
-                                                                   "Faster SteamGrid performance.",
-                                                                   "Notification center on Home.",
-                                                                   "Automatic recovery for games and apps marked as “Not responding”.",
-                                                                   "Fixed incorrect window identification in the Xbox store.",
-                                                                   "Quick panel fixes.",
-                                                                   "Clicks should no longer leak while interacting with the system.",
-                                                                   "System now responds correctly to multiple controllers."
+                                                                   "Fixed diagonal mouse movement in Windows dialogs.",
+                                                                   "Fixed manually added applications being classified as games.",
+                                                                   "Fixed clicks leaking from the file picker to Home.",
+                                                                   "Improved detection of games launched by external launchers."
                                                                ]
                                                  }
                                       }
@@ -75,6 +57,6 @@
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "noIQ6kEqSl3Q/rgwBd49qOULNbPOo3OiCwSwq/r+dA9TgQ61EAGPgqDe0lN2qpRdzOYCMN5YZMDS8yxrqvoXveOs4JPEcVJ7znLlsSRr6o2mauHgI6mPsi67SFCrbvROQgCVlShULi9JKWKhlWcMxyD4odC44BmTmS7uG6s98b1ax2WreUmn7p2xQrs61DSpFWjGp3NDhiNOE1uEiXH9WheqiYpHETVmheT4vEm7qZuQVqwDKQEq2034Qd1v/nxzWlfCQPT8vdx4RN5hqIILhZPXd2ZxY9r4EqIVKz/a/H7cQHpEq1gt1Q/PpWXHNSN3szYk0PZnW7iRUb5tRE/j/HdCFivqNUlR5FSosOdrBuVDbElC1fsso/LJq/8/i75WtG7PmxDgCZZDCqbRVQvokWZTfkk9sRBNDOhpBbFrFtj8uLUICHhYIMLtc9a2tbEi42ELlQd7S2Rph+mHl4Zx4j8HivviMR4/78G9G+AryyKTJjpmCkLbFHEgpR+/YL8W"
+                      "value":  "jqjBp6QKrdHbwpn7KvY4F2rd4wqNEDnr2LKT859kQnDlyH5OI1WX5irNJjY7QUH4EoUxJP8lGREkytWyURLbm+yEen0lVNgKer7HeDwVGGWMPxjXIIp6865RChL8LYRfwvBk6yStNwcEJ+GZlfNQJWK47Sy2Ugcv8Ne3KjDjdXi5/knVcpp7pwVOGfZ1mDD0o46aKrX7PixykBhccB10OIum099gxVc+c6IEFs9lF6PV2iXn0LnyOBmCwKXfQ7RboqFAdsibQAiFLdEiNq/TVj8IBhwzq4yr8/LuwNvrEwB4sqfp/Tm9Tw9GwIa7rpEzBeqH1CbYhb2wy5eWmoa6OcD7BUMoTHqrKx8UYzKlWahs15+phRmoWQ7uBvRg0SkQ4IUiTGNJJ//N3hLmNrpWF+JW431aVdluQNWNgmvnxRSvCeKre71Ya2flOyCToSlCGoz2vNBsdTcr7DG9TdGbasbcgF5IVCR6+aO7i8iCZnjAnYHJPXPkGj5+0EjExD+O"
                   }
 }

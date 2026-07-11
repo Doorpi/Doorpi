@@ -2957,7 +2957,7 @@ namespace Doorpi
 
         // All controller-facing modes consume this merged snapshot. It intentionally
         // keeps no controller identity, so every connected controller has equal access.
-        private AggregatedGamepadState GetUnifiedControllerInput()
+        private AggregatedGamepadState GetUnifiedControllerInput(bool includeRawInput = true)
         {
             var result = new AggregatedGamepadState();
 
@@ -3018,48 +3018,60 @@ namespace Doorpi
                 Debug.WriteLine($"[ControllerInput] Windows.Gaming.Input failed: {ex.Message}");
             }
 
-            try
+            if (includeRawInput)
             {
-                var pads = Windows.Gaming.Input.RawGameController.RawGameControllers;
-                for (int i = 0; i < pads.Count; i++)
+                try
                 {
-                    var pad = pads[i];
-                    var rawButtons = new bool[Math.Max(0, pad.ButtonCount)];
-                    var rawSwitches = new Windows.Gaming.Input.GameControllerSwitchPosition[Math.Max(0, pad.SwitchCount)];
-                    var rawAxes = new double[Math.Max(0, pad.AxisCount)];
-                    pad.GetCurrentReading(rawButtons, rawSwitches, rawAxes);
+                    var pads = Windows.Gaming.Input.RawGameController.RawGameControllers;
+                    for (int i = 0; i < pads.Count; i++)
+                    {
+                        var pad = pads[i];
+                        var rawButtons = new bool[Math.Max(0, pad.ButtonCount)];
+                        var rawSwitches = new Windows.Gaming.Input.GameControllerSwitchPosition[Math.Max(0, pad.SwitchCount)];
+                        var rawAxes = new double[Math.Max(0, pad.AxisCount)];
+                        pad.GetCurrentReading(rawButtons, rawSwitches, rawAxes);
 
-                    ushort buttons = 0;
-                    foreach (var position in rawSwitches)
-                        buttons |= MapRawSwitchToMainUiButtons(position);
+                        ushort buttons = 0;
+                        foreach (var position in rawSwitches)
+                            buttons |= MapRawSwitchToMainUiButtons(position);
 
-                    bool IsRawDown(int index) => index >= 0 && index < rawButtons.Length && rawButtons[index];
-                    if (IsRawDown(0) || IsRawDown(7)) buttons |= XI_A;
-                    if (IsRawDown(1)) buttons |= XI_B;
-                    if (IsRawDown(2)) buttons |= XI_X;
-                    if (IsRawDown(3)) buttons |= XI_Y;
-                    if (IsRawDown(4)) buttons |= XI_L1;
-                    if (IsRawDown(5)) buttons |= XI_R1;
-                    if (IsRawDown(8)) buttons |= XI_BACK;
-                    if (IsRawDown(9)) buttons |= XI_START;
-                    if (IsRawDown(10)) buttons |= XI_L3;
-                    if (IsRawDown(11)) buttons |= XI_R3;
-                    if (IsRawDown(12)) buttons |= XI_DPAD_UP;
-                    if (IsRawDown(13)) buttons |= XI_DPAD_DOWN;
-                    if (IsRawDown(14)) buttons |= XI_DPAD_LEFT;
-                    if (IsRawDown(15)) buttons |= XI_DPAD_RIGHT;
+                        bool IsRawDown(int index) => index >= 0 && index < rawButtons.Length && rawButtons[index];
+                        if (IsRawDown(0) || IsRawDown(7)) buttons |= XI_A;
+                        if (IsRawDown(1)) buttons |= XI_B;
+                        if (IsRawDown(2)) buttons |= XI_X;
+                        if (IsRawDown(3)) buttons |= XI_Y;
+                        if (IsRawDown(4)) buttons |= XI_L1;
+                        if (IsRawDown(5)) buttons |= XI_R1;
+                        if (IsRawDown(8)) buttons |= XI_BACK;
+                        if (IsRawDown(9)) buttons |= XI_START;
+                        if (IsRawDown(10)) buttons |= XI_L3;
+                        if (IsRawDown(11)) buttons |= XI_R3;
+                        if (IsRawDown(12)) buttons |= XI_DPAD_UP;
+                        if (IsRawDown(13)) buttons |= XI_DPAD_DOWN;
+                        if (IsRawDown(14)) buttons |= XI_DPAD_LEFT;
+                        if (IsRawDown(15)) buttons |= XI_DPAD_RIGHT;
 
-                    var left = rawAxes.Length >= 2 ? NormalizeRawAxisPair(rawAxes[0], rawAxes[1]) : (0d, 0d);
-                    var right = rawAxes.Length >= 4 ? NormalizeRawAxisPair(rawAxes[2], rawAxes[3]) : (0d, 0d);
-                    Merge(buttons, IsRawDown(6), left.Item1, left.Item2, right.Item1, right.Item2);
+                        var left = rawAxes.Length >= 2 ? NormalizeRawAxisPair(rawAxes[0], rawAxes[1]) : (0d, 0d);
+                        var right = rawAxes.Length >= 4 ? NormalizeRawAxisPair(rawAxes[2], rawAxes[3]) : (0d, 0d);
+                        Merge(buttons, IsRawDown(6), left.Item1, left.Item2, right.Item1, right.Item2);
+                    }
                 }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[ControllerInput] RawGameController failed: {ex.Message}");
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[ControllerInput] RawGameController failed: {ex.Message}");
+                }
             }
 
             return result;
+        }
+
+        private AggregatedGamepadState GetNativeDialogControllerInput()
+        {
+            // RawGameController frequently mirrors XInput/Gamepad devices but does not
+            // guarantee a standardized axis order. Native dialogs need precise pointer
+            // motion, so prefer the standardized APIs and use raw only as a fallback.
+            var input = GetUnifiedControllerInput(includeRawInput: false);
+            return input.Connected ? input : GetUnifiedControllerInput();
         }
 
         private async Task WaitForPrimaryControllerReleaseAsync()
@@ -3085,10 +3097,11 @@ namespace Doorpi
               Action? onMouseModeShortcut = null,
               Func<ushort, bool>? mouseModeShortcutPredicate = null,
               bool instantPrimaryClick = false,
-              bool instantPrimaryDoubleClick = false)
+              bool instantPrimaryDoubleClick = false,
+              Func<AggregatedGamepadState>? inputProvider = null)
         {
             var sw = Stopwatch.StartNew();
-            ushort prevButtons = GetUnifiedControllerInput().Buttons;
+            ushort prevButtons = (inputProvider?.Invoke() ?? GetUnifiedControllerInput()).Buttons;
 
             double remainderX = 0, remainderY = 0;
             bool isClicking = false, aWasOnTextField = false, aDragOccurred = false;
@@ -3142,7 +3155,7 @@ namespace Doorpi
 
                     double totalMlx = 0, totalMly = 0, totalScrollY = 0;
 
-                    var input = GetUnifiedControllerInput();
+                    var input = inputProvider?.Invoke() ?? GetUnifiedControllerInput();
                     ushort btn = input.Buttons;
                     bool Pressed(ushort m) => (btn & m) != 0 && (prevButtons & m) == 0;
                     bool Released(ushort m) => (btn & m) == 0 && (prevButtons & m) != 0;
@@ -3275,8 +3288,11 @@ namespace Doorpi
                                 if (instantPrimaryDoubleClick)
                                 {
                                     Thread.Sleep(35);
-                                    SendMouse(0, 0, 0x0002);
-                                    SendMouse(0, 0, 0x0004);
+                                    if (isActive())
+                                    {
+                                        SendMouse(0, 0, 0x0002);
+                                        SendMouse(0, 0, 0x0004);
+                                    }
                                 }
                                 isClicking = false;
                                 if (aWasOnTextField && IsCursorOnTextField())
@@ -4163,7 +4179,8 @@ namespace Doorpi
                     () => _dialogModeActive,
                     () => SendVirtualKey(0x1B),
                     instantPrimaryClick: true,
-                    instantPrimaryDoubleClick: true
+                    instantPrimaryDoubleClick: true,
+                    inputProvider: GetNativeDialogControllerInput
                 );
             })
             { IsBackground = true }.Start();
@@ -5790,8 +5807,10 @@ namespace Doorpi
                         }
                         else
                         {
-                            if (Math.Abs(input.ThumbRX) > 0.15) totalMlx = input.ThumbRX;
-                            if (Math.Abs(input.ThumbRY) > 0.15) totalMly = input.ThumbRY;
+                            // Native Windows windows follow the same mouse convention as
+                            // web apps and executable sessions: the left stick moves the cursor.
+                            if (Math.Abs(input.ThumbLX) > 0.15) totalMlx = input.ThumbLX;
+                            if (Math.Abs(input.ThumbLY) > 0.15) totalMly = input.ThumbLY;
                         }
                     }
 
@@ -8155,36 +8174,14 @@ namespace Doorpi
                         }
                         else if (string.IsNullOrWhiteSpace(lockedProcessName) && currentCandidate != null)
                         {
+                            // Another launch path may have found the game window first. It
+                            // still needs full adoption so a visible launcher can no longer
+                            // keep the session in its intermediate mouse/launch state.
+                            AdoptGameWindowCandidate(currentCandidate, game);
                             lockedProcessName = currentCandidate.ProcessName;
-                            _lockedGameProcessName = lockedProcessName;
                         }
 
                         missingChecks = 0;
-
-                        // LOCK-ON: Salva o nome do processo da tela de jogo quando ela aparece
-                        if (string.IsNullOrEmpty(lockedProcessName))
-                        {
-                            try
-                            {
-                                AdoptGameWindowCandidate(bestCandidate, game);
-                                lockedProcessName = bestCandidate.ProcessName;
-                                _lockedGameProcessName = lockedProcessName; // ? NOVO: promove para classe
-                                _currentLauncherHwnd = IntPtr.Zero;         // ? NOVO: esquece o launcher
-                                _pendingLaunchProcess = null;               // jogo real identificado: launcher intermediário deixa de ser referência
-                                if (string.Equals(StorePolicyKeyForGame(game), "Steam", StringComparison.OrdinalIgnoreCase))
-                                    CloseVisibleSteamWindowsAfterGameLaunch(bestCandidate.Hwnd);
-                                StopGameLaunchStoreMouseMode();
-                                DelayGameMinimizeAvailability();
-                                StopSteamAccountSelectionControlsForGame();
-                                if (_storeChildGameActive &&
-                                    string.Equals(_gameSessionParentKind, "store", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    ClearStorePendingChildWindows();
-                                    _storeMinimizeState = StoreMinimizeState.StoreChildGameValid;
-                                }
-                            }
-                            catch { }
-                        }
 
                         if (!doorpiHidden)
                         {
@@ -16589,7 +16586,7 @@ namespace Doorpi
             DateTime lastMoveTime = DateTime.MinValue;
             ushort prevButtons = 0;
             bool hadPreviousInput = false;
-            ushort[] previousXInputButtons = new ushort[4];
+            ushort previousGameReturnButtons = 0;
 
             while (_mainUiGamepadActive)
             {
@@ -16617,35 +16614,16 @@ namespace Doorpi
                         // QUANDO O JOGO ESTÁ RODANDO
                         if (_gameSessionActive && !_gameIsMinimized)
                         {
-                            for (int i = 0; i < previousXInputButtons.Length; i++)
-                            {
-                                if (XInputGetStateSecret(i, out var snap) != 0)
-                                {
-                                    previousXInputButtons[i] = 0;
-                                    continue;
-                                }
+                            ushort gameReturnButtons = GetUnifiedControllerInput().Buttons;
+                            if (IsDoorpiReturnShortcutJustPressed(gameReturnButtons, previousGameReturnButtons))
+                                Dispatcher.Invoke(MinimizeCurrentGameAndRestoreDoorpi);
 
-                                ushort snapBtn = snap.Gamepad.wButtons;
-
-                                // 1. Botão Xbox (Minimiza instantâneo)
-                                if (IsDoorpiReturnShortcutJustPressed(snapBtn, previousXInputButtons[i]))
-                                {
-                                    Dispatcher.Invoke(() => MinimizeCurrentGameAndRestoreDoorpi());
-                                }
-
-                                previousXInputButtons[i] = snapBtn;
-                            }
+                            previousGameReturnButtons = gameReturnButtons;
                         }
                         else
                         {
                             moveState = 0; currentDir = null;
-                            for (int i = 0; i < previousXInputButtons.Length; i++)
-                            {
-                                if (XInputGetStateSecret(i, out var snap) == 0)
-                                    previousXInputButtons[i] = snap.Gamepad.wButtons;
-                                else
-                                    previousXInputButtons[i] = 0;
-                            }
+                            previousGameReturnButtons = GetUnifiedControllerInput().Buttons;
                         }
 
                         Thread.Sleep(50);
