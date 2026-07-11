@@ -31,4 +31,19 @@ namespace Doorpi
         public string ArtworkSource { get; set; } = "";
         public string Source { get; set; } = "";
     }
+
+    public class GameHistoryEntry
+    {
+        public string Name { get; set; } = "";
+        public long TotalPlaytimeMinutes { get; set; }
+        public int LastSessionMinutes { get; set; }
+        public DateTime FirstPlayed { get; set; } = DateTime.MinValue;
+        public DateTime LastPlayed { get; set; } = DateTime.MinValue;
+        public string GridImage { get; set; } = "";
+        public string GridStaticImage { get; set; } = "";
+        public string GridHorizontalImage { get; set; } = "";
+        public string GridHorizontalStaticImage { get; set; } = "";
+        public string IconBase64 { get; set; } = "";
+        public string Source { get; set; } = "";
+    }
 }

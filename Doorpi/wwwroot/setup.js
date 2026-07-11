@@ -5,6 +5,8 @@
 let _setupUsers = [];
 let _currUser = null;
 let _isAddingUserMode = false;
+let _setupLayoutConfirmed = false;
+let _setupPendingLayoutScale = 1;
 
 // ── Estilos ───────────────────────────────────────────────────────────────────
 (function injectSetupStyles() {
@@ -109,6 +111,100 @@ let _isAddingUserMode = false;
     .setup-api-hint { font-size: clamp(0.8rem, 0.88vw, 1.05rem); color: rgba(255,255,255,0.38); margin: 0; transition: color 0.2s; }
     .setup-api-hint.error { color: rgba(255,100,100,0.9); }
 
+    .setup-layout-panel { display: grid; gap: clamp(14px, 1.5vw, 20px); }
+    .setup-layout-preview {
+        position: relative;
+        height: clamp(210px, 25vh, 320px);
+        overflow: hidden;
+        border-radius: clamp(12px, 1.3vw, 18px);
+        border: 1px solid rgba(255,255,255,0.12);
+        background:
+            linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px),
+            linear-gradient(0deg, rgba(255,255,255,0.035) 1px, transparent 1px),
+            linear-gradient(180deg, rgba(8,10,22,0.92), rgba(3,4,12,0.96));
+        background-size: 34px 34px, 34px 34px, auto;
+    }
+    .setup-layout-reference,
+    .setup-layout-stage {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: min(52%, 280px);
+        transform-origin: center center;
+    }
+    .setup-layout-reference {
+        transform: translate(-50%, -50%) scale(var(--setup-reference-inverse-scale, 1));
+        opacity: 0.78;
+    }
+    .setup-layout-stage {
+        transform: translate(-50%, -50%) scale(var(--setup-preview-target-inverse-scale, 1));
+        opacity: 0.96;
+        transition: transform 0.12s ease;
+    }
+    .setup-layout-stage.is-too-small,
+    .setup-layout-stage.is-too-large {
+        filter: saturate(1.12);
+    }
+    .setup-layout-stage.is-too-small .setup-layout-size-sample {
+        border-color: rgba(125,190,255,0.85);
+    }
+    .setup-layout-stage.is-too-large .setup-layout-size-sample {
+        border-color: rgba(255,190,120,0.82);
+    }
+    .setup-layout-size-sample {
+        width: 100%;
+        aspect-ratio: 16 / 7;
+        box-sizing: border-box;
+        border-radius: 10px;
+    }
+    .setup-layout-reference .setup-layout-size-sample {
+        border: 1px dashed rgba(210, 230, 255, 0.62);
+        background: rgba(120, 180, 255, 0.04);
+    }
+    .setup-layout-stage .setup-layout-size-sample {
+        border: 1px solid rgba(150, 205, 255, 0.76);
+        background: rgba(120, 180, 255, 0.30);
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.30);
+    }
+    .setup-layout-guide {
+        position:absolute;
+        left:50%;
+        top:50%;
+        width:min(88%, 620px);
+        height:72%;
+        transform:translate(-50%, -50%);
+        border:1px solid rgba(255,255,255,0.28);
+        border-radius:14px;
+        pointer-events:none;
+        box-shadow: inset 0 0 0 1px rgba(120,190,255,0.13), 0 0 42px rgba(90,145,255,0.08);
+    }
+    .setup-layout-guide::before,
+    .setup-layout-guide::after {
+        content:'';
+        position:absolute;
+        inset:10px;
+        border-radius:10px;
+        border:1px dashed rgba(120,190,255,0.24);
+    }
+    .setup-layout-guide::after {
+        inset:auto 14px 14px;
+        height:2px;
+        border:0;
+        background:linear-gradient(90deg, transparent, rgba(120,190,255,0.48), transparent);
+    }
+    .setup-layout-guide.is-calibrated {
+        border-color: rgba(118, 220, 158, 0.72);
+        box-shadow: inset 0 0 0 1px rgba(118, 220, 158, 0.18), 0 0 42px rgba(90, 205, 145, 0.10);
+    }
+    .setup-layout-controls { display:grid; gap:10px; }
+    .setup-layout-value { color:rgba(255,255,255,0.74); font-size:clamp(0.84rem,0.95vw,1.05rem); font-weight:700; }
+    .setup-range {
+        width:100%;
+        accent-color:#78beff;
+        cursor:pointer;
+        outline:none;
+    }
+    .setup-range:focus { filter:drop-shadow(0 0 10px rgba(120,190,255,0.46)); }
     .setup-folder-list { display: flex; flex-direction: column; gap: clamp(7px, 0.8vw, 11px); }
     .setup-folder-item { display: flex; align-items: center; gap: 12px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10); border-radius: clamp(8px, 0.9vw, 12px); padding: clamp(11px, 1.2vw, 16px) clamp(14px, 1.5vw, 20px); animation: setupFadeIn 0.2s ease; }
     .setup-folder-path { flex: 1; font-size: clamp(0.82rem, 0.9vw, 1.08rem); color: rgba(255,255,255,0.72); font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -156,9 +252,41 @@ let _isAddingUserMode = false;
             <p class="setup-header-subtitle" data-i18n="setupHeaderSubtitle"></p>
         </div>
 
+        <div class="setup-section" id="setupSectionLayout">
+            <button class="setup-section-header setup-focusable" data-section="layout">
+                <span class="setup-section-step">01</span>
+                <span class="setup-section-label" data-i18n="setupSectionLayout">Layout da tela</span>
+                <span class="setup-section-status required-empty" id="statusLayout"></span>
+                ${chevron}
+            </button>
+            <div class="setup-section-body">
+                <div class="setup-section-body-inner">
+                    <div class="setup-section-content">
+                        <div class="setup-section-divider"></div>
+                        <p class="setup-section-desc" data-i18n="setupLayoutDesc"></p>
+                        <div class="setup-layout-panel">
+                            <div class="setup-layout-preview" aria-hidden="true">
+                                <div class="setup-layout-guide" id="setupLayoutGuide"></div>
+                                <div class="setup-layout-reference" id="setupLayoutReference">
+                                    <div class="setup-layout-size-sample"></div>
+                                </div>
+                                <div class="setup-layout-stage" id="setupLayoutPreviewStage">
+                                    <div class="setup-layout-size-sample"></div>
+                                </div>
+                            </div>
+                            <div class="setup-layout-controls">
+                                <div class="setup-layout-value" id="setupLayoutScaleValue"></div>
+                                <input class="setup-range setup-focusable" id="setupLayoutScale" type="range" min="25" max="180" step="5" tabindex="-1" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="setup-section" id="setupSectionIdentity">
             <button class="setup-section-header setup-focusable" data-section="identity">
-                <span class="setup-section-step">01</span>
+                <span class="setup-section-step">02</span>
                 <span class="setup-section-label" data-i18n="setupSectionIdentity">Identidade</span>
                 <span class="setup-section-status required-empty" id="statusIdentity"></span>
                 ${chevron}
@@ -188,7 +316,7 @@ let _isAddingUserMode = false;
 
         <div class="setup-section" id="setupSectionApiKey">
             <button class="setup-section-header setup-focusable" data-section="apikey">
-                <span class="setup-section-step">02</span>
+                <span class="setup-section-step">03</span>
                 <span class="setup-section-label" data-i18n="setupSectionApiKey"></span>
                 <span class="setup-section-status required-empty" id="statusApiKey"></span>
                 ${chevron}
@@ -211,7 +339,7 @@ let _isAddingUserMode = false;
 
         <div class="setup-section" id="setupSectionFolders">
             <button class="setup-section-header setup-focusable" data-section="folders">
-                <span class="setup-section-step">03</span>
+                <span class="setup-section-step">04</span>
                 <span class="setup-section-label" data-i18n="setupSectionFolders"></span>
                 <span class="setup-section-status" id="statusFolders"></span>
                 ${chevron}
@@ -248,6 +376,77 @@ let _isAddingUserMode = false;
 })();
 
 // ── Multi-user View & Logic ───────────────────────────────────────────────────
+
+function _setupClampLayoutScale(raw) {
+    const min = window.DoorpiLayoutScale?.min ?? 0.25;
+    const max = window.DoorpiLayoutScale?.max ?? 1.80;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return window.DoorpiLayoutScale?.defaultValue ?? 1;
+    return Math.max(min, Math.min(max, n));
+}
+
+function _setupGetReferenceLayoutScale() {
+    const dpiScale = Math.max(0.5, Number(window.DoorpiDisplayMetrics?.dpiScale) || 1);
+    return _setupClampLayoutScale(1 / dpiScale);
+}
+
+function _setupLayoutScaleMatchesReference(scale = _setupPendingLayoutScale) {
+    return Math.abs(Number(scale) - _setupGetReferenceLayoutScale()) <= 0.026;
+}
+
+function _setupApplyLayoutScale(raw, commit = false) {
+    const api = window.DoorpiLayoutScale;
+    const scale = _setupClampLayoutScale(Number(raw) / 100);
+    const next = commit ? api?.save?.(scale) : scale;
+    _setupPendingLayoutScale = Number(next || scale || 1);
+    const normalized = _setupPendingLayoutScale;
+    const pct = Math.round(normalized * 100);
+    const input = document.getElementById('setupLayoutScale');
+    const value = document.getElementById('setupLayoutScaleValue');
+    const stage = document.getElementById('setupLayoutPreviewStage');
+    const reference = document.getElementById('setupLayoutReference');
+    const guide = document.getElementById('setupLayoutGuide');
+    const referenceScale = _setupGetReferenceLayoutScale();
+    const relativeScale = normalized / referenceScale;
+    if (input) input.value = String(pct);
+    if (value) value.textContent = typeof t === 'function' ? t('setupLayoutScaleValue', pct) : `Escala da interface: ${pct}%`;
+    if (stage) {
+        stage.style.setProperty('--setup-preview-target-inverse-scale', (1 / referenceScale).toFixed(4));
+        stage.classList.toggle('is-too-small', relativeScale < 0.974);
+        stage.classList.toggle('is-too-large', relativeScale > 1.026);
+    }
+    if (reference) reference.style.setProperty('--setup-reference-inverse-scale', (1 / normalized).toFixed(4));
+    const isCalibrated = _setupLayoutScaleMatchesReference(normalized);
+    guide?.classList.toggle('is-calibrated', isCalibrated);
+    if (!_isAddingUserMode) _setSetupLayoutConfirmed(isCalibrated);
+    return normalized;
+}
+
+window._setupAdjustLayoutScale = function (deltaPct = 0, commit = false) {
+    const input = document.getElementById('setupLayoutScale');
+    if (!input) return false;
+    const min = Number(input.min || 25);
+    const max = Number(input.max || 180);
+    const current = Number(input.value || Math.round(_setupPendingLayoutScale * 100) || 100);
+    input.value = String(Math.max(min, Math.min(max, current + Number(deltaPct || 0))));
+    _setupApplyLayoutScale(input.value, commit);
+    input.focus({ preventScroll: true });
+    return true;
+};
+
+window._setupRefreshLayoutReference = function () {
+    if (!isSetupOpen) return false;
+    _setupApplyLayoutScale(Math.round(_setupPendingLayoutScale * 100), false);
+    return true;
+};
+
+function _setSetupLayoutConfirmed(confirmed) {
+    _setupLayoutConfirmed = !!confirmed && _setupLayoutScaleMatchesReference();
+    const status = document.getElementById('statusLayout');
+    if (!status) return;
+    status.className = 'setup-section-status ' + (_setupLayoutConfirmed ? 'done' : 'required-empty');
+    status.textContent = _setupLayoutConfirmed ? '✓' : '';
+}
 
 function _renderSetupUsers() {
     const bar = document.getElementById('setupUserBar');
@@ -354,6 +553,7 @@ function _loadCurrentUserIntoForm() {
 
 function _updateStatus() {
     if (!_currUser) return;
+    _setSetupLayoutConfirmed(_setupLayoutConfirmed);
 
     const nameDone = !!_currUser.name.trim();
     const statusId = document.getElementById('statusIdentity');
@@ -524,11 +724,16 @@ function openSetup(isAddingUser = false) {
         document.activeElement.blur();
     }
     _isAddingUserMode = isAddingUser;
+    _setupLayoutConfirmed = !!isAddingUser;
     _setupUsers = [{ id: Date.now(), name: '', pin: '', photoBase64: '', apiKey: '', folders: [] }];
     _currUser = _setupUsers[0];
     _currentSection = null;
     document.querySelectorAll('.setup-section').forEach(sec => sec.classList.remove('expanded'));
     document.querySelectorAll('.setup-focusable:not(.setup-section-header)').forEach(el => el.tabIndex = -1);
+    const layoutSection = document.getElementById('setupSectionLayout');
+    if (layoutSection) layoutSection.style.display = isAddingUser ? 'none' : '';
+    _setupApplyLayoutScale(Math.round((window.DoorpiLayoutScale?.get?.() || 1) * 100), false);
+    _setSetupLayoutConfirmed(_setupLayoutConfirmed);
 
     document.querySelectorAll('.setup-footer .setup-focusable').forEach(el => el.tabIndex = 0);
 
@@ -560,7 +765,7 @@ function openSetup(isAddingUser = false) {
     c.style.display = 'flex';
     requestAnimationFrame(() => {
         c.classList.add('visible');
-        const header = document.querySelector('.setup-section-header');
+        const header = document.querySelector(isAddingUser ? '#setupSectionIdentity .setup-section-header' : '#setupSectionLayout .setup-section-header');
         if (header && !_currentSection) _toggleSection(header.parentElement);
         header?.focus();
         _startSetupBg(); // Inicia o background animado nativo
@@ -620,6 +825,15 @@ function _setSetupPinHintError(isError) {
 }
 
 function _validateAndFinish() {
+    if (!_isAddingUserMode && !_setupLayoutConfirmed) {
+        _expandSection(document.getElementById('setupSectionLayout'));
+        setTimeout(() => {
+            const target = document.getElementById('setupLayoutScale');
+            target?.focus();
+        }, 80);
+        return;
+    }
+
     for (let i = 0; i < _setupUsers.length; i++) {
         const u = _setupUsers[i];
         if (!u.name) {
@@ -647,7 +861,16 @@ function _validateAndFinish() {
     if (!_isAddingUserMode) {
         try {
             localStorage.setItem('doorpi.firstRunTutorial.pending.v1', 'true');
+            localStorage.removeItem('doorpi.firstRunTutorial.done.v1');
         } catch { }
+        _setupApplyLayoutScale(Math.round(_setupPendingLayoutScale * 100), true);
+    }
+
+    if (!_isAddingUserMode) {
+        window._userSwitching = true;
+        window._doorpiAllowLibraryRenderDuringSessionTransition = true;
+        window._userSwitchStartedAt = performance.now();
+        document.body.classList.add('doorpi-session-transition');
     }
 
     closeSetup();
@@ -676,6 +899,21 @@ function _bindSetupEvents() {
         });
     });
 
+    const layoutRange = document.getElementById('setupLayoutScale');
+    layoutRange?.addEventListener('input', e => {
+        _setupApplyLayoutScale(e.currentTarget.value, true);
+    });
+    layoutRange?.addEventListener('keydown', e => {
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            const delta = e.key === 'ArrowRight' ? 5 : -5;
+            window._setupAdjustLayoutScale?.(delta, true);
+            return;
+        }
+    }, true);
+
     ['setupNameInput', 'setupPinInput', 'setupApiInput'].forEach(id => {
         const input = document.getElementById(id);
         input.addEventListener('focus', () => {
@@ -694,9 +932,6 @@ function _bindSetupEvents() {
             input.removeAttribute('readonly');
             if (!window._doorpiShouldOpenVkbFromEvent?.(e)) return;
             if (!window._vkbIsOpen) window._vkbOpen?.(e.currentTarget);
-        });
-        input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !window._vkbIsOpen) window._vkbOpen?.(e.currentTarget);
         });
     });
 

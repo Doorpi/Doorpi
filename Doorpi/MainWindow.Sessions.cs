@@ -23,6 +23,7 @@ namespace Doorpi
             public bool LauncherMouseActive;
             public string LockedProcessName = "";
             public string ActiveGameId = "";
+            public string ActiveGameName = "";
             public string ParentKind = "";
             public DateTime StartedUtc = DateTime.MinValue;
             public CancellationTokenSource? LaunchMonitorCts;
@@ -409,6 +410,12 @@ namespace Doorpi
         {
             get => _gameSession?.ActiveGameId ?? "";
             set => EnsureGameSession().ActiveGameId = value ?? "";
+        }
+
+        private string _activeSessionGameName
+        {
+            get => _gameSession?.ActiveGameName ?? "";
+            set => EnsureGameSession().ActiveGameName = value ?? "";
         }
 
         private string _gameSessionParentKind

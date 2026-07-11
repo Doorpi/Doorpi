@@ -75,8 +75,39 @@ namespace Doorpi
         private const string YT_UA = "Mozilla/5.0 (PS4; Leanback Shell) Cobalt/26.lts.0-qa; compatible; Doorpi/1.6.1";
         private const string YT_TV_URL = "https://www.youtube.com/tv";
         private const string DoorpiBrowserAppId = "doorpi-browser";
+
+        private static string CanonicalWebUrl(string? url)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return "";
+            if (!Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri))
+                return url.Trim().TrimEnd('/');
+
+            string path = uri.AbsolutePath.TrimEnd('/');
+            if (string.IsNullOrWhiteSpace(path)) path = "/";
+            return $"{uri.Scheme.ToLowerInvariant()}://{uri.Host.ToLowerInvariant()}{path}";
+        }
+
+        private static bool IsSameCanonicalWebUrl(string? left, string? right)
+            => !string.IsNullOrWhiteSpace(left) &&
+               !string.IsNullOrWhiteSpace(right) &&
+               string.Equals(CanonicalWebUrl(left), CanonicalWebUrl(right), StringComparison.OrdinalIgnoreCase);
+
+        private static bool IsDoorpiYouTubeTvUrl(string? url)
+            => IsSameCanonicalWebUrl(url, YT_TV_URL);
+
+        private static bool IsDoorpiYouTubeTvApp(MediaAppModel? app, string? requestedUrl)
+        {
+            if (app != null)
+            {
+                return string.Equals(app.Id, "youtube", StringComparison.OrdinalIgnoreCase) &&
+                       IsDoorpiYouTubeTvUrl(app.Url);
+            }
+
+            return IsDoorpiYouTubeTvUrl(requestedUrl);
+        }
         private const string DoorpiBrowserHomeUrl = "https://www.google.com";
         private volatile bool _webKeyboardBackHeld;
+        private volatile bool _webKeyboardBackSuppressUntilRelease;
         private int _webKeyboardHomeRequested;
         private static readonly HttpClient _ytHttp = new();
         // ── EasyList ──────────────────────────────────────────────────────────────
@@ -506,15 +537,17 @@ namespace Doorpi
             var view = _popupWebView ?? _ytWebView;
             if (view == null) return;
 
-            Dispatcher.InvokeAsync(() =>
+            Task<string>? markerTask = null;
+            Dispatcher.Invoke(() =>
             {
                 try
                 {
-                    view.CoreWebView2?.ExecuteScriptAsync(
+                    markerTask = view.CoreWebView2?.ExecuteScriptAsync(
                         "try{window.__doorpiVkbControllerIntentAt=Date.now();}catch(e){}");
                 }
                 catch { }
             });
+            try { markerTask?.Wait(180); } catch { }
         }
 
         private bool HasRecentGenericBrowserControllerInputIntent() =>
@@ -2227,6 +2260,7 @@ namespace Doorpi
                 LogMediaControllerDiagnostic("media-controller-start-skip-alive");
                 return;
             }
+            ResetWebKeyboardBackState(suppressUntilPhysicalRelease: IsWebKeyboardBackPhysicallyDown());
             _mediaMouseActive = true;
             LogMediaControllerDiagnostic("media-controller-start");
             _mediaControllerThread = new Thread(MediaControllerLoop) { IsBackground = true };
@@ -2235,6 +2269,7 @@ namespace Doorpi
 
         private void StopMediaControllerMode()
         {
+            ResetWebKeyboardBackState(suppressUntilPhysicalRelease: IsWebKeyboardBackPhysicallyDown());
             _mediaMouseActive = false;
             LogMediaControllerDiagnostic("media-controller-stop");
         }
@@ -2245,43 +2280,10 @@ namespace Doorpi
             {
                 if (_gameSessionActive && !_gameIsMinimized)
                     return false;
-
-                var foreground = GetForegroundWindow();
-                if (foreground == IntPtr.Zero || foreground == GetShellWindow())
-                    return false;
-
-                if (IsForegroundOwnedByProcess(Environment.ProcessId))
-                    return true;
-
-                var mainHwnd = _mainWindowHandle;
-                if (mainHwnd != IntPtr.Zero &&
-                    (foreground == mainHwnd || IsChild(mainHwnd, foreground)))
-                {
-                    return true;
-                }
-
-                GetWindowProcessId(foreground, out var pidRaw);
-                if (pidRaw == 0 || pidRaw == Environment.ProcessId)
-                    return true;
-
-                string className = GetWindowClassName(foreground);
-                string processName = "";
-                try
-                {
-                    using var process = Process.GetProcessById((int)pidRaw);
-                    processName = SafeProcessName(process);
-                }
-                catch { }
-
-                if (IsMediaWebViewProcess(processName))
-                    return true;
-
-                if (LooksLikeNativeDialogWindow(foreground, className, processName))
-                    return true;
             }
             catch { }
 
-            return false;
+            return true;
         }
 
         private static bool IsMediaWebViewProcess(string processName)
@@ -2314,10 +2316,23 @@ namespace Doorpi
         // ─────────────────────────────────────────────────────────────────────
         // LOOP DO CONTROLLER
         // ─────────────────────────────────────────────────────────────────────
+        private bool IsWebKeyboardBackPhysicallyDown()
+        {
+            try { return (GetAsyncKeyState(VK_ESCAPE) & 0x8000) != 0; }
+            catch { return false; }
+        }
+
+        private void ResetWebKeyboardBackState(bool suppressUntilPhysicalRelease = false)
+        {
+            _webKeyboardBackHeld = false;
+            _webKeyboardBackSuppressUntilRelease = suppressUntilPhysicalRelease;
+        }
+
         private void MediaControllerLoop()
         {
             var sw = Stopwatch.StartNew();
-            ushort prevButtons = 0;
+            ushort prevButtons = GetUnifiedControllerInput().Buttons;
+
             double speedMult = 1.0;
             double mouseRemainderX = 0;
             double mouseRemainderY = 0;
@@ -2336,6 +2351,9 @@ namespace Doorpi
             bool bHoldActive = false;
             bool bCloseFired = false;
             long bHoldStartMs = 0;
+            bool keyboardBackHoldActive = false;
+            bool keyboardBackCloseFired = false;
+            long keyboardBackHoldStartMs = 0;
             ushort webNavLastDir = 0;
             long webNavDirStartMs = 0;
             long webNavDirLastRepeat = 0;
@@ -2345,6 +2363,7 @@ namespace Doorpi
             const int WEB_NAV_REPEAT_MS = 82;
             const int WEB_CLOSE_HOLD_MS = 1450;
             const int WEB_CLOSE_INDICATOR_MS = 220;
+
             var nativeVkbHoldActive = new Dictionary<VkbHoldAction, bool>
             {
                 { VkbHoldAction.MoveUp, false },
@@ -2360,7 +2379,7 @@ namespace Doorpi
 
             void SendMediaMouse(int dx, int dy, uint flags, uint data)
             {
-                mouse_event(flags, dx, dy, data, UIntPtr.Zero);
+                SendMouse(dx, dy, flags, data);
             }
 
             void SendMediaVirtualKey(ushort vk)
@@ -2393,8 +2412,131 @@ namespace Doorpi
                 ResetNativeVkbHolds();
                 bHoldActive = false;
                 bCloseFired = false;
-                _webKeyboardBackHeld = false;
+                keyboardBackHoldActive = false;
+                keyboardBackCloseFired = false;
+                ResetWebKeyboardBackState();
                 HideWebAppCloseHoldOverlay();
+            }
+
+            void DispatchEscapeToActiveWebView()
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    try
+                    {
+                        var target = _popupWebView ?? _ytWebView;
+                        target?.CoreWebView2?.ExecuteScriptAsync(@"
+(() => {
+  const init = { key:'Escape', code:'Escape', keyCode:27, which:27, bubbles:true, cancelable:true };
+  const target = document.activeElement || document.body || document;
+  function ev(type) {
+    const e = new KeyboardEvent(type, init);
+    try { Object.defineProperty(e, '__doorpiSyntheticEsc', { value:true }); } catch(_) {}
+    return e;
+  }
+  try { target.dispatchEvent(ev('keydown')); } catch(_) {}
+  try { document.dispatchEvent(ev('keydown')); } catch(_) {}
+  try { window.dispatchEvent(ev('keydown')); } catch(_) {}
+  setTimeout(() => {
+    try { target.dispatchEvent(ev('keyup')); } catch(_) {}
+    try { document.dispatchEvent(ev('keyup')); } catch(_) {}
+    try { window.dispatchEvent(ev('keyup')); } catch(_) {}
+  }, 20);
+})();");
+                    }
+                    catch { }
+                });
+            }
+
+            void PerformShortKeyboardBack()
+            {
+                bool handled = false;
+                if (_isGenericBrowserMode)
+                    Dispatcher.Invoke(() => handled = HandleGenericBrowserExtensionsBack());
+
+                if (!handled)
+                    DispatchEscapeToActiveWebView();
+            }
+
+            bool ProcessKeyboardBackHold(long nowMs)
+            {
+                bool physicalEscDown = IsWebKeyboardBackPhysicallyDown();
+                if (_webKeyboardBackSuppressUntilRelease)
+                {
+                    _webKeyboardBackHeld = false;
+                    keyboardBackHoldActive = false;
+                    keyboardBackCloseFired = false;
+                    HideWebAppCloseHoldOverlay();
+
+                    if (!physicalEscDown)
+                        _webKeyboardBackSuppressUntilRelease = false;
+
+                    return physicalEscDown;
+                }
+
+                bool keyboardBackDown = _webKeyboardBackHeld || physicalEscDown;
+                if (!keyboardBackDown && !keyboardBackHoldActive)
+                    return false;
+
+                if (!IsForegroundAcceptableForMediaController())
+                {
+                    keyboardBackHoldActive = false;
+                    keyboardBackCloseFired = false;
+                    HideWebAppCloseHoldOverlay();
+                    return false;
+                }
+
+                bool vkbInputVisible = IsControllerVkbActuallyVisible();
+                if (vkbInputVisible)
+                {
+                    keyboardBackHoldActive = false;
+                    keyboardBackCloseFired = false;
+                    HideWebAppCloseHoldOverlay();
+                    return false;
+                }
+
+                if (keyboardBackDown && !keyboardBackHoldActive)
+                {
+                    keyboardBackHoldActive = true;
+                    keyboardBackCloseFired = false;
+                    keyboardBackHoldStartMs = nowMs;
+                    HideWebAppCloseHoldOverlay();
+                }
+
+                if (keyboardBackHoldActive && keyboardBackDown)
+                {
+                    double progress = Math.Clamp((nowMs - keyboardBackHoldStartMs - WEB_CLOSE_INDICATOR_MS) /
+                                                 (double)(WEB_CLOSE_HOLD_MS - WEB_CLOSE_INDICATOR_MS), 0, 1);
+                    if (progress > 0)
+                        UpdateWebAppCloseHoldOverlay(progress);
+
+                    if (!keyboardBackCloseFired && nowMs - keyboardBackHoldStartMs >= WEB_CLOSE_HOLD_MS)
+                    {
+                        keyboardBackCloseFired = true;
+                        ReleaseMediaLeftMouseIfDown();
+                        HideWebAppCloseHoldOverlay();
+                        ResetWebKeyboardBackState(suppressUntilPhysicalRelease: true);
+                        keyboardBackHoldActive = false;
+                        keyboardBackCloseFired = false;
+                        Dispatcher.Invoke(() => CloseYouTubeInline());
+                        return true;
+                    }
+
+                    return false;
+                }
+
+                if (keyboardBackHoldActive && !keyboardBackDown)
+                {
+                    bool wasClose = keyboardBackCloseFired;
+                    keyboardBackHoldActive = false;
+                    keyboardBackCloseFired = false;
+                    HideWebAppCloseHoldOverlay();
+                    if (!wasClose)
+                        PerformShortKeyboardBack();
+                    return true;
+                }
+
+                return false;
             }
 
             bool TryReadControllerVkbUiVisible(out bool visible)
@@ -2492,56 +2634,90 @@ namespace Doorpi
             {
                 try
                 {
-                double dt = sw.Elapsed.TotalSeconds;
-                sw.Restart();
-                if (dt > 0.08) dt = 0.016;
-
-                XINPUT_STATE state = default;
-                int result;
-                if (_canUseXInputEx)
-                {
-                    try { result = XInputGetStateEx(0, out state); }
-                    catch { _canUseXInputEx = false; result = XInputGetState(0, out state); }
-                }
-                else { result = XInputGetState(0, out state); }
-
-                if (result == 0)
-                {
-                    var gp = state.Gamepad;
-                    ushort btn = gp.wButtons;
-                    if (gp.bRightTrigger > 128)
-                        btn |= XI_A;
-                    if (_webKeyboardBackHeld || (GetAsyncKeyState(VK_ESCAPE) & 0x8000) != 0)
-                        btn |= XI_B;
-                    if (Interlocked.Exchange(ref _webKeyboardHomeRequested, 0) == 1 ||
-                        (GetAsyncKeyState(VK_HOME) & 0x8000) != 0)
-                        btn |= XI_GUIDE;
+                    double dt = sw.Elapsed.TotalSeconds;
+                    sw.Restart();
+                    if (dt > 0.08) dt = 0.016;
 
                     long nowMs = Environment.TickCount64;
+                    bool keyboardBackConsumed = ProcessKeyboardBackHold(nowMs);
+                    if (keyboardBackConsumed)
+                    {
+                        Thread.Sleep(20);
+                        continue;
+                    }
+
+                    bool anyReturnShortcut = false;
+                    bool anyAPressed = false, anyAHeld = false;
+                    bool anyBPressed = false, anyBHeld = false;
+                    bool anyXPressed = false, anyXHeld = false;
+                    bool anyYPressed = false;
+                    bool anyStartPressed = false, anyL3Pressed = false, anyR3Pressed = false;
+                    bool anyLBPressed = false, anyRBPressed = false;
+                    bool anyLBHeld = false, anyRBHeld = false;
+
+                    bool anyVkbUp = false, anyVkbDown = false, anyVkbLeft = false, anyVkbRight = false;
+                    bool anyLtHeld = false;
+
+                    double totalMlx = 0, totalMly = 0, totalScrollY = 0;
+                    ushort currentNavDirBtn = 0;
+                    byte currentNavVk = 0;
+                    string currentVkbDirName = "";
+
+
+                    var input = GetUnifiedControllerInput();
+                    ushort btn = input.Buttons;
+                    if (Interlocked.Exchange(ref _webKeyboardHomeRequested, 0) == 1 || (GetAsyncKeyState(VK_HOME) & 0x8000) != 0)
+                        btn |= XI_GUIDE;
+
+                    bool Pressed(ushort mask) => (btn & mask) != 0 && (prevButtons & mask) == 0;
+                    bool Held(ushort mask) => (btn & mask) != 0;
+                    anyReturnShortcut = IsDoorpiReturnShortcutJustPressed(btn, prevButtons);
+                    anyAPressed = Pressed(XI_A); anyAHeld = Held(XI_A);
+                    anyBPressed = Pressed(XI_B); anyBHeld = Held(XI_B);
+                    anyXPressed = Pressed(XI_X); anyXHeld = Held(XI_X);
+                    anyYPressed = Pressed(XI_Y);
+                    anyStartPressed = Pressed(XI_START);
+                    anyL3Pressed = Pressed(XI_L3); anyR3Pressed = Pressed(XI_R3);
+                    anyLBPressed = Pressed(XI_L1); anyRBPressed = Pressed(XI_R1);
+                    anyLBHeld = Held(XI_L1); anyRBHeld = Held(XI_R1);
+                    anyLtHeld = input.LeftTrigger;
+
+                    const double mergedDeadZone = 0.5;
+                    bool dpadUp = Held(XI_DPAD_UP), dpadDown = Held(XI_DPAD_DOWN);
+                    bool dpadLeft = Held(XI_DPAD_LEFT), dpadRight = Held(XI_DPAD_RIGHT);
+                    if (dpadUp || input.ThumbLY > mergedDeadZone) { anyVkbUp = true; currentVkbDirName = "UP"; }
+                    else if (dpadDown || input.ThumbLY < -mergedDeadZone) { anyVkbDown = true; currentVkbDirName = "DOWN"; }
+                    else if (dpadLeft || input.ThumbLX < -mergedDeadZone) { anyVkbLeft = true; currentVkbDirName = "LEFT"; }
+                    else if (dpadRight || input.ThumbLX > mergedDeadZone) { anyVkbRight = true; currentVkbDirName = "RIGHT"; }
+
+                    if (dpadUp) { currentNavDirBtn = XI_DPAD_UP; currentNavVk = 0x26; }
+                    else if (dpadDown) { currentNavDirBtn = XI_DPAD_DOWN; currentNavVk = 0x28; }
+                    else if (dpadLeft) { currentNavDirBtn = XI_DPAD_LEFT; currentNavVk = 0x25; }
+                    else if (dpadRight) { currentNavDirBtn = XI_DPAD_RIGHT; currentNavVk = 0x27; }
+                    if (Math.Abs(input.ThumbLX) > 0.14) totalMlx = input.ThumbLX;
+                    if (Math.Abs(input.ThumbLY) > 0.14) totalMly = input.ThumbLY;
+                    if (Math.Abs(input.ThumbRY) > 0.18) totalScrollY = input.ThumbRY;
+
+                    ushort mergedButtonsForLog = btn;
+                    prevButtons = btn;
+
                     if (ShouldLogMediaControllerHeartbeat(5000))
-                        LogMediaControllerDiagnostic("loop-heartbeat", btn, prevButtons);
+                        LogMediaControllerDiagnostic("loop-heartbeat", mergedButtonsForLog, 0);
 
                     int abortGeneration = Volatile.Read(ref _mediaMouseAbortGeneration);
                     if (abortGeneration != observedMediaMouseAbortGeneration)
                     {
                         observedMediaMouseAbortGeneration = abortGeneration;
-                        LogMediaControllerDiagnostic("abort-generation-observed", btn, prevButtons);
+                        LogMediaControllerDiagnostic("abort-generation-observed", mergedButtonsForLog, 0);
                         ResetMediaControllerTransientState();
                     }
 
-                    // Nunca manter emulação de mouse/teclado ativa quando nenhuma janela
-                    // do Doorpi está em foco (ex.: jogo em primeiro plano).
-                    // Isso evita input duplicado ao alternar WebApp -> Jogo.
-                    bool Pressed(ushort m) => (btn & m) != 0 && (prevButtons & m) == 0;
-                    bool Held(ushort m) => (btn & m) != 0;
-                    bool Released(ushort m) => (btn & m) == 0 && (prevButtons & m) != 0;
-
-                    if (IsDoorpiReturnShortcutJustPressed(btn, prevButtons))
+                    if (anyReturnShortcut)
                     {
                         Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil,
                             DateTime.UtcNow.AddMilliseconds(350).Ticks);
 
-                        LogMediaControllerDiagnostic("return-shortcut", btn, prevButtons);
+                        LogMediaControllerDiagnostic("return-shortcut", mergedButtonsForLog, 0);
                         RequestMediaMouseInputAbort();
                         ResetMediaControllerTransientState();
                         if (_genericBrowserKeyboardTarget != GenericBrowserKeyboardTarget.None)
@@ -2573,7 +2749,6 @@ namespace Doorpi
 
                             FocusDoorpiKeepSession();
                         });
-                        prevButtons = btn;
                         Thread.Sleep(100);
                         continue;
                     }
@@ -2581,9 +2756,8 @@ namespace Doorpi
                     if (!IsForegroundAcceptableForMediaController())
                     {
                         if (ShouldLogMediaControllerForegroundReject(900))
-                            LogMediaControllerDiagnostic("foreground-rejected", btn, prevButtons);
+                            LogMediaControllerDiagnostic("foreground-rejected", mergedButtonsForLog, 0);
                         ResetMediaControllerTransientState();
-                        prevButtons = btn;
                         Thread.Sleep(25);
                         continue;
                     }
@@ -2592,64 +2766,21 @@ namespace Doorpi
                     {
                         ReleaseMediaLeftMouseIfDown();
 
-                        if (Pressed(XI_A) || Pressed(XI_B) || Pressed(XI_START))
+                        if (anyAPressed || anyBPressed || anyStartPressed)
                             Dispatcher.Invoke(DismissWebAppTutorial);
 
-                        prevButtons = btn;
                         Thread.Sleep(20);
-                        continue;
-                    }
-
-                    // ════════════════════════════════════════════════════════
-                    if (IsDoorpiReturnShortcutJustPressed(btn, prevButtons))
-                    {
-                        Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil,
-                            DateTime.UtcNow.AddMilliseconds(350).Ticks);
-
-                        LogMediaControllerDiagnostic("return-shortcut-late", btn, prevButtons);
-                        RequestMediaMouseInputAbort();
-                        ResetMediaControllerTransientState();
-                        if (_genericBrowserKeyboardTarget != GenericBrowserKeyboardTarget.None)
-                        {
-                            try { ResetGenericBrowserKeyboardForNavigation(); } catch { }
-                        }
-
-                        _ = Dispatcher.BeginInvoke(() =>
-                        {
-                            if (_isGenericBrowserMode && _genericBrowserCaptureWebAppUrl)
-                            {
-                                CloseYouTubeInline(skipStoreCompletion: true);
-                                return;
-                            }
-
-                            if (_isStoreLauncherSession)
-                            {
-                                MinimizeStoreSessionAndShowMenu();
-                                return;
-                            }
-
-                            ClosePopupWindowAndDispose();
-
-                            if (_webAppWindow != null && _webAppWindow.WindowState != WindowState.Minimized)
-                            {
-                                _webAppWindow.WindowState = WindowState.Minimized;
-                                return;
-                            }
-
-                            FocusDoorpiKeepSession();
-                        });
-                        prevButtons = btn;
-                        Thread.Sleep(100);
                         continue;
                     }
 
                     bool useNativeMouse = !_isCurrentSiteYouTube || _popupWindow != null;
                     bool useNativeWebNavigation = !_isCurrentSiteYouTube || _popupWindow != null || _isGenericBrowserMode;
                     bool vkbInputVisible = IsControllerVkbActuallyVisible();
+                    bool useJavaScriptCloseHold = _isCurrentSiteYouTube && _popupWindow == null;
 
-                    if (!vkbInputVisible)
+                    if (!vkbInputVisible && !useJavaScriptCloseHold)
                     {
-                        if (Pressed(XI_B))
+                        if (anyBPressed)
                         {
                             bHoldActive = true;
                             bCloseFired = false;
@@ -2657,7 +2788,7 @@ namespace Doorpi
                             HideWebAppCloseHoldOverlay();
                         }
 
-                        if (bHoldActive && Held(XI_B))
+                        if (bHoldActive && anyBHeld)
                         {
                             double progress = Math.Clamp((nowMs - bHoldStartMs - WEB_CLOSE_INDICATOR_MS) /
                                                          (double)(WEB_CLOSE_HOLD_MS - WEB_CLOSE_INDICATOR_MS), 0, 1);
@@ -2670,13 +2801,12 @@ namespace Doorpi
                                 ReleaseMediaLeftMouseIfDown();
                                 HideWebAppCloseHoldOverlay();
                                 Dispatcher.Invoke(() => CloseYouTubeInline());
-                                prevButtons = btn;
                                 Thread.Sleep(120);
                                 continue;
                             }
                         }
 
-                        if (bHoldActive && Released(XI_B))
+                        if (bHoldActive && !anyBHeld)
                         {
                             bool wasClose = bCloseFired;
                             bHoldActive = false;
@@ -2700,60 +2830,55 @@ namespace Doorpi
                                     });
                                 }
                             }
-                            prevButtons = btn;
                             Thread.Sleep(40);
                             continue;
                         }
                     }
+                    else if (useJavaScriptCloseHold && bHoldActive)
+                    {
+                        bHoldActive = false;
+                        bCloseFired = false;
+                        HideWebAppCloseHoldOverlay();
+                    }
 
-                    // ════════════════════════════════════════════════════════
+                    // Navegação Web Nativa (Setas, Avançar, Voltar, F5)
                     if (useNativeWebNavigation && !vkbInputVisible)
                     {
-                        if (Pressed(XI_R3))
-                            SendMediaVirtualKey(0xAD);
+                        if (anyR3Pressed) SendMediaVirtualKey(0xAD);
+                        if (anyYPressed) SendMediaVirtualKey(0x46);
 
-                        if (Pressed(XI_Y))
-                            SendMediaVirtualKey(0x46);
-
-                        if (Pressed(XI_X))
+                        if (anyXPressed)
                         {
                             SendMediaMouse(0, 0, MOUSEEVENTF_RIGHTDOWN, 0);
                             SendMediaMouse(0, 0, MOUSEEVENTF_RIGHTUP, 0);
                         }
 
-                        if (Pressed(XI_L1))
+                        if (anyLBPressed)
                         {
                             SendMediaMouse(0, 0, MOUSEEVENTF_XDOWN, XBUTTON1);
                             SendMediaMouse(0, 0, MOUSEEVENTF_XUP, XBUTTON1);
                         }
 
-                        if (Pressed(XI_R1))
+                        if (anyRBPressed)
                         {
                             SendMediaMouse(0, 0, MOUSEEVENTF_XDOWN, XBUTTON2);
                             SendMediaMouse(0, 0, MOUSEEVENTF_XUP, XBUTTON2);
                         }
 
-                        ushort navDirBtn = 0;
-                        byte navVk = 0;
-                        if (Held(XI_DPAD_LEFT)) { navDirBtn = XI_DPAD_LEFT; navVk = 0x25; }
-                        else if (Held(XI_DPAD_UP)) { navDirBtn = XI_DPAD_UP; navVk = 0x26; }
-                        else if (Held(XI_DPAD_RIGHT)) { navDirBtn = XI_DPAD_RIGHT; navVk = 0x27; }
-                        else if (Held(XI_DPAD_DOWN)) { navDirBtn = XI_DPAD_DOWN; navVk = 0x28; }
-
-                        if (navDirBtn != 0)
+                        if (currentNavDirBtn != 0)
                         {
-                            if (navDirBtn != webNavLastDir)
+                            if (currentNavDirBtn != webNavLastDir)
                             {
-                                webNavLastDir = navDirBtn;
+                                webNavLastDir = currentNavDirBtn;
                                 webNavDirStartMs = nowMs;
                                 webNavDirLastRepeat = nowMs;
-                                SendMediaVirtualKey(navVk);
+                                SendMediaVirtualKey(currentNavVk);
                             }
                             else if ((nowMs - webNavDirStartMs) > WEB_NAV_INITIAL_MS &&
                                      (nowMs - webNavDirLastRepeat) > WEB_NAV_REPEAT_MS)
                             {
                                 webNavDirLastRepeat = nowMs;
-                                SendMediaVirtualKey(navVk);
+                                SendMediaVirtualKey(currentNavVk);
                             }
                         }
                         else
@@ -2762,21 +2887,16 @@ namespace Doorpi
                         }
                     }
 
+                    // Mouse Nativo (Controle do Cursor)
                     if (useNativeMouse && !vkbInputVisible)
                     {
-                        double lx = gp.sThumbLX / 32767.0;
-                        double ly = gp.sThumbLY / 32767.0;
-                        const double DEAD = 0.14;
-                        if (Math.Abs(lx) < DEAD) lx = 0;
-                        if (Math.Abs(ly) < DEAD) ly = 0;
-
-                        if (lx != 0 || ly != 0)
+                        if (totalMlx != 0 || totalMly != 0)
                         {
                             speedMult = Math.Min(speedMult + (0.8 * dt), 2.5);
                             const double SENSE = CONTROLLER_MOUSE_BASE_SPEED * CONTROLLER_MOUSE_SENSITIVITY_SCALE;
 
-                            double moveX = lx * SENSE * speedMult * dt + mouseRemainderX;
-                            double moveY = ly * -SENSE * speedMult * dt + mouseRemainderY;
+                            double moveX = totalMlx * SENSE * speedMult * dt + mouseRemainderX;
+                            double moveY = totalMly * -SENSE * speedMult * dt + mouseRemainderY;
                             int dx = (int)moveX;
                             int dy = (int)moveY;
                             mouseRemainderX = moveX - dx;
@@ -2792,17 +2912,15 @@ namespace Doorpi
                             mouseRemainderY = 0;
                         }
 
-                        // Scroll pelo analógico direito
-                        double ry = gp.sThumbRY / 32767.0;
-                        if (Math.Abs(ry) > 0.18)
+                        if (Math.Abs(totalScrollY) > 0.18)
                         {
-                            int scroll = (int)(ry * 2800 * dt);
+                            int scroll = (int)(totalScrollY * 2800 * dt);
                             if (scroll != 0) SendMediaMouse(0, 0, MOUSEEVENTF_WHEEL, (uint)scroll);
                         }
                     }
 
                     // ════════════════════════════════════════════════════════
-                    // BOTÕES E VKB
+                    // BOTÕES E VKB (MODO TECLADO VIRTUAL)
                     // ════════════════════════════════════════════════════════
                     if (vkbInputVisible)
                     {
@@ -2810,10 +2928,6 @@ namespace Doorpi
 
                         if (_isGenericBrowserMode && _desktopVkb != null)
                         {
-                            double nativeAlx = gp.sThumbLX / 32767.0;
-                            double nativeAly = gp.sThumbLY / 32767.0;
-                            const double NativeAnaDead = 0.5;
-
                             void HandleNativeVkbHold(VkbHoldAction action, bool isDown)
                             {
                                 bool wasDown = nativeVkbHoldActive[action];
@@ -2829,43 +2943,41 @@ namespace Doorpi
                                 }
                             }
 
-                            HandleNativeVkbHold(VkbHoldAction.MoveUp, Held(XI_DPAD_UP) || nativeAly > NativeAnaDead);
-                            HandleNativeVkbHold(VkbHoldAction.MoveDown, Held(XI_DPAD_DOWN) || nativeAly < -NativeAnaDead);
-                            HandleNativeVkbHold(VkbHoldAction.MoveLeft, Held(XI_DPAD_LEFT) || nativeAlx < -NativeAnaDead);
-                            HandleNativeVkbHold(VkbHoldAction.MoveRight, Held(XI_DPAD_RIGHT) || nativeAlx > NativeAnaDead);
-                            HandleNativeVkbHold(VkbHoldAction.CursorLeft, Held(XI_L1));
-                            HandleNativeVkbHold(VkbHoldAction.CursorRight, Held(XI_R1));
+                            HandleNativeVkbHold(VkbHoldAction.MoveUp, anyVkbUp);
+                            HandleNativeVkbHold(VkbHoldAction.MoveDown, anyVkbDown);
+                            HandleNativeVkbHold(VkbHoldAction.MoveLeft, anyVkbLeft);
+                            HandleNativeVkbHold(VkbHoldAction.MoveRight, anyVkbRight);
+                            HandleNativeVkbHold(VkbHoldAction.CursorLeft, anyLBHeld);
+                            HandleNativeVkbHold(VkbHoldAction.CursorRight, anyRBHeld);
                             HandleNativeVkbHold(VkbHoldAction.ToggleLayer, false);
 
-                            if (_genericBrowserVkbSuppressAUntilRelease && !Held(XI_A))
+                            if (_genericBrowserVkbSuppressAUntilRelease && !anyAHeld)
                                 _genericBrowserVkbSuppressAUntilRelease = false;
 
                             HandleNativeVkbHold(
                                 VkbHoldAction.Press,
-                                Held(XI_A) && !_genericBrowserVkbSuppressAUntilRelease);
+                                anyAHeld && !_genericBrowserVkbSuppressAUntilRelease);
 
-                            if (Pressed(XI_B))
+                            if (anyBPressed)
                             {
                                 bool notifyWeb = _genericBrowserKeyboardTarget == GenericBrowserKeyboardTarget.WebInput;
                                 CloseGenericBrowserKeyboard(notifyWeb);
                             }
 
-                            if (Pressed(XI_Y))
+                            if (anyYPressed)
                                 _ = Dispatcher.BeginInvoke(() => HandleGenericBrowserKeyboardKey("SPACE"));
 
-                            if (Pressed(XI_START))
+                            if (anyStartPressed)
                                 _ = Dispatcher.BeginInvoke(() => HandleGenericBrowserKeyboardKey("ENTER"));
 
-                            bool nativeLtNow = gp.bLeftTrigger > 128;
-                            if (nativeLtNow && !ltWasHeld)
+                            if (anyLtHeld && !ltWasHeld)
                                 _ = Dispatcher.BeginInvoke(() => _desktopVkb?.ToggleAlphaSpecialLayer());
-                            ltWasHeld = nativeLtNow;
+                            ltWasHeld = anyLtHeld;
 
-                            if (Pressed(XI_L3))
+                            if (anyL3Pressed)
                                 _ = Dispatcher.BeginInvoke(() => _desktopVkb?.ToggleShift());
 
-                            bool xNow = Held(XI_X);
-                            if (xNow)
+                            if (anyXHeld)
                             {
                                 if (!xWasHeld)
                                 {
@@ -2886,43 +2998,30 @@ namespace Doorpi
                                 xWasHeld = false;
                             }
 
-                            prevButtons = btn;
                             Thread.Sleep(12);
                             continue;
                         }
 
-                        ushort dirBtn = 0;
-                        string dirName = "";
-
-                        double alx = gp.sThumbLX / 32767.0;
-                        double aly = gp.sThumbLY / 32767.0;
-                        const double ANA_DEAD = 0.5;
-
-                        if (Held(XI_DPAD_UP) || aly > ANA_DEAD) { dirBtn = XI_DPAD_UP; dirName = "UP"; }
-                        else if (Held(XI_DPAD_DOWN) || aly < -ANA_DEAD) { dirBtn = XI_DPAD_DOWN; dirName = "DOWN"; }
-                        else if (Held(XI_DPAD_LEFT) || alx < -ANA_DEAD) { dirBtn = XI_DPAD_LEFT; dirName = "LEFT"; }
-                        else if (Held(XI_DPAD_RIGHT) || alx > ANA_DEAD) { dirBtn = XI_DPAD_RIGHT; dirName = "RIGHT"; }
-
-                        if (dirBtn != 0)
+                        // Teclado Virtual Web (JS)
+                        if (currentVkbDirName != "")
                         {
                             _vkbHasFocus = true;
 
-                            if (dirBtn != vkbLastDir)
+                            if (currentNavDirBtn != vkbLastDir)
                             {
-                                vkbLastDir = dirBtn; vkbDirStartMs = nowMs; vkbDirLastRepeat = nowMs;
-                                SendVkbCommand($"window.__doorpiVkbMove?.('{dirName}')");
+                                vkbLastDir = currentNavDirBtn; vkbDirStartMs = nowMs; vkbDirLastRepeat = nowMs;
+                                SendVkbCommand($"window.__doorpiVkbMove?.('{currentVkbDirName}')");
                             }
                             else if ((nowMs - vkbDirStartMs) > VKB_INITIAL_MS &&
                                      (nowMs - vkbDirLastRepeat) > VKB_REPEAT_MS)
                             {
                                 vkbDirLastRepeat = nowMs;
-                                SendVkbCommand($"window.__doorpiVkbMove?.('{dirName}')");
+                                SendVkbCommand($"window.__doorpiVkbMove?.('{currentVkbDirName}')");
                             }
                         }
                         else { vkbLastDir = 0; }
 
-                        // A: foco nas teclas → confirma; senão → clique normal
-                        if (Pressed(XI_A))
+                        if (anyAPressed)
                         {
                             if (_vkbHasFocus)
                                 SendVkbCommand("window.__doorpiVkbConfirm?.()");
@@ -2935,23 +3034,20 @@ namespace Doorpi
                             }
                         }
 
-                        // B fecha o VKB
-                        if (Pressed(XI_B)) SendVkbCommand("window.__doorpiVkbClose?.()");
-
-                        if (Pressed(XI_START)) SendVkbCommand("window.__doorpiVkbEnter?.()");
+                        if (anyBPressed) SendVkbCommand("window.__doorpiVkbClose?.()");
+                        if (anyStartPressed) SendVkbCommand("window.__doorpiVkbEnter?.()");
 
                         if (_vkbHasFocus)
                         {
-                            if (Pressed(XI_Y)) SendVkbCommand("window.__doorpiVkbSpace?.()");
-                            if (Pressed(XI_L3)) SendVkbCommand("window.__doorpiVkbToggleShift?.()");
-                            if (Pressed(XI_L1)) SendVkbCommand("window.__doorpiVkbCursorLeft?.()");
-                            if (Pressed(XI_R1)) SendVkbCommand("window.__doorpiVkbCursorRight?.()");
-                            bool jsLtNow = gp.bLeftTrigger > 128;
-                            if (jsLtNow && !ltWasHeld) SendVkbCommand("window.__doorpiVkbToggleLayer?.()");
-                            ltWasHeld = jsLtNow;
+                            if (anyYPressed) SendVkbCommand("window.__doorpiVkbSpace?.()");
+                            if (anyL3Pressed) SendVkbCommand("window.__doorpiVkbToggleShift?.()");
+                            if (anyLBPressed) SendVkbCommand("window.__doorpiVkbCursorLeft?.()");
+                            if (anyRBPressed) SendVkbCommand("window.__doorpiVkbCursorRight?.()");
 
-                            bool xNow = Held(XI_X);
-                            if (xNow)
+                            if (anyLtHeld && !ltWasHeld) SendVkbCommand("window.__doorpiVkbToggleLayer?.()");
+                            ltWasHeld = anyLtHeld;
+
+                            if (anyXHeld)
                             {
                                 if (!xWasHeld) { xWasHeld = true; xHoldStartMs = nowMs; xLastRepeat = nowMs; SendVkbCommand("window.__doorpiVkbBackspace?.()"); }
                                 else if ((nowMs - xHoldStartMs) > VKB_INITIAL_MS && (nowMs - xLastRepeat) > VKB_REPEAT_MS)
@@ -2962,31 +3058,23 @@ namespace Doorpi
                     }
                     else
                     {
-                        // Sem VKB: só age se usar mouse nativo
                         if (useNativeMouse)
                         {
-                            if (Pressed(XI_A))
+                            if (anyAPressed)
                             {
                                 if (_isGenericBrowserMode) MarkGenericBrowserControllerInputIntent();
                                 else MarkCurrentWebViewControllerInputIntent();
                                 SendMediaMouse(0, 0, MOUSEEVENTF_LEFTDOWN, 0);
                                 leftMouseDown = true;
                             }
-                            if (leftMouseDown && Released(XI_A))
+                            if (leftMouseDown && !anyAHeld)
                             {
                                 ReleaseMediaLeftMouseIfDown();
                             }
                         }
                     }
 
-                    prevButtons = btn;
-                }
-                else if (ShouldLogMediaControllerHeartbeat(5000))
-                {
-                    LogMediaControllerDiagnostic("xinput-no-state", previousButtons: prevButtons, extra: $"result={result}");
-                }
-
-                Thread.Sleep(10);
+                    Thread.Sleep(10);
                 }
                 catch (Exception ex)
                 {
@@ -2995,7 +3083,6 @@ namespace Doorpi
                     RequestMediaMouseInputAbort();
                     ResetMediaControllerTransientState();
                     ClearGenericBrowserKeyboardStateForControllerAbort();
-                    prevButtons = 0;
                     Thread.Sleep(25);
                 }
             }
@@ -3771,13 +3858,16 @@ namespace Doorpi
 
         private void MarkCurrentWebViewControllerInputIntent()
         {
-            var view = _ytWebView;
+            var view = _popupWebView ?? _ytWebView;
             if (view == null) return;
+
+            Task<string>? markerTask = null;
             Dispatcher.Invoke(() =>
             {
-                try { view.CoreWebView2?.ExecuteScriptAsync("try{window.__doorpiVkbControllerIntentAt=Date.now();}catch(e){}"); }
+                try { markerTask = view.CoreWebView2?.ExecuteScriptAsync("try{window.__doorpiVkbControllerIntentAt=Date.now();}catch(e){}"); }
                 catch { }
             });
+            try { markerTask?.Wait(180); } catch { }
         }
 
         private async void LaunchMediaApp(string url, string appType)
@@ -3786,7 +3876,7 @@ namespace Doorpi
             {
                 if (appType == "webview" || appType == "browser")
                 {
-                    bool isYouTube = url.Contains("youtube.com");
+                    bool isYouTube = IsDoorpiYouTubeTvUrl(url);
                     await OpenWebViewInlineAsync(url, isYouTube);
                 }
                 else { OpenInBrowser(url); }
@@ -4168,12 +4258,14 @@ namespace Doorpi
     // ── 4. FECHAR COM ESC ────────────────────────────────────────────────────
     window.addEventListener('keydown', function(e) {{
         if (e.key !== 'Escape' && e.key !== 'Home') return;
+        if (e.__doorpiSyntheticEsc) return;
         try {{ e.preventDefault(); e.stopImmediatePropagation(); }} catch(_) {{}}
         if (e.key === 'Escape' && window._vkbIsOpen) {{ _vkbClose(); return; }}
         try {{ window.chrome.webview.postMessage(e.key === 'Home' ? 'web_keyboard_home' : 'web_keyboard_back_down'); }} catch(_) {{}}
     }}, true);
     window.addEventListener('keyup', function(e) {{
         if (e.key !== 'Escape') return;
+        if (e.__doorpiSyntheticEsc) return;
         try {{ e.preventDefault(); e.stopImmediatePropagation(); }} catch(_) {{}}
         try {{ window.chrome.webview.postMessage('web_keyboard_back_up'); }} catch(_) {{}}
     }}, true);
@@ -4415,11 +4507,10 @@ namespace Doorpi
         const path = e.composedPath?.() || [];
         return path.some(item => item?.classList?.contains?.(className));
     }}
-    function _doorpiIsLoginPopup() {{
-        return window.name === 'doorpi_popup';
-    }}
-    function _doorpiVkbOpenedByController() {{
-        return _doorpiIsLoginPopup() || Date.now() - (window.__doorpiVkbControllerIntentAt || 0) < 520;
+    function _doorpiConsumeVkbControllerIntent(el) {{
+        if (!el || Date.now() - (window.__doorpiVkbControllerIntentAt || 0) >= 520) return false;
+        window.__doorpiVkbControllerIntentAt = 0;
+        return true;
     }}
 
     if (__doorpiUseNativeKeyboard) {{
@@ -4615,36 +4706,14 @@ namespace Doorpi
         window.addEventListener('pagehide', () => _nativeVkbClose(false, false), true);
         window.addEventListener('beforeunload', () => _nativeVkbClose(false, false), true);
 
-        document.addEventListener('focusin', e => {{
-            if (Date.now() < _nativeVkbSuppressUntil) return;
-            const el = inputFromEvent(e) || deepActiveElement();
-            if (!isInput(el)) return;
-            if (!_doorpiVkbOpenedByController()) {{
-                setTimeout(() => {{
-                    if (Date.now() >= _nativeVkbSuppressUntil &&
-                        _doorpiVkbOpenedByController() &&
-                        deepActiveElement() === el &&
-                        !window._vkbIsOpen)
-                        _nativeVkbPostOpen(el);
-                }}, 80);
-                return;
-            }}
-            setTimeout(() => {{ if (deepActiveElement() === el) _nativeVkbPostOpen(el); }}, 30);
-        }}, true);
-
         document.addEventListener('mousedown', e => {{
             if (Date.now() < _nativeVkbSuppressUntil) return;
             const el = inputFromEvent(e);
-            if (!_doorpiVkbOpenedByController()) {{
-                if (el) setTimeout(() => {{
-                    if (Date.now() >= _nativeVkbSuppressUntil &&
-                        _doorpiVkbOpenedByController() &&
-                        !window._vkbIsOpen)
-                        _nativeVkbPostOpen(el);
-                }}, 80);
-                return;
-            }}
-            if (el) setTimeout(() => _nativeVkbPostOpen(el), 30);
+            if (!_doorpiConsumeVkbControllerIntent(el)) return;
+            setTimeout(() => {{
+                if (Date.now() >= _nativeVkbSuppressUntil && deepActiveElement() === el)
+                    _nativeVkbPostOpen(el);
+            }}, 30);
         }}, true);
 
         document.addEventListener('click', e => {{
@@ -5125,7 +5194,7 @@ namespace Doorpi
     window.__doorpiVkbCursorRight = ()    => _vkbMoveCursorInField(1);
     window.__doorpiVkbToggleShift = ()    => _vkbSetShift(!_vkbShifted);
     window.__doorpiVkbToggleLayer = ()    => _vkbPressKey(_vkbMode === 'special' ? 'ABC' : 'SYM');
-    window.__doorpiVkbEnter       = ()    => _vkbPressKey('ENTER');
+    window.__doorpiVkbEnter       = ()    => _vkbSubmit();
     window.__doorpiVkbEnsureFocus = (notifyHost = false) => _vkbEnsureControllerFocus(!!notifyHost);
     window.__doorpiVkbIsActuallyOpen = () => {{
         try {{
@@ -5147,30 +5216,11 @@ namespace Doorpi
     window.addEventListener('resize', () => {{ if (window._vkbIsOpen) _vkbPosition(); }});
 
 // DEPOIS
-    document.addEventListener('focusin', e => {{
-        if (_vkbClosing) return;
-        const el = inputFromEvent(e) || deepActiveElement();
-        if (!isInput(el)) return;
-        if (!_doorpiVkbOpenedByController()) {{
-            setTimeout(() => {{
-                if (!_vkbClosing && _doorpiVkbOpenedByController() && deepActiveElement() === el && !window._vkbIsOpen)
-                    _vkbOpen(el);
-            }}, 80);
-            return;
-        }}
-        if (!window._vkbIsOpen) {{
-            setTimeout(() => {{ if (!_vkbClosing && deepActiveElement() === el) _vkbOpen(el); }}, 50);
-        }} else if (el !== _vkbInputEl) {{
-            // Segue o foco quando pula entre inputs (ex: campos OTP que avançam sozinhos)
-            _vkbOpen(el);
-        }}
-    }}, true);
-
     document.addEventListener('mousedown', e => {{
         if (eventPathHasClass(e, 'doorpi-vkb-overlay')) {{ e.preventDefault(); return; }}
-        if (!_doorpiVkbOpenedByController()) return;
         const el = inputFromEvent(e);
-        if (el && !window._vkbIsOpen && !_vkbClosing) _vkbOpen(el);
+        if (!_doorpiConsumeVkbControllerIntent(el)) return;
+        if (!window._vkbIsOpen && !_vkbClosing) _vkbOpen(el);
     }}, true);
 
     document.addEventListener('click', e => {{
@@ -6305,6 +6355,9 @@ namespace Doorpi
         private async Task OpenWebViewInlineAsync(string url, bool isYouTube = false, string appName = "", string heroImg = "", string gridImg = "", bool isGenericBrowser = false, string logoImg = "")
         {
             // Corrige a URL logo de cara se a abertura já for apontando para a home
+            ResetWebKeyboardBackState(suppressUntilPhysicalRelease: IsWebKeyboardBackPhysicallyDown());
+            HideWebAppCloseHoldOverlay();
+
             if (url.TrimEnd('/') == "https://www.steamgriddb.com")
                 url = "https://www.steamgriddb.com/profile/preferences/api";
 
@@ -6740,7 +6793,7 @@ namespace Doorpi
 
             if (string.IsNullOrWhiteSpace(appKey))
             {
-                var nativeApp = _nativeApps.FirstOrDefault(a => url.Contains(a.Id, StringComparison.OrdinalIgnoreCase));
+                var nativeApp = _nativeApps.FirstOrDefault(a => IsSameCanonicalWebUrl(url, a.Url));
                 appKey = nativeApp != default
                     ? nativeApp.Id
                     : Convert.ToHexString(System.Security.Cryptography.MD5.HashData(
@@ -6754,6 +6807,9 @@ namespace Doorpi
         // ── Fechar app ────────────────────────────────────────────────────────
         public void CloseYouTubeInline(bool skipStoreCompletion = false)
         {
+            ResetWebKeyboardBackState(suppressUntilPhysicalRelease: IsWebKeyboardBackPhysicallyDown());
+            HideWebAppCloseHoldOverlay();
+
             var ytWebView = _ytWebView;
             if (_ytClosing || ytWebView == null) return;
             _ytClosing = true;
@@ -6956,7 +7012,8 @@ namespace Doorpi
 
             if (e.Key == Key.Escape)
             {
-                _webKeyboardBackHeld = true;
+                if (!_webKeyboardBackSuppressUntilRelease)
+                    _webKeyboardBackHeld = true;
                 e.Handled = true;
                 return;
             }
@@ -6985,6 +7042,7 @@ namespace Doorpi
             if (e.Key == Key.Escape)
             {
                 _webKeyboardBackHeld = false;
+                _webKeyboardBackSuppressUntilRelease = false;
                 e.Handled = true;
             }
         }
@@ -6996,6 +7054,42 @@ namespace Doorpi
 
             bool isPopup = (_popupWebView != null && sender == _popupWebView.CoreWebView2);
             WebView2 senderView = isPopup ? _popupWebView! : _ytWebView!;
+
+            bool isMainYouTubeMessage = _isCurrentSiteYouTube && !isPopup;
+            if (isMainYouTubeMessage && msg.StartsWith("youtube_close_hold_progress:", StringComparison.Ordinal))
+            {
+                string rawProgress = msg["youtube_close_hold_progress:".Length..];
+                if (double.TryParse(
+                        rawProgress,
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out double progress))
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        if (_vkbIsOpen && _vkbOwnerView != null)
+                            HideWebAppCloseHoldOverlay();
+                        else
+                            UpdateWebAppCloseHoldOverlay(Math.Clamp(progress, 0, 1));
+                    });
+                }
+                return;
+            }
+            if (isMainYouTubeMessage && msg == "youtube_close_hold_cancel")
+            {
+                Dispatcher.Invoke(HideWebAppCloseHoldOverlay);
+                return;
+            }
+            if (isMainYouTubeMessage && msg == "youtube_close_hold_complete")
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    HideWebAppCloseHoldOverlay();
+                    if (!_vkbIsOpen || _vkbOwnerView == null)
+                        CloseYouTubeInline();
+                });
+                return;
+            }
 
             if (_isGenericBrowserMode && msg.StartsWith("native_vkb_open:"))
             {
@@ -7096,11 +7190,13 @@ namespace Doorpi
             }
             else if (msg == "web_keyboard_back_down")
             {
-                _webKeyboardBackHeld = true;
+                if (!_webKeyboardBackSuppressUntilRelease)
+                    _webKeyboardBackHeld = true;
             }
             else if (msg == "web_keyboard_back_up")
             {
                 _webKeyboardBackHeld = false;
+                _webKeyboardBackSuppressUntilRelease = false;
             }
             else if (msg == "web_keyboard_home")
             {
@@ -7406,14 +7502,22 @@ namespace Doorpi
     if (window.top !== window) return;
 
     let buttonStates = {}, buttonHoldTimes = {}, buttonRepeatCount = {};
+    let activeGamepadSources = new Set();
     let lastFireByKey = {};
     const YT_INITIAL_REPEAT_MS = 700;
     const YT_REPEAT_MS = 130;
+    const YT_CLOSE_HOLD_MS = 1450;
+    const YT_CLOSE_INDICATOR_MS = 220;
+    const closeHoldStartedAt = new Map();
+    let closeHoldUiActive = false;
+    let closeHoldCompleted = false;
+    let closeHoldLastPostAt = 0;
 
-    function fireKey(code, key) {
+    function fireKey(code, key, source) {
         const now = Date.now();
-        if (key !== 'Escape' && lastFireByKey[key] && now - lastFireByKey[key] < 160) return;
-        lastFireByKey[key] = now;
+        const fireKeyId = `${source || 'pad'}:${key}`;
+        if (key !== 'Escape' && lastFireByKey[fireKeyId] && now - lastFireByKey[fireKeyId] < 160) return;
+        lastFireByKey[fireKeyId] = now;
 
         document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, keyCode: code, which: code, key: key }));
         setTimeout(() => {
@@ -7421,28 +7525,105 @@ namespace Doorpi
         }, 20);
     }
 
-    window.handleBackButton = function() {
-        fireKey(27, 'Escape');
+    window.handleBackButton = function(source) {
+        fireKey(27, 'Escape', source);
     };
 
-    function processButton(idx, pressed, code, key) {
+    function processButton(source, idx, pressed, code, key) {
+        const stateKey = `${source}:${idx}`;
         if (idx === 1) {
-            if (pressed && !buttonStates[idx])  { window.handleBackButton(); buttonStates[idx] = true; }
-            else if (!pressed)                    buttonStates[idx] = false;
+            if (pressed && !buttonStates[stateKey])  { window.handleBackButton(source); buttonStates[stateKey] = true; }
+            else if (!pressed)                       buttonStates[stateKey] = false;
             return;
         }
         if (pressed) {
-            if (!buttonStates[idx]) {
-                fireKey(code, key);
-                buttonStates[idx] = true; buttonHoldTimes[idx] = Date.now(); buttonRepeatCount[idx] = 0;
+            if (!buttonStates[stateKey]) {
+                fireKey(code, key, source);
+                buttonStates[stateKey] = true; buttonHoldTimes[stateKey] = Date.now(); buttonRepeatCount[stateKey] = 0;
             } else {
-                let held = Date.now() - buttonHoldTimes[idx];
+                let held = Date.now() - buttonHoldTimes[stateKey];
                 if (held > YT_INITIAL_REPEAT_MS) {
                     let expected = Math.floor((held - YT_INITIAL_REPEAT_MS) / YT_REPEAT_MS);
-                    if (expected > buttonRepeatCount[idx]) { fireKey(code, key); buttonRepeatCount[idx] = expected; }
+                    if (expected > buttonRepeatCount[stateKey]) { fireKey(code, key, source); buttonRepeatCount[stateKey] = expected; }
                 }
             }
-        } else { buttonStates[idx] = false; }
+        } else { buttonStates[stateKey] = false; }
+    }
+
+    function clearGamepadSource(source) {
+        const prefix = `${source}:`;
+        for (const key of Object.keys(buttonStates)) if (key.startsWith(prefix)) delete buttonStates[key];
+        for (const key of Object.keys(buttonHoldTimes)) if (key.startsWith(prefix)) delete buttonHoldTimes[key];
+        for (const key of Object.keys(buttonRepeatCount)) if (key.startsWith(prefix)) delete buttonRepeatCount[key];
+        for (const key of Object.keys(lastFireByKey)) if (key.startsWith(prefix)) delete lastFireByKey[key];
+        closeHoldStartedAt.delete(source);
+    }
+
+    function isDoorpiVkbOpen() {
+        try {
+            return window._vkbIsOpen === true || window.__doorpiVkbIsActuallyOpen?.() === true;
+        } catch(_) {
+            return window._vkbIsOpen === true;
+        }
+    }
+
+    function postCloseHold(message) {
+        try { window.chrome.webview.postMessage(message); } catch(_) {}
+    }
+
+    function updateCloseHold(pads, allowInput) {
+        const now = performance.now();
+        const seen = new Set();
+        let anyBPressed = false;
+        let longestHoldMs = 0;
+
+        if (allowInput && !isDoorpiVkbOpen()) {
+            pads.forEach((gp, arrayIndex) => {
+                const source = `gp${Number.isInteger(gp.index) ? gp.index : arrayIndex}`;
+                seen.add(source);
+                if (!gp.buttons[1]?.pressed) {
+                    closeHoldStartedAt.delete(source);
+                    return;
+                }
+
+                anyBPressed = true;
+                if (!closeHoldStartedAt.has(source)) closeHoldStartedAt.set(source, now);
+                longestHoldMs = Math.max(longestHoldMs, now - closeHoldStartedAt.get(source));
+            });
+        }
+
+        for (const source of Array.from(closeHoldStartedAt.keys())) {
+            if (!seen.has(source)) closeHoldStartedAt.delete(source);
+        }
+
+        if (closeHoldCompleted) {
+            if (!anyBPressed) closeHoldCompleted = false;
+            return;
+        }
+
+        if (!anyBPressed) {
+            if (closeHoldUiActive) postCloseHold('youtube_close_hold_cancel');
+            closeHoldUiActive = false;
+            closeHoldLastPostAt = 0;
+            return;
+        }
+
+        const progress = Math.max(0, Math.min(1,
+            (longestHoldMs - YT_CLOSE_INDICATOR_MS) /
+            (YT_CLOSE_HOLD_MS - YT_CLOSE_INDICATOR_MS)));
+
+        if (progress > 0 && (now - closeHoldLastPostAt >= 45 || progress >= 1)) {
+            closeHoldUiActive = true;
+            closeHoldLastPostAt = now;
+            postCloseHold(`youtube_close_hold_progress:${progress.toFixed(4)}`);
+        }
+
+        if (longestHoldMs >= YT_CLOSE_HOLD_MS) {
+            closeHoldCompleted = true;
+            closeHoldUiActive = false;
+            closeHoldStartedAt.clear();
+            postCloseHold('youtube_close_hold_complete');
+        }
     }
 
     const map = {
@@ -7453,22 +7634,33 @@ namespace Doorpi
 
     function pollGamepad() {
         try {
-            const gp = (doorpiGetGamepads?.() ?? [])[0];
-            if (gp && document.hasFocus()) {
-                for (const [idx,[code,key]] of Object.entries(map))
-                    processButton(Number(idx), !!gp.buttons[idx]?.pressed, code, key);
-                const dpadUp = !!gp.buttons[12]?.pressed;
-                const dpadDown = !!gp.buttons[13]?.pressed;
-                const dpadLeft = !!gp.buttons[14]?.pressed;
-                const dpadRight = !!gp.buttons[15]?.pressed;
-                const axisX = gp.axes[0] || 0;
-                const axisY = gp.axes[1] || 0;
-                processButton(100, !dpadUp && !dpadDown && axisY < -0.5, 38, 'ArrowUp');
-                processButton(101, !dpadUp && !dpadDown && axisY >  0.5, 40, 'ArrowDown');
-                processButton(102, !dpadLeft && !dpadRight && axisX < -0.5, 37, 'ArrowLeft');
-                processButton(103, !dpadLeft && !dpadRight && axisX >  0.5, 39, 'ArrowRight');
-                processButton(1, !!gp.buttons[1]?.pressed, 27, 'Escape');
+            const seen = new Set();
+            const pads = Array.from(doorpiGetGamepads?.() ?? []).filter(Boolean);
+            const allowInput = document.hasFocus();
+            if (allowInput) {
+                pads.forEach((gp, arrayIndex) => {
+                    const source = `gp${Number.isInteger(gp.index) ? gp.index : arrayIndex}`;
+                    seen.add(source);
+                    if (!activeGamepadSources.has(source)) clearGamepadSource(source);
+
+                    for (const [idx,[code,key]] of Object.entries(map))
+                        processButton(source, Number(idx), !!gp.buttons[idx]?.pressed, code, key);
+                    const dpadUp = !!gp.buttons[12]?.pressed;
+                    const dpadDown = !!gp.buttons[13]?.pressed;
+                    const dpadLeft = !!gp.buttons[14]?.pressed;
+                    const dpadRight = !!gp.buttons[15]?.pressed;
+                    const axisX = gp.axes[0] || 0;
+                    const axisY = gp.axes[1] || 0;
+                    processButton(source, 100, !dpadUp && !dpadDown && axisY < -0.5, 38, 'ArrowUp');
+                    processButton(source, 101, !dpadUp && !dpadDown && axisY >  0.5, 40, 'ArrowDown');
+                    processButton(source, 102, !dpadLeft && !dpadRight && axisX < -0.5, 37, 'ArrowLeft');
+                    processButton(source, 103, !dpadLeft && !dpadRight && axisX >  0.5, 39, 'ArrowRight');
+                    processButton(source, 1, !!gp.buttons[1]?.pressed, 27, 'Escape');
+                });
             }
+            updateCloseHold(pads, allowInput);
+            activeGamepadSources.forEach(source => { if (!seen.has(source)) clearGamepadSource(source); });
+            activeGamepadSources = seen;
         } catch(_) {}
         requestAnimationFrame(pollGamepad);
     }

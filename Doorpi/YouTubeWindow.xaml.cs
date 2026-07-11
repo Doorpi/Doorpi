@@ -757,6 +757,7 @@ namespace Doorpi
     window.__doorpiGamepadInjected = true;
 
     let buttonStates = {}, buttonHoldTimes = {}, buttonRepeatCount = {};
+    let activeGamepadSources = new Set();
 
     function fireKey(code, key) {
         document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, keyCode: code, which: code, key: key }));
@@ -789,24 +790,32 @@ namespace Doorpi
         }
     };
 
-    function processButton(idx, pressed, code, key) {
+    function processButton(source, idx, pressed, code, key) {
+        const stateKey = `${source}:${idx}`;
         if (idx === 1) {
-            if (pressed && !buttonStates[idx])  { window.handleBackButton(); buttonStates[idx] = true; }
-            else if (!pressed)                    buttonStates[idx] = false;
+            if (pressed && !buttonStates[stateKey])  { window.handleBackButton(); buttonStates[stateKey] = true; }
+            else if (!pressed)                       buttonStates[stateKey] = false;
             return;
         }
         if (pressed) {
-            if (!buttonStates[idx]) {
+            if (!buttonStates[stateKey]) {
                 fireKey(code, key);
-                buttonStates[idx] = true; buttonHoldTimes[idx] = Date.now(); buttonRepeatCount[idx] = 0;
+                buttonStates[stateKey] = true; buttonHoldTimes[stateKey] = Date.now(); buttonRepeatCount[stateKey] = 0;
             } else {
-                let held = Date.now() - buttonHoldTimes[idx];
+                let held = Date.now() - buttonHoldTimes[stateKey];
                 if (held > 400) {
                     let expected = Math.floor((held - 400) / 80);
-                    if (expected > buttonRepeatCount[idx]) { fireKey(code, key); buttonRepeatCount[idx] = expected; }
+                    if (expected > buttonRepeatCount[stateKey]) { fireKey(code, key); buttonRepeatCount[stateKey] = expected; }
                 }
             }
-        } else { buttonStates[idx] = false; }
+        } else { buttonStates[stateKey] = false; }
+    }
+
+    function clearGamepadSource(source) {
+        const prefix = `${source}:`;
+        for (const key of Object.keys(buttonStates)) if (key.startsWith(prefix)) delete buttonStates[key];
+        for (const key of Object.keys(buttonHoldTimes)) if (key.startsWith(prefix)) delete buttonHoldTimes[key];
+        for (const key of Object.keys(buttonRepeatCount)) if (key.startsWith(prefix)) delete buttonRepeatCount[key];
     }
 
     const map = {
@@ -817,22 +826,30 @@ namespace Doorpi
 
     function pollGamepad() {
         try {
-            const gp = (navigator.getGamepads?.() ?? [])[0];
-            if (gp && document.hasFocus()) {
-                for (const [idx,[code,key]] of Object.entries(map))
-                    processButton(Number(idx), !!gp.buttons[idx]?.pressed, code, key);
-                const dpadUp = !!gp.buttons[12]?.pressed;
-                const dpadDown = !!gp.buttons[13]?.pressed;
-                const dpadLeft = !!gp.buttons[14]?.pressed;
-                const dpadRight = !!gp.buttons[15]?.pressed;
-                const axisX = gp.axes[0] || 0;
-                const axisY = gp.axes[1] || 0;
-                processButton(100, !dpadUp && !dpadDown && axisY < -0.5, 38, 'ArrowUp');
-                processButton(101, !dpadUp && !dpadDown && axisY >  0.5, 40, 'ArrowDown');
-                processButton(102, !dpadLeft && !dpadRight && axisX < -0.5, 37, 'ArrowLeft');
-                processButton(103, !dpadLeft && !dpadRight && axisX >  0.5, 39, 'ArrowRight');
-                processButton(1, !!gp.buttons[1]?.pressed, 27, 'Escape');
+            const seen = new Set();
+            const pads = Array.from(navigator.getGamepads?.() ?? []).filter(Boolean);
+            if (document.hasFocus()) {
+                pads.forEach((gp, arrayIndex) => {
+                    const source = `gp${Number.isInteger(gp.index) ? gp.index : arrayIndex}`;
+                    seen.add(source);
+                    if (!activeGamepadSources.has(source)) clearGamepadSource(source);
+                    for (const [idx,[code,key]] of Object.entries(map))
+                        processButton(source, Number(idx), !!gp.buttons[idx]?.pressed, code, key);
+                    const dpadUp = !!gp.buttons[12]?.pressed;
+                    const dpadDown = !!gp.buttons[13]?.pressed;
+                    const dpadLeft = !!gp.buttons[14]?.pressed;
+                    const dpadRight = !!gp.buttons[15]?.pressed;
+                    const axisX = gp.axes[0] || 0;
+                    const axisY = gp.axes[1] || 0;
+                    processButton(source, 100, !dpadUp && !dpadDown && axisY < -0.5, 38, 'ArrowUp');
+                    processButton(source, 101, !dpadUp && !dpadDown && axisY >  0.5, 40, 'ArrowDown');
+                    processButton(source, 102, !dpadLeft && !dpadRight && axisX < -0.5, 37, 'ArrowLeft');
+                    processButton(source, 103, !dpadLeft && !dpadRight && axisX >  0.5, 39, 'ArrowRight');
+                    processButton(source, 1, !!gp.buttons[1]?.pressed, 27, 'Escape');
+                });
             }
+            activeGamepadSources.forEach(source => { if (!seen.has(source)) clearGamepadSource(source); });
+            activeGamepadSources = seen;
         } catch(_) {}
         requestAnimationFrame(pollGamepad);
     }

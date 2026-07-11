@@ -5,7 +5,7 @@ window.isNavMenuOpen = false;
 (function () {
 
     // ── Dados Locais ──────────────────────────────────────────────────────────
-    let _menuData = { user: {}, games: [], media: [] };
+    let _menuData = { user: {}, games: [], history: [], media: [] };
     let _menuDataUserId = '';
     let _menuReloadToken = 0;
 
@@ -21,11 +21,12 @@ window.isNavMenuOpen = false;
 
     function _getPlatformData(url) {
         if (!url) return { name: 'Windows / Pasta', svg: PLATFORM_ICONS.Windows };
-        if (url.startsWith('steam://')) return { name: 'Steam', svg: PLATFORM_ICONS.Steam };
-        if (url.startsWith('com.epicgames')) return { name: 'Epic Games', svg: PLATFORM_ICONS.Epic };
-        if (url.startsWith('goggalaxy://')) return { name: 'GOG', svg: PLATFORM_ICONS.GOG };
-        if (url.startsWith('riot:')) return { name: 'Riot Games', svg: PLATFORM_ICONS.Riot };
-        if (/^(xbox:|ms-xbl-)/i.test(url)) return { name: 'Xbox', svg: PLATFORM_ICONS.Xbox };
+        const value = String(url).toLowerCase();
+        if (value === 'steam' || value.startsWith('steam://')) return { name: 'Steam', svg: PLATFORM_ICONS.Steam };
+        if (value === 'epic' || value.startsWith('com.epicgames')) return { name: 'Epic Games', svg: PLATFORM_ICONS.Epic };
+        if (value === 'gog' || value.startsWith('goggalaxy://')) return { name: 'GOG', svg: PLATFORM_ICONS.GOG };
+        if (value === 'riot' || value.startsWith('riot:')) return { name: 'Riot Games', svg: PLATFORM_ICONS.Riot };
+        if (value === 'xbox' || /^(xbox:|ms-xbl-)/i.test(value)) return { name: 'Xbox', svg: PLATFORM_ICONS.Xbox };
         return { name: 'Windows / Pasta', svg: PLATFORM_ICONS.Windows };
     }
 
@@ -742,6 +743,7 @@ window.isNavMenuOpen = false;
         if (!changed && !forceReload) return;
 
         _menuData.games = [];
+        _menuData.history = [];
         _menuData.media = [];
         const activeCatId = CATS[_catIdx]?.id || 'games';
         _destroyLazyGrid();
@@ -1136,17 +1138,19 @@ window.isNavMenuOpen = false;
     function _renderSettingsSystemV2(body) {
         if (_systemSubView === 'startup') { _renderSettingsSystemStartupV2(body); return; }
         if (_systemSubView === 'updates') { _renderSettingsSystemUpdatesV2(body); return; }
+        if (_systemSubView === 'video') { _renderSettingsSystemVideo(body); return; }
 
         const svgPower = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>`;
         const svgUpdate = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v6h-6"/></svg>`;
         const svgDevices = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5.2" width="9.4" height="13.6" rx="2.1"/><circle cx="7.7" cy="14.1" r="2.15"/><circle cx="7.7" cy="9.1" r=".72" fill="currentColor" stroke="none"/><path d="M16.5 6.2v11.6l3.6-3.6-3.6-2.2 3.6-2.2-3.6-3.6Z"/></svg>`;
+        const svgVideo = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>`;
 
         body.innerHTML = `
         <div class="nav-settings-subheader">
             <button class="nav-back-btn" id="setBackSystemHub" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
             <h2>${_t('navSetSystem', 'Sistema')}</h2>
         </div>
-        <div class="nav-settings-grid">
+        <div class="nav-settings-grid nav-system-settings-grid">
             <button class="nav-settings-card" id="setSystemStartup" tabindex="-1">
                 <div class="settings-card-icon">${svgPower}</div>
                 <div class="settings-card-info">
@@ -1168,10 +1172,17 @@ window.isNavMenuOpen = false;
                     <p>${_t('navSetDevicesDesc', 'Bluetooth, som e acessórios conectados')}</p>
                 </div>
             </button>
+            <button class="nav-settings-card" id="setSystemVideo" tabindex="-1">
+                <div class="settings-card-icon">${svgVideo}</div>
+                <div class="settings-card-info">
+                    <h3>${_t('navSetVideo', 'Vídeo')}</h3>
+                    <p>${_t('navSetVideoDesc', 'Escala da interface para TVs, monitores 4K e zoom do Windows')}</p>
+                </div>
+            </button>
             </div>
         </div>`;
 
-        _wireSystemItems(body, ['#setBackSystemHub', '#setSystemStartup', '#setSystemUpdates', '#setSystemDevices']);
+        _wireSystemItems(body, ['#setBackSystemHub', '#setSystemStartup', '#setSystemUpdates', '#setSystemDevices', '#setSystemVideo']);
 
         body.querySelector('#setBackSystemHub')?.addEventListener('click', () => {
             _settingsSubView = null;
@@ -1200,6 +1211,98 @@ window.isNavMenuOpen = false;
             _renderContent('settings');
             _updateContentFocus();
         });
+        body.querySelector('#setSystemVideo')?.addEventListener('click', () => {
+            _systemSubView = 'video';
+            _contentIdx = 0;
+            _renderContent('settings');
+            _updateContentFocus();
+        });
+    }
+
+    function _renderSettingsSystemVideo(body) {
+        if (!document.getElementById('nav-system-video-styles')) {
+            const s = document.createElement('style');
+            s.id = 'nav-system-video-styles';
+            s.textContent = `
+                .nav-video-panel { max-width: 980px; display: grid; gap: 18px; }
+                .nav-video-preview { position:relative; height:min(34vh,320px); overflow:hidden; border-radius:16px; border:1px solid rgba(255,255,255,.12); background:linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(0deg,rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(180deg,rgba(8,10,22,.92),rgba(3,4,12,.96)); background-size:34px 34px,34px 34px,auto; }
+                .nav-video-guide { position:absolute; left:50%; top:50%; width:min(88%,620px); height:72%; transform:translate(-50%,-50%); border:1px solid rgba(255,255,255,.28); border-radius:14px; pointer-events:none; box-shadow:inset 0 0 0 1px rgba(120,190,255,.13),0 0 42px rgba(90,145,255,.08); }
+                .nav-video-guide::before,.nav-video-guide::after { content:''; position:absolute; inset:10px; border-radius:10px; border:1px dashed rgba(120,190,255,.24); }
+                .nav-video-guide::after { inset:auto 14px 14px; height:2px; border:0; background:linear-gradient(90deg,transparent,rgba(120,190,255,.48),transparent); }
+                .nav-video-guide.is-calibrated { border-color:rgba(118,220,158,.72); box-shadow:inset 0 0 0 1px rgba(118,220,158,.18),0 0 42px rgba(90,205,145,.10); }
+                .nav-video-reference,.nav-video-stage { position:absolute; left:50%; top:50%; width:min(52%,280px); transform-origin:center center; }
+                .nav-video-reference { transform:translate(-50%,-50%) scale(var(--nav-video-reference-inverse-scale,1)); opacity:.78; }
+                .nav-video-stage { transform:translate(-50%,-50%) scale(var(--nav-video-target-inverse-scale,1)); opacity:.96; transition:transform .12s ease; }
+                .nav-video-size-sample { width:100%; aspect-ratio:16/7; box-sizing:border-box; border-radius:10px; }
+                .nav-video-reference .nav-video-size-sample { border:1px dashed rgba(210,230,255,.62); background:rgba(120,180,255,.04); }
+                .nav-video-stage .nav-video-size-sample { border:1px solid rgba(150,205,255,.76); background:rgba(120,180,255,.30); box-shadow:0 12px 28px rgba(0,0,0,.30); }
+                .nav-video-stage.is-too-small .nav-video-size-sample { border-color:rgba(125,190,255,.85); }
+                .nav-video-stage.is-too-large .nav-video-size-sample { border-color:rgba(255,190,120,.82); }
+                .nav-video-controls { display:grid; gap:12px; padding:18px; border-radius:14px; border:1px solid rgba(255,255,255,.10); background:rgba(255,255,255,.055); }
+                .nav-video-value { color:rgba(255,255,255,.78); font-size:1rem; font-weight:750; }
+                .nav-video-range { width:100%; accent-color:#78beff; outline:none; }
+                .nav-video-range.nav-focused-el { filter:drop-shadow(0 0 12px rgba(120,190,255,.48)); }
+            `;
+            document.head.appendChild(s);
+        }
+
+        const scale = window.DoorpiLayoutScale?.get?.() || 1;
+        const pct = Math.round(scale * 100);
+        const minScale = window.DoorpiLayoutScale?.min ?? 0.25;
+        const maxScale = window.DoorpiLayoutScale?.max ?? 1.80;
+        const clampScale = raw => Math.max(minScale, Math.min(maxScale, Number(raw) || 1));
+        const dpiScale = Math.max(0.5, Number(window.DoorpiDisplayMetrics?.dpiScale) || 1);
+        const referenceScale = clampScale(1 / dpiScale);
+        const relativeScale = scale / referenceScale;
+        const isCalibrated = Math.abs(scale - referenceScale) <= 0.026;
+        body.innerHTML = `
+        <div class="nav-settings-subheader">
+            <button class="nav-back-btn" id="setBackSystemVideo" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
+            <h2>${_t('navSetVideo', 'Vídeo')}</h2>
+        </div>
+        <div class="nav-video-panel">
+            <p class="dq-sub" style="max-width:820px;margin:0;color:rgba(255,255,255,.55);">${_t('videoLayoutDesc', 'Ajuste a escala visual do Doorpi para compensar zoom do Windows, TVs 4K e distância de uso. O padrão foi calibrado em 2K.')}</p>
+            <div class="nav-video-preview" aria-hidden="true">
+                <div class="nav-video-guide ${isCalibrated ? 'is-calibrated' : ''}" id="navVideoGuide"></div>
+                <div class="nav-video-reference" id="navVideoReference" style="--nav-video-reference-inverse-scale:${(1 / scale).toFixed(4)}">
+                    <div class="nav-video-size-sample"></div>
+                </div>
+                <div class="nav-video-stage ${relativeScale < 0.974 ? 'is-too-small' : (relativeScale > 1.026 ? 'is-too-large' : '')}" id="navVideoPreviewStage" style="--nav-video-target-inverse-scale:${(1 / referenceScale).toFixed(4)}">
+                    <div class="nav-video-size-sample"></div>
+                </div>
+            </div>
+            <div class="nav-video-controls">
+                <div class="nav-video-value" id="navVideoScaleValue">${_t('setupLayoutScaleValue', `Escala da interface: ${pct}%`, pct)}</div>
+                <input class="nav-video-range" id="navVideoScale" type="range" min="25" max="180" step="5" value="${pct}" tabindex="-1">
+            </div>
+        </div>`;
+
+        const sync = raw => {
+            const next = window.DoorpiLayoutScale?.save?.(Number(raw) / 100) || 1;
+            const nextPct = Math.round(next * 100);
+            const value = body.querySelector('#navVideoScaleValue');
+            const stage = body.querySelector('#navVideoPreviewStage');
+            const reference = body.querySelector('#navVideoReference');
+            const guide = body.querySelector('#navVideoGuide');
+            const nextRelativeScale = next / referenceScale;
+            if (value) value.textContent = _t('setupLayoutScaleValue', `Escala da interface: ${nextPct}%`, nextPct);
+            if (stage) {
+                stage.style.setProperty('--nav-video-target-inverse-scale', (1 / referenceScale).toFixed(4));
+                stage.classList.toggle('is-too-small', nextRelativeScale < 0.974);
+                stage.classList.toggle('is-too-large', nextRelativeScale > 1.026);
+            }
+            if (reference) reference.style.setProperty('--nav-video-reference-inverse-scale', (1 / next).toFixed(4));
+            guide?.classList.toggle('is-calibrated', Math.abs(next - referenceScale) <= 0.026);
+        };
+
+        _wireSystemItems(body, ['#setBackSystemVideo', '#navVideoScale']);
+        body.querySelector('#setBackSystemVideo')?.addEventListener('click', () => {
+            _systemSubView = null;
+            _contentIdx = 0;
+            _renderContent('settings');
+            _updateContentFocus();
+        });
+        body.querySelector('#navVideoScale')?.addEventListener('input', e => sync(e.currentTarget.value));
     }
 
     function _renderSettingsSystemStartupV2(body) {
@@ -1525,9 +1628,10 @@ window.isNavMenuOpen = false;
         let loadedMediaFromJson = false;
         try {
             const ts = new Date().getTime();
-            const [uRes, gRes, mRes] = await Promise.allSettled([
+            const [uRes, gRes, hRes, mRes] = await Promise.allSettled([
                 fetch(`https://data.local/user.json?t=${ts}`),
                 fetch(`https://data.local/games.json?t=${ts}`),
+                fetch(`https://data.local/game-history.json?t=${ts}`),
                 fetch(`https://data.local/media.json?t=${ts}`)
             ]);
 
@@ -1549,6 +1653,10 @@ window.isNavMenuOpen = false;
                     ? games.filter(g => !(g.IsPendingArtwork || g.isPendingArtwork) && !_isArtworkPending(g, 'games'))
                     : games;
                 loadedGamesFromJson = true;
+            }
+            if (hRes.status === 'fulfilled' && hRes.value.ok) {
+                const history = await hRes.value.json();
+                _menuData.history = Array.isArray(history) ? history : [];
             }
             if (mRes.status === 'fulfilled' && mRes.value.ok) {
                 _menuData.media = await mRes.value.json();
@@ -1736,6 +1844,7 @@ window.isNavMenuOpen = false;
     let _bgRaf = null;
     let _lastFocus = null;
     let _settingsSubView = null;
+    let _profileSubView = null;
     let _systemSubView = null;
     let _systemUpdatesSubView = 'doorpi';
     let _sharingFocusAppId = '';
@@ -2031,6 +2140,24 @@ window.isNavMenuOpen = false;
     transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1); font-weight: 500;
 }
 .nav-profile-edit-btn.nav-focused-el { background: #fff; color: #000; transform: scale(1.05); box-shadow: 0 10px 30px rgba(255,255,255,0.2); }
+.nav-profile-section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; border-bottom: 1px solid rgba(255,255,255,0.1); margin-top: 10px; }
+.nav-profile-section-head .nav-profile-section-title { border-bottom: 0; margin-top: 0; padding-bottom: 12px; }
+.nav-profile-journey-btn { margin-bottom: 8px; padding: 7px 13px; border: 1px solid rgba(255,255,255,.14); border-radius: 6px; background: rgba(255,255,255,.055); color: rgba(255,255,255,.66); font: inherit; font-size: clamp(.72rem, .78vw, .9rem); font-weight: 600; outline: none; transition: background .16s ease, color .16s ease, border-color .16s ease, transform .16s ease; }
+.nav-profile-journey-btn.nav-focused-el { background: rgba(255,255,255,.16); border-color: #fff; color: #fff; transform: translateY(-2px); }
+
+.nav-profile-history-view { width: min(100%, 1180px); display: flex; flex-direction: column; gap: clamp(18px, 2.4vh, 32px); animation: fadeInTop 0.3s ease; }
+.nav-profile-history-head { display: flex; align-items: center; gap: clamp(18px, 2vw, 30px); }
+.nav-profile-history-head h2 { margin: 0 0 4px; font-size: clamp(1.4rem, 2.2vw, 2.8rem); font-weight: 350; color: #fff; }
+.nav-profile-history-head p { margin: 0; color: rgba(255,255,255,.46); font-size: clamp(.78rem, .9vw, 1rem); }
+.nav-profile-history-list { display: flex; flex-direction: column; gap: 8px; padding: 4px 10px 60px 4px; }
+.nav-profile-history-row { width: 100%; min-height: clamp(72px, 8vh, 104px); display: grid; grid-template-columns: clamp(112px, 12vw, 180px) minmax(0, 1fr) auto; align-items: center; gap: clamp(16px, 2vw, 30px); padding: 8px clamp(14px, 1.5vw, 24px) 8px 8px; border: 1px solid rgba(255,255,255,.08); border-radius: 8px; background: rgba(255,255,255,.035); color: #fff; font: inherit; text-align: left; outline: none; transition: background .16s ease, border-color .16s ease, transform .16s ease; }
+.nav-profile-history-row.nav-focused-el { background: rgba(255,255,255,.11); border-color: rgba(255,255,255,.76); transform: translateX(8px); }
+.nav-profile-history-art { width: 100%; aspect-ratio: 16/9; display: grid; place-items: center; overflow: hidden; border-radius: 6px; background: rgba(0,0,0,.32); }
+.nav-profile-history-art img { width: 100%; height: 100%; object-fit: cover; }
+.nav-profile-history-art img.is-icon { object-fit: contain; padding: 16%; }
+.nav-profile-history-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(.95rem, 1.25vw, 1.45rem); font-weight: 550; }
+.nav-profile-history-time { color: rgba(255,255,255,.66); font-size: clamp(.82rem, 1vw, 1.12rem); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.nav-profile-history-empty { padding: 50px 0; color: rgba(255,255,255,.35); }
 
 .nav-profile-stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: clamp(10px, 1.5vw, 24px); }
 .nav-profile-stat-box {
@@ -2094,6 +2221,15 @@ window.isNavMenuOpen = false;
     width: fit-content;
     max-width: 100%;
     column-gap: clamp(14px, 1.4vw, 28px);
+}
+.nav-settings-grid.nav-system-settings-grid {
+    --settings-card-w: auto;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    width: min(100%, 1520px);
+}
+.nav-settings-grid.nav-system-settings-grid > .nav-settings-card {
+    width: 100%;
+    max-width: none;
 }
 .nav-settings-card {
     background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 16px;
@@ -2595,6 +2731,7 @@ window.isNavMenuOpen = false;
             _preserveSettingsSubViewOnce = false;
         } else {
             _settingsSubView = null;
+            _profileSubView = null;
         }
 
         document.querySelectorAll('.nav-cat-item').forEach((el, i) => {
@@ -2626,13 +2763,16 @@ window.isNavMenuOpen = false;
         _renderContent(cat.id);
 
         if (cat.id === 'profile') {
-            fetch(`https://data.local/games.json?t=${new Date().getTime()}`)
-                .then(r => r.json())
-                .then(games => {
-                    if (!Array.isArray(games)) return;
-                    _menuData.games = games.filter(g => !(g.IsPendingArtwork || g.isPendingArtwork) && !_isArtworkPending(g, 'games'));
+            Promise.all([
+                fetch(`https://data.local/games.json?t=${new Date().getTime()}`).then(r => r.json()),
+                fetch(`https://data.local/game-history.json?t=${new Date().getTime()}`).then(r => r.json())
+            ])
+                .then(([games, history]) => {
+                    if (Array.isArray(games))
+                        _menuData.games = games.filter(g => !(g.IsPendingArtwork || g.isPendingArtwork) && !_isArtworkPending(g, 'games'));
+                    if (Array.isArray(history)) _menuData.history = history;
                     if (CATS[_catIdx]?.id === 'profile') {
-                        _renderProfile(document.getElementById('navContentBody'));
+                        _renderContent('profile');
                         _updateContentFocus();
                     }
                 }).catch(() => { });
@@ -2741,7 +2881,8 @@ window.isNavMenuOpen = false;
                 _contentItems = [];
                 _detachDualPane(body);
                 body.innerHTML = '';
-                _renderProfile(body);
+                if (_profileSubView === 'history') _renderProfileHistory(body);
+                else _renderProfile(body);
                 break;
         }
     }
@@ -2752,16 +2893,17 @@ window.isNavMenuOpen = false;
         const name = prof.Name || '—';
         const photo = prof.PhotoBase64 || '';
         const games = _menuData.games || [];
+        const history = _menuData.history || [];
 
         const totalGames = games.length;
 
-        const totalMinutes = games.reduce((sum, g) => sum + (g.TotalPlaytimeMinutes || 0), 0);
+        const totalMinutes = history.reduce((sum, g) => sum + (g.TotalPlaytimeMinutes || 0), 0);
 
-        const mostPlayed = [...games]
+        const mostPlayed = [...history]
             .filter(g => (g.TotalPlaytimeMinutes || 0) > 0)
             .sort((a, b) => b.TotalPlaytimeMinutes - a.TotalPlaytimeMinutes)[0];
 
-        const recentGames = games
+        const recentGames = history
             .filter(g => g.LastPlayed && !g.LastPlayed.startsWith('0001-01-01'))
             .sort((a, b) => new Date(b.LastPlayed) - new Date(a.LastPlayed))
             .slice(0, 6);
@@ -2824,7 +2966,12 @@ window.isNavMenuOpen = false;
                 </div>
             </div>
 
-            <div class="nav-profile-section-title">${_t('navRecentGames', 'Jogados Recentemente')}</div>
+            <div class="nav-profile-section-head">
+                <div class="nav-profile-section-title">${_t('navRecentGames', 'Jogados Recentemente')}</div>
+                <button class="nav-profile-journey-btn" id="btnGameHistory" tabindex="-1">
+                    ${_t('navGameHistoryBtn', 'Ver jornada')}
+                </button>
+            </div>
             <div class="nav-profile-recent-grid" id="profileRecentGrid"></div>
         </div>
     `;
@@ -2849,6 +2996,17 @@ window.isNavMenuOpen = false;
             });
         }
 
+        const btnHistory = body.querySelector('#btnGameHistory');
+        if (btnHistory) {
+            _contentItems.push(btnHistory);
+            btnHistory.addEventListener('click', () => {
+                _profileSubView = 'history';
+                _contentIdx = 0;
+                _renderContent('profile');
+                _setTopbarFocus(false);
+            });
+        }
+
         const grid = body.querySelector('#profileRecentGrid');
 
         if (recentGames.length === 0) {
@@ -2861,7 +3019,7 @@ window.isNavMenuOpen = false;
                 const totalFmtItem = fmtTime(item.TotalPlaytimeMinutes);
                 const lastFmt = fmtTime(item.LastSessionMinutes);
                 const dateStr = relDate(item.LastPlayed);
-                const pData = _getPlatformData(item.LaunchUrl);
+                const pData = _getPlatformData(item.LaunchUrl || item.Source);
 
                 const card = document.createElement('div');
                 card.className = 'nav-profile-recent-card';
@@ -2901,6 +3059,70 @@ window.isNavMenuOpen = false;
                 });
             });
         }
+    }
+
+    function _renderProfileHistory(body) {
+        const history = [...(_menuData.history || [])]
+            .filter(item => item?.Name)
+            .sort((a, b) => (b.TotalPlaytimeMinutes || 0) - (a.TotalPlaytimeMinutes || 0));
+        const fmtTime = (minutes) => {
+            const total = Math.max(0, Number(minutes) || 0);
+            const h = Math.floor(total / 60);
+            const m = total % 60;
+            if (h === 0) return `${m} min`;
+            if (m === 0) return `${h} h`;
+            return `${h} h ${m} min`;
+        };
+
+        body.innerHTML = `
+            <div class="nav-profile-history-view">
+                <div class="nav-profile-history-head">
+                    <button class="nav-back-btn" id="profileHistoryBack" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
+                    <div>
+                        <h2>${_t('navGameHistoryTitle', 'Minha jornada')}</h2>
+                        <p>${_t('navGameHistorySub', 'Todos os jogos registrados neste perfil')}</p>
+                    </div>
+                </div>
+                <div class="nav-profile-history-list" id="profileHistoryList"></div>
+            </div>`;
+
+        const back = body.querySelector('#profileHistoryBack');
+        const list = body.querySelector('#profileHistoryList');
+        _contentItems = [back];
+
+        back?.addEventListener('click', () => {
+            _profileSubView = null;
+            _contentIdx = 0;
+            _renderContent('profile');
+            _setTopbarFocus(false);
+        });
+
+        if (history.length === 0) {
+            list.innerHTML = `<div class="nav-profile-history-empty">${_t('navGameHistoryEmpty', 'Nenhum jogo foi jogado ainda')}</div>`;
+        } else {
+            history.forEach(item => {
+                const image = item.GridHorizontalStaticImage || item.GridHorizontalImage || item.GridStaticImage || item.GridImage || '';
+                const icon = item.IconBase64 ? `data:image/png;base64,${item.IconBase64}` : '';
+                const row = document.createElement('button');
+                row.type = 'button';
+                row.tabIndex = -1;
+                row.className = 'nav-profile-history-row';
+                row.innerHTML = `
+                    <span class="nav-profile-history-art">
+                        ${image ? `<img src="${_esc(image)}" alt="" />` : icon ? `<img class="is-icon" src="${_esc(icon)}" alt="" />` : ''}
+                    </span>
+                    <span class="nav-profile-history-name">${_esc(item.Name)}</span>
+                    <span class="nav-profile-history-time">${fmtTime(item.TotalPlaytimeMinutes)}</span>`;
+                list.appendChild(row);
+                _contentItems.push(row);
+            });
+        }
+
+        _contentItems.forEach((element, index) => element?.addEventListener('mouseenter', () => {
+            _topbarFocus = false;
+            _contentIdx = index;
+            _updateContentFocus();
+        }));
     }
 
     // ── Novo Hub de Configurações ─────────────────────────────────────────────
@@ -5105,10 +5327,7 @@ window.isNavMenuOpen = false;
                 moveFocus(dirMap[e.key]);
             }
             else if (e.key === 'Escape') { window._vkbCancel?.(); }
-            else if (e.key === 'Enter') {
-                if (window._doorpiVkbShouldConfirmEnter?.()) window._vkbConfirm?.();
-                else document.activeElement?.click();
-            }
+            else if (e.key === 'Enter') { window._vkbConfirm?.(); }
             else if (e.key === 'Backspace') { window._vkbPhysicalKey?.('Backspace'); }
             else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
                 window._vkbPhysicalKey?.(e.key);
@@ -5408,6 +5627,20 @@ window.isNavMenuOpen = false;
                     return;
                 }
 
+                if (_systemSubView === 'video') {
+                    const activeItem = _contentItems[_contentIdx];
+                    if (activeItem?.id === 'navVideoScale' && (key === 'ArrowLeft' || key === 'ArrowRight')) {
+                        const delta = key === 'ArrowRight' ? 5 : -5;
+                        const min = Number(activeItem.min || 25);
+                        const max = Number(activeItem.max || 180);
+                        const next = Math.max(min, Math.min(max, Number(activeItem.value || 100) + delta));
+                        activeItem.value = String(next);
+                        activeItem.dispatchEvent(new Event('input', { bubbles: true }));
+                        _updateContentFocus();
+                        return;
+                    }
+                }
+
                 if (_systemSubView === 'updates') {
                     const tabDoorpiIdx = _contentItems.findIndex(el => el?.id === 'updatesTabDoorpi');
                     const tabWindowsIdx = _contentItems.findIndex(el => el?.id === 'updatesTabWindows');
@@ -5524,15 +5757,15 @@ window.isNavMenuOpen = false;
                 if (_contentIdx < total - 1) { _contentIdx++; _updateContentFocus(); }
                 break;
             case 'ArrowUp':
-                if (CATS[_catIdx]?.id === 'profile' && _contentIdx > 0) {
-                    _contentIdx = 0; _updateContentFocus(); break;
+                if (CATS[_catIdx]?.id === 'profile' && !_profileSubView && _contentIdx > 0) {
+                    _contentIdx = _contentIdx >= 2 ? 1 : 0; _updateContentFocus(); break;
                 }
                 if (_contentIdx < cols) { _setTopbarFocus(true); }
                 else { _contentIdx = Math.max(0, _contentIdx - cols); _updateContentFocus(); }
                 break;
             case 'ArrowDown':
-                if (CATS[_catIdx]?.id === 'profile' && _contentIdx === 0 && total > 1) {
-                    _contentIdx = 1; _updateContentFocus(); break;
+                if (CATS[_catIdx]?.id === 'profile' && !_profileSubView && _contentIdx <= 1 && total > 1) {
+                    _contentIdx = _contentIdx === 0 ? 1 : (total > 2 ? 2 : 1); _updateContentFocus(); break;
                 }
                 if (_contentIdx + cols < total) { _contentIdx += cols; _updateContentFocus(); }
                 break;
@@ -5553,7 +5786,12 @@ window.isNavMenuOpen = false;
             }
             case 'Escape':
             case 'Backspace':
-                if (CATS[_catIdx]?.id === 'settings' && _settingsSubView) {
+                if (CATS[_catIdx]?.id === 'profile' && _profileSubView === 'history') {
+                    _profileSubView = null;
+                    _contentIdx = 0;
+                    _renderContent('profile');
+                    _setTopbarFocus(false);
+                } else if (CATS[_catIdx]?.id === 'settings' && _settingsSubView) {
                     if (_settingsSubView === 'bluetooth' && _bluetoothUpdateStatus?.pairingPrompt) {
                         postToHost?.({ action: 'respondBluetoothPairing', accepted: false, pin: '' });
                         return true;

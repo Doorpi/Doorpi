@@ -125,7 +125,9 @@ public partial class MainWindow : Window
 
             state.Phase = "succeeded";
             stateStore.Save(state);
+            UpdateArtifactCleaner.CleanupCompletedOperation(state);
             stateStore.Clear();
+            UpdateArtifactCleaner.CleanupInactiveArtifacts();
 
             SetStatus("Atualização concluída.", 1);
             await Task.Delay(800);

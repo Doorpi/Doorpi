@@ -6,6 +6,10 @@ html {
     font-size: 16px;
 }
 
+:root {
+    --doorpi-layout-scale: 1;
+}
+
 @media (max-height: 800px) {
     html { font-size: 14px; }
 }
@@ -473,6 +477,7 @@ body {
         line-height: 1.3;
         text-align:end;
     }
+
 .vkb-overlay {
     position: fixed;
     top: 50%;
