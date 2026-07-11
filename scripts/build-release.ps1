@@ -154,18 +154,6 @@ function Get-ManifestSigningPayload([object]$manifest) {
         for ($itemIndex = 0; $itemIndex -lt $entry.items.Count; $itemIndex++) {
             Add-SigningLine $builder "changelog.$i.items.$itemIndex" $entry.items[$itemIndex]
         }
-        $locales = Get-ManifestField $entry "locales"
-        if ($locales) {
-            $localeNames = @(Get-ManifestMemberNames $locales | Sort-Object)
-            foreach ($localeName in $localeNames) {
-                $locale = Get-ManifestField $locales $localeName
-                Add-SigningLine $builder "changelog.$i.locales.$localeName.title" (Get-ManifestField $locale "title")
-                $items = @(Get-ManifestField $locale "items")
-                for ($itemIndex = 0; $itemIndex -lt $items.Count; $itemIndex++) {
-                    Add-SigningLine $builder "changelog.$i.locales.$localeName.items.$itemIndex" $items[$itemIndex]
-                }
-            }
-        }
     }
 
     return $builder.ToString()

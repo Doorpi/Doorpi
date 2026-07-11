@@ -1,15 +1,15 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202607110332,
-    "publishedAt":  "2026-07-11T06:32:38.1012037Z",
-    "expiresAt":  "2026-07-25T06:32:38.1012037Z",
+    "manifestVersion":  202607110346,
+    "publishedAt":  "2026-07-11T06:46:49.5873302Z",
+    "expiresAt":  "2026-07-25T06:46:49.5873302Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
                    "version":  "0.1.6",
                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.6/doorpi-0.1.6.doorpiupdate.zip",
-                   "sha256":  "1af40f3d499290a12b694c1151f5e661f790cf33f7da37b7d3906eb38555f6a4",
-                   "sizeBytes":  132911307,
+                   "sha256":  "6bce5aef386a8bf1734c19c6d324426e2be29ab4cc79a39c7f893d0b4ed0c4f0",
+                   "sizeBytes":  132910739,
                    "minUpdaterVersion":  "0.1.0",
                    "forceUpdate":  false,
                    "allowRollback":  false
@@ -17,8 +17,8 @@
     "updater":  {
                     "version":  "0.1.0",
                     "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.6/updater-0.1.0.doorpiupdate.zip",
-                    "sha256":  "9e11903dcc304ca729facd9ad3bb7eb3ea641e14d1beb52b5aa6e44a44778181",
-                    "sizeBytes":  69945048,
+                    "sha256":  "2ebe008938e7fe37466fd1586824cdcbb757ac2a44849afde71bf77cd02dfd15",
+                    "sizeBytes":  69944473,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
@@ -75,6 +75,6 @@
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "iedyocb+ET/vtCR2D2QHpIW9uDzQIPUIiRLsXmAwkrbJ7gpIbgjTVbZBRzdeK6cg+cZaJXZDcNPUSugYyV5sHzPL3wGhZIu+IELDmUfHhsl/gQCdow2BGGSSg/Ah3LiHbenXtFaY8Ld9sIIhHnv9H6Agg6IBF/D08Q1pSGKegHah0bwWKKjz0B/OnFqSJ1XdXZTcPgyWfWvc9G3yQcVlwD2u9T0XOXZtnFMsnwXwbrU7SHs4sIMW/nkoCnZxsIMJjhXuZotvFZ1fcWRmQmWLfVuwP80EFH//w8n+neBNrdtHnaqncekxNGpocXqDDLtuVu8eOm4+JnUgazPfnWO8+SPKvrzILyfCa/7Ao9jK9pMjJWwGur2YRGCwenqh9fpRs4KBFW1ttu8yERrfJz4DeMVbKJWMEB6DrmZV675IkdiWgqAJBEFcHzG/oDQhvpxlM9keCY5/iw5MzgqoF5M+NLahnLCYA7PxEHDl9NoRB0CWulFYRTC/3PDfB+mDCidV"
+                      "value":  "noIQ6kEqSl3Q/rgwBd49qOULNbPOo3OiCwSwq/r+dA9TgQ61EAGPgqDe0lN2qpRdzOYCMN5YZMDS8yxrqvoXveOs4JPEcVJ7znLlsSRr6o2mauHgI6mPsi67SFCrbvROQgCVlShULi9JKWKhlWcMxyD4odC44BmTmS7uG6s98b1ax2WreUmn7p2xQrs61DSpFWjGp3NDhiNOE1uEiXH9WheqiYpHETVmheT4vEm7qZuQVqwDKQEq2034Qd1v/nxzWlfCQPT8vdx4RN5hqIILhZPXd2ZxY9r4EqIVKz/a/H7cQHpEq1gt1Q/PpWXHNSN3szYk0PZnW7iRUb5tRE/j/HdCFivqNUlR5FSosOdrBuVDbElC1fsso/LJq/8/i75WtG7PmxDgCZZDCqbRVQvokWZTfkk9sRBNDOhpBbFrFtj8uLUICHhYIMLtc9a2tbEi42ELlQd7S2Rph+mHl4Zx4j8HivviMR4/78G9G+AryyKTJjpmCkLbFHEgpR+/YL8W"
                   }
 }

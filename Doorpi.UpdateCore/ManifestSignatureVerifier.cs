@@ -29,14 +29,6 @@ public static class ManifestSignatureVerifier
             Append(builder, $"changelog.{i}.title", entry.Title);
             for (int itemIndex = 0; itemIndex < entry.Items.Count; itemIndex++)
                 Append(builder, $"changelog.{i}.items.{itemIndex}", entry.Items[itemIndex]);
-
-            foreach (var locale in entry.Locales.OrderBy(pair => pair.Key, StringComparer.Ordinal))
-            {
-                Append(builder, $"changelog.{i}.locales.{locale.Key}.title", locale.Value?.Title);
-                var items = locale.Value?.Items ?? [];
-                for (int itemIndex = 0; itemIndex < items.Count; itemIndex++)
-                    Append(builder, $"changelog.{i}.locales.{locale.Key}.items.{itemIndex}", items[itemIndex]);
-            }
         }
 
         return builder.ToString();
