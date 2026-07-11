@@ -920,7 +920,7 @@ window.isNavMenuOpen = false;
                     </div>
                     <div id="systemUpdateVersions" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;color:rgba(255,255,255,.62);font-size:.84rem;white-space:nowrap;"></div>
                 </div>
-                <ul id="systemUpdateChangelog" style="margin:12px 0 0;padding-left:18px;color:rgba(255,255,255,.48);font-size:.86rem;line-height:1.45;"></ul>
+                <section id="systemUpdateChangelog" class="nav-release-notes" tabindex="-1" role="button"></section>
             </div>
 
             <div class="nav-suggestions-grid" id="navUpdateActionsGrid" style="margin-bottom:18px;">
@@ -1176,7 +1176,7 @@ window.isNavMenuOpen = false;
                 <div class="settings-card-icon">${svgVideo}</div>
                 <div class="settings-card-info">
                     <h3>${_t('navSetVideo', 'Vídeo')}</h3>
-                    <p>${_t('navSetVideoDesc', 'Escala da interface para TVs, monitores 4K e zoom do Windows')}</p>
+                    <p>${_t('navSetVideoDesc', 'Ajuste a escala visual do Doorpi')}</p>
                 </div>
             </button>
             </div>
@@ -1261,7 +1261,7 @@ window.isNavMenuOpen = false;
             <h2>${_t('navSetVideo', 'Vídeo')}</h2>
         </div>
         <div class="nav-video-panel">
-            <p class="dq-sub" style="max-width:820px;margin:0;color:rgba(255,255,255,.55);">${_t('videoLayoutDesc', 'Ajuste a escala visual do Doorpi para compensar zoom do Windows, TVs 4K e distância de uso. O padrão foi calibrado em 2K.')}</p>
+            <p class="dq-sub" style="max-width:820px;margin:0;color:rgba(255,255,255,.55);">${_t('videoLayoutDesc', 'Ajuste a escala visual do Doorpi.')}</p>
             <div class="nav-video-preview" aria-hidden="true">
                 <div class="nav-video-guide ${isCalibrated ? 'is-calibrated' : ''}" id="navVideoGuide"></div>
                 <div class="nav-video-reference" id="navVideoReference" style="--nav-video-reference-inverse-scale:${(1 / scale).toFixed(4)}">
@@ -1413,6 +1413,7 @@ window.isNavMenuOpen = false;
 
     function _renderSettingsSystemUpdatesV2(body) {
         const active = _systemUpdatesSubView || 'doorpi';
+        if (active !== 'doorpi') _releaseNotesScrollActive = false;
         const doorpiActive = active === 'doorpi';
         const windowsActive = active === 'windows';
         const gpuActive = active === 'gpu';
@@ -1427,6 +1428,15 @@ window.isNavMenuOpen = false;
                 .nav-gpu-guidance { display:grid; gap:7px; margin:0 0 18px; padding-left:14px; border-left:2px solid rgba(125,203,255,.48); }
                 .nav-gpu-guidance p { margin:0; color:rgba(255,255,255,.56); font-size:.84rem; line-height:1.42; }
                 .nav-gpu-guidance strong { color:rgba(255,255,255,.84); font-weight:650; }
+                .nav-release-notes { max-height:min(42vh, 430px); margin:16px 0 0; padding:0 14px 0 0; overflow-y:auto; border-top:1px solid rgba(255,255,255,.10); outline:none; scroll-behavior:smooth; }
+                .nav-release-notes.nav-focused-el { border-top-color:rgba(125,203,255,.82); box-shadow:0 -2px 0 rgba(125,203,255,.18); }
+                .nav-release-notes.is-scroll-active { border-top-color:#7dcbff; box-shadow:0 -2px 0 rgba(125,203,255,.48); }
+                .nav-release-notes-head { position:sticky; top:0; z-index:1; display:flex; align-items:center; min-height:42px; background:rgba(18,25,42,.96); color:rgba(255,255,255,.86); font-size:.78rem; font-weight:750; letter-spacing:.09em; }
+                .nav-release-entry { padding:14px 0 16px; border-top:1px solid rgba(255,255,255,.07); }
+                .nav-release-entry:first-of-type { border-top:0; }
+                .nav-release-entry-title { color:#fff; font-size:1rem; font-weight:650; line-height:1.3; }
+                .nav-release-entry-version { margin-left:8px; color:#7dcbff; font-size:.78rem; font-weight:700; }
+                .nav-release-entry ul { display:grid; gap:8px; margin:10px 0 0; padding:0 0 0 20px; color:rgba(255,255,255,.66); font-size:.9rem; line-height:1.48; }
             `;
             document.head.appendChild(s);
         }
@@ -1527,6 +1537,7 @@ window.isNavMenuOpen = false;
             '#updatesTabDoorpi',
             '#updatesTabWindows',
             '#updatesTabGpu',
+            '#systemUpdateChangelog',
             '#navCardCheckUpdates',
             '#navCardStartUpdate',
             '#navCardCheckWindowsUpdates',
@@ -1551,8 +1562,15 @@ window.isNavMenuOpen = false;
             _renderContent('settings');
             _updateContentFocus();
         });
+        body.querySelector('#systemUpdateChangelog')?.addEventListener('click', event => {
+            const notes = event.currentTarget;
+            _releaseNotesScrollActive = true;
+            notes.classList.add('is-scroll-active');
+            notes.focus({ preventScroll: true });
+        });
         body.querySelectorAll('[data-updates-tab]').forEach(btn => {
             btn.addEventListener('click', () => {
+                _releaseNotesScrollActive = false;
                 _systemUpdatesSubView = btn.dataset.updatesTab || 'doorpi';
                 _contentIdx = _systemUpdatesSubView === 'gpu' ? 3 : (_systemUpdatesSubView === 'windows' ? 2 : 1);
                 _renderContent('settings');
@@ -1847,6 +1865,7 @@ window.isNavMenuOpen = false;
     let _profileSubView = null;
     let _systemSubView = null;
     let _systemUpdatesSubView = 'doorpi';
+    let _releaseNotesScrollActive = false;
     let _sharingFocusAppId = '';
     let _sharingSubView = 'apps';
     let _sharingFocusStoreId = 'Steam';
@@ -3249,11 +3268,23 @@ window.isNavMenuOpen = false;
         }
 
         if (changelog) {
-            const first = Array.isArray(status.changelog) ? status.changelog[0] : null;
-            const items = first?.items || [];
-            changelog.innerHTML = items.length
-                ? items.slice(0, 3).map(item => `<li>${_esc(item)}</li>`).join('')
-                : `<li>${_t('sysUpdateNoChangelog', '')}</li>`;
+            const entries = Array.isArray(status.changelog) ? status.changelog : [];
+            const renderedEntries = entries
+                .filter(entry => entry && (entry.title || entry.version || (entry.items || []).length))
+                .map(entry => {
+                    const items = Array.isArray(entry.items) ? entry.items : [];
+                    const version = entry.version ? `<span class="nav-release-entry-version">${_esc(entry.version)}</span>` : '';
+                    return `
+                        <article class="nav-release-entry">
+                            <div class="nav-release-entry-title">${_esc(entry.title || 'Doorpi')}${version}</div>
+                            ${items.length ? `<ul>${items.map(item => `<li>${_esc(item)}</li>`).join('')}</ul>` : ''}
+                        </article>`;
+                })
+                .join('');
+
+            changelog.innerHTML = `
+                <div class="nav-release-notes-head">${_t('sysUpdateReleaseNotes', 'Notas da versão')}</div>
+                ${renderedEntries || `<div class="nav-release-entry">${_t('sysUpdateNoChangelog', '')}</div>`}`;
         }
 
         if (startBtn) {
@@ -5276,9 +5307,24 @@ window.isNavMenuOpen = false;
         return true;
     };
 
+    window._navMenuExitReleaseNotesScroll = function () {
+        if (!_releaseNotesScrollActive) return false;
+
+        const notes = document.getElementById('systemUpdateChangelog');
+        if (!notes || notes.offsetParent === null) {
+            _releaseNotesScrollActive = false;
+            return false;
+        }
+        _releaseNotesScrollActive = false;
+        notes?.classList.remove('is-scroll-active');
+        notes?.focus({ preventScroll: true });
+        return true;
+    };
+
     window._navMenuHandleKey = function (key) {
         if (window._vkbIsOpen) return false;
         if (_navMenuPhase === 'closing') return false;
+        if ((key === 'Escape' || key === 'Backspace') && window._navMenuExitReleaseNotesScroll?.()) return true;
         if ((key === 'L1' || key === 'R1') && window._navMenuCycleSharingSubtab?.(key === 'R1' ? 1 : -1)) return true;
         if (key === 'L1') { window._navMenuCycleTab(-1); return true; }
         if (key === 'R1') { window._navMenuCycleTab(1); return true; }
@@ -5364,6 +5410,7 @@ window.isNavMenuOpen = false;
                 }
             }
             if (e.key === 'Escape' || e.key === 'Backspace') {
+                if (window._navMenuExitReleaseNotesScroll?.()) return;
                 if (window.requestDoorpiBackAction?.()) return;
                 return;
             }
@@ -5400,6 +5447,32 @@ window.isNavMenuOpen = false;
     function _navContent(key) {
         const cols = _gridCols();
         const total = _contentItems.length;
+
+        if (CATS[_catIdx]?.id === 'settings' &&
+            _settingsSubView === 'system' &&
+            _systemSubView === 'updates' &&
+            _systemUpdatesSubView === 'doorpi') {
+            const notes = document.getElementById('systemUpdateChangelog');
+            const focusedNotes = _contentItems[_contentIdx] === notes;
+
+            if (_releaseNotesScrollActive && notes) {
+                const delta = key === 'ArrowDown' ? 96
+                    : key === 'ArrowUp' ? -96
+                    : key === 'ArrowRight' ? 320
+                    : key === 'ArrowLeft' ? -320
+                    : 0;
+                if (delta !== 0) {
+                    notes.scrollBy({ top: delta, behavior: 'smooth' });
+                    return true;
+                }
+                if (key === 'Enter') return true;
+            }
+
+            if (focusedNotes && key === 'Enter') {
+                notes?.click();
+                return true;
+            }
+        }
 
         if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'bluetooth' &&
             ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {

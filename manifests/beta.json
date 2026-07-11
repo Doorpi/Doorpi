@@ -1,39 +1,80 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202607032156,
-    "publishedAt":  "2026-07-04T00:57:20.6758002Z",
-    "expiresAt":  "2026-07-18T00:57:20.6758002Z",
+    "manifestVersion":  202607110332,
+    "publishedAt":  "2026-07-11T06:32:38.1012037Z",
+    "expiresAt":  "2026-07-25T06:32:38.1012037Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.1.5",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.5/doorpi-0.1.5.doorpiupdate.zip",
-                   "sha256":  "1137564a647e35535415a2263a9083f417eeab9dcfa3c912a13b871ca98cb830",
-                   "sizeBytes":  132868115,
+                   "version":  "0.1.6",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.6/doorpi-0.1.6.doorpiupdate.zip",
+                   "sha256":  "1af40f3d499290a12b694c1151f5e661f790cf33f7da37b7d3906eb38555f6a4",
+                   "sizeBytes":  132911307,
                    "minUpdaterVersion":  "0.1.0",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
                     "version":  "0.1.0",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.5/updater-0.1.0.doorpiupdate.zip",
-                    "sha256":  "c6a285daa4f1291041f5f7b9dbb46a2e76fc1f26ba8b57a5318e84eb2a7ee477",
-                    "sizeBytes":  69942969,
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.6/updater-0.1.0.doorpiupdate.zip",
+                    "sha256":  "9e11903dcc304ca729facd9ad3bb7eb3ea641e14d1beb52b5aa6e44a44778181",
+                    "sizeBytes":  69945048,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.1.5",
-                          "title":  "Doorpi 0.1.5",
+                          "version":  "0.1.6",
+                          "title":  "Doorpi 0.1.6",
                           "items":  [
-                                        "Hotfix: corrigidos inputs com cliques duplicados em certos cenários do sistema."
-                                    ]
+                                        "Compatibilidade com YouTube Music.",
+                                        "Tela de perfil com histórico completo de jogos, artes e horas registradas.",
+                                        "Nova opção de ajuste de responsividade do layout.",
+                                        "Maior velocidade no SteamGrid.",
+                                        "Central de notificações na Home.",
+                                        "Recuperação automática de jogos e aplicativos “Não respondendo”.",
+                                        "Corrigida a identificação de janela errada na loja Xbox.",
+                                        "Correções no quick panel.",
+                                        "Cliques não devem mais vazar ao interagir com o sistema.",
+                                        "Sistema responsivo a múltiplos controles."
+                                    ],
+                          "locales":  {
+                                          "pt-BR":  {
+                                                        "title":  "Doorpi 0.1.6",
+                                                        "items":  [
+                                                                      "Compatibilidade com YouTube Music.",
+                                                                      "Tela de perfil com histórico completo de jogos, artes e horas registradas.",
+                                                                      "Nova opção de ajuste de responsividade do layout.",
+                                                                      "Maior velocidade no SteamGrid.",
+                                                                      "Central de notificações na Home.",
+                                                                      "Recuperação automática de jogos e aplicativos “Não respondendo”.",
+                                                                      "Corrigida a identificação de janela errada na loja Xbox.",
+                                                                      "Correções no quick panel.",
+                                                                      "Cliques não devem mais vazar ao interagir com o sistema.",
+                                                                      "Sistema responsivo a múltiplos controles."
+                                                                  ]
+                                                    },
+                                          "en":  {
+                                                     "title":  "Doorpi 0.1.6",
+                                                     "items":  [
+                                                                   "YouTube Music compatibility.",
+                                                                   "Profile screen with complete game history, artwork, and recorded play time.",
+                                                                   "New layout responsiveness adjustment option.",
+                                                                   "Faster SteamGrid performance.",
+                                                                   "Notification center on Home.",
+                                                                   "Automatic recovery for games and apps marked as “Not responding”.",
+                                                                   "Fixed incorrect window identification in the Xbox store.",
+                                                                   "Quick panel fixes.",
+                                                                   "Clicks should no longer leak while interacting with the system.",
+                                                                   "System now responds correctly to multiple controllers."
+                                                               ]
+                                                 }
+                                      }
                       }
                   ],
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "MudayCHQcCeXVyLl7BDARwuVtuzg8WEzq+4nYxvROzcv9o1bScUX7HDt4oN91XX7MlVOjkY9YvMXZpZAShiC4n91RC7jk5+HqzxiyTXkyt3x2OJjQVdVyAwb/ysLohYJkmpJqWk+6tNi2sH/n9B074vriHlgi+fR/guE9SvnznYTjBk0YIBFVWe0Vl/TQRHJto+6w7P/JvietQrKHwsaKfHQQLMvghZF/EAAXmXeLyhRLFaOk7iYSo4K4xozBQlavCfHIaIEzbqJEGVz8jFXkC5sM1uIsJwTcOKHoeN6u2B5sFnR6RTRTYy57rXWZMmrjWFeP37OJIsfLJ4V/jSC3pUeE4JqjA1xysZMjoV8Xt0bztSDbngg8yDkvKY6HBX5H1ypm++osc9Evd2pg/mSJ2SNf3C2AIma19jWqpi6Vyi9fXkHQ1e8eCkZCT5sM9GT6v9co4AC2nbDKQH+gIPeCR+FzTz9sp02dSoabfsIsXc3u/nVUnYlha7WbyE9LK9n"
+                      "value":  "iedyocb+ET/vtCR2D2QHpIW9uDzQIPUIiRLsXmAwkrbJ7gpIbgjTVbZBRzdeK6cg+cZaJXZDcNPUSugYyV5sHzPL3wGhZIu+IELDmUfHhsl/gQCdow2BGGSSg/Ah3LiHbenXtFaY8Ld9sIIhHnv9H6Agg6IBF/D08Q1pSGKegHah0bwWKKjz0B/OnFqSJ1XdXZTcPgyWfWvc9G3yQcVlwD2u9T0XOXZtnFMsnwXwbrU7SHs4sIMW/nkoCnZxsIMJjhXuZotvFZ1fcWRmQmWLfVuwP80EFH//w8n+neBNrdtHnaqncekxNGpocXqDDLtuVu8eOm4+JnUgazPfnWO8+SPKvrzILyfCa/7Ao9jK9pMjJWwGur2YRGCwenqh9fpRs4KBFW1ttu8yERrfJz4DeMVbKJWMEB6DrmZV675IkdiWgqAJBEFcHzG/oDQhvpxlM9keCY5/iw5MzgqoF5M+NLahnLCYA7PxEHDl9NoRB0CWulFYRTC/3PDfB+mDCidV"
                   }
 }

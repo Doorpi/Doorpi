@@ -3062,6 +3062,20 @@ namespace Doorpi
             return result;
         }
 
+        private async Task WaitForPrimaryControllerReleaseAsync()
+        {
+            const int timeoutMs = 2500;
+            const int pollMs = 10;
+
+            for (int elapsed = 0; elapsed < timeoutMs; elapsed += pollMs)
+            {
+                if ((GetUnifiedControllerInput().Buttons & XI_A) == 0)
+                    return;
+
+                await Task.Delay(pollMs).ConfigureAwait(true);
+            }
+        }
+
         private void SharedGamepadControllerLoop(
               Func<bool> isActive,
               Action onExitCombo,
@@ -9800,6 +9814,10 @@ namespace Doorpi
 
         private async void RestoreExecutionLockSession()
         {
+            // Keep the execution lock in front until A/R2 is physically released.
+            // Otherwise the release is delivered to the window being restored.
+            await WaitForPrimaryControllerReleaseAsync();
+
             ResumeExecutionLockWatch();
 
             string kind = _executionLockKind;
@@ -15334,24 +15352,8 @@ namespace Doorpi
                         _ = Task.Run(async () =>
                         {
                             // Aguarda todos os controles soltarem os botões
-                            int waitTimeout = 0;
-                            while (waitTimeout < 150)
-                            {
-                                bool anyButtonPressed = false;
-                                for (int i = 0; i < 4; i++)
-                                {
-                                    if (XInputGetStateSecret(i, out var state) == 0 && state.Gamepad.wButtons != 0)
-                                    {
-                                        anyButtonPressed = true;
-                                        break;
-                                    }
-                                }
-                                if (!anyButtonPressed) break;
-
-                                await Task.Delay(10);
-                                waitTimeout++;
-                            }
-                            await Task.Delay(300);
+                            await WaitForPrimaryControllerReleaseAsync();
+                            await Task.Delay(50);
 
                             Dispatcher.Invoke(() =>
                             {
@@ -16727,79 +16729,11 @@ namespace Doorpi
         }
         private int _cleanupAndExitStarted;
 
-        private HashSet<int> CollectDoorpiWebViewBrowserProcessIds()
-        {
-            var processIds = new HashSet<int>();
-
-            void AddCore(CoreWebView2? core)
-            {
-                try
-                {
-                    foreach (var info in core?.Environment.GetProcessInfos() ?? [])
-                    {
-                        if (info.Kind == CoreWebView2ProcessKind.Browser)
-                            processIds.Add(info.ProcessId);
-                    }
-                }
-                catch { }
-            }
-
-            AddCore(webView?.CoreWebView2);
-            AddCore(_ytWebView?.CoreWebView2);
-            AddCore(_popupWebView?.CoreWebView2);
-            AddCore(_genericBrowserExtensionPopupView?.CoreWebView2);
-
-            try
-            {
-                foreach (int processId in _storeDownloadWindow?.GetWebViewBrowserProcessIds() ?? [])
-                    processIds.Add(processId);
-            }
-            catch { }
-
-            lock (_webViewEnvironmentCacheLock)
-            {
-                foreach (var environmentTask in _webViewEnvironmentCache.Values)
-                {
-                    if (!environmentTask.IsCompletedSuccessfully) continue;
-                    try
-                    {
-                        foreach (var info in environmentTask.Result.GetProcessInfos())
-                        {
-                            if (info.Kind == CoreWebView2ProcessKind.Browser)
-                                processIds.Add(info.ProcessId);
-                        }
-                    }
-                    catch { }
-                }
-            }
-
-            return processIds;
-        }
-
-        private static void TerminateDoorpiWebViewBrowserProcesses(IEnumerable<int> processIds)
-        {
-            foreach (int processId in processIds.Distinct())
-            {
-                try
-                {
-                    using var process = Process.GetProcessById(processId);
-                    if (process.HasExited ||
-                        !string.Equals(process.ProcessName, "msedgewebview2", StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    process.Kill(entireProcessTree: true);
-                }
-                catch { }
-            }
-        }
 
         private void CleanupAndExit()
         {
             if (Interlocked.Exchange(ref _cleanupAndExitStarted, 1) == 1) return;
 
-            var webViewBrowserProcessIds = CollectDoorpiWebViewBrowserProcessIds();
             DiscordRpcManager.Instance.Dispose();
             DisposeBluetoothManager();
             DisposeWifiManager();
@@ -16818,7 +16752,6 @@ namespace Doorpi
             try { webView?.Dispose(); } catch { }
             lock (_webViewEnvironmentCacheLock) _webViewEnvironmentCache.Clear();
             _genericBrowserEnvironment = null;
-            TerminateDoorpiWebViewBrowserProcesses(webViewBrowserProcessIds);
 
             // 3. Cancela as threads de monitoramento ativas
             _mainUiGamepadActive = false;
