@@ -4358,6 +4358,7 @@
                 window._doorpiSuppressNativeDialogPointer?.(650);
             }
             else if (data.type === 'nativeDialogReturned') {
+                window._doorpiNativeDialogPending = false;
                 window._doorpiSuppressNativeDialogPointer?.(900);
                 window.blockDoorpiGamepadActionsUntilRelease?.();
             }
@@ -11518,18 +11519,7 @@ function renderFolderList(folders) {
             </div>`;
 
         document.getElementById('btnCancelAddMedia').addEventListener('click', closeModal);
-        document.getElementById('btnSearchMedia').addEventListener('click', () => {
-            window.setInlineScanStatus?.(true, t('inlineScanWaitingWindows'));
-            window._doorpiSuppressNativeDialogPointer?.(10 * 60 * 1000);
-            postToHost({
-                action: 'browseManualMedia',
-                dialogTitle: t('dlgBrowseTitle'),
-                dialogFilter: t('dlgBrowseFilter'),
-                loadingTitle: t('loadingAddingGame'),
-                loadingSub: t('loadingFetchingCovers'),
-                errorMsg: t('msgErrorOpenFile')
-            });
-        });
+        document.getElementById('btnSearchMedia').addEventListener('click', () => window.openManualMediaAppDialog?.());
         document.getElementById('btnConfirmAddMedia').addEventListener('click', () => {
             const selected = Array.from(
                 document.querySelectorAll('#appListMedia .app-item.selected')
@@ -11551,6 +11541,22 @@ function renderFolderList(folders) {
 
         if (typeof updateGamepadUI === 'function') updateGamepadUI(isGamepadConnected, _controllerType);
     }
+
+    window.openManualMediaAppDialog = function () {
+        if (window._doorpiNativeDialogPending) return;
+        window._doorpiNativeDialogPending = true;
+        window.setInlineScanStatus?.(true, t('inlineScanWaitingWindows'));
+        window._doorpiSuppressNativeDialogPointer?.(10 * 60 * 1000);
+        window.blockDoorpiGamepadActionsUntilRelease?.();
+        postToHost({
+            action: 'browseManualMedia',
+            dialogTitle: t('dlgBrowseTitle'),
+            dialogFilter: t('dlgBrowseFilter'),
+            loadingTitle: t('loadingAddingGame'),
+            loadingSub: t('loadingFetchingCovers'),
+            errorMsg: t('msgErrorOpenFile')
+        });
+    };
 
     function _populateExeList(apps) {
         const appList = document.getElementById('appListMedia');
