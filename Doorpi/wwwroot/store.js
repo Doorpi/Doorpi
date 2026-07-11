@@ -37,6 +37,11 @@ window.AppStore = (() => {
                 horizontal: raw.horizontalImage || raw.GridHorizontalImage || raw.horizontal || '',
                 hero: raw.hero || raw.HeroImage || '', logo: raw.logo || raw.LogoImage || '',
                 iconBase64: raw.iconBase64 || raw.IconBase64 || '',
+                totalPlaytimeMinutes: Number(raw.totalPlaytimeMinutes ?? raw.TotalPlaytimeMinutes ?? 0) || 0,
+                lastSessionMinutes: Number(raw.lastSessionMinutes ?? raw.LastSessionMinutes ?? 0) || 0,
+                lastPlayed: raw.lastPlayed || raw.LastPlayed || '',
+                hasBeenPlayed: !!(raw.hasBeenPlayed ?? raw.HasBeenPlayed ??
+                    ((raw.totalPlaytimeMinutes ?? raw.TotalPlaytimeMinutes ?? 0) > 0)),
                 isAnimated: raw.isAnimated || false,
                 source: raw.source || raw.Source || '',
                 isAdminLocked: raw.isAdminLocked || raw.IsAdminLocked || false,

@@ -177,6 +177,8 @@ namespace Doorpi
         private string userFile;
         private string mediaFile;
         private readonly object _gamesFileLock = new();
+        private readonly object _gameHistoryFileLock = new();
+        private string gameHistoryFile = "";
 
         private string _currentToastTitle = "";
         private bool _useNativeBootIntro = false;
@@ -628,6 +630,7 @@ namespace Doorpi
             currentUserFile = Path.Combine(dataFolder, "current-user.json");
             userFile = Path.Combine(dataFolder, "user.json");
             gamesFile = Path.Combine(dataFolder, "games.json");
+            gameHistoryFile = Path.Combine(dataFolder, "game-history.json");
             foldersFile = Path.Combine(dataFolder, "folders.json");
             appCacheFile = Path.Combine(dataFolder, "appcache.json");
             mediaFile = Path.Combine(dataFolder, "media.json");
@@ -1899,6 +1902,7 @@ namespace Doorpi
 
             userFile = Path.Combine(currentUserDataFolder, "user.json");
             gamesFile = Path.Combine(currentUserDataFolder, "games.json");
+            gameHistoryFile = Path.Combine(currentUserDataFolder, "game-history.json");
             foldersFile = Path.Combine(currentUserDataFolder, "folders.json");
             appCacheFile = Path.Combine(currentUserDataFolder, "appcache.json");
             mediaFile = Path.Combine(currentUserDataFolder, "media.json");
@@ -1908,12 +1912,14 @@ namespace Doorpi
             if (migrateLegacyFiles)
             {
                 CopyLegacyFile("games.json", gamesFile);
+                CopyLegacyFile("game-history.json", gameHistoryFile);
                 CopyLegacyFile("folders.json", foldersFile);
                 CopyLegacyFile("appcache.json", appCacheFile);
                 CopyLegacyFile("media.json", mediaFile);
             }
 
             if (!File.Exists(gamesFile)) File.WriteAllText(gamesFile, "[]");
+            InitializeGameHistoryForActiveUser();
             if (!File.Exists(foldersFile)) File.WriteAllText(foldersFile, "[]");
             if (!File.Exists(mediaFile)) File.WriteAllText(mediaFile, "[]");
             if (!File.Exists(storesFile)) File.WriteAllText(storesFile, "[]");
@@ -1929,6 +1935,7 @@ namespace Doorpi
             try
             {
                 if (File.Exists(gamesFile)) File.Copy(gamesFile, Path.Combine(dataFolder, "games.json"), true);
+                if (File.Exists(gameHistoryFile)) File.Copy(gameHistoryFile, Path.Combine(dataFolder, "game-history.json"), true);
                 if (File.Exists(foldersFile)) File.Copy(foldersFile, Path.Combine(dataFolder, "folders.json"), true);
                 if (File.Exists(mediaFile))
                 {
@@ -2664,6 +2671,7 @@ namespace Doorpi
             currentUserDataFolder = "";
             userFile = Path.Combine(dataFolder, "user.json");
             gamesFile = Path.Combine(dataFolder, "games.json");
+            gameHistoryFile = Path.Combine(dataFolder, "game-history.json");
             foldersFile = Path.Combine(dataFolder, "folders.json");
             appCacheFile = Path.Combine(dataFolder, "appcache.json");
             mediaFile = Path.Combine(dataFolder, "media.json");
@@ -2683,7 +2691,7 @@ namespace Doorpi
                 Debug.WriteLine($"[Users] Falha ao limpar current-user.json: {ex.Message}");
             }
 
-            string[] ghostFiles = { "user.json", "games.json", "folders.json", "appcache.json", "media.json" };
+            string[] ghostFiles = { "user.json", "games.json", "game-history.json", "folders.json", "appcache.json", "media.json" };
             foreach (var file in ghostFiles)
             {
                 try
@@ -8331,24 +8339,42 @@ namespace Doorpi
             int sessionMinutes = (int)(DateTime.UtcNow - _sessionStartUtc).TotalMinutes;
             _sessionStartUtc = DateTime.MinValue;
             string gameId = _activeSessionGameId;
+            string gameName = _activeSessionGameName;
             _activeSessionGameId = "";
+            _activeSessionGameName = "";
 
             if (sessionMinutes < 1) return; // ignora sessões abaixo de 1 minuto
 
-            _ = Task.Run(() =>
+            var games = LoadGames();
+            var game = games.FirstOrDefault(g =>
+                string.Equals(g.LaunchUrl, gameId, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(g.Path, gameId, StringComparison.OrdinalIgnoreCase));
+
+            if (game != null)
             {
-                var games = LoadGames();
-                var game = games.FirstOrDefault(g =>
-                    string.Equals(g.LaunchUrl, gameId, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(g.Path, gameId, StringComparison.OrdinalIgnoreCase));
-
-                if (game == null) return;
-
                 game.TotalPlaytimeMinutes += sessionMinutes;
                 game.LastSessionMinutes = sessionMinutes;
                 SaveGames(games);
                 Debug.WriteLine($"[Session] {game.Name}: +{sessionMinutes}min (total: {game.TotalPlaytimeMinutes}min)");
-            });
+            }
+            else if (!string.IsNullOrWhiteSpace(gameName))
+            {
+                RecordDeletedGameSession(gameName, sessionMinutes);
+                Debug.WriteLine($"[Session] {gameName}: +{sessionMinutes}min (historico)");
+            }
+
+            try
+            {
+                _ = Dispatcher.BeginInvoke(() =>
+                {
+                    try
+                    {
+                        if (webView?.CoreWebView2 != null) LoadGamesIntoUI();
+                    }
+                    catch { }
+                });
+            }
+            catch { }
         }
 
 
@@ -10082,6 +10108,7 @@ namespace Doorpi
             _pendingLaunchProcess = null;
             _lockedGameProcessName = candidate.ProcessName;
             _activeSessionGameId = gameId;
+            _activeSessionGameName = game.Name;
             _gameSessionParentKind = bindToActiveStoreContext ? "store" : "doorpi";
             _forceDoorpiReturnOnGameClose = !bindToActiveStoreContext;
             _storeChildGameActive = bindToActiveStoreContext;
@@ -11783,12 +11810,10 @@ namespace Doorpi
 
         private void DeleteGameImages(GameModel game)
         {
+            // Grids de jogos pertencem ao historico permanente do perfil. Hero e logo
+            // continuam sendo dados da biblioteca ativa e podem ser descartados.
             var imageUrls = new[]
             {
-                game.GridImage,
-                game.GridStaticImage,
-                game.GridHorizontalImage,
-                game.GridHorizontalStaticImage,
                 game.HeroImage,
                 game.HeroStaticImage,
                 game.LogoImage,
@@ -15329,6 +15354,7 @@ namespace Doorpi
 
                     _gameSessionActive = true;
                     _activeSessionGameId = identifier;
+                    _activeSessionGameName = game.Name;
                     _gameSessionParentKind = bindToActiveStoreContext ? "store" : "doorpi";
                     _forceDoorpiReturnOnGameClose = !bindToActiveStoreContext;
                     _storeChildGameActive = bindToActiveStoreContext;
@@ -15651,10 +15677,204 @@ namespace Doorpi
         // ========================= GAMES DB =========================
 
 
+        private void InitializeGameHistoryForActiveUser()
+        {
+            bool historyExists = File.Exists(gameHistoryFile);
+            if (!historyExists)
+            {
+                List<GameModel> legacyGames = new();
+                try
+                {
+                    if (File.Exists(gamesFile))
+                        legacyGames = JsonSerializer.Deserialize<List<GameModel>>(SafeReadAllText(gamesFile)) ?? new();
+                }
+                catch { }
+
+                var migrated = legacyGames
+                    .Where(HasGameBeenPlayed)
+                    .GroupBy(g => NormalizeGameName(g.Name))
+                    .Where(g => !string.IsNullOrWhiteSpace(g.Key))
+                    .Select(group =>
+                    {
+                        var ordered = group.OrderByDescending(g => g.LastPlayed).ToList();
+                        var newest = ordered[0];
+                        var oldestPlayed = group
+                            .Where(g => g.LastPlayed > DateTime.MinValue)
+                            .Select(g => g.LastPlayed)
+                            .DefaultIfEmpty(DateTime.MinValue)
+                            .Min();
+                        return new GameHistoryEntry
+                        {
+                            Name = newest.Name,
+                            TotalPlaytimeMinutes = group.Sum(g => Math.Max(0, g.TotalPlaytimeMinutes)),
+                            LastSessionMinutes = newest.LastSessionMinutes,
+                            FirstPlayed = oldestPlayed,
+                            LastPlayed = group.Max(g => g.LastPlayed),
+                            GridImage = FirstNotBlank(ordered.Select(g => g.GridImage)),
+                            GridStaticImage = FirstNotBlank(ordered.Select(g => g.GridStaticImage)),
+                            GridHorizontalImage = FirstNotBlank(ordered.Select(g => g.GridHorizontalImage)),
+                            GridHorizontalStaticImage = FirstNotBlank(ordered.Select(g => g.GridHorizontalStaticImage)),
+                            IconBase64 = FirstNotBlank(ordered.Select(g => g.IconBase64)),
+                            Source = FirstNotBlank(ordered.Select(g => g.Source))
+                        };
+                    })
+                    .ToList();
+
+                SaveGameHistory(migrated);
+            }
+
+            // Reaplica horas antigas quando um titulo foi removido e cadastrado novamente.
+            try
+            {
+                if (File.Exists(gamesFile))
+                {
+                    var games = JsonSerializer.Deserialize<List<GameModel>>(SafeReadAllText(gamesFile)) ?? new();
+                    SaveGames(games);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[GameHistory] Falha ao reconciliar biblioteca: " + ex.Message);
+            }
+        }
+
+        private static bool HasGameBeenPlayed(GameModel game)
+            => game.TotalPlaytimeMinutes > 0 || game.LastPlayed > DateTime.MinValue;
+
+        private static string FirstNotBlank(IEnumerable<string> values)
+            => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "";
+
+        private List<GameHistoryEntry> LoadGameHistory()
+        {
+            lock (_gameHistoryFileLock)
+            {
+                if (!File.Exists(gameHistoryFile)) return new List<GameHistoryEntry>();
+                try
+                {
+                    return JsonSerializer.Deserialize<List<GameHistoryEntry>>(SafeReadAllText(gameHistoryFile)) ?? new();
+                }
+                catch
+                {
+                    return new List<GameHistoryEntry>();
+                }
+            }
+        }
+
+        private void SaveGameHistory(List<GameHistoryEntry> history)
+        {
+            lock (_gameHistoryFileLock)
+            {
+                var ordered = history
+                    .Where(entry => !string.IsNullOrWhiteSpace(entry.Name))
+                    .OrderByDescending(entry => entry.LastPlayed)
+                    .ThenBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase)
+                    .ToList();
+                string json = JsonSerializer.Serialize(ordered, IndentedJsonOptions);
+                SafeWriteAllText(gameHistoryFile, json);
+
+                string currentMirror = Path.Combine(dataFolder, "game-history.json");
+                if (!string.Equals(gameHistoryFile, currentMirror, StringComparison.OrdinalIgnoreCase))
+                    SafeWriteAllText(currentMirror, json);
+            }
+        }
+
+        private void MergeGamesWithHistory(List<GameModel> games)
+        {
+            var history = LoadGameHistory();
+            var byName = history
+                .GroupBy(entry => NormalizeGameName(entry.Name))
+                .Where(group => !string.IsNullOrWhiteSpace(group.Key))
+                .ToDictionary(group => group.Key, group => group.OrderByDescending(entry => entry.LastPlayed).First());
+
+            foreach (var gameGroup in games
+                .Where(game => !string.IsNullOrWhiteSpace(game.Name))
+                .GroupBy(game => NormalizeGameName(game.Name)))
+            {
+                if (string.IsNullOrWhiteSpace(gameGroup.Key)) continue;
+                var group = gameGroup.ToList();
+                bool played = group.Any(HasGameBeenPlayed);
+
+                if (!byName.TryGetValue(gameGroup.Key, out var entry))
+                {
+                    if (!played) continue;
+                    var newest = group.OrderByDescending(game => game.LastPlayed).First();
+                    entry = new GameHistoryEntry
+                    {
+                        Name = newest.Name,
+                        TotalPlaytimeMinutes = group.Sum(game => Math.Max(0, game.TotalPlaytimeMinutes)),
+                        LastSessionMinutes = newest.LastSessionMinutes,
+                        FirstPlayed = newest.LastPlayed > DateTime.MinValue ? newest.LastPlayed : DateTime.Now,
+                        LastPlayed = newest.LastPlayed
+                    };
+                    history.Add(entry);
+                    byName[gameGroup.Key] = entry;
+                }
+
+                var latestGame = group.OrderByDescending(game => game.LastPlayed).First();
+                long currentTotal = group.Max(game => Math.Max(0, game.TotalPlaytimeMinutes));
+                if (currentTotal > entry.TotalPlaytimeMinutes)
+                {
+                    entry.TotalPlaytimeMinutes = currentTotal;
+                    entry.LastSessionMinutes = latestGame.LastSessionMinutes;
+                }
+                if (latestGame.LastPlayed > entry.LastPlayed)
+                {
+                    entry.LastPlayed = latestGame.LastPlayed;
+                    entry.LastSessionMinutes = latestGame.LastSessionMinutes;
+                }
+                if (entry.FirstPlayed == DateTime.MinValue && entry.LastPlayed > DateTime.MinValue)
+                    entry.FirstPlayed = entry.LastPlayed;
+
+                entry.Name = latestGame.Name;
+                entry.GridImage = FirstNotBlank(group.Select(game => game.GridImage).Append(entry.GridImage));
+                entry.GridStaticImage = FirstNotBlank(group.Select(game => game.GridStaticImage).Append(entry.GridStaticImage));
+                entry.GridHorizontalImage = FirstNotBlank(group.Select(game => game.GridHorizontalImage).Append(entry.GridHorizontalImage));
+                entry.GridHorizontalStaticImage = FirstNotBlank(group.Select(game => game.GridHorizontalStaticImage).Append(entry.GridHorizontalStaticImage));
+                entry.IconBase64 = FirstNotBlank(group.Select(game => game.IconBase64).Append(entry.IconBase64));
+                entry.Source = FirstNotBlank(group.Select(game => game.Source).Append(entry.Source));
+
+                foreach (var game in group)
+                {
+                    game.TotalPlaytimeMinutes = entry.TotalPlaytimeMinutes;
+                    game.LastSessionMinutes = entry.LastSessionMinutes;
+                    if (entry.LastPlayed > game.LastPlayed) game.LastPlayed = entry.LastPlayed;
+                    if (string.IsNullOrWhiteSpace(game.GridImage)) game.GridImage = entry.GridImage;
+                    if (string.IsNullOrWhiteSpace(game.GridStaticImage)) game.GridStaticImage = entry.GridStaticImage;
+                    if (string.IsNullOrWhiteSpace(game.GridHorizontalImage)) game.GridHorizontalImage = entry.GridHorizontalImage;
+                    if (string.IsNullOrWhiteSpace(game.GridHorizontalStaticImage)) game.GridHorizontalStaticImage = entry.GridHorizontalStaticImage;
+                }
+            }
+
+            SaveGameHistory(history);
+        }
+
+        private void RecordDeletedGameSession(string gameName, int sessionMinutes)
+        {
+            var history = LoadGameHistory();
+            string key = NormalizeGameName(gameName);
+            var entry = history.FirstOrDefault(item => NormalizeGameName(item.Name) == key);
+            if (entry == null)
+            {
+                entry = new GameHistoryEntry
+                {
+                    Name = gameName,
+                    FirstPlayed = DateTime.Now
+                };
+                history.Add(entry);
+            }
+
+            entry.TotalPlaytimeMinutes += sessionMinutes;
+            entry.LastSessionMinutes = sessionMinutes;
+            entry.LastPlayed = DateTime.Now;
+            SaveGameHistory(history);
+        }
+
+
         private void SaveGames(List<GameModel> games)
         {
             lock (_gamesFileLock)
             {
+                MergeGamesWithHistory(games);
                 string json = JsonSerializer.Serialize(games, IndentedJsonOptions);
                 SafeWriteAllText(gamesFile, json);
                 SafeWriteAllText(Path.Combine(dataFolder, "games.json"), json);
@@ -15723,6 +15943,10 @@ namespace Doorpi
                 logo = game.LogoImage,
                 staticLogo = game.LogoStaticImage,
                 iconBase64,
+                totalPlaytimeMinutes = game.TotalPlaytimeMinutes,
+                lastSessionMinutes = game.LastSessionMinutes,
+                lastPlayed = game.LastPlayed,
+                hasBeenPlayed = HasGameBeenPlayed(game),
                 source = StorePolicyKeyForGame(game),
                 isAdminLocked = IsGameBlockedForCurrentUser(game),
                 adminLockReason = "blocked-store",
@@ -15790,6 +16014,10 @@ namespace Doorpi
                 logo = game.LogoImage,
                 staticLogo = game.LogoStaticImage,
                 iconBase64,
+                totalPlaytimeMinutes = game.TotalPlaytimeMinutes,
+                lastSessionMinutes = game.LastSessionMinutes,
+                lastPlayed = game.LastPlayed,
+                hasBeenPlayed = HasGameBeenPlayed(game),
                 source = StorePolicyKeyForGame(game),
                 isAdminLocked = IsGameBlockedForCurrentUser(game),
                 adminLockReason = "blocked-store",
@@ -16265,13 +16493,17 @@ namespace Doorpi
                                             (DateTime.UtcNow.Ticks - Interlocked.Read(ref _focusRestoredAtTicks))
                                             < TimeSpan.FromSeconds(2).Ticks;
 
-                    bool isLaunchingOrRunning = _executionLockActive
-                        || (_gameSessionActive && !_gameIsMinimized)
-                        || _mediaMouseActive
-                        || _mediaExeModeActive
-                        || _launcherMouseActive
-                        || _systemControllerActive
-                        || IsMainUiGamepadSuspendedForGame();
+                    // Quando o overlay "Em execucao" esta no Doorpi, este loop e o
+                    // unico dono da navegacao direcional. O JS continua responsavel
+                    // apenas pelos botoes de acao, evitando dois movimentos por input.
+                    bool executionLockOwnsMainUiInput = _executionLockActive && foregroundOk;
+                    bool isLaunchingOrRunning = !executionLockOwnsMainUiInput &&
+                        ((_gameSessionActive && !_gameIsMinimized)
+                         || _mediaMouseActive
+                         || _mediaExeModeActive
+                         || _launcherMouseActive
+                         || _systemControllerActive
+                         || IsMainUiGamepadSuspendedForGame());
 
                     if (_systemControllerActive || _dialogModeActive || _launcherMouseActive || !foregroundOk || isLaunchingOrRunning)
                     {

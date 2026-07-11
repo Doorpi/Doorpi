@@ -2832,8 +2832,9 @@ namespace Doorpi
                     bool useNativeMouse = !_isCurrentSiteYouTube || _popupWindow != null;
                     bool useNativeWebNavigation = !_isCurrentSiteYouTube || _popupWindow != null || _isGenericBrowserMode;
                     bool vkbInputVisible = IsControllerVkbActuallyVisible();
+                    bool useJavaScriptCloseHold = _isCurrentSiteYouTube && _popupWindow == null;
 
-                    if (!vkbInputVisible)
+                    if (!vkbInputVisible && !useJavaScriptCloseHold)
                     {
                         if (anyBPressed)
                         {
@@ -2888,6 +2889,12 @@ namespace Doorpi
                             Thread.Sleep(40);
                             continue;
                         }
+                    }
+                    else if (useJavaScriptCloseHold && bHoldActive)
+                    {
+                        bHoldActive = false;
+                        bCloseFired = false;
+                        HideWebAppCloseHoldOverlay();
                     }
 
                     // Navegação Web Nativa (Setas, Avançar, Voltar, F5)
@@ -7104,6 +7111,42 @@ namespace Doorpi
             bool isPopup = (_popupWebView != null && sender == _popupWebView.CoreWebView2);
             WebView2 senderView = isPopup ? _popupWebView! : _ytWebView!;
 
+            bool isMainYouTubeMessage = _isCurrentSiteYouTube && !isPopup;
+            if (isMainYouTubeMessage && msg.StartsWith("youtube_close_hold_progress:", StringComparison.Ordinal))
+            {
+                string rawProgress = msg["youtube_close_hold_progress:".Length..];
+                if (double.TryParse(
+                        rawProgress,
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out double progress))
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        if (_vkbIsOpen && _vkbOwnerView != null)
+                            HideWebAppCloseHoldOverlay();
+                        else
+                            UpdateWebAppCloseHoldOverlay(Math.Clamp(progress, 0, 1));
+                    });
+                }
+                return;
+            }
+            if (isMainYouTubeMessage && msg == "youtube_close_hold_cancel")
+            {
+                Dispatcher.Invoke(HideWebAppCloseHoldOverlay);
+                return;
+            }
+            if (isMainYouTubeMessage && msg == "youtube_close_hold_complete")
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    HideWebAppCloseHoldOverlay();
+                    if (!_vkbIsOpen || _vkbOwnerView == null)
+                        CloseYouTubeInline();
+                });
+                return;
+            }
+
             if (_isGenericBrowserMode && msg.StartsWith("native_vkb_open:"))
             {
                 if (DateTime.UtcNow < _genericBrowserVkbSuppressUntilUtc)
@@ -7515,14 +7558,22 @@ namespace Doorpi
     if (window.top !== window) return;
 
     let buttonStates = {}, buttonHoldTimes = {}, buttonRepeatCount = {};
+    let activeGamepadSources = new Set();
     let lastFireByKey = {};
     const YT_INITIAL_REPEAT_MS = 700;
     const YT_REPEAT_MS = 130;
+    const YT_CLOSE_HOLD_MS = 1450;
+    const YT_CLOSE_INDICATOR_MS = 220;
+    const closeHoldStartedAt = new Map();
+    let closeHoldUiActive = false;
+    let closeHoldCompleted = false;
+    let closeHoldLastPostAt = 0;
 
-    function fireKey(code, key) {
+    function fireKey(code, key, source) {
         const now = Date.now();
-        if (key !== 'Escape' && lastFireByKey[key] && now - lastFireByKey[key] < 160) return;
-        lastFireByKey[key] = now;
+        const fireKeyId = `${source || 'pad'}:${key}`;
+        if (key !== 'Escape' && lastFireByKey[fireKeyId] && now - lastFireByKey[fireKeyId] < 160) return;
+        lastFireByKey[fireKeyId] = now;
 
         document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, keyCode: code, which: code, key: key }));
         setTimeout(() => {
@@ -7530,28 +7581,105 @@ namespace Doorpi
         }, 20);
     }
 
-    window.handleBackButton = function() {
-        fireKey(27, 'Escape');
+    window.handleBackButton = function(source) {
+        fireKey(27, 'Escape', source);
     };
 
-    function processButton(idx, pressed, code, key) {
+    function processButton(source, idx, pressed, code, key) {
+        const stateKey = `${source}:${idx}`;
         if (idx === 1) {
-            if (pressed && !buttonStates[idx])  { window.handleBackButton(); buttonStates[idx] = true; }
-            else if (!pressed)                    buttonStates[idx] = false;
+            if (pressed && !buttonStates[stateKey])  { window.handleBackButton(source); buttonStates[stateKey] = true; }
+            else if (!pressed)                       buttonStates[stateKey] = false;
             return;
         }
         if (pressed) {
-            if (!buttonStates[idx]) {
-                fireKey(code, key);
-                buttonStates[idx] = true; buttonHoldTimes[idx] = Date.now(); buttonRepeatCount[idx] = 0;
+            if (!buttonStates[stateKey]) {
+                fireKey(code, key, source);
+                buttonStates[stateKey] = true; buttonHoldTimes[stateKey] = Date.now(); buttonRepeatCount[stateKey] = 0;
             } else {
-                let held = Date.now() - buttonHoldTimes[idx];
+                let held = Date.now() - buttonHoldTimes[stateKey];
                 if (held > YT_INITIAL_REPEAT_MS) {
                     let expected = Math.floor((held - YT_INITIAL_REPEAT_MS) / YT_REPEAT_MS);
-                    if (expected > buttonRepeatCount[idx]) { fireKey(code, key); buttonRepeatCount[idx] = expected; }
+                    if (expected > buttonRepeatCount[stateKey]) { fireKey(code, key, source); buttonRepeatCount[stateKey] = expected; }
                 }
             }
-        } else { buttonStates[idx] = false; }
+        } else { buttonStates[stateKey] = false; }
+    }
+
+    function clearGamepadSource(source) {
+        const prefix = `${source}:`;
+        for (const key of Object.keys(buttonStates)) if (key.startsWith(prefix)) delete buttonStates[key];
+        for (const key of Object.keys(buttonHoldTimes)) if (key.startsWith(prefix)) delete buttonHoldTimes[key];
+        for (const key of Object.keys(buttonRepeatCount)) if (key.startsWith(prefix)) delete buttonRepeatCount[key];
+        for (const key of Object.keys(lastFireByKey)) if (key.startsWith(prefix)) delete lastFireByKey[key];
+        closeHoldStartedAt.delete(source);
+    }
+
+    function isDoorpiVkbOpen() {
+        try {
+            return window._vkbIsOpen === true || window.__doorpiVkbIsActuallyOpen?.() === true;
+        } catch(_) {
+            return window._vkbIsOpen === true;
+        }
+    }
+
+    function postCloseHold(message) {
+        try { window.chrome.webview.postMessage(message); } catch(_) {}
+    }
+
+    function updateCloseHold(pads, allowInput) {
+        const now = performance.now();
+        const seen = new Set();
+        let anyBPressed = false;
+        let longestHoldMs = 0;
+
+        if (allowInput && !isDoorpiVkbOpen()) {
+            pads.forEach((gp, arrayIndex) => {
+                const source = `gp${Number.isInteger(gp.index) ? gp.index : arrayIndex}`;
+                seen.add(source);
+                if (!gp.buttons[1]?.pressed) {
+                    closeHoldStartedAt.delete(source);
+                    return;
+                }
+
+                anyBPressed = true;
+                if (!closeHoldStartedAt.has(source)) closeHoldStartedAt.set(source, now);
+                longestHoldMs = Math.max(longestHoldMs, now - closeHoldStartedAt.get(source));
+            });
+        }
+
+        for (const source of Array.from(closeHoldStartedAt.keys())) {
+            if (!seen.has(source)) closeHoldStartedAt.delete(source);
+        }
+
+        if (closeHoldCompleted) {
+            if (!anyBPressed) closeHoldCompleted = false;
+            return;
+        }
+
+        if (!anyBPressed) {
+            if (closeHoldUiActive) postCloseHold('youtube_close_hold_cancel');
+            closeHoldUiActive = false;
+            closeHoldLastPostAt = 0;
+            return;
+        }
+
+        const progress = Math.max(0, Math.min(1,
+            (longestHoldMs - YT_CLOSE_INDICATOR_MS) /
+            (YT_CLOSE_HOLD_MS - YT_CLOSE_INDICATOR_MS)));
+
+        if (progress > 0 && (now - closeHoldLastPostAt >= 45 || progress >= 1)) {
+            closeHoldUiActive = true;
+            closeHoldLastPostAt = now;
+            postCloseHold(`youtube_close_hold_progress:${progress.toFixed(4)}`);
+        }
+
+        if (longestHoldMs >= YT_CLOSE_HOLD_MS) {
+            closeHoldCompleted = true;
+            closeHoldUiActive = false;
+            closeHoldStartedAt.clear();
+            postCloseHold('youtube_close_hold_complete');
+        }
     }
 
     const map = {
@@ -7562,22 +7690,33 @@ namespace Doorpi
 
     function pollGamepad() {
         try {
-            const gp = (doorpiGetGamepads?.() ?? [])[0];
-            if (gp && document.hasFocus()) {
-                for (const [idx,[code,key]] of Object.entries(map))
-                    processButton(Number(idx), !!gp.buttons[idx]?.pressed, code, key);
-                const dpadUp = !!gp.buttons[12]?.pressed;
-                const dpadDown = !!gp.buttons[13]?.pressed;
-                const dpadLeft = !!gp.buttons[14]?.pressed;
-                const dpadRight = !!gp.buttons[15]?.pressed;
-                const axisX = gp.axes[0] || 0;
-                const axisY = gp.axes[1] || 0;
-                processButton(100, !dpadUp && !dpadDown && axisY < -0.5, 38, 'ArrowUp');
-                processButton(101, !dpadUp && !dpadDown && axisY >  0.5, 40, 'ArrowDown');
-                processButton(102, !dpadLeft && !dpadRight && axisX < -0.5, 37, 'ArrowLeft');
-                processButton(103, !dpadLeft && !dpadRight && axisX >  0.5, 39, 'ArrowRight');
-                processButton(1, !!gp.buttons[1]?.pressed, 27, 'Escape');
+            const seen = new Set();
+            const pads = Array.from(doorpiGetGamepads?.() ?? []).filter(Boolean);
+            const allowInput = document.hasFocus();
+            if (allowInput) {
+                pads.forEach((gp, arrayIndex) => {
+                    const source = `gp${Number.isInteger(gp.index) ? gp.index : arrayIndex}`;
+                    seen.add(source);
+                    if (!activeGamepadSources.has(source)) clearGamepadSource(source);
+
+                    for (const [idx,[code,key]] of Object.entries(map))
+                        processButton(source, Number(idx), !!gp.buttons[idx]?.pressed, code, key);
+                    const dpadUp = !!gp.buttons[12]?.pressed;
+                    const dpadDown = !!gp.buttons[13]?.pressed;
+                    const dpadLeft = !!gp.buttons[14]?.pressed;
+                    const dpadRight = !!gp.buttons[15]?.pressed;
+                    const axisX = gp.axes[0] || 0;
+                    const axisY = gp.axes[1] || 0;
+                    processButton(source, 100, !dpadUp && !dpadDown && axisY < -0.5, 38, 'ArrowUp');
+                    processButton(source, 101, !dpadUp && !dpadDown && axisY >  0.5, 40, 'ArrowDown');
+                    processButton(source, 102, !dpadLeft && !dpadRight && axisX < -0.5, 37, 'ArrowLeft');
+                    processButton(source, 103, !dpadLeft && !dpadRight && axisX >  0.5, 39, 'ArrowRight');
+                    processButton(source, 1, !!gp.buttons[1]?.pressed, 27, 'Escape');
+                });
             }
+            updateCloseHold(pads, allowInput);
+            activeGamepadSources.forEach(source => { if (!seen.has(source)) clearGamepadSource(source); });
+            activeGamepadSources = seen;
         } catch(_) {}
         requestAnimationFrame(pollGamepad);
     }

@@ -1150,7 +1150,7 @@ document.addEventListener('keydown', e => {
     }
 });
 
-let _controllerType = 'generic', _btnCooldown = {}, _lastMoveTime = 0, _moveState = 0, _currentDirection = null, _executionLockHeldDir = null, _executionLockAxisHeld = false, _sessionConflictHeldDir = null, _gameFocusFallbackHeldDir = null;
+let _controllerType = 'generic', _btnCooldown = {}, _lastMoveTime = 0, _moveState = 0, _currentDirection = null, _sessionConflictHeldDir = null, _gameFocusFallbackHeldDir = null;
 let _cursorHoldState = { l1: 0, r1: 0 }, _cursorLastTime = { l1: 0, r1: 0 };
 let _doorpiGamepadActionsBlockedUntilRelease = false;
 let _doorpiControllerActivationToken = 0;
@@ -1202,8 +1202,6 @@ window.resetDoorpiGamepadInputState = function () {
     seedDoorpiHeldButtonState();
     _moveState = 0;
     _currentDirection = null;
-    _executionLockHeldDir = null;
-    _executionLockAxisHeld = false;
     _sessionConflictHeldDir = null;
     _gameFocusFallbackHeldDir = null;
     _cursorHoldState = { l1: 0, r1: 0, sq: 0 };
@@ -1468,64 +1466,6 @@ function gamepadDirection(gamepad, buttons, threshold = NAV.GAMEPAD.AXIS_THRESHO
     return axisDirection(gamepad, threshold);
 }
 
-function gamepadDpadDirection(buttons) {
-    const { GAMEPAD } = NAV;
-    if (buttons[GAMEPAD.BTN_RIGHT]?.pressed) return 'RIGHT';
-    if (buttons[GAMEPAD.BTN_LEFT]?.pressed) return 'LEFT';
-    if (buttons[GAMEPAD.BTN_DOWN]?.pressed) return 'DOWN';
-    if (buttons[GAMEPAD.BTN_UP]?.pressed) return 'UP';
-    return null;
-}
-
-function executionLockAxisDirection(gamepad, threshold) {
-    const axes = Array.from(gamepad?.axes || []);
-    let bestDir = null;
-    let bestMag = 0;
-    const pairs = [[0, 1], [2, 3]];
-
-    for (const [xIndex, yIndex] of pairs) {
-        const x = Number(axes[xIndex] || 0);
-        const y = Number(axes[yIndex] || 0);
-        const absX = Math.abs(x);
-        const absY = Math.abs(y);
-        const mag = Math.max(absX, absY);
-        if (mag < threshold || mag <= bestMag) continue;
-
-        bestMag = mag;
-        bestDir = absX >= absY ? (x > 0 ? 'RIGHT' : 'LEFT') : (y > 0 ? 'DOWN' : 'UP');
-    }
-
-    return bestDir;
-}
-
-function areExecutionLockAxesReleased(gamepad, releaseThreshold = 0.42) {
-    const axes = Array.from(gamepad?.axes || []);
-    const pairs = [[0, 1], [2, 3]];
-
-    return pairs.every(([xIndex, yIndex]) =>
-        Math.abs(Number(axes[xIndex] || 0)) <= releaseThreshold &&
-        Math.abs(Number(axes[yIndex] || 0)) <= releaseThreshold);
-}
-
-function executionLockGamepadDirection(gamepad, buttons, threshold) {
-    const dpadDir = gamepadDpadDirection(buttons);
-    if (dpadDir) {
-        _executionLockAxisHeld = false;
-        return dpadDir;
-    }
-
-    if (areExecutionLockAxesReleased(gamepad)) {
-        _executionLockAxisHeld = false;
-        return null;
-    }
-
-    const axisDir = executionLockAxisDirection(gamepad, threshold);
-    if (!axisDir || _executionLockAxisHeld) return null;
-
-    _executionLockAxisHeld = true;
-    return axisDir;
-}
-
 function handleArtworkWizardGamepadShortcuts(buttons) {
     if (isVkbOpenForNavigation() || !window._artworkWizardIsOpen?.()) return false;
 
@@ -1689,17 +1629,6 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         }
 
         if (isExecutionLock) {
-            let lockDir = executionLockGamepadDirection(gamepad, buttons, Math.max(thr, 0.72));
-
-            if (lockDir) {
-                if (_executionLockHeldDir !== lockDir) {
-                    moveExecutionLockFocus(lockDir);
-                    _executionLockHeldDir = lockDir;
-                }
-            } else {
-                _executionLockHeldDir = null;
-            }
-
             _currentDirection = null;
             _moveState = 0;
 
@@ -1711,9 +1640,6 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             }
             return;
         }
-
-        _executionLockHeldDir = null;
-        _executionLockAxisHeld = false;
 
         if (isSessionConflict) {
             let conflictDir = gamepadDirection(gamepad, buttons, Math.max(thr, 0.72));

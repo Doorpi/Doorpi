@@ -5,7 +5,7 @@ window.isNavMenuOpen = false;
 (function () {
 
     // ── Dados Locais ──────────────────────────────────────────────────────────
-    let _menuData = { user: {}, games: [], media: [] };
+    let _menuData = { user: {}, games: [], history: [], media: [] };
     let _menuDataUserId = '';
     let _menuReloadToken = 0;
 
@@ -21,11 +21,12 @@ window.isNavMenuOpen = false;
 
     function _getPlatformData(url) {
         if (!url) return { name: 'Windows / Pasta', svg: PLATFORM_ICONS.Windows };
-        if (url.startsWith('steam://')) return { name: 'Steam', svg: PLATFORM_ICONS.Steam };
-        if (url.startsWith('com.epicgames')) return { name: 'Epic Games', svg: PLATFORM_ICONS.Epic };
-        if (url.startsWith('goggalaxy://')) return { name: 'GOG', svg: PLATFORM_ICONS.GOG };
-        if (url.startsWith('riot:')) return { name: 'Riot Games', svg: PLATFORM_ICONS.Riot };
-        if (/^(xbox:|ms-xbl-)/i.test(url)) return { name: 'Xbox', svg: PLATFORM_ICONS.Xbox };
+        const value = String(url).toLowerCase();
+        if (value === 'steam' || value.startsWith('steam://')) return { name: 'Steam', svg: PLATFORM_ICONS.Steam };
+        if (value === 'epic' || value.startsWith('com.epicgames')) return { name: 'Epic Games', svg: PLATFORM_ICONS.Epic };
+        if (value === 'gog' || value.startsWith('goggalaxy://')) return { name: 'GOG', svg: PLATFORM_ICONS.GOG };
+        if (value === 'riot' || value.startsWith('riot:')) return { name: 'Riot Games', svg: PLATFORM_ICONS.Riot };
+        if (value === 'xbox' || /^(xbox:|ms-xbl-)/i.test(value)) return { name: 'Xbox', svg: PLATFORM_ICONS.Xbox };
         return { name: 'Windows / Pasta', svg: PLATFORM_ICONS.Windows };
     }
 
@@ -742,6 +743,7 @@ window.isNavMenuOpen = false;
         if (!changed && !forceReload) return;
 
         _menuData.games = [];
+        _menuData.history = [];
         _menuData.media = [];
         const activeCatId = CATS[_catIdx]?.id || 'games';
         _destroyLazyGrid();
@@ -1626,9 +1628,10 @@ window.isNavMenuOpen = false;
         let loadedMediaFromJson = false;
         try {
             const ts = new Date().getTime();
-            const [uRes, gRes, mRes] = await Promise.allSettled([
+            const [uRes, gRes, hRes, mRes] = await Promise.allSettled([
                 fetch(`https://data.local/user.json?t=${ts}`),
                 fetch(`https://data.local/games.json?t=${ts}`),
+                fetch(`https://data.local/game-history.json?t=${ts}`),
                 fetch(`https://data.local/media.json?t=${ts}`)
             ]);
 
@@ -1650,6 +1653,10 @@ window.isNavMenuOpen = false;
                     ? games.filter(g => !(g.IsPendingArtwork || g.isPendingArtwork) && !_isArtworkPending(g, 'games'))
                     : games;
                 loadedGamesFromJson = true;
+            }
+            if (hRes.status === 'fulfilled' && hRes.value.ok) {
+                const history = await hRes.value.json();
+                _menuData.history = Array.isArray(history) ? history : [];
             }
             if (mRes.status === 'fulfilled' && mRes.value.ok) {
                 _menuData.media = await mRes.value.json();
@@ -1837,6 +1844,7 @@ window.isNavMenuOpen = false;
     let _bgRaf = null;
     let _lastFocus = null;
     let _settingsSubView = null;
+    let _profileSubView = null;
     let _systemSubView = null;
     let _systemUpdatesSubView = 'doorpi';
     let _sharingFocusAppId = '';
@@ -2132,6 +2140,24 @@ window.isNavMenuOpen = false;
     transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1); font-weight: 500;
 }
 .nav-profile-edit-btn.nav-focused-el { background: #fff; color: #000; transform: scale(1.05); box-shadow: 0 10px 30px rgba(255,255,255,0.2); }
+.nav-profile-section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; border-bottom: 1px solid rgba(255,255,255,0.1); margin-top: 10px; }
+.nav-profile-section-head .nav-profile-section-title { border-bottom: 0; margin-top: 0; padding-bottom: 12px; }
+.nav-profile-journey-btn { margin-bottom: 8px; padding: 7px 13px; border: 1px solid rgba(255,255,255,.14); border-radius: 6px; background: rgba(255,255,255,.055); color: rgba(255,255,255,.66); font: inherit; font-size: clamp(.72rem, .78vw, .9rem); font-weight: 600; outline: none; transition: background .16s ease, color .16s ease, border-color .16s ease, transform .16s ease; }
+.nav-profile-journey-btn.nav-focused-el { background: rgba(255,255,255,.16); border-color: #fff; color: #fff; transform: translateY(-2px); }
+
+.nav-profile-history-view { width: min(100%, 1180px); display: flex; flex-direction: column; gap: clamp(18px, 2.4vh, 32px); animation: fadeInTop 0.3s ease; }
+.nav-profile-history-head { display: flex; align-items: center; gap: clamp(18px, 2vw, 30px); }
+.nav-profile-history-head h2 { margin: 0 0 4px; font-size: clamp(1.4rem, 2.2vw, 2.8rem); font-weight: 350; color: #fff; }
+.nav-profile-history-head p { margin: 0; color: rgba(255,255,255,.46); font-size: clamp(.78rem, .9vw, 1rem); }
+.nav-profile-history-list { display: flex; flex-direction: column; gap: 8px; padding: 4px 10px 60px 4px; }
+.nav-profile-history-row { width: 100%; min-height: clamp(72px, 8vh, 104px); display: grid; grid-template-columns: clamp(112px, 12vw, 180px) minmax(0, 1fr) auto; align-items: center; gap: clamp(16px, 2vw, 30px); padding: 8px clamp(14px, 1.5vw, 24px) 8px 8px; border: 1px solid rgba(255,255,255,.08); border-radius: 8px; background: rgba(255,255,255,.035); color: #fff; font: inherit; text-align: left; outline: none; transition: background .16s ease, border-color .16s ease, transform .16s ease; }
+.nav-profile-history-row.nav-focused-el { background: rgba(255,255,255,.11); border-color: rgba(255,255,255,.76); transform: translateX(8px); }
+.nav-profile-history-art { width: 100%; aspect-ratio: 16/9; display: grid; place-items: center; overflow: hidden; border-radius: 6px; background: rgba(0,0,0,.32); }
+.nav-profile-history-art img { width: 100%; height: 100%; object-fit: cover; }
+.nav-profile-history-art img.is-icon { object-fit: contain; padding: 16%; }
+.nav-profile-history-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(.95rem, 1.25vw, 1.45rem); font-weight: 550; }
+.nav-profile-history-time { color: rgba(255,255,255,.66); font-size: clamp(.82rem, 1vw, 1.12rem); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.nav-profile-history-empty { padding: 50px 0; color: rgba(255,255,255,.35); }
 
 .nav-profile-stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: clamp(10px, 1.5vw, 24px); }
 .nav-profile-stat-box {
@@ -2705,6 +2731,7 @@ window.isNavMenuOpen = false;
             _preserveSettingsSubViewOnce = false;
         } else {
             _settingsSubView = null;
+            _profileSubView = null;
         }
 
         document.querySelectorAll('.nav-cat-item').forEach((el, i) => {
@@ -2736,13 +2763,16 @@ window.isNavMenuOpen = false;
         _renderContent(cat.id);
 
         if (cat.id === 'profile') {
-            fetch(`https://data.local/games.json?t=${new Date().getTime()}`)
-                .then(r => r.json())
-                .then(games => {
-                    if (!Array.isArray(games)) return;
-                    _menuData.games = games.filter(g => !(g.IsPendingArtwork || g.isPendingArtwork) && !_isArtworkPending(g, 'games'));
+            Promise.all([
+                fetch(`https://data.local/games.json?t=${new Date().getTime()}`).then(r => r.json()),
+                fetch(`https://data.local/game-history.json?t=${new Date().getTime()}`).then(r => r.json())
+            ])
+                .then(([games, history]) => {
+                    if (Array.isArray(games))
+                        _menuData.games = games.filter(g => !(g.IsPendingArtwork || g.isPendingArtwork) && !_isArtworkPending(g, 'games'));
+                    if (Array.isArray(history)) _menuData.history = history;
                     if (CATS[_catIdx]?.id === 'profile') {
-                        _renderProfile(document.getElementById('navContentBody'));
+                        _renderContent('profile');
                         _updateContentFocus();
                     }
                 }).catch(() => { });
@@ -2851,7 +2881,8 @@ window.isNavMenuOpen = false;
                 _contentItems = [];
                 _detachDualPane(body);
                 body.innerHTML = '';
-                _renderProfile(body);
+                if (_profileSubView === 'history') _renderProfileHistory(body);
+                else _renderProfile(body);
                 break;
         }
     }
@@ -2862,16 +2893,17 @@ window.isNavMenuOpen = false;
         const name = prof.Name || '—';
         const photo = prof.PhotoBase64 || '';
         const games = _menuData.games || [];
+        const history = _menuData.history || [];
 
         const totalGames = games.length;
 
-        const totalMinutes = games.reduce((sum, g) => sum + (g.TotalPlaytimeMinutes || 0), 0);
+        const totalMinutes = history.reduce((sum, g) => sum + (g.TotalPlaytimeMinutes || 0), 0);
 
-        const mostPlayed = [...games]
+        const mostPlayed = [...history]
             .filter(g => (g.TotalPlaytimeMinutes || 0) > 0)
             .sort((a, b) => b.TotalPlaytimeMinutes - a.TotalPlaytimeMinutes)[0];
 
-        const recentGames = games
+        const recentGames = history
             .filter(g => g.LastPlayed && !g.LastPlayed.startsWith('0001-01-01'))
             .sort((a, b) => new Date(b.LastPlayed) - new Date(a.LastPlayed))
             .slice(0, 6);
@@ -2934,7 +2966,12 @@ window.isNavMenuOpen = false;
                 </div>
             </div>
 
-            <div class="nav-profile-section-title">${_t('navRecentGames', 'Jogados Recentemente')}</div>
+            <div class="nav-profile-section-head">
+                <div class="nav-profile-section-title">${_t('navRecentGames', 'Jogados Recentemente')}</div>
+                <button class="nav-profile-journey-btn" id="btnGameHistory" tabindex="-1">
+                    ${_t('navGameHistoryBtn', 'Ver jornada')}
+                </button>
+            </div>
             <div class="nav-profile-recent-grid" id="profileRecentGrid"></div>
         </div>
     `;
@@ -2959,6 +2996,17 @@ window.isNavMenuOpen = false;
             });
         }
 
+        const btnHistory = body.querySelector('#btnGameHistory');
+        if (btnHistory) {
+            _contentItems.push(btnHistory);
+            btnHistory.addEventListener('click', () => {
+                _profileSubView = 'history';
+                _contentIdx = 0;
+                _renderContent('profile');
+                _setTopbarFocus(false);
+            });
+        }
+
         const grid = body.querySelector('#profileRecentGrid');
 
         if (recentGames.length === 0) {
@@ -2971,7 +3019,7 @@ window.isNavMenuOpen = false;
                 const totalFmtItem = fmtTime(item.TotalPlaytimeMinutes);
                 const lastFmt = fmtTime(item.LastSessionMinutes);
                 const dateStr = relDate(item.LastPlayed);
-                const pData = _getPlatformData(item.LaunchUrl);
+                const pData = _getPlatformData(item.LaunchUrl || item.Source);
 
                 const card = document.createElement('div');
                 card.className = 'nav-profile-recent-card';
@@ -3011,6 +3059,70 @@ window.isNavMenuOpen = false;
                 });
             });
         }
+    }
+
+    function _renderProfileHistory(body) {
+        const history = [...(_menuData.history || [])]
+            .filter(item => item?.Name)
+            .sort((a, b) => (b.TotalPlaytimeMinutes || 0) - (a.TotalPlaytimeMinutes || 0));
+        const fmtTime = (minutes) => {
+            const total = Math.max(0, Number(minutes) || 0);
+            const h = Math.floor(total / 60);
+            const m = total % 60;
+            if (h === 0) return `${m} min`;
+            if (m === 0) return `${h} h`;
+            return `${h} h ${m} min`;
+        };
+
+        body.innerHTML = `
+            <div class="nav-profile-history-view">
+                <div class="nav-profile-history-head">
+                    <button class="nav-back-btn" id="profileHistoryBack" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
+                    <div>
+                        <h2>${_t('navGameHistoryTitle', 'Minha jornada')}</h2>
+                        <p>${_t('navGameHistorySub', 'Todos os jogos registrados neste perfil')}</p>
+                    </div>
+                </div>
+                <div class="nav-profile-history-list" id="profileHistoryList"></div>
+            </div>`;
+
+        const back = body.querySelector('#profileHistoryBack');
+        const list = body.querySelector('#profileHistoryList');
+        _contentItems = [back];
+
+        back?.addEventListener('click', () => {
+            _profileSubView = null;
+            _contentIdx = 0;
+            _renderContent('profile');
+            _setTopbarFocus(false);
+        });
+
+        if (history.length === 0) {
+            list.innerHTML = `<div class="nav-profile-history-empty">${_t('navGameHistoryEmpty', 'Nenhum jogo foi jogado ainda')}</div>`;
+        } else {
+            history.forEach(item => {
+                const image = item.GridHorizontalStaticImage || item.GridHorizontalImage || item.GridStaticImage || item.GridImage || '';
+                const icon = item.IconBase64 ? `data:image/png;base64,${item.IconBase64}` : '';
+                const row = document.createElement('button');
+                row.type = 'button';
+                row.tabIndex = -1;
+                row.className = 'nav-profile-history-row';
+                row.innerHTML = `
+                    <span class="nav-profile-history-art">
+                        ${image ? `<img src="${_esc(image)}" alt="" />` : icon ? `<img class="is-icon" src="${_esc(icon)}" alt="" />` : ''}
+                    </span>
+                    <span class="nav-profile-history-name">${_esc(item.Name)}</span>
+                    <span class="nav-profile-history-time">${fmtTime(item.TotalPlaytimeMinutes)}</span>`;
+                list.appendChild(row);
+                _contentItems.push(row);
+            });
+        }
+
+        _contentItems.forEach((element, index) => element?.addEventListener('mouseenter', () => {
+            _topbarFocus = false;
+            _contentIdx = index;
+            _updateContentFocus();
+        }));
     }
 
     // ── Novo Hub de Configurações ─────────────────────────────────────────────
@@ -5645,15 +5757,15 @@ window.isNavMenuOpen = false;
                 if (_contentIdx < total - 1) { _contentIdx++; _updateContentFocus(); }
                 break;
             case 'ArrowUp':
-                if (CATS[_catIdx]?.id === 'profile' && _contentIdx > 0) {
-                    _contentIdx = 0; _updateContentFocus(); break;
+                if (CATS[_catIdx]?.id === 'profile' && !_profileSubView && _contentIdx > 0) {
+                    _contentIdx = _contentIdx >= 2 ? 1 : 0; _updateContentFocus(); break;
                 }
                 if (_contentIdx < cols) { _setTopbarFocus(true); }
                 else { _contentIdx = Math.max(0, _contentIdx - cols); _updateContentFocus(); }
                 break;
             case 'ArrowDown':
-                if (CATS[_catIdx]?.id === 'profile' && _contentIdx === 0 && total > 1) {
-                    _contentIdx = 1; _updateContentFocus(); break;
+                if (CATS[_catIdx]?.id === 'profile' && !_profileSubView && _contentIdx <= 1 && total > 1) {
+                    _contentIdx = _contentIdx === 0 ? 1 : (total > 2 ? 2 : 1); _updateContentFocus(); break;
                 }
                 if (_contentIdx + cols < total) { _contentIdx += cols; _updateContentFocus(); }
                 break;
@@ -5674,7 +5786,12 @@ window.isNavMenuOpen = false;
             }
             case 'Escape':
             case 'Backspace':
-                if (CATS[_catIdx]?.id === 'settings' && _settingsSubView) {
+                if (CATS[_catIdx]?.id === 'profile' && _profileSubView === 'history') {
+                    _profileSubView = null;
+                    _contentIdx = 0;
+                    _renderContent('profile');
+                    _setTopbarFocus(false);
+                } else if (CATS[_catIdx]?.id === 'settings' && _settingsSubView) {
                     if (_settingsSubView === 'bluetooth' && _bluetoothUpdateStatus?.pairingPrompt) {
                         postToHost?.({ action: 'respondBluetoothPairing', accepted: false, pin: '' });
                         return true;
