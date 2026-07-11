@@ -478,6 +478,31 @@ namespace Doorpi
             }
         }
 
+        private static IEnumerable<object> LocalizeChangelogForUi(IEnumerable<ChangelogEntry>? entries)
+        {
+            bool usePortuguese = string.Equals(
+                System.Globalization.CultureInfo.CurrentUICulture.Name,
+                "pt-BR",
+                StringComparison.OrdinalIgnoreCase);
+            string preferredLocale = usePortuguese ? "pt-BR" : "en";
+            string fallbackLocale = usePortuguese ? "en" : "pt-BR";
+
+            foreach (var entry in entries ?? [])
+            {
+                var locales = entry.Locales ?? new Dictionary<string, ChangelogLocale>(StringComparer.OrdinalIgnoreCase);
+                locales.TryGetValue(preferredLocale, out var localized);
+                if (localized == null)
+                    locales.TryGetValue(fallbackLocale, out localized);
+
+                yield return new
+                {
+                    version = entry.Version,
+                    title = string.IsNullOrWhiteSpace(localized?.Title) ? entry.Title : localized.Title,
+                    items = localized?.Items?.Count > 0 ? localized.Items : entry.Items
+                };
+            }
+        }
+
         private void SendUpdateStatusToUI(string status, string message, UpdateDecision? decision, double progress = -1)
         {
             try
@@ -499,7 +524,7 @@ namespace Doorpi
                     lastCheckedAt = _lastUpdateCheckUtc == DateTimeOffset.MinValue
                         ? ""
                         : _lastUpdateCheckUtc.ToString("O"),
-                    changelog = manifest?.Changelog ?? new List<ChangelogEntry>()
+                    changelog = LocalizeChangelogForUi(manifest?.Changelog).ToList()
                 };
 
                 Dispatcher.Invoke(() =>

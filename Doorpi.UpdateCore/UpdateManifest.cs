@@ -69,6 +69,19 @@ public sealed class ChangelogEntry
 
     [JsonPropertyName("items")]
     public List<string> Items { get; set; } = new();
+
+    // Legacy title/items remain supported. New manifests provide both locales here.
+    [JsonPropertyName("locales")]
+    public Dictionary<string, ChangelogLocale> Locales { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+}
+
+public sealed class ChangelogLocale
+{
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = "";
+
+    [JsonPropertyName("items")]
+    public List<string> Items { get; set; } = new();
 }
 
 public sealed class ManifestSignature

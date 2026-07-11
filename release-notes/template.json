@@ -1,0 +1,18 @@
+{
+  "locales": {
+    "pt-BR": {
+      "title": "Doorpi 0.1.5",
+      "items": [
+        "Resumo da primeira alteracao.",
+        "Resumo da segunda alteracao."
+      ]
+    },
+    "en": {
+      "title": "Doorpi 0.1.5",
+      "items": [
+        "Summary of the first change.",
+        "Summary of the second change."
+      ]
+    }
+  }
+}

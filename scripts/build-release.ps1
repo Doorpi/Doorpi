@@ -107,6 +107,35 @@ function Add-ReleaseSigningPayload([System.Text.StringBuilder]$builder, [string]
     Add-SigningLine $builder "$prefix.allowRollback" ($(if ($release.allowRollback) { "true" } else { "false" }))
 }
 
+function Get-ManifestField([object]$value, [string]$name) {
+    if ($null -eq $value) {
+        return $null
+    }
+
+    if ($value -is [System.Collections.IDictionary]) {
+        return $value[$name]
+    }
+
+    $property = $value.PSObject.Properties[$name]
+    if ($null -eq $property) {
+        return $null
+    }
+
+    return $property.Value
+}
+
+function Get-ManifestMemberNames([object]$value) {
+    if ($null -eq $value) {
+        return @()
+    }
+
+    if ($value -is [System.Collections.IDictionary]) {
+        return @($value.Keys | ForEach-Object { [string]$_ })
+    }
+
+    return @($value.PSObject.Properties.Name | ForEach-Object { [string]$_ })
+}
+
 function Get-ManifestSigningPayload([object]$manifest) {
     $builder = [System.Text.StringBuilder]::new()
     Add-SigningLine $builder "schemaVersion" $manifest.schemaVersion
@@ -124,6 +153,18 @@ function Get-ManifestSigningPayload([object]$manifest) {
         Add-SigningLine $builder "changelog.$i.title" $entry.title
         for ($itemIndex = 0; $itemIndex -lt $entry.items.Count; $itemIndex++) {
             Add-SigningLine $builder "changelog.$i.items.$itemIndex" $entry.items[$itemIndex]
+        }
+        $locales = Get-ManifestField $entry "locales"
+        if ($locales) {
+            $localeNames = @(Get-ManifestMemberNames $locales | Sort-Object)
+            foreach ($localeName in $localeNames) {
+                $locale = Get-ManifestField $locales $localeName
+                Add-SigningLine $builder "changelog.$i.locales.$localeName.title" (Get-ManifestField $locale "title")
+                $items = @(Get-ManifestField $locale "items")
+                for ($itemIndex = 0; $itemIndex -lt $items.Count; $itemIndex++) {
+                    Add-SigningLine $builder "changelog.$i.locales.$localeName.items.$itemIndex" $items[$itemIndex]
+                }
+            }
         }
     }
 
@@ -216,6 +257,11 @@ $expiresAt = $publishedAt.AddDays($ExpiresInDays)
 
 $releaseTitle = "Doorpi $DoorpiVersion"
 $releaseItems = @("Descreva as mudanças desta versão.")
+$releaseLocales = [ordered]@{
+    "pt-BR" = [ordered]@{ title = $releaseTitle; items = @($releaseItems) }
+    "en" = [ordered]@{ title = $releaseTitle; items = @($releaseItems) }
+}
+$hasLocalizedReleaseNotes = $false
 if (![string]::IsNullOrWhiteSpace($ReleaseNotesPath) -and (Test-Path $ReleaseNotesPath)) {
     $notes = Get-Content $ReleaseNotesPath -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($notes.title) {
@@ -224,6 +270,28 @@ if (![string]::IsNullOrWhiteSpace($ReleaseNotesPath) -and (Test-Path $ReleaseNot
     if ($notes.items) {
         $releaseItems = @($notes.items | ForEach-Object { [string]$_ })
     }
+
+    if ($notes.locales) {
+        $hasLocalizedReleaseNotes = $true
+        $releaseLocales = [ordered]@{}
+        foreach ($localeProperty in $notes.locales.PSObject.Properties) {
+            $locale = $localeProperty.Value
+            $releaseLocales[$localeProperty.Name] = [ordered]@{
+                title = [string]$locale.title
+                items = @($locale.items | ForEach-Object { [string]$_ })
+            }
+        }
+    }
+}
+
+if (!$hasLocalizedReleaseNotes) {
+    $releaseLocales["pt-BR"] = [ordered]@{ title = $releaseTitle; items = @($releaseItems) }
+    $releaseLocales["en"] = [ordered]@{ title = $releaseTitle; items = @($releaseItems) }
+}
+
+if ($releaseLocales.Contains("pt-BR")) {
+    $releaseTitle = [string]$releaseLocales["pt-BR"].title
+    $releaseItems = @($releaseLocales["pt-BR"].items)
 }
 
 $draftManifest = [ordered]@{
@@ -255,6 +323,7 @@ $draftManifest = [ordered]@{
             version = $DoorpiVersion
             title = $releaseTitle
             items = $releaseItems
+            locales = $releaseLocales
         }
     )
 }
