@@ -602,6 +602,53 @@ function moveExecutionLockFocus(direction) {
     items[nextIndex]?.focus();
 }
 
+function moveNotificationCenterFocus(direction) {
+    const rows = Array.from(document.querySelectorAll('#doorpiNotificationList .doorpi-notification-item'))
+        .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0 && !el.disabled);
+    if (!rows.length) return;
+
+    const current = document.activeElement;
+    const currentRow = current?.closest?.('.doorpi-notification-item');
+    let rowIndex = rows.indexOf(currentRow);
+    if (rowIndex < 0) {
+        rows[0].focus();
+        return;
+    }
+
+    if (direction === 'RIGHT') {
+        if (!current?.matches?.('[data-notification-close]')) {
+            const closeButton = currentRow.querySelector('[data-notification-close]');
+            if (closeButton) {
+                closeButton.focus();
+                if (window._gpNavigating) window.DoorpiUiSound?.play('move');
+                signalNavigation();
+            }
+        }
+        return;
+    }
+
+    if (direction === 'LEFT') {
+        if (current?.matches?.('[data-notification-close]')) {
+            currentRow.focus();
+            if (window._gpNavigating) window.DoorpiUiSound?.play('move');
+            signalNavigation();
+        }
+        return;
+    }
+
+    if (direction === 'DOWN') rowIndex = Math.min(rows.length - 1, rowIndex + 1);
+    else if (direction === 'UP') rowIndex = Math.max(0, rowIndex - 1);
+    else return;
+
+    const target = rows[rowIndex];
+    if (target !== current) {
+        target.focus();
+        target.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+        if (window._gpNavigating) window.DoorpiUiSound?.play('move');
+        signalNavigation();
+    }
+}
+
 document.addEventListener('focusin', () => {
     if (!window.isSetupOpen) return;
 
@@ -726,6 +773,11 @@ function moveFocus(direction) {
         return;
     }
 
+    if (window.isDoorpiNotificationCenterOpen?.()) {
+        moveNotificationCenterFocus(direction);
+        return;
+    }
+
     const items = getNavigableItems();
     if (!items.length) return;
     const current = document.activeElement;
@@ -770,14 +822,18 @@ function moveFocus(direction) {
             }
         }
 
+        let explicitHomeTarget = null;
         const homeGrid = current.closest('#mediaGrid, #gameGrid, #storesGrid');
         if (homeGrid) {
+            const gridItems = items.filter(el => homeGrid.contains(el));
             if (direction === 'LEFT') {
-                const gridItems = items.filter(el => homeGrid.contains(el));
                 if (gridItems[0] === current && window.DoorpiQuickPanel?.open) {
                     window.DoorpiQuickPanel.open();
                     return;
                 }
+            }
+            if (direction === 'RIGHT' && gridItems[gridItems.length - 1] === current) {
+                explicitHomeTarget = gridItems[0] || null;
             }
             if (direction === 'UP') {
                 const activeTab = document.querySelector('.home-tab.active');
@@ -793,7 +849,7 @@ function moveFocus(direction) {
             if (profileBtn) { profileBtn.focus(); return; }
         }
 
-        let target = findSpatialCandidate(items, current, direction);
+        let target = explicitHomeTarget || findSpatialCandidate(items, current, direction);
         if (!target) {
             const tabs = items.filter(el => el.classList.contains('home-tab'));
             const cards = items.filter(el => !el.classList.contains('home-tab') && !el.classList.contains('top-profile-btn'));
@@ -1049,13 +1105,22 @@ document.addEventListener('keydown', e => {
         return;
     }
 
-    if (_doorpiGamepadActionsBlockedUntilRelease) {
-        const blocked = ['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Enter', ' ', 'Spacebar', 'Escape'];
+    if (window._doorpiNativeDialogActive) {
+        const blocked = ['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Enter', ' ', 'Spacebar', 'Escape', 'Backspace'];
         if (blocked.includes(e.key)) {
             e.preventDefault();
             e.stopImmediatePropagation();
         }
         return;
+    }
+
+    if (isDoorpiActionQuarantineActive()) {
+        const blocked = ['Enter', ' ', 'Spacebar', 'Escape', 'Backspace'];
+        if (blocked.includes(e.key)) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            return;
+        }
     }
 
     if (window.isGlobalLoading) { e.preventDefault(); return; }
@@ -1174,7 +1239,7 @@ document.addEventListener('keydown', e => {
 
 let _controllerType = 'generic', _btnCooldown = {}, _lastMoveTime = 0, _moveState = 0, _currentDirection = null, _sessionConflictHeldDir = null, _gameFocusFallbackHeldDir = null;
 let _cursorHoldState = { l1: 0, r1: 0 }, _cursorLastTime = { l1: 0, r1: 0 };
-let _doorpiGamepadActionsBlockedUntilRelease = false;
+let _doorpiActionQuarantineUntil = 0;
 let _doorpiControllerActivationToken = 0;
 let _doorpiControllerActivationActive = false;
 
@@ -1235,16 +1300,20 @@ window.resetDoorpiGamepadInputState = function () {
     }
 };
 
-window.blockDoorpiGamepadActionsUntilRelease = function () {
-    _doorpiGamepadActionsBlockedUntilRelease = true;
+function isDoorpiActionQuarantineActive() {
+    if (performance.now() < _doorpiActionQuarantineUntil) return true;
+    _doorpiActionQuarantineUntil = 0;
+    return false;
+}
+
+window.quarantineDoorpiGamepadActions = function (durationMs = 450) {
+    const boundedDuration = Math.max(0, Math.min(1500, Number(durationMs) || 0));
+    _doorpiActionQuarantineUntil = Math.max(
+        _doorpiActionQuarantineUntil,
+        performance.now() + boundedDuration
+    );
     window.resetDoorpiGamepadInputState?.();
 };
-
-function isDoorpiGamepadNeutral(gamepad) {
-    const hasHeldButton = gamepad.buttons.some(button => button?.pressed);
-    const hasHeldAxis = gamepad.axes.some(axis => Math.abs(Number(axis) || 0) > 0.20);
-    return !hasHeldButton && !hasHeldAxis;
-}
 
 function isVkbOpenForNavigation() {
     if (!window._vkbIsOpen) return false;
@@ -1476,15 +1545,6 @@ function axisDirection(gamepad, threshold = NAV.GAMEPAD.AXIS_THRESHOLD) {
     return bestDir;
 }
 
-function hasHeldIntroTransitionInput(gamepad) {
-    const buttons = gamepad?.buttons || [];
-    if (buttons.some(btn => btn?.pressed)) return true;
-    const axes = gamepad?.axes || [];
-    const threshold = NAV.GAMEPAD.AXIS_THRESHOLD;
-    return Math.abs(Number(axes[0]) || 0) > threshold ||
-        Math.abs(Number(axes[1]) || 0) > threshold;
-}
-
 function gamepadDirection(gamepad, buttons, threshold = NAV.GAMEPAD.AXIS_THRESHOLD) {
     const { GAMEPAD } = NAV;
     if (buttons[GAMEPAD.BTN_RIGHT]?.pressed) return 'RIGHT';
@@ -1582,22 +1642,16 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         if (!window.isDoorpiFocused) return;
 
         let gamepad = readAllGamepadInput();
-        if (!gamepad) {
-            _doorpiGamepadActionsBlockedUntilRelease = false;
-            return;
-        }
+        if (!gamepad) return;
 
-        if (_doorpiGamepadActionsBlockedUntilRelease) {
-            if (!isDoorpiGamepadNeutral(gamepad)) {
-                gamepad.buttons.forEach(button => {
-                    if (!button) return;
-                    button.justPressed = false;
-                    button._consumed = true;
-                });
-                return;
-            } else {
-                _doorpiGamepadActionsBlockedUntilRelease = false;
-            }
+        if (window._doorpiNativeDialogActive) return;
+
+        if (isDoorpiActionQuarantineActive()) {
+            gamepad.buttons.forEach(button => {
+                if (!button) return;
+                button.justPressed = false;
+                button._consumed = true;
+            });
         }
 
         if (window.DoorpiIntro?.isRunning?.()) {
@@ -1611,11 +1665,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             return;
         }
 
-        if (performance.now() < (window._doorpiIntroInputBlockUntil || 0) || window._doorpiWaitForIntroInputNeutral) {
-            if (window._doorpiWaitForIntroInputNeutral && !hasHeldIntroTransitionInput(gamepad)) {
-                window._doorpiWaitForIntroInputNeutral = false;
-                window._doorpiIntroInputBlockUntil = 0;
-            }
+        if (performance.now() < (window._doorpiIntroInputBlockUntil || 0)) {
             return;
         }
 

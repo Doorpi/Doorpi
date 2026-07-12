@@ -374,7 +374,7 @@
 
         function finish() {
             const overlay = document.getElementById('doorpiFirstRunTutorial');
-            window.blockDoorpiGamepadActionsUntilRelease?.();
+            window.quarantineDoorpiGamepadActions?.(500);
             window._doorpiSuppressPointer?.(320);
             storageSet(FIRST_RUN_TUTORIAL_DONE_KEY, 'true');
             storageRemove(FIRST_RUN_TUTORIAL_PENDING_KEY);
@@ -4357,10 +4357,15 @@
             else if (data.type === 'artworkImagePickCanceled') {
                 window._doorpiSuppressNativeDialogPointer?.(650);
             }
+            else if (data.type === 'nativeDialogOpened') {
+                window._doorpiNativeDialogActive = true;
+                window.quarantineDoorpiGamepadActions?.(300);
+            }
             else if (data.type === 'nativeDialogReturned') {
                 window._doorpiNativeDialogPending = false;
+                window._doorpiNativeDialogActive = false;
                 window._doorpiSuppressNativeDialogPointer?.(900);
-                window.blockDoorpiGamepadActionsUntilRelease?.();
+                window.quarantineDoorpiGamepadActions?.(500);
             }
             else if (data.type === 'artworkSelectionApplied') {
                 window._artworkWizardHandleApplied?.(data);
@@ -7785,7 +7790,7 @@ document.getElementById('btnAddStore')?.addEventListener('click', () => {
 
     function closeModal() {
         window._doorpiSuppressNativeDialogPointer?.(700);
-        window.blockDoorpiGamepadActionsUntilRelease?.();
+        window.quarantineDoorpiGamepadActions?.(400);
         document.getElementById('addGameContainer').style.display = 'none';
         document.getElementById('gameGrid').style.overflowX = 'auto';
         document.getElementById('selectionCounter')?.classList.remove('visible');
@@ -11547,7 +11552,7 @@ function renderFolderList(folders) {
         window._doorpiNativeDialogPending = true;
         window.setInlineScanStatus?.(true, t('inlineScanWaitingWindows'));
         window._doorpiSuppressNativeDialogPointer?.(10 * 60 * 1000);
-        window.blockDoorpiGamepadActionsUntilRelease?.();
+        window.quarantineDoorpiGamepadActions?.(300);
         postToHost({
             action: 'browseManualMedia',
             dialogTitle: t('dlgBrowseTitle'),

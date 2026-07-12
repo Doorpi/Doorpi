@@ -1,54 +1,51 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202607110940,
-    "publishedAt":  "2026-07-11T12:41:37.6409786Z",
-    "expiresAt":  "2026-07-25T12:41:37.6409786Z",
+    "manifestVersion":  202607120122,
+    "publishedAt":  "2026-07-12T04:23:10.5634535Z",
+    "expiresAt":  "2026-07-26T04:23:10.5634535Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.1.7",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.7/doorpi-0.1.7.doorpiupdate.zip",
-                   "sha256":  "916da554ce30505a4dd0343a85d0988c2200625f2f6d787043a090339c24b5ef",
-                   "sizeBytes":  132910753,
+                   "version":  "0.1.8",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.8/doorpi-0.1.8.doorpiupdate.zip",
+                   "sha256":  "ea3fa123c7e7a3968dac08431c43caf77125ebfb654ed15622084b76db655687",
+                   "sizeBytes":  132914054,
                    "minUpdaterVersion":  "0.1.0",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
                     "version":  "0.1.0",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.7/updater-0.1.0.doorpiupdate.zip",
-                    "sha256":  "cc5c924cfbf41f72bdaf4024335e0cf51f7028fb6714b607bf0478dd9b83d203",
-                    "sizeBytes":  69944469,
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.8/updater-0.1.0.doorpiupdate.zip",
+                    "sha256":  "8ca4ed01249a124b86b5a4a96f8c6c8cebbae4567659ea777b250dd5173e1617",
+                    "sizeBytes":  69944481,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.1.7",
-                          "title":  "Doorpi 0.1.7",
+                          "version":  "0.1.8",
+                          "title":  "Doorpi 0.1.8",
                           "items":  [
-                                        "Corrigido o movimento diagonal do mouse em janelas do Windows.",
-                                        "Corrigida a adição manual de aplicativos sendo classificada como jogo.",
-                                        "Corrigidos cliques que vazavam do seletor de arquivos para a Home.",
-                                        "Melhorada a detecção de jogos iniciados por launchers externos."
+                                        "Corrigidos casos em que os controles paravam de funcionar.",
+                                        "Corrigidos casos em que o Xbox persistia em não minimizar.",
+                                        "Melhorias de qualidade de vida na navegação."
                                     ],
                           "locales":  {
                                           "pt-BR":  {
-                                                        "title":  "Doorpi 0.1.7",
+                                                        "title":  "Doorpi 0.1.8",
                                                         "items":  [
-                                                                      "Corrigido o movimento diagonal do mouse em janelas do Windows.",
-                                                                      "Corrigida a adição manual de aplicativos sendo classificada como jogo.",
-                                                                      "Corrigidos cliques que vazavam do seletor de arquivos para a Home.",
-                                                                      "Melhorada a detecção de jogos iniciados por launchers externos."
+                                                                      "Corrigidos casos em que os controles paravam de funcionar.",
+                                                                      "Corrigidos casos em que o Xbox persistia em não minimizar.",
+                                                                      "Melhorias de qualidade de vida na navegação."
                                                                   ]
                                                     },
                                           "en":  {
-                                                     "title":  "Doorpi 0.1.7",
+                                                     "title":  "Doorpi 0.1.8",
                                                      "items":  [
-                                                                   "Fixed diagonal mouse movement in Windows dialogs.",
-                                                                   "Fixed manually added applications being classified as games.",
-                                                                   "Fixed clicks leaking from the file picker to Home.",
-                                                                   "Improved detection of games launched by external launchers."
+                                                                   "Fixed cases where controllers stopped working.",
+                                                                   "Fixed cases where Xbox kept refusing to minimize.",
+                                                                   "Quality-of-life improvements for navigation."
                                                                ]
                                                  }
                                       }
@@ -57,6 +54,6 @@
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "jqjBp6QKrdHbwpn7KvY4F2rd4wqNEDnr2LKT859kQnDlyH5OI1WX5irNJjY7QUH4EoUxJP8lGREkytWyURLbm+yEen0lVNgKer7HeDwVGGWMPxjXIIp6865RChL8LYRfwvBk6yStNwcEJ+GZlfNQJWK47Sy2Ugcv8Ne3KjDjdXi5/knVcpp7pwVOGfZ1mDD0o46aKrX7PixykBhccB10OIum099gxVc+c6IEFs9lF6PV2iXn0LnyOBmCwKXfQ7RboqFAdsibQAiFLdEiNq/TVj8IBhwzq4yr8/LuwNvrEwB4sqfp/Tm9Tw9GwIa7rpEzBeqH1CbYhb2wy5eWmoa6OcD7BUMoTHqrKx8UYzKlWahs15+phRmoWQ7uBvRg0SkQ4IUiTGNJJ//N3hLmNrpWF+JW431aVdluQNWNgmvnxRSvCeKre71Ya2flOyCToSlCGoz2vNBsdTcr7DG9TdGbasbcgF5IVCR6+aO7i8iCZnjAnYHJPXPkGj5+0EjExD+O"
+                      "value":  "h1Re2mPPEo6dVJl1o85MOXb+asYenqfEjxJb1X2B4hVxZ1TP80xLc+l0q8qBphRknNQOvQgDjSlaleScyJHcT3mu3Vjf+RvtCITUp8pl1ToAY9wrXhj3Gh1pEdbrizdpdl3yS+Cy3fL8XTlvLmz2Yc+2iEh0sfVYpH0ZQ+bwMxRCqS7xfBiI8Saa7YKY7oSU1vbyA6gKrmYJ0nEy8gd8cox1dFHHqXUlpKXhiYNPobNPYpVNfdqEduwEwjOdAYtSApOD4R9Lffty1QZX+FeEIN6bbHQ0GnvKHzmPnTgMmOA9G69gCajPE/h7Z26QuaGNF3Ni5m/cQe72vE5tOilv7+hGNacbNkoX+EGzRuONgUW0y70WDpMZe3PdMVlPfOvzbgWVSNHrRcUoO0OuKiHRrbAYz8eKpCT4lHZOpvGlbKHFgjL0kVA0IPdwMq8WC3vG+rzFW+oeYQQQmpg27SjaYj+nTSx/brpPDU7y4G9jbFhnkLNW8pkHdq9OEbirpV9z"
                   }
 }
