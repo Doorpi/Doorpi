@@ -278,7 +278,7 @@
         if (state.finishDispatched) return;
         state.finishDispatched = true;
         window._doorpiIntroInputBlockUntil = performance.now() + 450;
-        window._doorpiWaitForIntroInputNeutral = true;
+        window.quarantineDoorpiGamepadActions?.(600);
         hideSystemPrepOverlay();
         if (!state.handoffActive) {
             revealMainSystemUI();

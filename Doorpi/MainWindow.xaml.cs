@@ -2877,6 +2877,7 @@ namespace Doorpi
         private DateTime _launchAnimationStartedUtc = DateTime.MinValue;
         private long _gameMinimizeAllowedAfterUtcTicks;
         private volatile bool _dialogModeActive = false;
+        private int _dialogControllerGeneration;
 
         // ========================= FOCUS GUARD DE TRANSIÇÃO =========================
 
@@ -3097,7 +3098,6 @@ namespace Doorpi
               Action? onMouseModeShortcut = null,
               Func<ushort, bool>? mouseModeShortcutPredicate = null,
               bool instantPrimaryClick = false,
-              bool instantPrimaryDoubleClick = false,
               Func<AggregatedGamepadState>? inputProvider = null)
         {
             var sw = Stopwatch.StartNew();
@@ -3285,15 +3285,6 @@ namespace Doorpi
                             if (instantPrimaryClick)
                             {
                                 SendMouse(0, 0, 0x0004);
-                                if (instantPrimaryDoubleClick)
-                                {
-                                    Thread.Sleep(35);
-                                    if (isActive())
-                                    {
-                                        SendMouse(0, 0, 0x0002);
-                                        SendMouse(0, 0, 0x0004);
-                                    }
-                                }
                                 isClicking = false;
                                 if (aWasOnTextField && IsCursorOnTextField())
                                 {
@@ -3631,10 +3622,7 @@ namespace Doorpi
             long mouseShortcutLastR3 = 0;
             bool mouseShortcutLatched = false;
 
-            while (_isStoreLauncherSession &&
-                   !_storePausedByDoorpi &&
-                   !IsStoreChildGameBlockingStoreControls() &&
-                   _storeSessionId == sessionId)
+            while (IsStoreShortcutSessionActive(sessionId))
             {
                 try
                 {
@@ -3674,7 +3662,7 @@ namespace Doorpi
 
         private void EnsureStoreShortcutThread(int sessionId)
         {
-            if (!IsStoreLogicalSessionActive(sessionId))
+            if (!IsStoreShortcutSessionActive(sessionId))
                 return;
 
             if (_storeShortcutThread?.IsAlive == true &&
@@ -3684,6 +3672,13 @@ namespace Doorpi
             _storeShortcutThreadSessionId = sessionId;
             _storeShortcutThread = new Thread(() => StoreLauncherShortcutLoop(sessionId)) { IsBackground = true };
             _storeShortcutThread.Start();
+        }
+
+        private bool IsStoreShortcutSessionActive(int sessionId)
+        {
+            return _isStoreLauncherSession &&
+                   !_storePausedByDoorpi &&
+                   _storeSessionId == sessionId;
         }
 
         private bool IsStoreLogicalSessionActive(int sessionId)
@@ -4167,6 +4162,7 @@ namespace Doorpi
         private void StartDialogControllerMode()
         {
             if (_dialogModeActive) return;
+            int generation = Interlocked.Increment(ref _dialogControllerGeneration);
             _dialogModeActive = true;
 
             // Garante que o cursor apareça para o usuário interagir com o dialog
@@ -4176,10 +4172,10 @@ namespace Doorpi
             new Thread(() =>
             {
                 SharedGamepadControllerLoop(
-                    () => _dialogModeActive,
+                    () => _dialogModeActive &&
+                          Volatile.Read(ref _dialogControllerGeneration) == generation,
                     () => SendVirtualKey(0x1B),
                     instantPrimaryClick: true,
-                    instantPrimaryDoubleClick: true,
                     inputProvider: GetNativeDialogControllerInput
                 );
             })
@@ -4209,14 +4205,30 @@ namespace Doorpi
             catch { }
         }
 
-        private void BeginNativeDialogInputShield()
+        private void NotifyNativeDialogOpened(string source = "nativeDialog")
+        {
+            try
+            {
+                string payload = JsonSerializer.Serialize(new
+                {
+                    type = "nativeDialogOpened",
+                    source
+                });
+                webView?.CoreWebView2?.PostWebMessageAsString(payload);
+                _ytWebView?.CoreWebView2?.PostWebMessageAsString(payload);
+            }
+            catch { }
+        }
+
+        private void BeginNativeDialogInputShield(string source)
         {
             Interlocked.Increment(ref _nativeDialogInputShieldToken);
             SetNativeDialogInputShield(true);
+            NotifyNativeDialogOpened(source);
             try
             {
-                webView?.CoreWebView2?.ExecuteScriptAsync("try{window._doorpiSuppressNativeDialogPointer?.(6000);}catch(e){}");
-                _ytWebView?.CoreWebView2?.ExecuteScriptAsync("try{window._doorpiSuppressNativeDialogPointer?.(6000);}catch(e){}");
+                webView?.CoreWebView2?.ExecuteScriptAsync("try{window._doorpiNativeDialogActive=true;window._doorpiSuppressNativeDialogPointer?.(6000);}catch(e){}");
+                _ytWebView?.CoreWebView2?.ExecuteScriptAsync("try{window._doorpiNativeDialogActive=true;window._doorpiSuppressNativeDialogPointer?.(6000);}catch(e){}");
             }
             catch { }
         }
@@ -4224,11 +4236,24 @@ namespace Doorpi
         private void EndNativeDialogInputShield(string source = "nativeDialog")
         {
             long token = Interlocked.Read(ref _nativeDialogInputShieldToken);
+            try
+            {
+                webView?.CoreWebView2?.ExecuteScriptAsync("try{window._doorpiNativeDialogActive=false;}catch(e){}");
+                _ytWebView?.CoreWebView2?.ExecuteScriptAsync("try{window._doorpiNativeDialogActive=false;}catch(e){}");
+            }
+            catch { }
             NotifyNativeDialogReturned(source);
+
+            try
+            {
+                webView?.Focus();
+                if (webView != null) Keyboard.Focus(webView);
+            }
+            catch { }
 
             _ = Task.Run(async () =>
             {
-                await Task.Delay(1200).ConfigureAwait(false);
+                await Task.Delay(650).ConfigureAwait(false);
                 Dispatcher.Invoke(() =>
                 {
                     if (Interlocked.Read(ref _nativeDialogInputShieldToken) != token)
@@ -4238,9 +4263,9 @@ namespace Doorpi
             });
         }
 
-        private bool? ShowDialogWithController(Microsoft.Win32.CommonDialog dialog)
+        private bool? ShowDialogWithController(Microsoft.Win32.CommonDialog dialog, string source = "nativeDialog")
         {
-            BeginNativeDialogInputShield();
+            BeginNativeDialogInputShield(source);
             StartDialogControllerMode();
             CenterOwnedDialogSoon();
             try
@@ -4250,7 +4275,7 @@ namespace Doorpi
             finally
             {
                 StopDialogControllerMode();
-                EndNativeDialogInputShield();
+                EndNativeDialogInputShield(source);
             }
         }
 
@@ -4336,7 +4361,10 @@ namespace Doorpi
         {
             if (!_dialogModeActive) return;
             _dialogModeActive = false;
+            Interlocked.Increment(ref _dialogControllerGeneration);
             ReleaseMouseButtons();
+            Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil,
+                DateTime.UtcNow.AddMilliseconds(220).Ticks);
 
             Dispatcher.Invoke(() => {
                 _desktopVkb?.Close();
@@ -4506,7 +4534,7 @@ namespace Doorpi
                 return true;
             }
 
-            if (allowNewWindowFallback && session != null && session.BaselineProcessIds.Count > 0)
+            if (allowNewWindowFallback && session != null && session.BaselineProcessCount > 0)
             {
                 foreach (var hWnd in EnumerateTopLevelWindows())
                 {
@@ -4514,7 +4542,7 @@ namespace Doorpi
 
                     GetWindowProcessId(hWnd, out uint pidRaw);
                     int pid = (int)pidRaw;
-                    if (session.BaselineProcessIds.Contains(pid)) continue;
+                    if (session.IsBaselineProcess(pid)) continue;
 
                     Process candidate;
                     try { candidate = Process.GetProcessById(pid); }
@@ -4627,6 +4655,27 @@ namespace Doorpi
             return false;
         }
 
+        private static bool HasAncestorInExecutableGroup(
+            int pid,
+            Dictionary<int, int> parentIds,
+            ExecutableAppSession session)
+        {
+            var seen = new HashSet<int>();
+            int current = pid;
+
+            while (parentIds.TryGetValue(current, out int parentPid) &&
+                   parentPid > 0 &&
+                   seen.Add(parentPid))
+            {
+                if (session.ContainsProcessGroupId(parentPid))
+                    return true;
+
+                current = parentPid;
+            }
+
+            return false;
+        }
+
         private static bool ProcessPathBelongsToMediaRoot(Process process, string mediaUrl, string rootDirectory)
         {
             try
@@ -4654,11 +4703,7 @@ namespace Doorpi
             if (string.IsNullOrWhiteSpace(mediaUrl)) return;
 
             var session = EnsureExecutableAppSession(mediaUrl);
-            session.ProcessGroupIds.Clear();
-            session.BaselineProcessIds = baselineProcessIds != null
-                ? new HashSet<int>(baselineProcessIds)
-                : SnapshotProcessIds();
-            session.AttachedWindowHandles.Clear();
+            session.ResetProcessTracking(baselineProcessIds ?? SnapshotProcessIds());
             session.ProcessGroupRootDirectory = "";
             session.ProcessGroupExeName = "";
 
@@ -4675,7 +4720,7 @@ namespace Doorpi
             try
             {
                 if (rootProcess != null && !SafeHasExited(rootProcess))
-                    session.ProcessGroupIds.Add(rootProcess.Id);
+                    session.AddProcessGroupId(rootProcess.Id);
             }
             catch { }
 
@@ -4687,12 +4732,12 @@ namespace Doorpi
             if (session == null || string.IsNullOrWhiteSpace(session.Url))
                 return;
 
-            if (session.ProcessGroupIds.Count == 0)
+            if (session.ProcessGroupCount == 0)
             {
                 try
                 {
                     if (session.Process != null && !SafeHasExited(session.Process))
-                        session.ProcessGroupIds.Add(session.Process.Id);
+                        session.AddProcessGroupId(session.Process.Id);
                 }
                 catch { }
             }
@@ -4710,19 +4755,18 @@ namespace Doorpi
                 {
                     int pid;
                     try { pid = process.Id; } catch { continue; }
-                    if (session.ProcessGroupIds.Contains(pid)) continue;
+                    if (session.ContainsProcessGroupId(pid)) continue;
 
-                    bool isDescendant = HasAncestorInGroup(pid, parentIds, session.ProcessGroupIds);
+                    bool isDescendant = HasAncestorInExecutableGroup(pid, parentIds, session);
                     bool isNewRelatedProcess =
-                        !session.BaselineProcessIds.Contains(pid) &&
+                        !session.IsBaselineProcess(pid) &&
                         (ProcessPathBelongsToMediaRoot(process, session.Url, session.ProcessGroupRootDirectory) ||
                          (!string.IsNullOrWhiteSpace(session.ProcessGroupExeName) &&
                           string.Equals(SafeProcessName(process), session.ProcessGroupExeName, StringComparison.OrdinalIgnoreCase)));
 
                     if (isDescendant || isNewRelatedProcess)
                     {
-                        session.ProcessGroupIds.Add(pid);
-                        changed = true;
+                        changed |= session.AddProcessGroupId(pid);
                     }
                 }
             }
@@ -4733,8 +4777,8 @@ namespace Doorpi
             {
                 try
                 {
-                    session.ProcessGroupIds.Add(adoptedProcess.Id);
-                    session.AttachedWindowHandles.Add(adoptedHwnd);
+                    session.AddProcessGroupId(adoptedProcess.Id);
+                    session.AddAttachedWindowHandle(adoptedHwnd);
                     session.Process ??= adoptedProcess;
                 }
                 catch { }
@@ -4746,7 +4790,7 @@ namespace Doorpi
             process = null;
             hwnd = IntPtr.Zero;
 
-            if (session == null || session.BaselineProcessIds.Count == 0)
+            if (session == null || session.BaselineProcessCount == 0)
                 return false;
 
             foreach (var hWnd in EnumerateTopLevelWindows())
@@ -4761,7 +4805,7 @@ namespace Doorpi
                     if (pid <= 0 || pid == Environment.ProcessId)
                         continue;
 
-                    if (session.BaselineProcessIds.Contains(pid))
+                    if (session.IsBaselineProcess(pid))
                         continue;
 
                     Process candidate;
@@ -4806,7 +4850,7 @@ namespace Doorpi
                 try
                 {
                     if (!SafeHasExited(knownProcess))
-                        session.ProcessGroupIds.Add(knownProcess.Id);
+                        session.AddProcessGroupId(knownProcess.Id);
                 }
                 catch { }
             }
@@ -4814,7 +4858,7 @@ namespace Doorpi
             ExpandMediaExeProcessGroup(session);
 
             var result = new List<Process>();
-            foreach (int pid in session.ProcessGroupIds.ToArray())
+            foreach (int pid in session.SnapshotProcessGroupIds())
             {
                 try
                 {
@@ -4938,7 +4982,7 @@ namespace Doorpi
                 string resolvedUrl = ResolveMediaExecutableUrl(media, mediaUrl);
                 var session = GetExecutableAppSession(resolvedUrl) ?? GetExecutableAppSession(mediaUrl);
                 if (session != null)
-                    CloseStoreAttachedWindows(session.AttachedWindowHandles);
+                    CloseStoreAttachedWindows(session.SnapshotAttachedWindowHandles());
             }
             catch { }
 
@@ -5087,7 +5131,7 @@ namespace Doorpi
         private void StartMediaExeWatcher(Process? proc, string mediaUrl, string appName, CancellationToken token)
         {
             var session = GetExecutableAppSession(mediaUrl);
-            if (session == null || session.ProcessGroupIds.Count == 0)
+            if (session == null || session.ProcessGroupCount == 0)
                 InitializeMediaExeProcessGroup(mediaUrl, proc);
 
             _ = Task.Run(async () =>
@@ -5128,7 +5172,7 @@ namespace Doorpi
                                 proc = activeProcess;
                                 _mediaExeProcess = activeProcess;
                                 session = GetExecutableAppSession(mediaUrl);
-                                try { session?.ProcessGroupIds.Add(activeProcess.Id); } catch { }
+                                try { session?.AddProcessGroupId(activeProcess.Id); } catch { }
                             }
 
                             hasStarted = true;
@@ -5193,8 +5237,8 @@ namespace Doorpi
                                 session = GetExecutableAppSession(mediaUrl);
                                 try
                                 {
-                                    session?.ProcessGroupIds.Add(p.Id);
-                                    session?.AttachedWindowHandles.Add(h);
+                                    session?.AddProcessGroupId(p.Id);
+                                    session?.AddAttachedWindowHandle(h);
                                 }
                                 catch { }
 
@@ -5243,8 +5287,8 @@ namespace Doorpi
                                 _mediaExeProcess = inheritedProcess;
                                 try
                                 {
-                                    session?.ProcessGroupIds.Add(inheritedProcess.Id);
-                                    session?.AttachedWindowHandles.Add(inheritedHwnd);
+                                    session?.AddProcessGroupId(inheritedProcess.Id);
+                                    session?.AddAttachedWindowHandle(inheritedHwnd);
                                 }
                                 catch { }
 
@@ -5382,7 +5426,7 @@ namespace Doorpi
             {
                 var session = GetExecutableAppSession(mediaUrl);
                 if (session != null)
-                    session.BaselineProcessIds = SnapshotProcessIds();
+                    session.ReplaceBaselineProcessIds(SnapshotProcessIds());
                 StartMediaExecutable(mediaUrl);
                 found = await WaitForMediaExeWindowAsync(mediaUrl, appName, 24, 125, allowNewWindowFallback: true, token).ConfigureAwait(false);
                 if (found.Hwnd != IntPtr.Zero)
@@ -6528,6 +6572,25 @@ namespace Doorpi
                 foreach (var app in apps.Where(a => a.ShareMode == "user"))
                     ApplySharedUserNames(app);
 
+                bool repairedExecutablePath = false;
+                foreach (var app in apps.Where(a =>
+                             string.Equals(a.Type, "exe", StringComparison.OrdinalIgnoreCase) &&
+                             !string.IsNullOrWhiteSpace(a.Url) &&
+                             Path.IsPathRooted(a.Url)))
+                {
+                    string resolved = ResolveCurrentVersionedExecutablePath(app.Url);
+                    if (!File.Exists(resolved) || string.Equals(app.Url, resolved, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    app.Url = resolved;
+                    repairedExecutablePath = true;
+                }
+
+                if (repairedExecutablePath)
+                {
+                    try { SafeWriteAllText(file, JsonSerializer.Serialize(apps, IndentedJsonOptions)); } catch { }
+                }
+
                 if (canFallbackToRoot &&
                     string.Equals(file, fallbackFile, StringComparison.OrdinalIgnoreCase) &&
                     apps.Count > 0)
@@ -7425,7 +7488,7 @@ namespace Doorpi
 
                     if (session != null)
                     {
-                        _executableAppSessions.Remove(session.Key);
+                        _executableAppSessions.TryRemove(session.Key, out _);
                         if (string.Equals(_activeExecutableAppSessionKey, session.Key, StringComparison.OrdinalIgnoreCase))
                             _activeExecutableAppSessionKey = "";
                     }
@@ -8637,10 +8700,10 @@ namespace Doorpi
                 if (session != null &&
                     _mediaExeModeActive &&
                     _mediaExeSessionId == session.SessionId &&
-                    !session.BaselineProcessIds.Contains(pid))
+                    !session.IsBaselineProcess(pid))
                 {
-                    session.ProcessGroupIds.Add(pid);
-                    session.AttachedWindowHandles.Add(foreground);
+                    session.AddProcessGroupId(pid);
+                    session.AddAttachedWindowHandle(foreground);
                 }
             }
             catch { }
@@ -8987,6 +9050,14 @@ namespace Doorpi
         {
             if (!_gameSessionActive || _gameIsMinimized)
                 return false;
+
+            if (_storeChildGameActive &&
+                _isStoreLauncherSession &&
+                !_storePausedByDoorpi &&
+                TryGetForegroundActiveStoreMainWindow(out _))
+            {
+                return false;
+            }
 
             bool confirmed = HasConfirmedGameWindow();
             if (_storeChildGameActive &&
@@ -9586,7 +9657,7 @@ namespace Doorpi
             if (!showInDoorpiWhenForeground && hwnd != IntPtr.Zero && IsForegroundDoorpi())
             {
                 var session = GetExecutableAppSession(mediaUrl);
-                bool shouldTryFocus = session?.FocusedWindowHandles.Add(hwnd) ?? true;
+                bool shouldTryFocus = session?.AddFocusedWindowHandle(hwnd) ?? true;
                 if (shouldTryFocus)
                 {
                     FocusExternalWindow(hwnd);
@@ -9917,7 +9988,7 @@ namespace Doorpi
                         try
                         {
                             var session = GetExecutableAppSession(mediaUrl);
-                            session?.ProcessGroupIds.Add(restored.Process.Id);
+                            session?.AddProcessGroupId(restored.Process.Id);
                         }
                         catch { }
                     }
@@ -11256,6 +11327,134 @@ namespace Doorpi
             return list;
         }
 
+        private static string ResolveCurrentVersionedAppDirectory(string? originalDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(originalDirectory)) return "";
+
+            string path = Environment.ExpandEnvironmentVariables(originalDirectory.Trim().Trim('"'));
+            try { path = Path.GetFullPath(path); } catch { }
+
+            try
+            {
+                var directory = new DirectoryInfo(path);
+                if (!directory.Name.StartsWith("app-", StringComparison.OrdinalIgnoreCase) || directory.Parent == null)
+                    return path;
+
+                var searchOptions = new EnumerationOptions
+                {
+                    IgnoreInaccessible = true,
+                    RecurseSubdirectories = true,
+                    MaxRecursionDepth = 3
+                };
+                var candidates = new List<(string Path, Version Version, DateTime LastWrite)>();
+
+                foreach (string candidateDirectory in Directory.EnumerateDirectories(
+                             directory.Parent.FullName,
+                             "app-*",
+                             SearchOption.TopDirectoryOnly))
+                {
+                    if (!Directory.EnumerateFiles(candidateDirectory, "*.exe", searchOptions).Any())
+                        continue;
+
+                    string directoryName = Path.GetFileName(candidateDirectory);
+                    string versionText = directoryName.Length > 4 ? directoryName[4..] : "";
+                    if (!Version.TryParse(versionText, out var version))
+                        version = new Version(0, 0);
+
+                    DateTime lastWrite = DateTime.MinValue;
+                    try { lastWrite = Directory.GetLastWriteTimeUtc(candidateDirectory); } catch { }
+                    candidates.Add((candidateDirectory, version, lastWrite));
+                }
+
+                return candidates
+                    .OrderByDescending(candidate => candidate.Version)
+                    .ThenByDescending(candidate => candidate.LastWrite)
+                    .Select(candidate => candidate.Path)
+                    .FirstOrDefault() ?? path;
+            }
+            catch
+            {
+                return path;
+            }
+        }
+
+        private static string ResolveCurrentVersionedExecutablePath(string? originalPath)
+        {
+            if (string.IsNullOrWhiteSpace(originalPath)) return "";
+
+            string path = Environment.ExpandEnvironmentVariables(originalPath.Trim().Trim('"'));
+            try { path = Path.GetFullPath(path); } catch { }
+
+            try
+            {
+                var executableDirectory = Directory.GetParent(path);
+                if (executableDirectory == null ||
+                    !executableDirectory.Name.StartsWith("app-", StringComparison.OrdinalIgnoreCase) ||
+                    executableDirectory.Parent == null)
+                {
+                    return path;
+                }
+
+                string relativeExecutable = Path.GetRelativePath(executableDirectory.FullName, path);
+                var candidates = new List<(string Path, Version Version, DateTime LastWrite)>();
+
+                foreach (string directory in Directory.EnumerateDirectories(executableDirectory.Parent.FullName, "app-*", SearchOption.TopDirectoryOnly))
+                {
+                    string candidate = Path.Combine(directory, relativeExecutable);
+                    if (!File.Exists(candidate)) continue;
+
+                    string versionText = Path.GetFileName(directory)[4..];
+                    if (!Version.TryParse(versionText, out var version))
+                        version = new Version(0, 0);
+
+                    DateTime lastWrite = DateTime.MinValue;
+                    try { lastWrite = File.GetLastWriteTimeUtc(candidate); } catch { }
+                    candidates.Add((candidate, version, lastWrite));
+                }
+
+                return candidates
+                    .OrderByDescending(candidate => candidate.Version)
+                    .ThenByDescending(candidate => candidate.LastWrite)
+                    .Select(candidate => candidate.Path)
+                    .FirstOrDefault() ?? path;
+            }
+            catch
+            {
+                return path;
+            }
+        }
+
+        private bool RepairCachedExecutablePaths(AppCacheModel cache)
+        {
+            bool changed = false;
+            foreach (var app in cache.WindowsApps.Concat(cache.FolderApps))
+            {
+                string original = app.Path ?? "";
+                if (string.IsNullOrWhiteSpace(original) || !Path.IsPathRooted(original) || File.Exists(original))
+                    continue;
+
+                string resolved = ResolveCurrentVersionedExecutablePath(original);
+                if (!File.Exists(resolved) || string.Equals(original, resolved, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                app.Path = resolved;
+                if (string.Equals(app.LaunchUrl, original, StringComparison.OrdinalIgnoreCase))
+                    app.LaunchUrl = resolved;
+                app.IconBase64 = GetCachedIcon(resolved);
+                changed = true;
+            }
+
+            return changed;
+        }
+
+        private static bool HasMissingCachedExecutable(IEnumerable<InstalledApp> apps)
+        {
+            return apps.Any(app =>
+                !string.IsNullOrWhiteSpace(app.Path) &&
+                Path.IsPathRooted(app.Path) &&
+                !File.Exists(app.Path));
+        }
+
         // ========================= CACHE DE APPS =========================
 
         private void SaveAppCache(AppCacheModel cache)
@@ -11300,7 +11499,14 @@ namespace Doorpi
                     {
                         using var key = baseKey.OpenSubKey(rel);
                         if (key == null) continue;
-                        foreach (var n in key.GetSubKeyNames()) keys.Add(n);
+                        foreach (var n in key.GetSubKeyNames())
+                        {
+                            using var sub = key.OpenSubKey(n);
+                            string version = sub?.GetValue("DisplayVersion") as string ?? "";
+                            string icon = sub?.GetValue("DisplayIcon") as string ?? "";
+                            string location = sub?.GetValue("InstallLocation") as string ?? "";
+                            keys.Add($"{hive}|{view}|{rel}|{n}|{version}|{icon}|{location}");
+                        }
                     }
                 }
             return keys;
@@ -11330,6 +11536,7 @@ namespace Doorpi
 
 
                 var cache = LoadAppCache() ?? new AppCacheModel();
+                bool cachePathsRepaired = RepairCachedExecutablePaths(cache);
 
                 var steamPrint = GetSteamFingerprint();
                 var epicPrint = GetEpicFingerprint();
@@ -11345,7 +11552,8 @@ namespace Doorpi
                 bool xboxStale = !xboxPrint.SetEquals(cache.XboxFingerprint) || cache.XboxApps.Count == 0;
                 bool windowsStale = _windowsCacheInvalid
                                  || !winPrint.SetEquals(cache.WindowsFingerprint)
-                                 || cache.WindowsApps.Count == 0;
+                                 || cache.WindowsApps.Count == 0
+                                 || HasMissingCachedExecutable(cache.WindowsApps);
                 var riotTask = Task.Run(() =>
     riotStale
         ? (GetRiotGames(), true)
@@ -11399,7 +11607,7 @@ namespace Doorpi
                     xboxChanged = true;
                 }
 
-                bool anythingChanged = steamChanged || epicChanged || gogChanged || riotChanged || xboxChanged
+                bool anythingChanged = cachePathsRepaired || steamChanged || epicChanged || gogChanged || riotChanged || xboxChanged
                     || windowsChanged || folderChanged;
 
 
@@ -11416,6 +11624,8 @@ namespace Doorpi
                         _windowsCacheInvalid = false;
                     }
                     if (folderChanged) { cache.FolderApps = folderApps; cache.FolderTimestamps = folderTimestamps; }
+
+                    RepairCachedExecutablePaths(cache);
 
                     RefreshAutoAddSuppressions(cache);
                     SaveAppCache(cache);
@@ -11436,11 +11646,21 @@ namespace Doorpi
         private void SendInstalledAppsToUI()
         {
             var cache = LoadAppCache() ?? new AppCacheModel();
+            if (RepairCachedExecutablePaths(cache))
+                SaveAppCache(cache);
+
+            var availableWindowsApps = cache.WindowsApps
+                .Where(app => string.IsNullOrWhiteSpace(app.Path) || !Path.IsPathRooted(app.Path) || File.Exists(app.Path))
+                .ToList();
+            var availableFolderApps = cache.FolderApps
+                .Where(app => string.IsNullOrWhiteSpace(app.Path) || !Path.IsPathRooted(app.Path) || File.Exists(app.Path))
+                .ToList();
+
             var existingMap = BuildExistingAppsMap(); // Agora é um Map
             var finalList = BuildFinalList(
                 cache.SteamApps, cache.EpicApps, cache.GogApps, cache.RiotApps,
                 cache.XboxApps,
-                cache.WindowsApps, cache.FolderApps, existingMap);
+                availableWindowsApps, availableFolderApps, existingMap);
 
             var payload = new { type = "installedAppsList", apps = finalList };
             Dispatcher.Invoke(() =>
@@ -12569,6 +12789,12 @@ namespace Doorpi
 
                     string key = !string.IsNullOrWhiteSpace(app.LaunchUrl) ? app.LaunchUrl : (app.Path ?? "");
                     if (string.IsNullOrWhiteSpace(key)) continue;
+                    if (Path.IsPathRooted(key))
+                    {
+                        key = ResolveCurrentVersionedExecutablePath(key);
+                        if (!File.Exists(key)) continue;
+                        app.Path = key;
+                    }
                     if (existing.Any(a => string.Equals(a.Url, key, StringComparison.OrdinalIgnoreCase)))
                         continue;
 
@@ -13207,7 +13433,6 @@ namespace Doorpi
                             var dlg = new Microsoft.Win32.OpenFileDialog { Filter = dialogFilter, Title = dialogTitle };
 
                             bool? dialogResult = ShowDialogWithController(dlg);
-                            webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"nativeDialogReturned\"}");
 
                             if (dialogResult == true)
                             {
@@ -13256,7 +13481,6 @@ namespace Doorpi
                             };
 
                             bool? dialogResult = ShowDialogWithController(dlg);
-                            webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"nativeDialogReturned\"}");
 
                             if (dialogResult == true)
                             {
@@ -13313,7 +13537,6 @@ namespace Doorpi
                             var dlg = new Microsoft.Win32.OpenFolderDialog { Title = dialogTitle, Multiselect = false };
 
                             bool? dialogResult = ShowDialogWithController(dlg);
-                            webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"nativeDialogReturned\"}");
 
                             if (dialogResult == true)
                             {
@@ -13642,13 +13865,7 @@ namespace Doorpi
                             Filter = dialogFilter
                         };
 
-                        bool? dialogResult = ShowDialogWithController(dlg);
-
-                        webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
-                        {
-                            type = "nativeDialogReturned",
-                            source = "artworkImage"
-                        }));
+                        bool? dialogResult = ShowDialogWithController(dlg, "artworkImage");
 
                         if (dialogResult == true)
                         {
@@ -14321,7 +14538,33 @@ namespace Doorpi
                     if (!string.IsNullOrEmpty(mediaUrl))
                     {
                         var medias = LoadMediaAppsForUser(currentUserId);
-                        var media = medias.FirstOrDefault(m => m.Url == mediaUrl || m.Id == mediaUrl);
+                        bool isExecutableApp = string.Equals(appType, "exe", StringComparison.OrdinalIgnoreCase);
+                        string resolvedRequestedMediaUrl = isExecutableApp
+                            ? ResolveCurrentVersionedExecutablePath(mediaUrl)
+                            : mediaUrl;
+                        var media = medias.FirstOrDefault(m =>
+                            string.Equals(m.Url, mediaUrl, StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(m.Id, mediaUrl, StringComparison.OrdinalIgnoreCase) ||
+                            (isExecutableApp && string.Equals(m.Url, resolvedRequestedMediaUrl, StringComparison.OrdinalIgnoreCase)));
+
+                        if (isExecutableApp)
+                        {
+                            string executableUrl = !string.IsNullOrWhiteSpace(media?.Url) ? media!.Url : resolvedRequestedMediaUrl;
+                            string resolvedExecutable = ResolveCurrentVersionedExecutablePath(executableUrl);
+
+                            if (Path.IsPathRooted(executableUrl) && !File.Exists(resolvedExecutable))
+                            {
+                                Debug.WriteLine($"[launchMediaApp/exe] Executável não encontrado: {executableUrl}");
+                                return;
+                            }
+
+                            if (File.Exists(resolvedExecutable))
+                            {
+                                mediaUrl = resolvedExecutable;
+                                if (media != null && !string.Equals(media.Url, resolvedExecutable, StringComparison.OrdinalIgnoreCase))
+                                    media.Url = resolvedExecutable;
+                            }
+                        }
 
                         if (media != null)
                         {
@@ -16184,14 +16427,19 @@ namespace Doorpi
         private string GetAppFolder(RegistryKey key)
         {
             var location = key.GetValue("InstallLocation") as string;
-            if (!string.IsNullOrWhiteSpace(location) && Directory.Exists(location)) return location;
+            if (!string.IsNullOrWhiteSpace(location))
+            {
+                string resolvedLocation = ResolveCurrentVersionedAppDirectory(location);
+                if (Directory.Exists(resolvedLocation)) return resolvedLocation;
+            }
 
             var icon = key.GetValue("DisplayIcon") as string;
             if (!string.IsNullOrWhiteSpace(icon))
             {
-                var path = icon.Split(',')[0].Replace("\"", "").Trim();
-                if (File.Exists(path)) return Path.GetDirectoryName(path) ?? "";
-                if (Directory.Exists(path)) return path;
+                string path = Environment.ExpandEnvironmentVariables(icon.Split(',')[0].Replace("\"", "").Trim());
+                string folder = Directory.Exists(path) ? path : Path.GetDirectoryName(path) ?? "";
+                string resolvedFolder = ResolveCurrentVersionedAppDirectory(folder);
+                if (Directory.Exists(resolvedFolder)) return resolvedFolder;
             }
             return "";
         }

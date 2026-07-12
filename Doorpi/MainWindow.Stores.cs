@@ -2114,20 +2114,54 @@ namespace Doorpi
                 : StoreMinimizeState.StoreBlockedUnknown;
         }
 
-        private bool CanMinimizeStoreSession()
+        private bool TryGetForegroundActiveStoreMainWindow(out IntPtr hwnd)
         {
-            if (IsActiveXboxStoreSession())
+            hwnd = IntPtr.Zero;
+            if (!_isStoreLauncherSession ||
+                _storePausedByDoorpi ||
+                string.IsNullOrWhiteSpace(_activeStoreId) ||
+                string.IsNullOrWhiteSpace(_storeLauncherExe))
             {
-                if (_storePausedByDoorpi || IsStoreChildGameBlockingStoreControls())
-                    return false;
-
-                return TryFindXboxStoreWindow(_storeLauncherExe ?? "", out _, out var xboxHwnd) &&
-                       IsWindowForegroundOrContainsForeground(xboxHwnd);
+                return false;
             }
 
-            RefreshStoreMinimizeState();
-            return _storeMinimizeState == StoreMinimizeState.StoreValid &&
-                   IsForegroundOwnedByActiveStoreMainWindow();
+            Process? storeProcess = null;
+            try
+            {
+                if (!TryFindStoreWindow(_activeStoreId, _storeLauncherExe, out storeProcess, out hwnd) ||
+                    hwnd == IntPtr.Zero ||
+                    !IsWindowForegroundOrContainsForeground(hwnd))
+                {
+                    try { storeProcess?.Dispose(); } catch { }
+                    hwnd = IntPtr.Zero;
+                    return false;
+                }
+
+                _storeLauncherProcess = storeProcess;
+                _storeLauncherWindowSeen = true;
+                _storeMinimizeState = StoreMinimizeState.StoreValid;
+                ClearStorePendingChildWindows();
+                return true;
+            }
+            catch
+            {
+                try { storeProcess?.Dispose(); } catch { }
+                hwnd = IntPtr.Zero;
+                return false;
+            }
+        }
+
+        private bool CanMinimizeStoreSession()
+        {
+            if (!_isStoreLauncherSession || _storePausedByDoorpi)
+                return false;
+
+            if (string.Equals(_storeSessionKind, "web", StringComparison.OrdinalIgnoreCase))
+                return IsForegroundOwnedByActiveWebApp();
+
+            // A janela principal validada em foreground e a fonte de verdade. Processos
+            // auxiliares ou launchers filhos em segundo plano nao bloqueiam o retorno.
+            return TryGetForegroundActiveStoreMainWindow(out _);
         }
 
         private bool IsDescendantOfAnyAttachedProcess(int pid)
@@ -3141,7 +3175,12 @@ namespace Doorpi
                     continue;
                 }
 
-                if (score > bestScore)
+                bool shouldReplaceBest =
+                    bestWindowOwner == null ||
+                    (isForeground && !bestIsForeground) ||
+                    (isForeground == bestIsForeground && score > bestScore);
+
+                if (shouldReplaceBest)
                 {
                     bestWindowOwner?.Dispose();
                     bestScore = score;
@@ -4160,7 +4199,17 @@ namespace Doorpi
         private void MinimizeStoreSessionAndShowMenu()
         {
             if (!_isStoreLauncherSession) return;
-            if (!CanMinimizeStoreSession()) return;
+
+            bool isWebStore = string.Equals(_storeSessionKind, "web", StringComparison.OrdinalIgnoreCase);
+            IntPtr storeHwnd = IntPtr.Zero;
+            if (isWebStore)
+            {
+                if (_storePausedByDoorpi || !IsForegroundOwnedByActiveWebApp()) return;
+            }
+            else if (!TryGetForegroundActiveStoreMainWindow(out storeHwnd))
+            {
+                return;
+            }
 
             _storePausedByDoorpi = true;
             _storeMouseModeActive = false;
@@ -4172,7 +4221,7 @@ namespace Doorpi
 
             SuspendExecutionLockWatch();
 
-            if (_storeSessionKind == "web")
+            if (isWebStore)
             {
                 try
                 {
@@ -4181,22 +4230,9 @@ namespace Doorpi
                 }
                 catch { }
             }
-            else if (!string.IsNullOrWhiteSpace(_storeLauncherExe) &&
-                     TryFindStoreWindow(_activeStoreId ?? "", _storeLauncherExe, out _, out var storeHwnd) &&
-                     storeHwnd != IntPtr.Zero)
+            else if (storeHwnd != IntPtr.Zero)
             {
                 ShowWindow(storeHwnd, 6);
-            }
-            else if (_storeLauncherProcess != null && !SafeHasExited(_storeLauncherProcess))
-            {
-                MinimizeProcessWindows(_storeLauncherProcess);
-            }
-            else if (!string.IsNullOrEmpty(_storeLauncherExe))
-            {
-                foreach (var p in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(_storeLauncherExe)))
-                {
-                    try { MinimizeProcessWindows(p); } catch { }
-                }
             }
 
             SendGameLaunchStatus("gameLaunchDone");

@@ -1,5 +1,6 @@
 using Microsoft.Web.WebView2.Wpf;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
@@ -33,6 +34,12 @@ namespace Doorpi
 
         private sealed class ExecutableAppSession
         {
+            private readonly object _processTrackingLock = new();
+            private readonly HashSet<int> _processGroupIds = new();
+            private readonly HashSet<int> _baselineProcessIds = new();
+            private readonly HashSet<IntPtr> _attachedWindowHandles = new();
+            private readonly HashSet<IntPtr> _focusedWindowHandles = new();
+
             public string Key = "";
             public Process? Process;
             public string Url = "";
@@ -49,13 +56,84 @@ namespace Doorpi
             public Thread? ShortcutThread;
             public int ControllerThreadSessionId;
             public int ShortcutThreadSessionId;
-            public HashSet<int> ProcessGroupIds = new();
-            public HashSet<int> BaselineProcessIds = new();
-            public HashSet<IntPtr> AttachedWindowHandles = new();
-            public HashSet<IntPtr> FocusedWindowHandles = new();
             public string ProcessGroupRootDirectory = "";
             public string ProcessGroupExeName = "";
             public int SessionId;
+
+            public int ProcessGroupCount
+            {
+                get { lock (_processTrackingLock) return _processGroupIds.Count; }
+            }
+
+            public int BaselineProcessCount
+            {
+                get { lock (_processTrackingLock) return _baselineProcessIds.Count; }
+            }
+
+            public void ResetProcessTracking(IEnumerable<int> baselineProcessIds)
+            {
+                lock (_processTrackingLock)
+                {
+                    _processGroupIds.Clear();
+                    _baselineProcessIds.Clear();
+                    _baselineProcessIds.UnionWith(baselineProcessIds);
+                    _attachedWindowHandles.Clear();
+                }
+            }
+
+            public void ReplaceBaselineProcessIds(IEnumerable<int> baselineProcessIds)
+            {
+                lock (_processTrackingLock)
+                {
+                    _baselineProcessIds.Clear();
+                    _baselineProcessIds.UnionWith(baselineProcessIds);
+                }
+            }
+
+            public bool ContainsProcessGroupId(int processId)
+            {
+                lock (_processTrackingLock) return _processGroupIds.Contains(processId);
+            }
+
+            public bool IsBaselineProcess(int processId)
+            {
+                lock (_processTrackingLock) return _baselineProcessIds.Contains(processId);
+            }
+
+            public bool AddProcessGroupId(int processId)
+            {
+                lock (_processTrackingLock) return _processGroupIds.Add(processId);
+            }
+
+            public int[] SnapshotProcessGroupIds()
+            {
+                lock (_processTrackingLock)
+                {
+                    var snapshot = new int[_processGroupIds.Count];
+                    _processGroupIds.CopyTo(snapshot);
+                    return snapshot;
+                }
+            }
+
+            public bool AddAttachedWindowHandle(IntPtr hwnd)
+            {
+                lock (_processTrackingLock) return _attachedWindowHandles.Add(hwnd);
+            }
+
+            public IntPtr[] SnapshotAttachedWindowHandles()
+            {
+                lock (_processTrackingLock)
+                {
+                    var snapshot = new IntPtr[_attachedWindowHandles.Count];
+                    _attachedWindowHandles.CopyTo(snapshot);
+                    return snapshot;
+                }
+            }
+
+            public bool AddFocusedWindowHandle(IntPtr hwnd)
+            {
+                lock (_processTrackingLock) return _focusedWindowHandles.Add(hwnd);
+            }
         }
 
         private sealed class WebAppSession
@@ -82,7 +160,7 @@ namespace Doorpi
         }
 
         private GameWindowSession? _gameSession;
-        private readonly Dictionary<string, ExecutableAppSession> _executableAppSessions = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, ExecutableAppSession> _executableAppSessions = new(StringComparer.OrdinalIgnoreCase);
         private string _activeExecutableAppSessionKey = "";
         private WebAppSession? _webAppSession;
         private DesktopControlSession? _desktopControlSession;
@@ -120,11 +198,13 @@ namespace Doorpi
         private ExecutableAppSession EnsureExecutableAppSession(string? url = null)
         {
             string key = NormalizeExecutableSessionKey(url ?? _activeExecutableAppSessionKey);
-            if (!_executableAppSessions.TryGetValue(key, out var session))
-            {
-                session = new ExecutableAppSession { Key = key, Url = key == "__active__" ? "" : key };
-                _executableAppSessions[key] = session;
-            }
+            var session = _executableAppSessions.GetOrAdd(
+                key,
+                static sessionKey => new ExecutableAppSession
+                {
+                    Key = sessionKey,
+                    Url = sessionKey == "__active__" ? "" : sessionKey
+                });
 
             _activeExecutableAppSessionKey = key;
             return session;
@@ -226,7 +306,7 @@ namespace Doorpi
             try { session?.WatcherCts?.Cancel(); } catch { }
 
             if (session != null)
-                _executableAppSessions.Remove(session.Key);
+                _executableAppSessions.TryRemove(session.Key, out _);
 
             _activeExecutableAppSessionKey = "";
         }
