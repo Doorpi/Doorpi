@@ -2332,6 +2332,52 @@ namespace Doorpi
             _webKeyboardBackSuppressUntilRelease = suppressUntilPhysicalRelease;
         }
 
+        private void DispatchYouTubeBackToRenderer()
+        {
+            _ = Dispatcher.BeginInvoke(new Action(async () =>
+            {
+                try
+                {
+                    var core = _ytWebView?.CoreWebView2;
+                    if (core == null || !_isCurrentSiteYouTube) return;
+
+                    string KeyPayload(string type) => System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        type,
+                        modifiers = 0,
+                        key = "Escape",
+                        code = "Escape",
+                        keyIdentifier = "U+001B",
+                        windowsVirtualKeyCode = 27,
+                        nativeVirtualKeyCode = 27
+                    });
+
+                    await core.CallDevToolsProtocolMethodAsync(
+                        "Input.dispatchKeyEvent",
+                        KeyPayload("rawKeyDown"));
+                    await Task.Delay(20);
+                    await core.CallDevToolsProtocolMethodAsync(
+                        "Input.dispatchKeyEvent",
+                        KeyPayload("keyUp"));
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[YouTubeTV] Falha ao enviar comando Voltar: " + ex.Message);
+                    try
+                    {
+                        await (_ytWebView?.CoreWebView2?.ExecuteScriptAsync(@"
+(() => {
+  const init = { key:'Escape', code:'Escape', keyCode:27, which:27, bubbles:true, cancelable:true };
+  const target = document.activeElement || document.body || document;
+  target.dispatchEvent(new KeyboardEvent('keydown', init));
+  setTimeout(() => target.dispatchEvent(new KeyboardEvent('keyup', init)), 20);
+})();") ?? Task.FromResult(""));
+                    }
+                    catch { }
+                }
+            }));
+        }
+
         private void MediaControllerLoop()
         {
             var sw = Stopwatch.StartNew();
@@ -2364,10 +2410,20 @@ namespace Doorpi
             ushort webNavLastDir = 0;
             long webNavDirStartMs = 0;
             long webNavDirLastRepeat = 0;
+            byte youtubeHeldNavVk = 0;
+            long youtubeNavHoldStartMs = 0;
+            long youtubeNavLastRepeatMs = 0;
+            bool youtubeLeftTriggerKeyDown = false;
+            bool youtubeRightTriggerKeyDown = false;
+            long youtubeLeftTriggerStartMs = 0;
+            long youtubeRightTriggerStartMs = 0;
+            long youtubeLeftTriggerLastRepeatMs = 0;
+            long youtubeRightTriggerLastRepeatMs = 0;
             long xHoldStartMs = 0;
             long xLastRepeat = 0;
             const int WEB_NAV_INITIAL_MS = 330;
             const int WEB_NAV_REPEAT_MS = 82;
+            const int YOUTUBE_SEEK_INITIAL_REPEAT_MS = 420;
             const int WEB_CLOSE_HOLD_MS = 1450;
             const int WEB_CLOSE_INDICATOR_MS = 220;
 
@@ -2401,8 +2457,115 @@ namespace Doorpi
                 leftMouseDown = false;
             }
 
+            int GetYouTubeSeekRepeatInterval(long heldMs)
+            {
+                if (heldMs >= 3000) return 30;
+                if (heldMs >= 1600) return 52;
+                return 88;
+            }
+
+            void UpdateYouTubeHeldKey(
+                bool held,
+                byte virtualKey,
+                ref bool keyDown,
+                ref long holdStartMs,
+                ref long lastRepeatMs,
+                long nowMs)
+            {
+                if (!held)
+                {
+                    if (keyDown)
+                        SyncKey(pressed: false, released: true, virtualKey);
+                    keyDown = false;
+                    holdStartMs = 0;
+                    lastRepeatMs = 0;
+                    return;
+                }
+
+                if (!keyDown)
+                {
+                    keyDown = true;
+                    holdStartMs = nowMs;
+                    lastRepeatMs = nowMs;
+                    SyncKey(pressed: true, released: false, virtualKey);
+                    return;
+                }
+
+                long heldMs = nowMs - holdStartMs;
+                if (heldMs < YOUTUBE_SEEK_INITIAL_REPEAT_MS)
+                    return;
+
+                int repeatInterval = GetYouTubeSeekRepeatInterval(heldMs);
+                if (nowMs - lastRepeatMs < repeatInterval)
+                    return;
+
+                lastRepeatMs = nowMs;
+                // Repeated key-downs keep the same physical hold alive for WebView2.
+                SyncKey(pressed: true, released: false, virtualKey);
+            }
+
+            void UpdateYouTubeNavigationHold(byte virtualKey, long nowMs)
+            {
+                if (youtubeHeldNavVk != 0 && youtubeHeldNavVk != virtualKey)
+                {
+                    SyncKey(pressed: false, released: true, youtubeHeldNavVk);
+                    youtubeHeldNavVk = 0;
+                }
+
+                if (virtualKey == 0)
+                {
+                    youtubeNavHoldStartMs = 0;
+                    youtubeNavLastRepeatMs = 0;
+                    return;
+                }
+
+                if (youtubeHeldNavVk == 0)
+                {
+                    youtubeHeldNavVk = virtualKey;
+                    youtubeNavHoldStartMs = nowMs;
+                    youtubeNavLastRepeatMs = nowMs;
+                    SyncKey(pressed: true, released: false, virtualKey);
+                    return;
+                }
+
+                long heldMs = nowMs - youtubeNavHoldStartMs;
+                if (heldMs < YOUTUBE_SEEK_INITIAL_REPEAT_MS)
+                    return;
+
+                bool isSeekDirection = virtualKey == 0x25 || virtualKey == 0x27;
+                int repeatInterval = isSeekDirection
+                    ? GetYouTubeSeekRepeatInterval(heldMs)
+                    : WEB_NAV_REPEAT_MS;
+                if (nowMs - youtubeNavLastRepeatMs < repeatInterval)
+                    return;
+
+                youtubeNavLastRepeatMs = nowMs;
+                SyncKey(pressed: true, released: false, virtualKey);
+            }
+
+            void ReleaseYouTubeHeldKeys()
+            {
+                if (youtubeHeldNavVk != 0)
+                    SyncKey(pressed: false, released: true, youtubeHeldNavVk);
+                if (youtubeLeftTriggerKeyDown)
+                    SyncKey(pressed: false, released: true, 0x71);
+                if (youtubeRightTriggerKeyDown)
+                    SyncKey(pressed: false, released: true, 0x72);
+
+                youtubeHeldNavVk = 0;
+                youtubeNavHoldStartMs = 0;
+                youtubeNavLastRepeatMs = 0;
+                youtubeLeftTriggerKeyDown = false;
+                youtubeRightTriggerKeyDown = false;
+                youtubeLeftTriggerStartMs = 0;
+                youtubeRightTriggerStartMs = 0;
+                youtubeLeftTriggerLastRepeatMs = 0;
+                youtubeRightTriggerLastRepeatMs = 0;
+            }
+
             void ResetNativeVkbHolds()
             {
+                ReleaseYouTubeHeldKeys();
                 foreach (var action in nativeVkbHoldActive.Keys.ToList())
                     nativeVkbHoldActive[action] = false;
                 vkbLastDir = 0;
@@ -2664,7 +2827,7 @@ namespace Doorpi
                     bool anyLBHeld = false, anyRBHeld = false;
 
                     bool anyVkbUp = false, anyVkbDown = false, anyVkbLeft = false, anyVkbRight = false;
-                    bool anyLtHeld = false;
+                    bool anyLtHeld = false, anyRtHeld = false;
 
                     double totalMlx = 0, totalMly = 0, totalScrollY = 0;
                     ushort currentNavDirBtn = 0;
@@ -2694,6 +2857,7 @@ namespace Doorpi
                     anyLBPressed = Pressed(XI_L1); anyRBPressed = Pressed(XI_R1);
                     anyLBHeld = Held(XI_L1); anyRBHeld = Held(XI_R1);
                     anyLtHeld = input.LeftTrigger;
+                    anyRtHeld = input.Source?.Slots.Any(slot => slot.Connected && slot.RightTrigger > 128) == true;
 
                     const double mergedDeadZone = 0.5;
                     bool dpadUp = Held(XI_DPAD_UP), dpadDown = Held(XI_DPAD_DOWN);
@@ -2778,6 +2942,7 @@ namespace Doorpi
                     if (_webAppTutorialOpen)
                     {
                         ReleaseMediaLeftMouseIfDown();
+                        ReleaseYouTubeHeldKeys();
 
                         if (anyAPressed || anyBPressed || anyStartPressed)
                             Dispatcher.Invoke(DismissWebAppTutorial);
@@ -2797,6 +2962,8 @@ namespace Doorpi
                         else if (input.ThumbLX > mergedDeadZone) { currentNavDirBtn = XI_DPAD_RIGHT; currentNavVk = 0x27; }
                     }
                     bool vkbInputVisible = IsControllerVkbActuallyVisible();
+                    if (!isMainYouTube || vkbInputVisible)
+                        ReleaseYouTubeHeldKeys();
                     // Controller state now comes exclusively from the native XInput
                     // loop, including YouTube's hold-to-close gesture.
                     bool useJavaScriptCloseHold = false;
@@ -2810,7 +2977,7 @@ namespace Doorpi
                             bHoldStartMs = nowMs;
                             HideWebAppCloseHoldOverlay();
                             if (isMainYouTube)
-                                SendMediaVirtualKey(0x1B);
+                                DispatchYouTubeBackToRenderer();
                         }
 
                         if (bHoldActive && anyBHeld)
@@ -2878,8 +3045,20 @@ namespace Doorpi
                             if (anyXPressed) SendMediaVirtualKey(0x6A);         // Numpad *
                             if (anyLBPressed) SendMediaVirtualKey(0x73);        // F4
                             if (anyRBPressed) SendMediaVirtualKey(0x74);        // F5
-                            if (buttonTracker.LeftTriggerJustPressed) SendMediaVirtualKey(0x71);  // F2
-                            if (buttonTracker.RightTriggerJustPressed) SendMediaVirtualKey(0x72); // F3
+                            UpdateYouTubeHeldKey(
+                                anyLtHeld,
+                                0x71,
+                                ref youtubeLeftTriggerKeyDown,
+                                ref youtubeLeftTriggerStartMs,
+                                ref youtubeLeftTriggerLastRepeatMs,
+                                nowMs); // F2 / rewind
+                            UpdateYouTubeHeldKey(
+                                anyRtHeld,
+                                0x72,
+                                ref youtubeRightTriggerKeyDown,
+                                ref youtubeRightTriggerStartMs,
+                                ref youtubeRightTriggerLastRepeatMs,
+                                nowMs); // F3 / fast-forward
                         }
                         else
                         {
@@ -2907,7 +3086,12 @@ namespace Doorpi
 
                         if (currentNavDirBtn != 0)
                         {
-                            if (currentNavDirBtn != webNavLastDir)
+                            if (isMainYouTube)
+                            {
+                                webNavLastDir = currentNavDirBtn;
+                                UpdateYouTubeNavigationHold(currentNavVk, nowMs);
+                            }
+                            else if (currentNavDirBtn != webNavLastDir)
                             {
                                 webNavLastDir = currentNavDirBtn;
                                 webNavDirStartMs = nowMs;
@@ -2924,6 +3108,8 @@ namespace Doorpi
                         else
                         {
                             webNavLastDir = 0;
+                            if (isMainYouTube)
+                                UpdateYouTubeNavigationHold(0, nowMs);
                         }
                     }
 
@@ -3128,6 +3314,7 @@ namespace Doorpi
             }
 
             ReleaseMediaLeftMouseIfDown();
+            ReleaseYouTubeHeldKeys();
             HideWebAppCloseHoldOverlay();
         }
 
@@ -7954,7 +8141,8 @@ namespace Doorpi
 
     const SELECTORS =[
         '#container', 'ytlr-tv-surface-content-renderer', 'yt-virtual-list',
-        'ytlr-animated-overlay', 'ytlr-rich-grid-renderer',
+        'ytlr-animated-overlay', 'ytlr-rich-grid-renderer', 'ytlr-search-container',
+        'ytlr-two-column-renderer',
         'ytlr-two-column-browse-results-renderer', 'ytlr-section-list-renderer',
         'ytlr-item-section-renderer', 'ytlr-horizontal-list-renderer',
     ];
@@ -7968,6 +8156,13 @@ namespace Doorpi
     function applyFix(el)        { if (!el) return; el.style.setProperty('width','100vw','important'); el.style.setProperty('max-width','100vw','important'); }
     function applyAccountFix(el) { if (!el) return; applyFix(el); el.style.setProperty('background-size','cover','important'); }
     function applyLogoFix(el)    { if (!el) return; el.style.setProperty('left','86vw','important'); }
+    function applyLockupFix(el)  {
+        if (!el) return;
+        applyFix(el);
+        el.style.setProperty('display','flex','important');
+        el.style.setProperty('flex-direction','column','important');
+        el.style.setProperty('align-items','center','important');
+    }
 
     function fakeScrollToForceLoad() {
         document.querySelectorAll('ytlr-horizontal-list-renderer, yt-virtual-list').forEach(el => {
@@ -8023,6 +8218,11 @@ namespace Doorpi
             el.shadowRoot.querySelectorAll('ytlr-account-selector').forEach(applyAccountFix);
         });
         if (isAccountPage()) return;
+        document.querySelectorAll('yt-lockup-view-model').forEach(applyLockupFix);
+        document.querySelectorAll('*').forEach(el => {
+            if (!el.shadowRoot) return;
+            el.shadowRoot.querySelectorAll('yt-lockup-view-model').forEach(applyLockupFix);
+        });
         let applied = false;
         SELECTORS.forEach(sel => { document.querySelectorAll(sel).forEach(el => { applyFix(el); applied = true; }); });
         document.querySelectorAll('*').forEach(el => {
