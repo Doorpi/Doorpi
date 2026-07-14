@@ -9796,9 +9796,9 @@ function renderFolderList(folders) {
                     <div class="artwork-search-row">
                         <div class="artwork-search-box">
                             <span class="gp-face-btn gp-y artwork-search-badge">Y</span>
-                            <input class="edit-modal-input" id="artworkSearchInput" type="text" autocomplete="off" spellcheck="false" />
+                            <input class="edit-modal-input" id="artworkSearchInput" type="text" autocomplete="off" spellcheck="false" data-nav-right="#artworkSearchBtn" />
                         </div>
-                        <button class="modal-btn secondary" id="artworkSearchBtn">${t('artworkSearch')}</button>
+                        <button class="modal-btn secondary" id="artworkSearchBtn" data-nav-left="#artworkSearchInput">${t('artworkSearch')}</button>
                     </div>
                     <div class="artwork-actions">
                         <button class="modal-btn secondary artwork-action-btn" id="artworkSkipBtn"><span class="gp-face-btn gp-x">X</span><span class="artwork-skip-label">${t('artworkSkip')}</span></button>
