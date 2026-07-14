@@ -1,51 +1,57 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202607120122,
-    "publishedAt":  "2026-07-12T04:23:10.5634535Z",
-    "expiresAt":  "2026-07-26T04:23:10.5634535Z",
+    "manifestVersion":  202607141345,
+    "publishedAt":  "2026-07-14T16:45:47.4643337Z",
+    "expiresAt":  "2026-07-28T16:45:47.4643337Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.1.8",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.8/doorpi-0.1.8.doorpiupdate.zip",
-                   "sha256":  "ea3fa123c7e7a3968dac08431c43caf77125ebfb654ed15622084b76db655687",
-                   "sizeBytes":  132914054,
+                   "version":  "0.1.9",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.9/doorpi-0.1.9.doorpiupdate.zip",
+                   "sha256":  "0d1bb02c251227172f734841724e3c700c285fa15fff683721205bfce5b727c3",
+                   "sizeBytes":  132956417,
                    "minUpdaterVersion":  "0.1.0",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
                     "version":  "0.1.0",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.8/updater-0.1.0.doorpiupdate.zip",
-                    "sha256":  "8ca4ed01249a124b86b5a4a96f8c6c8cebbae4567659ea777b250dd5173e1617",
-                    "sizeBytes":  69944481,
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.9/updater-0.1.0.doorpiupdate.zip",
+                    "sha256":  "638ba59fe8734b9a52e469cd71e17c1567e45fbd13afe6f3dc3f6f04ccc6bb8f",
+                    "sizeBytes":  69944474,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.1.8",
-                          "title":  "Doorpi 0.1.8",
+                          "version":  "0.1.9",
+                          "title":  "Doorpi 0.1.9",
                           "items":  [
-                                        "Corrigidos casos em que os controles paravam de funcionar.",
-                                        "Corrigidos casos em que o Xbox persistia em não minimizar.",
-                                        "Melhorias de qualidade de vida na navegação."
+                                        "Novo seletor de foto de perfil com SteamGrid, URL ou imagem local.",
+                                        "Editor de enquadramento com movimento e zoom pelo controle.",
+                                        "Edição das artes dos jogos no histórico.",
+                                        "Melhorias de navegação, foco, scroll e teclado virtual.",
+                                        "Mudanças da API do Joystick."
                                     ],
                           "locales":  {
                                           "pt-BR":  {
-                                                        "title":  "Doorpi 0.1.8",
+                                                        "title":  "Doorpi 0.1.9",
                                                         "items":  [
-                                                                      "Corrigidos casos em que os controles paravam de funcionar.",
-                                                                      "Corrigidos casos em que o Xbox persistia em não minimizar.",
-                                                                      "Melhorias de qualidade de vida na navegação."
+                                                                      "Novo seletor de foto de perfil com SteamGrid, URL ou imagem local.",
+                                                                      "Editor de enquadramento com movimento e zoom pelo controle.",
+                                                                      "Edição das artes dos jogos no histórico.",
+                                                                      "Melhorias de navegação, foco, scroll e teclado virtual.",
+                                                                      "Mudanças da API do Joystick."
                                                                   ]
                                                     },
                                           "en":  {
-                                                     "title":  "Doorpi 0.1.8",
+                                                     "title":  "Doorpi 0.1.9",
                                                      "items":  [
-                                                                   "Fixed cases where controllers stopped working.",
-                                                                   "Fixed cases where Xbox kept refusing to minimize.",
-                                                                   "Quality-of-life improvements for navigation."
+                                                                   "New profile picture picker with SteamGrid, URL, or local image support.",
+                                                                   "Framing editor with controller-based movement and zoom.",
+                                                                   "Game artwork editing in history.",
+                                                                   "Navigation, focus, scroll, and virtual keyboard improvements.",
+                                                                   "Joystick API changes."
                                                                ]
                                                  }
                                       }
@@ -54,6 +60,6 @@
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "h1Re2mPPEo6dVJl1o85MOXb+asYenqfEjxJb1X2B4hVxZ1TP80xLc+l0q8qBphRknNQOvQgDjSlaleScyJHcT3mu3Vjf+RvtCITUp8pl1ToAY9wrXhj3Gh1pEdbrizdpdl3yS+Cy3fL8XTlvLmz2Yc+2iEh0sfVYpH0ZQ+bwMxRCqS7xfBiI8Saa7YKY7oSU1vbyA6gKrmYJ0nEy8gd8cox1dFHHqXUlpKXhiYNPobNPYpVNfdqEduwEwjOdAYtSApOD4R9Lffty1QZX+FeEIN6bbHQ0GnvKHzmPnTgMmOA9G69gCajPE/h7Z26QuaGNF3Ni5m/cQe72vE5tOilv7+hGNacbNkoX+EGzRuONgUW0y70WDpMZe3PdMVlPfOvzbgWVSNHrRcUoO0OuKiHRrbAYz8eKpCT4lHZOpvGlbKHFgjL0kVA0IPdwMq8WC3vG+rzFW+oeYQQQmpg27SjaYj+nTSx/brpPDU7y4G9jbFhnkLNW8pkHdq9OEbirpV9z"
+                      "value":  "mCSOdOu7eeBNLeBb6vx9plXDVmVQ4Ss+raq0MZsVB1Ujv/0qD6srwr3pBd2KnsyeeEbe0cU53iCMFrfT7FrVgBv/25lUPTFAEqraoDIQ922BELxL41eeK9TgYczY9xNJw6bTtKr56oUZwCoHaQW7LzDqCpQXMSW5u950+47ctPyUssPzawy7tYtZrn++zQ5TtMPc5GohrEXk20oL7uw3NJ0MQMOACYixt4dprftbYbM01qpFlQxpmKcoFad1hz+kSAJEqTdCwuQlh576Xualq8bCdQJ0iXgyoRIUm3CqXWQXmDsBtXdNP0cTbZ2LZuPlS99svJ2HHZexdW+7bG3EkfrYAgxROm3qlDgdJgAr2VyCPNpS6tSibw2R9Qgwi8ejDtXSlsv3kcUb+n/jOTlqAszOdp+V6yFIfSQRSxCQokxYKDDpqEDlZ6PpM+aWJrOcjbYfYRTrabeZabfns5X4g/jrQkGIsG7rhSuwdyNxppavJa1s1e6poZSEMdJ7Od+X"
                   }
 }
