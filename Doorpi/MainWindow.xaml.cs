@@ -78,6 +78,12 @@ namespace Doorpi
         public string Id { get; set; } = "";
         public string Name { get; set; } = "";
         public string PhotoBase64 { get; set; } = "";
+        public string PhotoSource { get; set; } = "";
+        public string PhotoSourceUrl { get; set; } = "";
+        public int PhotoSteamGridAssetId { get; set; }
+        public double PhotoCropX { get; set; }
+        public double PhotoCropY { get; set; }
+        public double PhotoZoom { get; set; } = 1;
         public string SteamGridApiKey { get; set; } = "";
         public string PinCode { get; set; } = "";
         public bool IsAdmin { get; set; } = false;
@@ -397,27 +403,8 @@ namespace Doorpi
         private static extern IntPtr FindWindow(string? lpClassName, string? lpWindowName);
         [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT lpPoint);
 
-        [DllImport("xinput1_4.dll", EntryPoint = "XInputGetState")]
-        private static extern int XInputGetState(int dwUserIndex, out XINPUT_STATE pState);
-        [DllImport("xinput1_4.dll", EntryPoint = "#100")]
-        private static extern int XInputGetStateSecret(int dwUserIndex, out XINPUT_STATE pState);
         [StructLayout(LayoutKind.Sequential)]
         private struct POINT { public int X; public int Y; }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct XINPUT_STATE { public uint dwPacketNumber; public XINPUT_GAMEPAD Gamepad; }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct XINPUT_GAMEPAD
-        {
-            public ushort wButtons;
-            public byte bLeftTrigger;
-            public byte bRightTrigger;
-            public short sThumbLX;
-            public short sThumbLY;
-            public short sThumbRX;
-            public short sThumbRY;
-        }
 
         // ========================= WIN32 SENDINPUT (NOVO MOUSE/TECLADO) =========================
         [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
@@ -1978,13 +1965,17 @@ namespace Doorpi
         private void SendUsersToUI(bool requireSelection)
         {
             var users = LoadUserProfiles().OrderByDescending(u => u.LastUsed).Select(UserProfilePickerPayload).ToList();
+            bool sessionActive = _interactiveUserSessionStarted;
+            bool effectiveRequireSelection = requireSelection || !sessionActive;
+            string activeUserId = sessionActive ? currentUserId : "";
             Dispatcher.Invoke(() =>
                 webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
                 {
                     type = "usersList",
                     users,
-                    currentUserId,
-                    requireSelection
+                    currentUserId = activeUserId,
+                    sessionActive,
+                    requireSelection = effectiveRequireSelection
                 })));
         }
 
@@ -2005,6 +1996,12 @@ namespace Doorpi
             user.Id,
             user.Name,
             user.PhotoBase64,
+            user.PhotoSource,
+            user.PhotoSourceUrl,
+            user.PhotoSteamGridAssetId,
+            user.PhotoCropX,
+            user.PhotoCropY,
+            user.PhotoZoom,
             user.IsAdmin,
             HasPin = !string.IsNullOrWhiteSpace(user.PinCode)
         };
@@ -2361,6 +2358,12 @@ namespace Doorpi
                     user.Id,
                     user.Name,
                     user.PhotoBase64,
+                    user.PhotoSource,
+                    user.PhotoSourceUrl,
+                    user.PhotoSteamGridAssetId,
+                    user.PhotoCropX,
+                    user.PhotoCropY,
+                    user.PhotoZoom,
                     user.IsAdmin,
                     user.DateCreated,
                     user.LastUsed,
@@ -2897,58 +2900,18 @@ namespace Doorpi
             }
         }
         // ========================= CONTROLE COMPARTILHADO (APP EXE & DIALOGS) =========================
-        private const ushort MOUSE_MODE_SHORTCUT_MASK = 0x00C0; // L3 + R3
-        private const ushort DOORPI_RETURN_GUIDE_MASK = 0x0400;
-        private const ushort DOORPI_RETURN_ALT_MASK = 0x0380; // L1 + R1 + R3
         private const double CONTROLLER_MOUSE_BASE_SPEED = 700.0;
         private const double CONTROLLER_NATIVE_MOUSE_BASE_SPEED = 900.0;
         private const double CONTROLLER_MOUSE_SENSITIVITY_SCALE = 0.92;
         private long _mediaExeMouseModeShortcutSuppressUntilTicks = 0;
 
-        private static bool IsMouseModeShortcutPressed(ushort buttons)
-            => (buttons & MOUSE_MODE_SHORTCUT_MASK) == MOUSE_MODE_SHORTCUT_MASK;
-
-        private static bool IsMouseModeShortcutJustPressed(ushort buttons, ref long lastL3PressedAt, ref long lastR3PressedAt, ref bool shortcutLatched)
-        {
-            const long ComboWindowMs = 450;
-            long now = Environment.TickCount64;
-            bool l3Down = (buttons & 0x0040) != 0;
-            bool r3Down = (buttons & 0x0080) != 0;
-
-            if (l3Down) lastL3PressedAt = now;
-            if (r3Down) lastR3PressedAt = now;
-
-            bool comboDown = l3Down && r3Down;
-            bool comboInGrace = l3Down && r3Down &&
-                now - lastL3PressedAt <= ComboWindowMs &&
-                now - lastR3PressedAt <= ComboWindowMs;
-
-            if (!comboDown)
-                shortcutLatched = false;
-
-            if ((comboDown || comboInGrace) && !shortcutLatched)
-            {
-                shortcutLatched = true;
-                return true;
-            }
-
-            return false;
-        }
-
-        private static bool IsDoorpiReturnShortcutPressed(ushort buttons)
-            => (buttons & DOORPI_RETURN_GUIDE_MASK) != 0 ||
-               (buttons & DOORPI_RETURN_ALT_MASK) == DOORPI_RETURN_ALT_MASK;
-
-        private static bool IsDoorpiReturnShortcutJustPressed(ushort buttons, ushort previousButtons)
-            => ((buttons & DOORPI_RETURN_GUIDE_MASK) != 0 && (previousButtons & DOORPI_RETURN_GUIDE_MASK) == 0) ||
-               ((buttons & DOORPI_RETURN_ALT_MASK) == DOORPI_RETURN_ALT_MASK &&
-                (previousButtons & DOORPI_RETURN_ALT_MASK) != DOORPI_RETURN_ALT_MASK);
         private struct AggregatedGamepadState
         {
             public bool Connected;
             public ushort Buttons;
             public bool LeftTrigger;
             public double ThumbLX, ThumbLY, ThumbRX, ThumbRY;
+            public XInputSnapshot? Source;
         }
 
         private AggregatedGamepadState GetAggregatedGamepadState()
@@ -2956,123 +2919,27 @@ namespace Doorpi
             return GetUnifiedControllerInput();
         }
 
-        // All controller-facing modes consume this merged snapshot. It intentionally
-        // keeps no controller identity, so every connected controller has equal access.
-        private AggregatedGamepadState GetUnifiedControllerInput(bool includeRawInput = true)
+        // All controller-facing modes consume the same XInput-only snapshot. Physical
+        // slots remain available in Source solely for per-controller edges/chords.
+        private AggregatedGamepadState GetUnifiedControllerInput()
         {
-            var result = new AggregatedGamepadState();
-
-            void Merge(ushort buttons, bool leftTrigger, double leftX, double leftY, double rightX, double rightY)
+            var snapshot = XInputControllerHub.Read();
+            return new AggregatedGamepadState
             {
-                result.Connected = true;
-                result.Buttons |= buttons;
-                result.LeftTrigger |= leftTrigger;
-                if (Math.Abs(leftX) > Math.Abs(result.ThumbLX)) result.ThumbLX = leftX;
-                if (Math.Abs(leftY) > Math.Abs(result.ThumbLY)) result.ThumbLY = leftY;
-                if (Math.Abs(rightX) > Math.Abs(result.ThumbRX)) result.ThumbRX = rightX;
-                if (Math.Abs(rightY) > Math.Abs(result.ThumbRY)) result.ThumbRY = rightY;
-            }
-
-            for (int i = 0; i < 4; i++)
-            {
-                if (XInputGetStateSecret(i, out var state) != 0)
-                    continue;
-
-                var gp = state.Gamepad;
-                ushort buttons = gp.wButtons;
-                if (gp.bRightTrigger > 128) buttons |= XI_A;
-                Merge(buttons, gp.bLeftTrigger > 128,
-                    gp.sThumbLX / 32767.0, gp.sThumbLY / 32767.0,
-                    gp.sThumbRX / 32767.0, gp.sThumbRY / 32767.0);
-            }
-
-            try
-            {
-                var pads = Windows.Gaming.Input.Gamepad.Gamepads;
-                for (int i = 0; i < pads.Count; i++)
-                {
-                    var reading = pads[i].GetCurrentReading();
-                    var source = reading.Buttons;
-                    ushort buttons = 0;
-                    if ((source & Windows.Gaming.Input.GamepadButtons.DPadUp) != 0) buttons |= XI_DPAD_UP;
-                    if ((source & Windows.Gaming.Input.GamepadButtons.DPadDown) != 0) buttons |= XI_DPAD_DOWN;
-                    if ((source & Windows.Gaming.Input.GamepadButtons.DPadLeft) != 0) buttons |= XI_DPAD_LEFT;
-                    if ((source & Windows.Gaming.Input.GamepadButtons.DPadRight) != 0) buttons |= XI_DPAD_RIGHT;
-                    if ((source & Windows.Gaming.Input.GamepadButtons.View) != 0) buttons |= XI_BACK;
-                    if ((source & Windows.Gaming.Input.GamepadButtons.Menu) != 0) buttons |= XI_START;
-                    if ((source & Windows.Gaming.Input.GamepadButtons.A) != 0 || reading.RightTrigger > 0.5) buttons |= XI_A;
-                    if ((source & Windows.Gaming.Input.GamepadButtons.B) != 0) buttons |= XI_B;
-                    if ((source & Windows.Gaming.Input.GamepadButtons.X) != 0) buttons |= XI_X;
-                    if ((source & Windows.Gaming.Input.GamepadButtons.Y) != 0) buttons |= XI_Y;
-                    if ((source & Windows.Gaming.Input.GamepadButtons.LeftShoulder) != 0) buttons |= XI_L1;
-                    if ((source & Windows.Gaming.Input.GamepadButtons.RightShoulder) != 0) buttons |= XI_R1;
-                    if ((source & Windows.Gaming.Input.GamepadButtons.LeftThumbstick) != 0) buttons |= XI_L3;
-                    if ((source & Windows.Gaming.Input.GamepadButtons.RightThumbstick) != 0) buttons |= XI_R3;
-
-                    Merge(buttons, reading.LeftTrigger > 0.5,
-                        reading.LeftThumbstickX, reading.LeftThumbstickY,
-                        reading.RightThumbstickX, reading.RightThumbstickY);
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[ControllerInput] Windows.Gaming.Input failed: {ex.Message}");
-            }
-
-            if (includeRawInput)
-            {
-                try
-                {
-                    var pads = Windows.Gaming.Input.RawGameController.RawGameControllers;
-                    for (int i = 0; i < pads.Count; i++)
-                    {
-                        var pad = pads[i];
-                        var rawButtons = new bool[Math.Max(0, pad.ButtonCount)];
-                        var rawSwitches = new Windows.Gaming.Input.GameControllerSwitchPosition[Math.Max(0, pad.SwitchCount)];
-                        var rawAxes = new double[Math.Max(0, pad.AxisCount)];
-                        pad.GetCurrentReading(rawButtons, rawSwitches, rawAxes);
-
-                        ushort buttons = 0;
-                        foreach (var position in rawSwitches)
-                            buttons |= MapRawSwitchToMainUiButtons(position);
-
-                        bool IsRawDown(int index) => index >= 0 && index < rawButtons.Length && rawButtons[index];
-                        if (IsRawDown(0) || IsRawDown(7)) buttons |= XI_A;
-                        if (IsRawDown(1)) buttons |= XI_B;
-                        if (IsRawDown(2)) buttons |= XI_X;
-                        if (IsRawDown(3)) buttons |= XI_Y;
-                        if (IsRawDown(4)) buttons |= XI_L1;
-                        if (IsRawDown(5)) buttons |= XI_R1;
-                        if (IsRawDown(8)) buttons |= XI_BACK;
-                        if (IsRawDown(9)) buttons |= XI_START;
-                        if (IsRawDown(10)) buttons |= XI_L3;
-                        if (IsRawDown(11)) buttons |= XI_R3;
-                        if (IsRawDown(12)) buttons |= XI_DPAD_UP;
-                        if (IsRawDown(13)) buttons |= XI_DPAD_DOWN;
-                        if (IsRawDown(14)) buttons |= XI_DPAD_LEFT;
-                        if (IsRawDown(15)) buttons |= XI_DPAD_RIGHT;
-
-                        var left = rawAxes.Length >= 2 ? NormalizeRawAxisPair(rawAxes[0], rawAxes[1]) : (0d, 0d);
-                        var right = rawAxes.Length >= 4 ? NormalizeRawAxisPair(rawAxes[2], rawAxes[3]) : (0d, 0d);
-                        Merge(buttons, IsRawDown(6), left.Item1, left.Item2, right.Item1, right.Item2);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"[ControllerInput] RawGameController failed: {ex.Message}");
-                }
-            }
-
-            return result;
+                Connected = snapshot.Connected,
+                Buttons = snapshot.Buttons,
+                LeftTrigger = snapshot.LeftTrigger,
+                ThumbLX = snapshot.ThumbLX,
+                ThumbLY = snapshot.ThumbLY,
+                ThumbRX = snapshot.ThumbRX,
+                ThumbRY = snapshot.ThumbRY,
+                Source = snapshot
+            };
         }
 
         private AggregatedGamepadState GetNativeDialogControllerInput()
         {
-            // RawGameController frequently mirrors XInput/Gamepad devices but does not
-            // guarantee a standardized axis order. Native dialogs need precise pointer
-            // motion, so prefer the standardized APIs and use raw only as a fallback.
-            var input = GetUnifiedControllerInput(includeRawInput: false);
-            return input.Connected ? input : GetUnifiedControllerInput();
+            return GetUnifiedControllerInput();
         }
 
         private async Task WaitForPrimaryControllerReleaseAsync()
@@ -3101,17 +2968,15 @@ namespace Doorpi
               Func<AggregatedGamepadState>? inputProvider = null)
         {
             var sw = Stopwatch.StartNew();
-            ushort prevButtons = (inputProvider?.Invoke() ?? GetUnifiedControllerInput()).Buttons;
+            var buttonTracker = new XInputButtonTracker();
+            var initialInput = inputProvider?.Invoke() ?? GetUnifiedControllerInput();
+            buttonTracker.Update(initialInput.Source ?? XInputControllerHub.Read());
 
             double remainderX = 0, remainderY = 0;
             bool isClicking = false, aWasOnTextField = false, aDragOccurred = false;
             double clickAccumX = 0, clickAccumY = 0;
             bool dragBrokeThreshold = false;
             bool ignoreNextBRelease = false;
-            long mouseShortcutLastL3 = 0;
-            long mouseShortcutLastR3 = 0;
-            bool mouseShortcutLatched = false;
-
             bool aDoubleClickPending = false;
             DateTime lastAReleaseTime = DateTime.MinValue;
 
@@ -3157,13 +3022,14 @@ namespace Doorpi
 
                     var input = inputProvider?.Invoke() ?? GetUnifiedControllerInput();
                     ushort btn = input.Buttons;
-                    bool Pressed(ushort m) => (btn & m) != 0 && (prevButtons & m) == 0;
-                    bool Released(ushort m) => (btn & m) == 0 && (prevButtons & m) != 0;
+                    buttonTracker.Update(input.Source ?? XInputControllerHub.Read());
+                    bool Pressed(ushort m) => buttonTracker.AnyPressed(m);
+                    bool Released(ushort m) => buttonTracker.ReleasedGlobally(m);
 
                     anyMouseShortcut = mouseModeShortcutPredicate != null
-                        ? mouseModeShortcutPredicate(btn) && !mouseModeShortcutPredicate(prevButtons)
-                        : IsMouseModeShortcutJustPressed(btn, ref mouseShortcutLastL3, ref mouseShortcutLastR3, ref mouseShortcutLatched);
-                    anyReturnShortcut = handleXboxButton && IsDoorpiReturnShortcutJustPressed(btn, prevButtons);
+                        ? buttonTracker.AnyPredicateJustPressed(mouseModeShortcutPredicate)
+                        : buttonTracker.MouseModeShortcutJustPressed;
+                    anyReturnShortcut = handleXboxButton && buttonTracker.ReturnShortcutJustPressed;
 
                     anyAPressed = Pressed(XI_A);
                     anyAReleased = Released(XI_A);
@@ -3187,7 +3053,7 @@ namespace Doorpi
                         anyVkbToggleLayer = input.LeftTrigger;
 
                         bool curX = (btn & XI_X) != 0;
-                        if (curX && (prevButtons & XI_X) == 0)
+                        if (anyXPressed)
                         {
                             isHoldingX = true; xPressTime = DateTime.Now;
                             SendVirtualKey(0x08); lastBackspaceFired = DateTime.Now;
@@ -3204,8 +3070,6 @@ namespace Doorpi
                         if (Math.Abs(input.ThumbLY) > 0.15) totalMly = input.ThumbLY;
                         if (Math.Abs(input.ThumbRY) > 0.20) totalScrollY = input.ThumbRY;
                     }
-
-                    prevButtons = btn;
 
                     if (!isActive()) break;
 
@@ -3386,11 +3250,7 @@ namespace Doorpi
                     ReturnToDoorpiFromMediaExeSession(sessionId);
                 },
                 handleXboxButton: false,
-                shouldAcceptInput: () => _mediaExeModeActive && !_mediaExeMouseInputTemporarilyDisabled,
-                shouldAcceptMouseModeShortcut: () =>
-                    DateTime.UtcNow.Ticks >= Interlocked.Read(ref _mediaExeMouseModeShortcutSuppressUntilTicks) &&
-                    IsMediaExeLogicalSessionActive(sessionId),
-                onMouseModeShortcut: () => ToggleMediaExeMouseModeForSession(sessionId)
+                shouldAcceptInput: () => _mediaExeModeActive && !_mediaExeMouseInputTemporarilyDisabled
             );
 
             var session = ActiveExecutableAppSession;
@@ -3563,10 +3423,9 @@ namespace Doorpi
 
         private void MediaExeShortcutLoop(int sessionId)
         {
-            ushort prevButtons = GetUnifiedControllerInput().Buttons;
-            long mouseShortcutLastL3 = 0;
-            long mouseShortcutLastR3 = 0;
-            bool mouseShortcutLatched = false;
+            var buttonTracker = new XInputButtonTracker();
+            var initialInput = GetUnifiedControllerInput();
+            buttonTracker.Update(initialInput.Source ?? XInputControllerHub.Read());
 
             DateTime nextProcessCheckUtc = DateTime.MinValue;
 
@@ -3574,10 +3433,10 @@ namespace Doorpi
             {
                 try
                 {
-                    ushort buttons = GetUnifiedControllerInput().Buttons;
-                    bool anyReturnShortcut = IsDoorpiReturnShortcutJustPressed(buttons, prevButtons);
-                    bool anyMouseShortcut = IsMouseModeShortcutJustPressed(buttons, ref mouseShortcutLastL3, ref mouseShortcutLastR3, ref mouseShortcutLatched);
-                    prevButtons = buttons;
+                    var input = GetUnifiedControllerInput();
+                    buttonTracker.Update(input.Source ?? XInputControllerHub.Read());
+                    bool anyReturnShortcut = buttonTracker.ReturnShortcutJustPressed;
+                    bool anyMouseShortcut = buttonTracker.MouseModeShortcutJustPressed;
 
                     if (anyReturnShortcut)
                     {
@@ -3586,8 +3445,7 @@ namespace Doorpi
                         continue;
                     }
 
-                    if (_mediaExeMouseInputTemporarilyDisabled &&
-                        anyMouseShortcut &&
+                    if (anyMouseShortcut &&
                         DateTime.UtcNow.Ticks >= Interlocked.Read(ref _mediaExeMouseModeShortcutSuppressUntilTicks) &&
                         IsForegroundOwnedByActiveMediaExe())
                     {
@@ -3617,19 +3475,18 @@ namespace Doorpi
 
         private void StoreLauncherShortcutLoop(int sessionId)
         {
-            ushort prevButtons = GetUnifiedControllerInput().Buttons;
-            long mouseShortcutLastL3 = 0;
-            long mouseShortcutLastR3 = 0;
-            bool mouseShortcutLatched = false;
+            var buttonTracker = new XInputButtonTracker();
+            var initialInput = GetUnifiedControllerInput();
+            buttonTracker.Update(initialInput.Source ?? XInputControllerHub.Read());
 
             while (IsStoreShortcutSessionActive(sessionId))
             {
                 try
                 {
-                    ushort buttons = GetUnifiedControllerInput().Buttons;
-                    bool anyReturnShortcut = IsDoorpiReturnShortcutJustPressed(buttons, prevButtons);
-                    bool anyMouseShortcut = IsMouseModeShortcutJustPressed(buttons, ref mouseShortcutLastL3, ref mouseShortcutLastR3, ref mouseShortcutLatched);
-                    prevButtons = buttons;
+                    var input = GetUnifiedControllerInput();
+                    buttonTracker.Update(input.Source ?? XInputControllerHub.Read());
+                    bool anyReturnShortcut = buttonTracker.ReturnShortcutJustPressed;
+                    bool anyMouseShortcut = buttonTracker.MouseModeShortcutJustPressed;
 
                     if (anyReturnShortcut)
                     {
@@ -3646,8 +3503,7 @@ namespace Doorpi
                             break;
                     }
 
-                    if (_storeMouseInputTemporarilyDisabled &&
-                        anyMouseShortcut &&
+                    if (anyMouseShortcut &&
                         DateTime.UtcNow.Ticks >= Interlocked.Read(ref _storeMouseModeShortcutSuppressUntilTicks) &&
                         IsForegroundOwnedByActiveStore())
                     {
@@ -4150,11 +4006,7 @@ namespace Doorpi
                     Dispatcher.Invoke(MinimizeStoreSessionAndShowMenu);
                 },
                 handleXboxButton: false,
-                shouldAcceptInput: () => _storeMouseModeActive && !_storeMouseInputTemporarilyDisabled,
-                shouldAcceptMouseModeShortcut: () =>
-                    DateTime.UtcNow.Ticks >= Interlocked.Read(ref _storeMouseModeShortcutSuppressUntilTicks) &&
-                    IsStoreLogicalSessionActive(sessionId),
-                onMouseModeShortcut: () => ToggleStoreMouseModeForSession(sessionId)
+                shouldAcceptInput: () => _storeMouseModeActive && !_storeMouseInputTemporarilyDisabled
             );
 
         }
@@ -5738,7 +5590,9 @@ namespace Doorpi
         private void SystemControllerLoop()
         {
             var sw = Stopwatch.StartNew();
-            ushort prevButtons = GetUnifiedControllerInput().Buttons;
+            var buttonTracker = new XInputButtonTracker();
+            var initialInput = GetUnifiedControllerInput();
+            buttonTracker.Update(initialInput.Source ?? XInputControllerHub.Read());
 
             double remainderX = 0, remainderY = 0;
             bool aWasOnTextField = false, aDragOccurred = false;
@@ -5806,10 +5660,11 @@ namespace Doorpi
 
                     var input = GetUnifiedControllerInput();
                     ushort btn = input.Buttons;
-                    bool Pressed(ushort m) => (btn & m) != 0 && (prevButtons & m) == 0;
-                    bool Released(ushort m) => (btn & m) == 0 && (prevButtons & m) != 0;
+                    buttonTracker.Update(input.Source ?? XInputControllerHub.Read());
+                    bool Pressed(ushort m) => buttonTracker.AnyPressed(m);
+                    bool Released(ushort m) => buttonTracker.ReleasedGlobally(m);
 
-                    anyReturnShortcut = IsDoorpiReturnShortcutJustPressed(btn, prevButtons);
+                    anyReturnShortcut = buttonTracker.ReturnShortcutJustPressed;
                     anyAPressed = Pressed(XI_A);
                     anyAReleased = Released(XI_A);
                     anyBPressed = Pressed(XI_B);
@@ -5831,7 +5686,7 @@ namespace Doorpi
                         anyVkbToggleLayer = input.LeftTrigger;
 
                         bool curX = (btn & XI_X) != 0;
-                        if (curX && (prevButtons & XI_X) == 0)
+                        if (anyXPressed)
                         {
                             isHoldingX = true; xPressTime = DateTime.Now;
                             SendVirtualKey(0x08); lastBackspaceFired = DateTime.Now;
@@ -5857,8 +5712,6 @@ namespace Doorpi
                             if (Math.Abs(input.ThumbLY) > 0.15) totalMly = input.ThumbLY;
                         }
                     }
-
-                    prevButtons = btn;
 
                     if (anyReturnShortcut)
                     {
@@ -12426,6 +12279,8 @@ namespace Doorpi
                     LaunchUrl = app.LaunchUrl,
                     GridImage = steamAssets.Item1,
                     GridHorizontalImage = steamAssets.Item2,
+                    GridSourceUrl = steamAssets.Item1,
+                    GridHorizontalSourceUrl = steamAssets.Item2,
                     HeroImage = steamAssets.Item3,
                     LogoImage = steamAssets.Item4,
                     IconBase64 = app.IconBase64,
@@ -12555,6 +12410,8 @@ namespace Doorpi
 
                 game.GridImage = $"https://data.local/images/grid/{Path.GetFileName(gridTask.Result)}";
                 if (horizontalTask.Result != null) game.GridHorizontalImage = $"https://data.local/images/grid-horizontal/{Path.GetFileName(horizontalTask.Result)}";
+                game.GridSourceUrl = assets.Grid;
+                game.GridHorizontalSourceUrl = assets.Horizontal;
                 game.HeroImage = $"https://data.local/images/hero/{Path.GetFileName(heroTask.Result)}";
                 if (logoTask.Result != null) game.LogoImage = $"https://data.local/images/logo/{Path.GetFileName(logoTask.Result)}";
                 game.ArtworkSource = "steam-cdn-local";
@@ -12616,6 +12473,8 @@ namespace Doorpi
 
                     game.GridImage = $"https://data.local/images/grid/{Path.GetFileName(gridTask.Result)}";
                     game.GridHorizontalImage = hTask.Result != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(hTask.Result)}" : game.GridImage;
+                    game.GridSourceUrl = gridUrl;
+                    game.GridHorizontalSourceUrl = !string.IsNullOrWhiteSpace(horizontalUrl) ? horizontalUrl : gridUrl;
                     game.HeroImage = $"https://data.local/images/hero/{Path.GetFileName(heroTask.Result)}";
                     game.LogoImage = logoTask.Result != null ? $"https://data.local/images/logo/{Path.GetFileName(logoTask.Result)}" : "";
                     game.IsPendingArtwork = false;
@@ -13850,6 +13709,229 @@ namespace Doorpi
                             })));
                     });
                 }
+                else if (action == "searchProfilePhotoGames")
+                {
+                    string requestId = GetStr(root, "requestId");
+                    string query = GetStr(root, "query");
+                    string apiKey = GetStr(root, "apiKey");
+                    if (string.IsNullOrWhiteSpace(apiKey)) apiKey = GetSteamGridApiKey();
+
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var games = await SearchProfilePhotoGameSuggestionsAsync(
+                                query,
+                                apiKey,
+                                CancellationToken.None).ConfigureAwait(false);
+                            Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(
+                                JsonSerializer.Serialize(new
+                                {
+                                    type = "profilePhotoGameSuggestions",
+                                    requestId,
+                                    query,
+                                    games = games.Select(game => new { id = game.Id, name = game.Name }).ToList()
+                                })));
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine("[ProfilePhoto] Autocomplete falhou: " + ex.Message);
+                            Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(
+                                JsonSerializer.Serialize(new
+                                {
+                                    type = "profilePhotoGameSuggestions",
+                                    requestId,
+                                    query,
+                                    games = Array.Empty<object>()
+                                })));
+                        }
+                    });
+                }
+                else if (action == "searchProfilePhotoArtwork")
+                {
+                    string requestId = GetStr(root, "requestId");
+                    string query = GetStr(root, "query");
+                    string apiKey = GetStr(root, "apiKey");
+                    bool suggestions = root.TryGetProperty("suggestions", out var suggestionsEl) && suggestionsEl.GetBoolean();
+                    if (string.IsNullOrWhiteSpace(apiKey)) apiKey = GetSteamGridApiKey();
+
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var result = await SearchProfilePhotoArtworkAsync(
+                                query,
+                                apiKey,
+                                suggestions,
+                                CancellationToken.None).ConfigureAwait(false);
+                            var squares = result.Squares.Select(item => new
+                            {
+                                id = item.Id,
+                                url = item.Url,
+                                thumb = item.Thumb,
+                                score = item.Score,
+                                width = item.Width,
+                                height = item.Height,
+                                shape = item.Shape,
+                                gameName = item.GameName
+                            }).ToList();
+                            var verticals = result.Verticals.Select(item => new
+                            {
+                                id = item.Id,
+                                url = item.Url,
+                                thumb = item.Thumb,
+                                score = item.Score,
+                                width = item.Width,
+                                height = item.Height,
+                                shape = item.Shape,
+                                gameName = item.GameName
+                            }).ToList();
+                            Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(
+                                JsonSerializer.Serialize(new
+                                {
+                                    type = "profilePhotoArtworkResults",
+                                    requestId,
+                                    query,
+                                    suggestions,
+                                    squares,
+                                    verticals
+                                })));
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine("[ProfilePhoto] Pesquisa falhou: " + ex.Message);
+                            Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(
+                                JsonSerializer.Serialize(new
+                                {
+                                    type = "profilePhotoArtworkResults",
+                                    requestId,
+                                    query,
+                                    suggestions,
+                                    squares = Array.Empty<object>(),
+                                    verticals = Array.Empty<object>(),
+                                    error = "profile-photo-search-failed"
+                                })));
+                        }
+                    });
+                }
+                else if (action == "loadProfilePhotoSource")
+                {
+                    string requestId = GetStr(root, "requestId");
+                    string url = GetStr(root, "url");
+                    string source = GetStr(root, "source", "url");
+                    int assetId = root.TryGetProperty("assetId", out var assetIdEl) && assetIdEl.TryGetInt32(out int parsedAssetId)
+                        ? parsedAssetId
+                        : 0;
+
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            int lastPercent = -1;
+                            long lastProgressAt = 0;
+                            void ReportProgress(long receivedBytes, long? totalBytes)
+                            {
+                                int? percent = totalBytes is > 0
+                                    ? Math.Clamp((int)Math.Round(receivedBytes * 100d / totalBytes.Value), 0, 100)
+                                    : null;
+                                long now = Environment.TickCount64;
+                                if (percent.HasValue)
+                                {
+                                    if (percent.Value != 100 && lastPercent >= 0 &&
+                                        percent.Value < lastPercent + 4 && now - lastProgressAt < 180)
+                                        return;
+                                    lastPercent = percent.Value;
+                                }
+                                else if (receivedBytes > 0 && now - lastProgressAt < 180)
+                                {
+                                    return;
+                                }
+
+                                lastProgressAt = now;
+                                _ = Dispatcher.BeginInvoke(new Action(() =>
+                                    webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                                    {
+                                        type = "profilePhotoSourceProgress",
+                                        requestId,
+                                        receivedBytes,
+                                        totalBytes,
+                                        percent
+                                    }))));
+                            }
+
+                            var loaded = await DownloadProfilePhotoSourceAsync(
+                                url,
+                                ReportProgress,
+                                CancellationToken.None).ConfigureAwait(false);
+                            string dataUrl = $"data:{loaded.Mime};base64,{Convert.ToBase64String(loaded.Bytes)}";
+                            Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(
+                                JsonSerializer.Serialize(new
+                                {
+                                    type = "profilePhotoSourceLoaded",
+                                    requestId,
+                                    dataUrl,
+                                    source,
+                                    sourceUrl = url,
+                                    assetId
+                                })));
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine("[ProfilePhoto] Fonte rejeitada: " + ex.Message);
+                            string error = ex is InvalidDataException ? ex.Message : "profile-photo-download-failed";
+                            Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(
+                                JsonSerializer.Serialize(new { type = "profilePhotoSourceFailed", requestId, error })));
+                        }
+                    });
+                }
+                else if (action == "pickProfilePhotoSource")
+                {
+                    string requestId = GetStr(root, "requestId");
+                    string dialogTitle = GetStr(root, "dialogTitle", "Select profile photo");
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        var dlg = new Microsoft.Win32.OpenFileDialog
+                        {
+                            Title = dialogTitle,
+                            Filter = "Static images (*.png;*.jpg;*.jpeg;*.webp)|*.png;*.jpg;*.jpeg;*.webp"
+                        };
+
+                        bool? dialogResult = ShowDialogWithController(dlg, "profilePhoto");
+                        if (dialogResult != true)
+                        {
+                            webView.CoreWebView2.PostWebMessageAsString(
+                                JsonSerializer.Serialize(new { type = "profilePhotoSourceCanceled", requestId }));
+                            return;
+                        }
+
+                        try
+                        {
+                            var info = new FileInfo(dlg.FileName);
+                            if (info.Length > ProfilePhotoMaxBytes)
+                                throw new InvalidDataException("profile-photo-too-large");
+                            byte[] bytes = File.ReadAllBytes(dlg.FileName);
+                            if (!TryGetStaticProfilePhotoMime(bytes, out string mime))
+                                throw new InvalidDataException("profile-photo-invalid-format");
+                            string dataUrl = $"data:{mime};base64,{Convert.ToBase64String(bytes)}";
+                            webView.CoreWebView2.PostWebMessageAsString(
+                                JsonSerializer.Serialize(new
+                                {
+                                    type = "profilePhotoSourceLoaded",
+                                    requestId,
+                                    dataUrl,
+                                    source = "local",
+                                    sourceUrl = "",
+                                    assetId = 0
+                                }));
+                        }
+                        catch (Exception ex)
+                        {
+                            string error = ex is InvalidDataException ? ex.Message : "profile-photo-read-failed";
+                            webView.CoreWebView2.PostWebMessageAsString(
+                                JsonSerializer.Serialize(new { type = "profilePhotoSourceFailed", requestId, error }));
+                        }
+                    });
+                }
                 else if (action == "pickArtworkImage")
                 {
                     string requestId = GetStr(root, "requestId");
@@ -13931,6 +14013,30 @@ namespace Doorpi
                         });
                     }
                 }
+                else if (action == "applyHistoryArtworkSelection" &&
+                         root.TryGetProperty("images", out var historyArtworkImagesEl))
+                {
+                    string gameName = GetStr(root, "gameName");
+                    string requestId = GetStr(root, "requestId");
+                    var imagesClone = historyArtworkImagesEl.Clone();
+
+                    if (!string.IsNullOrWhiteSpace(gameName))
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            var result = await SaveSelectedHistoryArtworkAsync(gameName, imagesClone).ConfigureAwait(false);
+                            Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(
+                                JsonSerializer.Serialize(new
+                                {
+                                    type = "artworkSelectionApplied",
+                                    requestId,
+                                    gameName,
+                                    isHistory = true,
+                                    images = result
+                                })));
+                        });
+                    }
+                }
                 else if (action == "editGame" && root.TryGetProperty("gameId", out var editIdEl))
                 {
                     string gameId = editIdEl.GetString() ?? "";
@@ -13999,6 +14105,12 @@ namespace Doorpi
                             Id = MakeUserId(GetStr(userEl, "name")),
                             Name = GetStr(userEl, "name"),
                             PhotoBase64 = GetStr(userEl, "photoBase64"),
+                            PhotoSource = GetStr(userEl, "photoSource"),
+                            PhotoSourceUrl = GetStr(userEl, "photoSourceUrl"),
+                            PhotoSteamGridAssetId = userEl.TryGetProperty("photoSteamGridAssetId", out var setupPhotoAssetEl) && setupPhotoAssetEl.TryGetInt32(out int setupPhotoAssetId) ? setupPhotoAssetId : 0,
+                            PhotoCropX = userEl.TryGetProperty("photoCropX", out var setupPhotoCropXEl) && setupPhotoCropXEl.TryGetDouble(out double setupPhotoCropX) ? setupPhotoCropX : 0,
+                            PhotoCropY = userEl.TryGetProperty("photoCropY", out var setupPhotoCropYEl) && setupPhotoCropYEl.TryGetDouble(out double setupPhotoCropY) ? setupPhotoCropY : 0,
+                            PhotoZoom = userEl.TryGetProperty("photoZoom", out var setupPhotoZoomEl) && setupPhotoZoomEl.TryGetDouble(out double setupPhotoZoom) ? setupPhotoZoom : 1,
                             SteamGridApiKey = GetStr(userEl, "apiKey"),
                             PinCode = NormalizePinCode(GetStr(userEl, "pin")),
                             IsAdmin = isFirstAdmin,
@@ -14088,6 +14200,12 @@ namespace Doorpi
                     bool skipTasks = root.TryGetProperty("skipTasks", out var skipEl) && skipEl.GetBoolean();
                     bool hasPin = root.TryGetProperty("pin", out _);
                     bool hasApiKey = root.TryGetProperty("apiKey", out _);
+                    bool hasPhotoMetadata = root.TryGetProperty("photoSource", out _) ||
+                                            root.TryGetProperty("photoSourceUrl", out _) ||
+                                            root.TryGetProperty("photoSteamGridAssetId", out _) ||
+                                            root.TryGetProperty("photoCropX", out _) ||
+                                            root.TryGetProperty("photoCropY", out _) ||
+                                            root.TryGetProperty("photoZoom", out _);
                     string requestedPin = hasPin ? NormalizePinCode(GetStr(root, "pin")) : "";
 
                     string requestedId = GetStr(root, "userId");
@@ -14096,6 +14214,12 @@ namespace Doorpi
                         Id = createNew ? "" : (!string.IsNullOrWhiteSpace(requestedId) ? requestedId : currentUserId),
                         Name = GetStr(root, "name"),
                         PhotoBase64 = GetStr(root, "photoBase64"),
+                        PhotoSource = GetStr(root, "photoSource"),
+                        PhotoSourceUrl = GetStr(root, "photoSourceUrl"),
+                        PhotoSteamGridAssetId = root.TryGetProperty("photoSteamGridAssetId", out var photoAssetEl) && photoAssetEl.TryGetInt32(out int photoAssetId) ? photoAssetId : 0,
+                        PhotoCropX = root.TryGetProperty("photoCropX", out var photoCropXEl) && photoCropXEl.TryGetDouble(out double photoCropX) ? photoCropX : 0,
+                        PhotoCropY = root.TryGetProperty("photoCropY", out var photoCropYEl) && photoCropYEl.TryGetDouble(out double photoCropY) ? photoCropY : 0,
+                        PhotoZoom = root.TryGetProperty("photoZoom", out var photoZoomEl) && photoZoomEl.TryGetDouble(out double photoZoom) ? photoZoom : 1,
                         SteamGridApiKey = hasApiKey ? GetStr(root, "apiKey") : "",
                         PinCode = requestedPin,
                         DateCreated = DateTime.Now,
@@ -14141,6 +14265,15 @@ namespace Doorpi
 
                         existingUser.Name = profile.Name;
                         existingUser.PhotoBase64 = profile.PhotoBase64;
+                        if (hasPhotoMetadata)
+                        {
+                            existingUser.PhotoSource = profile.PhotoSource;
+                            existingUser.PhotoSourceUrl = profile.PhotoSourceUrl;
+                            existingUser.PhotoSteamGridAssetId = profile.PhotoSteamGridAssetId;
+                            existingUser.PhotoCropX = profile.PhotoCropX;
+                            existingUser.PhotoCropY = profile.PhotoCropY;
+                            existingUser.PhotoZoom = profile.PhotoZoom;
+                        }
                         if (hasApiKey) existingUser.SteamGridApiKey = profile.SteamGridApiKey;
                         if (hasPin) existingUser.PinCode = requestedPin;
                         existingUser.LastUsed = DateTime.Now;
@@ -14356,6 +14489,17 @@ namespace Doorpi
                     _ = Dispatcher.InvokeAsync(async () =>
                     {
                         BeginGenericBrowserWebAppUrlCapture();
+                        await OpenWebViewInlineAsync(DoorpiBrowserHomeUrl, false, "Browser", "", "", true);
+                    });
+                }
+                else if (action == "openImageBrowserCapture")
+                {
+                    string target = GetStr(root, "target", "profilePhoto");
+                    if (target != "profilePhoto" && target != "historyArtwork")
+                        target = "profilePhoto";
+                    _ = Dispatcher.InvokeAsync(async () =>
+                    {
+                        BeginGenericBrowserUrlCapture(target);
                         await OpenWebViewInlineAsync(DoorpiBrowserHomeUrl, false, "Browser", "", "", true);
                     });
                 }
@@ -14907,6 +15051,8 @@ namespace Doorpi
                     LaunchUrl = app.LaunchUrl,
                     GridImage = tGrid.Result != null ? $"https://data.local/images/grid/{Path.GetFileName(tGrid.Result)}" : "",
                     GridHorizontalImage = tHoriz.Result != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(tHoriz.Result)}" : "",
+                    GridSourceUrl = gridUrl ?? "",
+                    GridHorizontalSourceUrl = gridHorizontalUrl ?? "",
                     HeroImage = tHero.Result != null ? $"https://data.local/images/hero/{Path.GetFileName(tHero.Result)}" : "",
                     LogoImage = tLogo.Result != null ? $"https://data.local/images/logo/{Path.GetFileName(tLogo.Result)}" : "",
                     IconBase64 = iconBase64,
@@ -15268,10 +15414,20 @@ namespace Doorpi
 
         private static void ApplyArtworkUrlToGame(GameModel game, string category, string url)
         {
-            if (category == "horizontal") { game.GridHorizontalImage = url; game.GridHorizontalStaticImage = ""; }
+            if (category == "horizontal")
+            {
+                game.GridHorizontalImage = url;
+                game.GridHorizontalStaticImage = "";
+                game.GridHorizontalSourceUrl = IsRemoteArtworkUrl(url) ? url : "";
+            }
             else if (category == "banner") { game.HeroImage = url; game.HeroStaticImage = ""; }
             else if (category == "logo") { game.LogoImage = url; game.LogoStaticImage = ""; }
-            else { game.GridImage = url; game.GridStaticImage = ""; }
+            else
+            {
+                game.GridImage = url;
+                game.GridStaticImage = "";
+                game.GridSourceUrl = IsRemoteArtworkUrl(url) ? url : "";
+            }
         }
 
         private static void ApplyArtworkUrlToMedia(MediaAppModel media, string category, string url)
@@ -15355,6 +15511,8 @@ namespace Doorpi
                     if (local == null) continue;
                     string url = $"https://data.local/images/{target.UrlFolder}/{Path.GetFileName(local)}";
                     ApplyArtworkUrlToGame(game, item.Category, url);
+                    if (!localFiles && item.Category == "vertical") game.GridSourceUrl = item.Value;
+                    if (!localFiles && item.Category == "horizontal") game.GridHorizontalSourceUrl = item.Value;
                     patch[item.Category] = url;
                 }
 
@@ -15381,6 +15539,58 @@ namespace Doorpi
                 }
 
                 if (patch.Count > 0) SaveMediaApps(medias);
+            }
+
+            return patch;
+        }
+
+        private async Task<Dictionary<string, string>> SaveSelectedHistoryArtworkAsync(string gameName, JsonElement imagesEl)
+        {
+            var patch = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var sourceUrls = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            string safeName = "history_" + StableAssetName(currentUserId + "_" + gameName + "_" + DateTime.UtcNow.Ticks);
+
+            var selected = imagesEl.EnumerateObject()
+                .Where(property => property.Name is "vertical" or "horizontal")
+                .Select(property => (Category: property.Name, Value: property.Value.GetString() ?? ""))
+                .Where(item => Uri.TryCreate(item.Value, UriKind.Absolute, out var uri) &&
+                               (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+                .ToList();
+
+            foreach (var item in selected)
+            {
+                string urlFolder = item.Category == "vertical" ? "history-vertical" : "history-horizontal";
+                string targetFolder = Path.Combine(dataFolder, "images", urlFolder);
+                string? local = await DownloadImageAsync(item.Value, targetFolder, safeName + (item.Category == "vertical" ? "_v" : "_h"))
+                    .ConfigureAwait(false);
+                if (local == null) continue;
+
+                patch[item.Category] = $"https://data.local/images/{urlFolder}/{Path.GetFileName(local)}";
+                sourceUrls[item.Category] = item.Value;
+            }
+
+            if (patch.Count == 0) return patch;
+
+            lock (_gameHistoryFileLock)
+            {
+                var history = LoadGameHistory();
+                string key = NormalizeGameName(gameName);
+                var entry = history.FirstOrDefault(item => NormalizeGameName(item.Name) == key);
+                if (entry == null) return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+                if (patch.TryGetValue("vertical", out string? vertical))
+                {
+                    entry.ShowcaseVerticalLocalImage = vertical;
+                    entry.ShowcaseVerticalImageUrl = sourceUrls["vertical"];
+                    patch["verticalSourceUrl"] = sourceUrls["vertical"];
+                }
+                if (patch.TryGetValue("horizontal", out string? horizontal))
+                {
+                    entry.HistoryHorizontalLocalImage = horizontal;
+                    entry.HistoryHorizontalImageUrl = sourceUrls["horizontal"];
+                    patch["horizontalSourceUrl"] = sourceUrls["horizontal"];
+                }
+                SaveGameHistory(history);
             }
 
             return patch;
@@ -16061,6 +16271,10 @@ namespace Doorpi
                             GridStaticImage = FirstNotBlank(ordered.Select(g => g.GridStaticImage)),
                             GridHorizontalImage = FirstNotBlank(ordered.Select(g => g.GridHorizontalImage)),
                             GridHorizontalStaticImage = FirstNotBlank(ordered.Select(g => g.GridHorizontalStaticImage)),
+                            ShowcaseVerticalImageUrl = FirstNotBlank(ordered.Select(g => g.GridSourceUrl)),
+                            ShowcaseVerticalLocalImage = FirstNotBlank(ordered.Select(g => g.GridStaticImage).Concat(ordered.Select(g => g.GridImage))),
+                            HistoryHorizontalImageUrl = FirstNotBlank(ordered.Select(g => g.GridHorizontalSourceUrl)),
+                            HistoryHorizontalLocalImage = FirstNotBlank(ordered.Select(g => g.GridHorizontalStaticImage).Concat(ordered.Select(g => g.GridHorizontalImage))),
                             IconBase64 = FirstNotBlank(ordered.Select(g => g.IconBase64)),
                             Source = FirstNotBlank(ordered.Select(g => g.Source))
                         };
@@ -16091,6 +16305,45 @@ namespace Doorpi
         private static string FirstNotBlank(IEnumerable<string> values)
             => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "";
 
+        private static bool IsRemoteArtworkUrl(string value)
+            => Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
+               (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps) &&
+               !uri.Host.Equals("data.local", StringComparison.OrdinalIgnoreCase);
+
+        private static bool EnsureDedicatedHistoryArtwork(GameHistoryEntry entry)
+        {
+            bool changed = false;
+            if (string.IsNullOrWhiteSpace(entry.ShowcaseVerticalLocalImage))
+            {
+                entry.ShowcaseVerticalLocalImage = FirstNotBlank(new[] { entry.GridStaticImage, entry.GridImage });
+                changed |= !string.IsNullOrWhiteSpace(entry.ShowcaseVerticalLocalImage);
+            }
+            if (string.IsNullOrWhiteSpace(entry.ShowcaseVerticalImageUrl))
+            {
+                string candidate = FirstNotBlank(new[] { entry.GridImage, entry.GridStaticImage });
+                if (IsRemoteArtworkUrl(candidate))
+                {
+                    entry.ShowcaseVerticalImageUrl = candidate;
+                    changed = true;
+                }
+            }
+            if (string.IsNullOrWhiteSpace(entry.HistoryHorizontalLocalImage))
+            {
+                entry.HistoryHorizontalLocalImage = FirstNotBlank(new[] { entry.GridHorizontalStaticImage, entry.GridHorizontalImage });
+                changed |= !string.IsNullOrWhiteSpace(entry.HistoryHorizontalLocalImage);
+            }
+            if (string.IsNullOrWhiteSpace(entry.HistoryHorizontalImageUrl))
+            {
+                string candidate = FirstNotBlank(new[] { entry.GridHorizontalImage, entry.GridHorizontalStaticImage });
+                if (IsRemoteArtworkUrl(candidate))
+                {
+                    entry.HistoryHorizontalImageUrl = candidate;
+                    changed = true;
+                }
+            }
+            return changed;
+        }
+
         private List<GameHistoryEntry> LoadGameHistory()
         {
             lock (_gameHistoryFileLock)
@@ -16098,7 +16351,16 @@ namespace Doorpi
                 if (!File.Exists(gameHistoryFile)) return new List<GameHistoryEntry>();
                 try
                 {
-                    return JsonSerializer.Deserialize<List<GameHistoryEntry>>(SafeReadAllText(gameHistoryFile)) ?? new();
+                    var history = JsonSerializer.Deserialize<List<GameHistoryEntry>>(SafeReadAllText(gameHistoryFile)) ?? new();
+                    bool migrated = false;
+                    foreach (var entry in history)
+                        migrated |= EnsureDedicatedHistoryArtwork(entry);
+                    if (migrated)
+                    {
+                        string json = JsonSerializer.Serialize(history, IndentedJsonOptions);
+                        SafeWriteAllText(gameHistoryFile, json);
+                    }
+                    return history;
                 }
                 catch
                 {
@@ -16151,7 +16413,11 @@ namespace Doorpi
                         TotalPlaytimeMinutes = group.Sum(game => Math.Max(0, game.TotalPlaytimeMinutes)),
                         LastSessionMinutes = newest.LastSessionMinutes,
                         FirstPlayed = newest.LastPlayed > DateTime.MinValue ? newest.LastPlayed : DateTime.Now,
-                        LastPlayed = newest.LastPlayed
+                        LastPlayed = newest.LastPlayed,
+                        ShowcaseVerticalImageUrl = FirstNotBlank(group.Select(game => game.GridSourceUrl)),
+                        ShowcaseVerticalLocalImage = FirstNotBlank(group.Select(game => game.GridStaticImage).Concat(group.Select(game => game.GridImage))),
+                        HistoryHorizontalImageUrl = FirstNotBlank(group.Select(game => game.GridHorizontalSourceUrl)),
+                        HistoryHorizontalLocalImage = FirstNotBlank(group.Select(game => game.GridHorizontalStaticImage).Concat(group.Select(game => game.GridHorizontalImage)))
                     };
                     history.Add(entry);
                     byName[gameGroup.Key] = entry;
@@ -16173,10 +16439,18 @@ namespace Doorpi
                     entry.FirstPlayed = entry.LastPlayed;
 
                 entry.Name = latestGame.Name;
-                entry.GridImage = FirstNotBlank(group.Select(game => game.GridImage).Append(entry.GridImage));
-                entry.GridStaticImage = FirstNotBlank(group.Select(game => game.GridStaticImage).Append(entry.GridStaticImage));
-                entry.GridHorizontalImage = FirstNotBlank(group.Select(game => game.GridHorizontalImage).Append(entry.GridHorizontalImage));
-                entry.GridHorizontalStaticImage = FirstNotBlank(group.Select(game => game.GridHorizontalStaticImage).Append(entry.GridHorizontalStaticImage));
+                entry.GridImage = FirstNotBlank(new[] { entry.GridImage }.Concat(group.Select(game => game.GridImage)));
+                entry.GridStaticImage = FirstNotBlank(new[] { entry.GridStaticImage }.Concat(group.Select(game => game.GridStaticImage)));
+                entry.GridHorizontalImage = FirstNotBlank(new[] { entry.GridHorizontalImage }.Concat(group.Select(game => game.GridHorizontalImage)));
+                entry.GridHorizontalStaticImage = FirstNotBlank(new[] { entry.GridHorizontalStaticImage }.Concat(group.Select(game => game.GridHorizontalStaticImage)));
+                if (string.IsNullOrWhiteSpace(entry.ShowcaseVerticalImageUrl))
+                    entry.ShowcaseVerticalImageUrl = FirstNotBlank(group.Select(game => game.GridSourceUrl));
+                if (string.IsNullOrWhiteSpace(entry.ShowcaseVerticalLocalImage))
+                    entry.ShowcaseVerticalLocalImage = FirstNotBlank(group.Select(game => game.GridStaticImage).Concat(group.Select(game => game.GridImage)));
+                if (string.IsNullOrWhiteSpace(entry.HistoryHorizontalImageUrl))
+                    entry.HistoryHorizontalImageUrl = FirstNotBlank(group.Select(game => game.GridHorizontalSourceUrl));
+                if (string.IsNullOrWhiteSpace(entry.HistoryHorizontalLocalImage))
+                    entry.HistoryHorizontalLocalImage = FirstNotBlank(group.Select(game => game.GridHorizontalStaticImage).Concat(group.Select(game => game.GridHorizontalImage)));
                 entry.IconBase64 = FirstNotBlank(group.Select(game => game.IconBase64).Append(entry.IconBase64));
                 entry.Source = FirstNotBlank(group.Select(game => game.Source).Append(entry.Source));
 
@@ -16583,217 +16857,18 @@ namespace Doorpi
 
         private bool TryReadMainUiGamepadSnapshot(out MainUiGamepadSnapshot snapshot)
         {
-            return TryReadAllConnectedMainUiGamepadSnapshot(out snapshot);
-        }
-
-        private bool TryReadAllConnectedMainUiGamepadSnapshot(out MainUiGamepadSnapshot snapshot)
-        {
-            bool found = false;
-            ushort buttons = 0;
-            double axisX = 0;
-            double axisY = 0;
-            double bestAxisMagnitude = 0;
-
-            void Merge(MainUiGamepadSnapshot candidate)
-            {
-                found = true;
-                buttons |= candidate.Buttons;
-
-                double magnitude = Math.Max(Math.Abs(candidate.AxisX), Math.Abs(candidate.AxisY));
-                if (magnitude <= bestAxisMagnitude)
-                    return;
-
-                bestAxisMagnitude = magnitude;
-                axisX = candidate.AxisX;
-                axisY = candidate.AxisY;
-            }
-
-            for (int i = 0; i < 4; i++)
-            {
-                if (TryReadXInputMainUiGamepadSnapshot(i, out var xInputSnapshot))
-                    Merge(xInputSnapshot);
-            }
-
-            try
-            {
-                var pads = Windows.Gaming.Input.Gamepad.Gamepads;
-                for (int i = 0; i < pads.Count; i++)
-                {
-                    if (TryReadWindowsMainUiGamepadSnapshot(pads[i], out var windowsSnapshot))
-                        Merge(windowsSnapshot);
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[MainUiGamepad] Windows.Gaming.Input agregado falhou: {ex.Message}");
-            }
-
-            try
-            {
-                var pads = Windows.Gaming.Input.RawGameController.RawGameControllers;
-                for (int i = 0; i < pads.Count; i++)
-                {
-                    if (TryReadRawMainUiGamepadSnapshot(pads[i], out var rawSnapshot))
-                        Merge(rawSnapshot);
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[MainUiGamepad] RawGameController agregado falhou: {ex.Message}");
-            }
-
-            if (!found)
+            var input = GetUnifiedControllerInput();
+            if (!input.Connected)
             {
                 snapshot = default;
                 return false;
             }
 
             snapshot = new MainUiGamepadSnapshot(
-                axisX,
-                axisY,
-                buttons);
+                input.ThumbLX,
+                input.ThumbLY,
+                input.Buttons);
             return true;
-        }
-
-
-        private static bool TryReadWindowsMainUiGamepadSnapshot(
-            Windows.Gaming.Input.Gamepad pad,
-            out MainUiGamepadSnapshot snapshot)
-        {
-            var reading = pad.GetCurrentReading();
-            var b = reading.Buttons;
-            ushort buttons = 0;
-
-            if ((b & Windows.Gaming.Input.GamepadButtons.DPadUp) != 0) buttons |= 0x0001;
-            if ((b & Windows.Gaming.Input.GamepadButtons.DPadDown) != 0) buttons |= 0x0002;
-            if ((b & Windows.Gaming.Input.GamepadButtons.DPadLeft) != 0) buttons |= 0x0004;
-            if ((b & Windows.Gaming.Input.GamepadButtons.DPadRight) != 0) buttons |= 0x0008;
-            if ((b & Windows.Gaming.Input.GamepadButtons.View) != 0) buttons |= 0x0020;
-
-            snapshot = new MainUiGamepadSnapshot(
-                reading.LeftThumbstickX,
-                reading.LeftThumbstickY,
-                buttons);
-            return true;
-        }
-
-        private static bool TryReadRawMainUiGamepadSnapshot(
-            Windows.Gaming.Input.RawGameController pad,
-            out MainUiGamepadSnapshot snapshot)
-        {
-            var rawButtons = new bool[Math.Max(0, pad.ButtonCount)];
-            var rawSwitches = new Windows.Gaming.Input.GameControllerSwitchPosition[Math.Max(0, pad.SwitchCount)];
-            var rawAxes = new double[Math.Max(0, pad.AxisCount)];
-
-            pad.GetCurrentReading(rawButtons, rawSwitches, rawAxes);
-
-            ushort buttons = 0;
-
-            foreach (var position in rawSwitches)
-            {
-                buttons |= MapRawSwitchToMainUiButtons(position);
-            }
-
-            if (rawButtons.Length > 15)
-            {
-                if (rawButtons[12]) buttons |= 0x0001;
-                if (rawButtons[13]) buttons |= 0x0002;
-                if (rawButtons[14]) buttons |= 0x0004;
-                if (rawButtons[15]) buttons |= 0x0008;
-            }
-
-            double axisX = 0;
-            double axisY = 0;
-            double bestMagnitude = 0;
-            for (int i = 0; i + 1 < rawAxes.Length; i += 2)
-            {
-                var candidate = NormalizeRawAxisPair(rawAxes[i], rawAxes[i + 1]);
-                double magnitude = Math.Max(Math.Abs(candidate.X), Math.Abs(candidate.Y));
-                if (magnitude <= bestMagnitude)
-                    continue;
-
-                axisX = candidate.X;
-                axisY = candidate.Y;
-                bestMagnitude = magnitude;
-            }
-
-            snapshot = new MainUiGamepadSnapshot(
-                axisX,
-                axisY,
-                buttons);
-            return true;
-        }
-
-        private static ushort MapRawSwitchToMainUiButtons(Windows.Gaming.Input.GameControllerSwitchPosition position)
-        {
-            return position switch
-            {
-                Windows.Gaming.Input.GameControllerSwitchPosition.Up => 0x0001,
-                Windows.Gaming.Input.GameControllerSwitchPosition.UpRight => 0x0001 | 0x0008,
-                Windows.Gaming.Input.GameControllerSwitchPosition.Right => 0x0008,
-                Windows.Gaming.Input.GameControllerSwitchPosition.DownRight => 0x0002 | 0x0008,
-                Windows.Gaming.Input.GameControllerSwitchPosition.Down => 0x0002,
-                Windows.Gaming.Input.GameControllerSwitchPosition.DownLeft => 0x0002 | 0x0004,
-                Windows.Gaming.Input.GameControllerSwitchPosition.Left => 0x0004,
-                Windows.Gaming.Input.GameControllerSwitchPosition.UpLeft => 0x0001 | 0x0004,
-                _ => 0
-            };
-        }
-
-        private static (double X, double Y) NormalizeRawAxisPair(double rawX, double rawY)
-        {
-            double absX = Math.Abs(rawX);
-            double absY = Math.Abs(rawY);
-            bool inUnitRange = rawX >= -0.001 && rawX <= 1.001 && rawY >= -0.001 && rawY <= 1.001;
-            bool bothNearZero = absX < 0.12 && absY < 0.12;
-            double signedX = ClampMainUiAxis(rawX);
-            double signedY = ClampMainUiAxis(rawY);
-
-            if (!inUnitRange || bothNearZero)
-                return (signedX, signedY);
-
-            double centeredX = ClampMainUiAxis((rawX - 0.5) * 2.0);
-            double centeredY = ClampMainUiAxis((rawY - 0.5) * 2.0);
-
-            if (Math.Abs(rawX - 0.5) < 0.12 && Math.Abs(rawY - 0.5) < 0.12)
-                return (centeredX, centeredY);
-
-            double signedMagnitude = Math.Max(Math.Abs(signedX), Math.Abs(signedY));
-            double centeredMagnitude = Math.Max(Math.Abs(centeredX), Math.Abs(centeredY));
-
-            if (centeredMagnitude > signedMagnitude + 0.15 ||
-                (signedMagnitude < 0.6 && centeredMagnitude > 0.6))
-                return (centeredX, centeredY);
-
-            return (signedX, signedY);
-        }
-
-        private static double ClampMainUiAxis(double value)
-        {
-            if (double.IsNaN(value) || double.IsInfinity(value))
-                return 0;
-
-            if (value > 1) return 1;
-            if (value < -1) return -1;
-            return value;
-        }
-
-        private static bool TryReadXInputMainUiGamepadSnapshot(int slot, out MainUiGamepadSnapshot snapshot)
-        {
-            if (XInputGetStateSecret(slot, out var state) == 0)
-            {
-                var gp = state.Gamepad;
-                double axisX = gp.sThumbLX / 32767.0;
-                double axisY = gp.sThumbLY / 32767.0;
-                snapshot = new MainUiGamepadSnapshot(
-                    axisX,
-                    axisY,
-                    gp.wButtons);
-                return true;
-            }
-
-            snapshot = default;
-            return false;
         }
 
         private void ArmMainUiGamepadStartupGrace(int milliseconds)
@@ -16823,6 +16898,26 @@ namespace Doorpi
             return DateTime.UtcNow.Ticks < Interlocked.Read(ref _mainUiGamepadStartupGraceUntilUtcTicks);
         }
 
+        private void PostMainUiControllerSnapshot(XInputSnapshot snapshot, ushort pressedButtons)
+        {
+            const ushort actionMask = 0xFFF0; // All buttons/triggers, excluding D-pad.
+            string payload = JsonSerializer.Serialize(new
+            {
+                type = "nativeControllerSnapshot",
+                connected = snapshot.Connected,
+                buttons = snapshot.Buttons & actionMask,
+                pressed = pressedButtons & actionMask,
+                rightX = snapshot.ThumbRX,
+                rightY = snapshot.ThumbRY
+            });
+
+            Dispatcher.BeginInvoke(() =>
+            {
+                try { webView?.CoreWebView2?.PostWebMessageAsString(payload); }
+                catch { }
+            });
+        }
+
         private void MainUiGamepadLoop()
         {
             const int INITIAL_DELAY_MS = 400;
@@ -16832,15 +16927,44 @@ namespace Doorpi
             int moveState = 0;
             string? currentDir = null;
             DateTime lastMoveTime = DateTime.MinValue;
-            ushort prevButtons = 0;
             bool hadPreviousInput = false;
-            ushort previousGameReturnButtons = 0;
+            var buttonTracker = new XInputButtonTracker();
+            var initialSnapshot = XInputControllerHub.Read();
+            buttonTracker.Update(initialSnapshot);
+            ushort lastPostedButtons = ushort.MaxValue;
+            bool lastPostedConnected = !initialSnapshot.Connected;
+            long lastControllerPostAt = long.MinValue;
+            double lastPostedRightX = 0;
+            double lastPostedRightY = 0;
 
             while (_mainUiGamepadActive)
             {
                 bool startupSensitivePhase = IsMainUiGamepadStartupSensitivePhase();
                 try
                 {
+                    var controllerSnapshot = XInputControllerHub.Read();
+                    buttonTracker.Update(controllerSnapshot);
+                    ushort actionButtons = (ushort)(controllerSnapshot.Buttons & 0xFFF0);
+                    long nowTicks = Environment.TickCount64;
+                    bool rightAnalogActive = Math.Abs(controllerSnapshot.ThumbRX) > 0.12 ||
+                                             Math.Abs(controllerSnapshot.ThumbRY) > 0.12;
+                    bool rightAnalogChanged = Math.Abs(controllerSnapshot.ThumbRX - lastPostedRightX) > 0.04 ||
+                                              Math.Abs(controllerSnapshot.ThumbRY - lastPostedRightY) > 0.04;
+                    if (buttonTracker.PressedButtons != 0 ||
+                        actionButtons != lastPostedButtons ||
+                        controllerSnapshot.Connected != lastPostedConnected ||
+                        rightAnalogChanged ||
+                        (rightAnalogActive && nowTicks - lastControllerPostAt >= 32) ||
+                        lastControllerPostAt == long.MinValue ||
+                        nowTicks - lastControllerPostAt >= 250)
+                    {
+                        PostMainUiControllerSnapshot(controllerSnapshot, buttonTracker.PressedButtons);
+                        lastPostedButtons = actionButtons;
+                        lastPostedConnected = controllerSnapshot.Connected;
+                        lastPostedRightX = controllerSnapshot.ThumbRX;
+                        lastPostedRightY = controllerSnapshot.ThumbRY;
+                        lastControllerPostAt = nowTicks;
+                    }
                     bool foregroundOk = IsDoorpiMainWindowForeground() ||
                                             (DateTime.UtcNow.Ticks - Interlocked.Read(ref _focusRestoredAtTicks))
                                             < TimeSpan.FromSeconds(2).Ticks;
@@ -16862,16 +16986,12 @@ namespace Doorpi
                         // QUANDO O JOGO ESTÁ RODANDO
                         if (_gameSessionActive && !_gameIsMinimized)
                         {
-                            ushort gameReturnButtons = GetUnifiedControllerInput().Buttons;
-                            if (IsDoorpiReturnShortcutJustPressed(gameReturnButtons, previousGameReturnButtons))
+                            if (buttonTracker.ReturnShortcutJustPressed)
                                 Dispatcher.Invoke(MinimizeCurrentGameAndRestoreDoorpi);
-
-                            previousGameReturnButtons = gameReturnButtons;
                         }
                         else
                         {
                             moveState = 0; currentDir = null;
-                            previousGameReturnButtons = GetUnifiedControllerInput().Buttons;
                         }
 
                         Thread.Sleep(50);
@@ -16880,7 +17000,6 @@ namespace Doorpi
 
                     if (!TryReadMainUiGamepadSnapshot(out var input))
                     {
-                        prevButtons = 0;
                         hadPreviousInput = false;
                         Thread.Sleep(startupSensitivePhase ? 18 : 10);
                         continue;
@@ -16888,7 +17007,6 @@ namespace Doorpi
 
                     if (!hadPreviousInput)
                     {
-                        prevButtons = 0;
                         moveState = 0;
                         currentDir = null;
                     }
@@ -16899,18 +17017,15 @@ namespace Doorpi
 
                     if (DateTime.UtcNow.Ticks < Interlocked.Read(ref _returnFromExternalModeSuppressUntil))
                     {
-                        prevButtons = btn;
                         hadPreviousInput = true;
                         Thread.Sleep(startupSensitivePhase ? 18 : 10);
                         continue;
                     }
 
-                    bool BtnPressed(ushort m) => (btn & m) != 0 && (prevButtons & m) == 0;
-
                     // Abre o painel rapido apenas com o botao Select
                     if (DateTime.UtcNow.Ticks > Interlocked.Read(ref _returnFromExternalModeSuppressUntil))
                     {
-                        if (BtnPressed(0x0020))
+                        if (buttonTracker.AnyPressed(0x0020))
                         {
                             Dispatcher.BeginInvoke(() =>
                             {
@@ -16940,7 +17055,6 @@ namespace Doorpi
                     }
                     else { moveState = 0; currentDir = null; }
 
-                    prevButtons = btn;
                     hadPreviousInput = true;
                 }
                 catch (Exception ex) { Debug.WriteLine($"[MainUiGamepad] {ex.Message}"); }

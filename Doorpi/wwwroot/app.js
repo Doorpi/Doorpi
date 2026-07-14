@@ -2692,7 +2692,7 @@
             const name = btn.querySelector('.top-profile-name');
             if (avatar) {
                 avatar.innerHTML = u?.PhotoBase64
-                    ? `<img src="data:image/png;base64,${u.PhotoBase64}" />`
+                    ? `<img src="${_normalizeUserPhotoSrc(u.PhotoBase64)}" />`
                     : (u?.Name ? u.Name.charAt(0).toUpperCase() : '•');
             }
             if (avatar && !u?.PhotoBase64) avatar.innerHTML = fallbackUserIcon;
@@ -4347,6 +4347,14 @@
             else if (data.type === 'profilePhotoSelected') {
                 window._setupHandlePhotoSelected?.(data.base64);
             }
+            else if (data.type === 'profilePhotoArtworkResults' ||
+                     data.type === 'profilePhotoGameSuggestions' ||
+                     data.type === 'profilePhotoSourceProgress' ||
+                     data.type === 'profilePhotoSourceLoaded' ||
+                     data.type === 'profilePhotoSourceFailed' ||
+                     data.type === 'profilePhotoSourceCanceled') {
+                window._profilePhotoPickerHandleMessage?.(data);
+            }
             else if (data.type === 'steamGridArtworkResults') {
                 window._artworkWizardHandleResults?.(data);
             }
@@ -4427,7 +4435,7 @@
                     document.querySelectorAll('.new-game').forEach(el => el.classList.remove('new-game'));
                 }
                 window._doorpiProfile = data.user;
-                if (nextUserId) window._doorpiCurrentUserId = nextUserId;
+                window._doorpiCurrentUserId = nextUserId;
                 window._doorpiUserSessionReady = !!nextUserId;
                 window._doorpiIsAdmin = !!data.isAdmin || !!(data.user?.IsAdmin || data.user?.isAdmin);
                 window._adminBlockedStoreIds = new Set(data.blockedStoreIds || []);
@@ -4585,7 +4593,10 @@
             }
             else if (data.type === 'usersList') {
                 window._doorpiUsers = data.users || [];
-                window._doorpiCurrentUserId = data.currentUserId || '';
+                window._doorpiUserSessionReady = data.sessionActive === true;
+                window._doorpiCurrentUserId = window._doorpiUserSessionReady
+                    ? (data.currentUserId || '')
+                    : '';
                 showUserPicker(data.users || [], !!data.requireSelection);
             }
             else if (data.type === 'closeNavMenu') {
@@ -4612,6 +4623,13 @@
             }
             else if (data.type === 'clipboardText') {
                 if (data.text?.trim()) {
+                    const clipboardText = data.text.trim();
+                    if (window._profilePhotoPickerHandleClipboard?.(clipboardText)) {
+                        return;
+                    }
+                    if (window._artworkWizardHandleClipboard?.(clipboardText)) {
+                        return;
+                    }
                     // Intercepta a colagem no Nav Menu de Conta/Perfil
                     if (window._isPastingApiKey) {
                         window._isPastingApiKey = false;
@@ -4660,6 +4678,14 @@
                 const url = (data.url || '').trim();
                 if (url) {
                     window._suppressNextMediaAppClosedFocus = true;
+                    if (data.target === 'profilePhoto') {
+                        window._profilePhotoPickerSetUrl?.(url);
+                        return;
+                    }
+                    if (data.target === 'historyArtwork') {
+                        window._artworkWizardSetUrl?.(url);
+                        return;
+                    }
                     const input = document.getElementById('webAppUrlInput');
                     if (input) {
                         input.value = url;
@@ -4670,6 +4696,14 @@
             }
             else if (data.type === 'webAppBrowserCaptureCanceled') {
                 window._suppressNextMediaAppClosedFocus = true;
+                if (data.target === 'profilePhoto') {
+                    setTimeout(() => window._profilePhotoPickerFocusUrl?.(), 180);
+                    return;
+                }
+                if (data.target === 'historyArtwork') {
+                    setTimeout(() => window._artworkWizardFocusUrl?.(), 180);
+                    return;
+                }
                 setTimeout(() => {
                     const target =
                         document.getElementById('btnWebAppBrowser') ||
@@ -5285,17 +5319,50 @@
         color: #fff;
     }
 
-    .doorpi-user-badge {
-        font-size: 0.65rem;
+    .doorpi-user-card.is-current .doorpi-avatar {
+        border-color: #7dcbff;
+        box-shadow:
+            0 0 0 5px rgba(125, 203, 255, 0.24),
+            0 0 30px rgba(78, 178, 255, 0.2),
+            0 12px 34px rgba(0,0,0,0.28);
+    }
+
+    .doorpi-current-user-indicator {
+        min-width: 86px;
+        height: 28px;
+        padding: 0 14px 0 11px;
+        border-radius: 999px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        color: #07111d;
+        background: linear-gradient(135deg, #a9ddff 0%, #69beff 100%);
+        border: 2px solid rgba(225, 245, 255, 0.82);
+        box-shadow: 0 5px 14px rgba(0,0,0,0.34);
+        box-sizing: border-box;
+        font-size: 0.68rem;
         font-weight: 800;
-        color: rgba(16, 25, 20, 0.95);
-        background: rgba(120, 220, 150, 0.95);
-        padding: 3px 9px;
-        border-radius: 12px;
+        line-height: 1;
+        letter-spacing: 0.04em;
         text-transform: uppercase;
-        letter-spacing: 0.1em;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-        margin-top: -6px;
+        white-space: nowrap;
+        z-index: 3;
+        pointer-events: none;
+    }
+
+    .doorpi-user-status-slot {
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .doorpi-current-user-indicator svg {
+        width: 15px;
+        height: 15px;
+        flex: 0 0 auto;
+        stroke-width: 3;
     }
 
     .doorpi-create-user-icon {
@@ -5442,7 +5509,7 @@
     }
 
     function avatarMarkup(user) {
-        return `<div class="doorpi-avatar">${user.PhotoBase64 ? `<img src="data:image/png;base64,${user.PhotoBase64}" />` : `<svg viewBox="0 0 24 24" width="40" height="40" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`}</div>`;
+        return `<div class="doorpi-avatar">${user.PhotoBase64 ? `<img src="${_normalizeUserPhotoSrc(user.PhotoBase64)}" />` : `<svg viewBox="0 0 24 24" width="40" height="40" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`}</div>`;
     }
 
     function closeUserPinPrompt() {
@@ -5527,7 +5594,7 @@
                 <path d="M5.8 19.2c1-3.2 3.2-5 6.2-5s5.2 1.8 6.2 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
             </svg>`;
         const pinAvatar = user.PhotoBase64
-            ? `<img src="data:image/png;base64,${user.PhotoBase64}" />`
+            ? `<img src="${_normalizeUserPhotoSrc(user.PhotoBase64)}" />`
             : fallbackPinAvatar;
         prompt.innerHTML = `
             <div class="doorpi-pin-box">
@@ -5953,12 +6020,18 @@ function showUserPicker(users, requireSelection = false) {
     if (introPickerClasses.length) overlay.classList.add(...introPickerClasses);
     overlay.dataset.introPickerClasses = introPickerClasses.join(' ');
 
-    const cards = users.map((user, idx) => `
-        <button class="doorpi-user-card" data-user-id="${escapeHtml(user.Id)}" tabindex="0" style="animation-delay: ${idx * 0.03}s">
+    const activeSessionUserId = window._doorpiUserSessionReady
+        ? String(window._doorpiCurrentUserId || '').toLowerCase()
+        : '';
+    const cards = users.map((user, idx) => {
+        const isCurrent = !!activeSessionUserId && String(user.Id || '').toLowerCase() === activeSessionUserId;
+        return `
+        <button class="doorpi-user-card${isCurrent ? ' is-current' : ''}" data-user-id="${escapeHtml(user.Id)}" tabindex="0"${isCurrent ? ' aria-current="true"' : ''} style="animation-delay: ${idx * 0.03}s">
+            <span class="doorpi-user-status-slot">${isCurrent ? `<span class="doorpi-current-user-indicator" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m5 12 4 4L19 6"/></svg><span>${t('badgeCurrent')}</span></span>` : ''}</span>
             ${avatarMarkup(user)}
             <span class="doorpi-user-name">${escapeHtml(user.Name)}</span>
-            ${user.Id === window._doorpiCurrentUserId ? `<span class="doorpi-user-badge">${t('badgeCurrent')}</span>` : ''}
-        </button>`).join('');
+        </button>`;
+    }).join('');
 
     const createUserDelay = users.length * 0.03;
 
@@ -5982,6 +6055,7 @@ function showUserPicker(users, requireSelection = false) {
                     </div>
                     <div class="doorpi-user-fixed-add">
                         <button class="doorpi-user-card create-card" id="doorpiCreateUserCard" tabindex="0" style="animation-delay: ${createUserDelay}s">
+                            <span class="doorpi-user-status-slot" aria-hidden="true"></span>
                             <div class="doorpi-avatar"><div class="doorpi-create-user-icon">+</div></div>
                             <span class="doorpi-user-name">${t('newUser')}</span>
                         </button>
@@ -6007,11 +6081,11 @@ function showUserPicker(users, requireSelection = false) {
 
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
 
-    const hidePicker = () => {
+    const hidePicker = (options = {}) => {
         overlay.style.display = 'none';
         document.body.classList.remove('user-picker-open');
         window.DoorpiIntro?.finishHandoff?.();
-        if (overlay.dataset.returnToQuickPanel === 'true' && overlay.dataset.required !== 'true') {
+        if (options?.returnToQuickPanel !== false && overlay.dataset.returnToQuickPanel === 'true' && overlay.dataset.required !== 'true') {
             overlay.dataset.returnToQuickPanel = 'false';
             window.DoorpiQuickPanel?.openMenu?.();
         }
@@ -6025,6 +6099,15 @@ function showUserPicker(users, requireSelection = false) {
                 return;
             }
             const user = users.find(u => String(u.Id) === String(btn.dataset.userId));
+            const selectedUserId = String(btn.dataset.userId || '').toLowerCase();
+            const currentUserId = String(window._doorpiCurrentUserId || '').toLowerCase();
+            if (window._doorpiUserSessionReady === true && selectedUserId && selectedUserId === currentUserId) {
+                window._pendingUserSwitchId = '';
+                overlay.dataset.returnToQuickPanel = 'false';
+                hidePicker({ returnToQuickPanel: false });
+                requestAnimationFrame(() => window.focusFeaturedCard?.());
+                return;
+            }
             if (user?.HasPin || user?.hasPin) {
                 showUserPinPrompt(user);
                 return;
@@ -8818,6 +8901,17 @@ function renderFolderList(folders) {
         .edit-artwork-btn:focus, .edit-artwork-btn:hover, .edit-artwork-btn.nav-focused-el { border-color: rgba(255,255,255,0.72); background: rgba(255,255,255,0.12); box-shadow: 0 0 0 2px rgba(255,255,255,.14); }
         .artwork-wizard-overlay { position: fixed; inset: 0; z-index: 10020; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.62); backdrop-filter: blur(18px); }
         .artwork-wizard { width: min(1280px, 96vw); height: min(880px, 92vh); background: rgba(12,12,18,0.99); border: 1px solid rgba(255,255,255,0.11); border-radius: 22px; box-shadow: 0 30px 80px rgba(0,0,0,.82); display: flex; flex-direction: column; overflow: hidden; }
+        .artwork-wizard.history-artwork-source-dialog { width: min(920px, 92vw); height: auto; border-radius: 8px; background: #10131d; }
+        .history-artwork-source-subtitle { margin: 4px 0 0; color: rgba(255,255,255,.46); font-size: 13px; line-height: 1.45; }
+        .history-artwork-source-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+        .history-artwork-source-card { min-height: 142px; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end; gap: 7px; padding: 20px; border: 1px solid rgba(255,255,255,.12); border-radius: 7px; background: rgba(255,255,255,.045); color: #fff; text-align: left; font: inherit; outline: none; }
+        .history-artwork-source-card strong { font-size: 16px; font-weight: 650; }
+        .history-artwork-source-card span { color: rgba(255,255,255,.46); font-size: 13px; line-height: 1.4; }
+        .history-artwork-source-card:focus, .history-artwork-source-card:hover { border-color: #72b8ff; background: rgba(72,145,230,.16); box-shadow: 0 0 0 3px rgba(75,155,255,.18); }
+        .history-artwork-source-card:disabled { opacity: .38; cursor: not-allowed; }
+        .history-artwork-source-key-hint { margin: 0; color: rgba(255,255,255,.44); font-size: 13px; }
+        .history-artwork-source-actions { display: flex; justify-content: flex-end; padding-top: 4px; }
+        @media (max-width: 700px) { .history-artwork-source-grid { grid-template-columns: 1fr; } }
         .artwork-wizard-head { padding: 20px 24px 14px; border-bottom: 1px solid rgba(255,255,255,.07); }
         .artwork-wizard-title { margin: 0 0 12px; font-size: 18px; color: #fff; }
         .artwork-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
@@ -8826,8 +8920,8 @@ function renderFolderList(folders) {
         .artwork-step.done { color: rgba(130,210,255,.95); border-color: rgba(130,210,255,.28); }
         .artwork-wizard-body { flex: 1; min-height: 0; padding: 18px 24px; display: flex; flex-direction: column; gap: 14px; }
         .artwork-results { flex: 1; min-height: 0; overflow: auto; display: grid; gap: 18px; align-content: start; align-items: start; justify-content: stretch; justify-items: stretch; grid-auto-flow: row; grid-auto-rows: max-content; padding: 12px 16px 18px 12px; }
-        .artwork-results.is-vertical { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
-        .artwork-results.is-horizontal { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+        .artwork-results.is-vertical { grid-template-columns: repeat(auto-fit, minmax(clamp(195px, 14vw, 235px), 1fr)); }
+        .artwork-results.is-horizontal { grid-template-columns: repeat(auto-fit, minmax(clamp(310px, 23vw, 390px), 1fr)); }
         .artwork-results.is-banner { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
         .artwork-results.is-logo { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
         .artwork-results.is-local { grid-template-columns: minmax(0, 1fr); }
@@ -8850,6 +8944,8 @@ function renderFolderList(folders) {
         .artwork-local-title { color: rgba(255,255,255,.9); font-size: 16px; font-weight: 650; }
         .artwork-local-hint { color: rgba(255,255,255,.42); font-size: 13px; max-width: 460px; line-height: 1.45; }
         .artwork-local-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px; max-width: 100%; }
+        .artwork-url-controls { width: min(760px, 100%); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
+        .artwork-url-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
         .artwork-pick-btn { max-width: min(340px, 72vw); min-height: 48px; white-space: normal; line-height: 1.25; text-align: center; }
         .artwork-local-preview { max-width: min(420px, 68vw); max-height: 250px; border-radius: 14px; object-fit: contain; background: rgba(0,0,0,.25); border: 1px solid rgba(255,255,255,.08); }
         .artwork-clear-btn { width: 46px; min-width: 46px; height: 46px; padding: 0; color: #ff7777; border-color: rgba(255,90,90,.38); font-size: 18px; font-weight: 800; }
@@ -8894,7 +8990,7 @@ function renderFolderList(folders) {
         .vkb-overlay {
             position: fixed;
             bottom: 0; left: 0; right: 0;
-            z-index: 10040;
+            z-index: 30000;
             padding: 0 clamp(24px, 4vw, 80px) clamp(24px, 3vh, 48px);
             background: linear-gradient(to top, rgba(5,5,10,1) 65%, rgba(5,5,10,0.96) 85%, transparent 100%);
             transform: translateY(100%);
@@ -9039,7 +9135,7 @@ function renderFolderList(folders) {
 
         .vkb-overlay {
             top: 50%; left: 50%; right: auto; bottom: auto;
-            z-index: 10040;
+            z-index: 30000;
             display: none;
             padding: clamp(10px, 1.2vh, 16px);
             background: rgba(8, 9, 15, 0.96);
@@ -9659,14 +9755,17 @@ function renderFolderList(folders) {
         return patch;
     }
 
-    function openArtworkWizard(card, mode, defaultQuery) {
+    function openArtworkWizard(card, mode, defaultQuery, options = {}) {
         const requestId = `art_${Date.now()}_${Math.random().toString(16).slice(2)}`;
         const isStore = card.dataset.channel === 'stores' || card.closest('#storesGrid') !== null;
         const isMedia = !isStore && (card.hasAttribute('data-app-id') || card.closest('#mediaGrid') !== null);
         const gameId = card.dataset.gameId || card.dataset.appId || card.dataset.appUrl || '';
-        const categories = isStore
-            ? ARTWORK_CATEGORIES.filter(cat => cat.key !== 'horizontal')
-            : ARTWORK_CATEGORIES;
+        const requestedCategories = Array.isArray(options.categories) ? new Set(options.categories) : null;
+        const categories = requestedCategories
+            ? ARTWORK_CATEGORIES.filter(cat => requestedCategories.has(cat.key))
+            : isStore
+                ? ARTWORK_CATEGORIES.filter(cat => cat.key !== 'horizontal')
+                : ARTWORK_CATEGORIES;
         const state = {
             requestId,
             mode,
@@ -9679,6 +9778,7 @@ function renderFolderList(folders) {
             query: defaultQuery || card.querySelector('.title')?.innerText?.trim() || '',
             selected: {},
             localPreview: {},
+            options,
             focusResultsOnLoad: mode === 'steamgrid'
         };
 
@@ -9696,9 +9796,9 @@ function renderFolderList(folders) {
                     <div class="artwork-search-row">
                         <div class="artwork-search-box">
                             <span class="gp-face-btn gp-y artwork-search-badge">Y</span>
-                            <input class="edit-modal-input" id="artworkSearchInput" type="text" autocomplete="off" spellcheck="false" />
+                            <input class="edit-modal-input" id="artworkSearchInput" type="text" autocomplete="off" spellcheck="false" data-nav-right="#artworkSearchBtn" />
                         </div>
-                        <button class="modal-btn secondary" id="artworkSearchBtn">${t('artworkSearch')}</button>
+                        <button class="modal-btn secondary" id="artworkSearchBtn" data-nav-left="#artworkSearchInput">${t('artworkSearch')}</button>
                     </div>
                     <div class="artwork-actions">
                         <button class="modal-btn secondary artwork-action-btn" id="artworkSkipBtn"><span class="gp-face-btn gp-x">X</span><span class="artwork-skip-label">${t('artworkSkip')}</span></button>
@@ -9740,9 +9840,10 @@ function renderFolderList(folders) {
                 return;
             }
             postToHost({
-                action: 'applyArtworkSelection',
+                action: options.applyAction || 'applyArtworkSelection',
                 requestId,
                 gameId,
+                gameName: options.gameName || '',
                 isMedia,
                 isStore,
                 localFiles: mode === 'local',
@@ -9763,6 +9864,8 @@ function renderFolderList(folders) {
         const close = () => {
             overlay.remove();
             if (_artworkWizard === state) _artworkWizard = null;
+            if (options.returnFocus?.isConnected)
+                requestAnimationFrame(() => options.returnFocus.focus?.({ preventScroll: true }));
         };
 
         const renderLocal = (cat) => {
@@ -9795,24 +9898,63 @@ function renderFolderList(folders) {
         };
 
         const renderSteamGrid = (cat) => {
-            overlay.querySelector('.artwork-results').innerHTML = '';
+            const results = overlay.querySelector('.artwork-results');
+            results.innerHTML = '';
+            results.scrollTop = 0;
             overlay.querySelector('.artwork-status').textContent = t('artworkSearching', state.query, artworkLabel(cat));
             state.focusResultsOnLoad = true;
             postToHost({ action: 'searchSteamGridArtwork', requestId, query: state.query, category: cat.key });
+        };
+
+        const renderUrl = (cat) => {
+            overlay.querySelector('.artwork-results').innerHTML = `
+                <div class="artwork-local-panel">
+                    <div class="artwork-local-title">${artworkLabel(cat)}</div>
+                    <div class="artwork-local-hint">${t('historyArtworkUrlHint')}</div>
+                    <div class="artwork-url-controls">
+                        <input class="edit-modal-input" id="historyArtworkUrlInput" type="url" data-vkb-disabled="true" autocomplete="off" spellcheck="false" />
+                        <button class="modal-btn secondary" id="historyArtworkUrlNext">${t('artworkNext')}</button>
+                        <div class="artwork-url-actions">
+                            <button class="modal-btn secondary" id="historyArtworkUrlPaste" type="button">${t('imageUrlPaste')}</button>
+                            <button class="modal-btn secondary" id="historyArtworkUrlBrowser" type="button">${t('imageUrlOpenBrowser')}</button>
+                        </div>
+                    </div>
+                </div>`;
+            const input = overlay.querySelector('#historyArtworkUrlInput');
+            const applyUrl = () => {
+                const value = input?.value?.trim() || '';
+                if (!/^https?:\/\//i.test(value)) return;
+                state.selected[cat.key] = value;
+                next();
+            };
+            overlay.querySelector('#historyArtworkUrlPaste')?.addEventListener('click', () => {
+                postToHost({ action: 'readClipboard' });
+            });
+            overlay.querySelector('#historyArtworkUrlBrowser')?.addEventListener('click', () => {
+                postToHost({ action: 'openImageBrowserCapture', target: 'historyArtwork' });
+            });
+            overlay.querySelector('#historyArtworkUrlNext')?.addEventListener('click', applyUrl);
+            input?.addEventListener('keydown', event => {
+                if (event.key !== 'Enter') return;
+                event.preventDefault();
+                applyUrl();
+            });
+            requestAnimationFrame(() => input?.focus({ preventScroll: true }));
         };
 
         const render = () => {
             const cat = categories[state.index];
             renderSteps();
             const results = overlay.querySelector('.artwork-results');
-            results.className = mode === 'local' ? 'artwork-results is-local' : `artwork-results is-${cat.key}`;
+            results.className = mode === 'local' || mode === 'url' ? 'artwork-results is-local' : `artwork-results is-${cat.key}`;
             overlay.querySelector('#artworkSearchInput').value = state.query;
             overlay.querySelector('.artwork-search-row').style.display = mode === 'steamgrid' ? 'grid' : 'none';
-            overlay.querySelector('#artworkSkipBtn .artwork-skip-label').textContent = mode === 'local'
+            overlay.querySelector('#artworkSkipBtn .artwork-skip-label').textContent = mode === 'local' || mode === 'url'
                 ? t('artworkNext')
                 : t('artworkSkip');
             overlay.querySelector('.artwork-status').textContent = `${artworkLabel(cat)}`;
             if (mode === 'local') renderLocal(cat);
+            else if (mode === 'url') renderUrl(cat);
             else renderSteamGrid(cat);
             if (mode === 'local') {
                 const clearBtn = overlay.querySelector('#artworkClearLocalBtn');
@@ -9846,7 +9988,9 @@ function renderFolderList(folders) {
             overlay.querySelector('.artwork-status').textContent = images.length
                 ? t('artworkFound', images.length, state.query)
                 : t('artworkNoneFound', state.query);
-            overlay.querySelector('.artwork-results').innerHTML = images.map(url =>
+            const results = overlay.querySelector('.artwork-results');
+            results.scrollTop = 0;
+            results.innerHTML = images.map(url =>
                 `<button class="artwork-choice ${cat.key}" type="button" data-url="${escapeHtml(url)}"><img src="${escapeHtml(url)}" loading="lazy" /></button>`
             ).join('');
             overlay.querySelectorAll('.artwork-choice').forEach(btn => {
@@ -9864,10 +10008,7 @@ function renderFolderList(folders) {
                         return;
                     }
                     firstChoice.focus({ preventScroll: true });
-                    firstChoice.scrollIntoView({
-                        block: 'center',
-                        inline: 'nearest'
-                    });
+                    results.scrollTop = 0;
                 });
             }
         };
@@ -9880,6 +10021,11 @@ function renderFolderList(folders) {
         };
 
         state.applied = (images) => {
+            if (typeof options.onApplied === 'function') {
+                options.onApplied(images || {});
+                close();
+                return;
+            }
             const patch = _artworkPatchFromCategories(images || {});
             const channel = isStore ? 'stores' : (isMedia ? 'media' : 'games');
             window.AppStore?.mutations?.patchItem(channel, gameId, patch);
@@ -9899,9 +10045,30 @@ function renderFolderList(folders) {
     window._artworkWizardHandlePicked = data => _artworkWizard?.pickLocal?.(data.category, data.path, data.preview);
     window._artworkWizardHandleApplied = data => _artworkWizard?.applied?.(data.images || {});
     window._artworkWizardIsOpen = () => !!_artworkWizard?.overlay;
+    window._artworkWizardHandleClipboard = value => {
+        if (!_artworkWizard?.overlay || _artworkWizard.mode !== 'url') return false;
+        const input = _artworkWizard.overlay.querySelector('#historyArtworkUrlInput');
+        if (!input) return false;
+        input.value = String(value || '').trim();
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        requestAnimationFrame(() => _artworkWizard?.overlay?.querySelector('#historyArtworkUrlNext')?.focus({ preventScroll: true }));
+        return true;
+    };
+    window._artworkWizardSetUrl = value => window._artworkWizardHandleClipboard?.(value);
+    window._artworkWizardFocusUrl = () => {
+        const input = _artworkWizard?.overlay?.querySelector('#historyArtworkUrlInput');
+        input?.focus?.({ preventScroll: true });
+    };
     window._artworkWizardShortcut = action => {
         if (!_artworkWizard?.overlay) return false;
         const overlay = _artworkWizard.overlay;
+        if (action === 'confirm') {
+            const active = document.activeElement;
+            if (!active || !overlay.contains(active)) return false;
+            if (active.tagName === 'INPUT' && active.dataset.vkbDisabled !== 'true') window._vkbOpen?.(active);
+            else active.click?.();
+            return true;
+        }
         if (action === 'search') {
             const input = overlay.querySelector('#artworkSearchInput');
             if (!input || input.offsetParent === null) return false;
@@ -9924,6 +10091,56 @@ function renderFolderList(folders) {
         _artworkWizard.overlay.remove();
         _artworkWizard = null;
         return true;
+    };
+
+    window.openDoorpiHistoryArtworkPicker = function (card, item, onApplied) {
+        if (!card || !item?.Name) return;
+        const overlay = document.createElement('div');
+        overlay.className = 'artwork-wizard-overlay';
+        overlay.innerHTML = `
+            <div class="artwork-wizard history-artwork-source-dialog" role="dialog" aria-modal="true">
+                <div class="artwork-wizard-head">
+                    <h3 class="artwork-wizard-title">${t('historyArtworkTitle')}</h3>
+                    <p class="history-artwork-source-subtitle">${t('historyArtworkSourceHint')}</p>
+                </div>
+                <div class="artwork-wizard-body">
+                    <div class="history-artwork-source-grid">
+                        <button class="history-artwork-source-card" id="historyArtworkSteamGrid" type="button" ${window._doorpiProfile?.HasSteamGridApiKey ? '' : 'disabled'}>
+                            <strong>SteamGrid</strong>
+                            <span>${t('historyArtworkSteamGridDesc')}</span>
+                        </button>
+                        <button class="history-artwork-source-card" id="historyArtworkUrl" type="button">
+                            <strong>${t('profilePhotoExternalUrl')}</strong>
+                            <span>${t('historyArtworkUrlDesc')}</span>
+                        </button>
+                    </div>
+                    ${window._doorpiProfile?.HasSteamGridApiKey ? '' : `<p class="history-artwork-source-key-hint">${t('profilePhotoSteamGridNeedsKey')}</p>`}
+                    <div class="history-artwork-source-actions"><button class="modal-btn cancel" id="artworkCancelBtn">${t('btnCancel')}</button></div>
+                </div>
+            </div>`;
+        document.body.appendChild(overlay);
+        const closeSource = (restoreFocus = true) => {
+            overlay.remove();
+            if (_artworkWizard?.overlay === overlay) _artworkWizard = null;
+            if (restoreFocus && card.isConnected)
+                requestAnimationFrame(() => card.focus?.({ preventScroll: true }));
+        };
+        const openMode = mode => {
+            closeSource(false);
+            openArtworkWizard(card, mode, item.Name, {
+                categories: ['vertical', 'horizontal'],
+                applyAction: 'applyHistoryArtworkSelection',
+                gameName: item.Name,
+                returnFocus: card,
+                onApplied
+            });
+        };
+        _artworkWizard = { overlay, sourceOnly: true };
+        overlay.querySelector('#historyArtworkSteamGrid')?.addEventListener('click', () => openMode('steamgrid'));
+        overlay.querySelector('#historyArtworkUrl')?.addEventListener('click', () => openMode('url'));
+        overlay.querySelector('#artworkCancelBtn')?.addEventListener('click', () => closeSource(true));
+        overlay.addEventListener('mousedown', event => { if (event.target === overlay) closeSource(); });
+        requestAnimationFrame(() => overlay.querySelector('button:not(:disabled)')?.focus({ preventScroll: true }));
     };
 
     function openEditGameModal(card) {
@@ -10587,9 +10804,12 @@ function renderFolderList(folders) {
             const above = rect.top - height - margin;
             const below = rect.bottom + margin;
             const forceBelow = _callbacks.placement === 'below';
-            const top = forceBelow
-                ? Math.min(Math.max(12, below), Math.max(12, window.innerHeight - height - 12))
-                : (above >= 12 ? above : Math.min(Math.max(12, below), Math.max(12, window.innerHeight - height - 12)));
+            const forceTop = _callbacks.placement === 'top';
+            const top = forceTop
+                ? 12
+                : forceBelow
+                    ? Math.min(Math.max(12, below), Math.max(12, window.innerHeight - height - 12))
+                    : (above >= 12 ? above : Math.min(Math.max(12, below), Math.max(12, window.innerHeight - height - 12)));
             _el.style.left = `${Math.round(center)}px`;
             _el.style.top = `${Math.round(top)}px`;
         }
@@ -10627,6 +10847,7 @@ function renderFolderList(folders) {
         function _forceClose(options = {}) {
             if (!_el) return;
             const restoreFocus = options?.restoreFocus !== false && document.visibilityState !== 'hidden';
+            const closedInput = _inputEl;
             _callbacks = {};
             _pendingAccent = null;
             window._vkbIsOpen = false;
@@ -10642,6 +10863,7 @@ function renderFolderList(folders) {
             } else {
                 window.resetDoorpiGamepadInputState?.();
             }
+            document.dispatchEvent(new CustomEvent('doorpi-vkb-closed', { detail: { input: closedInput } }));
             setTimeout(() => { if (_el && !_el.classList.contains('visible')) _el.style.display = 'none'; }, 180);
         }
 
@@ -10725,6 +10947,7 @@ function renderFolderList(folders) {
     };
     window._vkbOpen = (el, callbacks) => {
         if (window._doorpiIsControllerActivation?.() !== true) return false;
+        if (el?.dataset?.vkbDisabled === 'true') return false;
         if (el && el.tagName === 'INPUT') {
             const type = (el.type || '').toLowerCase();
             if (!_TEXT_INPUT_TYPES.has(type) && !window._vkbIsNumericInput(el)) return false;
@@ -11135,8 +11358,12 @@ function renderFolderList(folders) {
         const value = String(photo || '').trim();
         if (!value) return '';
         if (/^(data:|blob:|https?:)/i.test(value)) return value;
+        if (value.startsWith('/9j/')) return `data:image/jpeg;base64,${value}`;
+        if (value.startsWith('UklGR')) return `data:image/webp;base64,${value}`;
+        if (value.startsWith('R0lGOD')) return `data:image/gif;base64,${value}`;
         return `data:image/png;base64,${value}`;
     }
+    window._doorpiUserPhotoSrc = _normalizeUserPhotoSrc;
 
     function _ensureUserSwitchLogoutOverlay(mode = 'switch', user = {}) {
         const copy = _getUserSwitchOverlayCopy(mode);

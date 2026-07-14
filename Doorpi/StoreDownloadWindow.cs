@@ -4,7 +4,6 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
@@ -58,28 +57,6 @@ namespace Doorpi
             double ProgressValue,
             string ProgressText,
             bool WebVisible);
-
-        [DllImport("xinput1_4.dll", EntryPoint = "XInputGetState")]
-        private static extern int XInputGetState(int dwUserIndex, out XINPUT_STATE pState);
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct XINPUT_STATE
-        {
-            public uint dwPacketNumber;
-            public XINPUT_GAMEPAD Gamepad;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct XINPUT_GAMEPAD
-        {
-            public ushort wButtons;
-            public byte bLeftTrigger;
-            public byte bRightTrigger;
-            public short sThumbLX;
-            public short sThumbLY;
-            public short sThumbRX;
-            public short sThumbRY;
-        }
 
         public event Action<string, double?>? DownloadProgress;
         public event Action<string>? DownloadCompleted;
@@ -846,30 +823,26 @@ namespace Doorpi
             const ushort rightShoulder = 0x0200;
             const ushort aButton = 0x1000;
             const ushort bButton = 0x2000;
-            ushort previousButtons = 0;
+            var buttonTracker = new XInputButtonTracker();
+            buttonTracker.Update(XInputControllerHub.Read());
             DateTime lastDirectionalAtUtc = DateTime.MinValue;
             DateTime lastActionAtUtc = DateTime.MinValue;
 
             while (_controllerNavActive)
             {
-                ushort buttons = 0;
                 try
                 {
-                    if (XInputGetState(0, out var state) == 0)
-                    {
-                        buttons = state.Gamepad.wButtons;
-                    }
+                    buttonTracker.Update(XInputControllerHub.Read());
                 }
                 catch
                 {
                     return;
                 }
 
-                ushort pressed = (ushort)(buttons & ~previousButtons);
-                previousButtons = buttons;
-
-                bool leftPressed = (pressed & (dpadLeft | leftShoulder)) != 0;
-                bool rightPressed = (pressed & (dpadRight | rightShoulder)) != 0;
+                bool leftPressed = buttonTracker.AnyPressed((ushort)(dpadLeft | leftShoulder));
+                bool rightPressed = buttonTracker.AnyPressed((ushort)(dpadRight | rightShoulder));
+                if (leftPressed && rightPressed)
+                    leftPressed = rightPressed = false;
                 if ((leftPressed || rightPressed) &&
                     (DateTime.UtcNow - lastDirectionalAtUtc).TotalMilliseconds >= 140)
                 {
@@ -881,7 +854,7 @@ namespace Doorpi
                     });
                 }
 
-                if ((pressed & aButton) != 0 &&
+                if (buttonTracker.AnyPressed(aButton) &&
                     (DateTime.UtcNow - lastActionAtUtc).TotalMilliseconds >= 180)
                 {
                     lastActionAtUtc = DateTime.UtcNow;
@@ -891,7 +864,7 @@ namespace Doorpi
                         ActivateFocusedAction();
                     });
                 }
-                else if ((pressed & bButton) != 0 &&
+                else if (buttonTracker.AnyPressed(bButton) &&
                     (DateTime.UtcNow - lastActionAtUtc).TotalMilliseconds >= 180)
                 {
                     lastActionAtUtc = DateTime.UtcNow;

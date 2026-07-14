@@ -884,32 +884,21 @@ namespace Doorpi
 
         private void StoreInstallGuideMonitorLoop()
         {
-            ushort previousButtons = 0;
-            try
-            {
-                if (XInputGetStateSecret(0, out var initialState) == 0)
-                    previousButtons = initialState.Gamepad.wButtons;
-            }
-            catch { }
+            var buttonTracker = new XInputButtonTracker();
+            buttonTracker.Update(XInputControllerHub.Read());
 
             while (_storeInstallGuideMonitorActive)
             {
                 try
                 {
-                    if (XInputGetStateSecret(0, out var state) == 0)
+                    buttonTracker.Update(XInputControllerHub.Read());
+                    if (buttonTracker.ReturnShortcutJustPressed)
                     {
-                        ushort buttons = state.Gamepad.wButtons;
-                        bool pressed = IsDoorpiReturnShortcutJustPressed(buttons, previousButtons);
-                        previousButtons = buttons;
-
-                        if (pressed)
-                        {
-                            Dispatcher.Invoke(
-                                RequestStoreInstallCancelConfirmation,
-                                System.Windows.Threading.DispatcherPriority.Send);
-                            Thread.Sleep(90);
-                            continue;
-                        }
+                        Dispatcher.Invoke(
+                            RequestStoreInstallCancelConfirmation,
+                            System.Windows.Threading.DispatcherPriority.Send);
+                        Thread.Sleep(90);
+                        continue;
                     }
                 }
                 catch { }

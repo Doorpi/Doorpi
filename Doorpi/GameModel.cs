@@ -15,6 +15,8 @@ namespace Doorpi
         public DateTime DateAdded { get; set; } = DateTime.Now;
         public string GridImage { get; set; } = "";
         public string GridHorizontalImage { get; set; } = "";
+        public string GridSourceUrl { get; set; } = "";
+        public string GridHorizontalSourceUrl { get; set; } = "";
         public string HeroImage { get; set; } = "";
         public string LogoImage { get; set; } = "";
         public long TotalPlaytimeMinutes { get; set; } = 0;
@@ -43,6 +45,11 @@ namespace Doorpi
         public string GridStaticImage { get; set; } = "";
         public string GridHorizontalImage { get; set; } = "";
         public string GridHorizontalStaticImage { get; set; } = "";
+        public string ShowcaseVerticalImageUrl { get; set; } = "";
+        public string ShowcaseVerticalLocalImage { get; set; } = "";
+        public string HistoryHorizontalImageUrl { get; set; } = "";
+        public string HistoryHorizontalLocalImage { get; set; } = "";
+        public int SteamGridGameId { get; set; }
         public string IconBase64 { get; set; } = "";
         public string Source { get; set; } = "";
     }
