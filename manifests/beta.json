@@ -1,45 +1,54 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202607141511,
-    "publishedAt":  "2026-07-14T18:12:06.8886692Z",
-    "expiresAt":  "2026-07-28T18:12:06.8886692Z",
+    "manifestVersion":  202607141622,
+    "publishedAt":  "2026-07-14T19:22:52.2923053Z",
+    "expiresAt":  "2026-07-28T19:22:52.2923053Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.1.10",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.10/doorpi-0.1.10.doorpiupdate.zip",
-                   "sha256":  "069a91b1e2e31224d295eb4104ac2c0b1b8d5546ce6f82d6d7463fa7728e60fa",
-                   "sizeBytes":  132958882,
+                   "version":  "0.1.11",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.11/doorpi-0.1.11.doorpiupdate.zip",
+                   "sha256":  "5fce136e187267b5d31b062107644713a15d5c441d2a6680f98a21674c7261a4",
+                   "sizeBytes":  132960503,
                    "minUpdaterVersion":  "0.1.0",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
                     "version":  "0.1.0",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.10/updater-0.1.0.doorpiupdate.zip",
-                    "sha256":  "f85b2add364f3226bbce1a7d897c433019be6ab91326c65a80ef7105d6863c23",
-                    "sizeBytes":  69944467,
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.11/updater-0.1.0.doorpiupdate.zip",
+                    "sha256":  "46b7d45aa942056976be3be7cedd78c908da8af8736048ec6ca06a0bc9cb1c05",
+                    "sizeBytes":  69944472,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.1.10",
-                          "title":  "Doorpi 0.1.10",
+                          "version":  "0.1.11",
+                          "title":  "Doorpi 0.1.11",
                           "items":  [
-                                        "Hotfix na navegação e compatibilidade ultrawide do YouTube."
+                                        "Melhorado o desempenho e a navegação do teclado virtual em aplicativos web.",
+                                        "Corrigido o fechamento do VKB no chat da Twitch.",
+                                        "Corrigido o Backspace, evitando que textos apagados reapareçam no chat da Twitch.",
+                                        "Corrigida a reabertura de web apps ao fechá-los segurando B."
                                     ],
                           "locales":  {
                                           "pt-BR":  {
-                                                        "title":  "Doorpi 0.1.10",
+                                                        "title":  "Doorpi 0.1.11",
                                                         "items":  [
-                                                                      "Hotfix na navegação e compatibilidade ultrawide do YouTube."
+                                                                      "Melhorado o desempenho e a navegação do teclado virtual em aplicativos web.",
+                                                                      "Corrigido o fechamento do VKB no chat da Twitch.",
+                                                                      "Corrigido o Backspace, evitando que textos apagados reapareçam no chat da Twitch.",
+                                                                      "Corrigida a reabertura de web apps ao fechá-los segurando B."
                                                                   ]
                                                     },
                                           "en":  {
-                                                     "title":  "Doorpi 0.1.10",
+                                                     "title":  "Doorpi 0.1.11",
                                                      "items":  [
-                                                                   "YouTube navigation and ultrawide compatibility hotfix."
+                                                                   "Improved virtual keyboard performance and navigation in web apps.",
+                                                                   "Fixed VKB closing in Twitch chat.",
+                                                                   "Fixed Backspace so deleted text no longer reappears in Twitch chat.",
+                                                                   "Fixed web apps reopening when closing them while holding B."
                                                                ]
                                                  }
                                       }
@@ -48,6 +57,6 @@
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "fWpOoK29MsYxlsX9uZINJlsz1FfV1GDUPOtG5kbrVoob16sLhWu3CbFsOzYq1urNh1KeyDX9RaEpHTeodS/6bfHg+jXuuy6kKw3v8j4Mh8UglGia41Vy1oV7qpXzAPxOeSBCtdNGhi9th70ft6Icva4e+H0mvp2wt2WsH00wNdZ1A38r4XqCM06gBcERwmYLfB+zqPLRGgLmWkJ/OKP7NILqVdUWwFKaGeFKSSYLr21+034xpEaEsw3U1rccJNwqHdmk8JlYpLAU+fKgb7ul1gPpsK1xCIH+LiaLkMxDqKklqt81oJBM6O5JDbzqMUOWXotUbZMII98Mqj52FYPL/E1zgh7fntwCag1MhKaV10UD4kYQh2qGopbeqIaW3iLjgqB+n2JnC34O4HTo3TCCQlaelRdQnHof/eo+N2j0g8IHGokdx1tOtrPnwP0oyI946gZ6pVnPxAYY/84btJDGBYVTdi1aVz6dQwyUrXI7NFkxN8tGyNdtyZvI3mzTu9Br"
+                      "value":  "joiEwrohgUp7tW+TaW5Fg+NG30hAHJi8eMnQiTacbxpZ6gWtAxrOHuM1FuNNXN39PTI/YunspYF/+MLTfAQKhdl086GlFvbqibu1Rbj4v8GjWJw1/7wxfMaOIE8KosYYha1jYpm438ZJQa9SBzWvjnWxYYJK2n2kvl3hZQPXMdS4kYTL+6etpYFlfwbzTa2J0tM3UylH2ahI7lN0HI39yz6eO87VswMTTe4e+tx1TfyoawBUmIViaJXa+CXvuE3DJnznf/mjynWD6RRkKZVI2K5TFGFz/4ZjZCNrfZrQwUzUYeHYNA3nyA3obGbthJmQ3692t3ooYFYOKWLfS/3HvljLyP9Z4JEQ5AitWPFlMqroSqBJBYDmqPBgIo1B/dT9Z2ETx934J2LGt5auVE/SAVCy4cQ59gAz5dLBjXkYx30gxIAyG5Dmy7aYt/rKoSSaWcldb4LH9Itc+ODy9qbLIhf8N0pD6WRpIJMEtjNzLsTq/HHOxkgWnc/IlVxLvKdA"
                   }
 }
