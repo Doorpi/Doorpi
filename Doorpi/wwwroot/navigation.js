@@ -1368,6 +1368,7 @@ document.addEventListener('keydown', e => {
 let _controllerType = 'generic', _btnCooldown = {}, _lastMoveTime = 0, _moveState = 0, _currentDirection = null, _sessionConflictHeldDir = null, _gameFocusFallbackHeldDir = null;
 let _cursorHoldState = { l1: 0, r1: 0 }, _cursorLastTime = { l1: 0, r1: 0 };
 let _doorpiActionQuarantineUntil = 0;
+let _doorpiActionReleaseGate = false;
 let _doorpiControllerActivationToken = 0;
 let _doorpiControllerActivationActive = false;
 let _doorpiNativeController = { connected: false, buttons: 0, pendingPressed: 0, rightX: 0, rightY: 0 };
@@ -1437,6 +1438,11 @@ window.quarantineDoorpiGamepadActions = function (durationMs = 450) {
         performance.now() + boundedDuration
     );
     window.resetDoorpiGamepadInputState?.();
+};
+
+window.armDoorpiGamepadReleaseGate = function () {
+    _doorpiActionReleaseGate = true;
+    seedDoorpiHeldButtonState();
 };
 
 function isVkbOpenForNavigation() {
@@ -1703,8 +1709,12 @@ function readAllGamepadInput() {
     if (!_doorpiNativeController.connected) return null;
 
     const held = _doorpiNativeController.buttons >>> 0;
-    const pressedThisFrame = _doorpiNativeController.pendingPressed >>> 0;
+    let pressedThisFrame = _doorpiNativeController.pendingPressed >>> 0;
     _doorpiNativeController.pendingPressed = 0;
+    if (_doorpiActionReleaseGate) {
+        pressedThisFrame = 0;
+        if ((held & 0xFFF0) === 0) _doorpiActionReleaseGate = false;
+    }
 
     const buttons = Array.from({ length: 17 }, () => ({ pressed: false, justPressed: false }));
     const mapping = [
@@ -1751,7 +1761,10 @@ if (window.chrome?.webview) {
         const wasConnected = _doorpiNativeController.connected;
         _doorpiNativeController.connected = !!data.connected;
         _doorpiNativeController.buttons = Number(data.buttons || 0) >>> 0;
-        _doorpiNativeController.pendingPressed |= Number(data.pressed || 0) >>> 0;
+        if (document.hasFocus() && window.isDoorpiFocused && !window.isMediaAppActive)
+            _doorpiNativeController.pendingPressed |= Number(data.pressed || 0) >>> 0;
+        else
+            _doorpiNativeController.pendingPressed = 0;
         _doorpiNativeController.rightX = Number(data.rightX || 0);
         _doorpiNativeController.rightY = Number(data.rightY || 0);
         if (window._profilePhotoPickerIsOpen?.())
@@ -1778,7 +1791,10 @@ window.addEventListener('gamepaddisconnected', e => {
 window.isDoorpiFocused = document.hasFocus();
 
 
-window.addEventListener('focus', () => { window.isDoorpiFocused = true; });
+window.addEventListener('focus', () => {
+    window.isDoorpiFocused = true;
+    window.armDoorpiGamepadReleaseGate?.();
+});
 window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
 (function gamepadLoop() {
     try {

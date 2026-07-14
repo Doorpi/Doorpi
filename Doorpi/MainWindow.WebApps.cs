@@ -145,6 +145,9 @@ namespace Doorpi
         private long _webJsVkbValidationInFlight;
         private DateTime _webJsVkbLastValidationUtc = DateTime.MinValue;
         private DateTime _webJsVkbOpenedAtUtc = DateTime.MinValue;
+        private long _webJsVkbCommandSequence;
+        private long _webJsVkbCloseVersion;
+        private volatile bool _webJsVkbOwnerInChildFrame;
         private int _mediaMouseAbortGeneration;
         private readonly object _mediaControllerLogLock = new();
         private long _lastMediaControllerForegroundRejectLogTicks;
@@ -472,6 +475,13 @@ namespace Doorpi
 
         private void ClearGenericBrowserKeyboardStateForControllerAbort()
         {
+            if (!_isGenericBrowserMode &&
+                _vkbOwnerView != null &&
+                (_vkbIsOpen || _webJsVkbVisibleValid))
+            {
+                SendVkbCommand("close");
+            }
+
             _genericBrowserKeyboardTarget = GenericBrowserKeyboardTarget.None;
             _vkbIsOpen = false;
             _vkbOwnerView = null;
@@ -479,6 +489,7 @@ namespace Doorpi
             _genericBrowserVkbSuppressAUntilRelease = false;
             _genericBrowserNativeVkbWebInputValid = false;
             _genericBrowserNativeVkbOpenedAtUtc = DateTime.MinValue;
+            _webJsVkbOwnerInChildFrame = false;
             _webJsVkbVisibleValid = false;
             _webJsVkbOpenedAtUtc = DateTime.MinValue;
         }
@@ -632,8 +643,19 @@ namespace Doorpi
             if (_isGenericBrowserMode || !_vkbIsOpen)
                 return;
 
+            // ExecuteScriptAsync evaluates the top-level document only. A JS VKB
+            // owned by an embedded chat frame reports its lifecycle directly and
+            // cannot be validated through the top-level window without a false close.
+            if (_webJsVkbOwnerInChildFrame)
+            {
+                _webJsVkbVisibleValid = true;
+                return;
+            }
+
             var now = DateTime.UtcNow;
-            if (now - _webJsVkbLastValidationUtc < TimeSpan.FromMilliseconds(180))
+            // Open/close and navigation already push state changes. Keep this only as
+            // a low-frequency recovery watchdog so it does not contend with VKB input.
+            if (now - _webJsVkbLastValidationUtc < TimeSpan.FromMilliseconds(1500))
                 return;
 
             if (Interlocked.Exchange(ref _webJsVkbValidationInFlight, 1) == 1)
@@ -2404,6 +2426,7 @@ namespace Doorpi
             bool bHoldActive = false;
             bool bCloseFired = false;
             long bHoldStartMs = 0;
+            long bVkbCloseVersionAtPress = 0;
             bool keyboardBackHoldActive = false;
             bool keyboardBackCloseFired = false;
             long keyboardBackHoldStartMs = 0;
@@ -2831,6 +2854,7 @@ namespace Doorpi
 
                     double totalMlx = 0, totalMly = 0, totalScrollY = 0;
                     ushort currentNavDirBtn = 0;
+                    ushort currentVkbDirToken = 0;
                     byte currentNavVk = 0;
                     string currentVkbDirName = "";
 
@@ -2862,10 +2886,10 @@ namespace Doorpi
                     const double mergedDeadZone = 0.5;
                     bool dpadUp = Held(XI_DPAD_UP), dpadDown = Held(XI_DPAD_DOWN);
                     bool dpadLeft = Held(XI_DPAD_LEFT), dpadRight = Held(XI_DPAD_RIGHT);
-                    if (dpadUp || input.ThumbLY > mergedDeadZone) { anyVkbUp = true; currentVkbDirName = "UP"; }
-                    else if (dpadDown || input.ThumbLY < -mergedDeadZone) { anyVkbDown = true; currentVkbDirName = "DOWN"; }
-                    else if (dpadLeft || input.ThumbLX < -mergedDeadZone) { anyVkbLeft = true; currentVkbDirName = "LEFT"; }
-                    else if (dpadRight || input.ThumbLX > mergedDeadZone) { anyVkbRight = true; currentVkbDirName = "RIGHT"; }
+                    if (dpadUp || input.ThumbLY > mergedDeadZone) { anyVkbUp = true; currentVkbDirName = "UP"; currentVkbDirToken = XI_DPAD_UP; }
+                    else if (dpadDown || input.ThumbLY < -mergedDeadZone) { anyVkbDown = true; currentVkbDirName = "DOWN"; currentVkbDirToken = XI_DPAD_DOWN; }
+                    else if (dpadLeft || input.ThumbLX < -mergedDeadZone) { anyVkbLeft = true; currentVkbDirName = "LEFT"; currentVkbDirToken = XI_DPAD_LEFT; }
+                    else if (dpadRight || input.ThumbLX > mergedDeadZone) { anyVkbRight = true; currentVkbDirName = "RIGHT"; currentVkbDirToken = XI_DPAD_RIGHT; }
 
                     if (dpadUp) { currentNavDirBtn = XI_DPAD_UP; currentNavVk = 0x26; }
                     else if (dpadDown) { currentNavDirBtn = XI_DPAD_DOWN; currentNavVk = 0x28; }
@@ -2972,6 +2996,9 @@ namespace Doorpi
                     {
                         if (anyBPressed)
                         {
+                            bVkbCloseVersionAtPress = Volatile.Read(ref _webJsVkbCloseVersion);
+                            if (!_isGenericBrowserMode)
+                                SendVkbCommand("close", useActiveWebViewFallback: true);
                             bHoldActive = true;
                             bCloseFired = false;
                             bHoldStartMs = nowMs;
@@ -2982,6 +3009,15 @@ namespace Doorpi
 
                         if (bHoldActive && anyBHeld)
                         {
+                            if (Volatile.Read(ref _webJsVkbCloseVersion) > bVkbCloseVersionAtPress)
+                            {
+                                bHoldActive = false;
+                                bCloseFired = false;
+                                HideWebAppCloseHoldOverlay();
+                                Thread.Sleep(20);
+                                continue;
+                            }
+
                             double progress = Math.Clamp((nowMs - bHoldStartMs - WEB_CLOSE_INDICATOR_MS) /
                                                          (double)(WEB_CLOSE_HOLD_MS - WEB_CLOSE_INDICATOR_MS), 0, 1);
                             if (progress > 0)
@@ -3000,7 +3036,8 @@ namespace Doorpi
 
                         if (bHoldActive && !anyBHeld)
                         {
-                            bool wasClose = bCloseFired;
+                            bool wasClose = bCloseFired ||
+                                Volatile.Read(ref _webJsVkbCloseVersion) > bVkbCloseVersionAtPress;
                             bHoldActive = false;
                             bCloseFired = false;
                             HideWebAppCloseHoldOverlay();
@@ -3233,16 +3270,16 @@ namespace Doorpi
                         {
                             _vkbHasFocus = true;
 
-                            if (currentNavDirBtn != vkbLastDir)
+                            if (currentVkbDirToken != vkbLastDir)
                             {
-                                vkbLastDir = currentNavDirBtn; vkbDirStartMs = nowMs; vkbDirLastRepeat = nowMs;
-                                SendVkbCommand($"window.__doorpiVkbMove?.('{currentVkbDirName}')");
+                                vkbLastDir = currentVkbDirToken; vkbDirStartMs = nowMs; vkbDirLastRepeat = nowMs;
+                                SendVkbCommand("move", currentVkbDirName);
                             }
                             else if ((nowMs - vkbDirStartMs) > VKB_INITIAL_MS &&
                                      (nowMs - vkbDirLastRepeat) > VKB_REPEAT_MS)
                             {
                                 vkbDirLastRepeat = nowMs;
-                                SendVkbCommand($"window.__doorpiVkbMove?.('{currentVkbDirName}')");
+                                SendVkbCommand("move", currentVkbDirName);
                             }
                         }
                         else { vkbLastDir = 0; }
@@ -3250,7 +3287,7 @@ namespace Doorpi
                         if (anyAPressed)
                         {
                             if (_vkbHasFocus)
-                                SendVkbCommand("window.__doorpiVkbConfirm?.()");
+                                SendVkbCommand("confirm");
                             else
                             {
                                 if (_isGenericBrowserMode) MarkGenericBrowserControllerInputIntent();
@@ -3260,24 +3297,24 @@ namespace Doorpi
                             }
                         }
 
-                        if (anyBPressed) SendVkbCommand("window.__doorpiVkbClose?.()");
-                        if (anyStartPressed) SendVkbCommand("window.__doorpiVkbEnter?.()");
+                        if (anyBPressed) SendVkbCommand("close");
+                        if (anyStartPressed) SendVkbCommand("enter");
 
                         if (_vkbHasFocus)
                         {
-                            if (anyYPressed) SendVkbCommand("window.__doorpiVkbSpace?.()");
-                            if (anyL3Pressed) SendVkbCommand("window.__doorpiVkbToggleShift?.()");
-                            if (anyLBPressed) SendVkbCommand("window.__doorpiVkbCursorLeft?.()");
-                            if (anyRBPressed) SendVkbCommand("window.__doorpiVkbCursorRight?.()");
+                            if (anyYPressed) SendVkbCommand("space");
+                            if (anyL3Pressed) SendVkbCommand("toggleShift");
+                            if (anyLBPressed) SendVkbCommand("cursorLeft");
+                            if (anyRBPressed) SendVkbCommand("cursorRight");
 
-                            if (anyLtHeld && !ltWasHeld) SendVkbCommand("window.__doorpiVkbToggleLayer?.()");
+                            if (anyLtHeld && !ltWasHeld) SendVkbCommand("toggleLayer");
                             ltWasHeld = anyLtHeld;
 
                             if (anyXHeld)
                             {
-                                if (!xWasHeld) { xWasHeld = true; xHoldStartMs = nowMs; xLastRepeat = nowMs; SendVkbCommand("window.__doorpiVkbBackspace?.()"); }
+                                if (!xWasHeld) { xWasHeld = true; xHoldStartMs = nowMs; xLastRepeat = nowMs; SendVkbCommand("backspace"); }
                                 else if ((nowMs - xHoldStartMs) > VKB_INITIAL_MS && (nowMs - xLastRepeat) > VKB_REPEAT_MS)
-                                { xLastRepeat = nowMs; SendVkbCommand("window.__doorpiVkbBackspace?.()"); }
+                                { xLastRepeat = nowMs; SendVkbCommand("backspace"); }
                             }
                             else { xWasHeld = false; }
                         }
@@ -3318,13 +3355,25 @@ namespace Doorpi
             HideWebAppCloseHoldOverlay();
         }
 
-        private void SendVkbCommand(string script)
+        private void SendVkbCommand(
+            string command,
+            string? argument = null,
+            bool useActiveWebViewFallback = false)
         {
             var view = _vkbOwnerView;
+            if (view == null && useActiveWebViewFallback)
+                view = _popupWebView ?? _ytWebView;
             if (view == null) return;
+            string payload = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                type = "doorpiVkbCommand",
+                commandId = Interlocked.Increment(ref _webJsVkbCommandSequence),
+                command,
+                argument
+            });
             Dispatcher.InvokeAsync(() =>
             {
-                try { view.CoreWebView2?.ExecuteScriptAsync(script); }
+                try { view.CoreWebView2?.PostWebMessageAsJson(payload); }
                 catch { /* view pode ter sido destruído */ }
             });
         }
@@ -5009,9 +5058,9 @@ namespace Doorpi
             '.doorpi-vkb-key[data-key=SHIFT].shifted{{background:rgba(255,255,255,0.2);border-color:rgba(255,255,255,0.3);color:#fff;}}',
             '.doorpi-vkb-overlay{{top:50%;left:50%;right:auto;bottom:auto;width:min(1080px,calc(100vw - 32px));',
             '--doorpi-vkb-key-h:clamp(42px,5.2vh,54px);--doorpi-vkb-key-font:clamp(14px,1.05vw,18px);',
-            'padding:clamp(10px,1.2vh,16px);background:rgba(8,9,15,.96);border:1px solid rgba(255,255,255,.13);',
+            'padding:clamp(10px,1.2vh,16px);background:rgb(8,9,15);border:1px solid rgba(255,255,255,.13);',
             'border-radius:clamp(14px,1.1vw,20px);box-shadow:0 28px 90px rgba(0,0,0,.72),0 0 0 1px rgba(255,255,255,.04) inset;',
-            'backdrop-filter:blur(22px) saturate(1.25);opacity:0;transform:translate(-50%,10px) scale(.985);transition:opacity .16s ease,transform .16s ease;}}',
+            'contain:layout paint style;isolation:isolate;opacity:0;transform:translate(-50%,10px) scale(.985);transition:opacity .16s ease,transform .16s ease;}}',
             '.doorpi-vkb-overlay.visible{{opacity:1;transform:translate(-50%,0) scale(1);}}',
             '.doorpi-vkb-preview-wrap{{gap:clamp(8px,.8vw,14px);margin-bottom:clamp(8px,1vh,14px);}}',
             '.doorpi-vkb-preview-label{{font-size:clamp(9px,.72vw,12px);}}',
@@ -5057,6 +5106,7 @@ namespace Doorpi
     let _vkbInputEl   = null;
     let _vkbCursorPos = 0;
     let _vkbFocusKey  = 'q';
+    let _vkbFocusedKeyEl = null;
     let _vkbClosing   = false;
     let _vkbMode      = 'text';
     let _vkbPendingAccent = null;
@@ -5098,6 +5148,7 @@ namespace Doorpi
         const grid = _vkbEl.querySelector('.doorpi-vkb-grid');
         if (!grid) return;
         const rows = _vkbMode === 'numeric' ? NUMERIC_KEY_ROWS : _vkbMode === 'special' ? SPECIAL_KEY_ROWS : KEY_ROWS;
+        _vkbFocusedKeyEl = null;
         while (grid.firstChild) grid.removeChild(grid.firstChild);
         rows.flat().forEach(k => {{
             const btn = document.createElement('button');
@@ -5167,9 +5218,12 @@ namespace Doorpi
     }}
 
     function _vkbSetFocus(key) {{
+        if (_vkbFocusKey === key && _vkbFocusedKeyEl?.isConnected) return;
+        _vkbFocusedKeyEl?.classList.remove('focused');
         _vkbFocusKey = key;
-        _vkbEl?.querySelectorAll('.doorpi-vkb-key').forEach(k =>
-            k.classList.toggle('focused', k.dataset.key === key));
+        _vkbFocusedKeyEl = Array.from(_vkbEl?.querySelectorAll('.doorpi-vkb-key') || [])
+            .find(k => k.dataset.key === key) || null;
+        _vkbFocusedKeyEl?.classList.add('focused');
     }}
 
     function _vkbNotifyHost(message) {{
@@ -5180,7 +5234,7 @@ namespace Doorpi
         if (!_vkbEl || !_vkbInputEl) return false;
         _vkbSetFocus(_vkbFocusKey || (_vkbMode === 'numeric' ? '1' : 'q'));
         if (_vkbEl.style.display !== 'none') _vkbPosition();
-        if (notifyHost) _vkbNotifyHost('vkb_opened');
+        if (notifyHost) _vkbNotifyHost('vkb_opened' + (window.top === window ? '' : ':frame'));
         return true;
     }}
 
@@ -5273,6 +5327,13 @@ namespace Doorpi
         }}
     }}
 
+    function _vkbRequestNativeBackspace() {{
+        if (!_vkbInputEl || !_vkbInputEl.isConnected) return;
+        try {{ _vkbInputEl.focus({{ preventScroll:true }}); }}
+        catch(_) {{ try {{ _vkbInputEl.focus(); }} catch(__) {{}} }}
+        _vkbNotifyHost('vkb_native_backspace');
+    }}
+
     function _vkbMoveCursorInField(delta) {{
         if (!_vkbInputEl) return;
         const isEditable = _vkbInputEl.isContentEditable || _vkbInputEl.tagName === 'DIV';
@@ -5302,7 +5363,7 @@ namespace Doorpi
             _vkbRenderPreview();
             return;
         }}
-        if (key === 'BKSP') {{ if (_vkbPendingAccent) _vkbPendingAccent = null; else _vkbDeleteChar(); }}
+        if (key === 'BKSP') {{ if (_vkbPendingAccent) _vkbPendingAccent = null; else _vkbRequestNativeBackspace(); }}
         else if (key === 'SHIFT') _vkbSetShift(!_vkbShifted);
         else if (key === 'SYM') {{ _vkbRenderKeys('special'); _vkbSetFocus('!'); _vkbRenderPreview(); return; }}
         else if (key === 'ABC') {{ _vkbRenderKeys('text'); _vkbSetShift(_vkbShifted); _vkbSetFocus('q'); _vkbRenderPreview(); return; }}
@@ -5373,7 +5434,7 @@ namespace Doorpi
         _vkbBuild();
         _vkbRenderKeys(isNumericInput(targetEl) ? 'numeric' : 'text');
         _vkbSetFocus(_vkbMode === 'numeric' ? '1' : 'q');
-        _vkbNotifyHost('vkb_opening');
+        _vkbNotifyHost('vkb_opening' + (window.top === window ? '' : ':frame'));
         _vkbEl.style.display = 'block';
         if (_vkbMode === 'text') _vkbSetShift(_vkbShifted);
         _vkbRenderPreview();
@@ -5386,17 +5447,20 @@ namespace Doorpi
             _vkbEl.classList.add('visible');
             window._vkbIsOpen = true;
             _vkbEnsureControllerFocus(false);
-            _vkbNotifyHost('vkb_opened');
+            _vkbNotifyHost('vkb_opened' + (window.top === window ? '' : ':frame'));
         }});
     }}
 
     function _vkbClose() {{
-        if (!_vkbEl || !window._vkbIsOpen) return;
+        if (!_vkbEl ||
+            (!window._vkbIsOpen &&
+             !_vkbEl.classList.contains('visible') &&
+             _vkbEl.style.display === 'none')) return;
         _vkbPendingAccent = null;
         _vkbClosing = true;
         window._vkbIsOpen = false;
         _vkbEl.classList.remove('visible');
-        _vkbNotifyHost('vkb_closed');
+        _vkbNotifyHost('vkb_closed' + (window.top === window ? '' : ':frame'));
 
         if (_vkbInputEl) {{
             _vkbInputEl.removeEventListener('input', _vkbRenderPreview);
@@ -5415,7 +5479,7 @@ namespace Doorpi
     window.__doorpiVkbMove        = (dir) => _vkbMoveFocusInternal(dir);
     window.__doorpiVkbConfirm     = ()    => {{ if (_vkbFocusKey) _vkbPressKey(_vkbFocusKey); }};
     window.__doorpiVkbClose       = ()    => _vkbClose();
-    window.__doorpiVkbBackspace   = ()    => {{ _vkbDeleteChar(); _vkbRenderPreview(); }};
+    window.__doorpiVkbBackspace   = ()    => _vkbRequestNativeBackspace();
     window.__doorpiVkbSpace       = ()    => {{ _vkbInsert(' '); _vkbRenderPreview(); }};
     window.__doorpiVkbCursorLeft  = ()    => _vkbMoveCursorInField(-1);
     window.__doorpiVkbCursorRight = ()    => _vkbMoveCursorInField(1);
@@ -5423,6 +5487,44 @@ namespace Doorpi
     window.__doorpiVkbToggleLayer = ()    => _vkbPressKey(_vkbMode === 'special' ? 'ABC' : 'SYM');
     window.__doorpiVkbEnter       = ()    => _vkbSubmit();
     window.__doorpiVkbEnsureFocus = (notifyHost = false) => _vkbEnsureControllerFocus(!!notifyHost);
+    let _vkbLastHostCommandId = 0;
+    function _vkbDispatchHostCommand(data) {{
+        if (!data || data.type !== 'doorpiVkbCommand') return;
+        const commandId = Number(data.commandId || 0);
+        if (commandId && commandId <= _vkbLastHostCommandId) return;
+        if (commandId) _vkbLastHostCommandId = commandId;
+        switch (data.command) {{
+            case 'move':        window.__doorpiVkbMove?.(data.argument); break;
+            case 'confirm':     window.__doorpiVkbConfirm?.(); break;
+            case 'close':       window.__doorpiVkbClose?.(); break;
+            case 'enter':       window.__doorpiVkbEnter?.(); break;
+            case 'space':       window.__doorpiVkbSpace?.(); break;
+            case 'toggleShift': window.__doorpiVkbToggleShift?.(); break;
+            case 'cursorLeft':  window.__doorpiVkbCursorLeft?.(); break;
+            case 'cursorRight': window.__doorpiVkbCursorRight?.(); break;
+            case 'toggleLayer': window.__doorpiVkbToggleLayer?.(); break;
+            case 'backspace':   window.__doorpiVkbBackspace?.(); break;
+        }}
+    }}
+    function _vkbForwardHostCommand(data) {{
+        document.querySelectorAll('iframe,frame').forEach(frame => {{
+            try {{ frame.contentWindow?.postMessage({{ type:'doorpiVkbFrameCommand', payload:data }}, '*'); }} catch(_) {{}}
+        }});
+    }}
+    window.chrome?.webview?.addEventListener('message', event => {{
+        let data = event.data;
+        if (typeof data === 'string') {{ try {{ data = JSON.parse(data); }} catch(_) {{ return; }} }}
+        if (!data || data.type !== 'doorpiVkbCommand') return;
+        _vkbDispatchHostCommand(data);
+        _vkbForwardHostCommand(data);
+    }});
+    window.addEventListener('message', event => {{
+        const envelope = event.data;
+        if (!envelope || envelope.type !== 'doorpiVkbFrameCommand') return;
+        if (window.top === window || event.source !== window.parent) return;
+        _vkbDispatchHostCommand(envelope.payload);
+        _vkbForwardHostCommand(envelope.payload);
+    }});
     window.__doorpiVkbIsActuallyOpen = () => {{
         try {{
             const visible = !!(window._vkbIsOpen &&
@@ -5453,6 +5555,18 @@ namespace Doorpi
     document.addEventListener('click', e => {{
         if (window._vkbIsOpen && !inputFromEvent(e) && !eventPathHasClass(e, 'doorpi-vkb-overlay'))
             _vkbClose();
+    }}, true);
+
+    document.addEventListener('focusout', e => {{
+        const targetAtBlur = _vkbInputEl;
+        if (!window._vkbIsOpen || !targetAtBlur) return;
+        if (e.target !== targetAtBlur && !targetAtBlur.contains?.(e.target)) return;
+        setTimeout(() => {{
+            if (!window._vkbIsOpen || _vkbInputEl !== targetAtBlur) return;
+            const active = deepActiveElement();
+            if (active === targetAtBlur || targetAtBlur.contains?.(active) || _vkbEl?.contains(active)) return;
+            _vkbClose();
+        }}, 120);
     }}, true);
 
     (function init() {{
@@ -7287,6 +7401,13 @@ namespace Doorpi
             bool isPopup = (_popupWebView != null && sender == _popupWebView.CoreWebView2);
             WebView2 senderView = isPopup ? _popupWebView! : _ytWebView!;
 
+            if (msg == "vkb_native_backspace")
+            {
+                if (_vkbIsOpen && _vkbOwnerView == senderView)
+                    SendVirtualKey(0x08);
+                return;
+            }
+
             bool isMainYouTubeMessage = _isCurrentSiteYouTube && !isPopup;
             if (isMainYouTubeMessage && msg.StartsWith("youtube_close_hold_progress:", StringComparison.Ordinal))
             {
@@ -7382,12 +7503,14 @@ namespace Doorpi
                 return;
             }
 
-            if (msg == "vkb_opening" || msg == "vkb_opened")
+            if (msg.StartsWith("vkb_opening", StringComparison.Ordinal) ||
+                msg.StartsWith("vkb_opened", StringComparison.Ordinal))
             {
                 LogMediaControllerDiagnostic("js-vkb-open-message", extra: msg);
                 _vkbIsOpen = true;
                 _vkbOwnerView = senderView;
                 _vkbHasFocus = true;
+                _webJsVkbOwnerInChildFrame = msg.EndsWith(":frame", StringComparison.Ordinal);
                 _webJsVkbVisibleValid = true;
                 _webJsVkbLastValidationUtc = DateTime.MinValue;
                 _webJsVkbOpenedAtUtc = DateTime.UtcNow;
@@ -7395,12 +7518,14 @@ namespace Doorpi
                     _ = Dispatcher.InvokeAsync(EnsurePopupVkbControllerFocus);
                 return;
             }
-            if (msg == "vkb_closed")
+            if (msg.StartsWith("vkb_closed", StringComparison.Ordinal))
             {
                 LogMediaControllerDiagnostic("js-vkb-closed-message");
+                Interlocked.Increment(ref _webJsVkbCloseVersion);
                 _vkbIsOpen = false;
                 _vkbOwnerView = null;
                 _vkbHasFocus = false;
+                _webJsVkbOwnerInChildFrame = false;
                 _webJsVkbVisibleValid = false;
                 _webJsVkbOpenedAtUtc = DateTime.MinValue;
                 return;
