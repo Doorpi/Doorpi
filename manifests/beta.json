@@ -1,57 +1,45 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202607141345,
-    "publishedAt":  "2026-07-14T16:45:47.4643337Z",
-    "expiresAt":  "2026-07-28T16:45:47.4643337Z",
+    "manifestVersion":  202607141511,
+    "publishedAt":  "2026-07-14T18:12:06.8886692Z",
+    "expiresAt":  "2026-07-28T18:12:06.8886692Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.1.9",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.9/doorpi-0.1.9.doorpiupdate.zip",
-                   "sha256":  "0d1bb02c251227172f734841724e3c700c285fa15fff683721205bfce5b727c3",
-                   "sizeBytes":  132956417,
+                   "version":  "0.1.10",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.10/doorpi-0.1.10.doorpiupdate.zip",
+                   "sha256":  "069a91b1e2e31224d295eb4104ac2c0b1b8d5546ce6f82d6d7463fa7728e60fa",
+                   "sizeBytes":  132958882,
                    "minUpdaterVersion":  "0.1.0",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
                     "version":  "0.1.0",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.9/updater-0.1.0.doorpiupdate.zip",
-                    "sha256":  "638ba59fe8734b9a52e469cd71e17c1567e45fbd13afe6f3dc3f6f04ccc6bb8f",
-                    "sizeBytes":  69944474,
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.10/updater-0.1.0.doorpiupdate.zip",
+                    "sha256":  "f85b2add364f3226bbce1a7d897c433019be6ab91326c65a80ef7105d6863c23",
+                    "sizeBytes":  69944467,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.1.9",
-                          "title":  "Doorpi 0.1.9",
+                          "version":  "0.1.10",
+                          "title":  "Doorpi 0.1.10",
                           "items":  [
-                                        "Novo seletor de foto de perfil com SteamGrid, URL ou imagem local.",
-                                        "Editor de enquadramento com movimento e zoom pelo controle.",
-                                        "Edição das artes dos jogos no histórico.",
-                                        "Melhorias de navegação, foco, scroll e teclado virtual.",
-                                        "Mudanças da API do Joystick."
+                                        "Hotfix na navegação e compatibilidade ultrawide do YouTube."
                                     ],
                           "locales":  {
                                           "pt-BR":  {
-                                                        "title":  "Doorpi 0.1.9",
+                                                        "title":  "Doorpi 0.1.10",
                                                         "items":  [
-                                                                      "Novo seletor de foto de perfil com SteamGrid, URL ou imagem local.",
-                                                                      "Editor de enquadramento com movimento e zoom pelo controle.",
-                                                                      "Edição das artes dos jogos no histórico.",
-                                                                      "Melhorias de navegação, foco, scroll e teclado virtual.",
-                                                                      "Mudanças da API do Joystick."
+                                                                      "Hotfix na navegação e compatibilidade ultrawide do YouTube."
                                                                   ]
                                                     },
                                           "en":  {
-                                                     "title":  "Doorpi 0.1.9",
+                                                     "title":  "Doorpi 0.1.10",
                                                      "items":  [
-                                                                   "New profile picture picker with SteamGrid, URL, or local image support.",
-                                                                   "Framing editor with controller-based movement and zoom.",
-                                                                   "Game artwork editing in history.",
-                                                                   "Navigation, focus, scroll, and virtual keyboard improvements.",
-                                                                   "Joystick API changes."
+                                                                   "YouTube navigation and ultrawide compatibility hotfix."
                                                                ]
                                                  }
                                       }
@@ -60,6 +48,6 @@
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "mCSOdOu7eeBNLeBb6vx9plXDVmVQ4Ss+raq0MZsVB1Ujv/0qD6srwr3pBd2KnsyeeEbe0cU53iCMFrfT7FrVgBv/25lUPTFAEqraoDIQ922BELxL41eeK9TgYczY9xNJw6bTtKr56oUZwCoHaQW7LzDqCpQXMSW5u950+47ctPyUssPzawy7tYtZrn++zQ5TtMPc5GohrEXk20oL7uw3NJ0MQMOACYixt4dprftbYbM01qpFlQxpmKcoFad1hz+kSAJEqTdCwuQlh576Xualq8bCdQJ0iXgyoRIUm3CqXWQXmDsBtXdNP0cTbZ2LZuPlS99svJ2HHZexdW+7bG3EkfrYAgxROm3qlDgdJgAr2VyCPNpS6tSibw2R9Qgwi8ejDtXSlsv3kcUb+n/jOTlqAszOdp+V6yFIfSQRSxCQokxYKDDpqEDlZ6PpM+aWJrOcjbYfYRTrabeZabfns5X4g/jrQkGIsG7rhSuwdyNxppavJa1s1e6poZSEMdJ7Od+X"
+                      "value":  "fWpOoK29MsYxlsX9uZINJlsz1FfV1GDUPOtG5kbrVoob16sLhWu3CbFsOzYq1urNh1KeyDX9RaEpHTeodS/6bfHg+jXuuy6kKw3v8j4Mh8UglGia41Vy1oV7qpXzAPxOeSBCtdNGhi9th70ft6Icva4e+H0mvp2wt2WsH00wNdZ1A38r4XqCM06gBcERwmYLfB+zqPLRGgLmWkJ/OKP7NILqVdUWwFKaGeFKSSYLr21+034xpEaEsw3U1rccJNwqHdmk8JlYpLAU+fKgb7ul1gPpsK1xCIH+LiaLkMxDqKklqt81oJBM6O5JDbzqMUOWXotUbZMII98Mqj52FYPL/E1zgh7fntwCag1MhKaV10UD4kYQh2qGopbeqIaW3iLjgqB+n2JnC34O4HTo3TCCQlaelRdQnHof/eo+N2j0g8IHGokdx1tOtrPnwP0oyI946gZ6pVnPxAYY/84btJDGBYVTdi1aVz6dQwyUrXI7NFkxN8tGyNdtyZvI3mzTu9Br"
                   }
 }
