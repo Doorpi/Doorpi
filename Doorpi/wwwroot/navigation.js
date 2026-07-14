@@ -1242,6 +1242,7 @@ let _cursorHoldState = { l1: 0, r1: 0 }, _cursorLastTime = { l1: 0, r1: 0 };
 let _doorpiActionQuarantineUntil = 0;
 let _doorpiControllerActivationToken = 0;
 let _doorpiControllerActivationActive = false;
+let _doorpiNativeController = { connected: false, buttons: 0, pendingPressed: 0 };
 
 function markDoorpiControllerActivation() {
     const token = ++_doorpiControllerActivationToken;
@@ -1276,13 +1277,8 @@ function logDoorpiInputBlock(reason) {
 }
 
 function seedDoorpiHeldButtonState() {
-    const held = {};
-    for (const pad of Array.from(navigator.getGamepads?.() || []).filter(Boolean)) {
-        for (let buttonIndex = 0; buttonIndex < (pad.buttons?.length || 0); buttonIndex++) {
-            if (pad.buttons[buttonIndex]?.pressed) held[`${pad.index}:${buttonIndex}`] = true;
-        }
-    }
-    _btnCooldown = held;
+    _btnCooldown = {};
+    _doorpiNativeController.pendingPressed = 0;
 }
 
 window.resetDoorpiGamepadInputState = function () {
@@ -1569,58 +1565,72 @@ function handleArtworkWizardGamepadShortcuts(buttons) {
     return false;
 }
 
-function getConnectedGamepads() {
-    return Array.from(navigator.getGamepads?.() || []).filter(Boolean);
-}
-
 function refreshGamepadPresence() {
-    const first = getConnectedGamepads()[0] || null;
-    isGamepadConnected = !!first;
-    if (first) _controllerType = detectControllerType(first);
-    updateGamepadUI(!!first, _controllerType);
+    isGamepadConnected = !!_doorpiNativeController.connected;
+    _controllerType = 'xbox';
+    updateGamepadUI(isGamepadConnected, _controllerType);
 }
 
 function readAllGamepadInput() {
-    const pads = getConnectedGamepads();
-    if (!pads.length) return null;
+    if (!_doorpiNativeController.connected) return null;
 
-    const maxButtons = Math.max(...pads.map(pad => pad.buttons?.length || 0), 0);
-    const buttons = Array.from({ length: maxButtons }, (_, buttonIndex) => {
-        let pressed = false;
-        let justPressed = false;
+    const held = _doorpiNativeController.buttons >>> 0;
+    const pressedThisFrame = _doorpiNativeController.pendingPressed >>> 0;
+    _doorpiNativeController.pendingPressed = 0;
 
-        for (const pad of pads) {
-            const isPressed = !!pad.buttons?.[buttonIndex]?.pressed;
-            const key = `${pad.index}:${buttonIndex}`;
-            if (isPressed) {
-                pressed = true;
-                if (!_btnCooldown[key]) justPressed = true;
-                _btnCooldown[key] = true;
-            } else {
-                _btnCooldown[key] = false;
-            }
-        }
+    const buttons = Array.from({ length: 17 }, () => ({ pressed: false, justPressed: false }));
+    const mapping = [
+        [0, 0x1000], // A / gatilho direito
+        [1, 0x2000], // B
+        [2, 0x4000], // X
+        [3, 0x8000], // Y
+        [4, 0x0100], // L1
+        [5, 0x0200], // R1
+        [6, 0x0800], // L2
+        [8, 0x0020], // View
+        [9, 0x0010], // Menu
+        [10, 0x0040], // L3
+        [11, 0x0080], // R3
+        [16, 0x0400] // Guide
+    ];
 
-        return { pressed, justPressed };
-    });
-
-    const maxAxes = Math.max(...pads.map(pad => pad.axes?.length || 0), 0);
-    const axes = Array.from({ length: maxAxes }, (_, axisIndex) => {
-        let selected = 0;
-        for (const pad of pads) {
-            const value = Number(pad.axes?.[axisIndex] || 0);
-            if (Math.abs(value) > Math.abs(selected)) selected = value;
-        }
-        return selected;
-    });
+    for (const [index, mask] of mapping) {
+        buttons[index] = {
+            pressed: (held & mask) !== 0,
+            justPressed: (pressedThisFrame & mask) !== 0
+        };
+    }
 
     return {
-        id: pads.map(pad => pad.id).filter(Boolean).join(' | '),
+        id: 'Doorpi XInput',
         index: -1,
         buttons,
-        axes,
-        connectedGamepads: pads
+        // Directional navigation belongs exclusively to the native C# loop and
+        // arrives as keyboard arrows. Keeping axes/D-pad out prevents double moves.
+        axes: [0, 0, 0, 0],
+        connectedGamepads: []
     };
+}
+
+if (window.chrome?.webview) {
+    window.chrome.webview.addEventListener('message', event => {
+        let data = event.data;
+        if (typeof data === 'string') {
+            try { data = JSON.parse(data); } catch { return; }
+        }
+        if (!data || data.type !== 'nativeControllerSnapshot') return;
+
+        const wasConnected = _doorpiNativeController.connected;
+        _doorpiNativeController.connected = !!data.connected;
+        _doorpiNativeController.buttons = Number(data.buttons || 0) >>> 0;
+        _doorpiNativeController.pendingPressed |= Number(data.pressed || 0) >>> 0;
+        if (!_doorpiNativeController.connected) {
+            _doorpiNativeController.buttons = 0;
+            _doorpiNativeController.pendingPressed = 0;
+        }
+        if (wasConnected !== _doorpiNativeController.connected)
+            refreshGamepadPresence();
+    });
 }
 
 window.addEventListener('gamepadconnected', e => {

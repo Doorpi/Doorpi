@@ -4427,7 +4427,7 @@
                     document.querySelectorAll('.new-game').forEach(el => el.classList.remove('new-game'));
                 }
                 window._doorpiProfile = data.user;
-                if (nextUserId) window._doorpiCurrentUserId = nextUserId;
+                window._doorpiCurrentUserId = nextUserId;
                 window._doorpiUserSessionReady = !!nextUserId;
                 window._doorpiIsAdmin = !!data.isAdmin || !!(data.user?.IsAdmin || data.user?.isAdmin);
                 window._adminBlockedStoreIds = new Set(data.blockedStoreIds || []);
@@ -4585,7 +4585,10 @@
             }
             else if (data.type === 'usersList') {
                 window._doorpiUsers = data.users || [];
-                window._doorpiCurrentUserId = data.currentUserId || '';
+                window._doorpiUserSessionReady = data.sessionActive === true;
+                window._doorpiCurrentUserId = window._doorpiUserSessionReady
+                    ? (data.currentUserId || '')
+                    : '';
                 showUserPicker(data.users || [], !!data.requireSelection);
             }
             else if (data.type === 'closeNavMenu') {
@@ -5285,17 +5288,50 @@
         color: #fff;
     }
 
-    .doorpi-user-badge {
-        font-size: 0.65rem;
+    .doorpi-user-card.is-current .doorpi-avatar {
+        border-color: #7dcbff;
+        box-shadow:
+            0 0 0 5px rgba(125, 203, 255, 0.24),
+            0 0 30px rgba(78, 178, 255, 0.2),
+            0 12px 34px rgba(0,0,0,0.28);
+    }
+
+    .doorpi-current-user-indicator {
+        min-width: 86px;
+        height: 28px;
+        padding: 0 14px 0 11px;
+        border-radius: 999px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        color: #07111d;
+        background: linear-gradient(135deg, #a9ddff 0%, #69beff 100%);
+        border: 2px solid rgba(225, 245, 255, 0.82);
+        box-shadow: 0 5px 14px rgba(0,0,0,0.34);
+        box-sizing: border-box;
+        font-size: 0.68rem;
         font-weight: 800;
-        color: rgba(16, 25, 20, 0.95);
-        background: rgba(120, 220, 150, 0.95);
-        padding: 3px 9px;
-        border-radius: 12px;
+        line-height: 1;
+        letter-spacing: 0.04em;
         text-transform: uppercase;
-        letter-spacing: 0.1em;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-        margin-top: -6px;
+        white-space: nowrap;
+        z-index: 3;
+        pointer-events: none;
+    }
+
+    .doorpi-user-status-slot {
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .doorpi-current-user-indicator svg {
+        width: 15px;
+        height: 15px;
+        flex: 0 0 auto;
+        stroke-width: 3;
     }
 
     .doorpi-create-user-icon {
@@ -5953,12 +5989,18 @@ function showUserPicker(users, requireSelection = false) {
     if (introPickerClasses.length) overlay.classList.add(...introPickerClasses);
     overlay.dataset.introPickerClasses = introPickerClasses.join(' ');
 
-    const cards = users.map((user, idx) => `
-        <button class="doorpi-user-card" data-user-id="${escapeHtml(user.Id)}" tabindex="0" style="animation-delay: ${idx * 0.03}s">
+    const activeSessionUserId = window._doorpiUserSessionReady
+        ? String(window._doorpiCurrentUserId || '').toLowerCase()
+        : '';
+    const cards = users.map((user, idx) => {
+        const isCurrent = !!activeSessionUserId && String(user.Id || '').toLowerCase() === activeSessionUserId;
+        return `
+        <button class="doorpi-user-card${isCurrent ? ' is-current' : ''}" data-user-id="${escapeHtml(user.Id)}" tabindex="0"${isCurrent ? ' aria-current="true"' : ''} style="animation-delay: ${idx * 0.03}s">
+            <span class="doorpi-user-status-slot">${isCurrent ? `<span class="doorpi-current-user-indicator" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m5 12 4 4L19 6"/></svg><span>${t('badgeCurrent')}</span></span>` : ''}</span>
             ${avatarMarkup(user)}
             <span class="doorpi-user-name">${escapeHtml(user.Name)}</span>
-            ${user.Id === window._doorpiCurrentUserId ? `<span class="doorpi-user-badge">${t('badgeCurrent')}</span>` : ''}
-        </button>`).join('');
+        </button>`;
+    }).join('');
 
     const createUserDelay = users.length * 0.03;
 
@@ -5982,6 +6024,7 @@ function showUserPicker(users, requireSelection = false) {
                     </div>
                     <div class="doorpi-user-fixed-add">
                         <button class="doorpi-user-card create-card" id="doorpiCreateUserCard" tabindex="0" style="animation-delay: ${createUserDelay}s">
+                            <span class="doorpi-user-status-slot" aria-hidden="true"></span>
                             <div class="doorpi-avatar"><div class="doorpi-create-user-icon">+</div></div>
                             <span class="doorpi-user-name">${t('newUser')}</span>
                         </button>
@@ -6007,11 +6050,11 @@ function showUserPicker(users, requireSelection = false) {
 
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
 
-    const hidePicker = () => {
+    const hidePicker = (options = {}) => {
         overlay.style.display = 'none';
         document.body.classList.remove('user-picker-open');
         window.DoorpiIntro?.finishHandoff?.();
-        if (overlay.dataset.returnToQuickPanel === 'true' && overlay.dataset.required !== 'true') {
+        if (options?.returnToQuickPanel !== false && overlay.dataset.returnToQuickPanel === 'true' && overlay.dataset.required !== 'true') {
             overlay.dataset.returnToQuickPanel = 'false';
             window.DoorpiQuickPanel?.openMenu?.();
         }
@@ -6025,6 +6068,15 @@ function showUserPicker(users, requireSelection = false) {
                 return;
             }
             const user = users.find(u => String(u.Id) === String(btn.dataset.userId));
+            const selectedUserId = String(btn.dataset.userId || '').toLowerCase();
+            const currentUserId = String(window._doorpiCurrentUserId || '').toLowerCase();
+            if (window._doorpiUserSessionReady === true && selectedUserId && selectedUserId === currentUserId) {
+                window._pendingUserSwitchId = '';
+                overlay.dataset.returnToQuickPanel = 'false';
+                hidePicker({ returnToQuickPanel: false });
+                requestAnimationFrame(() => window.focusFeaturedCard?.());
+                return;
+            }
             if (user?.HasPin || user?.hasPin) {
                 showUserPinPrompt(user);
                 return;

@@ -794,9 +794,7 @@ namespace Doorpi
 
             if (session.SuppressInputUntilConfirmReleased)
             {
-                bool confirmStillPressed =
-                    XInputGetStateSecret(0, out var state) == 0 &&
-                    (state.Gamepad.wButtons & 0x1000) != 0;
+                bool confirmStillPressed = (XInputControllerHub.Read().Buttons & 0x1000) != 0;
                 if (confirmStillPressed) return false;
 
                 session.SuppressInputUntilConfirmReleased = false;

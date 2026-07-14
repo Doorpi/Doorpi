@@ -32,10 +32,6 @@ namespace Doorpi
         [DllImport("user32.dll")]
         private static extern int ShowCursor(bool bShow);
 
-        [DllImport("xinput1_4.dll", EntryPoint = "#100")]
-        private static extern int XInputGetStateEx(int dwUserIndex, out XINPUT_STATE pState);
-
-
         // ── Constantes mouse ──────────────────────────────────────────────────
         private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
         private const uint MOUSEEVENTF_LEFTUP = 0x0004;
@@ -2331,7 +2327,10 @@ namespace Doorpi
         private void MediaControllerLoop()
         {
             var sw = Stopwatch.StartNew();
-            ushort prevButtons = GetUnifiedControllerInput().Buttons;
+            var buttonTracker = new XInputButtonTracker();
+            var initialInput = GetUnifiedControllerInput();
+            buttonTracker.Update(initialInput.Source ?? XInputControllerHub.Read());
+            bool previousSyntheticReturnDown = (GetAsyncKeyState(VK_HOME) & 0x8000) != 0;
 
             double speedMult = 1.0;
             double mouseRemainderX = 0;
@@ -2648,6 +2647,7 @@ namespace Doorpi
 
                     bool anyReturnShortcut = false;
                     bool anyAPressed = false, anyAHeld = false;
+                    bool anyPhysicalAPressed = false;
                     bool anyBPressed = false, anyBHeld = false;
                     bool anyXPressed = false, anyXHeld = false;
                     bool anyYPressed = false;
@@ -2666,13 +2666,18 @@ namespace Doorpi
 
                     var input = GetUnifiedControllerInput();
                     ushort btn = input.Buttons;
-                    if (Interlocked.Exchange(ref _webKeyboardHomeRequested, 0) == 1 || (GetAsyncKeyState(VK_HOME) & 0x8000) != 0)
+                    buttonTracker.Update(input.Source ?? XInputControllerHub.Read());
+                    bool syntheticReturnDown = Interlocked.Exchange(ref _webKeyboardHomeRequested, 0) == 1 ||
+                                               (GetAsyncKeyState(VK_HOME) & 0x8000) != 0;
+                    if (syntheticReturnDown)
                         btn |= XI_GUIDE;
 
-                    bool Pressed(ushort mask) => (btn & mask) != 0 && (prevButtons & mask) == 0;
+                    bool Pressed(ushort mask) => buttonTracker.AnyPressed(mask);
                     bool Held(ushort mask) => (btn & mask) != 0;
-                    anyReturnShortcut = IsDoorpiReturnShortcutJustPressed(btn, prevButtons);
+                    anyReturnShortcut = buttonTracker.ReturnShortcutJustPressed ||
+                                        (syntheticReturnDown && !previousSyntheticReturnDown);
                     anyAPressed = Pressed(XI_A); anyAHeld = Held(XI_A);
+                    anyPhysicalAPressed = buttonTracker.AnyPhysicalPressed(XI_A);
                     anyBPressed = Pressed(XI_B); anyBHeld = Held(XI_B);
                     anyXPressed = Pressed(XI_X); anyXHeld = Held(XI_X);
                     anyYPressed = Pressed(XI_Y);
@@ -2699,7 +2704,7 @@ namespace Doorpi
                     if (Math.Abs(input.ThumbRY) > 0.18) totalScrollY = input.ThumbRY;
 
                     ushort mergedButtonsForLog = btn;
-                    prevButtons = btn;
+                    previousSyntheticReturnDown = syntheticReturnDown;
 
                     if (ShouldLogMediaControllerHeartbeat(5000))
                         LogMediaControllerDiagnostic("loop-heartbeat", mergedButtonsForLog, 0);
@@ -2774,9 +2779,19 @@ namespace Doorpi
                     }
 
                     bool useNativeMouse = !_isCurrentSiteYouTube || _popupWindow != null;
-                    bool useNativeWebNavigation = !_isCurrentSiteYouTube || _popupWindow != null || _isGenericBrowserMode;
+                    bool isMainYouTube = _isCurrentSiteYouTube && _popupWindow == null && !_isGenericBrowserMode;
+                    bool useNativeWebNavigation = true;
+                    if (isMainYouTube && currentNavDirBtn == 0)
+                    {
+                        if (input.ThumbLY > mergedDeadZone) { currentNavDirBtn = XI_DPAD_UP; currentNavVk = 0x26; }
+                        else if (input.ThumbLY < -mergedDeadZone) { currentNavDirBtn = XI_DPAD_DOWN; currentNavVk = 0x28; }
+                        else if (input.ThumbLX < -mergedDeadZone) { currentNavDirBtn = XI_DPAD_LEFT; currentNavVk = 0x25; }
+                        else if (input.ThumbLX > mergedDeadZone) { currentNavDirBtn = XI_DPAD_RIGHT; currentNavVk = 0x27; }
+                    }
                     bool vkbInputVisible = IsControllerVkbActuallyVisible();
-                    bool useJavaScriptCloseHold = _isCurrentSiteYouTube && _popupWindow == null;
+                    // Controller state now comes exclusively from the native XInput
+                    // loop, including YouTube's hold-to-close gesture.
+                    bool useJavaScriptCloseHold = false;
 
                     if (!vkbInputVisible && !useJavaScriptCloseHold)
                     {
@@ -2786,6 +2801,8 @@ namespace Doorpi
                             bCloseFired = false;
                             bHoldStartMs = nowMs;
                             HideWebAppCloseHoldOverlay();
+                            if (isMainYouTube)
+                                SendMediaVirtualKey(0x1B);
                         }
 
                         if (bHoldActive && anyBHeld)
@@ -2817,7 +2834,7 @@ namespace Doorpi
                                 bool handled = false;
                                 if (_isGenericBrowserMode)
                                     Dispatcher.Invoke(() => handled = HandleGenericBrowserExtensionsBack());
-                                if (!handled && !_isCurrentSiteYouTube)
+                                if (!handled && !isMainYouTube)
                                 {
                                     Dispatcher.Invoke(() =>
                                     {
@@ -2844,25 +2861,40 @@ namespace Doorpi
                     // Navegação Web Nativa (Setas, Avançar, Voltar, F5)
                     if (useNativeWebNavigation && !vkbInputVisible)
                     {
-                        if (anyR3Pressed) SendMediaVirtualKey(0xAD);
-                        if (anyYPressed) SendMediaVirtualKey(0x46);
-
-                        if (anyXPressed)
+                        if (isMainYouTube)
                         {
-                            SendMediaMouse(0, 0, MOUSEEVENTF_RIGHTDOWN, 0);
-                            SendMediaMouse(0, 0, MOUSEEVENTF_RIGHTUP, 0);
+                            // Preserve the original YouTube TV controller map while
+                            // keeping the browser Gamepad API disabled. Trigger edges
+                            // stay physical so R2 never also fires the A/Enter action.
+                            if (anyPhysicalAPressed) SendMediaVirtualKey(0x0D); // Enter
+                            if (anyXPressed) SendMediaVirtualKey(0x6A);         // Numpad *
+                            if (anyLBPressed) SendMediaVirtualKey(0x73);        // F4
+                            if (anyRBPressed) SendMediaVirtualKey(0x74);        // F5
+                            if (buttonTracker.LeftTriggerJustPressed) SendMediaVirtualKey(0x71);  // F2
+                            if (buttonTracker.RightTriggerJustPressed) SendMediaVirtualKey(0x72); // F3
                         }
-
-                        if (anyLBPressed)
+                        else
                         {
-                            SendMediaMouse(0, 0, MOUSEEVENTF_XDOWN, XBUTTON1);
-                            SendMediaMouse(0, 0, MOUSEEVENTF_XUP, XBUTTON1);
-                        }
+                            if (anyR3Pressed) SendMediaVirtualKey(0xAD);
+                            if (anyYPressed) SendMediaVirtualKey(0x46);
 
-                        if (anyRBPressed)
-                        {
-                            SendMediaMouse(0, 0, MOUSEEVENTF_XDOWN, XBUTTON2);
-                            SendMediaMouse(0, 0, MOUSEEVENTF_XUP, XBUTTON2);
+                            if (anyXPressed)
+                            {
+                                SendMediaMouse(0, 0, MOUSEEVENTF_RIGHTDOWN, 0);
+                                SendMediaMouse(0, 0, MOUSEEVENTF_RIGHTUP, 0);
+                            }
+
+                            if (anyLBPressed)
+                            {
+                                SendMediaMouse(0, 0, MOUSEEVENTF_XDOWN, XBUTTON1);
+                                SendMediaMouse(0, 0, MOUSEEVENTF_XUP, XBUTTON1);
+                            }
+
+                            if (anyRBPressed)
+                            {
+                                SendMediaMouse(0, 0, MOUSEEVENTF_XDOWN, XBUTTON2);
+                                SendMediaMouse(0, 0, MOUSEEVENTF_XUP, XBUTTON2);
+                            }
                         }
 
                         if (currentNavDirBtn != 0)
@@ -7481,7 +7513,9 @@ namespace Doorpi
     if (window.__doorpiGamepadInjected) return;
     window.__doorpiGamepadInjected = true;
 
-    const doorpiGetGamepads = navigator.getGamepads ? navigator.getGamepads.bind(navigator) : null;
+    // The native C# controller loop is the only input owner. This injected layer
+    // only hides the browser Gamepad API from sites that would otherwise react twice.
+    const doorpiGetGamepads = () => [];
     try {
         Object.defineProperty(navigator, 'getGamepads', {
             value: function() { return []; },

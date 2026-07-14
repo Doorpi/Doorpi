@@ -12,7 +12,7 @@ const STRINGS = {
 
         // ---- Adições de app.js e Extensões ----
         noOptionsAvailable: 'Nenhuma opção disponível',
-        badgeCurrent: 'Atual',
+        badgeCurrent: 'Em uso',
         extManagerTitle: 'Gerenciador de Extensões',
         extManagerSubtitle: 'Adicione ou gerencie recursos adicionais do sistema.',
         extManagerInputPlaceholder: 'Cole o link da extensão aqui...',
@@ -951,7 +951,7 @@ const STRINGS = {
 
         // ---- Adições de app.js e Extensões ----
         noOptionsAvailable: 'No options available',
-        badgeCurrent: 'Current',
+        badgeCurrent: 'In use',
         extManagerTitle: 'Extension Manager',
         extManagerSubtitle: 'Add or manage additional system features.',
         extManagerInputPlaceholder: 'Paste the extension link here...',
