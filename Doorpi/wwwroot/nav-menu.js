@@ -2171,7 +2171,7 @@ window.isNavMenuOpen = false;
 .nav-profile-history-list { display: flex; flex-direction: column; gap: 8px; padding: 4px 10px 60px 4px; }
 .nav-profile-history-row { width: 100%; min-height: clamp(72px, 8vh, 104px); display: grid; grid-template-columns: clamp(112px, 12vw, 180px) minmax(0, 1fr) auto; align-items: center; gap: clamp(16px, 2vw, 30px); padding: 8px clamp(14px, 1.5vw, 24px) 8px 8px; border: 1px solid rgba(255,255,255,.08); border-radius: 8px; background: rgba(255,255,255,.035); color: #fff; font: inherit; text-align: left; outline: none; transition: background .16s ease, border-color .16s ease, transform .16s ease; }
 .nav-profile-history-row.nav-focused-el { background: rgba(255,255,255,.11); border-color: rgba(255,255,255,.76); transform: translateX(8px); }
-.nav-profile-history-art { width: 100%; aspect-ratio: 16/9; display: grid; place-items: center; overflow: hidden; border-radius: 6px; background: rgba(0,0,0,.32); }
+.nav-profile-history-art { width: 100%; aspect-ratio: 92/43; display: grid; place-items: center; overflow: hidden; border-radius: 6px; background: rgba(0,0,0,.32); }
 .nav-profile-history-art img { width: 100%; height: 100%; object-fit: cover; }
 .nav-profile-history-art img.is-icon { object-fit: contain; padding: 16%; }
 .nav-profile-history-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(.95rem, 1.25vw, 1.45rem); font-weight: 550; }
@@ -2198,6 +2198,8 @@ window.isNavMenuOpen = false;
     aspect-ratio: 2/3; border-radius: 8px; overflow: hidden; background: rgba(255,255,255,0.03); border: 2px solid transparent;
     position: relative; display: flex; flex-direction: column; transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.2s ease;
 }
+.nav-profile-recent-card.is-most-played { border-color:rgba(114,184,255,.72); box-shadow:0 0 0 1px rgba(114,184,255,.18),0 14px 34px rgba(0,0,0,.32); }
+.nav-profile-most-played-mark { position:absolute; top:8px; left:8px; z-index:4; padding:5px 8px; border:1px solid rgba(255,255,255,.2); border-radius:4px; background:rgba(7,13,25,.82); color:rgba(255,255,255,.88); font-size:clamp(.58rem,.62vw,.72rem); font-weight:750; text-transform:uppercase; }
 .nav-profile-recent-card img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .nav-profile-recent-card.nav-focused-el { transform: scale(1.05); box-shadow: 0 15px 40px rgba(0,0,0,0.6); z-index: 10; }
 .nav-profile-recent-card .nav-card-gradient {
@@ -2922,10 +2924,9 @@ window.isNavMenuOpen = false;
             .filter(g => (g.TotalPlaytimeMinutes || 0) > 0)
             .sort((a, b) => b.TotalPlaytimeMinutes - a.TotalPlaytimeMinutes)[0];
 
-        const recentGames = history
-            .filter(g => g.LastPlayed && !g.LastPlayed.startsWith('0001-01-01'))
-            .sort((a, b) => new Date(b.LastPlayed) - new Date(a.LastPlayed))
-            .slice(0, 6);
+        const playedGames = history
+            .filter(g => (g.TotalPlaytimeMinutes || 0) > 0)
+            .sort((a, b) => (b.TotalPlaytimeMinutes || 0) - (a.TotalPlaytimeMinutes || 0));
 
         const fmtTime = (minutes) => {
             if (!minutes || minutes < 1) return null;
@@ -2954,7 +2955,7 @@ window.isNavMenuOpen = false;
         <div class="nav-profile-showcase">
             <div class="nav-profile-header">
                 <div class="nav-profile-avatar-large">
-                    ${photo ? `<img src="data:image/png;base64,${photo}" />` : '◉'}
+                    ${photo ? `<img src="${window._doorpiUserPhotoSrc?.(photo) || `data:image/png;base64,${photo}`}" />` : '◉'}
                 </div>
                 <div class="nav-profile-info">
                     <h2 class="nav-profile-name">${name}</h2>
@@ -2986,7 +2987,7 @@ window.isNavMenuOpen = false;
             </div>
 
             <div class="nav-profile-section-head">
-                <div class="nav-profile-section-title">${_t('navRecentGames', 'Jogados Recentemente')}</div>
+                <div class="nav-profile-section-title">${_t('navMostPlayedGames', 'Mais jogados')}</div>
                 <button class="nav-profile-journey-btn" id="btnGameHistory" tabindex="-1">
                     ${_t('navGameHistoryBtn', 'Ver jornada')}
                 </button>
@@ -3028,26 +3029,35 @@ window.isNavMenuOpen = false;
 
         const grid = body.querySelector('#profileRecentGrid');
 
-        if (recentGames.length === 0) {
+        const idealCardWidth = Math.max(110, Math.min(205, window.innerWidth * .1));
+        const gridGap = Math.max(10, Math.min(24, window.innerWidth * .012));
+        const visibleSlots = Math.max(3, Math.floor((grid.clientWidth + gridGap) / (idealCardWidth + gridGap)));
+        const showcaseGames = playedGames.slice(0, visibleSlots);
+
+        if (showcaseGames.length === 0) {
             grid.innerHTML = `<div style="color:rgba(255,255,255,0.3); grid-column:1/-1;">
-            ${_t('navNoRecentGames', 'Nenhum jogo recente')}
+            ${_t('navNoPlayedGames', 'Nenhum jogo jogado ainda')}
         </div>`;
         } else {
-            recentGames.forEach((item) => {
-                const staticSrc = _restingGridSrc(item, 'games');
+            showcaseGames.forEach((item, index) => {
+                const localSrc = item.ShowcaseVerticalLocalImage || item.GridStaticImage || item.GridImage || '';
+                const remoteSrc = item.ShowcaseVerticalImageUrl || '';
+                const staticSrc = localSrc || remoteSrc;
                 const totalFmtItem = fmtTime(item.TotalPlaytimeMinutes);
                 const lastFmt = fmtTime(item.LastSessionMinutes);
                 const dateStr = relDate(item.LastPlayed);
                 const pData = _getPlatformData(item.LaunchUrl || item.Source);
 
                 const card = document.createElement('div');
-                card.className = 'nav-profile-recent-card';
+                card.className = `nav-profile-recent-card${index === 0 ? ' is-most-played' : ''}`;
+                card.dataset.historyGameName = item.Name;
 
                 card.innerHTML = staticSrc
                     ? `<img src="${staticSrc}" alt="${item.Name}" />`
                     : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:rgba(255,255,255,0.1);font-size:2rem;">⊞</div>`;
 
                 card.innerHTML += `
+                ${index === 0 ? `<span class="nav-profile-most-played-mark">${_t('navMostPlayedMark', 'Mais jogado')}</span>` : ''}
                 <div class="nav-card-gradient"></div>
                 <div class="nav-profile-recent-info">
                     <div class="nav-profile-recent-platform-icon">${pData.svg}</div>
@@ -3069,6 +3079,13 @@ window.isNavMenuOpen = false;
             `;
 
                 grid.appendChild(card);
+                const artworkImage = card.querySelector(':scope > img');
+                if (artworkImage && remoteSrc && remoteSrc !== staticSrc) {
+                    artworkImage.addEventListener('error', () => {
+                        if (artworkImage.src === remoteSrc) return;
+                        artworkImage.src = remoteSrc;
+                    }, { once: true });
+                }
                 _contentItems.push(card);
 
                 card.addEventListener('mouseenter', () => {
@@ -3076,8 +3093,26 @@ window.isNavMenuOpen = false;
                     _contentIdx = _contentItems.indexOf(card);
                     _updateContentFocus();
                 });
+                card.addEventListener('contextmenu', event => {
+                    event.preventDefault();
+                    _openHistoryArtworkPicker(item, card);
+                });
             });
         }
+    }
+
+    function _openHistoryArtworkPicker(item, element) {
+        if (!item || !element || typeof window.openDoorpiHistoryArtworkPicker !== 'function') return;
+        window.openDoorpiHistoryArtworkPicker(element, item, images => {
+            if (images.vertical) item.ShowcaseVerticalLocalImage = images.vertical;
+            if (images.verticalSourceUrl) item.ShowcaseVerticalImageUrl = images.verticalSourceUrl;
+            if (images.horizontal) item.HistoryHorizontalLocalImage = images.horizontal;
+            if (images.horizontalSourceUrl) item.HistoryHorizontalImageUrl = images.horizontalSourceUrl;
+            const previousIndex = _contentIdx;
+            _renderContent('profile');
+            _contentIdx = Math.max(0, Math.min(previousIndex, _contentItems.length - 1));
+            _updateContentFocus();
+        });
     }
 
     function _renderProfileHistory(body) {
@@ -3120,12 +3155,15 @@ window.isNavMenuOpen = false;
             list.innerHTML = `<div class="nav-profile-history-empty">${_t('navGameHistoryEmpty', 'Nenhum jogo foi jogado ainda')}</div>`;
         } else {
             history.forEach(item => {
-                const image = item.GridHorizontalStaticImage || item.GridHorizontalImage || item.GridStaticImage || item.GridImage || '';
+                const localImage = item.HistoryHorizontalLocalImage || item.GridHorizontalStaticImage || item.GridHorizontalImage || item.ShowcaseVerticalLocalImage || item.GridStaticImage || item.GridImage || '';
+                const remoteImage = item.HistoryHorizontalImageUrl || item.ShowcaseVerticalImageUrl || '';
+                const image = localImage || remoteImage;
                 const icon = item.IconBase64 ? `data:image/png;base64,${item.IconBase64}` : '';
                 const row = document.createElement('button');
                 row.type = 'button';
                 row.tabIndex = -1;
                 row.className = 'nav-profile-history-row';
+                row.dataset.historyGameName = item.Name;
                 row.innerHTML = `
                     <span class="nav-profile-history-art">
                         ${image ? `<img src="${_esc(image)}" alt="" />` : icon ? `<img class="is-icon" src="${_esc(icon)}" alt="" />` : ''}
@@ -3133,7 +3171,18 @@ window.isNavMenuOpen = false;
                     <span class="nav-profile-history-name">${_esc(item.Name)}</span>
                     <span class="nav-profile-history-time">${fmtTime(item.TotalPlaytimeMinutes)}</span>`;
                 list.appendChild(row);
+                const artworkImage = row.querySelector('.nav-profile-history-art img:not(.is-icon)');
+                if (artworkImage && remoteImage && remoteImage !== image) {
+                    artworkImage.addEventListener('error', () => {
+                        if (artworkImage.src === remoteImage) return;
+                        artworkImage.src = remoteImage;
+                    }, { once: true });
+                }
                 _contentItems.push(row);
+                row.addEventListener('contextmenu', event => {
+                    event.preventDefault();
+                    _openHistoryArtworkPicker(item, row);
+                });
             });
         }
 
@@ -3915,7 +3964,7 @@ window.isNavMenuOpen = false;
             <div class="nav-profile-dashboard">
                 <div class="nav-profile-avatar-sec">
                     <button class="nav-profile-photo" id="navProfilePhoto" tabindex="-1">
-                        ${photo ? `<img src="data:image/png;base64,${photo}" />` : '◉'}
+                        ${photo ? `<img src="${window._doorpiUserPhotoSrc?.(photo) || `data:image/png;base64,${photo}`}" />` : '◉'}
                     </button>
                     <span style="color:rgba(255,255,255,0.4); font-size: 0.85rem;">${_t('navAvatarChange', 'Alterar Avatar')}</span>
                 </div>
@@ -3989,7 +4038,41 @@ window.isNavMenuOpen = false;
         };
 
         photoBtn?.addEventListener('click', () => {
-            if (typeof postToHost === 'function') postToHost({ action: 'pickProfilePhoto' });
+            if (typeof window.openDoorpiProfilePhotoPicker !== 'function') {
+                console.error('[ProfilePhoto] Seletor de foto não foi carregado.');
+                return;
+            }
+            window.openDoorpiProfilePhotoPicker({
+                hasApiKey: apiConfigured,
+                returnFocus: photoBtn,
+                onApply: result => {
+                    _menuData.user.PhotoBase64 = result.base64;
+                    _menuData.user.PhotoSource = result.photoSource;
+                    _menuData.user.PhotoSourceUrl = result.photoSourceUrl;
+                    _menuData.user.PhotoSteamGridAssetId = result.photoSteamGridAssetId;
+                    _menuData.user.PhotoCropX = result.photoCropX;
+                    _menuData.user.PhotoCropY = result.photoCropY;
+                    _menuData.user.PhotoZoom = result.photoZoom;
+                    if (window._doorpiProfile) Object.assign(window._doorpiProfile, _menuData.user);
+                    window._applyDoorpiTopProfile?.(window._doorpiProfile || _menuData.user);
+                    postToHost({
+                        action: 'saveUserProfile',
+                        name: _menuData.user.Name || '',
+                        photoBase64: result.base64,
+                        photoSource: result.photoSource,
+                        photoSourceUrl: result.photoSourceUrl,
+                        photoSteamGridAssetId: result.photoSteamGridAssetId,
+                        photoCropX: result.photoCropX,
+                        photoCropY: result.photoCropY,
+                        photoZoom: result.photoZoom,
+                        skipTasks: true
+                    });
+                    const imgTag = `<img src="data:image/jpeg;base64,${result.base64}" />`;
+                    if (photoBtn) photoBtn.innerHTML = imgTag;
+                    document.querySelectorAll('.nav-profile-avatar-large').forEach(avatar => { avatar.innerHTML = imgTag; });
+                    _showSavedFeedback();
+                }
+            });
         });
 
         linkBtn?.addEventListener('click', () => {
@@ -4229,7 +4312,7 @@ window.isNavMenuOpen = false;
         };
 
         const userAvatar = (u) => (u.PhotoBase64 || u.photoBase64)
-            ? `<img src="data:image/png;base64,${u.PhotoBase64 || u.photoBase64}" />`
+            ? `<img src="${window._doorpiUserPhotoSrc?.(u.PhotoBase64 || u.photoBase64) || `data:image/png;base64,${u.PhotoBase64 || u.photoBase64}`}" />`
             : _esc((_userName(u) || '?').charAt(0).toUpperCase());
 
         body.innerHTML = `
@@ -4573,7 +4656,7 @@ window.isNavMenuOpen = false;
             return _t('shareModePrivate', 'Separado');
         };
         const userAvatar = (u) => (u.PhotoBase64 || u.photoBase64)
-            ? `<img src="data:image/png;base64,${u.PhotoBase64 || u.photoBase64}" />`
+            ? `<img src="${window._doorpiUserPhotoSrc?.(u.PhotoBase64 || u.photoBase64) || `data:image/png;base64,${u.PhotoBase64 || u.photoBase64}`}" />`
             : _esc((_userName(u) || '?').charAt(0).toUpperCase());
 
         const listHtml = _sharingSubView === 'stores'
@@ -5392,6 +5475,7 @@ window.isNavMenuOpen = false;
         }
 
         if (window.isNavMenuOpen) {
+            if (document.querySelector('.profile-photo-picker-overlay, .artwork-wizard-overlay')) return;
             if (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) return;
             if (typeof isEditModalOpen !== 'undefined' && isEditModalOpen) return;
 
@@ -5973,7 +6057,7 @@ window.isNavMenuOpen = false;
 
                     if (!window.isNavMenuOpen) return;
 
-                    const imgTag = `<img src="data:image/png;base64,${data.base64}" />`;
+                    const imgTag = `<img src="${window._doorpiUserPhotoSrc?.(data.base64) || `data:image/png;base64,${data.base64}`}" />`;
 
                     const photoBtn = document.getElementById('navProfilePhoto');
                     if (photoBtn) photoBtn.innerHTML = imgTag;
@@ -6006,6 +6090,12 @@ window.isNavMenuOpen = false;
     window._navMenuTriggerCtxMenu = function () {
         if (!window.isNavMenuOpen) return;
         const catId = CATS[_catIdx]?.id;
+        const focusedProfileItem = _contentItems[_contentIdx];
+        if (catId === 'profile' && focusedProfileItem?.dataset?.historyGameName) {
+            const item = (_menuData.history || []).find(entry => entry?.Name === focusedProfileItem.dataset.historyGameName);
+            if (item) _openHistoryArtworkPicker(item, focusedProfileItem);
+            return;
+        }
         const allowGpuUpdaterContext =
             catId === 'settings' &&
             _settingsSubView === 'system' &&

@@ -157,6 +157,11 @@ function getModalGroups() {
 
 function getNavigableItems() {
     if (isVkbOpenForNavigation()) return Array.from(document.querySelectorAll('.vkb-key[tabindex="0"]'));
+    const transientPicker = document.querySelector('.profile-photo-picker-overlay, .artwork-wizard-overlay');
+    if (transientPicker) {
+        return Array.from(transientPicker.querySelectorAll('input, button'))
+            .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0 && !el.disabled);
+    }
     if (window.isDoorpiOverlayOpen?.()) return window.getDoorpiOverlayItems?.() || [];
     if (isSetupOpen) return typeof getSetupItems === 'function' ? getSetupItems() : [];
     if (isCtxMenuOpen) return getCtxMenuItems();
@@ -264,29 +269,38 @@ function findWrapCandidate(items, current, direction) {
 }
 
 function findArtworkWizardGridCandidate(items, current, direction) {
-    const cr = current.getBoundingClientRect();
-    const cx = cr.left + cr.width / 2;
-    const cy = cr.top + cr.height / 2;
-    let best = null;
-    let bestScore = Infinity;
-
-    items.forEach(item => {
-        if (item === current) return;
-        const r = item.getBoundingClientRect();
-        const icx = r.left + r.width / 2;
-        const icy = r.top + r.height / 2;
-        const primary = direction === 'DOWN' ? icy - cy : cy - icy;
-        if (primary <= 4) return;
-
-        const lateral = Math.abs(icx - cx);
-        const score = primary * 3 + lateral;
-        if (score < bestScore) {
-            bestScore = score;
-            best = item;
-        }
+    const visual = items
+        .map(el => ({ el, rect: el.getBoundingClientRect() }))
+        .sort((a, b) => Math.abs(a.rect.top - b.rect.top) > 8
+            ? a.rect.top - b.rect.top
+            : a.rect.left - b.rect.left);
+    const rows = [];
+    visual.forEach(item => {
+        const row = rows.find(candidate => Math.abs(candidate.top - item.rect.top) <= 8);
+        if (row) row.items.push(item);
+        else rows.push({ top: item.rect.top, items: [item] });
     });
+    rows.forEach(row => row.items.sort((a, b) => a.rect.left - b.rect.left));
 
-    return best;
+    const rowIndex = rows.findIndex(row => row.items.some(item => item.el === current));
+    if (rowIndex < 0) return null;
+    if (direction === 'LEFT' || direction === 'RIGHT') {
+        const row = rows[rowIndex];
+        const itemIndex = row.items.findIndex(item => item.el === current);
+        const targetIndex = itemIndex + (direction === 'RIGHT' ? 1 : -1);
+        return row.items[targetIndex]?.el || null;
+    }
+
+    const targetRowIndex = direction === 'DOWN' ? rowIndex + 1 : rowIndex - 1;
+    if (targetRowIndex < 0 || targetRowIndex >= rows.length) return null;
+
+    const currentRect = current.getBoundingClientRect();
+    const currentX = currentRect.left + currentRect.width / 2;
+    return rows[targetRowIndex].items.reduce((best, item) => {
+        const itemX = item.rect.left + item.rect.width / 2;
+        const distance = Math.abs(itemX - currentX);
+        return !best || distance < best.distance ? { el: item.el, distance } : best;
+    }, null)?.el || null;
 }
 
 function revealArtworkWizardChoice(choice) {
@@ -301,19 +315,68 @@ function revealArtworkWizardChoice(choice) {
     grid.scrollTo({ top: Math.max(0, centeredTop), behavior: 'smooth' });
 }
 
-function handleArtworkWizardGridDirection(direction, current) {
-    if (direction !== 'DOWN' && direction !== 'UP') return false;
-    if (!current?.classList?.contains('artwork-choice')) return false;
+function revealProfilePhotoChoice(choice) {
+    if (!choice?.classList?.contains('profile-photo-choice')) return;
+    const body = choice.closest('.profile-photo-picker-body');
+    if (!body) return;
+    const bodyRect = body.getBoundingClientRect();
+    const choiceRect = choice.getBoundingClientRect();
+    const centeredTop = body.scrollTop
+        + (choiceRect.top - bodyRect.top)
+        - ((body.clientHeight - choiceRect.height) / 2);
+    const maxScroll = Math.max(0, body.scrollHeight - body.clientHeight);
+    body.scrollTo({ top: Math.max(0, Math.min(maxScroll, centeredTop)), behavior: 'smooth' });
+}
 
-    const grid = current.closest('.artwork-results');
+function handleArtworkWizardGridDirection(direction, current) {
+    if (!['DOWN', 'UP', 'LEFT', 'RIGHT'].includes(direction)) return false;
+    const isArtworkChoice = current?.classList?.contains('artwork-choice');
+    const isProfileChoice = current?.classList?.contains('profile-photo-choice');
+    if (!isArtworkChoice && !isProfileChoice) return false;
+
+    const grid = isProfileChoice
+        ? current.closest('.profile-photo-picker-body')
+        : current.closest('.artwork-results');
     if (!grid) return false;
 
-    const choices = Array.from(grid.querySelectorAll('.artwork-choice'))
+    const selector = isProfileChoice ? '.profile-photo-choice' : '.artwork-choice';
+    const choices = Array.from(grid.querySelectorAll(selector))
         .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0 && !el.disabled);
+
+    if (isProfileChoice && direction === 'UP' && choices.length) {
+        const currentRect = current.getBoundingClientRect();
+        const firstRowTop = Math.min(...choices.map(choice => choice.getBoundingClientRect().top));
+        const rowTolerance = Math.max(12, currentRect.height * 0.12);
+        if (Math.abs(currentRect.top - firstRowTop) <= rowTolerance) {
+            const searchInput = grid.querySelector('#profilePhotoSearchInput');
+            if (searchInput) {
+                grid.scrollTo({ top: 0, behavior: 'smooth' });
+                searchInput.focus({ preventScroll: true });
+                return true;
+            }
+        }
+    }
+
     const target = findArtworkWizardGridCandidate(choices, current, direction);
     if (target && target !== current) {
         target.focus({ preventScroll: true });
-        revealArtworkWizardChoice(target);
+        if (isProfileChoice) {
+            revealProfilePhotoChoice(target);
+        } else if (direction === 'UP' || direction === 'DOWN') {
+            revealArtworkWizardChoice(target);
+        } else {
+            target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        }
+        return true;
+    }
+
+    if (direction === 'LEFT' || direction === 'RIGHT') return true;
+
+    if (isProfileChoice) {
+        if (direction === 'DOWN' && choices.length) {
+            choices[0].focus({ preventScroll: true });
+            revealProfilePhotoChoice(choices[0]);
+        }
         return true;
     }
 
@@ -349,6 +412,39 @@ function resolveExplicitNavTarget(current, direction) {
     } catch { }
 
     return null;
+}
+
+function handleProfilePhotoSearchDirection(direction, current) {
+    const overlay = current?.closest?.('.profile-photo-picker-overlay');
+    if (!overlay) return false;
+
+    const input = overlay.querySelector('#profilePhotoSearchInput');
+    const searchButton = overlay.querySelector('#profilePhotoSearchButton');
+    const suggestions = Array.from(overlay.querySelectorAll('.profile-photo-game-suggestion'))
+        .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0 && !el.disabled);
+    const firstArtwork = overlay.querySelector('.profile-photo-choice:not(:disabled)');
+
+    if (current === input) {
+        if (direction === 'RIGHT') searchButton?.focus({ preventScroll: true });
+        else if (direction === 'DOWN') (suggestions[0] || firstArtwork)?.focus({ preventScroll: true });
+        return true;
+    }
+
+    if (current === searchButton) {
+        if (direction === 'LEFT' || direction === 'UP') input?.focus({ preventScroll: true });
+        else if (direction === 'DOWN') (suggestions[0] || firstArtwork)?.focus({ preventScroll: true });
+        return true;
+    }
+
+    const suggestionIndex = suggestions.indexOf(current);
+    if (suggestionIndex >= 0) {
+        if (direction === 'UP') (suggestions[suggestionIndex - 1] || input)?.focus({ preventScroll: true });
+        else if (direction === 'DOWN') (suggestions[suggestionIndex + 1] || firstArtwork)?.focus({ preventScroll: true });
+        else if (direction === 'LEFT') input?.focus({ preventScroll: true });
+        return true;
+    }
+
+    return false;
 }
 
 function findVkbCandidate(items, current, direction) {
@@ -703,6 +799,27 @@ function moveFocus(direction) {
 
         let target = findVkbCandidate(items, current, direction);
         if (target) target.focus();
+        return;
+    }
+
+    const transientPicker = document.querySelector('.profile-photo-picker-overlay, .artwork-wizard-overlay');
+    if (transientPicker) {
+        const items = getNavigableItems();
+        if (!items.length) return;
+        const current = document.activeElement;
+        if (handleProfilePhotoSearchDirection(direction, current)) return;
+        if (handleArtworkWizardGridDirection(direction, current)) return;
+        if (!items.includes(current)) { items[0]?.focus(); return; }
+        const target = resolveExplicitNavTarget(current, direction) ||
+            findSpatialCandidate(items, current, direction) ||
+            findWrapCandidate(items, current, direction);
+        if (target && target !== current) {
+            target.focus({ preventScroll: true });
+            revealArtworkWizardChoice(target);
+            if (target.classList?.contains('profile-photo-choice')) revealProfilePhotoChoice(target);
+            else if (target.id === 'profilePhotoSearchInput')
+                target.closest('.profile-photo-picker-body')?.scrollTo({ top: 0, behavior: 'smooth' });
+        }
         return;
     }
 
@@ -1164,7 +1281,8 @@ document.addEventListener('keydown', e => {
     }
 
     // O NavMenu bloqueia o teclado, a menos que as popups que abriram dele estejam no topo
-    if (window.isNavMenuOpen && !isCtxMenuOpen && !isEditModalOpen) {
+    if (window.isNavMenuOpen && !isCtxMenuOpen && !isEditModalOpen &&
+        !document.querySelector('.profile-photo-picker-overlay, .artwork-wizard-overlay')) {
         if (e.key === 'Escape' || e.key === 'Backspace') {
             e.preventDefault();
             e.stopImmediatePropagation();
@@ -1210,13 +1328,23 @@ document.addEventListener('keydown', e => {
     }
 
     if (e.key === ' ' || e.key === 'Spacebar') {
-        if (!isModalOpen && !isCtxMenuOpen && !isEditModalOpen) {
+        if (!isModalOpen && !isCtxMenuOpen && !isEditModalOpen &&
+            !document.querySelector('.profile-photo-picker-overlay, .artwork-wizard-overlay')) {
             e.preventDefault(); triggerContextMenu(); return;
         }
     }
 
     if (e.key === 'Escape') {
         e.preventDefault();
+
+        if (document.querySelector('.profile-photo-picker-overlay')) {
+            window._profilePhotoPickerShortcut?.('cancel');
+            return;
+        }
+        if (document.querySelector('.artwork-wizard-overlay')) {
+            window._artworkWizardShortcut?.('cancel');
+            return;
+        }
 
         // 1. Se for o Overlay de Perfil, aplica a trava de segurança
         if (window.isDoorpiOverlayOpen?.()) {
@@ -1242,7 +1370,7 @@ let _cursorHoldState = { l1: 0, r1: 0 }, _cursorLastTime = { l1: 0, r1: 0 };
 let _doorpiActionQuarantineUntil = 0;
 let _doorpiControllerActivationToken = 0;
 let _doorpiControllerActivationActive = false;
-let _doorpiNativeController = { connected: false, buttons: 0, pendingPressed: 0 };
+let _doorpiNativeController = { connected: false, buttons: 0, pendingPressed: 0, rightX: 0, rightY: 0 };
 
 function markDoorpiControllerActivation() {
     const token = ++_doorpiControllerActivationToken;
@@ -1624,9 +1752,15 @@ if (window.chrome?.webview) {
         _doorpiNativeController.connected = !!data.connected;
         _doorpiNativeController.buttons = Number(data.buttons || 0) >>> 0;
         _doorpiNativeController.pendingPressed |= Number(data.pressed || 0) >>> 0;
+        _doorpiNativeController.rightX = Number(data.rightX || 0);
+        _doorpiNativeController.rightY = Number(data.rightY || 0);
+        if (window._profilePhotoPickerIsOpen?.())
+            window._profilePhotoPickerAdjustZoom?.(_doorpiNativeController.rightY);
         if (!_doorpiNativeController.connected) {
             _doorpiNativeController.buttons = 0;
             _doorpiNativeController.pendingPressed = 0;
+            _doorpiNativeController.rightX = 0;
+            _doorpiNativeController.rightY = 0;
         }
         if (wasConnected !== _doorpiNativeController.connected)
             refreshGamepadPresence();
@@ -1708,6 +1842,25 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
 
         const { GAMEPAD } = NAV, buttons = gamepad.buttons;
         const thr = GAMEPAD.AXIS_THRESHOLD, now = performance.now();
+
+        if (window._profilePhotoPickerIsOpen?.() && !isVkbOpenForNavigation()) {
+            _currentDirection = null;
+            _moveState = 0;
+            if (primaryJustPressed(buttons, GAMEPAD))
+                window._profilePhotoPickerShortcut?.('confirm');
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL))
+                window._profilePhotoPickerShortcut?.('cancel');
+            return;
+        }
+
+        if (window._artworkWizardIsOpen?.() && !isVkbOpenForNavigation()) {
+            _currentDirection = null;
+            _moveState = 0;
+            if (handleArtworkWizardGamepadShortcuts(buttons)) return;
+            if (primaryJustPressed(buttons, GAMEPAD))
+                window._artworkWizardShortcut?.('confirm');
+            return;
+        }
 
         if (isWaitingLaunch) {
             if (primaryJustPressed(buttons, GAMEPAD)) {

@@ -129,6 +129,7 @@ namespace Doorpi
         private DateTime _genericBrowserIgnoreOutsideClickUntilUtc = DateTime.MinValue;
         private bool _isGenericBrowserMode;
         private bool _genericBrowserCaptureWebAppUrl;
+        private string _genericBrowserCaptureTarget = "webApp";
         private string _activeMediaWebViewProfilePath = "";
         private string _genericBrowserCaptureInitialClipboard = "";
         private System.Windows.Threading.DispatcherTimer? _genericBrowserCaptureClipboardTimer;
@@ -2130,8 +2131,12 @@ namespace Doorpi
         }
 
         private void BeginGenericBrowserWebAppUrlCapture()
+            => BeginGenericBrowserUrlCapture("webApp");
+
+        private void BeginGenericBrowserUrlCapture(string target)
         {
             _genericBrowserCaptureWebAppUrl = true;
+            _genericBrowserCaptureTarget = string.IsNullOrWhiteSpace(target) ? "webApp" : target.Trim();
             try { _genericBrowserCaptureInitialClipboard = Clipboard.ContainsText() ? Clipboard.GetText().Trim() : ""; }
             catch { _genericBrowserCaptureInitialClipboard = ""; }
 
@@ -2158,6 +2163,7 @@ namespace Doorpi
         {
             _genericBrowserCaptureWebAppUrl = false;
             _genericBrowserCaptureInitialClipboard = "";
+            _genericBrowserCaptureTarget = "webApp";
             try { _genericBrowserCaptureClipboardTimer?.Stop(); } catch { }
             _genericBrowserCaptureClipboardTimer = null;
         }
@@ -2165,6 +2171,7 @@ namespace Doorpi
         private bool TryCompleteGenericBrowserWebAppUrlCapture(string url)
         {
             if (!_genericBrowserCaptureWebAppUrl || !IsCapturableWebUrl(url)) return false;
+            string target = _genericBrowserCaptureTarget;
             StopGenericBrowserWebAppUrlCapture();
 
             try
@@ -2173,6 +2180,7 @@ namespace Doorpi
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         type = "webAppBrowserUrlCaptured",
+                        target,
                         url = url.Trim()
                     }));
             }
@@ -6851,6 +6859,7 @@ namespace Doorpi
                 _isStoreLauncherSession &&
                 string.Equals(_storeSessionKind, "web", StringComparison.OrdinalIgnoreCase);
             bool shouldReturnToWebAppForm = _isGenericBrowserMode && _genericBrowserCaptureWebAppUrl;
+            string browserCaptureTarget = _genericBrowserCaptureTarget;
             bool doorpiRestoredAfterWebClose = false;
 
             void RestoreDoorpiAfterWebAppWindowClosed()
@@ -6991,7 +7000,11 @@ namespace Doorpi
                 try
                 {
                     webView.CoreWebView2?.PostWebMessageAsString(
-                        "{\"type\":\"webAppBrowserCaptureCanceled\"}");
+                        System.Text.Json.JsonSerializer.Serialize(new
+                        {
+                            type = "webAppBrowserCaptureCanceled",
+                            target = browserCaptureTarget
+                        }));
                 }
                 catch { }
             }

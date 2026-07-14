@@ -78,6 +78,12 @@ namespace Doorpi
         public string Id { get; set; } = "";
         public string Name { get; set; } = "";
         public string PhotoBase64 { get; set; } = "";
+        public string PhotoSource { get; set; } = "";
+        public string PhotoSourceUrl { get; set; } = "";
+        public int PhotoSteamGridAssetId { get; set; }
+        public double PhotoCropX { get; set; }
+        public double PhotoCropY { get; set; }
+        public double PhotoZoom { get; set; } = 1;
         public string SteamGridApiKey { get; set; } = "";
         public string PinCode { get; set; } = "";
         public bool IsAdmin { get; set; } = false;
@@ -1990,6 +1996,12 @@ namespace Doorpi
             user.Id,
             user.Name,
             user.PhotoBase64,
+            user.PhotoSource,
+            user.PhotoSourceUrl,
+            user.PhotoSteamGridAssetId,
+            user.PhotoCropX,
+            user.PhotoCropY,
+            user.PhotoZoom,
             user.IsAdmin,
             HasPin = !string.IsNullOrWhiteSpace(user.PinCode)
         };
@@ -2346,6 +2358,12 @@ namespace Doorpi
                     user.Id,
                     user.Name,
                     user.PhotoBase64,
+                    user.PhotoSource,
+                    user.PhotoSourceUrl,
+                    user.PhotoSteamGridAssetId,
+                    user.PhotoCropX,
+                    user.PhotoCropY,
+                    user.PhotoZoom,
                     user.IsAdmin,
                     user.DateCreated,
                     user.LastUsed,
@@ -12261,6 +12279,8 @@ namespace Doorpi
                     LaunchUrl = app.LaunchUrl,
                     GridImage = steamAssets.Item1,
                     GridHorizontalImage = steamAssets.Item2,
+                    GridSourceUrl = steamAssets.Item1,
+                    GridHorizontalSourceUrl = steamAssets.Item2,
                     HeroImage = steamAssets.Item3,
                     LogoImage = steamAssets.Item4,
                     IconBase64 = app.IconBase64,
@@ -12390,6 +12410,8 @@ namespace Doorpi
 
                 game.GridImage = $"https://data.local/images/grid/{Path.GetFileName(gridTask.Result)}";
                 if (horizontalTask.Result != null) game.GridHorizontalImage = $"https://data.local/images/grid-horizontal/{Path.GetFileName(horizontalTask.Result)}";
+                game.GridSourceUrl = assets.Grid;
+                game.GridHorizontalSourceUrl = assets.Horizontal;
                 game.HeroImage = $"https://data.local/images/hero/{Path.GetFileName(heroTask.Result)}";
                 if (logoTask.Result != null) game.LogoImage = $"https://data.local/images/logo/{Path.GetFileName(logoTask.Result)}";
                 game.ArtworkSource = "steam-cdn-local";
@@ -12451,6 +12473,8 @@ namespace Doorpi
 
                     game.GridImage = $"https://data.local/images/grid/{Path.GetFileName(gridTask.Result)}";
                     game.GridHorizontalImage = hTask.Result != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(hTask.Result)}" : game.GridImage;
+                    game.GridSourceUrl = gridUrl;
+                    game.GridHorizontalSourceUrl = !string.IsNullOrWhiteSpace(horizontalUrl) ? horizontalUrl : gridUrl;
                     game.HeroImage = $"https://data.local/images/hero/{Path.GetFileName(heroTask.Result)}";
                     game.LogoImage = logoTask.Result != null ? $"https://data.local/images/logo/{Path.GetFileName(logoTask.Result)}" : "";
                     game.IsPendingArtwork = false;
@@ -13685,6 +13709,229 @@ namespace Doorpi
                             })));
                     });
                 }
+                else if (action == "searchProfilePhotoGames")
+                {
+                    string requestId = GetStr(root, "requestId");
+                    string query = GetStr(root, "query");
+                    string apiKey = GetStr(root, "apiKey");
+                    if (string.IsNullOrWhiteSpace(apiKey)) apiKey = GetSteamGridApiKey();
+
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var games = await SearchProfilePhotoGameSuggestionsAsync(
+                                query,
+                                apiKey,
+                                CancellationToken.None).ConfigureAwait(false);
+                            Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(
+                                JsonSerializer.Serialize(new
+                                {
+                                    type = "profilePhotoGameSuggestions",
+                                    requestId,
+                                    query,
+                                    games = games.Select(game => new { id = game.Id, name = game.Name }).ToList()
+                                })));
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine("[ProfilePhoto] Autocomplete falhou: " + ex.Message);
+                            Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(
+                                JsonSerializer.Serialize(new
+                                {
+                                    type = "profilePhotoGameSuggestions",
+                                    requestId,
+                                    query,
+                                    games = Array.Empty<object>()
+                                })));
+                        }
+                    });
+                }
+                else if (action == "searchProfilePhotoArtwork")
+                {
+                    string requestId = GetStr(root, "requestId");
+                    string query = GetStr(root, "query");
+                    string apiKey = GetStr(root, "apiKey");
+                    bool suggestions = root.TryGetProperty("suggestions", out var suggestionsEl) && suggestionsEl.GetBoolean();
+                    if (string.IsNullOrWhiteSpace(apiKey)) apiKey = GetSteamGridApiKey();
+
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var result = await SearchProfilePhotoArtworkAsync(
+                                query,
+                                apiKey,
+                                suggestions,
+                                CancellationToken.None).ConfigureAwait(false);
+                            var squares = result.Squares.Select(item => new
+                            {
+                                id = item.Id,
+                                url = item.Url,
+                                thumb = item.Thumb,
+                                score = item.Score,
+                                width = item.Width,
+                                height = item.Height,
+                                shape = item.Shape,
+                                gameName = item.GameName
+                            }).ToList();
+                            var verticals = result.Verticals.Select(item => new
+                            {
+                                id = item.Id,
+                                url = item.Url,
+                                thumb = item.Thumb,
+                                score = item.Score,
+                                width = item.Width,
+                                height = item.Height,
+                                shape = item.Shape,
+                                gameName = item.GameName
+                            }).ToList();
+                            Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(
+                                JsonSerializer.Serialize(new
+                                {
+                                    type = "profilePhotoArtworkResults",
+                                    requestId,
+                                    query,
+                                    suggestions,
+                                    squares,
+                                    verticals
+                                })));
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine("[ProfilePhoto] Pesquisa falhou: " + ex.Message);
+                            Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(
+                                JsonSerializer.Serialize(new
+                                {
+                                    type = "profilePhotoArtworkResults",
+                                    requestId,
+                                    query,
+                                    suggestions,
+                                    squares = Array.Empty<object>(),
+                                    verticals = Array.Empty<object>(),
+                                    error = "profile-photo-search-failed"
+                                })));
+                        }
+                    });
+                }
+                else if (action == "loadProfilePhotoSource")
+                {
+                    string requestId = GetStr(root, "requestId");
+                    string url = GetStr(root, "url");
+                    string source = GetStr(root, "source", "url");
+                    int assetId = root.TryGetProperty("assetId", out var assetIdEl) && assetIdEl.TryGetInt32(out int parsedAssetId)
+                        ? parsedAssetId
+                        : 0;
+
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            int lastPercent = -1;
+                            long lastProgressAt = 0;
+                            void ReportProgress(long receivedBytes, long? totalBytes)
+                            {
+                                int? percent = totalBytes is > 0
+                                    ? Math.Clamp((int)Math.Round(receivedBytes * 100d / totalBytes.Value), 0, 100)
+                                    : null;
+                                long now = Environment.TickCount64;
+                                if (percent.HasValue)
+                                {
+                                    if (percent.Value != 100 && lastPercent >= 0 &&
+                                        percent.Value < lastPercent + 4 && now - lastProgressAt < 180)
+                                        return;
+                                    lastPercent = percent.Value;
+                                }
+                                else if (receivedBytes > 0 && now - lastProgressAt < 180)
+                                {
+                                    return;
+                                }
+
+                                lastProgressAt = now;
+                                _ = Dispatcher.BeginInvoke(new Action(() =>
+                                    webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                                    {
+                                        type = "profilePhotoSourceProgress",
+                                        requestId,
+                                        receivedBytes,
+                                        totalBytes,
+                                        percent
+                                    }))));
+                            }
+
+                            var loaded = await DownloadProfilePhotoSourceAsync(
+                                url,
+                                ReportProgress,
+                                CancellationToken.None).ConfigureAwait(false);
+                            string dataUrl = $"data:{loaded.Mime};base64,{Convert.ToBase64String(loaded.Bytes)}";
+                            Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(
+                                JsonSerializer.Serialize(new
+                                {
+                                    type = "profilePhotoSourceLoaded",
+                                    requestId,
+                                    dataUrl,
+                                    source,
+                                    sourceUrl = url,
+                                    assetId
+                                })));
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine("[ProfilePhoto] Fonte rejeitada: " + ex.Message);
+                            string error = ex is InvalidDataException ? ex.Message : "profile-photo-download-failed";
+                            Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(
+                                JsonSerializer.Serialize(new { type = "profilePhotoSourceFailed", requestId, error })));
+                        }
+                    });
+                }
+                else if (action == "pickProfilePhotoSource")
+                {
+                    string requestId = GetStr(root, "requestId");
+                    string dialogTitle = GetStr(root, "dialogTitle", "Select profile photo");
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        var dlg = new Microsoft.Win32.OpenFileDialog
+                        {
+                            Title = dialogTitle,
+                            Filter = "Static images (*.png;*.jpg;*.jpeg;*.webp)|*.png;*.jpg;*.jpeg;*.webp"
+                        };
+
+                        bool? dialogResult = ShowDialogWithController(dlg, "profilePhoto");
+                        if (dialogResult != true)
+                        {
+                            webView.CoreWebView2.PostWebMessageAsString(
+                                JsonSerializer.Serialize(new { type = "profilePhotoSourceCanceled", requestId }));
+                            return;
+                        }
+
+                        try
+                        {
+                            var info = new FileInfo(dlg.FileName);
+                            if (info.Length > ProfilePhotoMaxBytes)
+                                throw new InvalidDataException("profile-photo-too-large");
+                            byte[] bytes = File.ReadAllBytes(dlg.FileName);
+                            if (!TryGetStaticProfilePhotoMime(bytes, out string mime))
+                                throw new InvalidDataException("profile-photo-invalid-format");
+                            string dataUrl = $"data:{mime};base64,{Convert.ToBase64String(bytes)}";
+                            webView.CoreWebView2.PostWebMessageAsString(
+                                JsonSerializer.Serialize(new
+                                {
+                                    type = "profilePhotoSourceLoaded",
+                                    requestId,
+                                    dataUrl,
+                                    source = "local",
+                                    sourceUrl = "",
+                                    assetId = 0
+                                }));
+                        }
+                        catch (Exception ex)
+                        {
+                            string error = ex is InvalidDataException ? ex.Message : "profile-photo-read-failed";
+                            webView.CoreWebView2.PostWebMessageAsString(
+                                JsonSerializer.Serialize(new { type = "profilePhotoSourceFailed", requestId, error }));
+                        }
+                    });
+                }
                 else if (action == "pickArtworkImage")
                 {
                     string requestId = GetStr(root, "requestId");
@@ -13766,6 +14013,30 @@ namespace Doorpi
                         });
                     }
                 }
+                else if (action == "applyHistoryArtworkSelection" &&
+                         root.TryGetProperty("images", out var historyArtworkImagesEl))
+                {
+                    string gameName = GetStr(root, "gameName");
+                    string requestId = GetStr(root, "requestId");
+                    var imagesClone = historyArtworkImagesEl.Clone();
+
+                    if (!string.IsNullOrWhiteSpace(gameName))
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            var result = await SaveSelectedHistoryArtworkAsync(gameName, imagesClone).ConfigureAwait(false);
+                            Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(
+                                JsonSerializer.Serialize(new
+                                {
+                                    type = "artworkSelectionApplied",
+                                    requestId,
+                                    gameName,
+                                    isHistory = true,
+                                    images = result
+                                })));
+                        });
+                    }
+                }
                 else if (action == "editGame" && root.TryGetProperty("gameId", out var editIdEl))
                 {
                     string gameId = editIdEl.GetString() ?? "";
@@ -13834,6 +14105,12 @@ namespace Doorpi
                             Id = MakeUserId(GetStr(userEl, "name")),
                             Name = GetStr(userEl, "name"),
                             PhotoBase64 = GetStr(userEl, "photoBase64"),
+                            PhotoSource = GetStr(userEl, "photoSource"),
+                            PhotoSourceUrl = GetStr(userEl, "photoSourceUrl"),
+                            PhotoSteamGridAssetId = userEl.TryGetProperty("photoSteamGridAssetId", out var setupPhotoAssetEl) && setupPhotoAssetEl.TryGetInt32(out int setupPhotoAssetId) ? setupPhotoAssetId : 0,
+                            PhotoCropX = userEl.TryGetProperty("photoCropX", out var setupPhotoCropXEl) && setupPhotoCropXEl.TryGetDouble(out double setupPhotoCropX) ? setupPhotoCropX : 0,
+                            PhotoCropY = userEl.TryGetProperty("photoCropY", out var setupPhotoCropYEl) && setupPhotoCropYEl.TryGetDouble(out double setupPhotoCropY) ? setupPhotoCropY : 0,
+                            PhotoZoom = userEl.TryGetProperty("photoZoom", out var setupPhotoZoomEl) && setupPhotoZoomEl.TryGetDouble(out double setupPhotoZoom) ? setupPhotoZoom : 1,
                             SteamGridApiKey = GetStr(userEl, "apiKey"),
                             PinCode = NormalizePinCode(GetStr(userEl, "pin")),
                             IsAdmin = isFirstAdmin,
@@ -13923,6 +14200,12 @@ namespace Doorpi
                     bool skipTasks = root.TryGetProperty("skipTasks", out var skipEl) && skipEl.GetBoolean();
                     bool hasPin = root.TryGetProperty("pin", out _);
                     bool hasApiKey = root.TryGetProperty("apiKey", out _);
+                    bool hasPhotoMetadata = root.TryGetProperty("photoSource", out _) ||
+                                            root.TryGetProperty("photoSourceUrl", out _) ||
+                                            root.TryGetProperty("photoSteamGridAssetId", out _) ||
+                                            root.TryGetProperty("photoCropX", out _) ||
+                                            root.TryGetProperty("photoCropY", out _) ||
+                                            root.TryGetProperty("photoZoom", out _);
                     string requestedPin = hasPin ? NormalizePinCode(GetStr(root, "pin")) : "";
 
                     string requestedId = GetStr(root, "userId");
@@ -13931,6 +14214,12 @@ namespace Doorpi
                         Id = createNew ? "" : (!string.IsNullOrWhiteSpace(requestedId) ? requestedId : currentUserId),
                         Name = GetStr(root, "name"),
                         PhotoBase64 = GetStr(root, "photoBase64"),
+                        PhotoSource = GetStr(root, "photoSource"),
+                        PhotoSourceUrl = GetStr(root, "photoSourceUrl"),
+                        PhotoSteamGridAssetId = root.TryGetProperty("photoSteamGridAssetId", out var photoAssetEl) && photoAssetEl.TryGetInt32(out int photoAssetId) ? photoAssetId : 0,
+                        PhotoCropX = root.TryGetProperty("photoCropX", out var photoCropXEl) && photoCropXEl.TryGetDouble(out double photoCropX) ? photoCropX : 0,
+                        PhotoCropY = root.TryGetProperty("photoCropY", out var photoCropYEl) && photoCropYEl.TryGetDouble(out double photoCropY) ? photoCropY : 0,
+                        PhotoZoom = root.TryGetProperty("photoZoom", out var photoZoomEl) && photoZoomEl.TryGetDouble(out double photoZoom) ? photoZoom : 1,
                         SteamGridApiKey = hasApiKey ? GetStr(root, "apiKey") : "",
                         PinCode = requestedPin,
                         DateCreated = DateTime.Now,
@@ -13976,6 +14265,15 @@ namespace Doorpi
 
                         existingUser.Name = profile.Name;
                         existingUser.PhotoBase64 = profile.PhotoBase64;
+                        if (hasPhotoMetadata)
+                        {
+                            existingUser.PhotoSource = profile.PhotoSource;
+                            existingUser.PhotoSourceUrl = profile.PhotoSourceUrl;
+                            existingUser.PhotoSteamGridAssetId = profile.PhotoSteamGridAssetId;
+                            existingUser.PhotoCropX = profile.PhotoCropX;
+                            existingUser.PhotoCropY = profile.PhotoCropY;
+                            existingUser.PhotoZoom = profile.PhotoZoom;
+                        }
                         if (hasApiKey) existingUser.SteamGridApiKey = profile.SteamGridApiKey;
                         if (hasPin) existingUser.PinCode = requestedPin;
                         existingUser.LastUsed = DateTime.Now;
@@ -14191,6 +14489,17 @@ namespace Doorpi
                     _ = Dispatcher.InvokeAsync(async () =>
                     {
                         BeginGenericBrowserWebAppUrlCapture();
+                        await OpenWebViewInlineAsync(DoorpiBrowserHomeUrl, false, "Browser", "", "", true);
+                    });
+                }
+                else if (action == "openImageBrowserCapture")
+                {
+                    string target = GetStr(root, "target", "profilePhoto");
+                    if (target != "profilePhoto" && target != "historyArtwork")
+                        target = "profilePhoto";
+                    _ = Dispatcher.InvokeAsync(async () =>
+                    {
+                        BeginGenericBrowserUrlCapture(target);
                         await OpenWebViewInlineAsync(DoorpiBrowserHomeUrl, false, "Browser", "", "", true);
                     });
                 }
@@ -14742,6 +15051,8 @@ namespace Doorpi
                     LaunchUrl = app.LaunchUrl,
                     GridImage = tGrid.Result != null ? $"https://data.local/images/grid/{Path.GetFileName(tGrid.Result)}" : "",
                     GridHorizontalImage = tHoriz.Result != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(tHoriz.Result)}" : "",
+                    GridSourceUrl = gridUrl ?? "",
+                    GridHorizontalSourceUrl = gridHorizontalUrl ?? "",
                     HeroImage = tHero.Result != null ? $"https://data.local/images/hero/{Path.GetFileName(tHero.Result)}" : "",
                     LogoImage = tLogo.Result != null ? $"https://data.local/images/logo/{Path.GetFileName(tLogo.Result)}" : "",
                     IconBase64 = iconBase64,
@@ -15103,10 +15414,20 @@ namespace Doorpi
 
         private static void ApplyArtworkUrlToGame(GameModel game, string category, string url)
         {
-            if (category == "horizontal") { game.GridHorizontalImage = url; game.GridHorizontalStaticImage = ""; }
+            if (category == "horizontal")
+            {
+                game.GridHorizontalImage = url;
+                game.GridHorizontalStaticImage = "";
+                game.GridHorizontalSourceUrl = IsRemoteArtworkUrl(url) ? url : "";
+            }
             else if (category == "banner") { game.HeroImage = url; game.HeroStaticImage = ""; }
             else if (category == "logo") { game.LogoImage = url; game.LogoStaticImage = ""; }
-            else { game.GridImage = url; game.GridStaticImage = ""; }
+            else
+            {
+                game.GridImage = url;
+                game.GridStaticImage = "";
+                game.GridSourceUrl = IsRemoteArtworkUrl(url) ? url : "";
+            }
         }
 
         private static void ApplyArtworkUrlToMedia(MediaAppModel media, string category, string url)
@@ -15190,6 +15511,8 @@ namespace Doorpi
                     if (local == null) continue;
                     string url = $"https://data.local/images/{target.UrlFolder}/{Path.GetFileName(local)}";
                     ApplyArtworkUrlToGame(game, item.Category, url);
+                    if (!localFiles && item.Category == "vertical") game.GridSourceUrl = item.Value;
+                    if (!localFiles && item.Category == "horizontal") game.GridHorizontalSourceUrl = item.Value;
                     patch[item.Category] = url;
                 }
 
@@ -15216,6 +15539,58 @@ namespace Doorpi
                 }
 
                 if (patch.Count > 0) SaveMediaApps(medias);
+            }
+
+            return patch;
+        }
+
+        private async Task<Dictionary<string, string>> SaveSelectedHistoryArtworkAsync(string gameName, JsonElement imagesEl)
+        {
+            var patch = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var sourceUrls = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            string safeName = "history_" + StableAssetName(currentUserId + "_" + gameName + "_" + DateTime.UtcNow.Ticks);
+
+            var selected = imagesEl.EnumerateObject()
+                .Where(property => property.Name is "vertical" or "horizontal")
+                .Select(property => (Category: property.Name, Value: property.Value.GetString() ?? ""))
+                .Where(item => Uri.TryCreate(item.Value, UriKind.Absolute, out var uri) &&
+                               (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+                .ToList();
+
+            foreach (var item in selected)
+            {
+                string urlFolder = item.Category == "vertical" ? "history-vertical" : "history-horizontal";
+                string targetFolder = Path.Combine(dataFolder, "images", urlFolder);
+                string? local = await DownloadImageAsync(item.Value, targetFolder, safeName + (item.Category == "vertical" ? "_v" : "_h"))
+                    .ConfigureAwait(false);
+                if (local == null) continue;
+
+                patch[item.Category] = $"https://data.local/images/{urlFolder}/{Path.GetFileName(local)}";
+                sourceUrls[item.Category] = item.Value;
+            }
+
+            if (patch.Count == 0) return patch;
+
+            lock (_gameHistoryFileLock)
+            {
+                var history = LoadGameHistory();
+                string key = NormalizeGameName(gameName);
+                var entry = history.FirstOrDefault(item => NormalizeGameName(item.Name) == key);
+                if (entry == null) return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+                if (patch.TryGetValue("vertical", out string? vertical))
+                {
+                    entry.ShowcaseVerticalLocalImage = vertical;
+                    entry.ShowcaseVerticalImageUrl = sourceUrls["vertical"];
+                    patch["verticalSourceUrl"] = sourceUrls["vertical"];
+                }
+                if (patch.TryGetValue("horizontal", out string? horizontal))
+                {
+                    entry.HistoryHorizontalLocalImage = horizontal;
+                    entry.HistoryHorizontalImageUrl = sourceUrls["horizontal"];
+                    patch["horizontalSourceUrl"] = sourceUrls["horizontal"];
+                }
+                SaveGameHistory(history);
             }
 
             return patch;
@@ -15896,6 +16271,10 @@ namespace Doorpi
                             GridStaticImage = FirstNotBlank(ordered.Select(g => g.GridStaticImage)),
                             GridHorizontalImage = FirstNotBlank(ordered.Select(g => g.GridHorizontalImage)),
                             GridHorizontalStaticImage = FirstNotBlank(ordered.Select(g => g.GridHorizontalStaticImage)),
+                            ShowcaseVerticalImageUrl = FirstNotBlank(ordered.Select(g => g.GridSourceUrl)),
+                            ShowcaseVerticalLocalImage = FirstNotBlank(ordered.Select(g => g.GridStaticImage).Concat(ordered.Select(g => g.GridImage))),
+                            HistoryHorizontalImageUrl = FirstNotBlank(ordered.Select(g => g.GridHorizontalSourceUrl)),
+                            HistoryHorizontalLocalImage = FirstNotBlank(ordered.Select(g => g.GridHorizontalStaticImage).Concat(ordered.Select(g => g.GridHorizontalImage))),
                             IconBase64 = FirstNotBlank(ordered.Select(g => g.IconBase64)),
                             Source = FirstNotBlank(ordered.Select(g => g.Source))
                         };
@@ -15926,6 +16305,45 @@ namespace Doorpi
         private static string FirstNotBlank(IEnumerable<string> values)
             => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "";
 
+        private static bool IsRemoteArtworkUrl(string value)
+            => Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
+               (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps) &&
+               !uri.Host.Equals("data.local", StringComparison.OrdinalIgnoreCase);
+
+        private static bool EnsureDedicatedHistoryArtwork(GameHistoryEntry entry)
+        {
+            bool changed = false;
+            if (string.IsNullOrWhiteSpace(entry.ShowcaseVerticalLocalImage))
+            {
+                entry.ShowcaseVerticalLocalImage = FirstNotBlank(new[] { entry.GridStaticImage, entry.GridImage });
+                changed |= !string.IsNullOrWhiteSpace(entry.ShowcaseVerticalLocalImage);
+            }
+            if (string.IsNullOrWhiteSpace(entry.ShowcaseVerticalImageUrl))
+            {
+                string candidate = FirstNotBlank(new[] { entry.GridImage, entry.GridStaticImage });
+                if (IsRemoteArtworkUrl(candidate))
+                {
+                    entry.ShowcaseVerticalImageUrl = candidate;
+                    changed = true;
+                }
+            }
+            if (string.IsNullOrWhiteSpace(entry.HistoryHorizontalLocalImage))
+            {
+                entry.HistoryHorizontalLocalImage = FirstNotBlank(new[] { entry.GridHorizontalStaticImage, entry.GridHorizontalImage });
+                changed |= !string.IsNullOrWhiteSpace(entry.HistoryHorizontalLocalImage);
+            }
+            if (string.IsNullOrWhiteSpace(entry.HistoryHorizontalImageUrl))
+            {
+                string candidate = FirstNotBlank(new[] { entry.GridHorizontalImage, entry.GridHorizontalStaticImage });
+                if (IsRemoteArtworkUrl(candidate))
+                {
+                    entry.HistoryHorizontalImageUrl = candidate;
+                    changed = true;
+                }
+            }
+            return changed;
+        }
+
         private List<GameHistoryEntry> LoadGameHistory()
         {
             lock (_gameHistoryFileLock)
@@ -15933,7 +16351,16 @@ namespace Doorpi
                 if (!File.Exists(gameHistoryFile)) return new List<GameHistoryEntry>();
                 try
                 {
-                    return JsonSerializer.Deserialize<List<GameHistoryEntry>>(SafeReadAllText(gameHistoryFile)) ?? new();
+                    var history = JsonSerializer.Deserialize<List<GameHistoryEntry>>(SafeReadAllText(gameHistoryFile)) ?? new();
+                    bool migrated = false;
+                    foreach (var entry in history)
+                        migrated |= EnsureDedicatedHistoryArtwork(entry);
+                    if (migrated)
+                    {
+                        string json = JsonSerializer.Serialize(history, IndentedJsonOptions);
+                        SafeWriteAllText(gameHistoryFile, json);
+                    }
+                    return history;
                 }
                 catch
                 {
@@ -15986,7 +16413,11 @@ namespace Doorpi
                         TotalPlaytimeMinutes = group.Sum(game => Math.Max(0, game.TotalPlaytimeMinutes)),
                         LastSessionMinutes = newest.LastSessionMinutes,
                         FirstPlayed = newest.LastPlayed > DateTime.MinValue ? newest.LastPlayed : DateTime.Now,
-                        LastPlayed = newest.LastPlayed
+                        LastPlayed = newest.LastPlayed,
+                        ShowcaseVerticalImageUrl = FirstNotBlank(group.Select(game => game.GridSourceUrl)),
+                        ShowcaseVerticalLocalImage = FirstNotBlank(group.Select(game => game.GridStaticImage).Concat(group.Select(game => game.GridImage))),
+                        HistoryHorizontalImageUrl = FirstNotBlank(group.Select(game => game.GridHorizontalSourceUrl)),
+                        HistoryHorizontalLocalImage = FirstNotBlank(group.Select(game => game.GridHorizontalStaticImage).Concat(group.Select(game => game.GridHorizontalImage)))
                     };
                     history.Add(entry);
                     byName[gameGroup.Key] = entry;
@@ -16008,10 +16439,18 @@ namespace Doorpi
                     entry.FirstPlayed = entry.LastPlayed;
 
                 entry.Name = latestGame.Name;
-                entry.GridImage = FirstNotBlank(group.Select(game => game.GridImage).Append(entry.GridImage));
-                entry.GridStaticImage = FirstNotBlank(group.Select(game => game.GridStaticImage).Append(entry.GridStaticImage));
-                entry.GridHorizontalImage = FirstNotBlank(group.Select(game => game.GridHorizontalImage).Append(entry.GridHorizontalImage));
-                entry.GridHorizontalStaticImage = FirstNotBlank(group.Select(game => game.GridHorizontalStaticImage).Append(entry.GridHorizontalStaticImage));
+                entry.GridImage = FirstNotBlank(new[] { entry.GridImage }.Concat(group.Select(game => game.GridImage)));
+                entry.GridStaticImage = FirstNotBlank(new[] { entry.GridStaticImage }.Concat(group.Select(game => game.GridStaticImage)));
+                entry.GridHorizontalImage = FirstNotBlank(new[] { entry.GridHorizontalImage }.Concat(group.Select(game => game.GridHorizontalImage)));
+                entry.GridHorizontalStaticImage = FirstNotBlank(new[] { entry.GridHorizontalStaticImage }.Concat(group.Select(game => game.GridHorizontalStaticImage)));
+                if (string.IsNullOrWhiteSpace(entry.ShowcaseVerticalImageUrl))
+                    entry.ShowcaseVerticalImageUrl = FirstNotBlank(group.Select(game => game.GridSourceUrl));
+                if (string.IsNullOrWhiteSpace(entry.ShowcaseVerticalLocalImage))
+                    entry.ShowcaseVerticalLocalImage = FirstNotBlank(group.Select(game => game.GridStaticImage).Concat(group.Select(game => game.GridImage)));
+                if (string.IsNullOrWhiteSpace(entry.HistoryHorizontalImageUrl))
+                    entry.HistoryHorizontalImageUrl = FirstNotBlank(group.Select(game => game.GridHorizontalSourceUrl));
+                if (string.IsNullOrWhiteSpace(entry.HistoryHorizontalLocalImage))
+                    entry.HistoryHorizontalLocalImage = FirstNotBlank(group.Select(game => game.GridHorizontalStaticImage).Concat(group.Select(game => game.GridHorizontalImage)));
                 entry.IconBase64 = FirstNotBlank(group.Select(game => game.IconBase64).Append(entry.IconBase64));
                 entry.Source = FirstNotBlank(group.Select(game => game.Source).Append(entry.Source));
 
@@ -16467,7 +16906,9 @@ namespace Doorpi
                 type = "nativeControllerSnapshot",
                 connected = snapshot.Connected,
                 buttons = snapshot.Buttons & actionMask,
-                pressed = pressedButtons & actionMask
+                pressed = pressedButtons & actionMask,
+                rightX = snapshot.ThumbRX,
+                rightY = snapshot.ThumbRY
             });
 
             Dispatcher.BeginInvoke(() =>
@@ -16493,6 +16934,8 @@ namespace Doorpi
             ushort lastPostedButtons = ushort.MaxValue;
             bool lastPostedConnected = !initialSnapshot.Connected;
             long lastControllerPostAt = long.MinValue;
+            double lastPostedRightX = 0;
+            double lastPostedRightY = 0;
 
             while (_mainUiGamepadActive)
             {
@@ -16503,15 +16946,23 @@ namespace Doorpi
                     buttonTracker.Update(controllerSnapshot);
                     ushort actionButtons = (ushort)(controllerSnapshot.Buttons & 0xFFF0);
                     long nowTicks = Environment.TickCount64;
+                    bool rightAnalogActive = Math.Abs(controllerSnapshot.ThumbRX) > 0.12 ||
+                                             Math.Abs(controllerSnapshot.ThumbRY) > 0.12;
+                    bool rightAnalogChanged = Math.Abs(controllerSnapshot.ThumbRX - lastPostedRightX) > 0.04 ||
+                                              Math.Abs(controllerSnapshot.ThumbRY - lastPostedRightY) > 0.04;
                     if (buttonTracker.PressedButtons != 0 ||
                         actionButtons != lastPostedButtons ||
                         controllerSnapshot.Connected != lastPostedConnected ||
+                        rightAnalogChanged ||
+                        (rightAnalogActive && nowTicks - lastControllerPostAt >= 32) ||
                         lastControllerPostAt == long.MinValue ||
                         nowTicks - lastControllerPostAt >= 250)
                     {
                         PostMainUiControllerSnapshot(controllerSnapshot, buttonTracker.PressedButtons);
                         lastPostedButtons = actionButtons;
                         lastPostedConnected = controllerSnapshot.Connected;
+                        lastPostedRightX = controllerSnapshot.ThumbRX;
+                        lastPostedRightY = controllerSnapshot.ThumbRY;
                         lastControllerPostAt = nowTicks;
                     }
                     bool foregroundOk = IsDoorpiMainWindowForeground() ||

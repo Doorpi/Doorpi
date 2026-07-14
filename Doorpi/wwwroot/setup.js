@@ -367,6 +367,16 @@ let _setupPendingLayoutScale = 1;
         </div>
     </div>`;
 
+    const apiSection = container.querySelector('#setupSectionApiKey');
+    const identitySection = container.querySelector('#setupSectionIdentity');
+    const layoutSection = container.querySelector('#setupSectionLayout');
+    if (apiSection && identitySection && layoutSection) {
+        layoutSection.after(apiSection);
+        apiSection.after(identitySection);
+        apiSection.querySelector('.setup-section-step').textContent = '02';
+        identitySection.querySelector('.setup-section-step').textContent = '03';
+    }
+
     if (typeof applyI18n === 'function') applyI18n();
     document.getElementById('setupNameInput').placeholder = typeof t === 'function' ? t('setupStep1Placeholder') : 'Seu Nome';
     document.getElementById('setupPinInput').placeholder = typeof t === 'function' ? t('setupPinPlaceholder') : 'Opcional';
@@ -464,7 +474,7 @@ function _renderSetupUsers() {
         <div class="setup-user-group">
             <button class="setup-user-pill ${u === _currUser ? 'active' : ''} setup-focusable" data-idx="${i}" tabindex="-1">
                 <div class="setup-user-pill-avatar">
-                    ${u.photoBase64 ? `<img src="data:image/png;base64,${u.photoBase64}" />` : `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`}
+                    ${u.photoBase64 ? `<img src="${window._doorpiUserPhotoSrc?.(u.photoBase64) || `data:image/png;base64,${u.photoBase64}`}" />` : `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`}
                 </div>
                 <span>${u.name || (typeof t === 'function' ? t('defaultUserName', i + 1) : `Usuário ${i + 1}`)}</span>
                 ${i === 0 ? `<span class="setup-admin-badge">${typeof t === 'function' ? t('adminBadge', 'Admin') : 'Admin'}</span>` : ''}
@@ -516,15 +526,18 @@ function _renderSetupUsers() {
 
     // Adicionar Novo Usuário
     bar.querySelector('#btnSetupAddUser').addEventListener('click', () => {
-        const newUser = { id: Date.now(), name: '', pin: '', photoBase64: '', apiKey: '', folders: [] };
+        const newUser = {
+            id: Date.now(), name: '', pin: '', photoBase64: '', apiKey: '', folders: [],
+            photoSource: '', photoSourceUrl: '', photoSteamGridAssetId: 0,
+            photoCropX: 0, photoCropY: 0, photoZoom: 1
+        };
         _setupUsers.push(newUser);
         _currUser = newUser;
         _loadCurrentUserIntoForm();
         _renderSetupUsers();
-        if (_currentSection) {
-            _currentSection.querySelectorAll('.setup-focusable').forEach(el => el.tabIndex = 0);
-        }
-        document.getElementById('setupNameInput')?.focus();
+        const apiSection = document.getElementById('setupSectionApiKey');
+        if (apiSection) _expandSection(apiSection);
+        document.getElementById('setupApiInput')?.focus();
     });
 
     const identitySec = document.getElementById('setupSectionIdentity');
@@ -541,7 +554,7 @@ function _loadCurrentUserIntoForm() {
     document.getElementById('setupApiInput').value = _currUser.apiKey;
     const btn = document.getElementById('setupPhotoBtn');
     if (_currUser.photoBase64) {
-        btn.innerHTML = `<img src="data:image/png;base64,${_currUser.photoBase64}" />`;
+        btn.innerHTML = `<img src="${window._doorpiUserPhotoSrc?.(_currUser.photoBase64) || `data:image/png;base64,${_currUser.photoBase64}`}" />`;
         btn.classList.add('has-photo');
     } else {
         btn.innerHTML = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`;
@@ -725,7 +738,11 @@ function openSetup(isAddingUser = false) {
     }
     _isAddingUserMode = isAddingUser;
     _setupLayoutConfirmed = !!isAddingUser;
-    _setupUsers = [{ id: Date.now(), name: '', pin: '', photoBase64: '', apiKey: '', folders: [] }];
+    _setupUsers = [{
+        id: Date.now(), name: '', pin: '', photoBase64: '', apiKey: '', folders: [],
+        photoSource: '', photoSourceUrl: '', photoSteamGridAssetId: 0,
+        photoCropX: 0, photoCropY: 0, photoZoom: 1
+    }];
     _currUser = _setupUsers[0];
     _currentSection = null;
     document.querySelectorAll('.setup-section').forEach(sec => sec.classList.remove('expanded'));
@@ -765,7 +782,7 @@ function openSetup(isAddingUser = false) {
     c.style.display = 'flex';
     requestAnimationFrame(() => {
         c.classList.add('visible');
-        const header = document.querySelector(isAddingUser ? '#setupSectionIdentity .setup-section-header' : '#setupSectionLayout .setup-section-header');
+        const header = document.querySelector(isAddingUser ? '#setupSectionApiKey .setup-section-header' : '#setupSectionLayout .setup-section-header');
         if (header && !_currentSection) _toggleSection(header.parentElement);
         header?.focus();
         _startSetupBg(); // Inicia o background animado nativo
@@ -836,6 +853,12 @@ function _validateAndFinish() {
 
     for (let i = 0; i < _setupUsers.length; i++) {
         const u = _setupUsers[i];
+        if (!u.apiKey) {
+            _currUser = u; _loadCurrentUserIntoForm(); _renderSetupUsers();
+            _expandSection(document.getElementById('setupSectionApiKey'));
+            setTimeout(() => { _shakeField(document.getElementById('setupApiInput')); document.getElementById('setupApiInput')?.focus(); }, 80);
+            return;
+        }
         if (!u.name) {
             _currUser = u; _loadCurrentUserIntoForm(); _renderSetupUsers();
             _expandSection(document.getElementById('setupSectionIdentity'));
@@ -848,12 +871,6 @@ function _validateAndFinish() {
             _expandSection(document.getElementById('setupSectionIdentity'));
             _setSetupPinHintError(true);
             setTimeout(() => { _shakeField(document.getElementById('setupPinInput')); document.getElementById('setupPinInput')?.focus(); }, 80);
-            return;
-        }
-        if (!u.apiKey) {
-            _currUser = u; _loadCurrentUserIntoForm(); _renderSetupUsers();
-            _expandSection(document.getElementById('setupSectionApiKey'));
-            setTimeout(() => { _shakeField(document.getElementById('setupApiInput')); document.getElementById('setupApiInput')?.focus(); }, 80);
             return;
         }
     }
@@ -884,6 +901,12 @@ function _validateAndFinish() {
                 name: u.name,
                 pin: u.pin || '',
                 photoBase64: u.photoBase64,
+                photoSource: u.photoSource || '',
+                photoSourceUrl: u.photoSourceUrl || '',
+                photoSteamGridAssetId: Number(u.photoSteamGridAssetId || 0),
+                photoCropX: Number(u.photoCropX || 0),
+                photoCropY: Number(u.photoCropY || 0),
+                photoZoom: Number(u.photoZoom || 1),
                 apiKey: u.apiKey,
                 folders: u.folders
             }))
@@ -940,7 +963,17 @@ function _bindSetupEvents() {
         postToHost({ action: 'exitApp' });
     });
 
-    document.getElementById('setupPhotoBtn').addEventListener('click', () => { postToHost({ action: 'pickProfilePhoto' }); });
+    document.getElementById('setupPhotoBtn').addEventListener('click', event => {
+        if (typeof window.openDoorpiProfilePhotoPicker !== 'function') {
+            console.error('[ProfilePhoto] Seletor de foto não foi carregado.');
+            return;
+        }
+        window.openDoorpiProfilePhotoPicker({
+            apiKey: _currUser?.apiKey || '',
+            returnFocus: event.currentTarget,
+            onApply: result => window._setupHandlePhotoSelected?.(result)
+        });
+    });
     document.getElementById('btnSetupPaste').addEventListener('click', () => { postToHost({ action: 'readClipboard' }); });
 
     document.getElementById('setupNameInput').addEventListener('input', (e) => {
@@ -1079,8 +1112,19 @@ function _renderSetupFolders() {
         list.querySelectorAll('.setup-focusable').forEach(el => el.tabIndex = 0);
     }
 }
-window._setupHandlePhotoSelected = (base64) => {
-    if (_currUser) _currUser.photoBase64 = base64;
+window._setupHandlePhotoSelected = (photo) => {
+    if (!_currUser) return;
+    if (typeof photo === 'string') {
+        _currUser.photoBase64 = photo;
+    } else if (photo) {
+        _currUser.photoBase64 = photo.base64 || '';
+        _currUser.photoSource = photo.photoSource || '';
+        _currUser.photoSourceUrl = photo.photoSourceUrl || '';
+        _currUser.photoSteamGridAssetId = Number(photo.photoSteamGridAssetId || 0);
+        _currUser.photoCropX = Number(photo.photoCropX || 0);
+        _currUser.photoCropY = Number(photo.photoCropY || 0);
+        _currUser.photoZoom = Number(photo.photoZoom || 1);
+    }
     _loadCurrentUserIntoForm();
     _renderSetupUsers();
 };
