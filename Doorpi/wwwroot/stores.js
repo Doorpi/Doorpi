@@ -29,7 +29,7 @@ const _storeSessionMenu = (() => {
         </button>
         <button class="ctx-item" id="storeMenuGamepadControl" type="button">
             <span class="ctx-icon" id="storeMenuGamepadIcon">✓</span>
-            <span data-i18n="storeDisableGamepadControl">Iniciar com modo mouse habilitado</span>
+            <span data-i18n="storeDisableGamepadControl">Iniciar com mouse + teclado virtual</span>
         </button>
         <p class="store-menu-hint" style="margin:10px 0 0;font-size:0.75rem;color:rgba(255,255,255,0.45);">
             <span data-i18n="storeMenuHintSquare">□</span> <span data-i18n="storeMenuResume">Retomar loja</span>

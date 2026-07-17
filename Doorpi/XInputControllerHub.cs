@@ -270,6 +270,7 @@ namespace Doorpi
         private const ushort L3 = 0x0040;
         private const ushort R3 = 0x0080;
         private const long MouseChordWindowMs = 450;
+        private const long GuideShortPressMaxMs = 650;
 
         private readonly ushort[] _previous = new ushort[XInputControllerHub.SlotCount];
         private readonly ushort[] _previousNative = new ushort[XInputControllerHub.SlotCount];
@@ -279,6 +280,7 @@ namespace Doorpi
         private readonly ushort[] _frameCurrent = new ushort[XInputControllerHub.SlotCount];
         private readonly long[] _lastL3PressedAt = new long[XInputControllerHub.SlotCount];
         private readonly long[] _lastR3PressedAt = new long[XInputControllerHub.SlotCount];
+        private readonly long[] _guidePressedAt = new long[XInputControllerHub.SlotCount];
         private readonly bool[] _mouseChordLatched = new bool[XInputControllerHub.SlotCount];
         private byte _connectedMask;
         private bool _initialized;
@@ -343,11 +345,20 @@ namespace Doorpi
                 LeftTriggerJustPressed |= currentLeftTrigger > 128 && previousLeftTrigger <= 128;
                 RightTriggerJustPressed |= currentRightTrigger > 128 && previousRightTrigger <= 128;
 
-                bool guidePressed = (pressed & Guide) != 0;
+                if ((pressed & Guide) != 0)
+                    _guidePressedAt[slot] = now;
+
+                bool guideShortPressReleased = connected &&
+                    (released & Guide) != 0 &&
+                    _guidePressedAt[slot] > 0 &&
+                    now - _guidePressedAt[slot] <= GuideShortPressMaxMs;
+                if ((released & Guide) != 0)
+                    _guidePressedAt[slot] = 0;
+
                 bool alternativePressed =
                     (current & ReturnAlternative) == ReturnAlternative &&
                     (previous & ReturnAlternative) != ReturnAlternative;
-                ReturnShortcutJustPressed |= guidePressed || alternativePressed;
+                ReturnShortcutJustPressed |= guideShortPressReleased || alternativePressed;
 
                 if ((pressed & L3) != 0) _lastL3PressedAt[slot] = now;
                 if ((pressed & R3) != 0) _lastR3PressedAt[slot] = now;
@@ -368,6 +379,7 @@ namespace Doorpi
                 {
                     _lastL3PressedAt[slot] = 0;
                     _lastR3PressedAt[slot] = 0;
+                    _guidePressedAt[slot] = 0;
                     _mouseChordLatched[slot] = false;
                 }
 

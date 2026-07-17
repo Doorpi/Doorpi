@@ -227,8 +227,9 @@ let _setupPendingLayoutScale = 1;
         color: rgba(255,255,255,0.82); transform: translateY(-1px);
     }
 
-    .setup-footer { display: flex; justify-content: center; align-items: center; gap: 16px; padding: clamp(8px, 1vw, 14px) 0 clamp(16px, 1.8vw, 28px); }
-    .setup-finish-btn { background: rgba(255,255,255,0.92); border: 2px solid transparent; border-radius: clamp(12px, 1.2vw, 16px); color: #06060e; font-size: clamp(1rem, 1.15vw, 1.5rem); font-weight: 700; padding: clamp(15px, 1.6vw, 22px) clamp(52px, 5.2vw, 80px); cursor: pointer; outline: none; letter-spacing: 0.02em; transition: all 0.2s; box-shadow: 0 6px 24px rgba(0,0,0,0.35); }
+    .setup-footer { display: flex; justify-content: center; align-items: center; gap: clamp(14px, 1.2vw, 22px); padding: clamp(12px, 1.2vw, 18px) 0 clamp(16px, 1.8vw, 28px); }
+    .setup-footer #btnSetupCancel { min-height: clamp(46px, 3vw, 62px); min-width: clamp(160px, 10vw, 230px); justify-content: center; border-radius: clamp(12px, 1.2vw, 16px); padding: 0 clamp(28px, 2.6vw, 48px); font-size: clamp(0.96rem, 1.05vw, 1.32rem); }
+    .setup-finish-btn { background: rgba(255,255,255,0.92); border: 2px solid transparent; border-radius: clamp(12px, 1.2vw, 16px); color: #06060e; font-size: clamp(1rem, 1.15vw, 1.5rem); font-weight: 700; padding: clamp(15px, 1.6vw, 22px) clamp(52px, 5.2vw, 80px); min-width: clamp(260px, 16vw, 390px); cursor: pointer; outline: none; letter-spacing: 0.02em; transition: all 0.2s; box-shadow: 0 6px 24px rgba(0,0,0,0.35); }
     .setup-finish-btn:focus, .setup-finish-btn:hover { background: #fff; transform: translateY(-2px) scale(1.03); box-shadow: 0 0 0 5px rgba(255,255,255,0.2), 0 16px 36px rgba(0,0,0,0.5); }
     `;
     document.head.appendChild(s);
@@ -666,12 +667,12 @@ function _startSetupBg() {
 
     const ctx = canvas.getContext('2d');
     const blobs = [
-        { px: 0.0, py: 0.3, sx: 0.00018, sy: 0.00013, r: 0.62, color: [45, 65, 185] },
-        { px: 1.2, py: 2.1, sx: 0.00014, sy: 0.00019, r: 0.56, color: [28, 85, 210] },
-        { px: 2.5, py: 0.8, sx: 0.00022, sy: 0.00011, r: 0.52, color: [70, 50, 165] },
-        { px: 0.7, py: 3.4, sx: 0.00016, sy: 0.00024, r: 0.50, color: [22, 110, 175] },
-        { px: 3.1, py: 1.6, sx: 0.00012, sy: 0.00017, r: 0.46, color: [90, 70, 195] },
-        { px: 1.8, py: 4.2, sx: 0.00020, sy: 0.00015, r: 0.42, color: [30, 130, 190] },
+        { px: 0.0, py: 0.3, sx: 0.00016, sy: 0.00011, r: 0.78, color: [82, 105, 230] },
+        { px: 1.4, py: 2.2, sx: 0.00012, sy: 0.00017, r: 0.72, color: [48, 112, 235] },
+        { px: 2.8, py: 0.8, sx: 0.00019, sy: 0.00010, r: 0.68, color: [106, 82, 210] },
+        { px: 0.8, py: 3.8, sx: 0.00014, sy: 0.00021, r: 0.66, color: [34, 132, 205] },
+        { px: 3.4, py: 1.8, sx: 0.00010, sy: 0.00015, r: 0.60, color: [118, 92, 220] },
+        { px: 1.9, py: 4.5, sx: 0.00018, sy: 0.00013, r: 0.58, color: [42, 145, 200] },
     ];
     let t = 0;
 
@@ -693,7 +694,7 @@ function _startSetupBg() {
         const W = canvas.width, H = canvas.height;
         ctx.clearRect(0, 0, W, H);
 
-        ctx.fillStyle = '#07071a';
+        ctx.fillStyle = '#090b22';
         ctx.fillRect(0, 0, W, H);
 
         blobs.forEach(b => {
@@ -702,8 +703,8 @@ function _startSetupBg() {
             const r = Math.min(W, H) * b.r;
             const g = ctx.createRadialGradient(x, y, 0, x, y, r);
             const [cr, cg, cb] = b.color;
-            g.addColorStop(0, `rgba(${cr},${cg},${cb},0.55)`);
-            g.addColorStop(0.4, `rgba(${cr},${cg},${cb},0.22)`);
+            g.addColorStop(0, `rgba(${cr},${cg},${cb},0.48)`);
+            g.addColorStop(0.42, `rgba(${cr},${cg},${cb},0.19)`);
             g.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
             ctx.fillStyle = g;
             ctx.beginPath();
@@ -713,7 +714,7 @@ function _startSetupBg() {
 
         const vig = ctx.createRadialGradient(W / 2, H / 2, H * 0.25, W / 2, H / 2, H * 0.85);
         vig.addColorStop(0, 'rgba(0,0,0,0)');
-        vig.addColorStop(1, 'rgba(0,0,18,0.62)');
+        vig.addColorStop(1, 'rgba(0,0,18,0.54)');
         ctx.fillStyle = vig;
         ctx.fillRect(0, 0, W, H);
 

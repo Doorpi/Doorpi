@@ -4,10 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Doorpi</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="preload" href="style.css?v=20260619" as="style" onload="this.onload=null;this.rel='stylesheet'">
-    <noscript><link rel="stylesheet" href="style.css?v=20260619"></noscript>
+    <link rel="stylesheet" href="style.css?v=20260717m">
 
    
 </head>
@@ -15,7 +12,7 @@
 <body style="background: #020309; margin: 0; overflow: hidden;">
 
     <!-- 1. A Intro assume o controle absoluto instantaneamente no frame zero -->
-    <script src="intro-system.js?v=20260619b"></script>
+    <script src="intro-system.js?v=20260717m"></script>
 
     <!-- 2. O SISTEMA INTEIRO FICA DESLIGADO (display: none) ATÉ O LOGIN -->
     <div id="doorpi-app-ui" style="display: none; opacity: 0; transition: opacity 0.8s ease;">
@@ -40,7 +37,7 @@
         <!-- Fundo atmosférico -->
         <div class="capaJogo">
             <img id="heroImage" loading="eager" fetchpriority="high" decoding="async" />
-            <img id="gridBgImg_blur" id="bgBlur" loading="eager" fetchpriority="high" decoding="async" />
+            <img id="bgBlur" loading="eager" fetchpriority="high" decoding="async" />
         </div>
 
         <!-- Logo do jogo -->
@@ -99,7 +96,7 @@
                     </div>
 
                     <span class="home-tabs-hint">
-                        <b>L1</b> <b>R1</b> <span data-i18n="tabsHint"></span>
+                        <b>LB</b> <b>RB</b> <span data-i18n="tabsHint"></span>
                     </span>
 
                 </div>
@@ -217,9 +214,16 @@
                     <div id="view-media-apps" class="view-section hidden">
                         <div class="view-header">
                             <h2 data-i18n="tabApps">Aplicativos</h2>
+                            <div class="media-subtab-row">
                             <div class="media-app-subtabs" id="mediaAppSubtabs">
                                 <button class="subtab active" data-subtab="web" tabindex="0" data-i18n="subtabWeb">App Web</button>
                                 <button class="subtab" data-subtab="exe" tabindex="0" data-i18n="subtabExe">Executável</button>
+                            </div>
+                            <div class="modal-tab-hint" aria-hidden="true">
+                                <span class="shoulder-key">LB</span>
+                                <span class="shoulder-key">RB</span>
+                                <span data-i18n="hintSwitchTabs">alternar abas</span>
+                            </div>
                             </div>
                         </div>
 
@@ -297,7 +301,7 @@
                         </div>
                         <div class="action-bar">
                             <div class="action-buttons">
-                                <button class="modal-btn primary" id="btnScanFolder" data-gamepad-hint="triangle" tabindex="0">
+                                <button class="modal-btn primary" id="btnScanFolder" data-gamepad-hint="start" tabindex="0">
                                     <span data-i18n="btnAddFolderLabel">Adicionar Nova Pasta</span>
                                 </button>
                                 <button class="modal-btn cancel" data-gamepad-hint="cancel" tabindex="0" onclick="closeModal()">
@@ -358,7 +362,7 @@
     <script src="renderer.js?v=20260619b"></script>
     <script src="grid-controller.js"></script>
     <script src="navigation.js?v=20260714i"></script>
-    <script src="app.js?v=20260714o"></script>
+    <script src="app.js?v=20260717m"></script>
     <script src="bluetooth-ui.js?v=20260619c"></script>
     <script src="wifi-ui.js?v=20260619a"></script>
     <script src="sound-ui.js?v=20260627a"></script>

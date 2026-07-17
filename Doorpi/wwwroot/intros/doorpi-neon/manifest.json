@@ -17,17 +17,17 @@
   "handoff": {
     "enabled": true,
     "ambient": "blob",
-    "background": "#000",
-    "vignette": "radial-gradient(circle at 50% 50%, transparent 25%, rgba(0, 0, 18, 0.85) 95%)",
+    "background": "#0b1232",
+    "vignette": "radial-gradient(circle at 50% 50%, transparent 28%, rgba(0,0,18,0.66) 92%)",
     "colors": [
-      "rgba(15,25,85,0.7)",
-      "rgba(10,30,85,0.7)",
-      "rgba(25,15,70,0.7)",
-      "rgba(5,40,75,0.7)",
-      "rgba(20,20,90,0.6)",
-      "rgba(15,35,70,0.6)",
-      "rgba(10,15,60,0.7)",
-      "rgba(30,20,80,0.6)"
+      "rgba(42,58,170,0.68)",
+      "rgba(28,78,185,0.62)",
+      "rgba(62,46,150,0.64)",
+      "rgba(20,96,165,0.58)",
+      "rgba(76,58,176,0.56)",
+      "rgba(28,112,178,0.54)",
+      "rgba(92,122,178,0.42)",
+      "rgba(68,96,194,0.48)"
     ],
     "userPicker": {
       "transparentBackdrop": true,

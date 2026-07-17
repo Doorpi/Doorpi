@@ -154,7 +154,7 @@ namespace Doorpi
                 ? "512x512,1024x1024"
                 : "600x900,342x482,660x930";
             int requestLimit = take > 0 ? Math.Clamp(take, 1, 50) : 50;
-            string endpoint = $"grids/game/{gameId}?styles=no_logo&dimensions={dimensions}&types=static&sort=score&limit={requestLimit}";
+            string endpoint = $"grids/game/{gameId}?styles=no_logo&dimensions={dimensions}&types=static&sort=score&limit={requestLimit}&nsfw=false";
             string json = await SgdbGetStringWithKeyAsync(
                 $"https://www.steamgriddb.com/api/v2/{endpoint}",
                 apiKey,
@@ -165,6 +165,7 @@ namespace Doorpi
                 return new List<ProfilePhotoArtworkResult>();
 
             var results = data.EnumerateArray()
+                .Where(item => !SteamGridArtworkIsNsfw(item))
                 .Select(item => new ProfilePhotoArtworkResult
                 {
                     Id = item.TryGetProperty("id", out var idEl) && idEl.TryGetInt32(out int id) ? id : 0,

@@ -61,7 +61,7 @@ window.AppStore = (() => {
                 horizontal: '',
                 hero: raw.HeroImage || raw.heroImage || '',
                 logo: raw.LogoImage || raw.logoImage || '',
-                disableGamepadControl: raw.DisableGamepadControl || raw.disableGamepadControl || false,
+                disableGamepadControl: raw.DisableGamepadControl ?? raw.disableGamepadControl ?? false,
                 isAdminLocked: raw.isAdminLocked || raw.IsAdminLocked || false,
                 adminStoreBlocked: raw.adminStoreBlocked || raw.AdminStoreBlocked || false,
                 steamForceAccountSelection: raw.steamForceAccountSelection || raw.SteamForceAccountSelection || false,
@@ -89,7 +89,7 @@ window.AppStore = (() => {
             hero: raw.HeroImage || raw.heroImage || raw.hero || '', logo: raw.LogoImage || raw.logoImage || raw.logo || '',
             iconBase64: raw.IconBase64 || raw.iconBase64 || '',
             assetQuery: raw.AssetQuery || raw.assetQuery || '',
-            disableGamepadControl: raw.DisableGamepadControl || raw.disableGamepadControl || false,
+            disableGamepadControl: raw.DisableGamepadControl ?? raw.disableGamepadControl ?? false,
             isAnimated: raw.isAnimated || false,
         };
     }

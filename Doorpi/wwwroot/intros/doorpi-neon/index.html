@@ -18,6 +18,12 @@
             background: #020309;
             font-family: 'Outfit', sans-serif;
             overflow: hidden;
+            transition: background 2.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        body.boot-step-charge,
+        body.boot-step-detonate {
+            background: #0b1232;
         }
 
         #appBlobWrap {
@@ -25,7 +31,7 @@
             inset: 0;
             z-index: 1;
             pointer-events: none;
-            background: #07071a;
+            background: #0b1232;
             overflow: hidden;
             opacity: 0;
             transition: opacity 0.5s ease;
@@ -38,7 +44,7 @@
         .app-blob {
             position: absolute;
             border-radius: 50%;
-            filter: blur(45px);
+            filter: blur(34px);
             will-change: transform;
             transform: translate3d(0, 0, 0);
         }
@@ -47,7 +53,7 @@
             position: absolute;
             inset: 0;
             z-index: 2;
-            background: radial-gradient(circle at 50% 50%, transparent 25%, rgba(0,0,18,0.85) 95%);
+            background: radial-gradient(circle at 50% 50%, transparent 28%, rgba(0,0,18,0.66) 92%);
             pointer-events: none;
         }
 
@@ -312,29 +318,41 @@
             /* ── BLOB PHYSICS (Mantido para a transição final) ──────── */
             const blobs = [];
             const colors = [
-                'rgba(15,25,85,0.7)', 'rgba(10,30,85,0.7)', 'rgba(25,15,70,0.7)', 'rgba(5,40,75,0.7)',
-                'rgba(20,20,90,0.6)', 'rgba(15,35,70,0.6)', 'rgba(10,15,60,0.7)', 'rgba(30,20,80,0.6)'
+                'rgba(42,58,170,0.68)', 'rgba(28,78,185,0.62)', 'rgba(62,46,150,0.64)', 'rgba(20,96,165,0.58)',
+                'rgba(76,58,176,0.56)', 'rgba(28,112,178,0.54)', 'rgba(92,122,178,0.42)', 'rgba(68,96,194,0.48)'
+            ];
+            const blobMotion = [
+                { size: 0.94, angle: 5.12, speed: 11.2, wander: -0.006 },
+                { size: 1.06, angle: 4.06, speed: 9.4, wander: 0.005 },
+                { size: 0.88, angle: 5.84, speed: 12.1, wander: -0.004 },
+                { size: 1.12, angle: 2.56, speed: 8.8, wander: 0.006 },
+                { size: 0.78, angle: 0.68, speed: 10.6, wander: 0.004 },
+                { size: 1.00, angle: 1.88, speed: 9.8, wander: -0.005 },
+                { size: 0.82, angle: 3.34, speed: 11.6, wander: 0.003 },
+                { size: 0.98, angle: 0.12, speed: 8.6, wander: -0.004 }
             ];
 
             function createBigBang() {
+                if (blobWrap.querySelector('.app-blob')) return;
                 const cx = window.innerWidth / 2;
                 const cy = window.innerHeight / 2;
                 const r = Math.max(1, window.innerWidth / window.innerHeight);
                 for (let i = 0; i < 8; i++) {
+                    const motion = blobMotion[i % blobMotion.length];
                     const el = document.createElement('div');
                     el.className = 'app-blob';
-                    const size = Math.min(window.innerWidth, window.innerHeight) * (0.5 + Math.random() * 0.4);
+                    const size = Math.min(window.innerWidth, window.innerHeight) * motion.size;
                     el.style.width = size + 'px';
                     el.style.height = size + 'px';
                     el.style.background = `radial-gradient(circle, ${colors[i]} 0%, transparent 70%)`;
                     blobWrap.insertBefore(el, document.getElementById('appBlobVig'));
-                    const angle = Math.random() * Math.PI * 2;
-                    const speed = 12 + Math.random() * 12;
+                    const angle = motion.angle;
+                    const speed = motion.speed;
                     blobs.push({
                         el, x: cx, y: cy, size,
                         vx: Math.cos(angle) * speed * (r * 0.8),
                         vy: Math.sin(angle) * speed,
-                        phase: 'burst', wanderAngle: angle
+                        phase: 'burst', wanderAngle: angle, wanderDelta: motion.wander
                     });
                 }
                 requestAnimationFrame(physicsLoop);
@@ -351,11 +369,11 @@
                         if (b.x > w + m) { b.x = w + m; b.vx *= -1; }
                         if (b.y < -m) { b.y = -m; b.vy *= -1; }
                         if (b.y > h + m) { b.y = h + m; b.vy *= -1; }
-                        if (Math.hypot(b.vx, b.vy) < 0.8) b.phase = 'wander';
+                        if (Math.hypot(b.vx, b.vy) < 0.45) b.phase = 'wander';
                     } else {
-                        b.wanderAngle += (Math.random() - 0.5) * 0.02;
-                        b.vx = Math.cos(b.wanderAngle) * 1.5;
-                        b.vy = Math.sin(b.wanderAngle) * 1.5;
+                        b.wanderAngle += b.wanderDelta || 0.004;
+                        b.vx = Math.cos(b.wanderAngle) * 0.85;
+                        b.vy = Math.sin(b.wanderAngle) * 0.85;
                         b.x += b.vx; b.y += b.vy;
                         if (b.x > w + b.size / 2) b.x = -b.size / 2;
                         if (b.x < -b.size / 2) b.x = w + b.size / 2;
@@ -423,8 +441,8 @@
 
                 post('doorpi:intro:handoff', {
                     handoff: {
-                        background: '#07071a',
-                        vignette: 'radial-gradient(circle at 50% 50%, transparent 25%, rgba(0,0,18,0.85) 95%)',
+                        background: '#0b1232',
+                        vignette: 'radial-gradient(circle at 50% 50%, transparent 28%, rgba(0,0,18,0.66) 92%)',
                         colors
                     }
                 });

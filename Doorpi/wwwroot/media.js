@@ -445,7 +445,7 @@ window._mediaHandleMessage = (data) => {
 
         case 'mediaAppClosed':
             window.isMediaAppActive = false;
-            window.armDoorpiGamepadReleaseGate?.();
+            window.clearDoorpiInputQuarantine?.({ dropPending: true });
             window._currentWebAppConflictEntry = null;
             window._storesHandleMessage?.(data);
             if (window._suppressNextMediaAppClosedFocus) {

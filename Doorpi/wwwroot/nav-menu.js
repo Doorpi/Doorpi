@@ -72,12 +72,12 @@ window.isNavMenuOpen = false;
 
     function _doorpiReturnShortcutHtml() {
         _ensureDoorpiShortcutStyles();
-        return `<span class="doorpi-shortcut-combo" aria-label="Xbox ou L1 + R1 + R3">
+        return `<span class="doorpi-shortcut-combo" aria-label="Xbox ou LB + RB + R3">
             <span class="doorpi-xbox-logo-btn">${_xboxButtonSvg()}</span>
             <span class="doorpi-shortcut-plus">/</span>
-            <span class="doorpi-keycap">L1</span>
+            <span class="doorpi-keycap">LB</span>
             <span class="doorpi-shortcut-plus">+</span>
-            <span class="doorpi-keycap">R1</span>
+            <span class="doorpi-keycap">RB</span>
             <span class="doorpi-shortcut-plus">+</span>
             <span class="doorpi-stickcap">R3</span>
         </span>`;

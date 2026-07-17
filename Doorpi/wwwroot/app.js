@@ -287,12 +287,12 @@
         }
 
         function shortcutHtml() {
-            return `<span class="doorpi-shortcut-combo" aria-label="Xbox ou L1 + R1 + R3">
+            return `<span class="doorpi-shortcut-combo" aria-label="Xbox ou LB + RB + R3">
                 <span class="doorpi-xbox-logo-btn">${xboxLogoSvg()}</span>
                 <span class="doorpi-shortcut-plus">/</span>
-                <span class="doorpi-keycap">L1</span>
+                <span class="doorpi-keycap">LB</span>
                 <span class="doorpi-shortcut-plus">+</span>
-                <span class="doorpi-keycap">R1</span>
+                <span class="doorpi-keycap">RB</span>
                 <span class="doorpi-shortcut-plus">+</span>
                 <span class="doorpi-stickcap">R3</span>
             </span>`;
@@ -416,7 +416,6 @@
             || phase === 'closing'
             || document.body.classList.contains('nav-menu-closing')
             || (!allowSessionRender && window._userSwitching === true)
-            || (!allowSessionRender && window._doorpiSessionTransitionBlockUntil && Date.now() < window._doorpiSessionTransitionBlockUntil)
             || (!allowSessionRender && window.isDoorpiSessionTransitionActive?.() === true);
     }
 
@@ -770,8 +769,33 @@
         window._audioPlayer.restartFromBeginning();
     };
 
+    window._setDoorpiHomeInteractionBlocked = function (blocked = false) {
+        const roots = [
+            document.querySelector('.main-content-wrapper'),
+            document.querySelector('.doorpi-top-cluster'),
+            document.getElementById('doorpiNotificationCenter')
+        ].filter(Boolean);
+
+        roots.forEach(root => {
+            try { root.inert = !!blocked; } catch { }
+            if (blocked) {
+                root.setAttribute('aria-hidden', 'true');
+                root.style.pointerEvents = 'none';
+            } else {
+                root.removeAttribute('aria-hidden');
+                root.style.pointerEvents = '';
+                try { root.inert = false; } catch { }
+            }
+        });
+    };
+
     window.isDoorpiSessionTransitionActive = function () {
-        return !!window._userSwitching || Date.now() < (window._doorpiSessionTransitionBlockUntil || 0);
+        const overlay = document.getElementById('doorpiUserSwitchLogout');
+        const overlayActive = !!overlay &&
+            overlay.style.display !== 'none' &&
+            overlay.style.pointerEvents !== 'none' &&
+            overlay.classList.contains('visible');
+        return !!window._userSwitching || overlayActive;
     };
 
     document.addEventListener('keydown', (e) => {
@@ -2760,11 +2784,11 @@
         s.textContent = `
             .doorpi-top-cluster {
                 position: fixed;
-                top: clamp(20px, 3vh, 40px);
-                left: clamp(12px, 1.3vw, 22px);
+                top: clamp(18px, 2.55vh, 36px);
+                left: clamp(26px, 2.85vw, 68px);
                 display: flex;
                 align-items: center;
-                gap: clamp(12px, 1vw, 18px);
+                gap: clamp(10px, .95vw, 18px);
                 z-index: 17000;
                 opacity: 0;
                 pointer-events: none;
@@ -2780,7 +2804,7 @@
                 position: relative;
                 display: flex;
                 align-items: center;
-                gap: 14px;
+                gap: 10px;
                 background: none;
                 border: none;
                 cursor: pointer;
@@ -2801,18 +2825,18 @@
                 width: 42px;
                 height: 42px;
                 padding: 0;
-                border-radius: 0 10px 10px 0;
+                border-radius: 0;
                 border: 0;
-                border-left: 2px solid rgba(255,255,255,.42);
-                background: linear-gradient(90deg, rgba(255,255,255,.11), rgba(255,255,255,.025));
-                color: rgba(255,255,255,.76);
+                border-left: 1px solid rgba(255,255,255,.32);
+                background: transparent;
+                color: rgba(255,255,255,.80);
                 filter: drop-shadow(0 2px 8px rgba(0,0,0,.45));
                 transition: width .18s ease, padding .18s ease, background .18s ease, border-color .18s ease;
             }
             .top-quick-menu-cue svg {
                 width: 22px;
                 height: 22px;
-                stroke-width: 2.1;
+                stroke-width: 1.95;
             }
             .top-quick-menu-label {
                 display: none;
@@ -2832,7 +2856,7 @@
             }
             body.quick-panel-open .top-quick-menu-cue {
                 width: auto;
-                padding: 0 14px 0 10px;
+                padding: 0 12px 0 9px;
                 gap: 10px;
                 background: transparent;
                 border-left-color: rgba(255,255,255,.72);
@@ -2846,12 +2870,12 @@
                 opacity: 0;
             }
             .top-profile-btn .doorpi-avatar {
-                width: clamp(58px, 4.5vw, 74px);
-                height: clamp(58px, 4.5vw, 74px);
-                margin-left: clamp(10px, 1.7vw, 34px);
+                width: clamp(58px, 4.25vw, 78px);
+                height: clamp(58px, 4.25vw, 78px);
+                margin-left: clamp(10px, 1.45vw, 30px);
                 border-radius: 50%;
                 background: rgb(255 255 255 / 0%);
-                border: 2px solid rgba(255,255,255,0.15);
+                border: 1px solid rgba(255,255,255,0.28);
                 display: flex;
                 align-items: center;
                 justify-content: center;
@@ -2860,19 +2884,20 @@
                 transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
             }
             .top-profile-btn:focus .doorpi-avatar, .top-profile-btn:hover .doorpi-avatar {
-                transform: scale(1.1);
+                transform: scale(1.045);
                 border-color: #fff;
+                box-shadow: 0 0 0 4px rgba(255,255,255,.10), 0 14px 32px rgba(0,0,0,.28);
             }
             .top-profile-btn img { width: 100%; height: 100%; object-fit: cover; }
             .top-profile-btn .doorpi-avatar svg { width: 54%; height: 54%; color: rgba(255,255,255,.76); }
             .top-profile-name {
                 display: inline-block;
-                max-width: clamp(120px, 12vw, 240px);
+                max-width: clamp(130px, 13vw, 260px);
                 overflow: hidden;
                 text-overflow: ellipsis;
-                font-size: clamp(17px, 1vw, 19px);
-                font-weight: 500;
-                color: rgba(255,255,255,0.7);
+                font-size: clamp(16px, 1.04vw, 20px);
+                font-weight: 540;
+                color: rgba(255,255,255,0.80);
                 white-space: nowrap;
                 filter: drop-shadow(1px 2px 1px black);
             }
@@ -2886,6 +2911,11 @@
     window.DoorpiNotifications = (() => {
         const items = new Map();
         const toastQueue = [];
+        const updateDismissalKeys = {
+            'doorpi-system-update': 'doorpi.notifications.dismissedSystemUpdate',
+            'windows-update': 'doorpi.notifications.dismissedWindowsUpdate',
+        };
+        const activeUpdateTargets = new Map();
         let isOpen = false;
         let toastTimer = 0;
         let activeToastTimer = 0;
@@ -2922,7 +2952,7 @@
 
             root = document.createElement('div');
             root.id = 'doorpiNotificationCenter';
-            root.className = 'doorpi-notification-center';
+            root.className = 'doorpi-notification-center is-visible';
             root.innerHTML = `
                 <button id="doorpiNotificationButton" class="doorpi-notification-button" type="button" tabindex="0" title="${esc(t('notificationsTitle'))}">
                     <span class="doorpi-notification-icon">${iconSvg()}</span>
@@ -2946,6 +2976,7 @@
             button?.addEventListener('keydown', (e) => {
                 if (e.key !== 'Enter' && e.key !== ' ') return;
                 e.preventDefault();
+                e.stopPropagation();
                 toggle();
             });
 
@@ -3011,10 +3042,11 @@
                     z-index: 1;
                     display: flex;
                     align-items: center;
-                    gap: 10px;
-                    opacity: 0;
-                    pointer-events: none;
-                    transform: translateY(-2px);
+                    gap: 8px;
+                    opacity: 1;
+                    visibility: visible;
+                    pointer-events: auto;
+                    transform: translateY(0);
                     transition: opacity .22s ease, transform .22s ease;
                 }
                 .doorpi-notification-center.is-visible {
@@ -3027,22 +3059,23 @@
                 body.quick-panel-open .doorpi-notification-center,
             body.user-picker-open .doorpi-notification-center,
             body.setup-active .doorpi-notification-center,
-            body:not(.doorpi-home-top-visible) .doorpi-notification-center {
-                opacity: 0 !important;
-                pointer-events: none !important;
-            }
+                body:not(.doorpi-home-top-visible) .doorpi-notification-center {
+                    opacity: 0 !important;
+                    visibility: hidden !important;
+                    pointer-events: none !important;
+                }
                 .doorpi-notification-button {
                     position: relative;
-                    width: 46px;
-                    height: 46px;
+                    width: 36px;
+                    height: 36px;
                     border-radius: 50%;
-                    border: 1px solid rgba(255,255,255,.16);
-                    background: rgba(9, 13, 24, .48);
-                    color: rgba(255,255,255,.82);
+                    border: 1px solid rgba(255,255,255,.10);
+                    background: transparent;
+                    color: rgba(255,255,255,.55);
                     display: grid;
                     place-items: center;
-                    box-shadow: 0 14px 34px rgba(0,0,0,.32);
-                    backdrop-filter: blur(18px);
+                    box-shadow: none;
+                    backdrop-filter: none;
                     outline: none;
                     cursor: pointer;
                 }
@@ -3052,8 +3085,8 @@
                     border-color: rgba(255,255,255,.62);
                 }
                 .doorpi-notification-icon svg {
-                    width: 21px;
-                    height: 21px;
+                    width: 18px;
+                    height: 18px;
                 }
                 .doorpi-notification-count {
                     position: absolute;
@@ -3066,20 +3099,21 @@
                     display: none;
                     align-items: center;
                     justify-content: center;
-                    background: #ff5252;
+                    background: rgba(255,255,255,.9);
                     color: #fff;
+                    color: #080912;
                     font-size: 11px;
                     font-weight: 800;
                     line-height: 1;
-                    box-shadow: 0 0 16px rgba(255,82,82,.5);
+                    box-shadow: 0 0 14px rgba(255,255,255,.24);
                 }
                 .doorpi-notification-count.is-visible { display: flex; }
                 .doorpi-notification-toast {
                     max-width: min(460px, 42vw);
                     padding: 11px 14px;
-                    border-radius: 8px;
-                    border: 1px solid rgba(255,255,255,.15);
-                    background: rgba(10, 15, 28, .82);
+                    border-radius: 6px;
+                    border: 1px solid rgba(255,255,255,.10);
+                    background: rgba(8, 10, 18, .76);
                     color: rgba(255,255,255,.88);
                     font-size: 14px;
                     font-weight: 650;
@@ -3107,7 +3141,7 @@
                     display: none;
                     border: 1px solid rgba(255,255,255,.16);
                     border-radius: 8px;
-                    background: rgba(8, 12, 23, .94);
+                    background: rgba(8, 10, 18, .94);
                     box-shadow: 0 28px 72px rgba(0,0,0,.52);
                     backdrop-filter: blur(22px);
                     color: #fff;
@@ -3196,7 +3230,7 @@
             const countEl = root.querySelector('#doorpiNotificationCount');
             const list = root.querySelector('#doorpiNotificationList');
             const count = pendingCount();
-            root.classList.toggle('is-visible', !!window._doorpiUserSessionReady);
+            root.classList.add('is-visible');
             if (countEl) {
                 countEl.textContent = String(Math.min(count, 99));
                 countEl.classList.toggle('is-visible', count > 0);
@@ -3265,9 +3299,28 @@
             }
         }
 
-        function remove(id) {
+        function readDismissedUpdateTarget(id) {
+            const key = updateDismissalKeys[id];
+            if (!key) return '';
+            try { return localStorage.getItem(key) || ''; }
+            catch { return ''; }
+        }
+
+        function rememberDismissedUpdateTarget(id) {
+            const key = updateDismissalKeys[id];
+            const target = activeUpdateTargets.get(id) || '';
+            if (!key || !target) return;
+            try { localStorage.setItem(key, target); }
+            catch { }
+        }
+
+        function remove(id, options = {}) {
             if (!id) return;
+            if (options.rememberDismissal !== false) rememberDismissedUpdateTarget(id);
             items.delete(id);
+            for (let i = toastQueue.length - 1; i >= 0; i--) {
+                if (toastQueue[i]?.id === id) toastQueue.splice(i, 1);
+            }
             render();
         }
 
@@ -3299,7 +3352,17 @@
         function setSystemUpdateStatus(status = {}) {
             const hasUpdate = !!(status.doorpiUpdateAvailable || status.updaterUpdateAvailable);
             if (!hasUpdate) {
-                remove('doorpi-system-update');
+                activeUpdateTargets.delete('doorpi-system-update');
+                remove('doorpi-system-update', { rememberDismissal: false });
+                return;
+            }
+            const target = [
+                status.doorpiUpdateAvailable ? (status.remoteDoorpiVersion || 'doorpi') : '',
+                status.updaterUpdateAvailable ? (status.remoteUpdaterVersion || 'updater') : '',
+            ].join('|');
+            activeUpdateTargets.set('doorpi-system-update', target);
+            if (readDismissedUpdateTarget('doorpi-system-update') === target) {
+                remove('doorpi-system-update', { rememberDismissal: false });
                 return;
             }
             const parts = [];
@@ -3319,7 +3382,25 @@
             const updates = Array.isArray(status.updates) ? status.updates : [];
             const hasUpdate = !!status.rebootRequired || updates.length > 0;
             if (!hasUpdate) {
-                remove('windows-update');
+                activeUpdateTargets.delete('windows-update');
+                remove('windows-update', { rememberDismissal: false });
+                return;
+            }
+            const updateTargets = updates
+                .map(update => `${update.updateId || update.title || 'update'}:${update.revisionNumber || 0}`)
+                .sort();
+            const resultTargets = (Array.isArray(status.packageResults) ? status.packageResults : [])
+                .map(result => result.updateId || result.title || '')
+                .filter(Boolean)
+                .sort();
+            const target = [
+                status.rebootRequired ? 'reboot' : 'updates',
+                ...(updateTargets.length ? updateTargets : resultTargets),
+                (!updateTargets.length && !resultTargets.length) ? (status.lastCheckedAt || status.lastInstallPhase || 'windows') : '',
+            ].join('|');
+            activeUpdateTargets.set('windows-update', target);
+            if (readDismissedUpdateTarget('windows-update') === target) {
+                remove('windows-update', { rememberDismissal: false });
                 return;
             }
             upsert({
@@ -4305,14 +4386,24 @@
                 }
             }
             else if (data.type === 'installedAppsList') {
-                allInstalledApps = data.apps;
-                refreshInstalledAppsView();
+                // A consulta leve terminou. Encerrar apenas o indicador do próprio
+                // modal — hideLoading também executa lógica de foco da Home.
+                window.setInlineScanStatus?.(false);
+                if (_replaceInstalledAppsIfChanged(data.apps)) {
+                    _patchInstalledAppsModalInPlace();
+                }
             }
             else if (data.type === 'installedAppsUpdated') {
                 const modal = document.getElementById('addGameContainer');
                 if (!modal || modal.style.display === 'none') return;
-                allInstalledApps = data.apps;
-                refreshInstalledAppsView();
+                if (_replaceInstalledAppsIfChanged(data.apps)) {
+                    _patchInstalledAppsModalInPlace();
+                }
+            }
+            else if (data.type === 'installedAppsRequestCompleted') {
+                // Fallback para falhas no detector: encerra o estado visual sem tocar
+                // no modal nem no foco atual.
+                window.setInlineScanStatus?.(false);
             }
             else if (data.type === 'nativeAppsLoaded') {
                 if (data.apps) {
@@ -4440,6 +4531,7 @@
                 window._doorpiIsAdmin = !!data.isAdmin || !!(data.user?.IsAdmin || data.user?.isAdmin);
                 window._adminBlockedStoreIds = new Set(data.blockedStoreIds || []);
                 window._steamForceAccountSelection = !!data.steamForceAccountSelection;
+                window._applyDoorpiTopProfile?.(data.user);
                 window._navMenuCurrentUserChanged?.(data.user, nextUserId, userChanged);
                 if (window._pendingUserSwitchId && String(window._pendingUserSwitchId).toLowerCase() === String(nextUserId || '').toLowerCase()) {
                     closeUserPinPrompt();
@@ -4448,8 +4540,8 @@
                     document.body.classList.remove('user-picker-open');
                     window._pendingUserSwitchId = '';
                     window.DoorpiIntro?.finishHandoff?.();
+                    requestAnimationFrame(() => window.updateDoorpiTopClusterVisibility?.());
                 }
-                window._applyDoorpiTopProfile?.(data.user);
                 window.DoorpiFirstRunTutorial?.maybeShow?.();
                 setTimeout(() => window.DoorpiUpdatePrompt?.evaluate?.(), 420);
                 if (typeof clearHero === 'function') clearHero();
@@ -5089,14 +5181,48 @@
         .doorpi-user-overlay, .doorpi-manager-overlay {
             position: fixed; inset: 0; z-index: 9200;
             background:
-                radial-gradient(ellipse at 80% -18%, rgba(255,255,255,0.075), transparent 38%),
-                radial-gradient(ellipse at -14% 112%, rgba(110,140,190,0.10), transparent 42%),
-                rgba(6, 6, 14, 0.62);
-            backdrop-filter: blur(40px) saturate(1.5);
-            -webkit-backdrop-filter: blur(40px) saturate(1.5);
+                radial-gradient(ellipse at 80% -18%, rgba(255,255,255,0.095), transparent 38%),
+                radial-gradient(ellipse at -14% 112%, rgba(125,155,210,0.135), transparent 42%),
+                rgba(8, 9, 20, 0.55);
+            backdrop-filter: blur(30px) saturate(1.36);
+            -webkit-backdrop-filter: blur(30px) saturate(1.36);
             display: flex; align-items: center; justify-content: center;
             padding: clamp(24px, 5vw, 60px); box-sizing: border-box;
             animation: doorpiOverlayFadeIn 0.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        }
+        .doorpi-user-overlay {
+            overflow: hidden;
+            background:
+                radial-gradient(ellipse at 80% -18%, rgba(255,255,255,0.055), transparent 38%),
+                radial-gradient(ellipse at -14% 112%, rgba(125,155,210,0.08), transparent 42%),
+                rgba(5, 6, 14, 0.42);
+            backdrop-filter: blur(18px) saturate(1.24);
+            -webkit-backdrop-filter: blur(18px) saturate(1.24);
+        }
+        .doorpi-user-overlay.doorpi-intro-handoff {
+            background: transparent !important;
+            background-image: none !important;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+            animation: none !important;
+            opacity: 1 !important;
+        }
+        body.doorpi-intro-handoff-active .doorpi-user-overlay {
+            background: transparent !important;
+            background-image: none !important;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+            animation: none !important;
+            opacity: 1 !important;
+        }
+        body.doorpi-intro-handoff-active .doorpi-user-overlay .doorpi-user-panel {
+            animation: none !important;
+            filter: none !important;
+            opacity: 1 !important;
+        }
+        body.doorpi-intro-handoff-active .doorpi-user-overlay,
+        body.doorpi-intro-handoff-active .doorpi-user-overlay * {
+            filter: none !important;
         }
         @keyframes doorpiOverlayFadeIn {
             from { opacity: 0; }
@@ -5106,6 +5232,8 @@
         .doorpi-user-panel {
             width: 100%;
             display: flex; flex-direction: column; align-items: center; gap: clamp(30px, 4vw, 50px);
+            position: relative;
+            z-index: 1;
         }
         .doorpi-manager-panel {
             width: min(980px, 94vw); max-height: 86vh;
@@ -5256,7 +5384,7 @@
         cursor: pointer;
         outline: none;
         padding: 0;
-        transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.22s ease;
         position: relative;
         animation: doorpiCardRise 0.3s cubic-bezier(0.16, 1, 0.3, 1) backwards;
         will-change: transform;
@@ -5289,7 +5417,7 @@
         overflow: hidden;
         color: rgba(255,255,255,0.45);
         font-size: clamp(38px, 5vw, 58px);
-        transition: border-color 0.25s, box-shadow 0.25s;
+        transition: border-color 0.25s, box-shadow 0.32s, background 0.25s;
         position: relative;
         z-index: 2;
     }
@@ -5319,50 +5447,24 @@
         color: #fff;
     }
 
+    .doorpi-user-card.is-current {
+        opacity: 0.9;
+    }
+
     .doorpi-user-card.is-current .doorpi-avatar {
-        border-color: #7dcbff;
-        box-shadow:
-            0 0 0 5px rgba(125, 203, 255, 0.24),
-            0 0 30px rgba(78, 178, 255, 0.2),
-            0 12px 34px rgba(0,0,0,0.28);
+        border-color: rgba(255,255,255,0.76);
+        box-shadow: 0 0 0 4px rgba(255,255,255,0.055), 0 16px 42px rgba(0,0,0,0.3);
     }
 
-    .doorpi-current-user-indicator {
-        min-width: 86px;
-        height: 28px;
-        padding: 0 14px 0 11px;
+    .doorpi-user-card.is-current .doorpi-user-name::after {
+        content: '';
+        display: block;
+        width: 24px;
+        height: 2px;
+        margin: 9px auto 0;
         border-radius: 999px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 7px;
-        color: #07111d;
-        background: linear-gradient(135deg, #a9ddff 0%, #69beff 100%);
-        border: 2px solid rgba(225, 245, 255, 0.82);
-        box-shadow: 0 5px 14px rgba(0,0,0,0.34);
-        box-sizing: border-box;
-        font-size: 0.68rem;
-        font-weight: 800;
-        line-height: 1;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        white-space: nowrap;
-        z-index: 3;
-        pointer-events: none;
-    }
-
-    .doorpi-user-status-slot {
-        height: 28px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    .doorpi-current-user-indicator svg {
-        width: 15px;
-        height: 15px;
-        flex: 0 0 auto;
-        stroke-width: 3;
+        background: rgba(255,255,255,0.78);
+        box-shadow: 0 0 12px rgba(255,255,255,0.32);
     }
 
     .doorpi-create-user-icon {
@@ -5867,10 +5969,16 @@ function showUserPicker(users, requireSelection = false) {
 
     ensureDoorpiOverlayStyles();
     let overlay = document.getElementById('doorpiUserPicker');
+    if (!window.DoorpiIntro?.isHandoffActive?.() && !window.DoorpiIntro?.isRunning?.()) {
+        window.DoorpiIntro?.startUserPickerAmbient?.();
+    }
+    const introHandoffClasses = window.DoorpiIntro?.isHandoffActive?.()
+        ? (window.DoorpiIntro?.getUserPickerClasses?.() || [])
+        : [];
     if (!overlay) {
         overlay = document.createElement('div');
         overlay.id = 'doorpiUserPicker';
-        overlay.className = 'doorpi-user-overlay';
+        overlay.className = ['doorpi-user-overlay', ...introHandoffClasses].join(' ');
 
         // Controle de navegação forçado (Fase de Captura)
         overlay.addEventListener('keydown', (e) => {
@@ -5950,6 +6058,8 @@ function showUserPicker(users, requireSelection = false) {
         }, true);
 
         document.body.appendChild(overlay);
+    } else {
+        overlay.className = ['doorpi-user-overlay', ...introHandoffClasses].join(' ');
     }
 
     const shouldBlockInheritedUserPickerActivation = (event = null) => {
@@ -6011,15 +6121,6 @@ function showUserPicker(users, requireSelection = false) {
     overlay.dataset.returnToQuickPanel = (window._doorpiUserPickerReturnToQuickPanel && !requireSelection) ? 'true' : 'false';
     window._doorpiUserPickerReturnToQuickPanel = false;
 
-    if (overlay.dataset.introPickerClasses) {
-        overlay.classList.remove(...overlay.dataset.introPickerClasses.split(/\s+/).filter(Boolean));
-    }
-    const introPickerClasses = window.DoorpiIntro?.isHandoffActive?.()
-        ? (window.DoorpiIntro.getUserPickerClasses?.() || [])
-        : [];
-    if (introPickerClasses.length) overlay.classList.add(...introPickerClasses);
-    overlay.dataset.introPickerClasses = introPickerClasses.join(' ');
-
     const activeSessionUserId = window._doorpiUserSessionReady
         ? String(window._doorpiCurrentUserId || '').toLowerCase()
         : '';
@@ -6027,7 +6128,6 @@ function showUserPicker(users, requireSelection = false) {
         const isCurrent = !!activeSessionUserId && String(user.Id || '').toLowerCase() === activeSessionUserId;
         return `
         <button class="doorpi-user-card${isCurrent ? ' is-current' : ''}" data-user-id="${escapeHtml(user.Id)}" tabindex="0"${isCurrent ? ' aria-current="true"' : ''} style="animation-delay: ${idx * 0.03}s">
-            <span class="doorpi-user-status-slot">${isCurrent ? `<span class="doorpi-current-user-indicator" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m5 12 4 4L19 6"/></svg><span>${t('badgeCurrent')}</span></span>` : ''}</span>
             ${avatarMarkup(user)}
             <span class="doorpi-user-name">${escapeHtml(user.Name)}</span>
         </button>`;
@@ -6039,7 +6139,6 @@ function showUserPicker(users, requireSelection = false) {
     const svgSleep = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
     const svgRestart = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.84"/></svg>`;
     const svgShutdown = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>`;
-
     overlay.innerHTML = `
             <div class="doorpi-user-panel">
                 <div class="doorpi-panel-head">
@@ -6055,7 +6154,6 @@ function showUserPicker(users, requireSelection = false) {
                     </div>
                     <div class="doorpi-user-fixed-add">
                         <button class="doorpi-user-card create-card" id="doorpiCreateUserCard" tabindex="0" style="animation-delay: ${createUserDelay}s">
-                            <span class="doorpi-user-status-slot" aria-hidden="true"></span>
                             <div class="doorpi-avatar"><div class="doorpi-create-user-icon">+</div></div>
                             <span class="doorpi-user-name">${t('newUser')}</span>
                         </button>
@@ -6144,7 +6242,7 @@ function showUserPicker(users, requireSelection = false) {
     overlay.querySelector('#doorpiShutdown')?.addEventListener('click', () => postToHost({ action: 'shutdownSystem' }));
 
     requestAnimationFrame(() => requestAnimationFrame(() => {
-        const first = overlay.querySelector('.doorpi-user-card');
+        const first = overlay.querySelector('.doorpi-user-card.is-current') || overlay.querySelector('.doorpi-user-card');
         first?.focus();
         window.resetDoorpiGamepadInputState?.();
         try {
@@ -6191,9 +6289,9 @@ function showUserPicker(users, requireSelection = false) {
                     display: none;
                     align-items: stretch;
                     justify-content: flex-start;
-                    background: linear-gradient(90deg, rgba(2,3,9,.96) 0%, rgba(2,3,9,.88) 36%, rgba(2,3,9,.62) 100%);
-                    backdrop-filter: blur(22px) brightness(.78);
-                    -webkit-backdrop-filter: blur(22px) brightness(.78);
+                    background: linear-gradient(90deg, rgba(12,15,28,.90) 0%, rgba(12,15,28,.72) 38%, rgba(12,15,28,.42) 100%);
+                    backdrop-filter: blur(20px) brightness(1.02) saturate(1.16);
+                    -webkit-backdrop-filter: blur(20px) brightness(1.02) saturate(1.16);
                     color: #fff;
                     font-family: inherit;
                     padding: 0;
@@ -6212,16 +6310,16 @@ function showUserPicker(users, requireSelection = false) {
                     pointer-events: none;
                 }
                 .dq-sidebar {
-                    width: clamp(300px, 24vw, 380px);
-                    flex: 0 0 clamp(300px, 24vw, 380px);
+                    width: clamp(280px, 22vw, 360px);
+                    flex: 0 0 clamp(280px, 22vw, 360px);
                     max-width: 42vw;
                     min-width: 0;
                     padding: clamp(34px, 4.5vh, 58px) clamp(24px, 2vw, 34px);
-                    border-right: 1px solid rgba(255,255,255,.09);
-                background: #060710;
-                backdrop-filter: none;
-                -webkit-backdrop-filter: none;
-                    box-shadow: 24px 0 80px rgba(0,0,0,.28);
+                    border-right: 1px solid rgba(255,255,255,.075);
+                    background: rgba(16,19,34,.74);
+                    backdrop-filter: blur(18px);
+                    -webkit-backdrop-filter: blur(18px);
+                    box-shadow: 20px 0 70px rgba(0,0,0,.26);
                     display: flex;
                     flex-direction: column;
                     gap: 18px;
@@ -6253,20 +6351,20 @@ function showUserPicker(users, requireSelection = false) {
                     outline: none;
                     cursor: pointer;
                 }
-                .dq-menu-btn.active { background: rgba(255,255,255,.08); color:#fff; border-color: rgba(255,255,255,.12); }
+                .dq-menu-btn.active { background: linear-gradient(90deg, rgba(255,255,255,.10), transparent 78%); color:#fff; border-color: transparent; box-shadow: inset 2px 0 0 rgba(255,255,255,.78); }
                 .dq-menu-btn.nav-focused-el, .dq-menu-btn:focus {
-                    background: rgba(255,255,255,.16);
-                    border-color: rgba(255,255,255,.7);
-                    box-shadow: 0 0 0 2px rgba(255,255,255,.14), 0 12px 28px rgba(0,0,0,.32);
+                    background: rgba(255,255,255,.10);
+                    border-color: rgba(255,255,255,.34);
+                    box-shadow: inset 2px 0 0 rgba(255,255,255,.88), 0 12px 28px rgba(0,0,0,.25);
                 }
                 .dq-menu-label { display:flex; align-items:center; gap:14px; min-width:0; font-size:1.02rem; font-weight:560; }
                 .dq-menu-ico { width:28px; height:28px; display:flex; align-items:center; justify-content:center; color:rgba(255,255,255,.84); flex:0 0 auto; }
                 .dq-menu-ico svg { width:26px; height:26px; stroke-width:1.85; }
-                .dq-dot { width:8px; height:8px; border-radius:50%; background:#7dcbff; box-shadow:0 0 16px rgba(125,203,255,.75); }
+                .dq-dot { width:9px; height:9px; border-radius:50%; background:rgba(255,78,94,.86); box-shadow:0 0 6px rgba(255,78,94,.28); }
                 .dq-content {
                     flex: 1;
                     min-width: 0;
-                    max-width: calc(100vw - clamp(300px, 24vw, 380px));
+                    max-width: calc(100vw - clamp(280px, 22vw, 360px));
                     padding: clamp(42px, 5vh, 72px) clamp(38px, 4.5vw, 86px);
                     display: flex;
                     flex-direction: column;
@@ -6279,7 +6377,7 @@ function showUserPicker(users, requireSelection = false) {
                 .dq-content::-webkit-scrollbar { display:none; }
                 @keyframes dqContentIn { from { opacity:.35; transform:translateX(-10px); } to { opacity:1; transform:none; } }
                 .dq-kicker { color:rgba(255,255,255,.42); font-size:.78rem; font-weight:700; letter-spacing:.14em; text-transform:uppercase; }
-                .dq-heading { margin:0; font-size:clamp(2.2rem, 3.25vw, 4rem); line-height:1.02; font-weight:340; letter-spacing:0; }
+                .dq-heading { margin:0; font-size:clamp(1.9rem, 2.75vw, 3.35rem); line-height:1.04; font-weight:360; letter-spacing:0; }
                 .dq-sub { margin:0; max-width:720px; color:rgba(255,255,255,.60); line-height:1.48; font-size:clamp(.96rem, 1vw, 1.12rem); }
                 .dq-grid { display:grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap:16px; width:100%; max-width:980px; margin-top:12px; }
                 .dq-grid.connectivity-grid {
@@ -6289,9 +6387,9 @@ function showUserPicker(users, requireSelection = false) {
                     justify-content: start;
                 }
                 .dq-card, .dq-action {
-                    border:1px solid rgba(255,255,255,.10);
+                    border:1px solid rgba(255,255,255,.08);
                     border-radius:8px;
-                    background:rgba(255,255,255,.045);
+                    background:rgba(255,255,255,.055);
                     color:#fff;
                     font:inherit;
                     text-align:left;
@@ -6308,16 +6406,16 @@ function showUserPicker(users, requireSelection = false) {
                 .dq-action { min-height:60px; padding:0 18px; display:flex; align-items:center; justify-content:space-between; gap:14px; }
                 .dq-card.nav-focused-el, .dq-action.nav-focused-el, .dq-card:focus, .dq-action:focus {
                     transform:translateY(-2px);
-                    background:rgba(255,255,255,.12);
-                    border-color:rgba(255,255,255,.72);
-                    box-shadow:0 0 0 2px rgba(255,255,255,.15), 0 18px 42px rgba(0,0,0,.38);
+                    background:rgba(255,255,255,.13);
+                    border-color:rgba(255,255,255,.58);
+                    box-shadow:inset 0 1px 0 rgba(255,255,255,.08), 0 18px 42px rgba(0,0,0,.32);
                 }
                 .dq-card h3 { margin:0; font-size:1.22rem; font-weight:650; line-height:1.2; }
                 .dq-card p { margin:7px 0 0; color:rgba(255,255,255,.58); line-height:1.38; max-width:32ch; }
-                .dq-pill { display:inline-flex; align-self:flex-start; padding:4px 9px; border-radius:999px; background:rgba(125,203,255,.12); color:#9dd8ff; font-size:.68rem; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
-                .dq-pill.warn { background:rgba(255,205,90,.13); color:#ffd872; }
-                .dq-pill.err { background:rgba(255,90,90,.13); color:#ff9696; }
-                .dq-panel { width:100%; max-width:880px; border:1px solid rgba(255,255,255,.10); border-radius:8px; background:rgba(255,255,255,.04); padding:20px; }
+                .dq-pill { display:inline-flex; align-self:flex-start; padding:0 0 5px; border-radius:0; background:transparent; color:rgba(255,255,255,.72); box-shadow:inset 0 -1px 0 rgba(255,255,255,.34); font-size:.68rem; font-weight:760; letter-spacing:.10em; text-transform:uppercase; }
+                .dq-pill.warn { background:transparent; color:#ffd872; box-shadow:inset 0 -1px 0 rgba(255,216,114,.48); }
+                .dq-pill.err { background:transparent; color:#ff9696; box-shadow:inset 0 -1px 0 rgba(255,150,150,.48); }
+                .dq-panel { width:100%; max-width:880px; border:1px solid rgba(255,255,255,.14); border-radius:8px; background:rgba(255,255,255,.065); padding:20px; }
                 .dq-tabs { display:flex; gap:8px; margin:4px 0 2px; }
                 .dq-tab { min-width:132px; min-height:42px; border-radius:8px; border:1px solid rgba(255,255,255,.10); background:rgba(255,255,255,.035); color:rgba(255,255,255,.74); font:inherit; outline:none; cursor:pointer; }
                 .dq-tab.active { color:#fff; background:rgba(125,203,255,.10); border-color:rgba(125,203,255,.36); }
@@ -6362,10 +6460,8 @@ function showUserPicker(users, requireSelection = false) {
                 .dq-app-card {
                     min-height:248px;
                     border:1px solid rgba(255,255,255,.10);
-                    border-radius:12px;
-                    background:
-                        radial-gradient(circle at 50% 0%, rgba(255,255,255,.12), transparent 42%),
-                        linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.035));
+                    border-radius:8px;
+                    background:rgba(255,255,255,.035);
                     color:#fff;
                     outline:none;
                     cursor:pointer;
@@ -6380,22 +6476,19 @@ function showUserPicker(users, requireSelection = false) {
                 }
                 .dq-app-card.nav-focused-el, .dq-app-card:focus {
                     transform:translateY(-2px);
-                    background:rgba(255,255,255,.12);
-                    border-color:rgba(255,255,255,.72);
-                    box-shadow:0 0 0 2px rgba(255,255,255,.15), 0 18px 42px rgba(0,0,0,.38);
+                    background:rgba(255,255,255,.095);
+                    border-color:rgba(255,255,255,.58);
+                    box-shadow:0 18px 42px rgba(0,0,0,.32);
                 }
                 .dq-app-art {
                     min-height:132px;
-                    border-radius:10px;
-                    background:
-                        radial-gradient(circle at 50% 18%, rgba(255,255,255,.24), transparent 32%),
-                        radial-gradient(circle at 20% 10%, rgba(125,203,255,.28), transparent 36%),
-                        linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.03));
+                    border-radius:8px;
+                    background:rgba(255,255,255,.045);
                     display:flex;
                     align-items:center;
                     justify-content:center;
                     overflow:hidden;
-                    box-shadow:inset 0 1px 0 rgba(255,255,255,.08), 0 18px 28px rgba(0,0,0,.16);
+                    box-shadow:inset 0 1px 0 rgba(255,255,255,.06), 0 18px 28px rgba(0,0,0,.16);
                 }
                 .dq-app-art img { width:min(72%, 108px); height:min(72%, 108px); object-fit:contain; filter:drop-shadow(0 14px 28px rgba(0,0,0,.34)); }
                 .dq-app-cover { width:100%; height:100%; background-size:contain; background-repeat:no-repeat; background-position:center; filter:drop-shadow(0 14px 24px rgba(90,180,255,.18)); transform:scale(1.03); }
@@ -7661,6 +7754,75 @@ function showUserPicker(users, requireSelection = false) {
 
     const _TAB_MAP = { 'apps': 0, 'media-apps': 1, 'stores': 2, 'folders': 3 };
     const _VIEW_MAP = { 'apps': 'view-apps', 'media-apps': 'view-media-apps', 'stores': 'view-stores', 'folders': 'view-folders' };
+    let _pendingAddModalContentFocus = '';
+    let _addModalUserInteracted = false;
+
+    function focusAddModalContent(tabId, options = {}) {
+        if (!isModalOpen) return false;
+        const modal = document.getElementById('addGameContainer');
+        // A abertura pode posicionar o foco uma única vez. Depois que o usuário ou
+        // a navegação por controle já entrou no modal, uma resposta de cache nunca
+        // pode roubar esse foco e mandá-lo para o primeiro card.
+        if (modal?.contains(document.activeElement)) {
+            _pendingAddModalContentFocus = '';
+            return false;
+        }
+        const activeView = document.querySelector('.view-section.active')?.id;
+        const allowFallback = options.allowFallback === true;
+        const scrollBehavior = options.behavior || 'instant';
+        let target = null;
+
+        if (tabId === 'apps' && activeView === 'view-apps') {
+            target = document.querySelector('#appList .app-item:not(.already-added)');
+            if (!target && allowFallback) {
+                target = document.querySelector('.filter-bar .filter-btn.active')
+                    || document.querySelector('.filter-bar .filter-btn')
+                    || document.querySelector('#view-apps .action-buttons button');
+            }
+        } else if (tabId === 'media-apps' && activeView === 'view-media-apps') {
+            if (document.getElementById('subview-web')?.classList.contains('active')) {
+                target = document.getElementById('webAppNameInput')
+                    || document.getElementById('webAppUrlInput')
+                    || document.querySelector('#mediaAppSubtabs .subtab.active');
+            } else {
+                target = document.querySelector('#appListMedia .app-item:not(.already-added)')
+                    || document.getElementById('btnSearchMedia')
+                    || document.querySelector('#mediaAppSubtabs .subtab.active');
+            }
+        } else if (tabId === 'stores' && activeView === 'view-stores') {
+            target = document.querySelector('#storeInstallList .store-install-card:not(.installed):not([aria-disabled="true"])')
+                || document.querySelector('#view-stores .action-buttons button');
+        } else if (tabId === 'folders' && activeView === 'view-folders') {
+            target = document.querySelector('#folderList .icon-btn')
+                || document.getElementById('btnScanFolder')
+                || document.querySelector('#view-folders .action-buttons button');
+        }
+
+        if (!target) return false;
+        target.focus({ preventScroll: true });
+        target.scrollIntoView?.({ behavior: scrollBehavior, block: 'nearest', inline: 'nearest' });
+        _pendingAddModalContentFocus = '';
+        return true;
+    }
+
+    function resetAddModalScrollPosition() {
+        ['appList', 'appListMedia', 'storeInstallList', 'folderList'].forEach(id => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.scrollTop = 0;
+            el.scrollLeft = 0;
+        });
+    }
+
+    function queueAddModalContentFocus(tabId) {
+        _pendingAddModalContentFocus = tabId;
+        requestAnimationFrame(() => {
+            if (!_addModalUserInteracted) focusAddModalContent(tabId);
+        });
+        window.setTimeout(() => {
+            if (!_addModalUserInteracted) focusAddModalContent(tabId, { allowFallback: true });
+        }, 160);
+    }
 
     function switchTab(tabId) {
         document.querySelectorAll('.menu-tab').forEach((btn, i) => {
@@ -7708,6 +7870,7 @@ function showUserPicker(users, requireSelection = false) {
             renderStoreInstallList();
             postToHost({ action: 'requestStores' });
         }
+        queueAddModalContentFocus(tabId);
     }
     /* Seção: Filtros e barra de filtros */
     currentSourceFilter = ['all'];
@@ -7735,14 +7898,24 @@ function buildFilterBar(apps) {
     const bar = document.getElementById('filterBar');
     if (!bar) return;
 
-    const present = new Set(apps.map(a => a.Source || a.source));
+    const appPool = (Array.isArray(apps) ? apps : []).filter(a => (a.AddedTo || a.addedTo) !== 'media');
+    const present = new Set(appPool.map(a => a.Source || a.source));
     const keys = ['all', ...Object.keys(FILTER_SOURCES).filter(k => k !== 'all' && FILTER_SOURCES[k].some(s => present.has(s)))];
+
+    const sourceCount = (key) => {
+        if (key === 'all') return appPool.length;
+        const sources = FILTER_SOURCES[key] || [key];
+        return appPool.filter(a => sources.includes(a.Source || a.source)).length;
+    };
 
     let html = keys.map(k => {
         const isActive = currentSourceFilter.includes(k);
+        const label = typeof t === 'function' ? t('filterLabels.' + k) : k;
+        const count = sourceCount(k);
         return `
-                <button class="filter-btn ${isActive ? 'active' : ''}" tabindex="0" data-source="${k}">
-                    ${typeof t === 'function' ? t('filterLabels.' + k) : k}
+                <button class="filter-btn ${isActive ? 'active' : ''}" tabindex="0" data-source="${escapeHtml(k)}" aria-label="${escapeHtml(label)}: ${count}">
+                    <span class="filter-label">${escapeHtml(label)}</span>
+                    <span class="filter-count">${count}</span>
                 </button>
             `;
     }).join('');
@@ -7802,79 +7975,148 @@ function buildFilterBar(apps) {
     }
 
     function refreshInstalledAppsView() {
+        const focusSnapshot = _captureInstalledAppsModalFocus();
         const activeView = document.querySelector('.view-section.active')?.id;
         const exeActive = activeView === 'view-media-apps' &&
             document.getElementById('subview-exe')?.classList.contains('active');
 
         if (exeActive) {
-            _renderExeAppModal();
+            if (document.getElementById('appListMedia')) {
+                const availableApps = allInstalledApps.filter(a => (a.AddedTo || a.addedTo) !== 'game');
+                _populateExeList(availableApps);
+            } else {
+                _renderExeAppModal();
+            }
+            _restoreInstalledAppsModalFocus(focusSnapshot);
             return;
         }
 
         applyFilterAndRender();
+        _restoreInstalledAppsModalFocus(focusSnapshot);
     }
 
-document.getElementById('btnAdd').addEventListener('click', () => {
-    if (window.DoorpiIntro?.isRunning?.()) {
-        return;
+    function _filterBarSignature(apps) {
+        const appPool = (Array.isArray(apps) ? apps : [])
+            .filter(app => (app.AddedTo || app.addedTo) !== 'media');
+        return Object.keys(FILTER_SOURCES)
+            .filter(key => key === 'all' || (FILTER_SOURCES[key] || []).some(source =>
+                appPool.some(app => (app.Source || app.source) === source)))
+            .map(key => {
+                const sources = FILTER_SOURCES[key];
+                const count = key === 'all'
+                    ? appPool.length
+                    : appPool.filter(app => sources.includes(app.Source || app.source)).length;
+                return `${key}:${count}`;
+            })
+            .join('|');
     }
+
+    function _renderEmptyInstalledAppsList(appList) {
+        appList.innerHTML = `
+            <div class="app-scan-empty">
+                <div class="app-scan-pulse"></div>
+                <div>
+                    <strong>Procurando jogos e aplicativos</strong>
+                    <span>Os primeiros resultados aparecem aqui assim que forem encontrados.</span>
+                </div>
+            </div>`;
+    }
+
+    // Respostas da checagem leve não são uma troca de tela. Mantemos o DOM, o scroll
+    // e o foco atuais; só os cards que realmente mudaram são atualizados.
+    function _patchInstalledAppsModalInPlace() {
+        const modal = document.getElementById('addGameContainer');
+        const appList = document.getElementById('appList');
+        if (!modal || modal.style.display === 'none' || !appList) return;
+
+        const focusSnapshot = _captureInstalledAppsModalFocus();
+        const nextFilterSignature = _filterBarSignature(allInstalledApps);
+        const currentFilterSignature = Array.from(document.querySelectorAll('#filterBar .filter-btn'))
+            .map(button => `${button.dataset.source}:${button.querySelector('.filter-count')?.textContent || '0'}`)
+            .join('|');
+
+        if (nextFilterSignature !== currentFilterSignature) {
+            buildFilterBar(allInstalledApps);
+        }
+
+        const filtered = currentSourceFilter.includes('all')
+            ? allInstalledApps
+            : allInstalledApps.filter(app => currentSourceFilter
+                .flatMap(filter => FILTER_SOURCES[filter] || [])
+                .includes(app.Source || app.source));
+        const visibleApps = filtered.filter(app => (app.AddedTo || app.addedTo) !== 'media');
+
+        if (visibleApps.length === 0) {
+            _renderEmptyInstalledAppsList(appList);
+        } else {
+            _syncModalAppList(appList, visibleApps, {
+                counterId: 'selectionCounter',
+                textId: 'selectionCounterText'
+            });
+        }
+
+        document.getElementById('modalActions').style.display = 'flex';
+        _modalReady = true;
+        _restoreInstalledAppsModalFocus(focusSnapshot);
+    }
+
+let _modalTransitionId = 0;
+
+function openAddModal(kind) {
+    if (window.DoorpiIntro?.isRunning?.() || isSetupOpen) return;
+
     isModalOpen = true;
     window.updateDoorpiQuickMenuAvailability?.();
     _modalReady = false;
-    if (isSetupOpen) return;
-    document.getElementById('modalActions').style.display = 'none';
+    _addModalUserInteracted = false;
+
+    const modal = document.getElementById('addGameContainer');
+    const modalActions = document.getElementById('modalActions');
+    const mediaActions = document.getElementById('mediaAppActions');
+    const title = document.getElementById('modalTitle');
+    const transitionId = ++_modalTransitionId;
+
+    modalActions.style.display = 'none';
+    if (mediaActions) mediaActions.style.display = 'none';
     document.getElementById('gameGrid').style.overflowX = 'hidden';
-    document.getElementById('addGameContainer').style.display = 'flex';
-    document.getElementById('modalTitle').innerText = t('detectingLibrary');
+    modal.classList.remove('is-closing');
+    resetAddModalScrollPosition();
+    modal.style.display = 'flex';
+    if (!modal.dataset.interactionTrackerBound) {
+        modal.dataset.interactionTrackerBound = 'true';
+        ['pointerdown', 'keydown'].forEach(type => {
+            modal.addEventListener(type, () => { _addModalUserInteracted = true; }, true);
+        });
+    }
+    requestAnimationFrame(() => {
+        if (transitionId === _modalTransitionId) modal.classList.add('is-open');
+    });
 
-
-    window.setInlineScanStatus(true, t('inlineScanSearchingGames'));
-
-    switchTab('apps');
-    postToHost({ action: 'requestInstalledApps' });
-    postToHost({ action: 'startAppPolling' });
-});
-
-document.getElementById('btnAddMedia')?.addEventListener('click', () => {
-    if (window.DoorpiIntro?.isRunning?.()) {
+    if (kind === 'stores') {
+        switchTab('stores');
         return;
     }
-    isModalOpen = true;
-    window.updateDoorpiQuickMenuAvailability?.();
-    _modalReady = false;
-    if (isSetupOpen) return;
-    document.getElementById('modalActions').style.display = 'none';
-    document.getElementById('gameGrid').style.overflowX = 'hidden';
-    document.getElementById('addGameContainer').style.display = 'flex';
-    document.getElementById('modalTitle').innerText = t('detectingLibrary');
 
-    // SUBSTITUIÇÃO: Aciona o loading no canto superior da tela!
-    window.setInlineScanStatus(true, t('inlineScanSearchingApps'));
+    title.innerText = t('detectingLibrary');
+    const isMedia = kind === 'media';
+    window.setInlineScanStatus(true, t(isMedia ? 'inlineScanSearchingApps' : 'inlineScanSearchingGames'));
+    switchTab(isMedia ? 'media-apps' : 'apps');
+    postToHost({ action: 'requestInstalledApps', cachedOnly: true, refreshRiot: true });
+}
 
-    switchTab('media-apps');
-    postToHost({ action: 'requestInstalledApps' });
-    postToHost({ action: 'startAppPolling' });
-});
+document.getElementById('btnAdd').addEventListener('click', () => openAddModal('games'));
 
-document.getElementById('btnAddStore')?.addEventListener('click', () => {
-    if (window.DoorpiIntro?.isRunning?.()) {
-        return;
-    }
-    isModalOpen = true;
-    window.updateDoorpiQuickMenuAvailability?.();
-    _modalReady = false;
-    if (isSetupOpen) return;
-    document.getElementById('modalActions').style.display = 'none';
-    document.getElementById('mediaAppActions').style.display = 'none';
-    document.getElementById('gameGrid').style.overflowX = 'hidden';
-    document.getElementById('addGameContainer').style.display = 'flex';
-    switchTab('stores');
-});
+document.getElementById('btnAddMedia')?.addEventListener('click', () => openAddModal('media'));
+
+document.getElementById('btnAddStore')?.addEventListener('click', () => openAddModal('stores'));
 
     function closeModal() {
         window._doorpiSuppressNativeDialogPointer?.(700);
         window.quarantineDoorpiGamepadActions?.(400);
-        document.getElementById('addGameContainer').style.display = 'none';
+        const modal = document.getElementById('addGameContainer');
+        const transitionId = ++_modalTransitionId;
+        modal.classList.remove('is-open');
+        modal.classList.add('is-closing');
         document.getElementById('gameGrid').style.overflowX = 'auto';
         document.getElementById('selectionCounter')?.classList.remove('visible');
         isModalOpen = false;
@@ -7882,13 +8124,226 @@ document.getElementById('btnAddStore')?.addEventListener('click', () => {
         hideGlobalLoading();
 
         postToHost({ action: 'stopAppPolling' });
-        window.focusFeaturedCard?.();
+        window.setTimeout(() => {
+            if (transitionId !== _modalTransitionId) return;
+            modal.style.display = 'none';
+            modal.classList.remove('is-closing');
+            window.focusFeaturedCard?.();
+        }, 210);
     }
 
     function formatBytes(kb) {
         if (!kb) return '';
         const mb = kb / 1024;
         return mb > 1024 ? t('unitGB', (mb / 1024).toFixed(2)) : t('unitMB', mb.toFixed(0));
+    }
+
+    function _modalEscapeHtml(value) {
+        const text = String(value ?? '');
+        if (typeof escapeHtml === 'function') return escapeHtml(text);
+        return text.replace(/[&<>"']/g, ch => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
+        }[ch]));
+    }
+
+    function _modalAppKey(app) {
+        const launch = app?.LaunchUrl || app?.launchUrl || '';
+        const path = app?.Path || app?.path || '';
+        const name = app?.Name || app?.name || '';
+        const source = app?.Source || app?.source || '';
+        return String(launch || path || `${source}:${name}`).trim().toLowerCase();
+    }
+
+    function _updateModalSelectionCounter(list, counterId, textId) {
+        const count = list?.querySelectorAll('.app-item.selected')?.length || 0;
+        const counter = document.getElementById(counterId);
+        const text = document.getElementById(textId);
+        if (text) text.innerText = count === 1 ? t('selectedOne') : t('selectedMany', count);
+        counter?.classList.toggle('visible', count > 0);
+    }
+
+    function _bindModalAppSelection(item, options = {}) {
+        item.onclick = function () {
+            if (this.classList.contains('already-added') || this.classList.contains('admin-locked')) return;
+            this.classList.toggle('selected');
+            _updateModalSelectionCounter(
+                this.parentElement,
+                options.counterId || 'selectionCounter',
+                options.textId || 'selectionCounterText'
+            );
+        };
+    }
+
+    function _updateModalAppItem(item, app, options = {}) {
+        const isMedia = options.media === true;
+        const isAdded = app.IsAdded === true || app.isAdded === true;
+        const icon = app.IconBase64 || app.iconBase64 || '';
+        const name = app.Name || app.name || '';
+        const path = app.Path || app.path || '';
+        const size = app.Size ?? app.size;
+        const launch = app.LaunchUrl || app.launchUrl || '';
+        const source = app.Source || app.source || '';
+        const isAdminLocked = !isMedia && (app.IsAdminLocked === true || app.isAdminLocked === true);
+        const addState = app.AddState || app.addState || '';
+        const isPreparing = !isMedia && (addState === 'preparing' || (app.AddedTo || app.addedTo) === 'preparing-game');
+        const stateLabel = isMedia ? '' : (isPreparing ? 'Preparando capa' : (isAdded ? 'Já adicionado' : ''));
+        const disabled = isAdded || isAdminLocked;
+        const wasSelected = item.classList.contains('selected') && !disabled;
+
+        item.className = `app-item ${isAdded ? 'already-added' : ''} ${isAdminLocked ? 'already-added admin-locked' : ''} ${isPreparing ? 'preparing-artwork' : ''}`.trim();
+        if (disabled) item.removeAttribute('tabindex');
+        else item.setAttribute('tabindex', '0');
+
+        item.dataset.appKey = _modalAppKey(app);
+        item.dataset.path = path;
+        item.dataset.launch = launch;
+        item.dataset.name = name;
+        item.dataset.source = source || '';
+        item.dataset.iconBase64 = icon || '';
+
+        item.innerHTML = `
+            ${icon ? `<img class="app-icon" src="data:image/png;base64,${icon}" />` : ''}
+            <div class="app-item-info">
+                <span class="app-name">${_modalEscapeHtml(name)}</span>
+                ${!isMedia && size ? `<span class="size">${formatBytes(size)}</span>` : ''}
+                ${stateLabel ? `<span class="app-state">${_modalEscapeHtml(stateLabel)}</span>` : ''}
+            </div>
+            ${getPlatformBadge(source)}`;
+
+        if (wasSelected) item.classList.add('selected');
+        _bindModalAppSelection(item, options);
+    }
+
+    function _dedupeModalApps(apps) {
+        const uniqueApps = [];
+        const seenInputKeys = new Set();
+        (apps || []).forEach(app => {
+            const key = _modalAppKey(app);
+            if (!key || seenInputKeys.has(key)) return;
+            seenInputKeys.add(key);
+            uniqueApps.push(app);
+        });
+        return uniqueApps;
+    }
+
+    function _modalAppSignature(app) {
+        return [
+            _modalAppKey(app),
+            app?.Name || app?.name || '',
+            app?.Source || app?.source || '',
+            app?.IconBase64 || app?.iconBase64 || '',
+            app?.IsAdded === true || app?.isAdded === true ? '1' : '0',
+            app?.AddedTo || app?.addedTo || '',
+            app?.AddState || app?.addState || '',
+            app?.IsAdminLocked === true || app?.isAdminLocked === true ? '1' : '0',
+            app?.AdminLockReason || app?.adminLockReason || ''
+        ].join('\u001f');
+    }
+
+    function _modalAppListsAreEqual(current, next) {
+        if (current.length !== next.length) return false;
+        return current.every((app, index) => _modalAppSignature(app) === _modalAppSignature(next[index]));
+    }
+
+    function _replaceInstalledAppsIfChanged(apps) {
+        const next = _dedupeModalApps(apps);
+        if (_modalAppListsAreEqual(allInstalledApps, next)) return false;
+        allInstalledApps = next;
+        return true;
+    }
+
+    function _captureInstalledAppsModalFocus() {
+        const modal = document.getElementById('addGameContainer');
+        const active = document.activeElement;
+        if (!modal || !active || !modal.contains(active)) return null;
+
+        const item = active.closest?.('.app-item[data-app-key]');
+        if (item) return { type: 'app', key: item.dataset.appKey || '' };
+
+        if (active.matches?.('.filter-btn[data-source]')) {
+            return { type: 'filter', source: active.dataset.source || '' };
+        }
+
+        return active.id ? { type: 'id', id: active.id } : null;
+    }
+
+    function _restoreInstalledAppsModalFocus(snapshot) {
+        if (!snapshot) return;
+
+        let target = null;
+        if (snapshot.type === 'app' && snapshot.key) {
+            target = document.querySelector(`.app-item[data-app-key="${CSS.escape(snapshot.key)}"]`);
+        } else if (snapshot.type === 'filter' && snapshot.source) {
+            target = document.querySelector(`.filter-btn[data-source="${CSS.escape(snapshot.source)}"]`);
+        } else if (snapshot.type === 'id' && snapshot.id) {
+            target = document.getElementById(snapshot.id);
+        }
+
+        if (target && !target.disabled && target.offsetWidth > 0 && target.offsetHeight > 0) {
+            target.focus({ preventScroll: true });
+        }
+    }
+
+    function _syncModalAppList(appList, apps, options = {}) {
+        if (!appList) return;
+
+        const active = document.activeElement;
+        const activeKey = appList.contains(active) ? active?.dataset?.appKey || '' : '';
+        const uniqueApps = _dedupeModalApps(apps);
+        const selectedKeys = new Set(
+            Array.from(appList.querySelectorAll('.app-item.selected[data-app-key]'))
+                .map(el => el.dataset.appKey)
+                .filter(Boolean)
+        );
+        const existing = new Map();
+        Array.from(appList.querySelectorAll('.app-item[data-app-key]')).forEach(el => {
+            const key = el.dataset.appKey || '';
+            if (!key) return;
+            if (existing.has(key)) {
+                el.remove();
+                return;
+            }
+            existing.set(key, el);
+        });
+
+        const fragment = document.createDocumentFragment();
+        uniqueApps.forEach(app => {
+            const key = _modalAppKey(app);
+            if (!key) return;
+            let item = existing.get(key);
+            if (!item) {
+                item = document.createElement('div');
+                item.dataset.appKey = key;
+            }
+            _updateModalAppItem(item, app, options);
+            if (selectedKeys.has(key) && !item.classList.contains('already-added') && !item.classList.contains('admin-locked')) {
+                item.classList.add('selected');
+            }
+            fragment.appendChild(item);
+            existing.delete(key);
+        });
+
+        appList.querySelectorAll('.app-scan-empty').forEach(el => el.remove());
+        appList.appendChild(fragment);
+        existing.forEach(el => el.remove());
+
+        _updateModalSelectionCounter(
+            appList,
+            options.counterId || 'selectionCounter',
+            options.textId || 'selectionCounterText'
+        );
+
+        if (activeKey) {
+            const stillFocused = document.activeElement?.dataset?.appKey === activeKey;
+            if (!stillFocused) {
+                appList.querySelector(`.app-item[data-app-key="${CSS.escape(activeKey)}"]`)
+                    ?.focus({ preventScroll: true });
+            }
+        }
     }
 
     function populateAppModal(apps) {
@@ -7960,14 +8415,16 @@ document.getElementById('btnAddStore')?.addEventListener('click', () => {
             rebindActionButtons();
 
       
-            if (!isFolderOperationInProgress) {
-                requestAnimationFrame(() => {
-                    _modalReady = true;
-                });
-            }
+            if (!isFolderOperationInProgress) _modalReady = true;
             return;
         }
 
+        _syncModalAppList(appList, apps, {
+            counterId: 'selectionCounter',
+            textId: 'selectionCounterText'
+        });
+        document.getElementById('modalActions').style.display = 'flex';
+        if (false) {
         appList.innerHTML = apps.map(app => {
             const isAdded = app.IsAdded === true || app.isAdded === true;
             const icon = app.IconBase64 || app.iconBase64;
@@ -8008,6 +8465,7 @@ document.getElementById('btnAddStore')?.addEventListener('click', () => {
                 counter?.classList.toggle('visible', count > 0);
             })
         );
+        }
 
         function rebindAction(id, fn) {
             const btn = document.getElementById(id);
@@ -8051,11 +8509,7 @@ document.getElementById('btnAddStore')?.addEventListener('click', () => {
         rebindActionButtons();
 
         // CORREÇÃO: Removemos o hideGlobalLoading() daqui também!
-        if (!isFolderOperationInProgress) {
-            requestAnimationFrame(() => {
-                _modalReady = true;
-            });
-        }
+        if (!isFolderOperationInProgress) _modalReady = true;
     }
 
     /* Seção: Pastas */
@@ -8747,13 +9201,13 @@ function renderFolderList(folders) {
             z-index: 26000;
             display: none;
             flex-direction: column;
-            background: rgb(13 13 43 / 95%);
-            border: 1px solid rgba(255,255,255,0.10);
-            border-radius: 12px;
-            padding: 6px;
-            min-width: 210px;
-            box-shadow: 0 16px 48px rgba(0,0,0,0.75);
-            backdrop-filter: blur(28px);
+            background: linear-gradient(135deg, rgba(18,21,38,.94), rgba(8,9,18,.92));
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 10px;
+            padding: 7px;
+            min-width: 242px;
+            box-shadow: 0 22px 64px rgba(0,0,0,0.58), inset 0 1px 0 rgba(255,255,255,.06);
+            backdrop-filter: blur(22px) saturate(1.12);
             opacity: 0;
             transform: scale(0.93) translateY(-5px);
             transition: opacity 0.13s ease, transform 0.13s ease;
@@ -8781,7 +9235,7 @@ function renderFolderList(folders) {
             padding: 0 12px;
         }
         .ctx-game-name {
-            padding: 8px 14px 4px;
+            padding: 10px 12px 7px;
             font-size: 10.5px;
             color: rgba(255,255,255,0.32);
             font-weight: 600;
@@ -8795,20 +9249,20 @@ function renderFolderList(folders) {
         .ctx-separator { height: 1px; background: rgba(255,255,255,0.07); margin: 6px 2px; }
         .ctx-item {
             display: flex; align-items: center; gap: 10px;
-            padding: 10px 14px;
-            min-height: 42px;
+            padding: 9px 12px;
+            min-height: 44px;
             border: 1px solid transparent; background: none;
             color: rgba(255,255,255,0.82);
             font-size: 13.5px; font-family: inherit; font-weight: 450;
-            border-radius: 8px; cursor: pointer;
+            border-radius: 6px; cursor: pointer;
             text-align: left; width: 100%;
             transition: background 0.1s, color 0.1s, border-color 0.1s, box-shadow 0.1s;
         }
         .ctx-item:hover, .ctx-item:focus {
-            background: rgba(255,255,255,0.10);
+            background: linear-gradient(90deg, rgba(255,255,255,.14), rgba(255,255,255,.055));
             color: #fff;
-            border-color: rgba(255,255,255,0.28);
-            box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05);
+            border-color: rgba(255,255,255,0.42);
+            box-shadow: 0 0 0 2px rgba(255,255,255,0.10), 0 10px 20px rgba(0,0,0,.2);
             outline: none;
         }
         .ctx-item.ctx-danger:hover, .ctx-item.ctx-danger:focus { background: rgba(220,50,50,0.18); color: #ff6e6e; }
@@ -8820,35 +9274,35 @@ function renderFolderList(folders) {
             line-height: 1.25;
         }
         .ctx-item.ctx-toggle-item .ctx-icon {
-            width: 24px;
-            height: 24px;
-            min-width: 24px;
+            width: 22px;
+            height: 2px;
+            min-width: 22px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
             border-radius: 999px;
-            border: 1px solid rgba(255,255,255,0.24);
-            background: rgba(255,255,255,0.04);
+            border: 0;
+            background: rgba(255,255,255,0.24);
             color: transparent;
             opacity: 1;
-            font-size: 12px;
+            font-size: 0;
             font-weight: 700;
             transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease, transform 0.12s ease;
         }
         .ctx-item.ctx-toggle-item:focus .ctx-icon,
         .ctx-item.ctx-toggle-item:hover .ctx-icon {
-            border-color: rgba(255,255,255,0.75);
-            box-shadow: 0 0 0 3px rgba(255,255,255,0.14);
+            background: rgba(255,255,255,0.76);
+            box-shadow: 0 0 12px rgba(255,255,255,0.34);
         }
         .ctx-item.ctx-toggle-item.on {
             background: rgba(90,150,255,0.12);
             color: #fff;
         }
         .ctx-item.ctx-toggle-item.on .ctx-icon {
-            border-color: rgba(120,190,255,0.92);
-            background: rgba(120,190,255,0.95);
-            color: #06111f;
-            transform: scale(1.04);
+            background: rgba(255,255,255,0.95);
+            color: transparent;
+            box-shadow: 0 0 14px rgba(255,255,255,0.54);
+            transform: scaleX(1.1);
         }
         .ctx-item.ctx-toggle-item:not(.on) .ctx-icon {
             color: transparent;
@@ -8857,48 +9311,54 @@ function renderFolderList(folders) {
         .edit-modal-overlay {
             position: fixed; inset: 0; z-index: 10000;
             display: flex; align-items: center; justify-content: center;
-            background: rgba(0,0,0,0.55); backdrop-filter: blur(14px);
-            animation: editOverlayIn 0.15s ease;
+            background: radial-gradient(ellipse at 68% 15%, rgba(103,132,202,0.13), transparent 44%), rgba(3,4,10,0.58);
+            backdrop-filter: blur(22px) saturate(1.12);
+            animation: editOverlayIn 0.2s ease;
             transition: align-items 0.3s ease, padding-top 0.3s ease;
         }
         .edit-modal-overlay.vkb-active { align-items: center; padding-top: 0; }
         .edit-modal {
-            background: rgba(14,14,20,0.99);
-            border: 1px solid rgba(255,255,255,0.10);
-            border-radius: 20px;
+            background: linear-gradient(135deg, rgba(18,20,34,0.95), rgba(9,10,19,0.88));
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 16px;
             padding: 0;
-            width: min(560px, 90vw);
-            box-shadow: 0 24px 64px rgba(0,0,0,0.8);
+            width: min(680px, 90vw);
+            box-shadow: 0 32px 90px rgba(0,0,0,0.62), inset 0 1px 0 rgba(255,255,255,0.06);
             display: flex; flex-direction: column;
             overflow: hidden;
-            animation: editModalIn 0.16s ease;
+            animation: editModalIn 0.24s cubic-bezier(.22,1,.36,1);
         }
         .edit-modal-header {
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 20px 24px 16px;
-            border-bottom: 1px solid rgba(255,255,255,0.07);
+            display: flex; align-items: center; gap: 16px;
+            padding: 18px 22px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            background: linear-gradient(90deg, rgba(255,255,255,0.045), transparent);
         }
+        .edit-modal-context-art { width: 58px; height: 72px; border-radius: 8px; overflow: hidden; flex: 0 0 auto; background: rgba(255,255,255,.055); border: 1px solid rgba(255,255,255,.12); box-shadow: 0 12px 26px rgba(0,0,0,.28); }
+        .edit-modal-context-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
         .edit-modal-title {
-            font-size: 15px; font-weight: 650; color: #fff; margin: 0;
-            letter-spacing: 0.01em;
+            font-size: clamp(1.28rem, 1.55vw, 1.75rem); font-weight: 400; color: #fff; margin: 0;
+            letter-spacing: -0.02em;
         }
         .edit-modal-subtitle {
-            font-size: 11px; color: rgba(255,255,255,0.3);
-            margin: 2px 0 0; font-weight: 400;
+            font-size: 0.82rem; color: rgba(255,255,255,0.48);
+            margin: 4px 0 0; font-weight: 400;
         }
         .edit-modal-body {
-            padding: 20px 24px;
-            display: flex; flex-direction: column; gap: 18px;
+            padding: 22px;
+            display: flex; flex-direction: column; gap: 20px;
             max-height: 60vh; overflow-y: auto;
         }
         .edit-artwork-actions { display: flex; flex-direction: column; gap: 10px; }
         .edit-artwork-btn {
-            border: 1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.055);
-            color: #fff; border-radius: 12px; min-height: 58px; padding: 0 16px;
+            border: 1px solid rgba(255,255,255,0.10); background: linear-gradient(90deg, rgba(255,255,255,0.075), rgba(255,255,255,0.025));
+            color: #fff; border-radius: 8px; min-height: 54px; padding: 0 16px;
             font: inherit; cursor: pointer; outline: none; text-align: left; width: 100%;
             display: flex; align-items: center; justify-content: space-between;
+            transition: background .16s ease, border-color .16s ease, transform .16s ease;
         }
-        .edit-artwork-btn:focus, .edit-artwork-btn:hover, .edit-artwork-btn.nav-focused-el { border-color: rgba(255,255,255,0.72); background: rgba(255,255,255,0.12); box-shadow: 0 0 0 2px rgba(255,255,255,.14); }
+        .edit-artwork-btn::after { content: '›'; color: rgba(255,255,255,.58); font-size: 1.45rem; font-weight: 300; }
+        .edit-artwork-btn:focus, .edit-artwork-btn:hover, .edit-artwork-btn.nav-focused-el { border-color: rgba(255,255,255,0.72); background: rgba(255,255,255,0.13); box-shadow: 0 0 0 3px rgba(255,255,255,.12), 0 12px 24px rgba(0,0,0,.22); transform: translateX(3px); }
         .artwork-wizard-overlay { position: fixed; inset: 0; z-index: 10020; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.62); backdrop-filter: blur(18px); }
         .artwork-wizard { width: min(1280px, 96vw); height: min(880px, 92vh); background: rgba(12,12,18,0.99); border: 1px solid rgba(255,255,255,0.11); border-radius: 22px; box-shadow: 0 30px 80px rgba(0,0,0,.82); display: flex; flex-direction: column; overflow: hidden; }
         .artwork-wizard.history-artwork-source-dialog { width: min(920px, 92vw); height: auto; border-radius: 8px; background: #10131d; }
@@ -8927,12 +9387,12 @@ function renderFolderList(folders) {
         .artwork-results.is-local { grid-template-columns: minmax(0, 1fr); }
         .artwork-choice { width: 100%; box-sizing: border-box; border: 0; border-radius: 0; background: transparent; padding: 0; overflow: visible; cursor: pointer; outline: none; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; scroll-margin: 28px 18px; }
         .artwork-choice:focus, .artwork-choice:hover, .artwork-choice.nav-focused-el { transform: none; box-shadow: none; }
-        .artwork-choice img { width: 100%; height: auto; object-fit: contain; display: block; border-radius: 0; border: 2px solid transparent; box-sizing: border-box; }
-        .artwork-choice.vertical img { aspect-ratio: 2 / 3; object-fit: cover; }
-        .artwork-choice.horizontal img { aspect-ratio: 460 / 215; object-fit: cover; }
-        .artwork-choice.banner img { aspect-ratio: 1920 / 620; object-fit: cover; }
-        .artwork-choice.logo img { aspect-ratio: 4 / 1; object-fit: contain; min-height: 76px; }
-        .artwork-choice:focus img, .artwork-choice:hover img, .artwork-choice.nav-focused-el img { border-color: #fff; box-shadow: 0 0 0 3px #fff, 0 0 0 7px rgba(255,255,255,.20), 0 18px 42px rgba(0,0,0,.55); }
+        .artwork-choice img, .artwork-choice video { width: 100%; height: auto; object-fit: contain; display: block; border-radius: 0; border: 2px solid transparent; box-sizing: border-box; background: rgba(255,255,255,.035); }
+        .artwork-choice.vertical img, .artwork-choice.vertical video { aspect-ratio: 2 / 3; object-fit: cover; }
+        .artwork-choice.horizontal img, .artwork-choice.horizontal video { aspect-ratio: 460 / 215; object-fit: cover; }
+        .artwork-choice.banner img, .artwork-choice.banner video { aspect-ratio: 1920 / 620; object-fit: cover; }
+        .artwork-choice.logo img, .artwork-choice.logo video { aspect-ratio: 4 / 1; object-fit: contain; min-height: 76px; }
+        .artwork-choice:focus img, .artwork-choice:hover img, .artwork-choice.nav-focused-el img, .artwork-choice:focus video, .artwork-choice:hover video, .artwork-choice.nav-focused-el video { border-color: #fff; box-shadow: 0 0 0 3px #fff, 0 0 0 7px rgba(255,255,255,.20), 0 18px 42px rgba(0,0,0,.55); }
         .artwork-status { color: rgba(255,255,255,.46); font-size: 13px; }
         .artwork-search-row, .artwork-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; }
         .artwork-actions { grid-template-columns: auto auto minmax(0, 1fr); }
@@ -8983,8 +9443,9 @@ function renderFolderList(folders) {
         }
         .edit-modal-actions {
             display: flex; gap: 8px; justify-content: flex-end;
-            padding: 14px 24px 18px;
-            border-top: 1px solid rgba(255,255,255,0.07);
+            padding: 12px 18px 16px;
+            border-top: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.025);
         }
 
         .vkb-overlay {
@@ -8992,7 +9453,7 @@ function renderFolderList(folders) {
             bottom: 0; left: 0; right: 0;
             z-index: 30000;
             padding: 0 clamp(24px, 4vw, 80px) clamp(24px, 3vh, 48px);
-            background: linear-gradient(to top, rgba(5,5,10,1) 65%, rgba(5,5,10,0.96) 85%, transparent 100%);
+            background: linear-gradient(to top, rgba(18,22,38,0.94) 62%, rgba(18,22,38,0.76) 86%, transparent 100%);
             transform: translateY(100%);
             transition: transform 0.32s cubic-bezier(0.25,0.46,0.45,0.94);
             user-select: none;
@@ -9138,10 +9599,12 @@ function renderFolderList(folders) {
             z-index: 30000;
             display: none;
             padding: clamp(10px, 1.2vh, 16px);
-            background: rgba(8, 9, 15, 0.96);
-            border: 1px solid rgba(255,255,255,0.13);
+            background:
+                radial-gradient(ellipse at 78% 0%, rgba(112,146,235,0.10), transparent 42%),
+                linear-gradient(135deg, rgba(36,40,60,0.96), rgba(17,20,34,0.94));
+            border: 1px solid rgba(255,255,255,0.17);
             border-radius: clamp(14px, 1.1vw, 20px);
-            box-shadow: 0 28px 90px rgba(0,0,0,0.72), 0 0 0 1px rgba(255,255,255,0.04) inset;
+            box-shadow: 0 26px 84px rgba(0,0,0,0.52), inset 0 1px 0 rgba(255,255,255,0.10);
             backdrop-filter: blur(22px) saturate(1.25);
             opacity: 0;
             transform: translate(-50%, 10px) scale(0.985);
@@ -9367,6 +9830,45 @@ function renderFolderList(folders) {
     })();
 
     let _ctxCard = null;
+    let _ctxReturnKey = null;
+
+    function _getCtxReturnKey(card) {
+        if (!card) return null;
+        return {
+            gridId: card.closest?.('#gameGrid, #mediaGrid, #storesGrid')?.id || '',
+            gameId: card.dataset.gameId || '',
+            appId: card.dataset.appId || '',
+            appUrl: card.dataset.appUrl || '',
+            id: card.dataset.id || '',
+            channel: card.dataset.channel || '',
+            updaterId: card.dataset.updaterId || '',
+            deviceId: card.dataset.deviceId || ''
+        };
+    }
+
+    function _findCtxReturnCard(key) {
+        if (!key) return null;
+        const root = key.gridId ? document.getElementById(key.gridId) : document;
+        const cards = Array.from((root || document).querySelectorAll('.card, [data-gpu-updater-card="true"], [data-bluetooth-device-card="true"]'));
+        return cards.find(card => {
+            if (key.gameId && card.dataset.gameId === key.gameId) return true;
+            if (key.appId && card.dataset.appId === key.appId) return true;
+            if (key.appUrl && card.dataset.appUrl === key.appUrl) return true;
+            if (key.id && card.dataset.id === key.id) return true;
+            if (key.updaterId && card.dataset.updaterId === key.updaterId) return true;
+            if (key.deviceId && card.dataset.deviceId === key.deviceId) return true;
+            return false;
+        }) || null;
+    }
+
+    function _restoreCtxReturnFocus(card, key) {
+        const target = (card && card.isConnected) ? card : _findCtxReturnCard(key);
+        if (!target) return false;
+        target.focus({ preventScroll: true });
+        target.scrollIntoView?.({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+        target._startInteraction?.();
+        return document.activeElement === target;
+    }
 
     function _isCtxItemVisible(el) {
         return !!el && el.style.display !== 'none' && getComputedStyle(el).display !== 'none';
@@ -9392,6 +9894,7 @@ function renderFolderList(folders) {
 
     function _openCtxMenu(card, x, y) {
         _ctxCard = card;
+        _ctxReturnKey = _getCtxReturnKey(card);
         _ctxCard.classList.add('ctx-active');
 
 
@@ -9434,7 +9937,7 @@ function renderFolderList(folders) {
         }
         if (ctxStoreGamepadBtn && ctxStoreGamepadText) {
             const disabled = card.dataset.disableGamepadControl === 'true';
-            ctxStoreGamepadBtn.style.display = isStoreCard ? 'flex' : 'none';
+            ctxStoreGamepadBtn.style.display = 'none';
             ctxStoreGamepadBtn.classList.toggle('on', !disabled);
             ctxStoreGamepadBtn.querySelector('.ctx-icon').textContent = !disabled ? '\u2713' : '';
             ctxStoreGamepadText.textContent = t('storeDisableGamepadControl');
@@ -9445,7 +9948,7 @@ function renderFolderList(folders) {
             }
             const settings = window._storeAutoAddSettings || {};
             const autoAdd = Object.prototype.hasOwnProperty.call(settings, storeId) ? !!settings[storeId] : true;
-            ctxStoreAutoAddBtn.style.display = isStoreCard ? 'flex' : 'none';
+            ctxStoreAutoAddBtn.style.display = 'none';
             ctxStoreAutoAddBtn.classList.toggle('on', autoAdd);
             ctxStoreAutoAddBtn.querySelector('.ctx-icon').textContent = autoAdd ? '\u2713' : '';
             ctxStoreAutoAddText.textContent = t('storeAutoAddQuickToggle');
@@ -9551,14 +10054,22 @@ function renderFolderList(folders) {
             ctxRuntimeBtn?.focus();
         });
     }
-    function _closeCtxMenu() {
+    function _closeCtxMenu(options = {}) {
+        const restoreFocus = options.restoreFocus !== false;
         isCtxMenuOpen = false;
         _ctxMenu.classList.remove('visible');
 
         if (_ctxCard) _ctxCard.classList.remove('ctx-active');
 
         setTimeout(() => { if (!_ctxMenu.classList.contains('visible')) _ctxMenu.style.display = 'none'; }, 160);
-        const card = _ctxCard; _ctxCard = null; card?.focus();
+        const card = _ctxCard;
+        const key = _ctxReturnKey;
+        _ctxCard = null;
+        _ctxReturnKey = null;
+        if (restoreFocus) {
+            requestAnimationFrame(() => _restoreCtxReturnFocus(card, key));
+            setTimeout(() => _restoreCtxReturnFocus(card, key), 180);
+        }
     }
 
     window._ctxMenuOpen = _openCtxMenu;
@@ -9569,29 +10080,31 @@ function renderFolderList(folders) {
     }, true);
 
     document.getElementById('ctxEdit').addEventListener('click', () => {
-        const card = _ctxCard; _closeCtxMenu();
+        const card = _ctxCard; _closeCtxMenu({ restoreFocus: false });
         if (card) openEditGameModal(card);
     });
 
     document.getElementById('ctxExtensions').addEventListener('click', () => {
-        _closeCtxMenu();
+        _closeCtxMenu({ restoreFocus: false });
         openExtensionsManager();
     });
 
     document.getElementById('ctxSharing').addEventListener('click', () => {
         const card = _ctxCard;
         const appId = card?.dataset.appId || card?.dataset.gameId || '';
-        _closeCtxMenu();
+        _closeCtxMenu({ restoreFocus: false });
         if (appId) window._navMenuOpenAccountSharing?.(appId);
     });
 
-    document.getElementById('ctxStoreGamepadControl').addEventListener('click', () => {
+    document.getElementById('ctxStoreGamepadControl').addEventListener('click', (event) => {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
         const card = _ctxCard;
         if (!card) return;
 
+        const btn = document.getElementById('ctxStoreGamepadControl');
         const storeId = card.dataset.appId || card.dataset.id || card.dataset.appUrl || '';
-        const nextStartMouseMode = card.dataset.disableGamepadControl === 'true';
-        const nextDisabled = !nextStartMouseMode;
+        const nextDisabled = card.dataset.disableGamepadControl !== 'true';
         card.dataset.disableGamepadControl = String(nextDisabled);
         if (window.AppStore?.mutations?.patchItem && storeId) {
             window.AppStore.mutations.patchItem('stores', storeId, { disableGamepadControl: nextDisabled });
@@ -9600,18 +10113,22 @@ function renderFolderList(folders) {
             postToHost({ action: 'setStoreGamepadControl', storeId, disabled: nextDisabled });
         }
 
-        const btn = document.getElementById('ctxStoreGamepadControl');
         if (btn) {
-            btn.classList.toggle('on', nextStartMouseMode);
+            btn.classList.toggle('on', !nextDisabled);
             const icon = btn.querySelector('.ctx-icon');
-            if (icon) icon.textContent = nextStartMouseMode ? '\u2713' : '';
+            if (icon) icon.textContent = !nextDisabled ? '\u2713' : '';
+            requestAnimationFrame(() => btn.focus({ preventScroll: true }));
+            setTimeout(() => btn.focus({ preventScroll: true }), 80);
         }
     });
 
-    document.getElementById('ctxStoreAutoAdd')?.addEventListener('click', () => {
+    document.getElementById('ctxStoreAutoAdd')?.addEventListener('click', (event) => {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
         const card = _ctxCard;
         if (!card) return;
 
+        const btn = document.getElementById('ctxStoreAutoAdd');
         const storeId = card.dataset.appId || card.dataset.id || card.dataset.appUrl || '';
         if (!storeId) return;
 
@@ -9626,11 +10143,12 @@ function renderFolderList(folders) {
             postToHost({ action: 'setStoreAutoAdd', store: storeId, enabled: next });
         }
 
-        const btn = document.getElementById('ctxStoreAutoAdd');
         if (btn) {
             btn.classList.toggle('on', next);
             const icon = btn.querySelector('.ctx-icon');
             if (icon) icon.textContent = next ? '\u2713' : '';
+            requestAnimationFrame(() => btn.focus({ preventScroll: true }));
+            setTimeout(() => btn.focus({ preventScroll: true }), 80);
         }
 
         document.querySelector('#ctxStoreAutoAdd .ctx-icon').textContent = next ? '\u2713' : '';
@@ -9642,7 +10160,7 @@ function renderFolderList(folders) {
         window._doorpiSuppressPointer?.(360);
         const card = _ctxCard;
         const isRunning = window.isCardRuntimeRunning?.(card) === true;
-        _closeCtxMenu();
+        _closeCtxMenu({ restoreFocus: false });
         if (!card) return;
 
         if (card.dataset.gpuUpdaterCard === 'true' || card.dataset.bluetoothDeviceCard === 'true') {
@@ -9661,7 +10179,7 @@ function renderFolderList(folders) {
     });
 
     document.getElementById('ctxDelete').addEventListener('click', () => {
-        const card = _ctxCard; _closeCtxMenu();
+        const card = _ctxCard; _closeCtxMenu({ restoreFocus: false });
         if (!card) return;
         if (card.dataset.gpuUpdaterCard === 'true') {
             const updaterId = card.dataset.updaterId || '';
@@ -9985,13 +10503,26 @@ function renderFolderList(folders) {
             if (!_artworkWizard || _artworkWizard.requestId !== requestId) return;
             const cat = categories[state.index];
             if (!cat || cat.key !== category) return;
-            overlay.querySelector('.artwork-status').textContent = images.length
-                ? t('artworkFound', images.length, state.query)
+            const artworks = (Array.isArray(images) ? images : [])
+                .map(image => typeof image === 'string'
+                    ? { url: image, thumb: image, animated: false }
+                    : {
+                        url: image?.Url || image?.url || '',
+                        thumb: image?.Thumb || image?.thumb || image?.Url || image?.url || '',
+                        animated: image?.IsAnimated === true || image?.isAnimated === true
+                    })
+                .filter(image => image.url && image.thumb);
+            overlay.querySelector('.artwork-status').textContent = artworks.length
+                ? t('artworkFound', artworks.length, state.query)
                 : t('artworkNoneFound', state.query);
             const results = overlay.querySelector('.artwork-results');
             results.scrollTop = 0;
-            results.innerHTML = images.map(url =>
-                `<button class="artwork-choice ${cat.key}" type="button" data-url="${escapeHtml(url)}"><img src="${escapeHtml(url)}" loading="lazy" /></button>`
+            results.innerHTML = artworks.map(artwork => {
+                const media = artwork.animated
+                    ? `<video src="${escapeHtml(artwork.thumb)}" autoplay muted loop playsinline preload="metadata" aria-hidden="true"></video>`
+                    : `<img src="${escapeHtml(artwork.thumb)}" loading="lazy" decoding="async" />`;
+                return `<button class="artwork-choice ${cat.key}" type="button" data-url="${escapeHtml(artwork.url)}">${media}</button>`;
+            }
             ).join('');
             overlay.querySelectorAll('.artwork-choice').forEach(btn => {
                 btn.addEventListener('click', () => {
@@ -10179,7 +10710,23 @@ function renderFolderList(folders) {
         const isSharedFromOther = card.dataset.sharedFromOther === 'true';
 
         const isExeApp = isMediaCard && appType === 'exe';
-        const disableGamepadControl = card.dataset.disableGamepadControl === 'true';
+        const storeItemForInput = isStoreCard
+            ? window.AppStore?.queries?.getItem?.('stores', card.dataset.appId || card.dataset.id || card.dataset.appUrl || '')
+            : null;
+        const disableGamepadControl = isStoreCard && storeItemForInput && storeItemForInput.disableGamepadControl != null
+            ? !!storeItemForInput.disableGamepadControl
+            : card.dataset.disableGamepadControl === 'true';
+        if (isStoreCard) card.dataset.disableGamepadControl = disableGamepadControl ? 'true' : 'false';
+        const hasInputModeSetting = isExeApp || isStoreCard;
+        const storeIdForSettings = isStoreCard ? (card.dataset.appId || card.dataset.id || card.dataset.appUrl || '') : '';
+        if (isStoreCard && typeof postToHost === 'function' && !window._storeAutoAddSettings) {
+            postToHost({ action: 'requestStoreAutoAddSettings' });
+        }
+        const storeAutoAddSettings = window._storeAutoAddSettings || {};
+        const storeAutoAdd = isStoreCard
+            ? (Object.prototype.hasOwnProperty.call(storeAutoAddSettings, storeIdForSettings) ? !!storeAutoAddSettings[storeIdForSettings] : true)
+            : false;
+        const contextArt = card.dataset.staticVertical || card.dataset.vertical || '';
 
         const sharedWithNames = (() => {
             try { return JSON.parse(card.dataset.sharedWithUserNames || '[]'); } catch { return []; }
@@ -10231,6 +10778,7 @@ function renderFolderList(folders) {
         overlay.innerHTML = `
             <div class="edit-modal" role="dialog" aria-modal="true" aria-label="${modalTitle}">
                 <div class="edit-modal-header">
+                    ${contextArt ? `<div class="edit-modal-context-art" aria-hidden="true"><img src="${escapeHtml(contextArt)}" /></div>` : ''}
                     <div>
                         <h3 class="edit-modal-title">${modalTitle}</h3>
                         <p class="edit-modal-subtitle">${modalSubtitle}</p>
@@ -10254,17 +10802,29 @@ function renderFolderList(folders) {
                         </div>
                     </div>
                     ${mediaExtras}
-                    ${isExeApp ? `
+                    ${hasInputModeSetting ? `
                     <div class="edit-modal-field" style="margin-top: 8px;">
-                        <label class="edit-modal-label">${typeof t === 'function' ? t('gamepadControlLabel', 'CONTROLE XINPUT') : 'CONTROLE XINPUT'}</label>
+                        <label class="edit-modal-label">${typeof t === 'function' ? t('editInputModeLabel', 'Entrada do aplicativo') : 'Entrada do aplicativo'}</label>
                         <label class="edit-toggle-row" tabindex="0">
                             <span class="edit-toggle-switch">
                                 <input type="checkbox" id="editDisableGamepadControl" tabindex="-1" ${!disableGamepadControl ? 'checked' : ''} />
                                 <span class="edit-toggle-slider"></span>
                             </span>
-                            <span class="edit-toggle-label">${typeof t === 'function' ? t('disableGamepadControlLabel', 'Iniciar com modo mouse habilitado') : 'Iniciar com modo mouse habilitado'}</span>
+                            <span class="edit-toggle-label">${typeof t === 'function' ? t('editDirectControlLabel', 'Mouse + teclado virtual') : 'Mouse + teclado virtual'}</span>
                         </label>
-                        <span class="edit-modal-input-hint">${typeof t === 'function' ? t('disableGamepadControlHint', 'Quando desligado, use L3 + R3 durante a sessão para ativar temporariamente.') : 'Quando desligado, use L3 + R3 durante a sessão para ativar temporariamente.'}</span>
+                        <span class="edit-modal-input-hint">${typeof t === 'function' ? t('editDirectControlHint', 'Ative para iniciar com mouse + teclado virtual. Desative para enviar o controle direto à janela.') : 'Ative para iniciar com mouse + teclado virtual. Desative para enviar o controle direto à janela.'}</span>
+                    </div>` : ''}
+                    ${isStoreCard ? `
+                    <div class="edit-modal-field" style="margin-top: 8px;">
+                        <label class="edit-modal-label">${typeof t === 'function' ? t('storeAutoAddTitle', 'BIBLIOTECA') : 'BIBLIOTECA'}</label>
+                        <label class="edit-toggle-row" tabindex="0">
+                            <span class="edit-toggle-switch">
+                                <input type="checkbox" id="editStoreAutoAdd" tabindex="-1" ${storeAutoAdd ? 'checked' : ''} />
+                                <span class="edit-toggle-slider"></span>
+                            </span>
+                            <span class="edit-toggle-label">${typeof t === 'function' ? t('editStoreAutoAddLabel', 'Adicionar jogos automaticamente') : 'Adicionar jogos automaticamente'}</span>
+                        </label>
+                        <span class="edit-modal-input-hint">${typeof t === 'function' ? t('editStoreAutoAddHint', 'Jogos novos instalados por esta loja entram na biblioteca ao fechar a loja.') : 'Jogos novos instalados por esta loja entram na biblioteca ao fechar a loja.'}</span>
                     </div>` : ''}
                 </div>
                 <div class="edit-modal-actions">
@@ -10282,8 +10842,6 @@ function renderFolderList(folders) {
             input.setAttribute('aria-readonly', 'true');
             const hint = overlay.querySelector('.edit-modal-input-hint');
             if (hint) hint.textContent = typeof t === 'function' ? t('editStoreNameLocked', 'O nome da loja é fixo.') : 'O nome da loja é fixo.';
-            const saveBtn = overlay.querySelector('#editSaveBtn');
-            if (saveBtn) saveBtn.style.display = 'none';
         }
 
         const doClose = () => {
@@ -10320,7 +10878,10 @@ function renderFolderList(folders) {
 
             const disableCheckbox = overlay.querySelector('#editDisableGamepadControl');
             const newDisable = disableCheckbox ? !disableCheckbox.checked : disableGamepadControl;
-            const disableChanged = isExeApp && newDisable !== disableGamepadControl;
+            const disableChanged = hasInputModeSetting && newDisable !== disableGamepadControl;
+            const storeAutoAddCheckbox = overlay.querySelector('#editStoreAutoAdd');
+            const newStoreAutoAdd = storeAutoAddCheckbox ? storeAutoAddCheckbox.checked : storeAutoAdd;
+            const storeAutoAddChanged = isStoreCard && newStoreAutoAdd !== storeAutoAdd;
             if (nameChanged) {
                 const gameId = card.dataset.gameId || card.dataset.appId;
                 const allCards = Array.from(document.querySelectorAll('.card, .nav-vertical-card')).filter(c =>
@@ -10382,7 +10943,21 @@ function renderFolderList(folders) {
                 }
             }
 
-            if (nameChanged || disableChanged) {
+            if (isStoreCard) {
+                const storeId = card.dataset.appId || card.dataset.id || card.dataset.appUrl || '';
+                if (disableChanged) {
+                    card.dataset.disableGamepadControl = String(newDisable);
+                    if (storeId) {
+                        window.AppStore?.mutations?.patchItem?.('stores', storeId, { disableGamepadControl: newDisable });
+                        postToHost({ action: 'setStoreGamepadControl', storeId, disabled: newDisable });
+                    }
+                }
+                if (storeAutoAddChanged && storeId) {
+                    window._storeAutoAddSettings = window._storeAutoAddSettings || {};
+                    window._storeAutoAddSettings[storeId] = newStoreAutoAdd;
+                    postToHost({ action: 'setStoreAutoAdd', store: storeId, enabled: newStoreAutoAdd });
+                }
+            } else if (nameChanged || disableChanged) {
                 const gameId = card.dataset.gameId || card.dataset.appId;
                 const payload = { action: 'editGame', gameId };
                 if (nameChanged) payload.newName = newName;
@@ -10415,9 +10990,9 @@ function renderFolderList(folders) {
             }
 
             // 2. Enter no Checkbox -> Marca/Desmarca
-            if (e.target.classList.contains('edit-toggle-row') && e.key === 'Enter') {
+            if (e.target.classList.contains('edit-toggle-row') && (e.key === 'Enter' || e.key === ' ')) {
                 e.preventDefault();
-                const chk = overlay.querySelector('#editDisableGamepadControl');
+                const chk = e.target.querySelector('input[type="checkbox"]');
                 if (chk) chk.checked = !chk.checked;
                 return;
             }
@@ -11046,7 +11621,7 @@ function renderFolderList(folders) {
             #appBlobBg {
                 position: fixed; inset: 0; width: 100%; height: 100%; z-index: -1;
                 pointer-events: none; opacity: 0; transition: opacity 0.6s ease;
-                background: #07071a; overflow: hidden;
+                background: #090b22; overflow: hidden;
             }
             .app-blob {
                 position: absolute; border-radius: 50%;
@@ -11055,30 +11630,54 @@ function renderFolderList(folders) {
                 animation-iteration-count: infinite;
                 animation-direction: alternate;
             }
-            #appBlobVig {
+            #appBlobVig,
+            .app-blob-vig {
                 position: absolute; inset: 0;
-                background: radial-gradient(circle at 50% 50%, transparent 25%, rgba(0,0,18,0.62) 85%);
+                background: radial-gradient(circle at 50% 50%, transparent 26%, rgba(0,0,18,0.54) 88%);
+            }
+            .app-blob.doorpi-from-intro {
+                animation-name: doorpiBlobIntroToIdle !important;
+                animation-duration: 4.4s !important;
+                animation-delay: 0s !important;
+                animation-iteration-count: 1 !important;
+                animation-direction: normal !important;
+                animation-fill-mode: both !important;
+                animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1) !important;
+            }
+            @keyframes doorpiBlobIntroToIdle {
+                0% {
+                    transform: translate3d(var(--intro-dx, 0px), var(--intro-dy, 0px), 0) scale(.96);
+                    opacity: .18;
+                }
+                62% {
+                    transform: translate3d(calc(var(--intro-dx, 0px) * .26), calc(var(--intro-dy, 0px) * .26), 0) scale(1);
+                    opacity: .86;
+                }
+                100% {
+                    transform: translate3d(0, 0, 0) scale(1);
+                    opacity: 1;
+                }
             }
         
             /* Movimentos contidos: cruzam a tela mas não escapam das bordas */
         
             /* ab1: Topo-Esquerdo. Vai pro centro e um pouco pra direita/baixo */
-            @keyframes ab1 { 0% { transform: translate(0, 0); } 34% { transform: translate(30vw, 15vh); } 68% { transform: translate(50vw, 45vh); } 100% { transform: translate(20vw, 55vh); } }
+            @keyframes ab1 { 0% { transform: translate(0, 0); } 34% { transform: translate(42vw, 12vh); } 68% { transform: translate(68vw, 48vh); } 100% { transform: translate(24vw, 68vh); } }
         
             /* ab2: Topo-Direito. Vem pro centro/esquerda e desce */
-            @keyframes ab2 { 0% { transform: translate(0, 0); } 30% { transform: translate(-25vw, 35vh); } 65% { transform: translate(-55vw, 20vh); } 100% { transform: translate(-20vw, 60vh); } }
+            @keyframes ab2 { 0% { transform: translate(0, 0); } 30% { transform: translate(-38vw, 38vh); } 65% { transform: translate(-72vw, 18vh); } 100% { transform: translate(-26vw, 70vh); } }
         
             /* ab3: Fundo-Esquerdo. Sobe pro centro e direita */
-            @keyframes ab3 { 0% { transform: translate(0, 0); } 37% { transform: translate(35vw, -25vh); } 70% { transform: translate(60vw, -15vh); } 100% { transform: translate(25vw, -50vh); } }
+            @keyframes ab3 { 0% { transform: translate(0, 0); } 37% { transform: translate(46vw, -32vh); } 70% { transform: translate(72vw, -18vh); } 100% { transform: translate(30vw, -62vh); } }
         
             /* ab4: Fundo-Direito. Sobe pro centro e esquerda */
-            @keyframes ab4 { 0% { transform: translate(0, 0); } 32% { transform: translate(-30vw, -20vh); } 66% { transform: translate(-55vw, -45vh); } 100% { transform: translate(-35vw, -55vh); } }
+            @keyframes ab4 { 0% { transform: translate(0, 0); } 32% { transform: translate(-44vw, -24vh); } 66% { transform: translate(-74vw, -54vh); } 100% { transform: translate(-34vw, -70vh); } }
         
             /* ab5: Lateral-Esquerda. Flutua pro meio e circula */
-            @keyframes ab5 { 0% { transform: translate(0, 0); } 35% { transform: translate(40vw, -20vh); } 72% { transform: translate(55vw, 25vh); } 100% { transform: translate(25vw, 35vh); } }
+            @keyframes ab5 { 0% { transform: translate(0, 0); } 35% { transform: translate(50vw, -28vh); } 72% { transform: translate(72vw, 28vh); } 100% { transform: translate(30vw, 44vh); } }
         
             /* ab6: Lateral-Direita. Flutua pro meio e circula oposto */
-            @keyframes ab6 { 0% { transform: translate(0, 0); } 38% { transform: translate(-35vw, 30vh); } 68% { transform: translate(-55vw, -15vh); } 100% { transform: translate(-25vw, -30vh); } }
+            @keyframes ab6 { 0% { transform: translate(0, 0); } 38% { transform: translate(-46vw, 36vh); } 68% { transform: translate(-72vw, -20vh); } 100% { transform: translate(-30vw, -42vh); } }
         `;
         document.head.appendChild(s);
 
@@ -11088,25 +11687,63 @@ function renderFolderList(folders) {
 
         const blobDefs = [
             // Canto Superior Esquerdo
-            { kf: 'ab1', dur: '63s', delay: '0s', top: '-5%', left: '-5%', w: '135vmin', h: '105vmin', color: '45,65,185' },
+            { kf: 'ab1', dur: '70s', delay: '0s', top: '-18%', left: '-18%', w: '155vmin', h: '116vmin', color: '82,105,230' },
             // Canto Superior Direito
-            { kf: 'ab2', dur: '74s', delay: '-12s', top: '-5%', left: '55%', w: '125vmin', h: '95vmin', color: '28,85,210' },
+            { kf: 'ab2', dur: '82s', delay: '-12s', top: '-16%', left: '62%', w: '150vmin', h: '110vmin', color: '48,112,235' },
             // Canto Inferior Esquerdo
-            { kf: 'ab3', dur: '86s', delay: '-7s', top: '55%', left: '-5%', w: '120vmin', h: '90vmin', color: '70,50,165' },
+            { kf: 'ab3', dur: '92s', delay: '-7s', top: '60%', left: '-22%', w: '145vmin', h: '105vmin', color: '106,82,210' },
             // Canto Inferior Direito
-            { kf: 'ab4', dur: '68s', delay: '-20s', top: '55%', left: '55%', w: '115vmin', h: '88vmin', color: '22,110,175' },
+            { kf: 'ab4', dur: '76s', delay: '-20s', top: '58%', left: '64%', w: '140vmin', h: '104vmin', color: '34,132,205' },
             // Lateral Esquerda (Meio)
-            { kf: 'ab5', dur: '79s', delay: '-25s', top: '25%', left: '-5%', w: '110vmin', h: '85vmin', color: '90,70,195' },
+            { kf: 'ab5', dur: '88s', delay: '-25s', top: '22%', left: '-24%', w: '136vmin', h: '98vmin', color: '118,92,220' },
             // Lateral Direita (Meio)
-            { kf: 'ab6', dur: '58s', delay: '-15s', top: '30%', left: '60%', w: '105vmin', h: '80vmin', color: '30,130,190' },
+            { kf: 'ab6', dur: '66s', delay: '-15s', top: '28%', left: '72%', w: '132vmin', h: '96vmin', color: '42,145,200' },
         ];
 
-        container.innerHTML = blobDefs.map(b => `
-            <div class="app-blob" style="
+        function getIntroOffsetForBlob(index) {
+            const throwVectors = [
+                [-118, -86],
+                [112, -90],
+                [-116, 94],
+                [118, 96],
+                [-142, 8],
+                [142, -8]
+            ];
+            const [dx, dy] = throwVectors[index] || [0, 0];
+            return { dx: `${dx}vw`, dy: `${dy}vh` };
+        }
+
+        function renderBlobLayerHtml(options = {}) {
+            const fromIntro = !!options.fromIntro;
+            const includeVigId = options.includeVigId !== false;
+            const blobs = blobDefs.map((b, index) => {
+                const offset = fromIntro ? getIntroOffsetForBlob(index) : { dx: '0px', dy: '0px' };
+                return `
+            <div class="app-blob${fromIntro ? ' doorpi-from-intro' : ''}" style="
                 width:${b.w}; height:${b.h}; top:${b.top}; left:${b.left};
-                background:radial-gradient(circle, rgba(${b.color},0.55) 0%, rgba(${b.color},0.22) 40%, transparent 70%);
-                animation-name:${b.kf}; animation-duration:${b.dur}; animation-delay:${b.delay};
-            "></div>`).join('') + `<div id="appBlobVig"></div>`;
+                background:radial-gradient(circle, rgba(${b.color},0.46) 0%, rgba(${b.color},0.18) 42%, transparent 72%);
+                animation-name:${b.kf}; animation-duration:${fromIntro ? '4.4s' : b.dur}; animation-delay:${fromIntro ? '0s' : b.delay};
+                --intro-dx:${offset.dx}; --intro-dy:${offset.dy};
+            "></div>`;
+            }).join('');
+            return blobs + `<div ${includeVigId ? 'id="appBlobVig"' : ''} class="app-blob-vig"></div>`;
+        }
+
+        window.DoorpiBlobBackground = {
+            renderInnerHtml: renderBlobLayerHtml,
+            finishIntroArrival(root) {
+                const scope = root || document;
+                scope.querySelectorAll?.('.app-blob.doorpi-from-intro').forEach((blob, index) => {
+                    const def = blobDefs[index] || blobDefs[0];
+                    blob.classList.remove('doorpi-from-intro');
+                    blob.style.animationName = def.kf;
+                    blob.style.animationDuration = def.dur;
+                    blob.style.animationDelay = def.delay;
+                });
+            }
+        };
+
+        container.innerHTML = renderBlobLayerHtml({ includeVigId: true });
 
         document.body.appendChild(container);
 
@@ -11186,6 +11823,7 @@ function renderFolderList(folders) {
 
                 _currentBgSrc = '';
                 if (typeof _heroReqId !== 'undefined') _heroReqId++;
+                if (typeof window._startBlobBg === 'function') window._startBlobBg();
             }, 80);
         }
     });
@@ -11238,23 +11876,27 @@ function renderFolderList(folders) {
         const started = performance.now();
         await _afterFrames(2);
 
-        while (performance.now() - started < 2200) {
+        // A transição deve cobrir todo o preparo da Home. O limite é apenas uma
+        // salvaguarda para não deixar a conta presa caso uma atualização falhe.
+        while (performance.now() - started < 4000) {
             const grid = _getActiveHomeGrid();
             const hasRenderableCard = !!grid?.querySelector('.card:not(.loading-card)');
             const hasLoadingCards = !!document.querySelector('.card.loading-card');
             const hasPendingRender = !!_pendingRenderGamesPayload || !!_pendingRenderGamesTimer;
-            if (hasRenderableCard && !hasLoadingCards && !hasPendingRender) break;
+            const hasNavigableTarget = typeof getNavigableItems === 'function' &&
+                getNavigableItems().some(el =>
+                    el &&
+                    el.offsetWidth > 0 &&
+                    el.offsetHeight > 0 &&
+                    !el.disabled &&
+                    el.getAttribute('aria-disabled') !== 'true');
+            const isHomeStillLoading = !!window.isSystemLoading || !!window.isGlobalLoading;
+
+            if (!isHomeStillLoading && !hasLoadingCards && !hasPendingRender &&
+                (hasRenderableCard || hasNavigableTarget)) break;
             await _delay(60);
         }
 
-        await _afterFrames(2);
-
-        const grid = _getActiveHomeGrid();
-        const cardImages = Array.from(grid?.querySelectorAll('.card:not(.loading-card) img') || []).slice(0, 12);
-        const heroImages = ['heroImage', 'gridBgImg', 'bgBlur', 'gameLogo']
-            .map(id => document.getElementById(id))
-            .filter(Boolean);
-        await Promise.all([...cardImages, ...heroImages].map(img => _waitImageReady(img)));
         await _afterFrames(2);
     }
 
@@ -11282,12 +11924,7 @@ function renderFolderList(folders) {
     }
 
     async function _waitForDoorpiInteractiveReady(data = {}) {
-        const started = performance.now();
-        while (performance.now() - started < 1800) {
-            if (_focusDoorpiInteractiveTarget()) break;
-            await _afterFrames(1);
-            await _delay(60);
-        }
+        _focusDoorpiInteractiveTarget();
 
         window.resetDoorpiGamepadInputState?.();
         try {
@@ -11307,19 +11944,66 @@ function renderFolderList(folders) {
         return window.DoorpiFirstRunTutorial?.maybeShow?.() === true;
     }
 
+    window._releaseDoorpiSessionInputNow = function (reason = '') {
+        window._doorpiSessionTransitionBlockUntil = 0;
+        window._userSwitching = false;
+        window._doorpiPointerSuppressUntil = 0;
+        window._doorpiNativeDialogSuppressUntil = 0;
+        window._doorpiGameInputSuppressedUntil = 0;
+        window._doorpiIntroInputBlockUntil = 0;
+        window.isGameLaunchActive = false;
+        document.body.classList.remove('doorpi-session-transition');
+        window.clearDoorpiInputQuarantine?.({ dropPending: true });
+        const wrap = document.querySelector('.main-content-wrapper');
+        if (wrap) {
+            wrap.style.pointerEvents = '';
+            if (wrap.style.opacity === '0') wrap.style.opacity = '1';
+            if (wrap.style.transform) wrap.style.transform = '';
+        }
+        const logoutOverlay = document.getElementById('doorpiUserSwitchLogout');
+        if (logoutOverlay) {
+            logoutOverlay.classList.remove('visible');
+            logoutOverlay.style.pointerEvents = 'none';
+            logoutOverlay.style.display = 'none';
+        }
+        window._setDoorpiHomeInteractionBlocked?.(false);
+        requestAnimationFrame(() => {
+            window.resetDoorpiGamepadInputState?.();
+            _focusDoorpiInteractiveTarget();
+            window.updateDoorpiTopClusterVisibility?.();
+            try {
+                postToHost({
+                    action: 'doorpiHomeInteractiveReady',
+                    mode: reason || 'session-input-released',
+                    activeTag: document.activeElement?.tagName || '',
+                    activeId: document.activeElement?.id || '',
+                    activeClass: document.activeElement?.className || ''
+                });
+            } catch { }
+        });
+    };
+
     async function _completeUserSwitchInteraction(data = {}) {
         window._doorpiSessionTransitionBlockUntil = 0;
         window._userSwitching = false;
+        window._doorpiPointerSuppressUntil = 0;
+        window._doorpiNativeDialogSuppressUntil = 0;
+        window._doorpiGameInputSuppressedUntil = 0;
+        window._doorpiIntroInputBlockUntil = 0;
         document.body.classList.remove('doorpi-session-transition');
+        window.clearDoorpiInputQuarantine?.({ dropPending: true });
+        window._setDoorpiHomeInteractionBlocked?.(false);
 
         if (_runDeferredFirstRunTutorial()) {
             window.resetDoorpiGamepadInputState?.();
             return;
         }
 
-        await _waitForDoorpiInteractiveReady(data);
-        window._doorpiSessionTransitionBlockUntil = Date.now() + 120;
-        scheduleDoorpiFocusRecovery?.();
+        requestAnimationFrame(async () => {
+            await _waitForDoorpiInteractiveReady(data);
+            window.updateDoorpiTopClusterVisibility?.();
+            scheduleDoorpiFocusRecovery?.();
+        });
     }
 
     function _getUserSwitchOverlayCopy(mode = 'switch') {
@@ -11416,6 +12100,8 @@ function renderFolderList(folders) {
 
         const logoutOverlay = _ensureUserSwitchLogoutOverlay(data.mode || 'switch', data.user || window._doorpiProfile || {});
         logoutOverlay.style.display = 'flex';
+        logoutOverlay.style.pointerEvents = 'auto';
+        window._setDoorpiHomeInteractionBlocked?.(true);
         requestAnimationFrame(() => logoutOverlay.classList.add('visible'));
 
         const wrap = document.querySelector('.main-content-wrapper');
@@ -11435,6 +12121,14 @@ function renderFolderList(folders) {
             else window._startSystemAudio?.(true);
         };
 
+        if (shouldShowTransition) {
+            window._doorpiSessionTransitionBlockUntil = 0;
+            window._userSwitching = false;
+            document.body.classList.remove('doorpi-session-transition');
+            const wrap = document.querySelector('.main-content-wrapper');
+            if (wrap) wrap.style.pointerEvents = '';
+        }
+
         if (!shouldShowTransition) {
             const wrap = document.querySelector('.main-content-wrapper');
             if (wrap) {
@@ -11446,6 +12140,7 @@ function renderFolderList(folders) {
             const logoutOverlay = document.getElementById('doorpiUserSwitchLogout');
             if (logoutOverlay) {
                 logoutOverlay.classList.remove('visible');
+                logoutOverlay.style.pointerEvents = 'none';
                 setTimeout(() => {
                     if (!logoutOverlay.classList.contains('visible')) {
                         logoutOverlay.style.display = 'none';
@@ -11454,20 +12149,21 @@ function renderFolderList(folders) {
             }
             resumeTransitionAudio();
             window._doorpiAllowLibraryRenderDuringSessionTransition = false;
+            window._setDoorpiHomeInteractionBlocked?.(false);
             await _completeUserSwitchInteraction(data);
             return;
         }
 
         const minVisibleMs = Number.isFinite(data.minVisibleMs)
             ? data.minVisibleMs
-            : (data.mode === 'delete' ? 900 : 550);
+            : (data.mode === 'delete' ? 900 : 0);
         const elapsed = performance.now() - (window._userSwitchStartedAt || performance.now());
         if (!data._delayed && elapsed < minVisibleMs) {
             setTimeout(() => _userSwitchFadeIn({ ...data, _delayed: true }), minVisibleMs - elapsed);
             return;
         }
 
-        if (data.waitForHomeReady !== false && !data._homeReadyWaited) {
+        if (data.waitForHomeReady === true && !data._homeReadyWaited) {
             try { await _waitForDoorpiHomeReady(); } catch { }
             _userSwitchFadeIn({ ...data, _homeReadyWaited: true, _delayed: true });
             return;
@@ -11478,10 +12174,12 @@ function renderFolderList(folders) {
             const logoutOverlay = document.getElementById('doorpiUserSwitchLogout');
             if (logoutOverlay) {
                 logoutOverlay.classList.remove('visible');
+                logoutOverlay.style.pointerEvents = 'none';
                 logoutOverlay.style.display = 'none';
             }
             resumeTransitionAudio();
             window._doorpiAllowLibraryRenderDuringSessionTransition = false;
+            window._setDoorpiHomeInteractionBlocked?.(false);
             await _completeUserSwitchInteraction(data);
             return;
         }
@@ -11504,6 +12202,7 @@ function renderFolderList(folders) {
         const logoutOverlay = document.getElementById('doorpiUserSwitchLogout');
         if (logoutOverlay) {
             logoutOverlay.classList.remove('visible');
+            logoutOverlay.style.pointerEvents = 'none';
             setTimeout(() => {
                 if (!logoutOverlay.classList.contains('visible')) {
                     logoutOverlay.style.display = 'none';
@@ -11511,13 +12210,14 @@ function renderFolderList(folders) {
             }, 300);
         }
 
-        setTimeout(async () => {
+        requestAnimationFrame(async () => {
             wrap.style.removeProperty('transition');
             wrap.style.transform = '';
             window._doorpiAllowLibraryRenderDuringSessionTransition = false;
+            window._setDoorpiHomeInteractionBlocked?.(false);
             resumeTransitionAudio();
             await _completeUserSwitchInteraction(data);
-        }, 320);
+        });
     }
 
     function clearLoadingCards(tab = 'games') {
@@ -11806,6 +12506,12 @@ function renderFolderList(folders) {
             return;
         }
 
+        _syncModalAppList(appList, apps, {
+            media: true,
+            counterId: 'selectionCounterMedia',
+            textId: 'selectionCounterMediaText'
+        });
+        if (false) {
         appList.innerHTML = apps.map(app => {
             const icon = app.IconBase64 || app.iconBase64;
             const name = app.Name || app.name;
@@ -11837,6 +12543,7 @@ function renderFolderList(folders) {
                 counter?.classList.toggle('visible', count > 0);
             })
         );
+        }
     }
 
     // Solicita o status de atualizações de extensões após o carregamento inicial da UI
@@ -11880,6 +12587,15 @@ function renderFolderList(folders) {
                     border-color: #ffffff;
                     transform: scale(1.05) translateY(-2px);
                     box-shadow: 0 10px 24px rgba(255, 255, 255, 0.2), 0 0 0 2px rgba(255, 255, 255, 0.1);
+                }
+                /* O botÃ£o focado Ã© branco; mantÃ©m o A legÃ­vel sem voltar para
+                   a paleta colorida antiga. */
+                #overlayCancelLaunchBtn:focus .gp-hint,
+                #overlayCancelLaunchBtn:hover .gp-hint {
+                    background: #090a14 !important;
+                    border-color: #090a14 !important;
+                    color: #ffffff !important;
+                    box-shadow: none !important;
                 }
                 #overlayCancelLaunchBtn:active {
                     transform: scale(0.98) translateY(0);
