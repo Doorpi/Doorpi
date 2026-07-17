@@ -1,4 +1,4 @@
-using Microsoft.Web.WebView2.Core;
+﻿using Microsoft.Web.WebView2.Core;
 using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
@@ -73,6 +73,15 @@ namespace Doorpi
         public string AdminLockReason { get; set; } = "";
     }
 
+    public class SteamGridArtworkResult
+    {
+        // A URL original é a que será salva ao escolher a arte. Thumb é somente
+        // para o seletor: no caso de animações, o SteamGridDB entrega WebM menor.
+        public string Url { get; set; } = "";
+        public string Thumb { get; set; } = "";
+        public bool IsAnimated { get; set; }
+    }
+
     public class UserProfile
     {
         public string Id { get; set; } = "";
@@ -117,7 +126,7 @@ namespace Doorpi
         public HashSet<string> RiotFingerprint { get; set; } = new();
         public HashSet<string> XboxFingerprint { get; set; } = new();
 #if false
-        // Fora do beta: Microsoft Store será retomada depois com fluxo dedicado.
+        // Fora do beta: Microsoft Store serÃ¡ retomada depois com fluxo dedicado.
         public HashSet<string> MicrosoftStoreFingerprint { get; set; } = new();
 #endif
         public int XboxFilterVersion { get; set; }
@@ -130,7 +139,7 @@ namespace Doorpi
         public List<InstalledApp> RiotApps { get; set; } = new();
         public List<InstalledApp> XboxApps { get; set; } = new();
 #if false
-        // Fora do beta: Microsoft Store será retomada depois com fluxo dedicado.
+        // Fora do beta: Microsoft Store serÃ¡ retomada depois com fluxo dedicado.
         public List<InstalledApp> MicrosoftStoreApps { get; set; } = new();
 #endif
     }
@@ -203,16 +212,16 @@ namespace Doorpi
         private string _vkbStrBackspace = "Apagar";
         private string _vkbStrEnter = "Enter";
         private string _vkbStrClose = "Fechar";
-        private string _vkbStrShift = "Maiúsc";
-        private string _vkbStrSpace = "Espaço";
+        private string _vkbStrShift = "MaiÃºsc";
+        private string _vkbStrSpace = "EspaÃ§o";
         private string _vkbStrSym = "&123";
         private string _vkbStrAbc = "ABC";
 
-        private string _extBtnTitle = "Adicionar extensão ao Doorpi";
+        private string _extBtnTitle = "Adicionar extensÃ£o ao Doorpi";
         private string _extBtnSub = "Instalar via Doorpi Browser";
         private string _extToastTitle = "Doorpi";
-        private string _extToastSub = "Extensão enviada ao Doorpi!";
-        private string _extInstalledTitle = "Já instalada no Doorpi";
+        private string _extToastSub = "ExtensÃ£o enviada ao Doorpi!";
+        private string _extInstalledTitle = "JÃ¡ instalada no Doorpi";
         private string _extInstalledSub = "Em uso no seu navegador";
 
         private static Dictionary<string, string> _latestUpdatesCache = new();
@@ -243,6 +252,7 @@ namespace Doorpi
 
         private readonly SemaphoreSlim _cacheLock = new SemaphoreSlim(1, 1);
         private DateTime _lastCacheBuilt = DateTime.MinValue;
+        private string _lastPlatformIconHydrationCacheFile = "";
 
         private bool _mainScreenMouseVisible = false;
         private POINT _lastKnownCursorPos;
@@ -378,7 +388,7 @@ namespace Doorpi
             }
         }
 
-        // ========================= DETECÇÃO DO CURSOR (I-BEAM) =========================
+        // ========================= DETECÃ‡ÃƒO DO CURSOR (I-BEAM) =========================
         [StructLayout(LayoutKind.Sequential)]
         private struct CURSORINFO
         {
@@ -394,7 +404,7 @@ namespace Doorpi
         [DllImport("user32.dll")]
         private static extern IntPtr LoadCursor(IntPtr hInstance, int lpCursorName);
 
-        private const int IDC_IBEAM = 32513; // Código oficial da "barrinha de texto" no Windows
+        private const int IDC_IBEAM = 32513; // CÃ³digo oficial da "barrinha de texto" no Windows
         private const int CURSOR_SHOWING = 0x00000001;
 
         // ========================= TECLADO TOUCH (COM INTEROP) =========================
@@ -446,7 +456,7 @@ namespace Doorpi
         // ========================= CONSTRUTOR =========================
         private void ResetCursorForMainScreen()
         {
-            // Nunca sequestre o mouse se a janela do Doorpi não estiver realmente ativa
+            // Nunca sequestre o mouse se a janela do Doorpi nÃ£o estiver realmente ativa
             if (!IsDoorpiMainWindowForeground()) return;
 
             EnsureCursorVisible();  // Normaliza o contador do Windows
@@ -975,11 +985,11 @@ namespace Doorpi
                 var nativeProcesses = new HashSet<string>
         {
             "explorer",                   // File Explorer, Desktop, Barra de Tarefas
-            "shellexperiencehost",         // Menu Iniciar, Central de Ação
+            "shellexperiencehost",         // Menu Iniciar, Central de AÃ§Ã£o
             "startmenuexperiencehost",     // Menu Iniciar (Win11)
             "searchhost",                 // Pesquisa do Windows (Win11)
             "searchapp",                  // Pesquisa do Windows (Win10)
-            "systemsettings",             // Configurações
+            "systemsettings",             // ConfiguraÃ§Ãµes
             "textinputhost",              // Hospedeiro de entrada de texto nativo
             "applicationframehost",       // Wrapper de apps UWP
             "lockapp",                    // Tela de bloqueio
@@ -1010,7 +1020,7 @@ namespace Doorpi
                 }
                 else
                 {
-                    Debug.WriteLine("[TipTab] Nenhum executável de teclado nativo encontrado.");
+                    Debug.WriteLine("[TipTab] Nenhum executÃ¡vel de teclado nativo encontrado.");
                 }
             }
             catch (Exception ex)
@@ -1030,8 +1040,8 @@ namespace Doorpi
                     // Carrega a "barrinha de texto" do sistema
                     IntPtr textCursorHandle = LoadCursor(IntPtr.Zero, IDC_IBEAM);
 
-                    // Em sessões externas o ShowCursor pode oscilar durante foco/click.
-                    // O handle do cursor continua sendo a fonte mais estável para IBEAM.
+                    // Em sessÃµes externas o ShowCursor pode oscilar durante foco/click.
+                    // O handle do cursor continua sendo a fonte mais estÃ¡vel para IBEAM.
                     return pci.hCursor != IntPtr.Zero && pci.hCursor == textCursorHandle;
                 }
             }
@@ -1090,7 +1100,7 @@ namespace Doorpi
                 {
                     if (ShouldMainScreenMouseWatchYield()) return;
 
-                    // A REGRA DE OURO: Só mexe no mouse se o Doorpi estiver em primeiro plano!
+                    // A REGRA DE OURO: SÃ³ mexe no mouse se o Doorpi estiver em primeiro plano!
                     if (!IsDoorpiMainWindowForeground()) return;
 
                     if (!_mainScreenMouseVisible) return;
@@ -1099,7 +1109,7 @@ namespace Doorpi
                     // 1. Oculta o cursor visualmente no Windows
                     EnsureCursorHidden();
 
-                    // 2. Estaciona o ponteiro invisível no canto (0, 0)
+                    // 2. Estaciona o ponteiro invisÃ­vel no canto (0, 0)
                     _lastKnownCursorPos = new POINT { X = 0, Y = 0 };
                     SetCursorPos(0, 0);
                 });
@@ -1109,7 +1119,7 @@ namespace Doorpi
             {
                 if (!GetCursorPos(out var pt)) return;
 
-                // Compara se o usuário mexeu o mouse fisicamente
+                // Compara se o usuÃ¡rio mexeu o mouse fisicamente
                 if (pt.X == _lastKnownCursorPos.X && pt.Y == _lastKnownCursorPos.Y) return;
 
                 _lastKnownCursorPos = pt;
@@ -1117,12 +1127,12 @@ namespace Doorpi
                 {
                     if (ShouldMainScreenMouseWatchYield()) return;
 
-                    // Só reage ao movimento se o Doorpi estiver em foco
+                    // SÃ³ reage ao movimento se o Doorpi estiver em foco
                     if (!IsDoorpiMainWindowForeground()) return;
 
                     if (!_mainScreenMouseVisible)
                     {
-                        // Exibe o cursor novamente quando movido físico
+                        // Exibe o cursor novamente quando movido fÃ­sico
                         EnsureCursorVisible();
                         _mainScreenMouseVisible = true;
                     }
@@ -1133,7 +1143,10 @@ namespace Doorpi
 
         private bool ShouldMainScreenMouseWatchYield()
         {
-            return _systemControllerActive ||
+            return IsAnyControllerMouseKeyboardSessionActive() ||
+                   _launcherMouseActive ||
+                   _dialogModeActive ||
+                   _systemControllerActive ||
                    _mediaExeModeActive ||
                    _isStoreLauncherSession ||
                    _ytWebView != null ||
@@ -1150,13 +1163,13 @@ namespace Doorpi
             _mousePollTimer?.Dispose(); _mousePollTimer = null;
             _mouseIdleTimer?.Dispose(); _mouseIdleTimer = null;
         }
-        // ========================= INICIALIZAÇÃO =========================
+        // ========================= INICIALIZAÃ‡ÃƒO =========================
 
         async void InitializeAsync()
 
         {
 
-            // Configura o navegador para permitir áudio automático (autoplay) sem interação do usuário
+            // Configura o navegador para permitir Ã¡udio automÃ¡tico (autoplay) sem interaÃ§Ã£o do usuÃ¡rio
             DoorpiBootDiagnostics.Log("initialize-start", $"bootMode={GetBootMode()}");
             if (RequiresConsoleShellStartupGate())
             {
@@ -1182,7 +1195,7 @@ namespace Doorpi
             var environment = await CoreWebView2Environment.CreateAsync(null, null, options);
             DoorpiBootDiagnostics.Log("home-webview-environment-created", $"elapsedMs={environmentStartedAt.ElapsedMilliseconds}");
 
-            // Inicializa o WebView2 usando essas opções
+            // Inicializa o WebView2 usando essas opÃ§Ãµes
             var ensureStartedAt = Stopwatch.StartNew();
             await webView.EnsureCoreWebView2Async(environment);
             DoorpiBootDiagnostics.Log("home-webview-core-created", $"elapsedMs={ensureStartedAt.ElapsedMilliseconds}");
@@ -1241,7 +1254,7 @@ namespace Doorpi
                 BeginStartupUpdateCheck();
             };
 
-            // Configurações de Produção 
+            // ConfiguraÃ§Ãµes de ProduÃ§Ã£o
 
             _ = timeBeginPeriod(1);
             StartWatchers();
@@ -2786,7 +2799,7 @@ namespace Doorpi
                     }
                     catch (Exception ex)
                     {
-                        Debug.WriteLine($"Erro ao deletar pasta do usuário: {ex.Message}");
+                        Debug.WriteLine($"Erro ao deletar pasta do usuÃ¡rio: {ex.Message}");
                     }
 
                     try
@@ -2819,7 +2832,7 @@ namespace Doorpi
                     }
                     catch (Exception ex)
                     {
-                        Debug.WriteLine($"Erro ao limpar caches do usuário: {ex.Message}");
+                        Debug.WriteLine($"Erro ao limpar caches do usuÃ¡rio: {ex.Message}");
                     }
                 }
 
@@ -2882,11 +2895,11 @@ namespace Doorpi
         private volatile bool _dialogModeActive = false;
         private int _dialogControllerGeneration;
 
-        // ========================= FOCUS GUARD DE TRANSIÇÃO =========================
+        // ========================= FOCUS GUARD DE TRANSIÃ‡ÃƒO =========================
 
 
         /// <summary>
-        /// Aguarda até que o tempo mínimo de animação de segurança tenha passado desde "gameLaunching".
+        /// Aguarda atÃ© que o tempo mÃ­nimo de animaÃ§Ã£o de seguranÃ§a tenha passado desde "gameLaunching".
         /// Garante que a tela de carregamento sempre seja exibida por pelo menos MINIMUM_LAUNCH_ANIMATION_MS.
         /// </summary>
         private async Task EnsureMinimumAnimationTimeAsync(CancellationToken token)
@@ -4017,7 +4030,7 @@ namespace Doorpi
             int generation = Interlocked.Increment(ref _dialogControllerGeneration);
             _dialogModeActive = true;
 
-            // Garante que o cursor apareça para o usuário interagir com o dialog
+            // Garante que o cursor apareÃ§a para o usuÃ¡rio interagir com o dialog
             EnsureCursorVisible();
             _mainScreenMouseVisible = true;
 
@@ -4227,7 +4240,7 @@ namespace Doorpi
             ResetCursorForMainScreen();
         }
 
-        // Helper para abrir o VKB sem duplicar código
+        // Helper para abrir o VKB sem duplicar cÃ³digo
         private void OpenMediaExeVkb(bool autoPositioned)
         {
             Dispatcher.Invoke(() =>
@@ -4247,12 +4260,12 @@ namespace Doorpi
                 };
                 _desktopVkb.OnCloseRequested += () => { _desktopVkb?.Close(); _desktopVkb = null; };
 
-                // Segurança máxima: Força sempre exibir numa posição segura independente de onde foi chamado
+                // SeguranÃ§a mÃ¡xima: ForÃ§a sempre exibir numa posiÃ§Ã£o segura independente de onde foi chamado
                 _desktopVkb.SetFixedPosition();
                 _desktopVkb.Show();
             });
         }
-        // Retorna a primeira janela visível de um processo por PID
+        // Retorna a primeira janela visÃ­vel de um processo por PID
         private IntPtr FindVisibleWindowForProcess(int pid)
         {
             IntPtr result = IntPtr.Zero;
@@ -4261,7 +4274,7 @@ namespace Doorpi
                 GetWindowProcessId(hWnd, out uint wpid);
                 if ((int)wpid == pid && IsWindowVisible(hWnd))
                 {
-                    // Verifica se a janela tem um título (janelas de sistema/renderização Electron geralmente não têm)
+                    // Verifica se a janela tem um tÃ­tulo (janelas de sistema/renderizaÃ§Ã£o Electron geralmente nÃ£o tÃªm)
                     int length = GetWindowTextLength(hWnd);
                     if (length > 0)
                     {
@@ -4416,7 +4429,7 @@ namespace Doorpi
             return false;
         }
 
-        // Varre os processos em execução e retorna o que corresponde ao exePath
+        // Varre os processos em execuÃ§Ã£o e retorna o que corresponde ao exePath
         private Process? FindRunningProcessForExe(string exePath)
         {
             if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath)) return null;
@@ -4426,7 +4439,7 @@ namespace Doorpi
                 string name = Path.GetFileNameWithoutExtension(exePath);
                 var processes = Process.GetProcessesByName(name);
 
-                // Primeiro tenta achar um processo que corresponda ao caminho exato e tenha janela visível
+                // Primeiro tenta achar um processo que corresponda ao caminho exato e tenha janela visÃ­vel
                 foreach (var p in processes)
                 {
                     try
@@ -4437,7 +4450,7 @@ namespace Doorpi
                     catch { }
                 }
 
-                // Se não achou com janela visível, retorna qualquer um com o caminho exato
+                // Se nÃ£o achou com janela visÃ­vel, retorna qualquer um com o caminho exato
                 foreach (var p in processes)
                 {
                     try { if (PathsEqual(SafeProcessPath(p), fullPath)) return p; }
@@ -4765,7 +4778,7 @@ namespace Doorpi
             try { processes = Process.GetProcessesByName(processName); }
             catch { return result; }
 
-            // Primeiro: correspondência forte por caminho, quando o Windows permite ler MainModule.
+            // Primeiro: correspondÃªncia forte por caminho, quando o Windows permite ler MainModule.
             foreach (var process in processes)
             {
                 bool matchesPath = false;
@@ -4780,8 +4793,8 @@ namespace Doorpi
                     result.Add(process);
             }
 
-            // Depois: fallback por nome do exe. Apps em tray podem não expor caminho/janela, mas
-            // ainda mantêm o processo principal com o mesmo nome.
+            // Depois: fallback por nome do exe. Apps em tray podem nÃ£o expor caminho/janela, mas
+            // ainda mantÃªm o processo principal com o mesmo nome.
             foreach (var process in processes)
             {
                 if (!AddSeen(process)) continue;
@@ -4860,7 +4873,7 @@ namespace Doorpi
 
             for (int i = 0; i < maxAttempts; i++)
             {
-                // CRÍTICO: Para imediatamente se saímos do modo (botão Xbox)
+                // CRÃTICO: Para imediatamente se saÃ­mos do modo (botÃ£o Xbox)
                 if (token.IsCancellationRequested || (requireControllerActive && !_mediaExeModeActive)) return;
 
                 await Task.Delay(200, token);
@@ -4995,7 +5008,7 @@ namespace Doorpi
                     DateTime startTime = DateTime.UtcNow;
 
                     // ==============================================================
-                    // FASE 1: AGUARDANDO O APP ABRIR (Alta Tolerância - Até 3 Minutos)
+                    // FASE 1: AGUARDANDO O APP ABRIR (Alta TolerÃ¢ncia - AtÃ© 3 Minutos)
                     // ==============================================================
                     while (!hasStarted && !token.IsCancellationRequested)
                     {
@@ -5039,7 +5052,7 @@ namespace Doorpi
                             Dispatcher.Invoke(() =>
                             {
                                 if (this.Topmost) this.Topmost = false;
-                                // Empurra o Doorpi para o fundo da pilha Z-order, atrás de todos os apps
+                                // Empurra o Doorpi para o fundo da pilha Z-order, atrÃ¡s de todos os apps
                                 SetWindowPos(_mainWindowHandle, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
                                 FocusExternalWindow(activeHwnd);
 
@@ -5055,7 +5068,7 @@ namespace Doorpi
                     }
 
                     // ==============================================================
-                    // FASE 2: APP EM EXECUÇÃO (Retorno Imediato ao Fechar)
+                    // FASE 2: APP EM EXECUÃ‡ÃƒO (Retorno Imediato ao Fechar)
                     // ==============================================================
                     int missingCount = 0;
                     DateTime unresponsiveSinceUtc = DateTime.MinValue;
@@ -5081,7 +5094,7 @@ namespace Doorpi
                         {
                             IntPtr h = FindVisibleWindowForProcess(p.Id);
 
-                            // A MÁGICA: A janela precisa existir (h != Zero) E NÃO ESTAR MINIMIZADA (!IsIconic)
+                            // A MÃGICA: A janela precisa existir (h != Zero) E NÃƒO ESTAR MINIMIZADA (!IsIconic)
                             if (h != IntPtr.Zero && !IsIconic(h))
                             {
                                 proc = p;
@@ -5150,7 +5163,7 @@ namespace Doorpi
                             }
                         }
 
-                        // DEPOIS — 2 checks × 200ms = 400ms máximo, mais tolerante que 1 check
+                        // DEPOIS â€” 2 checks Ã— 200ms = 400ms mÃ¡ximo, mais tolerante que 1 check
                         if (!hasActiveWindow)
                         {
                             bool mediaProcessStillAlive = processList.Any(p =>
@@ -5322,7 +5335,7 @@ namespace Doorpi
             int capturedSession = _mediaExeSessionId;
             string capturedUrl = _mediaExeCurrentUrl;
 
-            // -- Para imediatamente a Thread do Mouse, mas MANTÉM as variáveis de processo VIVAS --
+            // -- Para imediatamente a Thread do Mouse, mas MANTÃ‰M as variÃ¡veis de processo VIVAS --
             _mediaExeModeActive = false;
             _mediaExeGamepadDisabled = !_mediaExeMouseModeRequested;
             _doorpiSuspendedForMedia = false;
@@ -5441,13 +5454,13 @@ namespace Doorpi
 
             EnumWindows((hWnd, _) =>
             {
-                // Não minimiza: o próprio Doorpi, o novo App, ou a área de trabalho/barra de tarefas
+                // NÃ£o minimiza: o prÃ³prio Doorpi, o novo App, ou a Ã¡rea de trabalho/barra de tarefas
                 if (hWnd == excludeHwnd || hWnd == doorpiHwnd || hWnd == shellWindow)
                     return true;
 
                 if (IsWindowVisible(hWnd))
                 {
-                    // Verifica se a janela tem título (evita minimizar processos invisíveis do sistema)
+                    // Verifica se a janela tem tÃ­tulo (evita minimizar processos invisÃ­veis do sistema)
                     if (GetWindowTextLength(hWnd) > 0)
                     {
                         // SW_MINIMIZE = 6
@@ -5483,7 +5496,7 @@ namespace Doorpi
                 while (ShowCursor(true) < 0) { }
                 _mainScreenMouseVisible = true;
                 CenterCursorOnScreen();
-                UpdateHoverStateInWebView(); // Devolve controle do hover se for Mídia
+                UpdateHoverStateInWebView(); // Devolve controle do hover se for MÃ­dia
             });
 
             SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg, "app");
@@ -5529,10 +5542,10 @@ namespace Doorpi
         }
         private void EnterDesktopMode()
         {
-            // Se estávamos no topo protegendo o fundo, liberamos a prioridade
+            // Se estÃ¡vamos no topo protegendo o fundo, liberamos a prioridade
             ReleaseDoorpiTopmost();
 
-            // Garante que o explorer esteja vivo para o usuário usar o PC
+            // Garante que o explorer esteja vivo para o usuÃ¡rio usar o PC
             EnsureExplorerIsRunningInBackstage();
 
             // 1. Minimiza o App
@@ -5957,9 +5970,9 @@ namespace Doorpi
         private const string AutoStartRegKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
         private const string AutoStartAppName = "Doorpi";
 
-        // ========================= COMPORTAMENTO DE INICIALIZAÇÃO =========================
+        // ========================= COMPORTAMENTO DE INICIALIZAÃ‡ÃƒO =========================
 
-        // ========================= COMPORTAMENTO DE INICIALIZAÇÃO =========================
+        // ========================= COMPORTAMENTO DE INICIALIZAÃ‡ÃƒO =========================
 
         private int GetBootMode()
         {
@@ -5972,11 +5985,11 @@ namespace Doorpi
                     return 2; // Modo Console Imersivo
                 }
 
-                // 2. Verifica se estamos no Modo Padrão (Run)
+                // 2. Verifica se estamos no Modo PadrÃ£o (Run)
                 using var runKey = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run");
                 if (runKey?.GetValue("Doorpi") is string runVal && !string.IsNullOrWhiteSpace(runVal))
                 {
-                    return 1; // Iniciar com Windows (Padrão)
+                    return 1; // Iniciar com Windows (PadrÃ£o)
                 }
             }
             catch (Exception ex) { Debug.WriteLine($"[BootMode] Erro ao ler registro: {ex.Message}"); }
@@ -5993,28 +6006,28 @@ namespace Doorpi
 
                 using var runKey = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true);
                 using var winlogonKey = Registry.CurrentUser.CreateSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon");
-                // Chave responsável pelo som de Inicialização/Logon
+                // Chave responsÃ¡vel pelo som de InicializaÃ§Ã£o/Logon
                 using var soundKey = Registry.CurrentUser.CreateSubKey(@"AppEvents\Schemes\Apps\.Default\SystemStart\.Current");
 
                 // Limpa as chaves para evitar conflitos
                 runKey?.DeleteValue("Doorpi", false);
                 if (winlogonKey?.GetValue("Shell") != null) winlogonKey.DeleteValue("Shell", false);
 
-                if (mode == 1) // Iniciar com Windows (Padrão)
+                if (mode == 1) // Iniciar com Windows (PadrÃ£o)
                 {
                     runKey?.SetValue("Doorpi", $"\"{exePath}\"");
 
-                    // Restaura o som padrão do Windows deletando o mute
+                    // Restaura o som padrÃ£o do Windows deletando o mute
                     if (soundKey?.GetValue("") as string == "")
                         soundKey.DeleteValue("", false);
 
-                    Debug.WriteLine($"[BootMode] Ativado Modo Padrão");
+                    Debug.WriteLine($"[BootMode] Ativado Modo PadrÃ£o");
                 }
                 else if (mode == 2) // Modo Console (Shell Imersivo)
                 {
                     winlogonKey?.SetValue("Shell", $"\"{exePath}\" --doorpi-shell-bootstrap");
 
-                    // Muta o som de Boot do Windows (O Windows tentará tocar uma string vazia)
+                    // Muta o som de Boot do Windows (O Windows tentarÃ¡ tocar uma string vazia)
                     soundKey?.SetValue("", "");
 
                     Debug.WriteLine($"[BootMode] Ativado Modo Console");
@@ -6025,7 +6038,7 @@ namespace Doorpi
 
         private void EnsureExplorerIsRunningInBackstage()
         {
-            // Se o explorer já estiver rodando, não fazemos nada
+            // Se o explorer jÃ¡ estiver rodando, nÃ£o fazemos nada
             if (Process.GetProcessesByName("explorer").Length > 0)
             {
                 DoorpiBootDiagnostics.Log("ensure-explorer-skip", "already-running");
@@ -6041,7 +6054,7 @@ namespace Doorpi
                     UseShellExecute = true
                 });
 
-                // Uma única tentativa de foco após o explorer inicializar
+                // Uma Ãºnica tentativa de foco apÃ³s o explorer inicializar
                 _ = Task.Run(async () =>
                 {
                     await Task.Delay(2500);
@@ -6152,8 +6165,8 @@ namespace Doorpi
                 NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.DirectoryName,
                 EnableRaisingEvents = true
             };
-            // Cache invalidation é checada pelo timestamp no Diff, o watcher agora só existe
-            // se futuramente você quiser plugar eventos em realtime na UI.
+            // Cache invalidation Ã© checada pelo timestamp no Diff, o watcher agora sÃ³ existe
+            // se futuramente vocÃª quiser plugar eventos em realtime na UI.
             _folderWatchers.Add(w);
         }
 
@@ -6199,6 +6212,34 @@ namespace Doorpi
             catch { return ""; }
         }
 
+        private string GetCachedImageAsPngBase64(string imagePath)
+        {
+            if (string.IsNullOrEmpty(imagePath) || !File.Exists(imagePath)) return "";
+            try
+            {
+                var info = new FileInfo(imagePath);
+                string key = $"img|{imagePath}|{info.LastWriteTimeUtc.Ticks}|{info.Length}";
+                string hash = Convert.ToHexString(
+                    System.Security.Cryptography.MD5.HashData(
+                        System.Text.Encoding.UTF8.GetBytes(key)))[..12];
+
+                string iconPath = Path.Combine(iconCacheFolder, $"{hash}.b64");
+
+                if (File.Exists(iconPath))
+                    return File.ReadAllText(iconPath);
+
+                using var image = System.Drawing.Image.FromFile(imagePath);
+                using var ms = new MemoryStream();
+                image.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+                string b64 = Convert.ToBase64String(ms.ToArray());
+                if (!string.IsNullOrEmpty(b64))
+                    File.WriteAllText(iconPath, b64);
+
+                return b64;
+            }
+            catch { return ""; }
+        }
+
         private static readonly List<(string Id, string Name, string SgdbQuery, string Url, string Type, bool MultiUser)> _nativeApps = new()
         {
             ("youtube",     "YouTube",      "YouTube (Website)",         "https://www.youtube.com/tv",   "webview", true ),
@@ -6207,7 +6248,7 @@ namespace Doorpi
             ("kick",        "Kick",         "Kick (Website)",            "https://www.kick.com",         "browser", false),
             (DoorpiBrowserAppId, "Browser", "Google (Website)",          "https://www.google.com",       "browser", false),
             ("disneyplus",  "Disney +",      "Disney + (Website)",     "https://www.disneyplus.com",   "browser", true ),
-            ("primevideo",  "Prime Vídeo",  "Prime Video (Website)",     "https://www.primevideo.com",   "browser", true ),
+            ("primevideo",  "Prime VÃ­deo",  "Prime Video (Website)",     "https://www.primevideo.com",   "browser", true ),
             ("appletv",     "Apple TV",    "Apple TV (Website)",   "https://tv.apple.com",         "browser", true ),
             ("max",         "Max",          "HBO Max (Website)",         "https://www.max.com",          "browser", true ),
             ("crunchyroll", "Crunchyroll",  "Crunchyroll (Website)",     "https://www.crunchyroll.com",  "browser", true ),
@@ -6292,11 +6333,11 @@ namespace Doorpi
                 await Task.Delay(150);
             }
 
-            Debug.WriteLine($"[Media] Não encontrou assets para '{name}' em nenhuma query");
+            Debug.WriteLine($"[Media] NÃ£o encontrou assets para '{name}' em nenhuma query");
             return (null, null, null, null);
         }
 
-        // Parâmetros foram adicionados para isolar a tarefa
+        // ParÃ¢metros foram adicionados para isolar a tarefa
         private async Task InitializeNativeAppsAsync(string targetUserId, string targetMediaFile, bool silent = false)
         {
             var existing = LoadMediaAppsForUser(targetUserId);
@@ -6598,7 +6639,7 @@ namespace Doorpi
                     var manifestNode = JsonNode.Parse(File.ReadAllText(manifestPath));
                     string name = manifestNode?["name"]?.ToString() ?? "";
 
-                    // Resolve a tag de internacionalização do Chrome (ex: __MSG_appName__)
+                    // Resolve a tag de internacionalizaÃ§Ã£o do Chrome (ex: __MSG_appName__)
                     if (name.StartsWith("__MSG_") && name.EndsWith("__"))
                     {
                         string msgKey = name.Substring(6, name.Length - 8);
@@ -6672,8 +6713,8 @@ namespace Doorpi
                 catch (Exception ex) { Debug.WriteLine($"[Extensions] Erro ao checar {ext.Id}: {ex.Message}"); }
             }
 
-            // --- AQUI É O PONTO CRUCIAL ---
-            // Atualizamos a memória da classe com os resultados encontrados
+            // --- AQUI Ã‰ O PONTO CRUCIAL ---
+            // Atualizamos a memÃ³ria da classe com os resultados encontrados
             _latestUpdatesCache = updates;
 
             // Agora enviamos para a UI
@@ -6702,7 +6743,7 @@ namespace Doorpi
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[Extensions] Erro na comparação de versão: {ex.Message}");
+                Debug.WriteLine($"[Extensions] Erro na comparaÃ§Ã£o de versÃ£o: {ex.Message}");
                 return false;
             }
         }
@@ -6719,12 +6760,12 @@ namespace Doorpi
                 extensions.Remove(ext);
                 SaveBrowserExtensions(extensions);
 
-                // Tenta deletar os arquivos físicos
+                // Tenta deletar os arquivos fÃ­sicos
                 if (!string.IsNullOrEmpty(ext.InstalledPath) && Directory.Exists(ext.InstalledPath))
                 {
                     try
                     {
-                        // Força o Garbage Collector a soltar possíveis handles antes de deletar
+                        // ForÃ§a o Garbage Collector a soltar possÃ­veis handles antes de deletar
                         GC.Collect();
                         GC.WaitForPendingFinalizers();
 
@@ -6732,13 +6773,13 @@ namespace Doorpi
                     }
                     catch (IOException ex)
                     {
-                        // É normal dar erro de IO se o WebView2 estiver rodando com a extensão ativa.
-                        // Como já removemos do JSON, ela não será carregada da próxima vez.
-                        Debug.WriteLine($"[Extensions] Arquivo travado, será ignorado no próximo boot. Erro: {ex.Message}");
+                        // Ã‰ normal dar erro de IO se o WebView2 estiver rodando com a extensÃ£o ativa.
+                        // Como jÃ¡ removemos do JSON, ela nÃ£o serÃ¡ carregada da prÃ³xima vez.
+                        Debug.WriteLine($"[Extensions] Arquivo travado, serÃ¡ ignorado no prÃ³ximo boot. Erro: {ex.Message}");
                     }
                     catch (Exception ex)
                     {
-                        Debug.WriteLine($"[Extensions] Erro ao deletar pasta física: {ex.Message}");
+                        Debug.WriteLine($"[Extensions] Erro ao deletar pasta fÃ­sica: {ex.Message}");
                     }
                 }
             }
@@ -6746,7 +6787,7 @@ namespace Doorpi
         private async Task InstallChromeExtensionAsync(string sourceUrl)
         {
             string id = ParseChromeExtensionId(sourceUrl);
-            if (string.IsNullOrWhiteSpace(id)) throw new InvalidOperationException("Link da Chrome Web Store inválido.");
+            if (string.IsNullOrWhiteSpace(id)) throw new InvalidOperationException("Link da Chrome Web Store invÃ¡lido.");
 
             string extRoot = Path.Combine(dataFolder, "extensions", id);
             string tempRoot = Path.Combine(Path.GetTempPath(), "doorpi-ext-" + id + "-" + Guid.NewGuid().ToString("N"));
@@ -6754,7 +6795,7 @@ namespace Doorpi
 
             try
             {
-                // Força a versão 999 para garantir compatibilidade futura e força download do CRX
+                // ForÃ§a a versÃ£o 999 para garantir compatibilidade futura e forÃ§a download do CRX
                 string crxUrl = $"https://clients2.google.com/service/update2/crx?response=redirect&os=win&arch=x64&os_arch=x86_64&nacl_arch=x86-64&prod=chromecrx&prodchannel=&prodversion=999.0.0.0&acceptformat=crx2,crx3&x=id%3D{id}%26installsource%3Dondemand%26uc";
 
                 using var req = new HttpRequestMessage(HttpMethod.Get, crxUrl);
@@ -6765,28 +6806,28 @@ namespace Doorpi
                 byte[] crxBytes = await response.Content.ReadAsByteArrayAsync();
 
                 if (crxBytes.Length < 1024)
-                    throw new InvalidOperationException("Arquivo baixado muito pequeno, verifique a URL da extensão.");
+                    throw new InvalidOperationException("Arquivo baixado muito pequeno, verifique a URL da extensÃ£o.");
 
-                // Busca o cabeçalho do ZIP (PK\x03\x04)
+                // Busca o cabeÃ§alho do ZIP (PK\x03\x04)
                 int zipOffset = FindZipOffset(crxBytes);
                 if (zipOffset < 0)
-                    throw new InvalidOperationException("Não foi possível encontrar a estrutura ZIP dentro do arquivo CRX.");
+                    throw new InvalidOperationException("NÃ£o foi possÃ­vel encontrar a estrutura ZIP dentro do arquivo CRX.");
 
                 string zipPath = Path.Combine(tempRoot, id + ".zip");
                 byte[] zipData = new byte[crxBytes.Length - zipOffset];
                 Buffer.BlockCopy(crxBytes, zipOffset, zipData, 0, zipData.Length);
                 await File.WriteAllBytesAsync(zipPath, zipData);
 
-                // Extração
+                // ExtraÃ§Ã£o
                 ZipFile.ExtractToDirectory(zipPath, tempRoot, overwriteFiles: true);
 
-                // Busca profunda pelo manifest.json (às vezes fica em subpastas dependendo da extensão)
+                // Busca profunda pelo manifest.json (Ã s vezes fica em subpastas dependendo da extensÃ£o)
                 var manifestFiles = Directory.EnumerateFiles(tempRoot, "manifest.json", SearchOption.AllDirectories).ToList();
 
                 if (manifestFiles.Count == 0)
                 {
                     string filesFound = string.Join(", ", Directory.GetFiles(tempRoot, "*", SearchOption.AllDirectories).Select(Path.GetFileName));
-                    throw new InvalidOperationException($"Extensão extraída, mas nenhum 'manifest.json' foi encontrado. Arquivos na pasta: {filesFound}");
+                    throw new InvalidOperationException($"ExtensÃ£o extraÃ­da, mas nenhum 'manifest.json' foi encontrado. Arquivos na pasta: {filesFound}");
                 }
 
                 string manifest = manifestFiles[0];
@@ -6872,7 +6913,7 @@ namespace Doorpi
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[Intro] Manifest inválido {manifestPath}: {ex.Message}");
+                Debug.WriteLine($"[Intro] Manifest invÃ¡lido {manifestPath}: {ex.Message}");
                 return null;
             }
         }
@@ -7037,12 +7078,12 @@ namespace Doorpi
                 {
                     while (!token.IsCancellationRequested)
                     {
-                        await Task.Delay(2000, token); // Dá uma olhadinha a cada 2 segundos
+                        await Task.Delay(2000, token); // DÃ¡ uma olhadinha a cada 2 segundos
 
                         bool isYtActive = false;
                         Dispatcher.Invoke(() => isYtActive = _ytWebView != null && _ytWebView.Visibility == Visibility.Visible);
 
-                        // Se o app não está mais na memória (foi finalizado de vez na bandeja)
+                        // Se o app nÃ£o estÃ¡ mais na memÃ³ria (foi finalizado de vez na bandeja)
                         if (!isYtActive && !IsMediaAppAlive())
                         {
                             Dispatcher.Invoke(() =>
@@ -7081,8 +7122,8 @@ namespace Doorpi
 
                 try
                 {
-                    // Busca APENAS pelo nome do processo. Se ele existir na memória
-                    // (mesmo sem janela, na bandeja do Windows), consideramos que está vivo!
+                    // Busca APENAS pelo nome do processo. Se ele existir na memÃ³ria
+                    // (mesmo sem janela, na bandeja do Windows), consideramos que estÃ¡ vivo!
                     string exeName = Path.GetFileNameWithoutExtension(session.Url);
                     if (!string.IsNullOrEmpty(exeName))
                     {
@@ -7405,8 +7446,8 @@ namespace Doorpi
 
         public void ForceFocus()
         {
-            // Se o jogo foi minimizado pelo usuário (Xbox button) e ainda está vivo,
-            // preserva a sessão — fechar um webapp não deve destruir o contexto do jogo.
+            // Se o jogo foi minimizado pelo usuÃ¡rio (Xbox button) e ainda estÃ¡ vivo,
+            // preserva a sessÃ£o â€” fechar um webapp nÃ£o deve destruir o contexto do jogo.
             bool hasLockedGameProcess = !string.IsNullOrWhiteSpace(_lockedGameProcessName);
             bool preserveGameSession = !string.IsNullOrEmpty(_activeSessionGameId) && (
                 IsLockedGameProcessAlive() ||
@@ -7424,7 +7465,7 @@ namespace Doorpi
             }
             else
             {
-                // Jogo minimizado e vivo: só sinaliza que o Doorpi está visível
+                // Jogo minimizado e vivo: sÃ³ sinaliza que o Doorpi estÃ¡ visÃ­vel
                 _gameIsRunningAndDoorpiHidden = false;
                 // _gameIsMinimized, _currentGameHwnd, _gameSessionActive, 
                 // _activeSessionGameId e _lockedGameProcessName ficam intactos
@@ -7544,7 +7585,7 @@ namespace Doorpi
                 return;
 
             Debug.WriteLine("\n=======================================================");
-            Debug.WriteLine("[DEBUG MINIMIZE] INICIANDO MINIMIZAÇÃO DA SESSÃO");
+            Debug.WriteLine("[DEBUG MINIMIZE] INICIANDO MINIMIZAÃ‡ÃƒO DA SESSÃƒO");
 
             Interlocked.Exchange(ref _executionLockSuppressUntilUtcTicks, DateTime.UtcNow.AddSeconds(2).Ticks);
             Interlocked.Exchange(ref _ignoreGameForegroundRestoreUntilUtcTicks, DateTime.UtcNow.AddSeconds(2).Ticks);
@@ -7559,7 +7600,7 @@ namespace Doorpi
             Interlocked.Exchange(ref _mainUiGamepadSuppressUntilUtcTicks, 0);
             SendRuntimeSessionsToUI();
 
-            // Minimiza a janela da sessão atual: jogo real, launcher conhecido, ou pending-process.
+            // Minimiza a janela da sessÃ£o atual: jogo real, launcher conhecido, ou pending-process.
             IntPtr targetHwnd = _currentGameHwnd;
             if (targetHwnd == IntPtr.Zero &&
                 _currentLauncherHwnd != IntPtr.Zero &&
@@ -7580,8 +7621,8 @@ namespace Doorpi
 
             if (targetHwnd != IntPtr.Zero)
             {
-                // PostMessage SC_MINIMIZE é mais confiável para DX9/DX11 fullscreen exclusivo;
-                // ShowWindowAsync fica como fallback caso a janela não processe WM_SYSCOMMAND.
+                // PostMessage SC_MINIMIZE Ã© mais confiÃ¡vel para DX9/DX11 fullscreen exclusivo;
+                // ShowWindowAsync fica como fallback caso a janela nÃ£o processe WM_SYSCOMMAND.
                 if (!PostMessage(targetHwnd, WM_SYSCOMMAND, new IntPtr(SC_MINIMIZE), IntPtr.Zero))
                     ShowWindowAsync(targetHwnd, 6);
 
@@ -7934,7 +7975,7 @@ namespace Doorpi
             _gameIsMinimized = false;
             _currentGameHwnd = IntPtr.Zero;
             _currentLauncherHwnd = IntPtr.Zero;
-            _lockedGameProcessName = "";  // ? NOVO: limpa sessão anterior
+            _lockedGameProcessName = "";  // ? NOVO: limpa sessÃ£o anterior
 
             // Fotografa as janelas existentes ANTES do jogo abrir qualquer coisa.
             var windowSnapshot = SnapshotVisibleWindows();
@@ -7954,7 +7995,7 @@ namespace Doorpi
                 if (snapshot.Contains(hWnd) || alreadyProcessed.Contains(hWnd)) return true;
                 if (!IsWindowVisible(hWnd) || IsIconic(hWnd)) return true;
 
-                // Ignora janelinhas minúsculas de background
+                // Ignora janelinhas minÃºsculas de background
                 if (!GetWindowRect(hWnd, out RECT r) || r.Width < 300 || r.Height < 300) return true;
 
                 // 1. TRAVA GLOBAL DE LAUNCHER
@@ -7976,7 +8017,7 @@ namespace Doorpi
                 }
                 catch { }
 
-                // 2. VERIFICA COBERTURA DA TELA (Hands Off para jogos já grandes/fullscreen)
+                // 2. VERIFICA COBERTURA DA TELA (Hands Off para jogos jÃ¡ grandes/fullscreen)
                 double coverage = (double)(r.Width * r.Height) / (double)(screenW * screenH);
 
                 if (coverage >= 0.80)
@@ -7985,28 +8026,28 @@ namespace Doorpi
                     return false; // Achou a janela principal, para de procurar.
                 }
 
-                // 3. Dá pra redimensionar?
+                // 3. DÃ¡ pra redimensionar?
                 int style = GetWindowLong(hWnd, GWL_STYLE);
                 bool canResize = (style & WS_THICKFRAME) != 0 || (style & WS_MAXIMIZEBOX) != 0;
 
                 if (!canResize)
                 {
-                    // Se é menor que 80% da tela e NÃO tem botão de maximizar...
-                    // É um Launcher de janela fixa ou caixa de diálogo
+                    // Se Ã© menor que 80% da tela e NÃƒO tem botÃ£o de maximizar...
+                    // Ã‰ um Launcher de janela fixa ou caixa de diÃ¡logo
                     alreadyProcessed.Add(hWnd);
                     return true;
                 }
 
-                // 4. MAXIMIZAÇÃO SEGURA (É janela de jogo, dá pra esticar)
+                // 4. MAXIMIZAÃ‡ÃƒO SEGURA (Ã‰ janela de jogo, dÃ¡ pra esticar)
                 alreadyProcessed.Add(hWnd);
 
-                // Doorpi vai pra trás
+                // Doorpi vai pra trÃ¡s
                 SetWindowPos(_mainWindowHandle, HWND_NOTOPMOST, 0, 0, 0, 0,
                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 
                 FocusExternalWindow(hWnd);
 
-                // Pede com educação pro Windows maximizar a janela
+                // Pede com educaÃ§Ã£o pro Windows maximizar a janela
                 SetWindowPos(hWnd, HWND_TOP, 0, 0, screenW, screenH, 0);
                 ShowWindow(hWnd, 3);
 
@@ -8041,7 +8082,7 @@ namespace Doorpi
 
                 while (!token.IsCancellationRequested && !_launchCancelled)
                 {
-                    // --- MÁGICA: PAUSA ABSOLUTA DA BUSCA SE TIVER MINIMIZADO ---
+                    // --- MÃGICA: PAUSA ABSOLUTA DA BUSCA SE TIVER MINIMIZADO ---
                     if (_gameIsMinimized)
                     {
                         bool canTreatForegroundAsRestore =
@@ -8183,7 +8224,7 @@ namespace Doorpi
                     }
                     else if (doorpiHidden)
                     {
-                        // A TELA DE JOGO SUMIU: Verifica se o processo travado ainda está vivo
+                        // A TELA DE JOGO SUMIU: Verifica se o processo travado ainda estÃ¡ vivo
                         bool isProcessStillAlive = false;
 
                         if (!string.IsNullOrEmpty(lockedProcessName))
@@ -8197,7 +8238,7 @@ namespace Doorpi
 
                         if (isProcessStillAlive)
                         {
-                            // O executável está vivo (trocando de tela, piscando DirectX, etc). 
+                            // O executÃ¡vel estÃ¡ vivo (trocando de tela, piscando DirectX, etc).
                             // Reseta os checks e aguarda a nova janela aparecer!
                             missingChecks = 0;
                         }
@@ -8375,7 +8416,7 @@ namespace Doorpi
             _activeSessionGameId = "";
             _activeSessionGameName = "";
 
-            if (sessionMinutes < 1) return; // ignora sessões abaixo de 1 minuto
+            if (sessionMinutes < 1) return; // ignora sessÃµes abaixo de 1 minuto
 
             var games = LoadGames();
             var game = games.FirstOrDefault(g =>
@@ -9356,7 +9397,7 @@ namespace Doorpi
                 return;
             }
 
-            // Nunca abrir EM EXECUÇÃO sem alvo acionável.
+            // Nunca abrir EM EXECUÃ‡ÃƒO sem alvo acionÃ¡vel.
             // Isso previne overlay "vazia" em corridas de Alt+Tab.
             if (string.IsNullOrWhiteSpace(id) && string.IsNullOrWhiteSpace(url))
             {
@@ -9589,7 +9630,7 @@ namespace Doorpi
             if (DateTime.UtcNow.Ticks < Interlocked.Read(ref _executionLockSuppressUntilUtcTicks))
                 return;
 
-            // Prioridade absoluta: se existe sessão de jogo ativa em primeiro plano lógico,
+            // Prioridade absoluta: se existe sessÃ£o de jogo ativa em primeiro plano lÃ³gico,
             // sempre usar o contexto do jogo (mesmo que o runtime candidate venha da loja).
             if (_gameSessionActive &&
                 !string.IsNullOrWhiteSpace(_activeSessionGameId))
@@ -9664,7 +9705,7 @@ namespace Doorpi
                 }
             }
 
-            // Fallback resiliente: tenta a sessão ativa conhecida.
+            // Fallback resiliente: tenta a sessÃ£o ativa conhecida.
             ShowExecutionLockForCurrentSession();
         }
 
@@ -9921,7 +9962,7 @@ namespace Doorpi
                 return;
             }
 
-            // Blindagem: sessão de jogo com pai Doorpi nunca pode ser fechada
+            // Blindagem: sessÃ£o de jogo com pai Doorpi nunca pode ser fechada
             // por contexto de loja que tenha "vazado" para o lock atual.
             if (_gameSessionActive &&
                 string.Equals(_gameSessionParentKind, "doorpi", StringComparison.OrdinalIgnoreCase) &&
@@ -9978,7 +10019,7 @@ namespace Doorpi
 
                 GetWindowProcessId(foreground, out var pidRaw);
                 if (pidRaw == 0) return true;
-                if (pidRaw == gamePid) return false; // O próprio jogo está focado
+                if (pidRaw == gamePid) return false; // O prÃ³prio jogo estÃ¡ focado
 
                 var process = Process.GetProcessById((int)pidRaw);
                 string name = SafeProcessName(process).ToLowerInvariant();
@@ -9996,7 +10037,7 @@ namespace Doorpi
 
                 if (knownStealers.Contains(name)) return true;
 
-                // Qualquer outro processo (Discord, Chrome, etc.) assume-se Alt+Tab intencional do usuário
+                // Qualquer outro processo (Discord, Chrome, etc.) assume-se Alt+Tab intencional do usuÃ¡rio
                 return false;
             }
             catch { return false; }
@@ -10247,7 +10288,7 @@ namespace Doorpi
             bool knownGamePathSignal = false;
             bool baselineProcess = context.BaselineProcessIds.Contains(pid);
 
-            // 1. Origem do Processo (O Jogo ser um processo NOVO é a maior pista de todas)
+            // 1. Origem do Processo (O Jogo ser um processo NOVO Ã© a maior pista de todas)
             if (pid == context.LaunchedProcessId) score += 50;
             if (!baselineProcess) score += 40;
             if (context.SeenCandidatePids.Contains(pid)) score += 15;
@@ -10271,11 +10312,11 @@ namespace Doorpi
                 }
             }
 
-            // 3. HEURÍSTICA INTELIGENTE (Resolve o problema do "Dandara" e do "Witcher")
+            // 3. HEURÃSTICA INTELIGENTE (Resolve o problema do "Dandara" e do "Witcher")
             string firstToken = context.NameTokens.FirstOrDefault() ?? "";
             if (!string.IsNullOrEmpty(firstToken))
             {
-                // O nome do executável COMEÇA com a primeira palavra do jogo? Bônus GIGANTE!
+                // O nome do executÃ¡vel COMEÃ‡A com a primeira palavra do jogo? BÃ´nus GIGANTE!
                 if (exeName.StartsWith(firstToken, StringComparison.OrdinalIgnoreCase))
                 {
                     score += 60;
@@ -10288,7 +10329,7 @@ namespace Doorpi
                     strongNameSignal = true;
                 }
 
-                // O título da janela tem a primeira palavra do jogo?
+                // O tÃ­tulo da janela tem a primeira palavra do jogo?
                 if (title.Contains(firstToken, StringComparison.OrdinalIgnoreCase))
                 {
                     score += 35;
@@ -10296,7 +10337,7 @@ namespace Doorpi
                 }
             }
 
-            // Título Exato 100%
+            // TÃ­tulo Exato 100%
             if (!string.IsNullOrWhiteSpace(title) && string.Equals(title, context.Game.Name, StringComparison.OrdinalIgnoreCase))
             {
                 score += 80;
@@ -10312,7 +10353,7 @@ namespace Doorpi
                 strongNameSignal = true;
             }
 
-            // 4. Bônus por Ser uma Janela Real e Pesada
+            // 4. BÃ´nus por Ser uma Janela Real e Pesada
             if (!string.IsNullOrWhiteSpace(title)) score += 10;
             if (IsZoomed(hWnd)) score += 100;
             if (coverage >= 0.80) score += 120;
@@ -10443,11 +10484,11 @@ namespace Doorpi
             // 1. Tira o Doorpi do modo "Sempre no topo"
             if (this.Topmost) this.Topmost = false;
 
-            // 2. Doorpi vai pra trás sem roubar o foco (HWND_NOTOPMOST)
+            // 2. Doorpi vai pra trÃ¡s sem roubar o foco (HWND_NOTOPMOST)
             SetWindowPos(_mainWindowHandle, HWND_NOTOPMOST, 0, 0, 0, 0,
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 
-            // 3. Restaura o jogo de forma limpa e padrão do Windows
+            // 3. Restaura o jogo de forma limpa e padrÃ£o do Windows
             if (IsIconic(hwnd)) ShowWindow(hwnd, 9); // SW_RESTORE
             else ShowWindow(hwnd, 5);                // SW_SHOW
 
@@ -10528,45 +10569,50 @@ namespace Doorpi
                                 if (File.Exists(icoPath)) iconBase64 = GetCachedIcon(icoPath);
                             }
 
-                            if (includeIcons && string.IsNullOrEmpty(iconBase64) && !string.IsNullOrEmpty(installDir))
-                            {
-                                if (Directory.Exists(gameFolder))
-                                {
-                                    try
-                                    {
-                                        var exeFiles = new DirectoryInfo(gameFolder)
-                                            .GetFiles("*.exe", SearchOption.AllDirectories)
-                                            .Where(f => !f.Name.Contains("crash", StringComparison.OrdinalIgnoreCase) &&
-                                                        !f.Name.Contains("unins", StringComparison.OrdinalIgnoreCase) &&
-                                                        !f.Name.Contains("setup", StringComparison.OrdinalIgnoreCase) &&
-                                                        !f.Name.Contains("redist", StringComparison.OrdinalIgnoreCase))
-                                            .ToList();
-
-                                        if (exeFiles.Count > 0)
-                                        {
-                                            string cleanGameName = NormalizeGameName(name);
-                                            string cleanFolderName = NormalizeGameName(installDir);
-
-                                            var bestExe =
-                                                exeFiles.FirstOrDefault(f => {
-                                                    string c = NormalizeGameName(Path.GetFileNameWithoutExtension(f.Name));
-                                                    return c == cleanGameName || c == cleanFolderName;
-                                                })
-                                                ?? exeFiles.FirstOrDefault(f => IsNameSimilar(Path.GetFileNameWithoutExtension(f.Name), name))
-                                                ?? exeFiles.OrderByDescending(f => f.Length).FirstOrDefault();
-
-                                            if (bestExe != null) iconBase64 = GetCachedIcon(bestExe.FullName);
-                                        }
-                                    }
-                                    catch { }
-                                }
-                            }
-
                             if (includeIcons && string.IsNullOrEmpty(iconBase64))
                             {
                                 string libraryCachePath = Path.Combine(steamPath, "appcache", "librarycache", $"{appId}_icon.jpg");
                                 if (File.Exists(libraryCachePath))
-                                    iconBase64 = Convert.ToBase64String(File.ReadAllBytes(libraryCachePath));
+                                    iconBase64 = GetCachedImageAsPngBase64(libraryCachePath);
+                            }
+
+                            if (includeIcons && string.IsNullOrEmpty(iconBase64))
+                            {
+                                string libraryCacheFolder = Path.Combine(steamPath, "appcache", "librarycache", appId);
+                                string[] preferredAssets =
+                                {
+                                    "library_600x900.jpg",
+                                    "header.jpg",
+                                    "logo.png"
+                                };
+
+                                foreach (var asset in preferredAssets)
+                                {
+                                    string assetPath = Path.Combine(libraryCacheFolder, asset);
+                                    if (!File.Exists(assetPath)) continue;
+                                    iconBase64 = GetCachedImageAsPngBase64(assetPath);
+                                    if (!string.IsNullOrEmpty(iconBase64)) break;
+                                }
+
+                                if (string.IsNullOrEmpty(iconBase64) && Directory.Exists(libraryCacheFolder))
+                                {
+                                    string? fallbackAsset = Directory.EnumerateFiles(libraryCacheFolder, "*.*", SearchOption.TopDirectoryOnly)
+                                        .Where(path => path.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
+                                                       path.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                                                       path.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase))
+                                        .OrderByDescending(path =>
+                                            Path.GetFileName(path).Contains("library", StringComparison.OrdinalIgnoreCase) ? 3 :
+                                            Path.GetFileName(path).Contains("header", StringComparison.OrdinalIgnoreCase) ? 2 :
+                                            Path.GetFileName(path).Contains("logo", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+                                        .ThenByDescending(path =>
+                                        {
+                                            try { return new FileInfo(path).Length; }
+                                            catch { return 0; }
+                                        })
+                                        .FirstOrDefault();
+                                    if (!string.IsNullOrEmpty(fallbackAsset))
+                                        iconBase64 = GetCachedImageAsPngBase64(fallbackAsset);
+                                }
                             }
 
                             list.Add(new InstalledApp
@@ -10596,6 +10642,135 @@ namespace Doorpi
                    commandOrProduct.Equals("--uninstall-product=riot_client", StringComparison.OrdinalIgnoreCase);
         }
 
+        private static bool TryParseRiotGameRegistryName(string registryName, out string product, out string patchline)
+        {
+            product = "";
+            patchline = "live";
+            const string prefix = "Riot Game ";
+            if (string.IsNullOrWhiteSpace(registryName) ||
+                !registryName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            string raw = registryName[prefix.Length..].Trim();
+            if (string.IsNullOrWhiteSpace(raw)) return false;
+
+            int dot = raw.IndexOf('.');
+            product = dot > 0 ? raw[..dot] : raw;
+            patchline = dot > 0 && dot < raw.Length - 1 ? raw[(dot + 1)..] : "live";
+            return !string.IsNullOrWhiteSpace(product) &&
+                   !IsRiotClientCatalogEntry("", registryName, product);
+        }
+
+        private static string RiotDisplayNameFromProduct(string product, string displayName)
+        {
+            if (!string.IsNullOrWhiteSpace(displayName) &&
+                !displayName.StartsWith("Riot Game ", StringComparison.OrdinalIgnoreCase))
+                return displayName.Trim();
+
+            return product switch
+            {
+                "league_of_legends" => "League of Legends",
+                "teamfighttactics" => "Teamfight Tactics",
+                "valorant" => "VALORANT",
+                _ => Regex.Replace(product.Replace('_', ' '), @"\b\p{Ll}", m => m.Value.ToUpperInvariant()).Trim()
+            };
+        }
+
+        private bool TryResolveRiotGameLaunch(
+            string registryName,
+            string displayName,
+            string uninstallString,
+            out string product,
+            out string patchline)
+        {
+            if (TryParseRiotGameRegistryName(registryName, out product, out patchline) &&
+                Regex.IsMatch(product, @"^[a-z0-9_]+$", RegexOptions.IgnoreCase))
+            {
+                product = product.ToLowerInvariant();
+                patchline = patchline.ToLowerInvariant();
+                return true;
+            }
+
+            product = "";
+            patchline = "live";
+            string command = uninstallString ?? "";
+            var productMatch = Regex.Match(
+                command,
+                "--(?:uninstall|launch)-product(?:=|\\s+)(?<product>[^\\s\\\"]+)",
+                RegexOptions.IgnoreCase);
+            if (productMatch.Success)
+            {
+                product = productMatch.Groups["product"].Value.Trim('"', ' ');
+                var patchlineMatch = Regex.Match(
+                    command,
+                    "--(?:uninstall|launch)-patchline(?:=|\\s+)(?<patchline>[^\\s\\\"]+)",
+                    RegexOptions.IgnoreCase);
+                if (patchlineMatch.Success)
+                    patchline = patchlineMatch.Groups["patchline"].Value.Trim('"', ' ');
+            }
+            else
+            {
+                string identity = NormalizeGameName($"{registryName} {displayName}");
+                product = identity.Contains("valorant", StringComparison.OrdinalIgnoreCase) ? "valorant"
+                    : identity.Contains("leagueoflegends", StringComparison.OrdinalIgnoreCase) ? "league_of_legends"
+                    : identity.Contains("teamfighttactics", StringComparison.OrdinalIgnoreCase) ? "teamfighttactics"
+                    : identity.Contains("legendsofruneterra", StringComparison.OrdinalIgnoreCase) ? "legendsof_runeterra"
+                    : identity.Contains("2xko", StringComparison.OrdinalIgnoreCase) ? "2xko"
+                    : "";
+            }
+
+            product = product.ToLowerInvariant();
+            patchline = patchline.ToLowerInvariant();
+            return !string.IsNullOrWhiteSpace(product) &&
+                !IsRiotClientCatalogEntry(displayName, registryName, product);
+        }
+
+        private List<(string Product, string Patchline, string IconPath, string MarkerPath)> GetRiotMetadataGames()
+        {
+            var games = new List<(string Product, string Patchline, string IconPath, string MarkerPath)>();
+            try
+            {
+                string metadataRoot = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    "Riot Games", "Metadata");
+                if (!Directory.Exists(metadataRoot)) return games;
+
+                foreach (string directory in Directory.EnumerateDirectories(metadataRoot))
+                {
+                    string id = Path.GetFileName(directory).Trim();
+                    int separator = id.IndexOf('.');
+                    if (separator <= 0 || separator == id.Length - 1) continue;
+
+                    string product = id[..separator].Trim().ToLowerInvariant();
+                    string patchline = id[(separator + 1)..].Trim().ToLowerInvariant();
+                    string markerPath = Path.Combine(directory, $"{id}.product_settings.yaml");
+                    if (!File.Exists(markerPath) ||
+                        product is "riot_client" or "riotclient" ||
+                        !Regex.IsMatch(product, @"^[a-z0-9_]+$", RegexOptions.IgnoreCase))
+                        continue;
+
+                    games.Add((
+                        product,
+                        string.IsNullOrWhiteSpace(patchline) ? "live" : patchline,
+                        Path.Combine(directory, $"{id}.ico"),
+                        markerPath));
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("RiotMetadata: " + ex.Message);
+            }
+
+            // Um produto pode registrar live e PBE. O modal mostra uma entrada por
+            // jogo e prioriza a instalaÃ§Ã£o live, sem duplicar o mesmo tÃ­tulo.
+            return games
+                .GroupBy(game => game.Product, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group
+                    .OrderBy(game => game.Patchline.Equals("live", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                    .First())
+                .ToList();
+        }
+
         private HashSet<string> GetRiotFingerprint()
         {
             var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -10618,17 +10793,26 @@ namespace Doorpi
                                 string displayName = sub.GetValue("DisplayName") as string ?? "";
                                 string uninstallString = sub.GetValue("UninstallString") as string ?? "";
 
-                                // É da Riot se tiver o executável e o parâmetro de produto
-                                if (uninstallString.Contains("RiotClientServices.exe", StringComparison.OrdinalIgnoreCase) &&
-                                    uninstallString.Contains("-product=", StringComparison.OrdinalIgnoreCase))
+                                if (TryResolveRiotGameLaunch(name, displayName, uninstallString, out var productFromName, out var patchlineFromName))
                                 {
-                                    keys.Add(name);
+                                    keys.Add($"Riot Game {productFromName}.{patchlineFromName}");
                                 }
                             }
                         }
                     }
             }
             catch (Exception ex) { Debug.WriteLine("RiotFingerprint: " + ex.Message); }
+
+            foreach (var metadataGame in GetRiotMetadataGames())
+            {
+                try
+                {
+                    var marker = new FileInfo(metadataGame.MarkerPath);
+                    keys.Add($"Riot Metadata {metadataGame.Product}.{metadataGame.Patchline}|{marker.LastWriteTimeUtc.Ticks}|{marker.Length}");
+                }
+                catch { }
+            }
+
             return keys;
         }
 
@@ -10655,35 +10839,21 @@ namespace Doorpi
                                 string uninstallString = sub.GetValue("UninstallString") as string ?? "";
                                 string displayIcon = sub.GetValue("DisplayIcon") as string ?? "";
 
-                                // Ignora o próprio Riot Client (é só um launcher)
-                                if (IsRiotClientCatalogEntry(displayName, name, uninstallString)) continue;
-                                if (string.IsNullOrWhiteSpace(uninstallString)) continue;
-
-                                // Sem sufixo de launch, isso é só o Riot Client.
-                                if (!uninstallString.Contains("RiotClientServices.exe", StringComparison.OrdinalIgnoreCase) ||
-                                    !uninstallString.Contains("-product=", StringComparison.OrdinalIgnoreCase))
+                                if (!TryResolveRiotGameLaunch(name, displayName, uninstallString, out var product, out var patchline))
                                     continue;
 
-                                // ==========================================================
-                                string launchCmd = uninstallString.Replace("--uninstall-", "--launch-").Replace("\"", "").Trim();
-                                string launchUrl = $"riot:{launchCmd}";
-                                // ==========================================================
-
-                                // Extrai o nome do produto para manter compatibilidade no path
-                                string product = name;
-                                var match = Regex.Match(launchCmd, @"--launch-product=([^\s]+)");
-                                if (match.Success) product = match.Groups[1].Value;
-                                if (IsRiotClientCatalogEntry(displayName, name, product)) continue;
+                                string? riotExe = ResolveRiotExe();
+                                if (string.IsNullOrWhiteSpace(riotExe)) continue;
 
                                 string iconBase64 = "";
                                 string cleanIconPath = displayIcon.Split(',')[0].Replace("\"", "").Trim();
-                                if (File.Exists(cleanIconPath))
-                                    iconBase64 = GetCachedIcon(cleanIconPath);
+                                if (File.Exists(cleanIconPath)) iconBase64 = GetCachedIcon(cleanIconPath);
+                                else if (File.Exists(riotExe)) iconBase64 = GetCachedIcon(riotExe);
 
                                 list.Add(new InstalledApp
                                 {
-                                    Name = displayName,
-                                    LaunchUrl = launchUrl,
+                                    Name = RiotDisplayNameFromProduct(product, displayName),
+                                    LaunchUrl = $"riot:{riotExe} --launch-product={product} --launch-patchline={patchline}",
                                     Path = product,
                                     Source = "Riot",
                                     IconBase64 = iconBase64
@@ -10694,8 +10864,33 @@ namespace Doorpi
             }
             catch (Exception ex) { Debug.WriteLine("Erro Riot: " + ex.Message); }
 
-            // Garante que não duplique (caso exista no LocalMachine e no CurrentUser simultaneamente)
-            return list.GroupBy(a => a.LaunchUrl).Select(g => g.First()).ToList();
+            // As instalaÃ§Ãµes modernas da Riot registram os jogos em ProgramData,
+            // nÃ£o em Uninstall. Esse Ã© o mesmo catÃ¡logo que o Riot Client usa.
+            string? riotExeFromMetadata = ResolveRiotExe();
+            if (!string.IsNullOrWhiteSpace(riotExeFromMetadata))
+            {
+                foreach (var metadataGame in GetRiotMetadataGames())
+                {
+                    string launchUrl = $"riot:{riotExeFromMetadata} --launch-product={metadataGame.Product} --launch-patchline={metadataGame.Patchline}";
+                    if (list.Any(app => string.Equals(app.LaunchUrl, launchUrl, StringComparison.OrdinalIgnoreCase)))
+                        continue;
+
+                    string iconBase64 = File.Exists(metadataGame.IconPath)
+                        ? GetCachedIcon(metadataGame.IconPath)
+                        : GetCachedIcon(riotExeFromMetadata);
+                    list.Add(new InstalledApp
+                    {
+                        Name = RiotDisplayNameFromProduct(metadataGame.Product, ""),
+                        LaunchUrl = launchUrl,
+                        Path = metadataGame.Product,
+                        Source = "Riot",
+                        IconBase64 = iconBase64
+                    });
+                }
+            }
+
+            // Garante que nÃ£o duplique (caso exista no LocalMachine e no CurrentUser simultaneamente)
+            return list.GroupBy(a => a.LaunchUrl, StringComparer.OrdinalIgnoreCase).Select(g => g.First()).ToList();
         }
         // ========================= EPIC =========================
 
@@ -10795,21 +10990,6 @@ namespace Doorpi
                         if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath) &&
                             !exePath.Contains("unins", StringComparison.OrdinalIgnoreCase))
                             finalPath = exePath;
-                    }
-
-                    if (string.IsNullOrEmpty(finalPath) && !string.IsNullOrEmpty(folderPath) && Directory.Exists(folderPath))
-                    {
-                        var bestExe = new DirectoryInfo(folderPath)
-                            .GetFiles("*.exe", SearchOption.AllDirectories)
-                            .Where(f => {
-                                string fn = f.Name.ToLower();
-                                return !fn.Contains("unins") && !fn.Contains("setup") &&
-                                       !fn.Contains("config") && f.Length > 1024 * 1024 * 2;
-                            })
-                            .OrderByDescending(f => f.Length)
-                            .FirstOrDefault();
-
-                        if (bestExe != null) finalPath = bestExe.FullName;
                     }
 
                     if (!string.IsNullOrEmpty(finalPath))
@@ -10926,7 +11106,7 @@ namespace Doorpi
             foreach (var w in dead) _folderWatchers.Remove(w);
         }
 
-        // ========================= LÓGICA OTIMIZADA DE DIFF DE PASTAS =========================
+        // ========================= LÃ“GICA OTIMIZADA DE DIFF DE PASTAS =========================
 
         private (List<InstalledApp> Apps, Dictionary<string, long> Timestamps, bool Changed) ScanWatchedFoldersOptimized(AppCacheModel cache, Action<string, int>? onProgress = null)
         {
@@ -10968,7 +11148,7 @@ namespace Doorpi
                             changed = true;
                             string expectedName = dirInfo.Name;
 
-                            // Pega TODOS os executáveis dentro da pasta e de todas as subpastas dela de uma vez
+                            // Pega TODOS os executÃ¡veis dentro da pasta e de todas as subpastas dela de uma vez
                             var exes = new DirectoryInfo(gameDir).GetFiles("*.exe", options)
                                 .Where(f => !junkTerms.Any(j => f.Name.Contains(j, StringComparison.OrdinalIgnoreCase)))
                                 .ToList();
@@ -11004,7 +11184,7 @@ namespace Doorpi
                                     }
                                 }
 
-                                // 3. Fallback: Pega o maior executável (Sempre será o jogo verdadeiro e nunca o CEF)
+                                // 3. Fallback: Pega o maior executÃ¡vel (Sempre serÃ¡ o jogo verdadeiro e nunca o CEF)
                                 if (bestExe == null)
                                 {
                                     bestExe = exes.OrderByDescending(f => f.Length).First();
@@ -11032,7 +11212,7 @@ namespace Doorpi
                         }
                     }
 
-                    // Arquivos soltos diretamente na raiz da pasta vigiada (Jogos que não estão dentro de subpastas)
+                    // Arquivos soltos diretamente na raiz da pasta vigiada (Jogos que nÃ£o estÃ£o dentro de subpastas)
                     var rootExes = new DirectoryInfo(rootFolder).GetFiles("*.exe", SearchOption.TopDirectoryOnly)
                         .Where(f => !junkTerms.Any(j => f.Name.Contains(j, StringComparison.OrdinalIgnoreCase)))
                         .ToList();
@@ -11113,11 +11293,11 @@ namespace Doorpi
                 catch { }
             }
 
-            // 3. Fallback: Retorna o MAIOR executável da pasta (seu sistema de antes)
+            // 3. Fallback: Retorna o MAIOR executÃ¡vel da pasta (seu sistema de antes)
             return exes.OrderByDescending(f => f.Length).First().FullName;
         }
 
-        private List<InstalledApp> ScanWindowsApps()
+        private List<InstalledApp> ScanWindowsApps(bool riotOnly = false)
         {
             var list = new List<InstalledApp>();
             var paths = new[]
@@ -11153,14 +11333,43 @@ namespace Doorpi
                                 if (ignoredLaunchers.Contains(displayName.Trim())) continue;
 
                                 var publisher = sub.GetValue("Publisher") as string;
-                                if (publisher != null && publisher.Contains("Riot Games", StringComparison.OrdinalIgnoreCase)) continue;
-                                if (name.StartsWith("Riot Game ", StringComparison.OrdinalIgnoreCase)) continue;
+                                string uninstallString = sub.GetValue("UninstallString") as string ?? "";
+                                bool isRiotEntry = publisher?.Contains("Riot Games", StringComparison.OrdinalIgnoreCase) == true ||
+                                    name.StartsWith("Riot Game ", StringComparison.OrdinalIgnoreCase);
+                                if (isRiotEntry)
+                                {
+                                    // A Riot continua sendo encontrada pelo detector de programas do
+                                    // Windows, mas nunca Ã© adicionada como .exe genÃ©rico: o modal
+                                    // recebe o comando oficial do Riot Client e a fonte correta.
+                                    if (!TryResolveRiotGameLaunch(name, displayName, uninstallString, out var riotProduct, out var riotPatchline))
+                                        continue;
+
+                                    string? riotExe = ResolveRiotExe();
+                                    if (string.IsNullOrWhiteSpace(riotExe)) continue;
+
+                                    string displayIcon = sub.GetValue("DisplayIcon") as string ?? "";
+                                    string iconPath = displayIcon.Split(',')[0].Replace("\"", "").Trim();
+                                    string iconBase64 = File.Exists(iconPath)
+                                        ? GetCachedIcon(iconPath)
+                                        : GetCachedIcon(riotExe);
+                                    list.Add(new InstalledApp
+                                    {
+                                        Name = RiotDisplayNameFromProduct(riotProduct, displayName),
+                                        Path = riotProduct,
+                                        LaunchUrl = $"riot:{riotExe} --launch-product={riotProduct} --launch-patchline={riotPatchline}",
+                                        Source = "Riot",
+                                        IconBase64 = iconBase64
+                                    });
+                                    continue;
+                                }
+
+                                if (riotOnly) continue;
 
                                 string folder = GetAppFolder(sub);
                                 if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder)) continue;
                                 if (folder.Contains(@"\steamapps\", StringComparison.OrdinalIgnoreCase)) continue;
 
-                                // CHAMA A FUNÇÃO INTELIGENTE
+                                // CHAMA A FUNÃ‡ÃƒO INTELIGENTE
                                 string? exePath = FindMainExecutable(folder, displayName, options);
                                 if (exePath == null) continue;
 
@@ -11499,7 +11708,15 @@ namespace Doorpi
         private void SendInstalledAppsToUI()
         {
             var cache = LoadAppCache() ?? new AppCacheModel();
+            bool cacheChanged = RefreshLightStoreCachesForInstalledAppsModal(cache);
+            if (!string.Equals(_lastPlatformIconHydrationCacheFile, appCacheFile, StringComparison.OrdinalIgnoreCase))
+            {
+                _lastPlatformIconHydrationCacheFile = appCacheFile;
+                cacheChanged |= HydrateMissingPlatformIcons(cache);
+            }
             if (RepairCachedExecutablePaths(cache))
+                cacheChanged = true;
+            if (cacheChanged)
                 SaveAppCache(cache);
 
             var availableWindowsApps = cache.WindowsApps
@@ -11509,7 +11726,7 @@ namespace Doorpi
                 .Where(app => string.IsNullOrWhiteSpace(app.Path) || !Path.IsPathRooted(app.Path) || File.Exists(app.Path))
                 .ToList();
 
-            var existingMap = BuildExistingAppsMap(); // Agora é um Map
+            var existingMap = BuildExistingAppsMap(); // Agora Ã© um Map
             var finalList = BuildFinalList(
                 cache.SteamApps, cache.EpicApps, cache.GogApps, cache.RiotApps,
                 cache.XboxApps,
@@ -11520,6 +11737,124 @@ namespace Doorpi
                 webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(payload)));
         }
 
+        private async Task RefreshRiotAppsForModalAsync()
+        {
+            await _cacheLock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                var cache = LoadAppCache() ?? new AppCacheModel();
+                var currentApps = GetRiotGames()
+                    .Concat(ScanWindowsApps(riotOnly: true)
+                        .Where(app => app.Source.Equals("Riot", StringComparison.OrdinalIgnoreCase)))
+                    .GroupBy(app => app.LaunchUrl, StringComparer.OrdinalIgnoreCase)
+                    .Select(group => group.First())
+                    .ToList();
+                var currentFingerprint = GetRiotFingerprint();
+                bool appsChanged = InstalledAppListChanged(cache.RiotApps, currentApps);
+                bool fingerprintChanged = !currentFingerprint.SetEquals(cache.RiotFingerprint);
+                if (!appsChanged && !fingerprintChanged) return;
+
+                cache.RiotApps = currentApps;
+                cache.RiotFingerprint = currentFingerprint;
+                RefreshAutoAddSuppressions(cache);
+                SaveAppCache(cache);
+                Debug.WriteLine($"[InstalledApps] Cache Riot atualizado para o modal: {currentApps.Count} jogo(s).");
+            }
+            finally
+            {
+                _cacheLock.Release();
+            }
+        }
+
+        private bool RefreshLightStoreCachesForInstalledAppsModal(AppCacheModel cache)
+        {
+            bool changed = false;
+
+            bool RefreshStore(
+                string source,
+                List<InstalledApp> cachedApps,
+                HashSet<string> cachedFingerprint,
+                Func<HashSet<string>> getFingerprint,
+                Func<List<InstalledApp>> getApps,
+                Action<List<InstalledApp>> setApps,
+                Action<HashSet<string>> setFingerprint,
+                bool refreshEmptyCacheWhenFingerprintPresent = false)
+            {
+                var currentFingerprint = getFingerprint();
+                bool mustRebuildEmptyCache = refreshEmptyCacheWhenFingerprintPresent &&
+                    cachedApps.Count == 0 &&
+                    currentFingerprint.Count > 0;
+                if (!mustRebuildEmptyCache && currentFingerprint.SetEquals(cachedFingerprint))
+                    return false;
+
+                var currentApps = getApps();
+                foreach (var app in currentApps) app.Source = source;
+
+                bool storeChanged = InstalledAppListChanged(cachedApps, currentApps);
+                if (storeChanged)
+                    setApps(currentApps);
+
+                setFingerprint(currentFingerprint);
+                return true;
+            }
+
+            try
+            {
+                changed |= RefreshStore(
+                    "Steam",
+                    cache.SteamApps,
+                    cache.SteamFingerprint,
+                    GetSteamFingerprint,
+                    () => GetSteamGames(includeIcons: true),
+                    apps => cache.SteamApps = apps,
+                    fingerprint => cache.SteamFingerprint = fingerprint);
+
+                changed |= RefreshStore(
+                    "Epic",
+                    cache.EpicApps,
+                    cache.EpicFingerprint,
+                    GetEpicFingerprint,
+                    () => GetEpicGames(includeIcons: true),
+                    apps => cache.EpicApps = apps,
+                    fingerprint => cache.EpicFingerprint = fingerprint);
+
+                changed |= RefreshStore(
+                    "GOG",
+                    cache.GogApps,
+                    cache.GogFingerprint,
+                    GetGogFingerprint,
+                    () => GetGOGGames(includeIcons: true),
+                    apps => cache.GogApps = apps,
+                    fingerprint => cache.GogFingerprint = fingerprint);
+
+
+                changed |= RefreshStore(
+                    "Riot",
+                    cache.RiotApps,
+                    cache.RiotFingerprint,
+                    GetRiotFingerprint,
+                    GetRiotGames,
+                    apps => cache.RiotApps = apps,
+                    fingerprint => cache.RiotFingerprint = fingerprint,
+                    refreshEmptyCacheWhenFingerprintPresent: true);
+
+                changed |= RefreshStore(
+                    "Xbox",
+                    cache.XboxApps,
+                    cache.XboxFingerprint,
+                    GetXboxFingerprint,
+                    () => GetXboxGames(includeIcons: true),
+                    apps => cache.XboxApps = apps,
+                    fingerprint => cache.XboxFingerprint = fingerprint);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[InstalledApps] Falha ao atualizar caches leves de lojas: " + ex.Message);
+            }
+
+            return changed;
+        }
+
         private static bool IsPlatformSource(string source)
         {
             return source.Equals("Steam", StringComparison.OrdinalIgnoreCase)
@@ -11527,6 +11862,57 @@ namespace Doorpi
                 || source.Equals("GOG", StringComparison.OrdinalIgnoreCase)
                 || source.Equals("Riot", StringComparison.OrdinalIgnoreCase)
                 || source.Equals("Xbox", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool MergeMissingIconsByAppKey(List<InstalledApp> target, IEnumerable<InstalledApp> source)
+        {
+            var iconByKey = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var app in source)
+            {
+                if (string.IsNullOrWhiteSpace(app.IconBase64)) continue;
+                foreach (var key in AutoAddKeysForApp(app))
+                {
+                    if (!iconByKey.ContainsKey(key))
+                        iconByKey[key] = app.IconBase64;
+                }
+            }
+
+            bool changed = false;
+            foreach (var app in target)
+            {
+                if (!string.IsNullOrWhiteSpace(app.IconBase64)) continue;
+                foreach (var key in AutoAddKeysForApp(app))
+                {
+                    if (!iconByKey.TryGetValue(key, out var icon) || string.IsNullOrWhiteSpace(icon)) continue;
+                    app.IconBase64 = icon;
+                    changed = true;
+                    break;
+                }
+            }
+            return changed;
+        }
+
+        private bool HydrateMissingPlatformIcons(AppCacheModel cache)
+        {
+            bool changed = false;
+            try
+            {
+                if (cache.SteamApps.Any(a => string.IsNullOrWhiteSpace(a.IconBase64)))
+                    changed |= MergeMissingIconsByAppKey(cache.SteamApps, GetSteamGames(includeIcons: true));
+                if (cache.EpicApps.Any(a => string.IsNullOrWhiteSpace(a.IconBase64)))
+                    changed |= MergeMissingIconsByAppKey(cache.EpicApps, GetEpicGames(includeIcons: true));
+                if (cache.GogApps.Any(a => string.IsNullOrWhiteSpace(a.IconBase64)))
+                    changed |= MergeMissingIconsByAppKey(cache.GogApps, GetGOGGames(includeIcons: true));
+                if (cache.RiotApps.Any(a => string.IsNullOrWhiteSpace(a.IconBase64)))
+                    changed |= MergeMissingIconsByAppKey(cache.RiotApps, GetRiotGames());
+                if (cache.XboxApps.Any(a => string.IsNullOrWhiteSpace(a.IconBase64)))
+                    changed |= MergeMissingIconsByAppKey(cache.XboxApps, GetXboxGames(includeIcons: true));
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[InstalledApps] Falha ao hidratar Ã­cones leves: " + ex.Message);
+            }
+            return changed;
         }
 
         private static string NormalizeAutoAddKey(string key)
@@ -11564,7 +11950,16 @@ namespace Doorpi
 
             try
             {
-                string fullPath = Path.GetFullPath(path.Trim('"'));
+                string candidate = path.Trim().Trim('"');
+
+                // Identificadores lógicos de plataformas (por exemplo, "valorant" ou
+                // "league_of_legends") não são caminhos de executáveis. Resolvê-los
+                // com Path.GetFullPath os transforma em caminhos relativos ao processo
+                // e pode fazê-los parecer arquivos internos do Doorpi.
+                if (!Path.IsPathRooted(candidate))
+                    return false;
+
+                string fullPath = Path.GetFullPath(candidate);
                 string fileName = Path.GetFileName(fullPath);
 
                 var internalExecutables = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -11660,7 +12055,8 @@ namespace Doorpi
                 || launchUrl.StartsWith("goggalaxy://", StringComparison.OrdinalIgnoreCase)
                 || launchUrl.StartsWith("xbox://", StringComparison.OrdinalIgnoreCase)
                 || launchUrl.StartsWith("ms-xbl-", StringComparison.OrdinalIgnoreCase)
-                || launchUrl.StartsWith("riotclient://", StringComparison.OrdinalIgnoreCase);
+                || launchUrl.StartsWith("riotclient://", StringComparison.OrdinalIgnoreCase)
+                || launchUrl.StartsWith("riot:", StringComparison.OrdinalIgnoreCase);
         }
 
         private static string StorePolicyKeyFromLaunchUrl(string launchUrl)
@@ -11853,7 +12249,7 @@ namespace Doorpi
         {
             var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-            // Lê os Jogos
+            // LÃª os Jogos
             foreach (var g in LoadGames())
             {
                 string state = g.IsPendingArtwork ? "preparing-game" : "game";
@@ -11861,7 +12257,7 @@ namespace Doorpi
                     map[key] = state;
             }
 
-            // Lê as Mídias
+            // LÃª as MÃ­dias
             foreach (var m in LoadMediaApps())
             {
                 if (m.Type == "exe" && !string.IsNullOrEmpty(m.Url))
@@ -11949,9 +12345,9 @@ namespace Doorpi
             {
                 try
                 {
-                    // Se o WebView2 estiver segurando arquivos (travando a exclusão),
-                    // Nós movemos e renomeamos a pasta. Isso a desconecta da conta,
-                    // resolvendo o bug. O Windows apagará esse "lixo" quando fechar o app.
+                    // Se o WebView2 estiver segurando arquivos (travando a exclusÃ£o),
+                    // NÃ³s movemos e renomeamos a pasta. Isso a desconecta da conta,
+                    // resolvendo o bug. O Windows apagarÃ¡ esse "lixo" quando fechar o app.
                     string trashPath = path + "_deleted_" + Guid.NewGuid().ToString("N");
                     Directory.Move(path, trashPath);
                 }
@@ -12056,7 +12452,7 @@ namespace Doorpi
 
                     if (File.Exists(fullPath)) File.Delete(fullPath);
                 }
-                catch { /* Ignora se imagem não existir */ }
+                catch { /* Ignora se imagem nÃ£o existir */ }
             }
         }
         private async Task PollInstalledAppsAsync()
@@ -12184,15 +12580,15 @@ namespace Doorpi
             {
                 var cache = LoadAppCache() ?? new AppCacheModel();
 
-                var steamTask = Task.Run(() => GetSteamGames(includeIcons: false)
+                var steamTask = Task.Run(() => GetSteamGames(includeIcons: true)
                     .Select(a => { a.Source = "Steam"; return a; }).ToList());
-                var epicTask = Task.Run(() => GetEpicGames(includeIcons: false)
+                var epicTask = Task.Run(() => GetEpicGames(includeIcons: true)
                     .Select(a => { a.Source = "Epic"; return a; }).ToList());
-                var gogTask = Task.Run(() => GetGOGGames(includeIcons: false)
+                var gogTask = Task.Run(() => GetGOGGames(includeIcons: true)
                     .Select(a => { a.Source = "GOG"; return a; }).ToList());
                 var riotTask = Task.Run(() => GetRiotGames()
                     .Select(a => { a.Source = "Riot"; return a; }).ToList());
-                var xboxTask = Task.Run(() => GetXboxGames(includeIcons: false)
+                var xboxTask = Task.Run(() => GetXboxGames(includeIcons: true)
                     .Select(a => { a.Source = "Xbox"; return a; }).ToList());
 
                 await Task.WhenAll(steamTask, epicTask, gogTask, riotTask, xboxTask).ConfigureAwait(false);
@@ -12326,7 +12722,7 @@ namespace Doorpi
         }
 
 #if false
-        // Fora do beta: Microsoft Store precisa de launch/tracking próprio antes do auto-add.
+        // Fora do beta: Microsoft Store precisa de launch/tracking prÃ³prio antes do auto-add.
         private Task<bool> UpsertAutoAddedMicrosoftStoreAppsAsync(List<InstalledApp> storeApps)
         {
             var mediaApps = LoadMediaApps();
@@ -12669,7 +13065,7 @@ namespace Doorpi
                     }
                     catch (Exception ex)
                     {
-                        Debug.WriteLine($"[MediaExe] Arte não encontrada para {app.Name}: {ex.Message}");
+                        Debug.WriteLine($"[MediaExe] Arte nÃ£o encontrada para {app.Name}: {ex.Message}");
                     }
 
                     string safeName = id;
@@ -12722,7 +13118,7 @@ namespace Doorpi
             if (string.IsNullOrEmpty(jsonMessage)) return;
             if (!IsTrustedMainWebMessageSource(e.Source))
             {
-                Debug.WriteLine("[WebView] Mensagem ignorada de origem não confiável: " + e.Source);
+                Debug.WriteLine("[WebView] Mensagem ignorada de origem nÃ£o confiÃ¡vel: " + e.Source);
                 return;
             }
 
@@ -12735,15 +13131,21 @@ namespace Doorpi
 
                 if (action == "requestInstalledApps")
                 {
+                    bool cachedOnly = root.TryGetProperty("cachedOnly", out var cachedOnlyElement)
+                                      && cachedOnlyElement.ValueKind == JsonValueKind.True;
+                    bool refreshRiot = root.TryGetProperty("refreshRiot", out var refreshRiotElement)
+                                       && refreshRiotElement.ValueKind == JsonValueKind.True;
                     _ = Task.Run(async () =>
                     {
                         try
                         {
-                          
+                            if (refreshRiot)
+                                await RefreshRiotAppsForModalAsync().ConfigureAwait(false);
+
                             SendInstalledAppsToUI();
 
  
-                            if ((DateTime.Now - _lastCacheBuilt).TotalSeconds > 60)
+                            if (!cachedOnly && (DateTime.Now - _lastCacheBuilt).TotalSeconds > 60)
                             {
                                 await UpdateAppCacheAsync().ConfigureAwait(false);
                                 var cache = LoadAppCache() ?? new AppCacheModel();
@@ -12760,9 +13162,11 @@ namespace Doorpi
                         }
                         finally
                         {
-                            
+                            // requestInstalledApps é uma consulta leve do modal. Ela não
+                            // abre o loading global e, portanto, não pode enviar hideLoading.
+                            // Notificamos apenas o encerramento do indicador inline.
                             Dispatcher.Invoke(() =>
-                                webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}"));
+                                webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"installedAppsRequestCompleted\"}"));
                         }
                     });
                 }
@@ -12801,8 +13205,8 @@ namespace Doorpi
                     _vkbStrBackspace = GetStr(root, "vkbBackspace", "Apagar");
                     _vkbStrEnter = GetStr(root, "vkbEnter", "Enter");
                     _vkbStrClose = GetStr(root, "vkbClose", "Fechar");
-                    _vkbStrShift = GetStr(root, "vkbShift", "Maiúsc");
-                    _vkbStrSpace = GetStr(root, "vkbSpace", "Espaço");
+                    _vkbStrShift = GetStr(root, "vkbShift", "MaiÃºsc");
+                    _vkbStrSpace = GetStr(root, "vkbSpace", "EspaÃ§o");
                     _vkbStrSym = GetStr(root, "vkbSym", "&123");
                     _vkbStrAbc = GetStr(root, "vkbAbc", "ABC");
 
@@ -12830,7 +13234,7 @@ namespace Doorpi
                                 // Refaz a checagem (a bolinha vermelha vai sumir)
                                 await CheckAndSendExtensionUpdatesAsync();
 
-                                SendExtensionsToUI("success", "Extensão atualizada! Terá efeito ao abrir um app.");
+                                SendExtensionsToUI("success", "ExtensÃ£o atualizada! TerÃ¡ efeito ao abrir um app.");
                             }
                         }
                         catch (Exception ex)
@@ -13051,7 +13455,7 @@ namespace Doorpi
                 {
                     try
                     {
-                        // Abre as configurações da Barra de Tarefas
+                        // Abre as configuraÃ§Ãµes da Barra de Tarefas
                         Process.Start(new ProcessStartInfo("ms-settings:taskbar") { UseShellExecute = true });
 
                         // Minimiza o Doorpi e assume o controle como Mouse/Teclado
@@ -13061,7 +13465,7 @@ namespace Doorpi
                         {
                             bool appFound = false;
 
-                            // Aguarda até 10 segundos para a janela de Configurações abrir
+                            // Aguarda atÃ© 10 segundos para a janela de ConfiguraÃ§Ãµes abrir
                             for (int i = 0; i < 20; i++)
                             {
                                 await Task.Delay(500);
@@ -13071,9 +13475,9 @@ namespace Doorpi
                                     Dispatcher.Invoke(() =>
                                     {
                                         IntPtr fgHwnd = GetForegroundWindow();
-                                        if (fgHwnd != IntPtr.Zero) ShowWindow(fgHwnd, 3); // Maximiza a janela de Configurações
+                                        if (fgHwnd != IntPtr.Zero) ShowWindow(fgHwnd, 3); // Maximiza a janela de ConfiguraÃ§Ãµes
 
-                                        // Move o mouse para uma área segura
+                                        // Move o mouse para uma Ã¡rea segura
                                         int safeX = (int)SystemParameters.PrimaryScreenWidth - 20;
                                         int safeY = (int)SystemParameters.PrimaryScreenHeight / 2;
                                         SetCursorPos(safeX, safeY);
@@ -13088,7 +13492,7 @@ namespace Doorpi
 
                             if (!appFound) return;
 
-                            // Monitora a cada segundo até o usuário fechar a janela
+                            // Monitora a cada segundo atÃ© o usuÃ¡rio fechar a janela
                             while (_systemControllerActive)
                             {
                                 await Task.Delay(1000);
@@ -13150,18 +13554,18 @@ namespace Doorpi
                 {
                     try
                     {
-                        // Abre a janela de Opções de Entrada
+                        // Abre a janela de OpÃ§Ãµes de Entrada
                         Process.Start(new ProcessStartInfo("ms-settings:signinoptions") { UseShellExecute = true });
 
                         // Minimiza o Doorpi e assume o controle como Mouse/Teclado
                         Dispatcher.Invoke(EnterDesktopMode);
 
-                        // O "_ =" descarta o aviso do compilador indicando que é um Fire-And-Forget intencional
+                        // O "_ =" descarta o aviso do compilador indicando que Ã© um Fire-And-Forget intencional
                         _ = Task.Run(async () =>
                         {
                             bool appFound = false;
 
-                            // Aguarda até 10 segundos para a janela de Configurações abrir
+                            // Aguarda atÃ© 10 segundos para a janela de ConfiguraÃ§Ãµes abrir
                             for (int i = 0; i < 20; i++)
                             {
                                 await Task.Delay(500);
@@ -13171,19 +13575,19 @@ namespace Doorpi
 
                                     Dispatcher.Invoke(() =>
                                     {
-                                        // Força a janela a maximizar
+                                        // ForÃ§a a janela a maximizar
                                         IntPtr fgHwnd = GetForegroundWindow();
                                         if (fgHwnd != IntPtr.Zero)
                                         {
                                             ShowWindow(fgHwnd, 3);
                                         }
 
-                                        // Joga o mouse pro canto direito (área vazia segura) na metade da tela
+                                        // Joga o mouse pro canto direito (Ã¡rea vazia segura) na metade da tela
                                         int safeX = (int)SystemParameters.PrimaryScreenWidth - 20;
                                         int safeY = (int)SystemParameters.PrimaryScreenHeight / 2;
                                         SetCursorPos(safeX, safeY);
 
-                                        // Envia um Clique Esquerdo Rápido para roubar o foco do UWP
+                                        // Envia um Clique Esquerdo RÃ¡pido para roubar o foco do UWP
                                         // (0x0002 = MOUSEEVENTF_LEFTDOWN | 0x0004 = MOUSEEVENTF_LEFTUP)
                                         SendMouse(0, 0, 0x0002);
                                         SendMouse(0, 0, 0x0004);
@@ -13194,7 +13598,7 @@ namespace Doorpi
 
                             if (!appFound) return;
 
-                            // Monitora a cada segundo até o usuário fechar a janela
+                            // Monitora a cada segundo atÃ© o usuÃ¡rio fechar a janela
                             while (_systemControllerActive)
                             {
                                 await Task.Delay(1000);
@@ -13280,7 +13684,7 @@ namespace Doorpi
                 else if (action == "browseManualMedia")
                 {
                     string dialogTitle = GetStr(root, "dialogTitle", "Select Executable");
-                    string dialogFilter = GetStr(root, "dialogFilter", "Arquivos iniciáveis (*.exe;*.bat;*.cmd;*.lnk;*.url)|*.exe;*.bat;*.cmd;*.lnk;*.url|Todos os arquivos (*.*)|*.*");
+                    string dialogFilter = GetStr(root, "dialogFilter", "Arquivos iniciÃ¡veis (*.exe;*.bat;*.cmd;*.lnk;*.url)|*.exe;*.bat;*.cmd;*.lnk;*.url|Todos os arquivos (*.*)|*.*");
                     string loadTitle = GetStr(root, "loadingTitle", "Adding");
                     string loadSub = GetStr(root, "loadingSub", "Fetching covers...");
                     string errMsg = GetStr(root, "errorMsg", "Error: ");
@@ -13324,7 +13728,7 @@ namespace Doorpi
                 else if (action == "browseManual")
                 {
                     string dialogTitle = GetStr(root, "dialogTitle", "Select Executable");
-                    string dialogFilter = GetStr(root, "dialogFilter", "Arquivos iniciáveis (*.exe;*.bat;*.cmd;*.lnk;*.url)|*.exe;*.bat;*.cmd;*.lnk;*.url|Todos os arquivos (*.*)|*.*");
+                    string dialogFilter = GetStr(root, "dialogFilter", "Arquivos iniciÃ¡veis (*.exe;*.bat;*.cmd;*.lnk;*.url)|*.exe;*.bat;*.cmd;*.lnk;*.url|Todos os arquivos (*.*)|*.*");
                     string loadTitle = GetStr(root, "loadingTitle", "Adding");
                     string loadSub = GetStr(root, "loadingSub", "Fetching covers...");
                     string errMsg = GetStr(root, "errorMsg", "Error: ");
@@ -13635,7 +14039,7 @@ namespace Doorpi
                                 SaveGames(games);
                                 Debug.WriteLine($"[deleteGame] Jogo Removido: {gameId}");
 
-                                // Puxa o 13º da fila para preencher o buraco, após a animação do Front terminar (350ms)
+                                // Puxa o 13Âº da fila para preencher o buraco, apÃ³s a animaÃ§Ã£o do Front terminar (350ms)
                                 _ = Task.Run(async () =>
                                 {
                                     await Task.Delay(350);
@@ -13645,7 +14049,7 @@ namespace Doorpi
                         }
                         else
                         {
-                            // MÍDIAS
+                            // MÃDIAS
                             if (gameId.Equals("youtube", StringComparison.OrdinalIgnoreCase)) return;
 
                             var medias = LoadMediaAppsForUser(currentUserId);
@@ -13656,9 +14060,9 @@ namespace Doorpi
                                 DeleteMediaImages(media);
                                 medias.Remove(media);
                                 SaveMediaApps(medias);
-                                Debug.WriteLine($"[deleteGame] Mídia Removida: {gameId}");
+                                Debug.WriteLine($"[deleteGame] MÃ­dia Removida: {gameId}");
 
-                                // Apagar Cache físico do WebView2
+                                // Apagar Cache fÃ­sico do WebView2
                                 try
                                 {
                                     var nativeApp = _nativeApps.FirstOrDefault(a =>
@@ -13679,7 +14083,7 @@ namespace Doorpi
                                 }
                                 catch (Exception ex) { Debug.WriteLine($"[deleteGame] Erro cache: {ex.Message}"); }
 
-                                // Atualiza a fila de mídia para preencher o buraco
+                                // Atualiza a fila de mÃ­dia para preencher o buraco
                                 _ = Task.Run(async () =>
                                 {
                                     await Task.Delay(350);
@@ -14076,7 +14480,7 @@ namespace Doorpi
                                 {
                                     media.Name = newName;
                                     changed = true;
-                                    Debug.WriteLine($"[editGame] Mídia renomeada para: {newName}");
+                                    Debug.WriteLine($"[editGame] MÃ­dia renomeada para: {newName}");
                                 }
                                 if (hasDisableGamepad)
                                 {
@@ -14149,14 +14553,14 @@ namespace Doorpi
                         {
                             try
                             {
-                                // O Segredo 1: Executa a validação das mídias simultaneamente para TODOS os usuários
+                                // O Segredo 1: Executa a validaÃ§Ã£o das mÃ­dias simultaneamente para TODOS os usuÃ¡rios
                                 await Dispatcher.InvokeAsync(LoadCurrentUserIntoUI);
                                 await WaitForConsoleShellReadyForUserTransitionAsync().ConfigureAwait(false);
                                 _ = Dispatcher.BeginInvoke(() =>
                                 {
                                     webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideSystemLoading\"}");
                                 });
-                                PostUserTransitionComplete("initial", showTransition: true, restartAudio: true, waitForHomeReady: false);
+                                PostUserTransitionComplete("initial", showTransition: true, restartAudio: true, waitForHomeReady: true);
 
                                 _ = Task.Run(async () =>
                                 {
@@ -14183,7 +14587,7 @@ namespace Doorpi
                                 Debug.WriteLine("[SetupBatch] Erro: " + ex.Message);
                                 _ = Dispatcher.BeginInvoke(() =>
                                     webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideSystemLoading\"}"));
-                                try { PostUserTransitionComplete("initial", showTransition: true, restartAudio: false, waitForHomeReady: false); } catch { }
+                                try { PostUserTransitionComplete("initial", showTransition: true, restartAudio: false, waitForHomeReady: true); } catch { }
                             }
                         });
                     }
@@ -14233,7 +14637,7 @@ namespace Doorpi
 
                     if (existingUser != null)
                     {
-                        // ----- LÓGICA INFALÍVEL DE RENOMEAR CACHES (Webview Profiles) -----
+                        // ----- LÃ“GICA INFALÃVEL DE RENOMEAR CACHES (Webview Profiles) -----
                         string oldSafeName = string.IsNullOrWhiteSpace(existingUser.Name) ? "default" : string.Concat(existingUser.Name.Where(c => !Path.GetInvalidFileNameChars().Contains(c)));
                         string newSafeName = string.IsNullOrWhiteSpace(profile.Name) ? "default" : string.Concat(profile.Name.Where(c => !Path.GetInvalidFileNameChars().Contains(c)));
 
@@ -14438,7 +14842,7 @@ namespace Doorpi
                 else if (action == "installExtension")
                 {
                     string url = GetStr(root, "url");
-                    string successMsg = GetStr(root, "successMsg", "Extensão instalada com sucesso.");
+                    string successMsg = GetStr(root, "successMsg", "ExtensÃ£o instalada com sucesso.");
 
                     _ = Task.Run(async () =>
                     {
@@ -14461,7 +14865,7 @@ namespace Doorpi
                         try
                         {
                             DeleteExtension(id);
-                            SendExtensionsToUI("success", "Extensão removida. As mudanças terão efeito na próxima vez que abrir um app.");
+                            SendExtensionsToUI("success", "ExtensÃ£o removida. As mudanÃ§as terÃ£o efeito na prÃ³xima vez que abrir um app.");
                         }
                         catch (Exception ex)
                         {
@@ -14471,11 +14875,11 @@ namespace Doorpi
                 }
                 else if (action == "openExtensionStore")
                 {
-                    _extBtnTitle = GetStr(root, "extBtnTitle", "Adicionar extensão ao Doorpi");
+                    _extBtnTitle = GetStr(root, "extBtnTitle", "Adicionar extensÃ£o ao Doorpi");
                     _extBtnSub = GetStr(root, "extBtnSub", "Instalar via Doorpi Browser");
                     _extToastTitle = GetStr(root, "toastTitle", "Doorpi");
-                    _extToastSub = GetStr(root, "toastSub", "Extensão enviada ao Doorpi!");
-                    _extInstalledTitle = GetStr(root, "extInstalledTitle", "Já instalada no Doorpi");
+                    _extToastSub = GetStr(root, "toastSub", "ExtensÃ£o enviada ao Doorpi!");
+                    _extInstalledTitle = GetStr(root, "extInstalledTitle", "JÃ¡ instalada no Doorpi");
                     _extInstalledSub = GetStr(root, "extInstalledSub", "Em uso no seu navegador");
 
                     string hl = System.Globalization.CultureInfo.CurrentUICulture.Name.Replace('_', '-');
@@ -14698,7 +15102,7 @@ namespace Doorpi
 
                             if (Path.IsPathRooted(executableUrl) && !File.Exists(resolvedExecutable))
                             {
-                                Debug.WriteLine($"[launchMediaApp/exe] Executável não encontrado: {executableUrl}");
+                                Debug.WriteLine($"[launchMediaApp/exe] ExecutÃ¡vel nÃ£o encontrado: {executableUrl}");
                                 return;
                             }
 
@@ -14765,7 +15169,7 @@ namespace Doorpi
                                     string heroImg = media?.HeroImage ?? "";
                                     string gridImg = media?.GridImage ?? "";
 
-                                    // -- Já está rodando? Restaura em vez de relançar -------------
+                                    // -- JÃ¡ estÃ¡ rodando? Restaura em vez de relanÃ§ar -------------
                                     Process? existingProc = null;
 
                                     if (_mediaExeProcess != null && !SafeHasExited(_mediaExeProcess) &&
@@ -14788,7 +15192,7 @@ namespace Doorpi
                                             InitializeMediaExeMouseModeForSession(media);
                                             _mediaExeGamepadDisabled = !_mediaExeMouseModeRequested;
 
-                                            // -- MÁGICA: Zera o temporizador de segurança para pular os 3 segundos de carregamento artificial --
+                                            // -- MÃGICA: Zera o temporizador de seguranÃ§a para pular os 3 segundos de carregamento artificial --
                                             _launchAnimationStartedUtc = DateTime.MinValue;
 
                                             // Restaura e foca
@@ -14814,7 +15218,7 @@ namespace Doorpi
                                         }
                                     }
 
-                                    // -- Lança um processo novo ------------------------------------
+                                    // -- LanÃ§a um processo novo ------------------------------------
                                     if (_mediaExeModeActive) _mediaExeModeActive = false;
                                     _mediaExeWatcherCts?.Cancel();
 
@@ -15130,74 +15534,98 @@ namespace Doorpi
             }
         }
 
-        private async Task<List<string>> FetchSteamGridImageListAsync(string query, string category)
+        private async Task<List<SteamGridArtworkResult>> FetchSteamGridImageListAsync(string query, string category)
         {
             var ids = await ResolveSteamGridGameIdsAsync(query).ConfigureAwait(false);
-            if (ids.Count == 0) return new List<string>();
+            if (ids.Count == 0) return new List<SteamGridArtworkResult>();
 
-            var urls = new List<string>();
+            var artworks = new List<SteamGridArtworkResult>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (int gameId in ids)
             {
                 foreach (string endpoint in SteamGridArtworkEndpoints(gameId, category))
                 {
-                    foreach (string url in await FetchSteamGridArtworkEndpointAsync(endpoint, category).ConfigureAwait(false))
+                    foreach (var artwork in await FetchSteamGridArtworkEndpointAsync(endpoint, category).ConfigureAwait(false))
                     {
-                        if (!seen.Add(url)) continue;
-                        urls.Add(url);
-                        if (urls.Count >= 36) return urls;
+                        if (!seen.Add(artwork.Url)) continue;
+                        artworks.Add(artwork);
+                        if (artworks.Count >= 36) return artworks;
                     }
                 }
             }
 
-            return urls;
+            return artworks;
         }
 
         private static IEnumerable<string> SteamGridArtworkEndpoints(int gameId, string category)
         {
             if (category == "vertical")
             {
-                yield return $"grids/game/{gameId}?dimensions=600x900,342x482,660x930&types=static,animated&sort=score&nsfw=any&humor=any";
-                yield return $"grids/game/{gameId}?dimensions=600x900&types=static,animated&sort=score&nsfw=any&humor=any";
-                yield return $"grids/game/{gameId}?types=static,animated&sort=score&nsfw=any&humor=any";
+                yield return $"grids/game/{gameId}?dimensions=600x900,342x482,660x930&types=static,animated&sort=score&nsfw=false&humor=any";
+                yield return $"grids/game/{gameId}?dimensions=600x900&types=static,animated&sort=score&nsfw=false&humor=any";
+                yield return $"grids/game/{gameId}?types=static,animated&sort=score&nsfw=false&humor=any";
             }
             else if (category == "horizontal")
             {
-                yield return $"grids/game/{gameId}?dimensions=460x215,920x430&types=static,animated&sort=score&nsfw=any&humor=any";
-                yield return $"grids/game/{gameId}?dimensions=920x430&types=static,animated&sort=score&nsfw=any&humor=any";
-                yield return $"grids/game/{gameId}?dimensions=460x215&types=static,animated&sort=score&nsfw=any&humor=any";
-                yield return $"grids/game/{gameId}?types=static,animated&sort=score&nsfw=any&humor=any";
+                yield return $"grids/game/{gameId}?dimensions=460x215,920x430&types=static,animated&sort=score&nsfw=false&humor=any";
+                yield return $"grids/game/{gameId}?dimensions=920x430&types=static,animated&sort=score&nsfw=false&humor=any";
+                yield return $"grids/game/{gameId}?dimensions=460x215&types=static,animated&sort=score&nsfw=false&humor=any";
+                yield return $"grids/game/{gameId}?types=static,animated&sort=score&nsfw=false&humor=any";
             }
             else if (category == "banner")
             {
-                yield return $"heroes/game/{gameId}?types=static,animated&sort=score&nsfw=any&humor=any";
+                yield return $"heroes/game/{gameId}?types=static,animated&sort=score&nsfw=false&humor=any";
             }
             else if (category == "logo")
             {
-                yield return $"logos/game/{gameId}?types=static,animated&sort=score&nsfw=any&humor=any";
+                yield return $"logos/game/{gameId}?types=static,animated&sort=score&nsfw=false&humor=any";
             }
         }
 
-        private async Task<List<string>> FetchSteamGridArtworkEndpointAsync(string endpoint, string category)
+        private async Task<List<SteamGridArtworkResult>> FetchSteamGridArtworkEndpointAsync(string endpoint, string category)
         {
             try
             {
                 var json = await SgdbGetStringAsync($"https://www.steamgriddb.com/api/v2/{endpoint}");
                 using var doc = JsonDocument.Parse(json);
-                if (!doc.RootElement.GetProperty("success").GetBoolean()) return new List<string>();
+                if (!doc.RootElement.GetProperty("success").GetBoolean()) return new List<SteamGridArtworkResult>();
 
-                return doc.RootElement.GetProperty("data")
-                    .EnumerateArray()
-                    .Where(item => SteamGridArtworkMatchesCategory(item, category))
-                    .Select(item => item.TryGetProperty("url", out var urlEl) ? urlEl.GetString() ?? "" : "")
-                    .Where(url => !string.IsNullOrWhiteSpace(url))
-                    .ToList();
+                var results = new List<SteamGridArtworkResult>();
+                foreach (var item in doc.RootElement.GetProperty("data").EnumerateArray())
+                {
+                    // Defesa em profundidade: mesmo que uma resposta de cache ou da API
+                    // ignore o filtro da URL, o Doorpi nunca entrega arte marcada como NSFW.
+                    if (SteamGridArtworkIsNsfw(item)) continue;
+                    if (!SteamGridArtworkMatchesCategory(item, category)) continue;
+                    if (!item.TryGetProperty("url", out var urlEl)) continue;
+
+                    string url = urlEl.GetString() ?? "";
+                    if (string.IsNullOrWhiteSpace(url)) continue;
+                    string thumb = item.TryGetProperty("thumb", out var thumbEl)
+                        ? thumbEl.GetString() ?? ""
+                        : "";
+                    if (string.IsNullOrWhiteSpace(thumb)) thumb = url;
+
+                    bool isAnimated = thumb.EndsWith(".webm", StringComparison.OrdinalIgnoreCase)
+                        || url.EndsWith(".webm", StringComparison.OrdinalIgnoreCase);
+                    if (item.TryGetProperty("type", out var typeEl))
+                        isAnimated |= string.Equals(typeEl.GetString(), "animated", StringComparison.OrdinalIgnoreCase);
+
+                    results.Add(new SteamGridArtworkResult
+                    {
+                        Url = url,
+                        Thumb = thumb,
+                        IsAnimated = isAnimated
+                    });
+                }
+
+                return results;
             }
             catch (Exception ex)
             {
                 Debug.WriteLine("[SGDB] Lista de imagens falhou: " + ex.Message);
-                return new List<string>();
+                return new List<SteamGridArtworkResult>();
             }
         }
 
@@ -15218,6 +15646,10 @@ namespace Doorpi
                 ? ratio >= 1.85 && ratio <= 2.35
                 : ratio < 1.0;
         }
+
+        private static bool SteamGridArtworkIsNsfw(JsonElement item)
+            => item.TryGetProperty("nsfw", out var nsfwEl) &&
+               nsfwEl.ValueKind == JsonValueKind.True;
 
         private async Task<(string?, string?, string?, string?)> TryFetchFromSteamCDN(string appId)
         {
@@ -15277,10 +15709,10 @@ namespace Doorpi
 
         private async Task<(string?, string?, string?, string?)> FetchAssetsByGameId(int id)
         {
-            var gridTask = GetFirstImageUrl($"grids/game/{id}?dimensions=600x900,342x482,660x930&types=static&sort=score");
-            var horizontalTask = GetFirstImageUrl($"grids/game/{id}?dimensions=460x215,920x430&types=static&sort=score");
-            var heroTask = GetFirstImageUrl($"heroes/game/{id}?types=static&sort=score");
-            var logoTask = GetFirstImageUrl($"logos/game/{id}?types=static&sort=score");
+            var gridTask = GetFirstImageUrl($"grids/game/{id}?dimensions=600x900,342x482,660x930&types=static&sort=score&nsfw=false");
+            var horizontalTask = GetFirstImageUrl($"grids/game/{id}?dimensions=460x215,920x430&types=static&sort=score&nsfw=false");
+            var heroTask = GetFirstImageUrl($"heroes/game/{id}?types=static&sort=score&nsfw=false");
+            var logoTask = GetFirstImageUrl($"logos/game/{id}?types=static&sort=score&nsfw=false");
 
             await Task.WhenAll(gridTask, horizontalTask, heroTask, logoTask).ConfigureAwait(false);
 
@@ -15307,9 +15739,12 @@ namespace Doorpi
                 if (!doc.RootElement.GetProperty("success").GetBoolean()) return null;
 
                 var data = doc.RootElement.GetProperty("data");
-                if (data.GetArrayLength() == 0) return null;
-
-                return data[0].GetProperty("url").GetString();
+                foreach (var item in data.EnumerateArray())
+                {
+                    if (SteamGridArtworkIsNsfw(item)) continue;
+                    if (item.TryGetProperty("url", out var urlEl)) return urlEl.GetString();
+                }
+                return null;
             }
             catch (Exception ex) { Debug.WriteLine("Erro ao buscar imagem: " + ex.Message); return null; }
         }
@@ -15330,10 +15765,11 @@ namespace Doorpi
                     if (dataEl.ValueKind == JsonValueKind.Array)
                     {
                         foreach (var item in dataEl.EnumerateArray())
-                            if (item.TryGetProperty("url", out var urlEl))
+                            if (!SteamGridArtworkIsNsfw(item) && item.TryGetProperty("url", out var urlEl))
                                 return urlEl.GetString();
                     }
                     else if (dataEl.ValueKind == JsonValueKind.Object &&
+                             !SteamGridArtworkIsNsfw(dataEl) &&
                              dataEl.TryGetProperty("url", out var urlEl))
                     {
                         return urlEl.GetString();
@@ -15744,7 +16180,7 @@ namespace Doorpi
                         return;
                     }
 
-                    // -- Verifica estado atual da sessão ------------------------------------
+                    // -- Verifica estado atual da sessÃ£o ------------------------------------
                     bool gameAlive = IsLockedGameProcessAlive();
                     bool isSameGame = (_gameSessionActive || gameAlive)
                         && string.Equals(_activeSessionGameId, identifier, StringComparison.OrdinalIgnoreCase);
@@ -15752,7 +16188,7 @@ namespace Doorpi
                         && !string.IsNullOrEmpty(_activeSessionGameId)
                         && !isSameGame;
 
-                    // Trava: não permite lançar um segundo jogo simultaneamente
+                    // Trava: nÃ£o permite lanÃ§ar um segundo jogo simultaneamente
                     if (differentGameRunning)
                     {
                         SendGameLaunchStatus("gameLaunchDone");
@@ -15791,7 +16227,7 @@ namespace Doorpi
                         id = identifier
                     }));
 
-                    // -- Restauração: mesmo jogo ainda está vivo ----------------------------
+                    // -- RestauraÃ§Ã£o: mesmo jogo ainda estÃ¡ vivo ----------------------------
                     if (isSameGame)
                     {
                         Debug.WriteLine($"\n[RESTORE] Restaurando: {game.Name}");
@@ -15801,7 +16237,7 @@ namespace Doorpi
 
                         _ = Task.Run(async () =>
                         {
-                            // Aguarda todos os controles soltarem os botões
+                            // Aguarda todos os controles soltarem os botÃµes
                             await WaitForPrimaryControllerReleaseAsync();
                             await Task.Delay(50);
 
@@ -15815,16 +16251,16 @@ namespace Doorpi
                                 // Busca a janela: primeiro pelo handle salvo, depois pelo nome do processo
                                 IntPtr hwndToRestore = ResolveCurrentGameWindow();
                                 if (hwndToRestore != IntPtr.Zero && !IsWindowVisible(hwndToRestore) && !IsIconic(hwndToRestore))
-                                    hwndToRestore = IntPtr.Zero; // handle inválido, limpa
+                                    hwndToRestore = IntPtr.Zero; // handle invÃ¡lido, limpa
 
-                                // 1. Tenta pelo processo travado (jogo real já identificado)
+                                // 1. Tenta pelo processo travado (jogo real jÃ¡ identificado)
                                 if (hwndToRestore == IntPtr.Zero && !string.IsNullOrEmpty(_lockedGameProcessName))
                                 {
                                     foreach (var p in Process.GetProcessesByName(_lockedGameProcessName))
                                     {
                                         try
                                         {
-                                            var h = FindAnyWindowForProcess(p.Id); // ? sem exigência de título
+                                            var h = FindAnyWindowForProcess(p.Id); // ? sem exigÃªncia de tÃ­tulo
                                             if (h == IntPtr.Zero) h = p.MainWindowHandle;
                                             if (h != IntPtr.Zero) { hwndToRestore = h; _currentGameHwnd = h; break; }
                                         }
@@ -15832,7 +16268,7 @@ namespace Doorpi
                                     }
                                 }
 
-                                // 2. Fallback: processo do launcher original (estágio antes do jogo abrir)
+                                // 2. Fallback: processo do launcher original (estÃ¡gio antes do jogo abrir)
                                 if (hwndToRestore == IntPtr.Zero && IsPendingLaunchProcessAlive())
                                 {
                                     try
@@ -15844,10 +16280,10 @@ namespace Doorpi
                                     catch { }
                                 }
 
-                                // 3. Fallback final: última janela visível antes de minimizar
+                                // 3. Fallback final: Ãºltima janela visÃ­vel antes de minimizar
                                 if (hwndToRestore == IntPtr.Zero && IsLastVisibleWindowStillValid())
                                     hwndToRestore = _lastVisibleWindowBeforeMinimize;
-                                // Os três cases do restore, dentro do Dispatcher.Invoke:
+                                // Os trÃªs cases do restore, dentro do Dispatcher.Invoke:
 
                                 if (hwndToRestore != IntPtr.Zero && (IsWindowVisible(hwndToRestore) || IsIconic(hwndToRestore)))
                                 {
@@ -15890,7 +16326,7 @@ namespace Doorpi
                                 }
                                 else
                                 {
-                                    // Processo não encontrado — pode ter crashado.
+                                    // Processo nÃ£o encontrado â€” pode ter crashado.
                                     // Reseta o flag para o monitor detectar a morte e chamar ForceFocus.
                                     _gameIsMinimized = false;          // ? monitor retoma e detecta crash em ~1.2 s
                                     _gameIsRunningAndDoorpiHidden = false;
@@ -15906,7 +16342,7 @@ namespace Doorpi
 
                     // 1. TRAVA A TELA DE "ABRINDO" IMEDIATAMENTE NA UI
 
-                    // 2. AVISA O WATCHDOG PARA NÃO INTERFERIR ANTES MESMO DO JOGO ABRIR
+                    // 2. AVISA O WATCHDOG PARA NÃƒO INTERFERIR ANTES MESMO DO JOGO ABRIR
                     bool bindToActiveStoreContext = IsGameOwnedByActiveStore(game);
 
                     _gameSessionActive = true;
@@ -15977,7 +16413,7 @@ namespace Doorpi
                                     });
                                 }
                             }
-                            // Substituir este bloco no método LaunchGame (linha ~2745 no seu código)
+                            // Substituir este bloco no mÃ©todo LaunchGame (linha ~2745 no seu cÃ³digo)
                             else if (!string.IsNullOrWhiteSpace(game.LaunchUrl))
                             {
                                 bool isSteamRunLaunch = game.LaunchUrl.StartsWith("steam://run/", StringComparison.OrdinalIgnoreCase);
@@ -15985,7 +16421,7 @@ namespace Doorpi
                                     EnsureLauncherRunning(game.LaunchUrl);
                                 launchAttempted = true;
 
-                                // INTERCEPTA O JOGO DA STEAM PARA LANÇAR DE FORMA DIRETA E SILENCIOSA
+                                // INTERCEPTA O JOGO DA STEAM PARA LANÃ‡AR DE FORMA DIRETA E SILENCIOSA
                                 if (isSteamRunLaunch)
                                 {
                                     string steamExe = GetSteamExePath();
@@ -16009,7 +16445,7 @@ namespace Doorpi
                                         else
                                         {
                                             // -applaunch abre o jogo direto. 
-                                            // -silent garante que nenhuma janela extra da Steam (como de propaganda ou biblioteca) apareça.
+                                            // -silent garante que nenhuma janela extra da Steam (como de propaganda ou biblioteca) apareÃ§a.
                                             launched = Process.Start(new ProcessStartInfo
                                             {
                                                 FileName = steamExe,
@@ -16021,7 +16457,7 @@ namespace Doorpi
                                     }
                                     else
                                     {
-                                        // Fallback caso não ache o exe da steam
+                                        // Fallback caso nÃ£o ache o exe da steam
                                         launched = Process.Start(new ProcessStartInfo(game.LaunchUrl) { UseShellExecute = true });
                                     }
                                 }
@@ -16115,7 +16551,7 @@ namespace Doorpi
             catch { return false; }
         }
 
-        // Versão sem exigência de título (para jogos DirectX antigos)
+        // VersÃ£o sem exigÃªncia de tÃ­tulo (para jogos DirectX antigos)
         private IntPtr FindAnyWindowForProcess(int pid)
         {
             IntPtr withTitle = IntPtr.Zero;
@@ -16129,7 +16565,7 @@ namespace Doorpi
                 if (GetWindowTextLength(hWnd) > 0)
                 {
                     withTitle = hWnd;
-                    return false; // janela com título tem prioridade
+                    return false; // janela com tÃ­tulo tem prioridade
                 }
                 else if (withoutTitle == IntPtr.Zero && GetWindowRect(hWnd, out RECT r) && r.Width > 100 && r.Height > 100)
                 {
@@ -16194,7 +16630,7 @@ namespace Doorpi
                             CreateNoWindow = true
                         });
 
-                        // Dá um tempinho um pouco maior pra Steam fazer o login silencioso antes do jogo tentar abrir
+                        // DÃ¡ um tempinho um pouco maior pra Steam fazer o login silencioso antes do jogo tentar abrir
                         System.Threading.Thread.Sleep(processName == "steam" ? 4000 : 3000);
                     }
                 }
@@ -16227,7 +16663,7 @@ namespace Doorpi
             }
             catch (Exception ex)
             {
-                Debug.WriteLine("[Steam] Falha ao encerrar para seleção de conta: " + ex.Message);
+                Debug.WriteLine("[Steam] Falha ao encerrar para seleÃ§Ã£o de conta: " + ex.Message);
             }
         }
 
@@ -16523,17 +16959,17 @@ namespace Doorpi
             }
         }
 
-        // 1. NOVA FUNÇÃO AUXILIAR: Detecta se o jogo é realmente novo ou se é um falso-positivo de migração
+        // 1. NOVA FUNÃ‡ÃƒO AUXILIAR: Detecta se o jogo Ã© realmente novo ou se Ã© um falso-positivo de migraÃ§Ã£o
         private bool IsGameActuallyNew(DateTime dateAdded, DateTime lastPlayed)
         {
-            // Se a data for nula/mínima (arquivos de save antigos sem data), não é novo
+            // Se a data for nula/mÃ­nima (arquivos de save antigos sem data), nÃ£o Ã© novo
             if (dateAdded <= DateTime.MinValue.AddDays(1)) return false;
 
-            // Se já passou de 48 horas reais, definitivamente não é novo
+            // Se jÃ¡ passou de 48 horas reais, definitivamente nÃ£o Ã© novo
             if ((DateTime.Now - dateAdded).TotalHours >= 48) return false;
 
-            // A MÁGICA AQUI: Se o jogo foi jogado ANTES de ser "adicionado", 
-            // significa que é um jogo legado que o sistema tentou colocar a data de hoje. Tira o badge!
+            // A MÃGICA AQUI: Se o jogo foi jogado ANTES de ser "adicionado",
+            // significa que Ã© um jogo legado que o sistema tentou colocar a data de hoje. Tira o badge!
             if (lastPlayed > DateTime.MinValue && lastPlayed < dateAdded.AddMinutes(-5)) return false;
 
             return true;
@@ -16572,7 +17008,7 @@ namespace Doorpi
                 isAdminLocked = IsGameBlockedForCurrentUser(game),
                 adminLockReason = "blocked-store",
                 isFeatured = isFeatured,
-                isNew = false, // <--- CORREÇÃO APLICADA
+                isNew = false, // <--- CORREÃ‡ÃƒO APLICADA
                 isAnimated = IsLocalFileAnimated(localGridPath),
             };
         }
@@ -16591,7 +17027,7 @@ namespace Doorpi
 
             if (featured != null)
             {
-                // Adiciona o Featured primeiro (posição 0)
+                // Adiciona o Featured primeiro (posiÃ§Ã£o 0)
                 sortedGames.Add(MapGameToAnonObject(featured, true));
 
 
@@ -16643,7 +17079,7 @@ namespace Doorpi
                 isAdminLocked = IsGameBlockedForCurrentUser(game),
                 adminLockReason = "blocked-store",
                 isFeatured = isFeatured,
-                isNew = false, // <--- CORREÇÃO APLICADA
+                isNew = false, // <--- CORREÃ‡ÃƒO APLICADA
                 isAnimated = IsLocalFileAnimated(localGridPath)
             };
             webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(data));
@@ -16665,7 +17101,7 @@ namespace Doorpi
                         exePath = Path.Combine(installPath, "steam.exe");
                 }
 
-                // A Steam costuma gravar no registro usando barras invertidas padrão web (/)
+                // A Steam costuma gravar no registro usando barras invertidas padrÃ£o web (/)
                 return exePath.Replace("/", "\\");
             }
             catch { return ""; }
@@ -16983,7 +17419,7 @@ namespace Doorpi
 
                     if (_systemControllerActive || _dialogModeActive || _launcherMouseActive || !foregroundOk || isLaunchingOrRunning)
                     {
-                        // QUANDO O JOGO ESTÁ RODANDO
+                        // QUANDO O JOGO ESTÃ RODANDO
                         if (_gameSessionActive && !_gameIsMinimized)
                         {
                             if (buttonTracker.ReturnShortcutJustPressed)
@@ -17078,13 +17514,13 @@ namespace Doorpi
             DisposeBluetoothManager();
             DisposeWifiManager();
             DisposeSoundManager();
-            // 1. Força o fechamento de todas as janelas secundárias
+            // 1. ForÃ§a o fechamento de todas as janelas secundÃ¡rias
             try { _storeDownloadWindow?.Close(); } catch { }
             try { _webAppWindow?.Close(); } catch { }
             try { _popupWindow?.Close(); } catch { }
             try { _desktopVkb?.Close(); } catch { }
 
-            // 2. Destrói as instâncias do WebView2 (Mata os processos filhos no Windows)
+            // 2. DestrÃ³i as instÃ¢ncias do WebView2 (Mata os processos filhos no Windows)
             try { CloseGenericBrowserExtensionsPopup(); } catch { }
             try { _genericBrowserExtensionPopupView?.Dispose(); } catch { }
             try { _ytWebView?.Dispose(); } catch { }
@@ -17098,12 +17534,12 @@ namespace Doorpi
             try { _mediaExeWatcherCts?.Cancel(); } catch { }
             try { lock (_gameLaunchMonitorLock) { _gameLaunchMonitorCts?.Cancel(); } } catch { }
 
-            // 4. Limpa recursos de hardware (seu código original)
+            // 4. Limpa recursos de hardware (seu cÃ³digo original)
             StopMainScreenMouseWatch();
             ReleaseAllStuckKeys();
             _ = timeEndPeriod(1);
 
-            // (Opcional) Se quiser garantir que processos executáveis de mídia morram junto:
+            // (Opcional) Se quiser garantir que processos executÃ¡veis de mÃ­dia morram junto:
             // try { if (_mediaExeProcess != null && !_mediaExeProcess.HasExited) _mediaExeProcess.Kill(true); } catch { }
         }
         private int GetSourcePriority(string source) => source switch

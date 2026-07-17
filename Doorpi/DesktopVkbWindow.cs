@@ -133,7 +133,10 @@ namespace Doorpi
 
             WindowStyle = WindowStyle.None;
             AllowsTransparency = true;
-            Background = new SolidColorBrush(Color.FromArgb(230, 10, 12, 18));
+            Background = new LinearGradientBrush(
+                Color.FromArgb(242, 36, 40, 60),
+                Color.FromArgb(242, 17, 20, 34),
+                135);
             Topmost = true;
             ShowActivated = false;
             Width = 1050;
@@ -142,7 +145,7 @@ namespace Doorpi
             Left = (SystemParameters.PrimaryScreenWidth - Width) / 2;
             Top = SystemParameters.PrimaryScreenHeight - Height - 50;
 
-            Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 40, ShadowDepth = 15, Opacity = 0.7 };
+            Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 46, ShadowDepth = 14, Opacity = 0.58 };
 
             BuildUI();
             RefreshVisuals();
@@ -212,10 +215,8 @@ namespace Doorpi
                 text.FontSize = 10;
                 text.Text = iconType;
 
-                if (iconType == "X") container.Background = new SolidColorBrush(Color.FromRgb(45, 156, 219));
-                if (iconType == "Y") container.Background = new SolidColorBrush(Color.FromRgb(242, 201, 76));
-                if (iconType == "B") container.Background = new SolidColorBrush(Color.FromRgb(235, 87, 87));
-                if (iconType == "L3") { container.Background = new SolidColorBrush(Color.FromRgb(80, 80, 80)); text.Text = "L"; text.FontSize = 9; }
+                container.Background = new SolidColorBrush(Color.FromRgb(82, 86, 105));
+                if (iconType == "L3") { text.Text = "L"; text.FontSize = 9; }
 
                 container.Child = text;
             }
@@ -227,7 +228,7 @@ namespace Doorpi
             }
             else
             {
-                container.Background = new SolidColorBrush(Color.FromRgb(80, 80, 80));
+                container.Background = new SolidColorBrush(Color.FromRgb(82, 86, 105));
                 container.CornerRadius = new CornerRadius(4);
                 container.Padding = new Thickness(4, 1, 4, 1);
                 text.FontSize = 9;
@@ -566,8 +567,10 @@ namespace Doorpi
                     {
                         Width = def.Width,
                         Margin = new Thickness(4),
-                        CornerRadius = new CornerRadius(6),
-                        Background = new SolidColorBrush(Color.FromRgb(30, 33, 43)),
+                        CornerRadius = new CornerRadius(8),
+                        Background = new SolidColorBrush(Color.FromRgb(50, 54, 72)),
+                        BorderBrush = new SolidColorBrush(Color.FromArgb(38, 255, 255, 255)),
+                        BorderThickness = new Thickness(1),
                         Child = innerGrid
                     };
 
@@ -580,10 +583,12 @@ namespace Doorpi
             RefreshVisuals();
         }
 
-        private static readonly SolidColorBrush BrushKeyNormal = new SolidColorBrush(Color.FromRgb(25, 28, 38));
-        private static readonly SolidColorBrush BrushKeyAction = new SolidColorBrush(Color.FromRgb(40, 44, 55));
-        private static readonly SolidColorBrush BrushKeySpecial = new SolidColorBrush(Color.FromRgb(28, 38, 55));
-        private static readonly SolidColorBrush BrushAccentPending = new SolidColorBrush(Color.FromRgb(220, 100, 0)); // Laranja Escuro
+        private static readonly SolidColorBrush BrushKeyNormal = new SolidColorBrush(Color.FromRgb(50, 54, 72));
+        private static readonly SolidColorBrush BrushKeyAction = new SolidColorBrush(Color.FromRgb(60, 64, 82));
+        private static readonly SolidColorBrush BrushKeySpecial = new SolidColorBrush(Color.FromRgb(48, 58, 80));
+        private static readonly SolidColorBrush BrushAccentPending = new SolidColorBrush(Color.FromRgb(142, 92, 38));
+        private static readonly SolidColorBrush BrushKeyBorder = new SolidColorBrush(Color.FromArgb(42, 255, 255, 255));
+        private static readonly SolidColorBrush BrushKeyFocusBorder = new SolidColorBrush(Color.FromArgb(230, 255, 255, 255));
 
         private void RefreshVisuals()
         {
@@ -605,10 +610,12 @@ namespace Doorpi
                     {
                         // Foco (Realçado Laranja se for acento, ou Branco)
                         border.Background = isPendingAccentKey ? Brushes.Orange : Brushes.White;
+                        border.BorderBrush = BrushKeyFocusBorder;
                         tb.Foreground = Brushes.Black;
                     }
                     else
                     {
+                        border.BorderBrush = BrushKeyBorder;
                         // Sem Foco
                         if (isPendingAccentKey)
                         {

@@ -6,13 +6,13 @@
         durationMs: 12000,
         exitFadeMs: 520,
         handoff: {
-            background: '#07071a',
-            vignette: 'radial-gradient(circle at 50% 50%, transparent 25%, rgba(0, 0, 18, 0.85) 95%)',
+            background: '#0b1232',
+            vignette: 'radial-gradient(circle at 50% 50%, transparent 28%, rgba(0, 0, 18, 0.66) 92%)',
             colors: [
-                'rgba(45,65,185,0.86)', 'rgba(28,85,210,0.78)',
-                'rgba(70,50,165,0.82)', 'rgba(22,110,175,0.72)',
-                'rgba(90,70,195,0.70)', 'rgba(30,130,190,0.68)',
-                'rgba(110,140,190,0.50)', 'rgba(80,110,220,0.58)'
+                'rgba(42,58,170,0.68)', 'rgba(28,78,185,0.62)',
+                'rgba(62,46,150,0.64)', 'rgba(20,96,165,0.58)',
+                'rgba(76,58,176,0.56)', 'rgba(28,112,178,0.54)',
+                'rgba(92,122,178,0.42)', 'rgba(68,96,194,0.48)'
             ]
         }
     };
@@ -126,22 +126,30 @@
             @keyframes doorpiIntroPrepSpin { to { transform: rotate(360deg); } }
             #doorpiIntroAmbient {
                 position: fixed; inset: 0; z-index: 9100; overflow: hidden; pointer-events: none;
-                background: var(--doorpi-intro-bg, #07071a); opacity: 0; transition: opacity 900ms ease;
+                background: var(--doorpi-intro-bg, #0b1232); opacity: 0; transition: opacity 900ms ease;
             }
             #doorpiIntroAmbient.is-active { opacity: 1; }
             #doorpiIntroAmbient.is-ending { opacity: 0; }
-            .doorpi-intro-ambient-blob { position: absolute; border-radius: 50%; filter: blur(45px); will-change: transform; transform: translate3d(0, 0, 0); }
-            .doorpi-intro-ambient-vig { position: absolute; inset: 0; z-index: 2; background: var(--doorpi-intro-vignette, radial-gradient(circle at 50% 50%, transparent 25%, rgba(0, 0, 18, 0.85) 95%)); }
-            
+            .doorpi-intro-ambient-blob { position: absolute; border-radius: 50%; filter: blur(34px); will-change: transform; transform: translate3d(0, 0, 0); }
+            .doorpi-intro-ambient-vig { position: absolute; inset: 0; z-index: 2; background: var(--doorpi-intro-vignette, radial-gradient(circle at 50% 50%, transparent 28%, rgba(0,0,18,0.66) 92%)); }
+
             body.doorpi-intro-handoff-active .doorpi-user-overlay.doorpi-intro-handoff,
             body.doorpi-intro-handoff-active #setupContainer.doorpi-intro-handoff { 
-                background: transparent; 
-                backdrop-filter: none; 
-                -webkit-backdrop-filter: none; 
+                background: transparent !important;
+                background-image: none !important;
+                backdrop-filter: none !important;
+                -webkit-backdrop-filter: none !important;
+                animation: none !important;
+                opacity: 1 !important;
             }
 
             /* Animação de Surgimento do Fundo Estática */
-            body.doorpi-intro-handoff-active .doorpi-user-overlay.doorpi-intro-handoff .doorpi-user-panel,
+            body.doorpi-intro-handoff-active .doorpi-user-overlay.doorpi-intro-handoff .doorpi-user-panel {
+                animation: none !important;
+                filter: none !important;
+                opacity: 1 !important;
+            }
+
             body.doorpi-intro-handoff-active #setupContainer.doorpi-intro-handoff .setup-form { 
                 /* Garante que a escala parta do centro exato */
                 transform-origin: center center !important;
@@ -171,7 +179,7 @@
             ui.style.display = 'block';
             void ui.offsetWidth;
             ui.style.opacity = '1';
-            document.body.style.background = '#07071a';
+            document.body.style.background = '#0b1232';
         }
     }
 
@@ -351,6 +359,29 @@
         }
     }
 
+    function syncExistingUserPickerHandoffClasses() {
+        const overlay = document.getElementById('doorpiUserPicker');
+        if (!overlay) return;
+        const cfg = state.handoffConfig || {};
+        const userPicker = cfg.userPicker || {};
+        const transparent = userPicker.transparentBackdrop ?? cfg.transparentBackdrop ?? true;
+        if (!transparent) return;
+        overlay.classList.add('doorpi-intro-handoff');
+        classListFrom(userPicker.className || userPicker.class || cfg.userPickerClass)
+            .forEach(cls => overlay.classList.add(cls));
+    }
+
+    const AMBIENT_BLOB_MOTION = [
+        { size: 0.94, angle: 5.12, speed: 11.2, wander: -0.006 },
+        { size: 1.06, angle: 4.06, speed: 9.4, wander: 0.005 },
+        { size: 0.88, angle: 5.84, speed: 12.1, wander: -0.004 },
+        { size: 1.12, angle: 2.56, speed: 8.8, wander: 0.006 },
+        { size: 0.78, angle: 0.68, speed: 10.6, wander: 0.004 },
+        { size: 1.00, angle: 1.88, speed: 9.8, wander: -0.005 },
+        { size: 0.82, angle: 3.34, speed: 11.6, wander: 0.003 },
+        { size: 0.98, angle: 0.12, speed: 8.6, wander: -0.004 }
+    ];
+
     function createAmbient(handoff = {}) {
         if (state.handoffActive) return;
         const cfg = { ...(state.config?.handoff || {}), ...handoff, userPicker: { ...(state.config?.handoff?.userPicker || {}), ...(handoff.userPicker || {}) } };
@@ -360,13 +391,14 @@
         state.handoffActive = true;
         document.body.classList.add('doorpi-intro-handoff-active');
         injectHandoffAssets(cfg);
+        syncExistingUserPickerHandoffClasses();
 
         if (cfg.ambient === false || cfg.ambient === 'none') return;
         const colors = Array.isArray(cfg.colors) && cfg.colors.length ? cfg.colors : DEFAULT_CONFIG.handoff.colors;
 
         const layer = document.createElement('div');
         layer.id = 'doorpiIntroAmbient';
-        layer.style.setProperty('--doorpi-intro-bg', cfg.background || '#07071a');
+        layer.style.setProperty('--doorpi-intro-bg', cfg.background || '#0b1232');
         if (cfg.vignette) layer.style.setProperty('--doorpi-intro-vignette', cfg.vignette);
         layer.innerHTML = '<div class="doorpi-intro-ambient-vig"></div>';
         document.body.appendChild(layer);
@@ -376,16 +408,17 @@
         const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
         const ratio = Math.max(1, window.innerWidth / Math.max(1, window.innerHeight));
         for (let i = 0; i < Math.max(4, colors.length); i++) {
+            const motion = AMBIENT_BLOB_MOTION[i % AMBIENT_BLOB_MOTION.length];
             const blob = document.createElement('div');
             blob.className = 'doorpi-intro-ambient-blob';
-            const size = Math.min(window.innerWidth, window.innerHeight) * (0.5 + Math.random() * 0.4);
+            const size = Math.min(window.innerWidth, window.innerHeight) * motion.size;
             const color = colors[i % colors.length];
             blob.style.width = `${size}px`; blob.style.height = `${size}px`;
             blob.style.background = `radial-gradient(circle, ${color} 0%, transparent 70%)`;
             layer.insertBefore(blob, layer.firstChild);
 
-            const angle = Math.random() * Math.PI * 2, speed = 12 + Math.random() * 12;
-            state.ambientBlobs.push({ el: blob, x: cx, y: cy, size, vx: Math.cos(angle) * speed * (ratio * 0.8), vy: Math.sin(angle) * speed, phase: 'burst', wanderAngle: angle });
+            const angle = motion.angle, speed = motion.speed;
+            state.ambientBlobs.push({ el: blob, x: cx, y: cy, size, vx: Math.cos(angle) * speed * (ratio * 0.8), vy: Math.sin(angle) * speed, phase: 'burst', wanderAngle: angle, wanderDelta: motion.wander });
         }
 
         state.ambient = layer;
@@ -395,13 +428,13 @@
 
     function createNativeHandoffAmbient() {
         createAmbient({
-            background: '#07071a',
-            vignette: 'radial-gradient(circle at 50% 50%, transparent 25%, rgba(0,0,18,0.85) 95%)',
+            background: '#0b1232',
+            vignette: 'radial-gradient(circle at 50% 50%, transparent 28%, rgba(0,0,18,0.66) 92%)',
             colors: [
-                'rgba(15,25,85,0.7)', 'rgba(10,30,85,0.7)',
-                'rgba(25,15,70,0.7)', 'rgba(5,40,75,0.7)',
-                'rgba(20,20,90,0.6)', 'rgba(15,35,70,0.6)',
-                'rgba(10,15,60,0.7)', 'rgba(30,20,80,0.6)'
+                'rgba(42,58,170,0.68)', 'rgba(28,78,185,0.62)',
+                'rgba(62,46,150,0.64)', 'rgba(20,96,165,0.58)',
+                'rgba(76,58,176,0.56)', 'rgba(28,112,178,0.54)',
+                'rgba(92,122,178,0.42)', 'rgba(68,96,194,0.48)'
             ],
             userPicker: {
                 transparentBackdrop: true
@@ -467,10 +500,10 @@
                 if (blob.x > w + margin) { blob.x = w + margin; blob.vx *= -1; }
                 if (blob.y < -margin) { blob.y = -margin; blob.vy *= -1; }
                 if (blob.y > h + margin) { blob.y = h + margin; blob.vy *= -1; }
-                if (Math.hypot(blob.vx, blob.vy) < 0.8) blob.phase = 'wander';
+                if (Math.hypot(blob.vx, blob.vy) < 0.45) blob.phase = 'wander';
             } else {
-                blob.wanderAngle += (Math.random() - 0.5) * 0.02;
-                blob.vx = Math.cos(blob.wanderAngle) * 1.5; blob.vy = Math.sin(blob.wanderAngle) * 1.5;
+                blob.wanderAngle += blob.wanderDelta || 0.004;
+                blob.vx = Math.cos(blob.wanderAngle) * 0.85; blob.vy = Math.sin(blob.wanderAngle) * 0.85;
                 blob.x += blob.vx; blob.y += blob.vy;
                 if (blob.x > w + blob.size / 2) blob.x = -blob.size / 2;
                 if (blob.x < -blob.size / 2) blob.x = w + blob.size / 2;
@@ -631,6 +664,7 @@
         isRunning: () => state.started && !state.completed,
         isComplete: () => state.completed,
         isHandoffActive: () => state.handoffActive,
+        startUserPickerAmbient: () => createNativeHandoffAmbient(),
         setVolume: postIntroVolume,
         getUserPickerClasses: () => {
             const cfg = state.handoffConfig || {};

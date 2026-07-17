@@ -1,54 +1,45 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202607141622,
-    "publishedAt":  "2026-07-14T19:22:52.2923053Z",
-    "expiresAt":  "2026-07-28T19:22:52.2923053Z",
+    "manifestVersion":  202607171702,
+    "publishedAt":  "2026-07-17T20:03:31.4517760Z",
+    "expiresAt":  "2026-07-31T20:03:31.4517760Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.1.11",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.11/doorpi-0.1.11.doorpiupdate.zip",
-                   "sha256":  "5fce136e187267b5d31b062107644713a15d5c441d2a6680f98a21674c7261a4",
-                   "sizeBytes":  132960503,
+                   "version":  "0.1.12",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.12/doorpi-0.1.12.doorpiupdate.zip",
+                   "sha256":  "3f54a7cdae54c95a5b717bd9dc6b923b1334f07773df65f6a918c20f2de52353",
+                   "sizeBytes":  132982259,
                    "minUpdaterVersion":  "0.1.0",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
                     "version":  "0.1.0",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.11/updater-0.1.0.doorpiupdate.zip",
-                    "sha256":  "46b7d45aa942056976be3be7cedd78c908da8af8736048ec6ca06a0bc9cb1c05",
-                    "sizeBytes":  69944472,
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.12/updater-0.1.0.doorpiupdate.zip",
+                    "sha256":  "79280ae1d1277ec4e2a22111fce2a4ab4af1facb230b3adbe6ee8d8db185402e",
+                    "sizeBytes":  69944491,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.1.11",
-                          "title":  "Doorpi 0.1.11",
+                          "version":  "0.1.12",
+                          "title":  "Doorpi 0.1.12",
                           "items":  [
-                                        "Melhorado o desempenho e a navegação do teclado virtual em aplicativos web.",
-                                        "Corrigido o fechamento do VKB no chat da Twitch.",
-                                        "Corrigido o Backspace, evitando que textos apagados reapareçam no chat da Twitch.",
-                                        "Corrigida a reabertura de web apps ao fechá-los segurando B."
+                                        "Melhorias visuais e de qualidade de vida."
                                     ],
                           "locales":  {
                                           "pt-BR":  {
-                                                        "title":  "Doorpi 0.1.11",
+                                                        "title":  "Doorpi 0.1.12",
                                                         "items":  [
-                                                                      "Melhorado o desempenho e a navegação do teclado virtual em aplicativos web.",
-                                                                      "Corrigido o fechamento do VKB no chat da Twitch.",
-                                                                      "Corrigido o Backspace, evitando que textos apagados reapareçam no chat da Twitch.",
-                                                                      "Corrigida a reabertura de web apps ao fechá-los segurando B."
+                                                                      "Melhorias visuais e de qualidade de vida."
                                                                   ]
                                                     },
                                           "en":  {
-                                                     "title":  "Doorpi 0.1.11",
+                                                     "title":  "Doorpi 0.1.12",
                                                      "items":  [
-                                                                   "Improved virtual keyboard performance and navigation in web apps.",
-                                                                   "Fixed VKB closing in Twitch chat.",
-                                                                   "Fixed Backspace so deleted text no longer reappears in Twitch chat.",
-                                                                   "Fixed web apps reopening when closing them while holding B."
+                                                                   "Visual and quality-of-life improvements."
                                                                ]
                                                  }
                                       }
@@ -57,6 +48,6 @@
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "joiEwrohgUp7tW+TaW5Fg+NG30hAHJi8eMnQiTacbxpZ6gWtAxrOHuM1FuNNXN39PTI/YunspYF/+MLTfAQKhdl086GlFvbqibu1Rbj4v8GjWJw1/7wxfMaOIE8KosYYha1jYpm438ZJQa9SBzWvjnWxYYJK2n2kvl3hZQPXMdS4kYTL+6etpYFlfwbzTa2J0tM3UylH2ahI7lN0HI39yz6eO87VswMTTe4e+tx1TfyoawBUmIViaJXa+CXvuE3DJnznf/mjynWD6RRkKZVI2K5TFGFz/4ZjZCNrfZrQwUzUYeHYNA3nyA3obGbthJmQ3692t3ooYFYOKWLfS/3HvljLyP9Z4JEQ5AitWPFlMqroSqBJBYDmqPBgIo1B/dT9Z2ETx934J2LGt5auVE/SAVCy4cQ59gAz5dLBjXkYx30gxIAyG5Dmy7aYt/rKoSSaWcldb4LH9Itc+ODy9qbLIhf8N0pD6WRpIJMEtjNzLsTq/HHOxkgWnc/IlVxLvKdA"
+                      "value":  "Y2rnlYMe14VRbDhtLHpKqrnmTRYBhxKna+OvB0qQ+39XLHCdbVbHCMuzIttwd0YhH7orZrPHJRZ1kJsjySVMsBgawakhK7NcxvR0a2Arg4NUfRVcDTtijRt0UCEoeaOPDL1eP8hW56eoxyD1vwmGaOpgD0JCEag3jobFTvESLplFWETzWTeP0KivFFfjHuKemeAOucTMds85jBvcOTx7+YumTS2ZELnA2WvxO8HTjeMB8db0xwrxy2rKi4E2L46eZ/rMyOlHXOZImDmu1hIC//mVLpyUMqp8DHH9NdSEQbznC3Acb4tZkkjm+ifKnVhu/nzBDsBkyUgOEJP8iFKJPo7D0A2RzL5x2oCQwYa3ciKb9APjYFuc6ddf/sSc9z3yAWrTzbtt8yeXxZ9a1UsvQQaQLh6hJeilPQqSxxptUjrkk5AO4EiswMlRCXaHpmz+2FF5hH6wh4mILo8T5BRUm6xS/zkUzwAqvKypqVQDy3qsQ6oKq4mox5mf0e78kd98"
                   }
 }

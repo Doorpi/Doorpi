@@ -70,7 +70,7 @@ function updateGamepadUI(connected, type = 'generic') {
         }
     });
     document.querySelectorAll('#btnAdd .plus, #btnAddMedia .plus, #btnAddStore .plus').forEach(plusEl => {
-        if (connected) { plusEl.innerHTML = icons.start; plusEl.classList.add('is-gamepad'); }
+        if (connected) { plusEl.textContent = '+'; plusEl.classList.add('is-gamepad'); }
         else { plusEl.innerHTML = '+'; plusEl.classList.remove('is-gamepad'); }
     });
 }
@@ -215,7 +215,7 @@ function getNavigableItems() {
 
     const g = getModalGroups();
     const isVisible = (el) => el.offsetWidth > 0 && el.offsetHeight > 0;
-    const isNavigable = (el) => !(el.classList.contains('menu-tab') && el.classList.contains('active'));
+    const isNavigable = () => true;
 
     g.sidebar.forEach(el => el.setAttribute('tabindex', '0'));
 
@@ -1004,7 +1004,10 @@ function moveFocus(direction) {
     if (groupName === 'filter') _lastFocusedFilter = current;
     if (groupName === 'sidebar') _lastFocusedSidebar = current;
 
-    let target = findSpatialCandidate(groupItems.filter(i => items.includes(i)), current, direction);
+    let target = null;
+    if (!(groupName === 'sidebar' && direction === 'RIGHT')) {
+        target = findSpatialCandidate(groupItems.filter(i => items.includes(i)), current, direction);
+    }
 
     if (!target && groupName === 'app' && (direction === 'DOWN' || direction === 'UP')) {
         const navigableApps = groups.apps.filter(i => items.includes(i));
@@ -1369,6 +1372,7 @@ let _controllerType = 'generic', _btnCooldown = {}, _lastMoveTime = 0, _moveStat
 let _cursorHoldState = { l1: 0, r1: 0 }, _cursorLastTime = { l1: 0, r1: 0 };
 let _doorpiActionQuarantineUntil = 0;
 let _doorpiActionReleaseGate = false;
+let _doorpiActionReleaseGateStartedAt = 0;
 let _doorpiControllerActivationToken = 0;
 let _doorpiControllerActivationActive = false;
 let _doorpiNativeController = { connected: false, buttons: 0, pendingPressed: 0, rightX: 0, rightY: 0 };
@@ -1440,8 +1444,27 @@ window.quarantineDoorpiGamepadActions = function (durationMs = 450) {
     window.resetDoorpiGamepadInputState?.();
 };
 
+window.clearDoorpiInputQuarantine = function (options = {}) {
+    _doorpiActionQuarantineUntil = 0;
+    window._doorpiGameInputSuppressedUntil = 0;
+    window._doorpiIntroInputBlockUntil = 0;
+    if (options?.dropPending === true) {
+        _doorpiActionReleaseGate = false;
+        _doorpiActionReleaseGateStartedAt = 0;
+        _doorpiNativeController.pendingPressed = 0;
+        window.resetDoorpiGamepadInputState?.();
+    } else if (options?.releaseGate === true) {
+        window.armDoorpiGamepadReleaseGate?.();
+    } else {
+        _doorpiActionReleaseGate = false;
+        _doorpiActionReleaseGateStartedAt = 0;
+        window.resetDoorpiGamepadInputState?.();
+    }
+};
+
 window.armDoorpiGamepadReleaseGate = function () {
     _doorpiActionReleaseGate = true;
+    _doorpiActionReleaseGateStartedAt = performance.now();
     seedDoorpiHeldButtonState();
 };
 
@@ -1713,7 +1736,11 @@ function readAllGamepadInput() {
     _doorpiNativeController.pendingPressed = 0;
     if (_doorpiActionReleaseGate) {
         pressedThisFrame = 0;
-        if ((held & 0xFFF0) === 0) _doorpiActionReleaseGate = false;
+        const releaseGateTimedOut = performance.now() - _doorpiActionReleaseGateStartedAt > 900;
+        if ((held & 0xFFF0) === 0 || releaseGateTimedOut) {
+            _doorpiActionReleaseGate = false;
+            _doorpiActionReleaseGateStartedAt = 0;
+        }
     }
 
     const buttons = Array.from({ length: 17 }, () => ({ pressed: false, justPressed: false }));
@@ -1761,7 +1788,15 @@ if (window.chrome?.webview) {
         const wasConnected = _doorpiNativeController.connected;
         _doorpiNativeController.connected = !!data.connected;
         _doorpiNativeController.buttons = Number(data.buttons || 0) >>> 0;
-        if (document.hasFocus() && window.isDoorpiFocused && !window.isMediaAppActive)
+        // Durante "Aguardando a janela", a sessÃ£o ainda Ã© marcada como mÃ­dia
+        // ativa, mas o Doorpi estÃ¡ na frente e precisa receber o A de Retornar.
+        // Antes disso o bridge descartava esse pressionamento e sÃ³ o mouse
+        // conseguia acionar o botÃ£o.
+        const launchOverlay = document.getElementById('gameLaunchOverlay');
+        const isWaitingLaunch = !!(launchOverlay &&
+            launchOverlay.classList.contains('visible') &&
+            launchOverlay.classList.contains('state-loading'));
+        if (document.hasFocus() && window.isDoorpiFocused && (!window.isMediaAppActive || isWaitingLaunch))
             _doorpiNativeController.pendingPressed |= Number(data.pressed || 0) >>> 0;
         else
             _doorpiNativeController.pendingPressed = 0;
@@ -1793,7 +1828,7 @@ window.isDoorpiFocused = document.hasFocus();
 
 window.addEventListener('focus', () => {
     window.isDoorpiFocused = true;
-    window.armDoorpiGamepadReleaseGate?.();
+    window.clearDoorpiInputQuarantine?.({ dropPending: true });
 });
 window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
 (function gamepadLoop() {
@@ -1881,7 +1916,9 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         if (isWaitingLaunch) {
             if (primaryJustPressed(buttons, GAMEPAD)) {
                 const btn = document.getElementById('overlayCancelLaunchBtn');
-                if (btn && document.activeElement === btn) {
+                // O overlay Ã© uma aÃ§Ã£o Ãºnica: o A deve confirmar "Retornar"
+                // mesmo se algum foco residual da Home ainda estiver ativo.
+                if (btn && btn.style.display !== 'none' && !btn.disabled) {
                     btn.click();
                 }
             }
@@ -2127,7 +2164,17 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             else gamepadCancel();
         }
         if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) {
-            if (isModalOpen) (document.getElementById('btnConfirmAdd') || document.getElementById('btnConfirmAddMedia'))?.click();
+            if (isModalOpen) {
+                const activeView = document.querySelector('#addGameContainer .view-section.active');
+                if (activeView?.id === 'view-media-apps') {
+                    if (document.getElementById('subview-web')?.classList.contains('active')) document.getElementById('btnAddWebApp')?.click();
+                    else document.getElementById('btnConfirmAddMedia')?.click();
+                } else if (activeView?.id === 'view-folders') {
+                    document.getElementById('btnScanFolder')?.click();
+                } else {
+                    document.getElementById('btnConfirmAdd')?.click();
+                }
+            }
             else gamepadStart();
         }
         if (buttonJustPressed(buttons[GAMEPAD.BTN_TRIANGLE], GAMEPAD.BTN_TRIANGLE)) {

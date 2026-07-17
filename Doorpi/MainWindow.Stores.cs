@@ -5953,16 +5953,14 @@ namespace Doorpi
                 foreach (var pkg in EnumerateXboxPackages())
                 {
                     if (!IsLikelyXboxGamePackage(pkg)) continue;
-                    if (!TryParseXboxManifest(pkg, out string appId, out string displayName))
+                    if (!TryParseXboxManifest(pkg, out string appId, out string displayName, out string logoPath))
                         continue;
 
                     string launchUrl = $"explorer.exe shell:AppsFolder\\{pkg.PackageFamilyName}!{appId}";
                     string iconBase64 = "";
                     if (includeIcons)
                     {
-                        string? exe = FindMainExecutable(pkg.InstallLocation, displayName,
-                            new EnumerationOptions { RecurseSubdirectories = true, MaxRecursionDepth = 4 });
-                        if (!string.IsNullOrEmpty(exe)) iconBase64 = GetCachedIcon(exe);
+                        if (!string.IsNullOrEmpty(logoPath)) iconBase64 = GetCachedImageAsPngBase64(logoPath);
                     }
 
                     list.Add(new InstalledApp
@@ -6345,10 +6343,53 @@ $result | ConvertTo-Json -Compress -Depth 3";
             return false;
         }
 
-        private static bool TryParseXboxManifest(XboxPackageInfo pkg, out string appId, out string displayName)
+        private static string ResolvePackageImagePath(string installLocation, string relativePath)
+        {
+            if (string.IsNullOrWhiteSpace(installLocation) || string.IsNullOrWhiteSpace(relativePath))
+                return "";
+
+            try
+            {
+                string cleaned = relativePath.Replace('/', Path.DirectorySeparatorChar).TrimStart(Path.DirectorySeparatorChar);
+                string directPath = Path.Combine(installLocation, cleaned);
+                if (File.Exists(directPath)) return directPath;
+
+                string? dir = Path.GetDirectoryName(directPath);
+                if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir)) return "";
+
+                string ext = Path.GetExtension(directPath);
+                string stem = Path.GetFileNameWithoutExtension(directPath);
+                if (string.IsNullOrWhiteSpace(ext) || string.IsNullOrWhiteSpace(stem)) return "";
+
+                return Directory.EnumerateFiles(dir, $"{stem}*{ext}", SearchOption.TopDirectoryOnly)
+                    .Select(path =>
+                    {
+                        long size = 0;
+                        try { size = new FileInfo(path).Length; } catch { }
+                        int score = path.Contains("scale-400", StringComparison.OrdinalIgnoreCase) ? 400 :
+                                    path.Contains("scale-200", StringComparison.OrdinalIgnoreCase) ? 200 :
+                                    path.Contains("targetsize-256", StringComparison.OrdinalIgnoreCase) ? 256 :
+                                    path.Contains("targetsize-128", StringComparison.OrdinalIgnoreCase) ? 128 :
+                                    path.Contains("targetsize-64", StringComparison.OrdinalIgnoreCase) ? 64 :
+                                    path.Contains("targetsize-48", StringComparison.OrdinalIgnoreCase) ? 48 : 0;
+                        return new { Path = path, Score = score, Size = size };
+                    })
+                    .OrderByDescending(item => item.Score)
+                    .ThenByDescending(item => item.Size)
+                    .Select(item => item.Path)
+                    .FirstOrDefault() ?? "";
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
+        private static bool TryParseXboxManifest(XboxPackageInfo pkg, out string appId, out string displayName, out string logoPath)
         {
             appId = "";
             displayName = "";
+            logoPath = "";
             try
             {
                 string manifestPath = Path.Combine(pkg.InstallLocation, "AppxManifest.xml");
@@ -6385,6 +6426,12 @@ $result | ConvertTo-Json -Compress -Depth 3";
 
                 var visual = appEl.Descendants(uap + "VisualElements").FirstOrDefault()
                           ?? appEl.Descendants(ns + "VisualElements").FirstOrDefault();
+
+                string logo = visual?.Attribute("Square150x150Logo")?.Value
+                           ?? visual?.Attribute("Square44x44Logo")?.Value
+                           ?? visual?.Attribute("Logo")?.Value
+                           ?? "";
+                logoPath = ResolvePackageImagePath(pkg.InstallLocation, logo);
 
                 string category = visual?.Attribute("AppListEntry")?.Value ?? visual?.Attribute("Category")?.Value ?? "";
                 bool isGameCategory = category.Equals("game", StringComparison.OrdinalIgnoreCase);
