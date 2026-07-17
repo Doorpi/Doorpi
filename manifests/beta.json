@@ -1,45 +1,45 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202607171702,
-    "publishedAt":  "2026-07-17T20:03:31.4517760Z",
-    "expiresAt":  "2026-07-31T20:03:31.4517760Z",
+    "manifestVersion":  202607171721,
+    "publishedAt":  "2026-07-17T20:22:36.4816025Z",
+    "expiresAt":  "2026-07-31T20:22:36.4816025Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.1.12",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.12/doorpi-0.1.12.doorpiupdate.zip",
-                   "sha256":  "3f54a7cdae54c95a5b717bd9dc6b923b1334f07773df65f6a918c20f2de52353",
-                   "sizeBytes":  132982259,
+                   "version":  "0.1.13",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.13/doorpi-0.1.13.doorpiupdate.zip",
+                   "sha256":  "92d7a89d5bd62f1486ef59d5f83375ec8bbada8c0a1ac70290e76fc5f2f4870b",
+                   "sizeBytes":  132982570,
                    "minUpdaterVersion":  "0.1.0",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
                     "version":  "0.1.0",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.12/updater-0.1.0.doorpiupdate.zip",
-                    "sha256":  "79280ae1d1277ec4e2a22111fce2a4ab4af1facb230b3adbe6ee8d8db185402e",
-                    "sizeBytes":  69944491,
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.13/updater-0.1.0.doorpiupdate.zip",
+                    "sha256":  "6dae389e7cdadd64ba381ede75890602c65e669621599da1f50467bf4ae9b828",
+                    "sizeBytes":  69944473,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.1.12",
-                          "title":  "Doorpi 0.1.12",
+                          "version":  "0.1.13",
+                          "title":  "Doorpi 0.1.13",
                           "items":  [
-                                        "Melhorias visuais e de qualidade de vida."
+                                        "Hotfix com correções de desempenho do teclado VKB em aplicativos web."
                                     ],
                           "locales":  {
                                           "pt-BR":  {
-                                                        "title":  "Doorpi 0.1.12",
+                                                        "title":  "Doorpi 0.1.13",
                                                         "items":  [
-                                                                      "Melhorias visuais e de qualidade de vida."
+                                                                      "Hotfix com correções de desempenho do teclado VKB em aplicativos web."
                                                                   ]
                                                     },
                                           "en":  {
-                                                     "title":  "Doorpi 0.1.12",
+                                                     "title":  "Doorpi 0.1.13",
                                                      "items":  [
-                                                                   "Visual and quality-of-life improvements."
+                                                                   "Hotfix with VKB keyboard performance fixes in web apps."
                                                                ]
                                                  }
                                       }
@@ -48,6 +48,6 @@
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "Y2rnlYMe14VRbDhtLHpKqrnmTRYBhxKna+OvB0qQ+39XLHCdbVbHCMuzIttwd0YhH7orZrPHJRZ1kJsjySVMsBgawakhK7NcxvR0a2Arg4NUfRVcDTtijRt0UCEoeaOPDL1eP8hW56eoxyD1vwmGaOpgD0JCEag3jobFTvESLplFWETzWTeP0KivFFfjHuKemeAOucTMds85jBvcOTx7+YumTS2ZELnA2WvxO8HTjeMB8db0xwrxy2rKi4E2L46eZ/rMyOlHXOZImDmu1hIC//mVLpyUMqp8DHH9NdSEQbznC3Acb4tZkkjm+ifKnVhu/nzBDsBkyUgOEJP8iFKJPo7D0A2RzL5x2oCQwYa3ciKb9APjYFuc6ddf/sSc9z3yAWrTzbtt8yeXxZ9a1UsvQQaQLh6hJeilPQqSxxptUjrkk5AO4EiswMlRCXaHpmz+2FF5hH6wh4mILo8T5BRUm6xS/zkUzwAqvKypqVQDy3qsQ6oKq4mox5mf0e78kd98"
+                      "value":  "PEOg/0oBiHMqDkndUHXv3rDM66WbFpWVXxaTEg/H3kc5vIJoT5g0WTLgQM1F6AUVLB/JtfsRjFwkMuPlnEHJlMVO7TsBklsr+uQgCxncxiPnajHJs0NtWFlOGF0mUoipEmDApK5VS9r+viReW1038IbkB4x9touhn14eHpCxGtQY6tKwmDUuJjfvCzBkSmdqaVqDI/Rtu0oeLaOip0q/OpqJW2z6zu2EEoXNy/Ii/MTuLBBnKIM68nA+nWC+m6mDqxu1p/n4+lbJyVOu44wYluBFrbvrnxVINuaT1K6IsnvyQmQ5okoRuDON9P8oosW1bVa8J1bl8AnLCyzol6mmAfQfuIpJmr3ylgahL5QgQ8OnR6F/sUpXzD+2vg1/WZQIE2+HJ1RkqBW2/yajjiGv+9LZSg+BkwhkfgAQFrTPoxBxZ2dbNp3KzAWLw97noikySorTxiJ1MqAjUacng3rRd2bKK7eqw3Yz6jo++dnU7YLQAqwfzmoLJaEHuBYriN2z"
                   }
 }
