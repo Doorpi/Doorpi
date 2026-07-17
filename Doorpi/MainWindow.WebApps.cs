@@ -3371,11 +3371,13 @@ namespace Doorpi
                 command,
                 argument
             });
+            // Commands come from the controller thread. Input priority keeps them
+            // from waiting behind expensive WebView layout and rendering work.
             Dispatcher.InvokeAsync(() =>
             {
                 try { view.CoreWebView2?.PostWebMessageAsJson(payload); }
                 catch { /* view pode ter sido destruído */ }
-            });
+            }, System.Windows.Threading.DispatcherPriority.Input);
         }
 
         // ── Abrir app de mídia ────────────────────────────────────────────────
@@ -5059,7 +5061,11 @@ namespace Doorpi
             '.doorpi-vkb-overlay{{top:50%;left:50%;right:auto;bottom:auto;width:min(1080px,calc(100vw - 32px));',
             '--doorpi-vkb-key-h:clamp(42px,5.2vh,54px);--doorpi-vkb-key-font:clamp(14px,1.05vw,18px);',
             'padding:clamp(10px,1.2vh,16px);background:radial-gradient(ellipse at 78% 0%,rgba(112,146,235,.10),transparent 42%),linear-gradient(135deg,rgba(36,40,60,.96),rgba(17,20,34,.94));border:1px solid rgba(255,255,255,.17);',
-            'border-radius:clamp(14px,1.1vw,20px);box-shadow:0 26px 84px rgba(0,0,0,.52),inset 0 1px 0 rgba(255,255,255,.10);backdrop-filter:blur(24px) saturate(1.18);',
+            // O blur do backdrop força o WebView a recompor a página inteira a cada
+            // troca de foco da tecla. Em páginas pesadas isso torna a navegação do
+            // VKB perceptivelmente lenta; a superfície opaca preserva o visual sem
+            // esse custo de composição.
+            'border-radius:clamp(14px,1.1vw,20px);box-shadow:0 26px 84px rgba(0,0,0,.52),inset 0 1px 0 rgba(255,255,255,.10);will-change:transform,opacity;',
             'contain:layout paint style;isolation:isolate;opacity:0;transform:translate(-50%,10px) scale(.985);transition:opacity .16s ease,transform .16s ease;}}',
             '.doorpi-vkb-overlay.visible{{opacity:1;transform:translate(-50%,0) scale(1);}}',
             '.doorpi-vkb-preview-wrap{{gap:clamp(8px,.8vw,14px);margin-bottom:clamp(8px,1vh,14px);}}',
@@ -5095,7 +5101,6 @@ namespace Doorpi
         ['ABC','CURSOR_LEFT','SPACE','CURSOR_RIGHT','.com']
     ];
     const NUMERIC_KEY_ROWS = [['1','2','3'],['4','5','6'],['7','8','9'],['BKSP','0','ENTER'],['CANCEL']];
-    const FLAT_KEYS  = KEY_ROWS.flat();
     const BOTTOM_KEYS = ['SYM','ABC','CURSOR_LEFT','SPACE','CURSOR_RIGHT','.com'];
     const LABELS = {{ BKSP:'Apagar', ENTER:'Enter', CANCEL:'Fechar', SHIFT:'Maiúsc', SYM:'&123', ABC:'ABC', CURSOR_LEFT:'←', CURSOR_RIGHT:'→', SPACE:'Espaço', QUOTE:String.fromCharCode(34), APOSTROPHE:String.fromCharCode(39) }};
     const CONTROLLER_HINTS = {{ BKSP:'X', ENTER:'START', CANCEL:'B', SHIFT:'L3', SYM:'LT', ABC:'LT', CURSOR_LEFT:'LB', CURSOR_RIGHT:'RB', SPACE:'Y' }};
@@ -5107,6 +5112,10 @@ namespace Doorpi
     let _vkbCursorPos = 0;
     let _vkbFocusKey  = 'q';
     let _vkbFocusedKeyEl = null;
+    let _vkbKeyElements = new Map();
+    let _vkbPreviewBefore = null;
+    let _vkbPreviewAfter = null;
+    let _vkbPreviewCursor = null;
     let _vkbClosing   = false;
     let _vkbMode      = 'text';
     let _vkbPendingAccent = null;
@@ -5125,20 +5134,15 @@ namespace Doorpi
         );
 
         const grid = document.createElement('div'); grid.className = 'doorpi-vkb-grid';
-        FLAT_KEYS.forEach(k => {{
-            const btn = document.createElement('button');
-            btn.className = 'doorpi-vkb-key';
-            btn.dataset.key = k; btn.tabIndex = -1;
-            btn.textContent = LABELS[k] || k;
-            if (CONTROLLER_HINTS[k]) btn.dataset.controllerHint = CONTROLLER_HINTS[k];
-            if (k.length > 1 && !Object.prototype.hasOwnProperty.call(LABELS, k))
-                btn.style.fontSize = 'clamp(11px,1vw,15px)';
-            btn.addEventListener('pointerdown', e => {{ e.preventDefault(); if (_vkbFocusKey === null) return; _vkbPressKey(k); }});
-            grid.appendChild(btn);
-        }});
 
         _vkbEl.append(wrap, grid);
         document.body.appendChild(_vkbEl);
+
+        const preview = wrap.querySelector('.doorpi-vkb-preview-text');
+        _vkbPreviewBefore = document.createTextNode('');
+        _vkbPreviewCursor = Object.assign(document.createElement('span'), {{ className: 'doorpi-vkb-cursor' }});
+        _vkbPreviewAfter = document.createTextNode('');
+        preview.append(_vkbPreviewBefore, _vkbPreviewCursor, _vkbPreviewAfter);
     }}
 
     function _vkbRenderKeys(mode) {{
@@ -5149,6 +5153,7 @@ namespace Doorpi
         if (!grid) return;
         const rows = _vkbMode === 'numeric' ? NUMERIC_KEY_ROWS : _vkbMode === 'special' ? SPECIAL_KEY_ROWS : KEY_ROWS;
         _vkbFocusedKeyEl = null;
+        _vkbKeyElements.clear();
         while (grid.firstChild) grid.removeChild(grid.firstChild);
         rows.flat().forEach(k => {{
             const btn = document.createElement('button');
@@ -5160,6 +5165,7 @@ namespace Doorpi
                 btn.style.fontSize = 'clamp(11px,1vw,15px)';
             btn.addEventListener('pointerdown', e => {{ e.preventDefault(); if (_vkbFocusKey === null) return; _vkbPressKey(k); }});
             grid.appendChild(btn);
+            if (!_vkbKeyElements.has(k)) _vkbKeyElements.set(k, btn);
         }});
     }}
 
@@ -5171,20 +5177,14 @@ namespace Doorpi
     }}
 
     function _vkbRenderPreview() {{
-        const el = document.getElementById('doorpi-vkb-preview');
-        if (!el || !_vkbInputEl) return;
+        if (!_vkbPreviewBefore || !_vkbPreviewAfter || !_vkbInputEl) return;
         const isPassword = _vkbInputEl.type === 'password';
         const isEditable = _vkbInputEl.isContentEditable || _vkbInputEl.tagName === 'DIV';
         let txt = isEditable ? (_vkbInputEl.textContent||'') : (_vkbInputEl.value||'');
         if (isPassword) txt = '•'.repeat(txt.length);
         const pos = Math.min(_vkbCursorPos, txt.length);
-        el.textContent = '';
-        const cur = document.createElement('span'); cur.className = 'doorpi-vkb-cursor';
-        el.append(
-            document.createTextNode(txt.slice(0, pos).replace(/ /g,'\u00A0')),
-            cur,
-            document.createTextNode(txt.slice(pos).replace(/ /g,'\u00A0'))
-        );
+        _vkbPreviewBefore.data = txt.slice(0, pos).replace(/ /g,'\u00A0');
+        _vkbPreviewAfter.data = txt.slice(pos).replace(/ /g,'\u00A0');
     }}
 
     function _vkbPosition() {{
@@ -5221,8 +5221,7 @@ namespace Doorpi
         if (_vkbFocusKey === key && _vkbFocusedKeyEl?.isConnected) return;
         _vkbFocusedKeyEl?.classList.remove('focused');
         _vkbFocusKey = key;
-        _vkbFocusedKeyEl = Array.from(_vkbEl?.querySelectorAll('.doorpi-vkb-key') || [])
-            .find(k => k.dataset.key === key) || null;
+        _vkbFocusedKeyEl = _vkbKeyElements.get(key) || null;
         _vkbFocusedKeyEl?.classList.add('focused');
     }}
 
@@ -5305,8 +5304,8 @@ namespace Doorpi
             if (Number.isFinite(maxLen) && maxLen > 0 && val.length + char.length > maxLen) return;
             _setNativeValue(_vkbInputEl, val.slice(0, _vkbCursorPos) + char + val.slice(_vkbCursorPos));
             _vkbCursorPos += char.length;
+            try {{ _vkbInputEl.setSelectionRange(_vkbCursorPos, _vkbCursorPos); }} catch (_) {{}}
             _vkbInputEl.dispatchEvent(new Event('input',  {{ bubbles:true, composed:true }}));
-            _vkbInputEl.dispatchEvent(new Event('change', {{ bubbles:true, composed:true }}));
         }}
     }}
 
@@ -5322,16 +5321,37 @@ namespace Doorpi
             const val = _vkbInputEl.value || '';
             _setNativeValue(_vkbInputEl, val.slice(0, _vkbCursorPos - 1) + val.slice(_vkbCursorPos));
             _vkbCursorPos--;
+            try {{ _vkbInputEl.setSelectionRange(_vkbCursorPos, _vkbCursorPos); }} catch (_) {{}}
             _vkbInputEl.dispatchEvent(new Event('input',  {{ bubbles:true, composed:true }}));
-            _vkbInputEl.dispatchEvent(new Event('change', {{ bubbles:true, composed:true }}));
         }}
+    }}
+
+    function _vkbTextInField() {{
+        if (!_vkbInputEl) return '';
+        const isEditable = _vkbInputEl.isContentEditable || _vkbInputEl.tagName === 'DIV';
+        return isEditable ? (_vkbInputEl.textContent || '') : (_vkbInputEl.value || '');
+    }}
+
+    function _vkbSyncPreviewFromField() {{
+        if (!_vkbInputEl) return;
+        const isEditable = _vkbInputEl.isContentEditable || _vkbInputEl.tagName === 'DIV';
+        if (isEditable) _vkbCursorPos = _vkbTextInField().length;
+        else {{
+            try {{ _vkbCursorPos = _vkbInputEl.selectionStart ?? _vkbTextInField().length; }}
+            catch (_) {{ _vkbCursorPos = _vkbTextInField().length; }}
+        }}
+        _vkbRenderPreview();
     }}
 
     function _vkbRequestNativeBackspace() {{
         if (!_vkbInputEl || !_vkbInputEl.isConnected) return;
+        const before = _vkbTextInField();
+        _vkbDeleteChar();
+        if (_vkbTextInField() !== before) {{ _vkbSyncPreviewFromField(); return; }}
         try {{ _vkbInputEl.focus({{ preventScroll:true }}); }}
         catch(_) {{ try {{ _vkbInputEl.focus(); }} catch(__) {{}} }}
         _vkbNotifyHost('vkb_native_backspace');
+        setTimeout(_vkbSyncPreviewFromField, 32);
     }}
 
     function _vkbMoveCursorInField(delta) {{
