@@ -144,6 +144,73 @@ public static class ProfileSyncSnapshotFactory
 
 public static class ProfileSyncEngine
 {
+    public static (bool LocalChanged, bool RemoteChanged) MergeMissingArtwork(
+        CloudProfileV1 local,
+        CloudProfileV1 remote)
+    {
+        ArgumentNullException.ThrowIfNull(local);
+        ArgumentNullException.ThrowIfNull(remote);
+
+        Dictionary<string, CloudGameHistoryEntryV1> localGames = ToGameDictionary(local.Games);
+        Dictionary<string, CloudGameHistoryEntryV1> remoteGames = ToGameDictionary(remote.Games);
+        bool localChanged = false;
+        bool remoteChanged = false;
+
+        foreach (string key in localGames.Keys.Intersect(remoteGames.Keys, StringComparer.Ordinal))
+        {
+            CloudGameHistoryEntryV1 localGame = localGames[key];
+            CloudGameHistoryEntryV1 remoteGame = remoteGames[key];
+            if (string.IsNullOrWhiteSpace(localGame.ShowcaseVerticalImageUrl) &&
+                !string.IsNullOrWhiteSpace(remoteGame.ShowcaseVerticalImageUrl))
+            {
+                localGame.ShowcaseVerticalImageUrl = remoteGame.ShowcaseVerticalImageUrl;
+                localChanged = true;
+            }
+            if (string.IsNullOrWhiteSpace(remoteGame.ShowcaseVerticalImageUrl) &&
+                !string.IsNullOrWhiteSpace(localGame.ShowcaseVerticalImageUrl))
+            {
+                remoteGame.ShowcaseVerticalImageUrl = localGame.ShowcaseVerticalImageUrl;
+                remoteChanged = true;
+            }
+            if (string.IsNullOrWhiteSpace(localGame.HistoryHorizontalImageUrl) &&
+                !string.IsNullOrWhiteSpace(remoteGame.HistoryHorizontalImageUrl))
+            {
+                localGame.HistoryHorizontalImageUrl = remoteGame.HistoryHorizontalImageUrl;
+                localChanged = true;
+            }
+            if (string.IsNullOrWhiteSpace(remoteGame.HistoryHorizontalImageUrl) &&
+                !string.IsNullOrWhiteSpace(localGame.HistoryHorizontalImageUrl))
+            {
+                remoteGame.HistoryHorizontalImageUrl = localGame.HistoryHorizontalImageUrl;
+                remoteChanged = true;
+            }
+            if (string.IsNullOrWhiteSpace(localGame.ProfileBannerImageUrl) &&
+                !string.IsNullOrWhiteSpace(remoteGame.ProfileBannerImageUrl))
+            {
+                localGame.ProfileBannerImageUrl = remoteGame.ProfileBannerImageUrl;
+                localChanged = true;
+            }
+            if (string.IsNullOrWhiteSpace(remoteGame.ProfileBannerImageUrl) &&
+                !string.IsNullOrWhiteSpace(localGame.ProfileBannerImageUrl))
+            {
+                remoteGame.ProfileBannerImageUrl = localGame.ProfileBannerImageUrl;
+                remoteChanged = true;
+            }
+            if (localGame.SteamGridGameId <= 0 && remoteGame.SteamGridGameId > 0)
+            {
+                localGame.SteamGridGameId = remoteGame.SteamGridGameId;
+                localChanged = true;
+            }
+            if (remoteGame.SteamGridGameId <= 0 && localGame.SteamGridGameId > 0)
+            {
+                remoteGame.SteamGridGameId = localGame.SteamGridGameId;
+                remoteChanged = true;
+            }
+        }
+
+        return (localChanged, remoteChanged);
+    }
+
     public static ProfileSyncDecision Evaluate(
         CloudProfileV1 local,
         CloudProfileV1? remote,
@@ -199,8 +266,6 @@ public static class ProfileSyncEngine
         var differences = new List<ProfileDifference>();
         AddValueDifference(differences, ProfileDifferenceKind.SchemaVersion, "schemaVersion",
             local.SchemaVersion, remote.SchemaVersion);
-        AddValueDifference(differences, ProfileDifferenceKind.ProfileIdentity, "profileId",
-            local.ProfileId, remote.ProfileId);
         AddValueDifference(differences, ProfileDifferenceKind.ProfileName, "profileName",
             local.ProfileName, remote.ProfileName);
         AddSensitiveDifference(differences, ProfileDifferenceKind.PinCode, "pinCode",

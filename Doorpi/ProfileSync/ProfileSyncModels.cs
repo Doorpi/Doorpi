@@ -103,6 +103,7 @@ public sealed class ProfileSyncState
     public DateTimeOffset? LastSyncedAtUtc { get; set; }
     public ProfileSyncAction? PendingAction { get; set; }
     public PendingProfileConflict? PendingConflict { get; set; }
+    public bool ConflictPromptDeferred { get; set; }
 }
 
 public sealed class PendingProfileConflict
@@ -147,9 +148,11 @@ public sealed class ProfileSyncResult
     public ProfileSyncAction Action { get; init; }
     public string Message { get; init; } = "";
     public CloudProfileV1? RemoteProfile { get; init; }
+    public CloudProfileV1? LocalArtworkEnrichment { get; init; }
     public byte[]? RemoteProfilePhoto { get; init; }
     public string RemoteRevision { get; init; } = "";
     public IReadOnlyList<ProfileDifference> Differences { get; init; } = Array.Empty<ProfileDifference>();
+    public bool ConflictPromptDeferred { get; init; }
 }
 
 public sealed class ProfileConnectionStatus

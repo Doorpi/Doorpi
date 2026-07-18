@@ -157,6 +157,7 @@ function getModalGroups() {
 
 function getNavigableItems() {
     if (isVkbOpenForNavigation()) return Array.from(document.querySelectorAll('.vkb-key[tabindex="0"]'));
+    if (window.DoorpiProfileSync?.isOpen?.()) return window.DoorpiProfileSync.getItems?.() || [];
     const transientPicker = document.querySelector('.profile-photo-picker-overlay, .artwork-wizard-overlay');
     if (transientPicker) {
         return Array.from(transientPicker.querySelectorAll('input, button'))
@@ -788,6 +789,11 @@ function gamepadTriangle() {
 function moveFocus(direction) {
     if (window.isGlobalLoading) return;
 
+    if (window.DoorpiProfileSync?.isOpen?.()) {
+        window.DoorpiProfileSync.moveFocus?.(direction);
+        return;
+    }
+
     if (isVkbOpenForNavigation()) {
         const items = Array.from(document.querySelectorAll('.vkb-key'));
         const current = document.activeElement;
@@ -1121,6 +1127,27 @@ function smoothHorizontalScroll(element, onDone) {
 });
 
 document.addEventListener('keydown', e => {
+    if (window.DoorpiProfileSync?.isOpen?.()) {
+        const direction = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' }[e.key];
+        if (direction) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            window.DoorpiProfileSync.moveFocus?.(direction);
+            return;
+        }
+        if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            window.DoorpiProfileSync.confirm?.();
+            return;
+        }
+        if (e.key === 'Escape' || e.key === 'Backspace') {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            window.DoorpiProfileSync.back?.();
+            return;
+        }
+    }
     // ── NOVO: Cancelar launch via teclado (Esc ou Backspace) ──
     const launchOverlay = document.getElementById('gameLaunchOverlay');
     const isSessionConflict = window.isSessionConflictPopupOpen?.() === true;
@@ -1814,6 +1841,8 @@ if (window.chrome?.webview) {
         _doorpiNativeController.rightY = Number(data.rightY || 0);
         if (window._profilePhotoPickerIsOpen?.())
             window._profilePhotoPickerAdjustZoom?.(_doorpiNativeController.rightY);
+        if (window.DoorpiProfileSync?.isOpen?.())
+            window.DoorpiProfileSync.scrollDifferences?.(_doorpiNativeController.rightY);
         if (!_doorpiNativeController.connected) {
             _doorpiNativeController.buttons = 0;
             _doorpiNativeController.pendingPressed = 0;
@@ -1903,6 +1932,18 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
 
         const { GAMEPAD } = NAV, buttons = gamepad.buttons;
         const thr = GAMEPAD.AXIS_THRESHOLD, now = performance.now();
+
+        // As direcoes chegam pelo loop nativo C# como teclas. A/R2 e B, porem,
+        // chegam por este snapshot e precisam ignorar completamente o nav-menu.
+        if (window.DoorpiProfileSync?.isOpen?.()) {
+            _currentDirection = null;
+            _moveState = 0;
+            if (primaryJustPressed(buttons, GAMEPAD))
+                window.DoorpiProfileSync.confirm?.();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL))
+                window.DoorpiProfileSync.back?.();
+            return;
+        }
 
         if (window._profilePhotoPickerIsOpen?.() && !isVkbOpenForNavigation()) {
             _currentDirection = null;
