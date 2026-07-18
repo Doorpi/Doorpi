@@ -8,6 +8,10 @@
     let activeConflictData = null;
     let pendingConflictData = null;
     let conflictRetryTimer = 0;
+    let activeBackAction = null;
+    let lastAnalogScrollAt = 0;
+    let lastModalFocus = null;
+    let focusTrapHandler = null;
 
     function ensureStyles() {
         if (document.getElementById('profile-sync-styles')) return;
@@ -38,16 +42,38 @@
 
     function close(restore = true) {
         if (!overlay) return;
+        if (focusTrapHandler) document.removeEventListener('focusin', focusTrapHandler, true);
+        focusTrapHandler = null;
+        lastModalFocus = null;
         overlay.remove();
         overlay = null;
         activeConflictData = null;
+        activeBackAction = null;
+        lastAnalogScrollAt = 0;
         const target = returnFocus;
         returnFocus = null;
         if (restore && target?.isConnected) requestAnimationFrame(() => target.focus());
     }
 
     function bindDialog(dialog, buttons, onBack) {
+        activeBackAction = onBack || null;
         const focusable = () => buttons.filter(button => button?.isConnected);
+        lastModalFocus = buttons[0] || null;
+        if (focusTrapHandler) document.removeEventListener('focusin', focusTrapHandler, true);
+        focusTrapHandler = event => {
+            if (!overlay) return;
+            if (overlay.contains(event.target)) {
+                if (event.target?.classList?.contains('profile-sync-btn')) lastModalFocus = event.target;
+                return;
+            }
+            event.stopImmediatePropagation();
+            const target = lastModalFocus?.isConnected ? lastModalFocus : getItems()[0];
+            if (target) queueMicrotask(() => {
+                if (overlay && !overlay.contains(document.activeElement))
+                    target.focus({ preventScroll: true });
+            });
+        };
+        document.addEventListener('focusin', focusTrapHandler, true);
         dialog.addEventListener('keydown', event => {
             const items = focusable();
             let index = Math.max(0, items.indexOf(document.activeElement));
@@ -59,9 +85,58 @@
                 return;
             } else return;
             event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation();
-            items[index]?.focus();
+            lastModalFocus = items[index] || lastModalFocus;
+            items[index]?.focus({ preventScroll: true });
         }, true);
-        requestAnimationFrame(() => buttons[0]?.focus());
+        requestAnimationFrame(() => buttons[0]?.focus({ preventScroll: true }));
+    }
+
+    function getItems() {
+        if (!overlay) return [];
+        return Array.from(overlay.querySelectorAll('.profile-sync-btn'))
+            .filter(button => button.isConnected && !button.disabled && button.offsetWidth > 0 && button.offsetHeight > 0);
+    }
+
+    function moveFocus(direction) {
+        const items = getItems();
+        if (!items.length) return false;
+        let index = items.indexOf(document.activeElement);
+        if (index < 0) {
+            items[0].focus({ preventScroll: true });
+            return true;
+        }
+        const delta = direction === 'LEFT' || direction === 'UP' ? -1 : 1;
+        index = (index + delta + items.length) % items.length;
+        items[index].focus({ preventScroll: true });
+        return true;
+    }
+
+    function confirm() {
+        const items = getItems();
+        const active = items.includes(document.activeElement) ? document.activeElement : items[0];
+        if (!active) return false;
+        active.click();
+        return true;
+    }
+
+    function back() {
+        if (!overlay) return false;
+        activeBackAction?.();
+        return true;
+    }
+
+    function scrollDifferences(rightY) {
+        const scroller = activeConflictData ? overlay?.querySelector('.profile-sync-differences') : null;
+        const axis = Number(rightY || 0);
+        if (!scroller || Math.abs(axis) < .18 || scroller.scrollHeight <= scroller.clientHeight) {
+            lastAnalogScrollAt = 0;
+            return false;
+        }
+        const now = performance.now();
+        const elapsed = lastAnalogScrollAt ? Math.min(48, now - lastAnalogScrollAt) : 16;
+        lastAnalogScrollAt = now;
+        scroller.scrollTop += -axis * elapsed * 1.05;
+        return true;
     }
 
     function updatePromptBlocksConflict() {
@@ -98,6 +173,10 @@
     }
 
     function showConflict(data) {
+        if (!Array.isArray(data?.differences) || data.differences.length === 0) {
+            pendingConflictData = null;
+            return;
+        }
         pendingConflictData = data;
         schedulePendingConflict(updatePromptBlocksConflict() ? 300 : 180);
     }
@@ -115,6 +194,7 @@
     }
 
     function renderConflict(data) {
+        if (!Array.isArray(data?.differences) || data.differences.length === 0) return;
         ensureStyles();
         close(false);
         activeConflictData = data;
@@ -209,6 +289,12 @@
         deferConflictForUpdate,
         resumePendingConflict,
         confirmDisconnect,
+        isOpen: () => !!overlay,
+        getItems,
+        moveFocus,
+        confirm,
+        back,
+        scrollDifferences,
         close
     };
 

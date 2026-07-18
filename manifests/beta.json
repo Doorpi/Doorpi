@@ -1,51 +1,48 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202607181834,
-    "publishedAt":  "2026-07-18T21:35:00.5724700Z",
-    "expiresAt":  "2026-08-01T21:35:00.5724700Z",
+    "manifestVersion":  202607181932,
+    "publishedAt":  "2026-07-18T22:33:11.6389781Z",
+    "expiresAt":  "2026-08-01T22:33:11.6389781Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.2.13",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.2.13/doorpi-0.2.13.doorpiupdate.zip",
-                   "sha256":  "0e4c106765ce1a644ebdf15e986a5fac9fa41bf80f9e1be7b7c5c8b7563db20e",
-                   "sizeBytes":  133434931,
+                   "version":  "0.2.14",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.2.14/doorpi-0.2.14.doorpiupdate.zip",
+                   "sha256":  "761f657e7ee0f4b7eafa0a932fdd4ada987e4d26d0b4241e9205cc5521822ca5",
+                   "sizeBytes":  133442037,
                    "minUpdaterVersion":  "0.1.0",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
                     "version":  "0.1.0",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.2.13/updater-0.1.0.doorpiupdate.zip",
-                    "sha256":  "c63bf534f86e1927551fec4b0800699cdf490b6f9dca83225c89c79890410675",
-                    "sizeBytes":  69946125,
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.2.14/updater-0.1.0.doorpiupdate.zip",
+                    "sha256":  "f6cab9dc027237267b75f0428c253520ddff59f06a5a4f4c16fa04bc817084d5",
+                    "sizeBytes":  69946118,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.2.13",
-                          "title":  "Doorpi 0.2.13",
+                          "version":  "0.2.14",
+                          "title":  "Doorpi 0.2.14",
                           "items":  [
-                                        "Login com Google.",
-                                        "Sincronização dos dados na nuvem com a sua conta Google, mantendo suas informações disponíveis de forma persistente.",
-                                        "Melhorias visuais."
+                                        "Hotfix na sincronização e no tratamento de conflitos entre contas.",
+                                        "Correções de foco indevido em interfaces e pop-ups."
                                     ],
                           "locales":  {
                                           "pt-BR":  {
-                                                        "title":  "Doorpi 0.2.13",
+                                                        "title":  "Doorpi 0.2.14",
                                                         "items":  [
-                                                                      "Login com Google.",
-                                                                      "Sincronização dos dados na nuvem com a sua conta Google, mantendo suas informações disponíveis de forma persistente.",
-                                                                      "Melhorias visuais."
+                                                                      "Hotfix na sincronização e no tratamento de conflitos entre contas.",
+                                                                      "Correções de foco indevido em interfaces e pop-ups."
                                                                   ]
                                                     },
                                           "en":  {
-                                                     "title":  "Doorpi 0.2.13",
+                                                     "title":  "Doorpi 0.2.14",
                                                      "items":  [
-                                                                   "Google sign-in.",
-                                                                   "Cloud data sync with your Google account, keeping your information persistently available.",
-                                                                   "Visual improvements."
+                                                                   "Hotfix for sync behavior and account conflict handling.",
+                                                                   "Fixed incorrect focus behavior in interfaces and pop-ups."
                                                                ]
                                                  }
                                       }
@@ -54,6 +51,6 @@
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "Nu+Itt8H4V74ZBcEfeh65IJSyFCicMFAethELjtzoiMZpuVO2+9Ke4rj0g4R/bVLpzHG57KXXsGxkphRgt5bEkqHj1Y1QI5BkMbLou4UtScexrtZW0tPBmVI8ugi/rLD2u3hAqVntyn6fEeg7vJpo9cPyCXD2JN49BOFyewuSGc8fIFu29/HOQx+a4ghYYwT6MW5q1w8X6hUxOcP5LgzSZwWjo+L5BOBjwkyJW3r22+fSyEq2DJLloKXBAJ9d78rlM9ZaorPlnCDxCfbPYzR5Q361VTNgk4nBBOWwVY/TDTvrOgP5VbfLSpezf/Ipey9W1oeh2N9a84FkPK9zNrTvvID48hqHq1wrXcxQk4LcZNtRtQmPQ7xPVxSyR79GPz2E8d9S1XNZWp8vVkMNLg/KZj9Ja3L6TZiJhXMqBZ2+9qbJbpwt6nPXLenl27P1g1E6peDeUGzoDpJO7MXcAvLtFFBFPRYGJZmbx+OP2z6B6679NfjFevlGbiL6t6YmsmN"
+                      "value":  "RsMupit9dl7jlE38dI3F3hz7/a4ba46JN1bPfNQGxo06hxxcUVmRFRVMy7Haj0VdDoOE9eSemTpR5/OhSHkrORscyM5ziZo1AVzPDx+aH3XMdX8I2XRiX8oBvCKsFjgz2SY7j7Rr0fR6af9WqwVxJPZjjBLWYFidm9g+aAu2ovpkUBiVobBTSyKwUiRf8BkAI/ybwVe8ES9y7lAYjj5+FkbW0v0rw6vq1AVHwM3awYVEFprW69eZr7NDJViEhnz4HC78RmCl08juQcykOp6Ea4joxgQP3B3xUEm7YCAO+Uqn9PDWZY9OQlGE1Vx9c7zRN8v/WGHDfH4q7UAohA+xBMu8ZcJ5xkvBiRJkzy+6eozJQGxMQ2uPANu5UvVYzK3LWwG5QAh65kWGiCpS0ObVNfmvQAWs/LMAtE9e60JlqoyDj2WfS5hrVBsIUuF/N8S63wOFWoq5Dgc0u1HdsyJOeAL5ds3lTKBbVr8L4lsRl54vfsKjPFse/iU8auy5pZJ+"
                   }
 }

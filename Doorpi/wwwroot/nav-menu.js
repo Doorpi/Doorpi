@@ -2253,6 +2253,24 @@ window.isNavMenuOpen = false;
 }
 .nav-profile-recent-date { font-size: clamp(0.7rem, 0.8vw, 0.85rem); color: rgba(255,255,255,0.6); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
 
+@media (max-height: 1080px) {
+    .nav-content-body.profile-showcase-active { overflow-y: hidden; padding-bottom: 10px; }
+    .nav-profile-showcase { width: 100%; height: 100%; max-height: 100%; gap: clamp(8px, 1.2vh, 14px); }
+    .nav-profile-cover { min-height: 0; height: clamp(160px, 32%, 285px); flex: 0 0 auto; border-radius: 12px; }
+    .nav-profile-header { padding: clamp(18px, 2vw, 32px); gap: clamp(12px, 1.8vw, 28px); }
+    .nav-profile-avatar-large { width: clamp(62px, 9vh, 96px); height: clamp(62px, 9vh, 96px); }
+    .nav-profile-name { font-size: clamp(1.5rem, 2.35vw, 3rem); }
+    .nav-profile-edit-btn { padding: 8px 18px; font-size: .9rem; }
+    .nav-profile-stats-row { flex: 0 0 auto; gap: clamp(8px, 1vw, 14px); }
+    .nav-profile-stat-box { min-height: 58px; padding: 8px 12px; gap: 3px; }
+    .nav-profile-stat-thumb { width: clamp(42px, 3.8vw, 60px); }
+    .nav-profile-section-head { flex: 0 0 auto; margin-top: 0; min-height: 36px; }
+    .nav-profile-section-head .nav-profile-section-title { padding-bottom: 7px; }
+    .nav-profile-journey-btn { margin-bottom: 5px; padding: 5px 11px; }
+    .nav-profile-recent-grid { flex: 1 1 auto; min-height: 0; overflow: visible; align-content: start; gap: clamp(8px, 1vw, 14px); padding: 10px 8px 8px; box-sizing: border-box; }
+    .nav-profile-recent-card.is-top-played { grid-row: span 1; }
+}
+
 /* ── Dashboard de Configurações ── */
 .nav-settings-grid {
     --settings-focus-pad-y: clamp(16px, 1.8vh, 28px);
@@ -2916,6 +2934,7 @@ window.isNavMenuOpen = false;
     function _renderContent(id) {
         const body = document.getElementById('navContentBody');
         if (!body) return;
+        body.classList.toggle('profile-showcase-active', id === 'profile' && _profileSubView !== 'history');
 
         switch (id) {
             case 'games':
@@ -5565,6 +5584,9 @@ window.isNavMenuOpen = false;
     };
 
     document.addEventListener('keydown', e => {
+        // Modais de sincronizacao ficam acima do nav-menu e recebem a navegacao primeiro.
+        // O controlador global trata as setas; nao as consuma neste listener de captura.
+        if (window.DoorpiProfileSync?.isOpen?.()) return;
         // O popup de conflito possui prioridade no controlador global de navegacao.
         if (window.isSessionConflictPopupOpen?.()) return;
         const executionOverlay = document.getElementById('gameLaunchOverlay');
@@ -6155,6 +6177,33 @@ window.isNavMenuOpen = false;
     window.addEventListener('doorpi:profile-sync-message', event => {
         const data = event.detail || {};
         if (data.setup) return;
+        if (data.type === 'profileSyncArtworkUpdated') {
+            const item = (_menuData.history || []).find(entry =>
+                String(entry?.Name || '').localeCompare(String(data.gameName || ''), undefined, { sensitivity: 'base' }) === 0);
+            if (!item) return;
+            if (data.verticalUrl) item.ShowcaseVerticalImageUrl = data.verticalUrl;
+            if (data.horizontalUrl) item.HistoryHorizontalImageUrl = data.horizontalUrl;
+            if (data.bannerUrl) item.ProfileBannerImageUrl = data.bannerUrl;
+            if (data.category === 'vertical') {
+                if (data.remoteUrl) item.ShowcaseVerticalImageUrl = data.remoteUrl;
+                if (data.localUrl) item.ShowcaseVerticalLocalImage = data.localUrl;
+            } else if (data.category === 'horizontal') {
+                if (data.remoteUrl) item.HistoryHorizontalImageUrl = data.remoteUrl;
+                if (data.localUrl) item.HistoryHorizontalLocalImage = data.localUrl;
+            } else if (data.category === 'banner') {
+                if (data.remoteUrl) item.ProfileBannerImageUrl = data.remoteUrl;
+                if (data.localUrl) item.ProfileBannerLocalImage = data.localUrl;
+            }
+            document.querySelectorAll('[data-history-game-name]').forEach(element => {
+                if (String(element.dataset.historyGameName || '').localeCompare(String(data.gameName || ''), undefined, { sensitivity: 'base' }) !== 0) return;
+                const image = element.querySelector(':scope > img, .nav-profile-history-art img:not(.is-icon)');
+                const source = element.classList.contains('nav-profile-history-row')
+                    ? (item.HistoryHorizontalLocalImage || item.HistoryHorizontalImageUrl || item.ShowcaseVerticalLocalImage || item.ShowcaseVerticalImageUrl)
+                    : (item.ShowcaseVerticalLocalImage || item.ShowcaseVerticalImageUrl);
+                if (image && source) image.src = source;
+            });
+            return;
+        }
         if (data.type === 'profileSyncBusy') {
             _profileSyncUi.busy = !!data.busy;
         } else if (data.type === 'profileSyncStatus') {

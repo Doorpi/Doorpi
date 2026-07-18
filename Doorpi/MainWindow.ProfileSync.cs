@@ -93,13 +93,65 @@ public partial class MainWindow
     {
         string path = Path.Combine(dataFolder, "users", profileId, "game-history.json");
         if (!File.Exists(path)) return new List<GameHistoryEntry>();
-        try
+        lock (_gameHistoryFileLock)
         {
-            return JsonSerializer.Deserialize<List<GameHistoryEntry>>(SafeReadAllText(path)) ?? new();
-        }
-        catch
-        {
-            return new List<GameHistoryEntry>();
+            try
+            {
+                List<GameHistoryEntry> history =
+                    JsonSerializer.Deserialize<List<GameHistoryEntry>>(SafeReadAllText(path)) ?? new();
+                bool changed = false;
+                foreach (GameHistoryEntry entry in history)
+                {
+                    if (string.IsNullOrWhiteSpace(entry.ShowcaseVerticalImageUrl) &&
+                        IsRemoteArtworkUrl(entry.ShowcaseVerticalLocalImage))
+                    {
+                        entry.ShowcaseVerticalImageUrl = entry.ShowcaseVerticalLocalImage;
+                        changed = true;
+                    }
+                    if (string.IsNullOrWhiteSpace(entry.HistoryHorizontalImageUrl) &&
+                        IsRemoteArtworkUrl(entry.HistoryHorizontalLocalImage))
+                    {
+                        entry.HistoryHorizontalImageUrl = entry.HistoryHorizontalLocalImage;
+                        changed = true;
+                    }
+                    if (string.IsNullOrWhiteSpace(entry.ProfileBannerImageUrl) &&
+                        IsRemoteArtworkUrl(entry.ProfileBannerLocalImage))
+                    {
+                        entry.ProfileBannerImageUrl = entry.ProfileBannerLocalImage;
+                        changed = true;
+                    }
+                    if (!string.IsNullOrWhiteSpace(entry.ShowcaseVerticalLocalImage) &&
+                        !HasUsableProfileArtwork(entry.ShowcaseVerticalLocalImage))
+                    {
+                        entry.ShowcaseVerticalLocalImage = "";
+                        changed = true;
+                    }
+                    if (!string.IsNullOrWhiteSpace(entry.HistoryHorizontalLocalImage) &&
+                        !HasUsableProfileArtwork(entry.HistoryHorizontalLocalImage))
+                    {
+                        entry.HistoryHorizontalLocalImage = "";
+                        changed = true;
+                    }
+                    if (!string.IsNullOrWhiteSpace(entry.ProfileBannerLocalImage) &&
+                        !HasUsableProfileArtwork(entry.ProfileBannerLocalImage))
+                    {
+                        entry.ProfileBannerLocalImage = "";
+                        changed = true;
+                    }
+                }
+                if (changed)
+                {
+                    string json = JsonSerializer.Serialize(history, IndentedJsonOptions);
+                    SafeWriteAllText(path, json);
+                    if (string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase))
+                        SafeWriteAllText(Path.Combine(dataFolder, "game-history.json"), json);
+                }
+                return history;
+            }
+            catch
+            {
+                return new List<GameHistoryEntry>();
+            }
         }
     }
 
@@ -216,6 +268,7 @@ public partial class MainWindow
             {
                 string profileId = GetStr(root, "profileId", currentUserId);
                 _profileSyncConflictDeferred.TryRemove(profileId, out _);
+                await ProfileSyncService.SetConflictPromptDeferredAsync(profileId, false).ConfigureAwait(false);
                 await RunProfileSyncAsync(profileId, notifyFailure: true).ConfigureAwait(false);
                 return true;
             }
@@ -353,10 +406,15 @@ public partial class MainWindow
 
     private void PostProfileSyncResult(string profileId, ProfileSyncResult result, bool setup = false)
     {
-        if (result.Status == SyncStatus.Conflict)
+        bool actionableConflict = result.Status == SyncStatus.Conflict && result.Differences.Count > 0;
+        if (actionableConflict)
         {
             _profileSyncConflicts[profileId] = result;
             RemoveProfileSyncNotification(profileId, "conflict");
+        }
+        else if (result.Status == SyncStatus.Conflict)
+        {
+            _profileSyncConflicts.TryRemove(profileId, out _);
         }
         else if (result.Status is SyncStatus.Synced or SyncStatus.Uploaded or SyncStatus.Downloaded)
         {
@@ -368,7 +426,9 @@ public partial class MainWindow
 
         PostProfileSyncMessage(new
         {
-            type = result.Status == SyncStatus.Conflict ? "profileSyncConflict" : "profileSyncResult",
+            type = actionableConflict && !result.ConflictPromptDeferred
+                ? "profileSyncConflict"
+                : "profileSyncResult",
             profileId,
             setup,
             status = result.Status.ToString(),
@@ -377,13 +437,15 @@ public partial class MainWindow
             differences = result.Differences.Select(difference => new
             {
                 kind = difference.Kind.ToString(),
-                difference.Path,
-                difference.GameName,
+                path = difference.Path,
+                gameName = difference.GameName,
                 local = difference.LocalSummary,
                 cloud = difference.RemoteSummary,
-                difference.IsSensitive
+                isSensitive = difference.IsSensitive
             })
         });
+        if (actionableConflict && result.ConflictPromptDeferred)
+            PostProfileSyncConflictNotification(profileId);
     }
 
     private async Task RunProfileSyncAsync(
@@ -403,6 +465,8 @@ public partial class MainWindow
                 cancellationToken)
             .ConfigureAwait(false);
         if (!string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase)) return;
+        if (result.LocalArtworkEnrichment != null)
+            ApplyLocalArtworkEnrichment(profileId, result.LocalArtworkEnrichment);
         if (result.Status == SyncStatus.Downloaded && result.RemoteProfile != null)
         {
             await ApplyRemoteProfileAsync(profileId, result).ConfigureAwait(false);
@@ -417,6 +481,68 @@ public partial class MainWindow
 
         if (notifyFailure && result.Status is (SyncStatus.Offline or SyncStatus.AuthenticationRequired or SyncStatus.Failed))
             PostProfileSyncFailureNotification(profileId, result.Status);
+    }
+
+    private void ApplyLocalArtworkEnrichment(string profileId, CloudProfileV1 enrichment)
+    {
+        List<GameHistoryEntry> history = LoadProfileHistoryForSync(profileId);
+        var historyByKey = history
+            .GroupBy(entry => ProfileSyncSnapshotFactory.NormalizeGameKey(entry.Name), StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+        var updated = new List<GameHistoryEntry>();
+
+        foreach (CloudGameHistoryEntryV1 source in enrichment.Games ?? new List<CloudGameHistoryEntryV1>())
+        {
+            if (!historyByKey.TryGetValue(source.GameKey ?? "", out GameHistoryEntry? target)) continue;
+            bool changed = false;
+            if (string.IsNullOrWhiteSpace(target.ShowcaseVerticalImageUrl) &&
+                !string.IsNullOrWhiteSpace(source.ShowcaseVerticalImageUrl))
+            {
+                target.ShowcaseVerticalImageUrl = source.ShowcaseVerticalImageUrl;
+                changed = true;
+            }
+            if (string.IsNullOrWhiteSpace(target.HistoryHorizontalImageUrl) &&
+                !string.IsNullOrWhiteSpace(source.HistoryHorizontalImageUrl))
+            {
+                target.HistoryHorizontalImageUrl = source.HistoryHorizontalImageUrl;
+                changed = true;
+            }
+            if (string.IsNullOrWhiteSpace(target.ProfileBannerImageUrl) &&
+                !string.IsNullOrWhiteSpace(source.ProfileBannerImageUrl))
+            {
+                target.ProfileBannerImageUrl = source.ProfileBannerImageUrl;
+                changed = true;
+            }
+            if (target.SteamGridGameId <= 0 && source.SteamGridGameId > 0)
+            {
+                target.SteamGridGameId = source.SteamGridGameId;
+                changed = true;
+            }
+            if (changed) updated.Add(target);
+        }
+
+        if (updated.Count == 0) return;
+        lock (_gameHistoryFileLock)
+        {
+            string historyPath = Path.Combine(dataFolder, "users", profileId, "game-history.json");
+            string json = JsonSerializer.Serialize(history, IndentedJsonOptions);
+            SafeWriteAllText(historyPath, json);
+            if (string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase))
+                SafeWriteAllText(Path.Combine(dataFolder, "game-history.json"), json);
+        }
+
+        foreach (GameHistoryEntry entry in updated)
+        {
+            PostProfileSyncMessage(new
+            {
+                type = "profileSyncArtworkUpdated",
+                profileId,
+                gameName = entry.Name,
+                verticalUrl = entry.ShowcaseVerticalImageUrl,
+                horizontalUrl = entry.HistoryHorizontalImageUrl,
+                bannerUrl = entry.ProfileBannerImageUrl
+            });
+        }
     }
 
     private void ScheduleProfileSync(string? profileId = null, bool notifyFailure = false)
@@ -473,6 +599,7 @@ public partial class MainWindow
         if (string.Equals(choice, "later", StringComparison.OrdinalIgnoreCase))
         {
             _profileSyncConflictDeferred[profileId] = 0;
+            await ProfileSyncService.SetConflictPromptDeferredAsync(profileId, true).ConfigureAwait(false);
             PostProfileSyncConflictNotification(profileId);
             PostProfileSyncMessage(new { type = "profileSyncConflictClosed", profileId });
             return;
@@ -485,7 +612,13 @@ public partial class MainWindow
         {
             ProfileSyncResult remote = await ProfileSyncService.DownloadProfileAsync(profileId).ConfigureAwait(false);
             if (remote.RemoteProfile != null)
+            {
+                (CloudProfileV1 Snapshot, byte[]? Photo)? local = CreateLocalProfileSyncSnapshot(profileId);
+                if (local != null)
+                    ProfileSyncEngine.MergeMissingArtwork(local.Value.Snapshot, remote.RemoteProfile);
                 await ApplyRemoteProfileAsync(profileId, remote).ConfigureAwait(false);
+                ScheduleProfileSync(profileId);
+            }
             PostProfileSyncResult(profileId, remote);
             return;
         }
@@ -613,19 +746,43 @@ public partial class MainWindow
                     .OrderByDescending(entry => Math.Max(0, entry.TotalPlaytimeMinutes))
                     .FirstOrDefault();
                 if (mostPlayed != null)
+                {
+                    await ResolveMissingProfileArtworkUrlsAsync(profileId, mostPlayed).ConfigureAwait(false);
                     await DownloadProfileHistoryArtworkAsync(profileId, mostPlayed.Name, "banner",
                         mostPlayed.ProfileBannerImageUrl, mostPlayed.ProfileBannerLocalImage).ConfigureAwait(false);
+                }
 
                 GameHistoryEntry? lastPlayed = history
                     .Where(entry => entry.LastPlayed > DateTime.MinValue)
                     .OrderByDescending(entry => entry.LastPlayed)
                     .FirstOrDefault();
                 if (lastPlayed != null)
+                {
+                    await ResolveMissingProfileArtworkUrlsAsync(profileId, lastPlayed).ConfigureAwait(false);
                     await DownloadProfileHistoryArtworkAsync(profileId, lastPlayed.Name, "horizontal",
                         lastPlayed.HistoryHorizontalImageUrl, lastPlayed.HistoryHorizontalLocalImage).ConfigureAwait(false);
+                }
 
                 foreach (GameHistoryEntry entry in history)
                 {
+                    await ResolveMissingProfileArtworkUrlsAsync(profileId, entry).ConfigureAwait(false);
+                    await DownloadProfileHistoryArtworkAsync(profileId, entry.Name, "vertical",
+                        entry.ShowcaseVerticalImageUrl, entry.ShowcaseVerticalLocalImage).ConfigureAwait(false);
+                    await DownloadProfileHistoryArtworkAsync(profileId, entry.Name, "horizontal",
+                        entry.HistoryHorizontalImageUrl, entry.HistoryHorizontalLocalImage).ConfigureAwait(false);
+                    await DownloadProfileHistoryArtworkAsync(profileId, entry.Name, "banner",
+                        entry.ProfileBannerImageUrl, entry.ProfileBannerLocalImage).ConfigureAwait(false);
+                    await Task.Delay(180).ConfigureAwait(false);
+                }
+
+                // One delayed retry handles transient network failures in the same
+                // session. Missing local files remain pending and are retried again
+                // whenever this profile is opened in a future session.
+                await Task.Delay(5000).ConfigureAwait(false);
+                history = LoadProfileHistoryForSync(profileId);
+                foreach (GameHistoryEntry entry in history)
+                {
+                    await ResolveMissingProfileArtworkUrlsAsync(profileId, entry).ConfigureAwait(false);
                     await DownloadProfileHistoryArtworkAsync(profileId, entry.Name, "vertical",
                         entry.ShowcaseVerticalImageUrl, entry.ShowcaseVerticalLocalImage).ConfigureAwait(false);
                     await DownloadProfileHistoryArtworkAsync(profileId, entry.Name, "horizontal",
@@ -644,6 +801,76 @@ public partial class MainWindow
                 _profileArtworkWorkers.TryRemove(profileId, out _);
             }
         });
+    }
+
+    private async Task ResolveMissingProfileArtworkUrlsAsync(string profileId, GameHistoryEntry entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry.Name) ||
+            (!string.IsNullOrWhiteSpace(entry.ShowcaseVerticalImageUrl) &&
+             !string.IsNullOrWhiteSpace(entry.HistoryHorizontalImageUrl) &&
+             !string.IsNullOrWhiteSpace(entry.ProfileBannerImageUrl))) return;
+        if (string.IsNullOrWhiteSpace(FindProfileForSync(profileId)?.SteamGridApiKey)) return;
+
+        (string? Vertical, string? Horizontal, string? Banner, string? Logo) assets = entry.SteamGridGameId > 0
+            ? await FetchAssetsByGameId(entry.SteamGridGameId).ConfigureAwait(false)
+            : await FetchSteamGridAssetsAsync(entry.Name).ConfigureAwait(false);
+
+        bool changed = false;
+        if (string.IsNullOrWhiteSpace(entry.ShowcaseVerticalImageUrl) && !string.IsNullOrWhiteSpace(assets.Vertical))
+        {
+            entry.ShowcaseVerticalImageUrl = assets.Vertical;
+            changed = true;
+        }
+        if (string.IsNullOrWhiteSpace(entry.HistoryHorizontalImageUrl) && !string.IsNullOrWhiteSpace(assets.Horizontal))
+        {
+            entry.HistoryHorizontalImageUrl = assets.Horizontal;
+            changed = true;
+        }
+        if (string.IsNullOrWhiteSpace(entry.ProfileBannerImageUrl) && !string.IsNullOrWhiteSpace(assets.Banner))
+        {
+            entry.ProfileBannerImageUrl = assets.Banner;
+            changed = true;
+        }
+        if (!changed) return;
+
+        lock (_gameHistoryFileLock)
+        {
+            string historyPath = Path.Combine(dataFolder, "users", profileId, "game-history.json");
+            List<GameHistoryEntry> latest;
+            try
+            {
+                latest = File.Exists(historyPath)
+                    ? JsonSerializer.Deserialize<List<GameHistoryEntry>>(SafeReadAllText(historyPath)) ?? new()
+                    : new List<GameHistoryEntry>();
+            }
+            catch { return; }
+
+            string key = ProfileSyncSnapshotFactory.NormalizeGameKey(entry.Name);
+            GameHistoryEntry? target = latest.FirstOrDefault(item =>
+                ProfileSyncSnapshotFactory.NormalizeGameKey(item.Name) == key);
+            if (target == null) return;
+            if (string.IsNullOrWhiteSpace(target.ShowcaseVerticalImageUrl))
+                target.ShowcaseVerticalImageUrl = entry.ShowcaseVerticalImageUrl;
+            if (string.IsNullOrWhiteSpace(target.HistoryHorizontalImageUrl))
+                target.HistoryHorizontalImageUrl = entry.HistoryHorizontalImageUrl;
+            if (string.IsNullOrWhiteSpace(target.ProfileBannerImageUrl))
+                target.ProfileBannerImageUrl = entry.ProfileBannerImageUrl;
+            string json = JsonSerializer.Serialize(latest, IndentedJsonOptions);
+            SafeWriteAllText(historyPath, json);
+            if (string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase))
+                SafeWriteAllText(Path.Combine(dataFolder, "game-history.json"), json);
+        }
+
+        PostProfileSyncMessage(new
+        {
+            type = "profileSyncArtworkUpdated",
+            profileId,
+            gameName = entry.Name,
+            verticalUrl = entry.ShowcaseVerticalImageUrl,
+            horizontalUrl = entry.HistoryHorizontalImageUrl,
+            bannerUrl = entry.ProfileBannerImageUrl
+        });
+        ScheduleProfileSync(profileId);
     }
 
     private async Task DownloadProfileHistoryArtworkAsync(
@@ -697,21 +924,34 @@ public partial class MainWindow
                 SafeWriteAllText(mirror, json);
             }
         }
+        PostProfileSyncMessage(new
+        {
+            type = "profileSyncArtworkUpdated",
+            profileId,
+            gameName,
+            category,
+            remoteUrl,
+            localUrl = savedUrl
+        });
     }
 
     private bool HasUsableProfileArtwork(string localUrl)
     {
         if (string.IsNullOrWhiteSpace(localUrl)) return false;
-        const string dataPrefix = "https://data.local/images/";
-        if (localUrl.StartsWith(dataPrefix, StringComparison.OrdinalIgnoreCase))
+        try
         {
-            string relative = Uri.UnescapeDataString(localUrl[dataPrefix.Length..])
-                .Replace('/', Path.DirectorySeparatorChar);
-            string candidate = Path.GetFullPath(Path.Combine(dataFolder, "images", relative));
-            string imageRoot = Path.GetFullPath(Path.Combine(dataFolder, "images")) + Path.DirectorySeparatorChar;
-            return candidate.StartsWith(imageRoot, StringComparison.OrdinalIgnoreCase) && File.Exists(candidate);
+            const string dataPrefix = "https://data.local/images/";
+            if (localUrl.StartsWith(dataPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                string relative = Uri.UnescapeDataString(localUrl[dataPrefix.Length..])
+                    .Replace('/', Path.DirectorySeparatorChar);
+                string candidate = Path.GetFullPath(Path.Combine(dataFolder, "images", relative));
+                string imageRoot = Path.GetFullPath(Path.Combine(dataFolder, "images")) + Path.DirectorySeparatorChar;
+                return candidate.StartsWith(imageRoot, StringComparison.OrdinalIgnoreCase) && File.Exists(candidate);
+            }
+            return Path.IsPathRooted(localUrl) && File.Exists(localUrl);
         }
-        return Path.IsPathRooted(localUrl) && File.Exists(localUrl);
+        catch { return false; }
     }
 
     private void PostProfileSyncFailureNotification(string profileId, SyncStatus status)

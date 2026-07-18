@@ -51,7 +51,6 @@ public static class ProfileSyncSerializer
     private sealed class CanonicalProfileContent
     {
         public int SchemaVersion { get; init; }
-        public string ProfileId { get; init; } = "";
         public string ProfileName { get; init; } = "";
         public string PinCode { get; init; } = "";
         public string SteamGridApiKey { get; init; } = "";
@@ -64,7 +63,6 @@ public static class ProfileSyncSerializer
             => new()
             {
                 SchemaVersion = profile.SchemaVersion,
-                ProfileId = profile.ProfileId ?? "",
                 ProfileName = profile.ProfileName ?? "",
                 PinCode = profile.PinCode ?? "",
                 SteamGridApiKey = profile.SteamGridApiKey ?? "",
