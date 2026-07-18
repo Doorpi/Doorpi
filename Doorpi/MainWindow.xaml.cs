@@ -1944,6 +1944,8 @@ namespace Doorpi
             if (!File.Exists(storesFile)) File.WriteAllText(storesFile, "[]");
 
             SaveUserProfile(profile);
+            ScheduleProfileSync(profile.Id, notifyFailure: true);
+            ResumeProfileSyncArtworkDownloads(profile.Id);
             MirrorCurrentUserDataFiles();
             File.WriteAllText(currentUserFile, currentUserId);
             WriteUserProfileFile(Path.Combine(dataFolder, "user.json"), profile);
@@ -5964,6 +5966,7 @@ namespace Doorpi
             if (string.IsNullOrWhiteSpace(profile.Id)) profile.Id = currentUserId;
             WriteUserProfileFile(userFile, profile);
             WriteUserProfileFile(Path.Combine(dataFolder, "user.json"), profile);
+            ScheduleProfileSync(profile.Id);
         }
         // ========================= INICIAR COM O WINDOWS =========================
 
@@ -8425,7 +8428,7 @@ namespace Doorpi
 
             if (game != null)
             {
-                game.TotalPlaytimeMinutes += sessionMinutes;
+                game.TotalPlaytimeMinutes = SaturatingAddPlaytimeMinutes(game.TotalPlaytimeMinutes, sessionMinutes);
                 game.LastSessionMinutes = sessionMinutes;
                 SaveGames(games);
                 Debug.WriteLine($"[Session] {game.Name}: +{sessionMinutes}min (total: {game.TotalPlaytimeMinutes}min)");
@@ -12677,6 +12680,7 @@ namespace Doorpi
                     GridHorizontalImage = steamAssets.Item2,
                     GridSourceUrl = steamAssets.Item1,
                     GridHorizontalSourceUrl = steamAssets.Item2,
+                    HeroSourceUrl = steamAssets.Item3,
                     HeroImage = steamAssets.Item3,
                     LogoImage = steamAssets.Item4,
                     IconBase64 = app.IconBase64,
@@ -12808,6 +12812,7 @@ namespace Doorpi
                 if (horizontalTask.Result != null) game.GridHorizontalImage = $"https://data.local/images/grid-horizontal/{Path.GetFileName(horizontalTask.Result)}";
                 game.GridSourceUrl = assets.Grid;
                 game.GridHorizontalSourceUrl = assets.Horizontal;
+                game.HeroSourceUrl = assets.Hero;
                 game.HeroImage = $"https://data.local/images/hero/{Path.GetFileName(heroTask.Result)}";
                 if (logoTask.Result != null) game.LogoImage = $"https://data.local/images/logo/{Path.GetFileName(logoTask.Result)}";
                 game.ArtworkSource = "steam-cdn-local";
@@ -12871,6 +12876,7 @@ namespace Doorpi
                     game.GridHorizontalImage = hTask.Result != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(hTask.Result)}" : game.GridImage;
                     game.GridSourceUrl = gridUrl;
                     game.GridHorizontalSourceUrl = !string.IsNullOrWhiteSpace(horizontalUrl) ? horizontalUrl : gridUrl;
+                    game.HeroSourceUrl = heroUrl;
                     game.HeroImage = $"https://data.local/images/hero/{Path.GetFileName(heroTask.Result)}";
                     game.LogoImage = logoTask.Result != null ? $"https://data.local/images/logo/{Path.GetFileName(logoTask.Result)}" : "";
                     game.IsPendingArtwork = false;
@@ -13128,6 +13134,9 @@ namespace Doorpi
                 var root = doc.RootElement;
                 if (!root.TryGetProperty("action", out var actionElement)) return;
                 string action = actionElement.GetString() ?? "";
+
+                if (await TryHandleProfileSyncWebMessageAsync(action, root).ConfigureAwait(true))
+                    return;
 
                 if (action == "requestInstalledApps")
                 {
@@ -14499,14 +14508,17 @@ namespace Doorpi
                     var incoming = setupUsersEl.EnumerateArray().ToList();
                     var existingUsers = LoadUserProfiles();
                     bool wasEmpty = existingUsers.Count == 0 || existingUsers.All(u => string.IsNullOrWhiteSpace(u.Name));
-                    var savedProfiles = new List<(UserProfile Profile, List<string> Folders)>();
+                    var savedProfiles = new List<(UserProfile Profile, List<string> Folders, bool SyncConnected, bool ImportCloud)>();
 
                     foreach (var userEl in incoming)
                     {
                         bool isFirstAdmin = !existingUsers.Any(u => u.IsAdmin) && savedProfiles.Count == 0;
+                        string requestedProfileId = NormalizeProfileSyncId(GetStr(userEl, "id"));
                         var profile = new UserProfile
                         {
-                            Id = MakeUserId(GetStr(userEl, "name")),
+                            Id = string.IsNullOrWhiteSpace(requestedProfileId)
+                                ? MakeUserId(GetStr(userEl, "name"))
+                                : requestedProfileId,
                             Name = GetStr(userEl, "name"),
                             PhotoBase64 = GetStr(userEl, "photoBase64"),
                             PhotoSource = GetStr(userEl, "photoSource"),
@@ -14536,7 +14548,9 @@ namespace Doorpi
                             JsonSerializer.Serialize(folders.Select(p => new FolderStats { Path = p }).ToList(),
                                 IndentedJsonOptions));
 
-                        savedProfiles.Add((profile, folders));
+                        bool syncConnected = userEl.TryGetProperty("syncConnected", out var syncConnectedEl) && syncConnectedEl.GetBoolean();
+                        bool importCloud = userEl.TryGetProperty("importCloud", out var importCloudEl) && importCloudEl.GetBoolean();
+                        savedProfiles.Add((profile, folders, syncConnected, importCloud));
                     }
 
                     SaveUserProfiles(existingUsers.Where(u => !string.IsNullOrWhiteSpace(u.Name)).ToList());
@@ -14553,6 +14567,11 @@ namespace Doorpi
                         {
                             try
                             {
+                                var activeSync = savedProfiles[activeIndex];
+                                if (activeSync.SyncConnected)
+                                    await CompletePendingSetupProfileSyncAsync(activeSync.Profile.Id, activeSync.ImportCloud)
+                                        .ConfigureAwait(false);
+
                                 // O Segredo 1: Executa a validaÃ§Ã£o das mÃ­dias simultaneamente para TODOS os usuÃ¡rios
                                 await Dispatcher.InvokeAsync(LoadCurrentUserIntoUI);
                                 await WaitForConsoleShellReadyForUserTransitionAsync().ConfigureAwait(false);
@@ -15315,6 +15334,7 @@ namespace Doorpi
                         var dlg = new Microsoft.Win32.OpenFolderDialog { Title = dialogTitle };
 
                         bool? dialogResult = ShowDialogWithController(dlg);
+                        string selectedPath = "";
 
                         if (dialogResult == true)
                         {
@@ -15323,11 +15343,14 @@ namespace Doorpi
                             {
                                 System.Windows.MessageBox.Show(forbiddenMsg, forbiddenTitle,
                                     MessageBoxButton.OK, MessageBoxImage.Warning);
-                                return;
                             }
-                            webView.CoreWebView2.PostWebMessageAsString(
-                                JsonSerializer.Serialize(new { type = "setupFolderAdded", path }));
+                            else
+                            {
+                                selectedPath = path;
+                            }
                         }
+                        webView.CoreWebView2.PostWebMessageAsString(
+                            JsonSerializer.Serialize(new { type = "setupFolderDialogClosed", path = selectedPath }));
                     });
                 }
                 else if (action == "readClipboard")
@@ -15457,6 +15480,7 @@ namespace Doorpi
                     GridHorizontalImage = tHoriz.Result != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(tHoriz.Result)}" : "",
                     GridSourceUrl = gridUrl ?? "",
                     GridHorizontalSourceUrl = gridHorizontalUrl ?? "",
+                    HeroSourceUrl = heroUrl ?? "",
                     HeroImage = tHero.Result != null ? $"https://data.local/images/hero/{Path.GetFileName(tHero.Result)}" : "",
                     LogoImage = tLogo.Result != null ? $"https://data.local/images/logo/{Path.GetFileName(tLogo.Result)}" : "",
                     IconBase64 = iconBase64,
@@ -15856,7 +15880,12 @@ namespace Doorpi
                 game.GridHorizontalStaticImage = "";
                 game.GridHorizontalSourceUrl = IsRemoteArtworkUrl(url) ? url : "";
             }
-            else if (category == "banner") { game.HeroImage = url; game.HeroStaticImage = ""; }
+            else if (category == "banner")
+            {
+                game.HeroImage = url;
+                game.HeroStaticImage = "";
+                game.HeroSourceUrl = IsRemoteArtworkUrl(url) ? url : "";
+            }
             else if (category == "logo") { game.LogoImage = url; game.LogoStaticImage = ""; }
             else
             {
@@ -15949,6 +15978,7 @@ namespace Doorpi
                     ApplyArtworkUrlToGame(game, item.Category, url);
                     if (!localFiles && item.Category == "vertical") game.GridSourceUrl = item.Value;
                     if (!localFiles && item.Category == "horizontal") game.GridHorizontalSourceUrl = item.Value;
+                    if (!localFiles && item.Category == "banner") game.HeroSourceUrl = item.Value;
                     patch[item.Category] = url;
                 }
 
@@ -15987,7 +16017,7 @@ namespace Doorpi
             string safeName = "history_" + StableAssetName(currentUserId + "_" + gameName + "_" + DateTime.UtcNow.Ticks);
 
             var selected = imagesEl.EnumerateObject()
-                .Where(property => property.Name is "vertical" or "horizontal")
+                .Where(property => property.Name is "vertical" or "horizontal" or "banner")
                 .Select(property => (Category: property.Name, Value: property.Value.GetString() ?? ""))
                 .Where(item => Uri.TryCreate(item.Value, UriKind.Absolute, out var uri) &&
                                (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
@@ -15995,9 +16025,15 @@ namespace Doorpi
 
             foreach (var item in selected)
             {
-                string urlFolder = item.Category == "vertical" ? "history-vertical" : "history-horizontal";
+                string urlFolder = item.Category switch
+                {
+                    "vertical" => "history-vertical",
+                    "banner" => "history-banner",
+                    _ => "history-horizontal"
+                };
                 string targetFolder = Path.Combine(dataFolder, "images", urlFolder);
-                string? local = await DownloadImageAsync(item.Value, targetFolder, safeName + (item.Category == "vertical" ? "_v" : "_h"))
+                string suffix = item.Category switch { "vertical" => "_v", "banner" => "_b", _ => "_h" };
+                string? local = await DownloadImageAsync(item.Value, targetFolder, safeName + suffix)
                     .ConfigureAwait(false);
                 if (local == null) continue;
 
@@ -16025,6 +16061,12 @@ namespace Doorpi
                     entry.HistoryHorizontalLocalImage = horizontal;
                     entry.HistoryHorizontalImageUrl = sourceUrls["horizontal"];
                     patch["horizontalSourceUrl"] = sourceUrls["horizontal"];
+                }
+                if (patch.TryGetValue("banner", out string? banner))
+                {
+                    entry.ProfileBannerLocalImage = banner;
+                    entry.ProfileBannerImageUrl = sourceUrls["banner"];
+                    patch["bannerSourceUrl"] = sourceUrls["banner"];
                 }
                 SaveGameHistory(history);
             }
@@ -16699,7 +16741,7 @@ namespace Doorpi
                         return new GameHistoryEntry
                         {
                             Name = newest.Name,
-                            TotalPlaytimeMinutes = group.Sum(g => Math.Max(0, g.TotalPlaytimeMinutes)),
+                            TotalPlaytimeMinutes = SaturatingSumPlaytimeMinutes(group.Select(g => g.TotalPlaytimeMinutes)),
                             LastSessionMinutes = newest.LastSessionMinutes,
                             FirstPlayed = oldestPlayed,
                             LastPlayed = group.Max(g => g.LastPlayed),
@@ -16711,6 +16753,9 @@ namespace Doorpi
                             ShowcaseVerticalLocalImage = FirstNotBlank(ordered.Select(g => g.GridStaticImage).Concat(ordered.Select(g => g.GridImage))),
                             HistoryHorizontalImageUrl = FirstNotBlank(ordered.Select(g => g.GridHorizontalSourceUrl)),
                             HistoryHorizontalLocalImage = FirstNotBlank(ordered.Select(g => g.GridHorizontalStaticImage).Concat(ordered.Select(g => g.GridHorizontalImage))),
+                            ProfileBannerImageUrl = FirstNotBlank(ordered.Select(g => g.HeroSourceUrl)
+                                .Concat(ordered.Select(g => IsRemoteArtworkUrl(g.HeroImage) ? g.HeroImage : ""))),
+                            ProfileBannerLocalImage = FirstNotBlank(ordered.Select(g => g.HeroStaticImage).Concat(ordered.Select(g => g.HeroImage))),
                             IconBase64 = FirstNotBlank(ordered.Select(g => g.IconBase64)),
                             Source = FirstNotBlank(ordered.Select(g => g.Source))
                         };
@@ -16777,6 +16822,12 @@ namespace Doorpi
                     changed = true;
                 }
             }
+            if (string.IsNullOrWhiteSpace(entry.ProfileBannerImageUrl) &&
+                IsRemoteArtworkUrl(entry.ProfileBannerLocalImage))
+            {
+                entry.ProfileBannerImageUrl = entry.ProfileBannerLocalImage;
+                changed = true;
+            }
             return changed;
         }
 
@@ -16821,6 +16872,7 @@ namespace Doorpi
                 if (!string.Equals(gameHistoryFile, currentMirror, StringComparison.OrdinalIgnoreCase))
                     SafeWriteAllText(currentMirror, json);
             }
+            ScheduleProfileSync(currentUserId);
         }
 
         private void MergeGamesWithHistory(List<GameModel> games)
@@ -16846,14 +16898,17 @@ namespace Doorpi
                     entry = new GameHistoryEntry
                     {
                         Name = newest.Name,
-                        TotalPlaytimeMinutes = group.Sum(game => Math.Max(0, game.TotalPlaytimeMinutes)),
+                        TotalPlaytimeMinutes = SaturatingSumPlaytimeMinutes(group.Select(game => game.TotalPlaytimeMinutes)),
                         LastSessionMinutes = newest.LastSessionMinutes,
                         FirstPlayed = newest.LastPlayed > DateTime.MinValue ? newest.LastPlayed : DateTime.Now,
                         LastPlayed = newest.LastPlayed,
                         ShowcaseVerticalImageUrl = FirstNotBlank(group.Select(game => game.GridSourceUrl)),
                         ShowcaseVerticalLocalImage = FirstNotBlank(group.Select(game => game.GridStaticImage).Concat(group.Select(game => game.GridImage))),
                         HistoryHorizontalImageUrl = FirstNotBlank(group.Select(game => game.GridHorizontalSourceUrl)),
-                        HistoryHorizontalLocalImage = FirstNotBlank(group.Select(game => game.GridHorizontalStaticImage).Concat(group.Select(game => game.GridHorizontalImage)))
+                        HistoryHorizontalLocalImage = FirstNotBlank(group.Select(game => game.GridHorizontalStaticImage).Concat(group.Select(game => game.GridHorizontalImage))),
+                        ProfileBannerImageUrl = FirstNotBlank(group.Select(game => game.HeroSourceUrl)
+                            .Concat(group.Select(game => IsRemoteArtworkUrl(game.HeroImage) ? game.HeroImage : ""))),
+                        ProfileBannerLocalImage = FirstNotBlank(group.Select(game => game.HeroStaticImage).Concat(group.Select(game => game.HeroImage)))
                     };
                     history.Add(entry);
                     byName[gameGroup.Key] = entry;
@@ -16887,6 +16942,11 @@ namespace Doorpi
                     entry.HistoryHorizontalImageUrl = FirstNotBlank(group.Select(game => game.GridHorizontalSourceUrl));
                 if (string.IsNullOrWhiteSpace(entry.HistoryHorizontalLocalImage))
                     entry.HistoryHorizontalLocalImage = FirstNotBlank(group.Select(game => game.GridHorizontalStaticImage).Concat(group.Select(game => game.GridHorizontalImage)));
+                if (string.IsNullOrWhiteSpace(entry.ProfileBannerImageUrl))
+                    entry.ProfileBannerImageUrl = FirstNotBlank(group.Select(game => game.HeroSourceUrl)
+                        .Concat(group.Select(game => IsRemoteArtworkUrl(game.HeroImage) ? game.HeroImage : "")));
+                if (string.IsNullOrWhiteSpace(entry.ProfileBannerLocalImage))
+                    entry.ProfileBannerLocalImage = FirstNotBlank(group.Select(game => game.HeroStaticImage).Concat(group.Select(game => game.HeroImage)));
                 entry.IconBase64 = FirstNotBlank(group.Select(game => game.IconBase64).Append(entry.IconBase64));
                 entry.Source = FirstNotBlank(group.Select(game => game.Source).Append(entry.Source));
 
@@ -16920,10 +16980,25 @@ namespace Doorpi
                 history.Add(entry);
             }
 
-            entry.TotalPlaytimeMinutes += sessionMinutes;
+            entry.TotalPlaytimeMinutes = SaturatingAddPlaytimeMinutes(entry.TotalPlaytimeMinutes, sessionMinutes);
             entry.LastSessionMinutes = sessionMinutes;
             entry.LastPlayed = DateTime.Now;
             SaveGameHistory(history);
+        }
+
+        private static long SaturatingAddPlaytimeMinutes(long current, long increment)
+        {
+            current = Math.Max(0, current);
+            increment = Math.Max(0, increment);
+            return current > long.MaxValue - increment ? long.MaxValue : current + increment;
+        }
+
+        private static long SaturatingSumPlaytimeMinutes(IEnumerable<long> values)
+        {
+            long total = 0;
+            foreach (long value in values)
+                total = SaturatingAddPlaytimeMinutes(total, value);
+            return total;
         }
 
 

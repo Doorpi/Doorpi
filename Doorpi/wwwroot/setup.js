@@ -7,6 +7,11 @@ let _currUser = null;
 let _isAddingUserMode = false;
 let _setupLayoutConfirmed = false;
 let _setupPendingLayoutScale = 1;
+let _setupPhase = 'layout';
+let _setupCloudProfileId = '';
+let _setupFolderDialogPending = false;
+let _setupSyncConnectFromRegistration = false;
+let _setupSyncMessage = '';
 
 // ── Estilos ───────────────────────────────────────────────────────────────────
 (function injectSetupStyles() {
@@ -22,6 +27,40 @@ let _setupPendingLayoutScale = 1;
     #setupContainer.visible { animation: setupFadeIn 0.35s ease forwards; }
 
     #setupBg { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+
+    .setup-auth-gate { position:relative; z-index:2; width:min(720px,94vw); display:none; flex-direction:column; align-items:center; gap:18px; text-align:center; }
+    .setup-auth-gate.visible { display:flex; }
+    .setup-auth-title { margin:0; color:#fff; font-size:clamp(2rem,3.4vw,4rem); font-weight:350; letter-spacing:0; }
+    .setup-auth-copy { max-width:580px; margin:0 0 12px; color:rgba(255,255,255,.58); font-size:clamp(.95rem,1.05vw,1.2rem); line-height:1.55; }
+    .setup-auth-actions { width:min(430px,88vw); display:grid; gap:12px; }
+    .setup-auth-btn { min-height:58px; display:flex; align-items:center; justify-content:center; gap:12px; padding:0 26px; border:1px solid rgba(255,255,255,.18); border-radius:999px; background:rgba(255,255,255,.075); color:#fff; font:700 clamp(.94rem,1vw,1.08rem) inherit; cursor:pointer; outline:none; }
+    .setup-auth-btn.google { background:rgba(255,255,255,.94); color:#111827; }
+    .setup-auth-btn .profile-sync-google { width:22px; height:22px; flex:none; }
+    .setup-auth-btn:focus { border-color:#7bbcff; box-shadow:0 0 0 5px rgba(78,157,255,.28); transform:scale(1.025); }
+    .setup-auth-btn:disabled { cursor:default; opacity:.78; transform:none; }
+    .setup-auth-status { min-height:24px; color:rgba(255,255,255,.58); }
+    .setup-auth-status.error { color:#ffb0b0; }
+    .setup-auth-loading { position:relative; z-index:2; width:min(620px,90vw); display:none; flex-direction:column; align-items:center; gap:16px; text-align:center; }
+    .setup-auth-loading.visible { display:flex; }
+    .setup-auth-spinner { width:46px; height:46px; border:3px solid rgba(255,255,255,.16); border-top-color:#8ac8ff; border-radius:50%; animation:setupAuthSpin .85s linear infinite; }
+    .setup-auth-loading h2 { margin:4px 0 0; color:#fff; font-size:clamp(1.75rem,2.5vw,3rem); font-weight:400; }
+    .setup-auth-loading p { min-height:1.6em; margin:0; color:rgba(255,255,255,.58); font-size:clamp(.92rem,1vw,1.12rem); }
+    @keyframes setupAuthSpin { to { transform:rotate(360deg); } }
+    .setup-back-auth { position:fixed; top:clamp(26px,4vh,60px); left:clamp(28px,4vw,72px); z-index:4; display:none; align-items:center; gap:9px; min-height:44px; padding:0 22px; border:1px solid rgba(255,255,255,.12); border-radius:999px; background:rgba(255,255,255,.05); color:rgba(255,255,255,.82); font:600 clamp(.9rem,1vw,1.05rem) inherit; cursor:pointer; outline:none; transition:background .18s ease,color .18s ease,border-color .18s ease,transform .18s ease; }
+    .setup-back-auth.visible { display:flex; }
+    .setup-back-auth:focus,.setup-back-auth:hover { background:#fff; border-color:#fff; color:#08101c; transform:scale(1.04); }
+    .setup-back-auth-arrow { font-size:1.55em; font-weight:300; line-height:1; transform:translateY(-1px); }
+    .setup-cloud-profile { display:none; width:100%; align-items:center; justify-content:space-between; gap:28px; padding:18px 4px 8px; box-sizing:border-box; }
+    .setup-cloud-profile.visible { display:flex; }
+    .setup-cloud-identity { min-width:0; display:flex; align-items:center; gap:20px; }
+    .setup-cloud-avatar { width:78px; height:78px; flex:none; display:grid; place-items:center; overflow:hidden; border:2px solid rgba(136,190,255,.65); border-radius:50%; background:rgba(255,255,255,.08); color:#fff; font-size:1.8rem; font-weight:700; }
+    .setup-cloud-avatar img { width:100%; height:100%; object-fit:cover; }
+    .setup-cloud-profile-copy { min-width:0; display:flex; flex-direction:column; gap:5px; }
+    .setup-cloud-profile-label { color:rgba(255,255,255,.5); font-size:.82rem; font-weight:700; text-transform:uppercase; }
+    .setup-cloud-profile-name { overflow:hidden; color:#fff; font-size:clamp(1.45rem,2vw,2rem); font-weight:650; text-overflow:ellipsis; white-space:nowrap; }
+    .setup-cloud-playtime { flex:none; display:flex; flex-direction:column; align-items:flex-end; gap:5px; text-align:right; }
+    .setup-cloud-playtime-label { color:rgba(255,255,255,.5); font-size:.82rem; font-weight:700; text-transform:uppercase; }
+    .setup-cloud-playtime-value { color:#fff; font-size:clamp(1.45rem,2vw,2rem); font-weight:650; white-space:nowrap; }
 
     .setup-form { position: relative; z-index: 1; width: min(760px, 96vw); display: flex; flex-direction: column; gap: clamp(8px, 1vw, 14px); margin: 0 auto; }
     @keyframes setupFadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
@@ -81,6 +120,10 @@ let _setupPendingLayoutScale = 1;
     .setup-section-content { padding: 0 clamp(20px, 2.2vw, 32px) clamp(20px, 2.2vw, 30px); display: flex; flex-direction: column; gap: clamp(14px, 1.5vw, 20px); }
     .setup-section-divider { height: 1px; background: rgba(255,255,255,0.10); margin-bottom: clamp(2px, 0.3vw, 6px); }
     .setup-section-desc { font-size: clamp(0.85rem, 0.95vw, 1.15rem); color: rgba(255,255,255,0.50); margin: 0; line-height: 1.6; font-weight: 300; }
+    .setup-sync-actions { display:flex; align-items:center; gap:clamp(12px,1.2vw,18px); }
+    .setup-sync-actions .setup-auth-btn { width:min(390px,100%); }
+    .setup-sync-message { min-height:1.4em; margin:0; color:rgba(255,255,255,.52); font-size:clamp(.8rem,.9vw,1.05rem); }
+    .setup-sync-message.error { color:#ffb0b0; }
     .setup-identity-row { display: flex; align-items: center; gap: clamp(16px, 1.8vw, 26px); }
     
     .setup-photo-btn { width: clamp(68px, 7.5vw, 100px); height: clamp(68px, 7.5vw, 100px); border-radius: 50%; background: rgba(255,255,255,0.07); border: 2px dashed rgba(255,255,255,0.25); display: flex; align-items: center; justify-content: center; overflow: hidden; color: rgba(255,255,255,0.30); cursor: pointer; outline: none; flex-shrink: 0; transition: border-color 0.2s, background 0.2s, transform 0.2s, box-shadow 0.2s; position: relative; }
@@ -246,11 +289,40 @@ let _setupPendingLayoutScale = 1;
 
     container.innerHTML = `
     <canvas id="setupBg"></canvas>
+    <button class="setup-back-auth setup-focusable" id="btnSetupBackAuth" tabindex="-1"><span class="setup-back-auth-arrow">‹</span><span data-i18n="profileSyncBack">Voltar</span></button>
+    <section class="setup-auth-gate" id="setupAuthGate">
+        <h1 class="setup-auth-title" data-i18n="profileSyncSetupTitle">Entre no Doorpi</h1>
+        <p class="setup-auth-copy" id="setupAuthCopy" data-i18n="profileSyncSetupCopy">Entre no seu perfil ou cadastre-se.</p>
+        <div class="setup-auth-actions">
+            <button class="setup-auth-btn google setup-focusable" id="btnSetupGoogle" tabindex="-1"></button>
+            <button class="setup-auth-btn setup-focusable" id="btnSetupRegister" tabindex="-1" data-i18n="profileSyncRegister">Cadastrar</button>
+        </div>
+        <div class="setup-auth-status" id="setupAuthStatus"></div>
+    </section>
+    <section class="setup-auth-loading" id="setupAuthLoading" aria-live="polite">
+        <div class="setup-auth-spinner" aria-hidden="true"></div>
+        <h2 data-i18n="profileSyncSigningInTitle">Entrando</h2>
+        <p id="setupAuthLoadingCopy" data-i18n="profileSyncSigningInBrowser">Conclua o acesso na janela do navegador.</p>
+    </section>
     <div class="setup-form">
         <div class="setup-header">
             <span class="setup-header-eyebrow" data-i18n="setupEyebrow"></span>
             <h1 class="setup-header-title" data-i18n="setupStep1Title"></h1>
             <p class="setup-header-subtitle" data-i18n="setupHeaderSubtitle"></p>
+        </div>
+
+        <div class="setup-cloud-profile" id="setupCloudProfile">
+            <div class="setup-cloud-identity">
+                <div class="setup-cloud-avatar" id="setupCloudAvatar"></div>
+                <div class="setup-cloud-profile-copy">
+                    <span class="setup-cloud-profile-label" data-i18n="profileSyncSignedInProfile">Seu perfil</span>
+                    <strong class="setup-cloud-profile-name" id="setupCloudProfileName"></strong>
+                </div>
+            </div>
+            <div class="setup-cloud-playtime">
+                <span class="setup-cloud-playtime-label" data-i18n="profileSyncFieldHours">Horas jogadas</span>
+                <strong class="setup-cloud-playtime-value" id="setupCloudPlaytime">0h</strong>
+            </div>
         </div>
 
         <div class="setup-section" id="setupSectionLayout">
@@ -338,9 +410,30 @@ let _setupPendingLayoutScale = 1;
             </div>
         </div>
 
+        <div class="setup-section" id="setupSectionGoogleSync">
+            <button class="setup-section-header setup-focusable" data-section="google-sync">
+                <span class="setup-section-step">04</span>
+                <span class="setup-section-label" data-i18n="setupSectionGoogleSync"></span>
+                <span class="setup-section-status" id="statusGoogleSync"></span>
+                ${chevron}
+            </button>
+            <div class="setup-section-body">
+                <div class="setup-section-body-inner">
+                    <div class="setup-section-content">
+                        <div class="setup-section-divider"></div>
+                        <p class="setup-section-desc" data-i18n="setupGoogleSyncDesc"></p>
+                        <div class="setup-sync-actions">
+                            <button class="setup-auth-btn google setup-focusable" id="btnSetupSyncGoogle" tabindex="-1"></button>
+                        </div>
+                        <p class="setup-sync-message" id="setupSyncMessage" aria-live="polite"></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="setup-section" id="setupSectionFolders">
             <button class="setup-section-header setup-focusable" data-section="folders">
-                <span class="setup-section-step">04</span>
+                <span class="setup-section-step">05</span>
                 <span class="setup-section-label" data-i18n="setupSectionFolders"></span>
                 <span class="setup-section-status" id="statusFolders"></span>
                 ${chevron}
@@ -371,9 +464,11 @@ let _setupPendingLayoutScale = 1;
     const apiSection = container.querySelector('#setupSectionApiKey');
     const identitySection = container.querySelector('#setupSectionIdentity');
     const layoutSection = container.querySelector('#setupSectionLayout');
-    if (apiSection && identitySection && layoutSection) {
+    const syncSection = container.querySelector('#setupSectionGoogleSync');
+    if (apiSection && identitySection && layoutSection && syncSection) {
         layoutSection.after(apiSection);
         apiSection.after(identitySection);
+        identitySection.after(syncSection);
         apiSection.querySelector('.setup-section-step').textContent = '02';
         identitySection.querySelector('.setup-section-step').textContent = '03';
     }
@@ -530,7 +625,7 @@ function _renderSetupUsers() {
         const newUser = {
             id: Date.now(), name: '', pin: '', photoBase64: '', apiKey: '', folders: [],
             photoSource: '', photoSourceUrl: '', photoSteamGridAssetId: 0,
-            photoCropX: 0, photoCropY: 0, photoZoom: 1
+            photoCropX: 0, photoCropY: 0, photoZoom: 1, totalPlaytimeSeconds: 0
         };
         _setupUsers.push(newUser);
         _currUser = newUser;
@@ -589,6 +684,8 @@ function _updateStatus() {
         statusFolders.textContent = folderCount > 0 ? '✓' : '';
         statusFolders.className = 'setup-section-status ' + (folderCount > 0 ? 'done' : '');
     }
+
+    _renderSetupGoogleSync();
 
     const label = document.querySelector('#setupSectionIdentity .setup-section-label');
     if (label) {
@@ -731,6 +828,209 @@ function _stopSetupBg() {
     }
 }
 
+function _setupApplyPhaseVisibility() {
+    const form = document.querySelector('#setupContainer .setup-form');
+    const gate = document.getElementById('setupAuthGate');
+    const authLoading = document.getElementById('setupAuthLoading');
+    const layout = document.getElementById('setupSectionLayout');
+    const cloudProfile = document.getElementById('setupCloudProfile');
+    const backToAuth = document.getElementById('btnSetupBackAuth');
+    const isAuth = _setupPhase === 'auth';
+    const isAuthenticating = _setupPhase === 'authenticating';
+    const isRegistration = _setupPhase === 'registration';
+    const isCloudProfile = isRegistration && !!_currUser?.importCloud;
+    if (gate) gate.classList.toggle('visible', isAuth);
+    if (authLoading) authLoading.classList.toggle('visible', isAuthenticating);
+    gate?.querySelectorAll('.setup-focusable').forEach(item => { item.tabIndex = isAuth ? 0 : -1; });
+    if (form) form.style.display = (isAuth || isAuthenticating) ? 'none' : 'flex';
+    if (layout) layout.style.display = _setupPhase === 'layout' ? '' : 'none';
+    if (cloudProfile) cloudProfile.classList.toggle('visible', isCloudProfile);
+    if (backToAuth) {
+        backToAuth.classList.toggle('visible', isRegistration);
+        backToAuth.tabIndex = isRegistration ? 0 : -1;
+    }
+    const apiSection = document.getElementById('setupSectionApiKey');
+    const identitySection = document.getElementById('setupSectionIdentity');
+    const syncSection = document.getElementById('setupSectionGoogleSync');
+    const foldersSection = document.getElementById('setupSectionFolders');
+    if (apiSection) apiSection.style.display = isRegistration && !isCloudProfile ? '' : 'none';
+    if (identitySection) identitySection.style.display = isRegistration && !isCloudProfile ? '' : 'none';
+    if (syncSection) syncSection.style.display = isRegistration && !isCloudProfile ? '' : 'none';
+    if (foldersSection) foldersSection.style.display = isRegistration ? '' : 'none';
+}
+
+function _renderSetupGoogleSync(isError = false) {
+    const connected = !!_currUser?.syncConnected;
+    const status = document.getElementById('statusGoogleSync');
+    const button = document.getElementById('btnSetupSyncGoogle');
+    const message = document.getElementById('setupSyncMessage');
+    if (status) {
+        status.textContent = connected ? '✓' : '';
+        status.className = 'setup-section-status ' + (connected ? 'done' : '');
+    }
+    if (button) {
+        button.innerHTML = `${window.DoorpiProfileSync?.googleIcon || ''}<span>${typeof t === 'function'
+            ? t(connected ? 'setupGoogleSyncEnabled' : 'setupGoogleSyncConnect', connected ? 'Sincronização ativada' : 'Sincronizar com Google')
+            : (connected ? 'Sincronização ativada' : 'Sincronizar com Google')}</span>`;
+        button.disabled = connected;
+    }
+    if (message) {
+        message.textContent = _setupSyncMessage || (connected
+            ? (typeof t === 'function' ? t('profileSyncConnected', 'Sincronizado') : 'Sincronizado')
+            : '');
+        message.classList.toggle('error', !!isError);
+    }
+}
+
+function _setupShowRegistrationSyncError(message) {
+    _setupSyncMessage = message || (typeof t === 'function'
+        ? t('profileSyncFailed', 'Falha na sincronização')
+        : 'Falha na sincronização');
+    _setupShowRegistration('setupSectionGoogleSync');
+    _renderSetupGoogleSync(true);
+    _setupSyncConnectFromRegistration = false;
+}
+
+function _setupSetAuthBusy(busy, message = '', isError = false) {
+    const google = document.getElementById('btnSetupGoogle');
+    const register = document.getElementById('btnSetupRegister');
+    const status = document.getElementById('setupAuthStatus');
+    if (google) google.disabled = !!busy;
+    if (register) register.disabled = !!busy;
+    if (status) {
+        status.textContent = message || (busy ? (typeof t === 'function' ? t('profileSyncConnecting', 'Abrindo o Google...') : 'Abrindo o Google...') : '');
+        status.classList.toggle('error', !!isError);
+    }
+}
+
+function _setupShowAuthGate() {
+    _setupPhase = 'auth';
+    _currentSection = null;
+    _setupApplyPhaseVisibility();
+    _setupSetAuthBusy(false);
+    requestAnimationFrame(() => document.getElementById('btnSetupGoogle')?.focus());
+}
+
+function _setupShowAuthError(message) {
+    _setupShowAuthGate();
+    _setupSetAuthBusy(false, message, true);
+}
+
+function _setupShowAuthenticating(message = '') {
+    _setupPhase = 'authenticating';
+    _currentSection = null;
+    _setupApplyPhaseVisibility();
+    _setupSetAuthBusy(true);
+    const copy = document.getElementById('setupAuthLoadingCopy');
+    if (copy) copy.textContent = message || (typeof t === 'function'
+        ? t('profileSyncSigningInBrowser', 'Conclua o acesso na janela do navegador.')
+        : 'Conclua o acesso na janela do navegador.');
+}
+
+function _setupSetAuthenticatingMessage(message) {
+    const copy = document.getElementById('setupAuthLoadingCopy');
+    if (copy && message) copy.textContent = message;
+}
+
+function _setupReturnToAuth() {
+    const wasCloudProfile = !!_currUser?.importCloud;
+    if (_setupCloudProfileId && _currUser?.syncConnected) {
+        postToHost({ action: 'profileSyncDisconnect', profileId: _setupCloudProfileId, deleteCloud: false });
+    }
+    _setupCloudProfileId = '';
+    if (wasCloudProfile) {
+        _setupUsers = [{
+            id: '', name: '', pin: '', photoBase64: '', apiKey: '', folders: [],
+            photoSource: '', photoSourceUrl: '', photoSteamGridAssetId: 0,
+            photoCropX: 0, photoCropY: 0, photoZoom: 1, totalPlaytimeSeconds: 0,
+            syncConnected: false, importCloud: false
+        }];
+        _currUser = _setupUsers[0];
+    } else if (_currUser) {
+        _currUser.id = '';
+        _currUser.syncConnected = false;
+        _currUser.importCloud = false;
+    }
+    _setupSyncConnectFromRegistration = false;
+    _setupSyncMessage = '';
+    _loadCurrentUserIntoForm();
+    _renderSetupUsers();
+    _renderSetupCloudProfile();
+    _setupShowAuthGate();
+}
+
+function _setupShowRegistration(preferredSectionId = '') {
+    _setupPhase = 'registration';
+    _currentSection = null;
+    _setupApplyPhaseVisibility();
+    _renderSetupGoogleSync();
+    const finish = document.getElementById('btnSetupFinish');
+    if (finish) finish.textContent = _isAddingUserMode
+        ? (typeof t === 'function' ? t('addUsuario', 'Adicionar usuário') : 'Adicionar usuário')
+        : (typeof t === 'function' ? t('setupStep4Finish', 'Concluir') : 'Concluir');
+    const firstSection = document.getElementById(preferredSectionId || (_currUser?.importCloud ? 'setupSectionFolders' : 'setupSectionApiKey'));
+    if (firstSection) _expandSection(firstSection);
+    requestAnimationFrame(() => firstSection?.querySelector('.setup-section-header')?.focus());
+}
+
+function _setupApplyRemoteProfile(data) {
+    const profile = data.profile || {};
+    const photo = profile.profilePhoto || profile.ProfilePhoto || {};
+    _setupCloudProfileId = data.profileId || _setupCloudProfileId;
+    if (!_currUser) return;
+    _currUser.id = _setupCloudProfileId;
+    _currUser.name = profile.profileName || profile.ProfileName || '';
+    _currUser.pin = profile.pinCode || profile.PinCode || '';
+    _currUser.apiKey = profile.steamGridApiKey || profile.SteamGridApiKey || '';
+    _currUser.photoBase64 = data.photoBase64 || '';
+    _currUser.photoSource = photo.source || photo.Source || '';
+    _currUser.photoSourceUrl = photo.sourceUrl || photo.SourceUrl || '';
+    _currUser.photoSteamGridAssetId = Number(photo.steamGridAssetId || photo.SteamGridAssetId || 0);
+    _currUser.photoCropX = Number(photo.cropX ?? photo.CropX ?? 0);
+    _currUser.photoCropY = Number(photo.cropY ?? photo.CropY ?? 0);
+    _currUser.photoZoom = Number(photo.zoom || photo.Zoom || 1);
+    _currUser.totalPlaytimeSeconds = Math.max(0, Number(profile.totalPlaytimeSeconds ?? profile.TotalPlaytimeSeconds ?? 0));
+    _currUser.syncConnected = true;
+    _currUser.importCloud = true;
+    _loadCurrentUserIntoForm();
+    _renderSetupUsers();
+    _renderSetupCloudProfile();
+    _setupShowRegistration();
+}
+
+function _renderSetupCloudProfile() {
+    const avatar = document.getElementById('setupCloudAvatar');
+    const name = document.getElementById('setupCloudProfileName');
+    const playtime = document.getElementById('setupCloudPlaytime');
+    if (!avatar || !name || !playtime || !_currUser) return;
+    name.textContent = _currUser.name || 'Doorpi';
+    if (_currUser.photoBase64) {
+        const src = window._doorpiUserPhotoSrc?.(_currUser.photoBase64) || `data:image/png;base64,${_currUser.photoBase64}`;
+        avatar.innerHTML = `<img src="${src}" alt="" />`;
+    } else {
+        avatar.textContent = (_currUser.name || 'D').trim().charAt(0).toUpperCase();
+    }
+    const totalMinutes = Math.floor(Math.max(0, Number(_currUser.totalPlaytimeSeconds) || 0) / 60);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    playtime.textContent = hours === 0
+        ? (minutes > 0 ? `${minutes}min` : '0h')
+        : (minutes > 0 ? `${hours}h ${minutes}min` : `${hours}h`);
+    const folderSection = document.getElementById('setupSectionFolders');
+    const folderStep = folderSection?.querySelector('.setup-section-step');
+    const folderLabel = folderSection?.querySelector('.setup-section-label');
+    const folderDesc = folderSection?.querySelector('.setup-section-desc');
+    if (folderStep) folderStep.textContent = _currUser.importCloud ? '01' : '05';
+    if (folderLabel) folderLabel.textContent = _currUser.importCloud
+        ? (typeof t === 'function' ? t('profileSyncFoldersTitle', 'Pastas para monitorar') : 'Pastas para monitorar')
+        : (typeof t === 'function' ? t('setupSectionFolders', 'Pastas de jogos locais') : 'Pastas de jogos locais');
+    if (folderDesc) folderDesc.textContent = _currUser.importCloud
+        ? (typeof t === 'function'
+            ? t('profileSyncFoldersCopy', 'Deseja monitorar alguma pasta de jogos locais ou portáteis neste dispositivo? Esta etapa é opcional.')
+            : 'Deseja monitorar alguma pasta de jogos locais ou portáteis neste dispositivo? Esta etapa é opcional.')
+        : (typeof t === 'function' ? t('setupFoldersDesc', '') : '');
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 
 function openSetup(isAddingUser = false) {
@@ -738,18 +1038,22 @@ function openSetup(isAddingUser = false) {
         document.activeElement.blur();
     }
     _isAddingUserMode = isAddingUser;
+    _setupPhase = isAddingUser ? 'auth' : 'layout';
+    _setupCloudProfileId = '';
+    _setupSyncConnectFromRegistration = false;
+    _setupSyncMessage = '';
     _setupLayoutConfirmed = !!isAddingUser;
     _setupUsers = [{
-        id: Date.now(), name: '', pin: '', photoBase64: '', apiKey: '', folders: [],
+        id: '', name: '', pin: '', photoBase64: '', apiKey: '', folders: [],
         photoSource: '', photoSourceUrl: '', photoSteamGridAssetId: 0,
-        photoCropX: 0, photoCropY: 0, photoZoom: 1
+        photoCropX: 0, photoCropY: 0, photoZoom: 1, totalPlaytimeSeconds: 0,
+        syncConnected: false, importCloud: false
     }];
     _currUser = _setupUsers[0];
     _currentSection = null;
     document.querySelectorAll('.setup-section').forEach(sec => sec.classList.remove('expanded'));
     document.querySelectorAll('.setup-focusable:not(.setup-section-header)').forEach(el => el.tabIndex = -1);
-    const layoutSection = document.getElementById('setupSectionLayout');
-    if (layoutSection) layoutSection.style.display = isAddingUser ? 'none' : '';
+    _setupApplyPhaseVisibility();
     _setupApplyLayoutScale(Math.round((window.DoorpiLayoutScale?.get?.() || 1) * 100), false);
     _setSetupLayoutConfirmed(_setupLayoutConfirmed);
 
@@ -757,6 +1061,7 @@ function openSetup(isAddingUser = false) {
 
     _loadCurrentUserIntoForm();
     _renderSetupUsers();
+    _renderSetupCloudProfile();
 
     const btnCancel = document.getElementById('btnSetupCancel');
     if (btnCancel) btnCancel.style.display = isAddingUser ? 'block' : 'none';
@@ -765,7 +1070,9 @@ function openSetup(isAddingUser = false) {
     const btnExit = document.getElementById('btnSetupExit');
     if (btnExit) btnExit.style.display = isAddingUser ? 'none' : 'flex';
 
-    document.getElementById('btnSetupFinish').textContent = isAddingUser ? (typeof t === 'function' ? t('addUsuario', 'Adicionar Usuário') : 'Adicionar Usuário') : (typeof t === 'function' ? t('setupStep4Finish') : 'Concluir');
+    document.getElementById('btnSetupFinish').textContent = _setupPhase === 'layout'
+        ? (typeof t === 'function' ? t('btnContinue', 'Continuar') : 'Continuar')
+        : (isAddingUser ? (typeof t === 'function' ? t('addUsuario', 'Adicionar Usuário') : 'Adicionar Usuário') : (typeof t === 'function' ? t('setupStep4Finish') : 'Concluir'));
     window.isSetupOpen = true;
     isSetupOpen = true;
     document.body.classList.add('setup-active');
@@ -783,9 +1090,13 @@ function openSetup(isAddingUser = false) {
     c.style.display = 'flex';
     requestAnimationFrame(() => {
         c.classList.add('visible');
-        const header = document.querySelector(isAddingUser ? '#setupSectionApiKey .setup-section-header' : '#setupSectionLayout .setup-section-header');
-        if (header && !_currentSection) _toggleSection(header.parentElement);
-        header?.focus();
+        const header = document.querySelector('#setupSectionLayout .setup-section-header');
+        if (_setupPhase === 'layout') {
+            if (header && !_currentSection) _toggleSection(header.parentElement);
+            header?.focus();
+        } else {
+            document.getElementById('btnSetupGoogle')?.focus();
+        }
         _startSetupBg(); // Inicia o background animado nativo
         requestAnimationFrame(() => window.DoorpiIntro?.finishHandoff?.());
     });
@@ -807,7 +1118,13 @@ function closeSetup() {
     window.updateDoorpiQuickMenuAvailability?.();
 }
 
-function setupBack() { closeSetup(); }
+function setupBack() {
+    if (_setupPhase === 'registration') {
+        _setupReturnToAuth();
+        return;
+    }
+    closeSetup();
+}
 
 function getSetupItems() {
     const c = document.getElementById('setupContainer');
@@ -815,6 +1132,36 @@ function getSetupItems() {
     return Array.from(c.querySelectorAll('.setup-focusable'))
         .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0 && el.tabIndex !== -1);
 }
+
+window._resolveSetupNavigationTarget = function (current, direction, items) {
+    if (_setupPhase !== 'registration') return null;
+    const back = document.getElementById('btnSetupBackAuth');
+    if (!back?.classList.contains('visible')) return null;
+    const registrationEntry = items.find(item => item !== back && item.closest('.setup-form'));
+    if (current === back && direction === 'DOWN') return registrationEntry || null;
+    if (current === registrationEntry && direction === 'UP') return back;
+    return null;
+};
+
+window.addEventListener('doorpi:native-focus-restored', () => {
+    if (!window.isSetupOpen) return;
+    requestAnimationFrame(() => {
+        if (_setupFolderDialogPending) {
+            document.getElementById('btnSetupAddFolder')?.focus({ preventScroll: true });
+            return;
+        }
+        const items = getSetupItems().filter(item => !item.disabled);
+        if (!items.length || items.includes(document.activeElement)) return;
+
+        const preferred = _setupPhase === 'auth'
+            ? document.getElementById('btnSetupGoogle')
+            : document.querySelector('#setupContainer .setup-section.expanded .setup-section-header');
+        const target = preferred && !preferred.disabled && items.includes(preferred)
+            ? preferred
+            : items[0];
+        target?.focus({ preventScroll: true });
+    });
+});
 
 function _shakeField(el) {
     if (!el) return;
@@ -843,6 +1190,18 @@ function _setSetupPinHintError(isError) {
 }
 
 function _validateAndFinish() {
+    if (_setupPhase === 'layout') {
+        if (!_setupLayoutConfirmed) {
+            _expandSection(document.getElementById('setupSectionLayout'));
+            setTimeout(() => document.getElementById('setupLayoutScale')?.focus(), 80);
+            return;
+        }
+        _setupApplyLayoutScale(Math.round(_setupPendingLayoutScale * 100), true);
+        _setupShowAuthGate();
+        return;
+    }
+    if (_setupPhase === 'auth') return;
+
     if (!_isAddingUserMode && !_setupLayoutConfirmed) {
         _expandSection(document.getElementById('setupSectionLayout'));
         setTimeout(() => {
@@ -854,6 +1213,7 @@ function _validateAndFinish() {
 
     for (let i = 0; i < _setupUsers.length; i++) {
         const u = _setupUsers[i];
+        if (u.importCloud) continue;
         if (!u.apiKey) {
             _currUser = u; _loadCurrentUserIntoForm(); _renderSetupUsers();
             _expandSection(document.getElementById('setupSectionApiKey'));
@@ -899,6 +1259,7 @@ function _validateAndFinish() {
             activeIndex: 0,
             createAll: _isAddingUserMode,
             users: _setupUsers.map(u => ({
+                id: u.id || '',
                 name: u.name,
                 pin: u.pin || '',
                 photoBase64: u.photoBase64,
@@ -909,13 +1270,36 @@ function _validateAndFinish() {
                 photoCropY: Number(u.photoCropY || 0),
                 photoZoom: Number(u.photoZoom || 1),
                 apiKey: u.apiKey,
-                folders: u.folders
+                folders: u.folders,
+                syncConnected: !!u.syncConnected,
+                importCloud: !!u.importCloud
             }))
         });
     }, 150);
 }
 
+function _setupBeginGoogleConnect(fromRegistration) {
+    const randomId = typeof crypto?.randomUUID === 'function'
+        ? crypto.randomUUID().replaceAll('-', '')
+        : `${Date.now()}${Math.floor(Math.random() * 100000)}`;
+    _setupCloudProfileId = _setupCloudProfileId || `profile-${randomId}`;
+    _setupSyncConnectFromRegistration = !!fromRegistration;
+    _setupSyncMessage = '';
+    _setupShowAuthenticating();
+    postToHost({ action: 'profileSyncConnect', setup: true, profileId: _setupCloudProfileId });
+}
+
 function _bindSetupEvents() {
+    const googleButton = document.getElementById('btnSetupGoogle');
+    if (googleButton) {
+        googleButton.innerHTML = `${window.DoorpiProfileSync?.googleIcon || ''}<span>${typeof t === 'function' ? t('profileSyncLoginGoogle', 'Entrar com Google') : 'Entrar com Google'}</span>`;
+        googleButton.addEventListener('click', () => _setupBeginGoogleConnect(false));
+    }
+    document.getElementById('btnSetupSyncGoogle')?.addEventListener('click', () => _setupBeginGoogleConnect(true));
+    document.getElementById('btnSetupRegister')?.addEventListener('click', () => {
+        _setupShowRegistration();
+    });
+
     document.querySelectorAll('.setup-section-header').forEach(header => {
         header.addEventListener('click', () => {
             const section = header.closest('.setup-section');
@@ -1000,6 +1384,7 @@ function _bindSetupEvents() {
     });
 
     document.getElementById('btnSetupAddFolder').addEventListener('click', () => {
+        _setupFolderDialogPending = true;
         postToHost({
             action: 'pickFolderForSetup',
             dialogTitle: typeof t === 'function' ? t('dlgFolderTitle') : 'Selecionar',
@@ -1014,6 +1399,8 @@ function _bindSetupEvents() {
             postToHost({ action: 'requestUsers' });
         }
     });
+
+    document.getElementById('btnSetupBackAuth')?.addEventListener('click', _setupReturnToAuth);
 
     document.getElementById('btnSetupFinish').addEventListener('click', _validateAndFinish);
 
@@ -1130,10 +1517,92 @@ window._setupHandlePhotoSelected = (photo) => {
     _renderSetupUsers();
 };
 
-window._setupHandleFolderAdded = (path) => {
+window._setupHandleFolderDialogClosed = (path) => {
+    _setupFolderDialogPending = false;
     if (_currUser && !_currUser.folders.includes(path)) {
-        _currUser.folders.push(path);
+        if (path) _currUser.folders.push(path);
         _renderSetupFolders();
         _updateStatus();
     }
+    requestAnimationFrame(() => {
+        const addFolder = document.getElementById('btnSetupAddFolder');
+        addFolder?.focus({ preventScroll: true });
+        addFolder?.scrollIntoView({ block: 'nearest' });
+    });
 };
+
+window._setupHandleFolderAdded = path => window._setupHandleFolderDialogClosed?.(path);
+
+window.addEventListener('doorpi:profile-sync-message', event => {
+    const data = event.detail || {};
+    if (!window.isSetupOpen) return;
+    if (!data.setup && data.type !== 'profileSyncSetupResult') return;
+    if (data.type === 'profileSyncBusy') {
+        if (data.busy && _setupPhase === 'authenticating') {
+            _setupSetAuthenticatingMessage(data.message || '');
+            return;
+        }
+        if (!data.busy && _setupPhase === 'authenticating') {
+            setTimeout(() => {
+                if (_setupPhase !== 'authenticating') return;
+                const failure = typeof t === 'function'
+                    ? t('profileSyncFailed', 'Não foi possível conectar.')
+                    : 'Não foi possível conectar.';
+                if (_setupSyncConnectFromRegistration) _setupShowRegistrationSyncError(failure);
+                else _setupShowAuthError(failure);
+            }, 180);
+            return;
+        }
+        const authStatus = document.getElementById('setupAuthStatus');
+        if (!data.busy && _setupPhase === 'auth' && authStatus?.classList.contains('error')) {
+            return;
+        }
+        _setupSetAuthBusy(!!data.busy, data.message || '');
+        return;
+    }
+    if (data.type === 'profileSyncSetupResult') {
+        _setupSetAuthBusy(false);
+        _setupCloudProfileId = data.profileId || _setupCloudProfileId;
+        if (data.alreadyLocal) {
+            _setupCloudProfileId = '';
+            const message = typeof t === 'function'
+                ? t('profileSyncAlreadyLocal', 'Esta conta Google já está vinculada a um perfil neste dispositivo.')
+                : 'Esta conta Google já está vinculada a um perfil neste dispositivo.';
+            if (_currUser) {
+                _currUser.id = '';
+                _currUser.syncConnected = false;
+                _currUser.importCloud = false;
+            }
+            if (_setupSyncConnectFromRegistration) _setupShowRegistrationSyncError(message);
+            else _setupShowAuthError(message);
+            return;
+        }
+        if (!data.remoteExists) {
+            if (_currUser) {
+                _currUser.id = _setupCloudProfileId;
+                _currUser.syncConnected = true;
+                _currUser.importCloud = false;
+            }
+            _setupSyncMessage = typeof t === 'function'
+                ? t('setupGoogleSyncEnabled', 'Sincronização ativada')
+                : 'Sincronização ativada';
+            const preferredSection = _setupSyncConnectFromRegistration ? 'setupSectionGoogleSync' : '';
+            _setupSyncConnectFromRegistration = false;
+            _setupShowRegistration(preferredSection);
+            return;
+        }
+
+        _setupSyncConnectFromRegistration = false;
+        _setupApplyRemoteProfile(data);
+        return;
+    }
+    if (data.type === 'profileSyncResult' && data.status && !['Synced', 'Uploaded', 'Downloaded', 'Disconnected'].includes(data.status)) {
+        const failure = data.status === 'Offline'
+            ? (typeof t === 'function' ? t('profileSyncOffline', 'Sem conexão. Os dados locais foram mantidos.') : 'Sem conexão. Os dados locais foram mantidos.')
+            : data.status === 'AuthenticationRequired'
+                ? (typeof t === 'function' ? t('profileSyncAuthRequired', 'Entre novamente para sincronizar.') : 'Entre novamente para sincronizar.')
+                : (typeof t === 'function' ? t('profileSyncFailed', 'Não foi possível conectar.') : 'Não foi possível conectar.');
+        if (_setupSyncConnectFromRegistration) _setupShowRegistrationSyncError(failure);
+        else _setupShowAuthError(failure);
+    }
+});

@@ -8,6 +8,7 @@ window.isNavMenuOpen = false;
     let _menuData = { user: {}, games: [], history: [], media: [] };
     let _menuDataUserId = '';
     let _menuReloadToken = 0;
+    let _profileSyncUi = { status: 'Disconnected', connected: false, busy: false, message: '' };
 
     // SVGs das Plataformas
     const PLATFORM_ICONS = {
@@ -2142,8 +2143,11 @@ window.isNavMenuOpen = false;
 .nav-vertical-card.nav-focused .nav-vertical-card-title { opacity: 1; transform: translateY(0); }
 
 /* ── HUB de Perfil (Visual Cinemático) ── */
-.nav-profile-showcase { display: flex; flex-direction: column; gap: clamp(12px, 2.5vh, 40px); animation: fadeInTop 0.3s ease; max-width: clamp(85%, 75vw, 1100px); }
-.nav-profile-header { display: flex; align-items: flex-start; gap: clamp(14px, 2.5vw, 40px); justify-content: flex-start; margin-bottom: clamp(4px, 1vh, 2%); }   
+.nav-profile-showcase { display: flex; flex-direction: column; gap: clamp(12px, 2.2vh, 34px); animation: fadeInTop 0.3s ease; max-width: clamp(85%, 75vw, 1100px); }
+.nav-profile-cover { min-height: clamp(240px, 31vh, 420px); position: relative; overflow: hidden; border-radius: 16px; border: 1px solid rgba(255,255,255,.08); background: linear-gradient(135deg, rgba(255,255,255,.07), rgba(255,255,255,.025)); box-shadow: 0 24px 70px rgba(0,0,0,.26); }
+.nav-profile-cover-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 40%; opacity: .58; filter: saturate(.92) contrast(.96); }
+.nav-profile-cover::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(7,10,20,.9) 0%, rgba(7,10,20,.62) 34%, rgba(7,10,20,.08) 100%), linear-gradient(0deg, rgba(0,0,0,.42) 0%, rgba(0,0,0,.08) 58%, rgba(0,0,0,.22) 100%); }
+.nav-profile-header { position: relative; z-index: 2; min-height: inherit; display: flex; align-items: flex-end; gap: clamp(14px, 2.5vw, 40px); justify-content: flex-start; padding: clamp(24px, 2.8vw, 48px); margin-bottom: 0; }
 .nav-profile-avatar-large { 
     width: clamp(70px, 12vh, 120px); height: clamp(70px, 12vh, 120px); 
     border-radius: 50%; border: 3px solid rgba(255,255,255,0.15); box-shadow: 0 15px 40px rgba(0,0,0,0.5); 
@@ -2185,9 +2189,35 @@ window.isNavMenuOpen = false;
     align-items: center; text-align: center;
 }
 .nav-profile-stat-box.future-placeholder { opacity: 0.35; }
+.nav-profile-stat-box.nav-profile-last-stat { min-width: 0; flex-direction: row; justify-content: flex-start; gap: clamp(10px, 1vw, 16px); text-align: left; }
+.nav-profile-stat-thumb { width: clamp(48px, 4.4vw, 72px); aspect-ratio: 16/9; border-radius: 7px; overflow: hidden; flex: none; display: grid; place-items: center; background: rgba(0,0,0,.28); border: 1px solid rgba(255,255,255,.08); }
+.nav-profile-stat-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.nav-profile-stat-thumb .nav-profile-stat-platform { width: 42%; height: 42%; opacity: .75; }
+.nav-profile-stat-copy { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.nav-profile-stat-copy .stat-value { font-size: clamp(.92rem, 1.12vw, 1.42rem); font-weight: 560; line-height: 1.16; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-profile-last-stat > .stat-value { min-width: 0; display: block; text-align: left !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(.92rem, 1.12vw, 1.42rem) !important; font-weight: 560; line-height: 1.18 !important; }
+.nav-profile-last-stat > .stat-value::after { content: "Último jogado"; display: block; margin-top: 5px; color: rgba(255,255,255,0.5); font-size: clamp(0.7rem, 0.8vw, 0.85rem); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+.nav-profile-last-stat > .stat-label { display: none; }
 .stat-value { font-size: clamp(1.4rem, 2.2vw, 2.8rem); font-weight: 200; color: #fff; line-height: 1; }
 .stat-label { font-size: clamp(0.7rem, 0.8vw, 0.85rem); color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
 .nav-profile-section-title { font-size: 1.3rem; font-weight: 400; color: #fff; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 12px; margin-top: 10px;}
+
+.nav-profile-hero {
+    min-height: clamp(124px, 17vh, 220px); border-radius: 14px; overflow: hidden; position: relative;
+    border: 1px solid rgba(255,255,255,.11); background: linear-gradient(135deg, rgba(255,255,255,.08), rgba(255,255,255,.025));
+    box-shadow: 0 20px 55px rgba(0,0,0,.28);
+}
+.nav-profile-hero img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .72; }
+.nav-profile-hero::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, rgba(8,10,19,.92) 0%, rgba(8,10,19,.68) 42%, rgba(8,10,19,.16) 100%),
+                linear-gradient(0deg, rgba(0,0,0,.44), transparent 62%);
+}
+.nav-profile-hero-content { position: relative; z-index: 2; height: 100%; min-height: inherit; display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start; padding: clamp(18px, 2.3vw, 34px); color: #fff; max-width: min(62%, 620px); }
+.nav-profile-hero-kicker { margin-bottom: 8px; color: rgba(255,255,255,.54); font-size: clamp(.68rem, .76vw, .86rem); font-weight: 720; letter-spacing: .14em; text-transform: uppercase; }
+.nav-profile-hero-title { margin: 0; font-size: clamp(1.28rem, 2.15vw, 3rem); font-weight: 520; line-height: 1.04; letter-spacing: -.025em; text-shadow: 0 10px 25px rgba(0,0,0,.45); }
+.nav-profile-hero-meta { margin-top: 12px; display: flex; align-items: center; gap: 10px; color: rgba(255,255,255,.68); font-size: clamp(.78rem, .9vw, 1rem); font-weight: 560; }
+.nav-profile-hero-meta .nav-profile-hero-platform { width: clamp(18px, 1.5vw, 24px); height: clamp(18px, 1.5vw, 24px); opacity: .86; }
 
 /* ── Cards Recentes ── */
 .nav-profile-recent-grid {
@@ -2198,8 +2228,10 @@ window.isNavMenuOpen = false;
     aspect-ratio: 2/3; border-radius: 8px; overflow: hidden; background: rgba(255,255,255,0.03); border: 2px solid transparent;
     position: relative; display: flex; flex-direction: column; transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.2s ease;
 }
-.nav-profile-recent-card.is-most-played { border-color:rgba(114,184,255,.72); box-shadow:0 0 0 1px rgba(114,184,255,.18),0 14px 34px rgba(0,0,0,.32); }
-.nav-profile-most-played-mark { position:absolute; top:8px; left:8px; z-index:4; padding:5px 8px; border:1px solid rgba(255,255,255,.2); border-radius:4px; background:rgba(7,13,25,.82); color:rgba(255,255,255,.88); font-size:clamp(.58rem,.62vw,.72rem); font-weight:750; text-transform:uppercase; }
+.nav-profile-recent-card.is-top-played { grid-row: span 2; aspect-ratio: 2/3; border-color: rgba(255,255,255,.22); box-shadow: 0 22px 52px rgba(0,0,0,.38); }
+.nav-profile-recent-card.is-top-played .nav-card-gradient { opacity: .58; backdrop-filter: none; }
+.nav-profile-recent-card.is-top-played .nav-profile-recent-info { opacity: 1; transform: none; }
+.nav-profile-recent-card.is-top-played .nav-profile-recent-title { font-size: clamp(1.02rem, 1.32vw, 1.7rem); max-width: 92%; }
 .nav-profile-recent-card img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .nav-profile-recent-card.nav-focused-el { transform: scale(1.05); box-shadow: 0 15px 40px rgba(0,0,0,0.6); z-index: 10; }
 .nav-profile-recent-card .nav-card-gradient {
@@ -2948,12 +2980,51 @@ window.isNavMenuOpen = false;
         };
 
         const totalFmt = fmtTime(totalMinutes) || '--';
-        const mostPlayedName = mostPlayed ? mostPlayed.Name : '--';
         const mostPlayedFmt = mostPlayed ? (fmtTime(mostPlayed.TotalPlaytimeMinutes) || '') : '';
+        const validDate = (dateStr) => {
+            if (!dateStr || String(dateStr).startsWith('0001')) return false;
+            const time = new Date(dateStr).getTime();
+            return Number.isFinite(time) && time > 0;
+        };
+        const artFor = (item, wide = false) => {
+            if (!item) return '';
+            if (wide) {
+                return item.HistoryHorizontalLocalImage || item.GridHorizontalStaticImage || item.GridHorizontalImage ||
+                    item.HistoryHorizontalImageUrl || item.ShowcaseVerticalLocalImage || item.GridStaticImage ||
+                    item.GridImage || item.ShowcaseVerticalImageUrl || '';
+            }
+            return item.ShowcaseVerticalLocalImage || item.GridStaticImage || item.GridImage ||
+                item.ShowcaseVerticalImageUrl || item.HistoryHorizontalLocalImage ||
+                item.GridHorizontalStaticImage || item.GridHorizontalImage || item.HistoryHorizontalImageUrl || '';
+        };
+        const lastPlayed = [...history]
+            .filter(g => validDate(g.LastPlayed))
+            .sort((a, b) => new Date(b.LastPlayed) - new Date(a.LastPlayed))[0];
+        const lastPlayedArt = artFor(lastPlayed, true);
+        const lastPlayedPlatform = _getPlatformData(lastPlayed?.Source || '');
+        const mostPlayedArt = mostPlayed
+            ? (mostPlayed.ProfileBannerLocalImage || mostPlayed.ProfileBannerImageUrl || '')
+            : '';
+        const mostPlayedPlatform = _getPlatformData(mostPlayed?.Source || '');
+        const mostPlayedHero = mostPlayed ? `
+            <div class="nav-profile-hero">
+                ${mostPlayedArt ? `<img src="${mostPlayedArt}" alt="${_esc(mostPlayed.Name)}" />` : ''}
+                <div class="nav-profile-hero-content">
+                    <span class="nav-profile-hero-kicker">${_t('navStatMostPlayed', 'Mais jogado')}</span>
+                    <h3 class="nav-profile-hero-title">${_esc(mostPlayed.Name)}</h3>
+                    <div class="nav-profile-hero-meta">
+                        <span class="nav-profile-hero-platform">${mostPlayedPlatform.svg}</span>
+                        <span>${mostPlayedFmt || '--'} ${_t('navProfileTotalSuffix', 'no total')}</span>
+                        ${validDate(mostPlayed.LastPlayed) ? `<span>· ${relDate(mostPlayed.LastPlayed)}</span>` : ''}
+                    </div>
+                </div>
+            </div>` : '';
 
         body.innerHTML = `
         <div class="nav-profile-showcase">
-            <div class="nav-profile-header">
+            <div class="nav-profile-cover">
+                ${mostPlayedArt ? `<img class="nav-profile-cover-art" src="${mostPlayedArt}" alt="" />` : ''}
+                <div class="nav-profile-header">
                 <div class="nav-profile-avatar-large">
                     ${photo ? `<img src="${window._doorpiUserPhotoSrc?.(photo) || `data:image/png;base64,${photo}`}" />` : '◉'}
                 </div>
@@ -2963,6 +3034,7 @@ window.isNavMenuOpen = false;
                 <button class="nav-profile-edit-btn" id="btnEditProfileHub" tabindex="-1">
                     ${_t('navEditProfileBtn', 'Editar Perfil')}
                 </button>
+                </div>
             </div>
 
             <div class="nav-profile-stats-row">
@@ -2974,12 +3046,17 @@ window.isNavMenuOpen = false;
                     <span class="stat-value">${totalFmt}</span>
                     <span class="stat-label">${_t('navStatTime', 'Horas Jogadas')}</span>
                 </div>
-                <div class="nav-profile-stat-box ${!mostPlayed ? 'future-placeholder' : ''}">
+                <div class="nav-profile-stat-box nav-profile-last-stat ${!lastPlayed ? 'future-placeholder' : ''}">
+                    <span class="nav-profile-stat-thumb">
+                        ${lastPlayedArt
+                ? `<img src="${lastPlayedArt}" alt="${lastPlayed ? _esc(lastPlayed.Name) : ''}" />`
+                : `<span class="nav-profile-stat-platform">${lastPlayedPlatform.svg}</span>`}
+                    </span>
                     <span class="stat-value" style="font-size:clamp(0.85rem,1.3vw,1.6rem); line-height:1.2; text-align:center;">
-                        ${mostPlayedName}
+                        ${lastPlayed ? _esc(lastPlayed.Name) : '--'}
                     </span>
                     <span class="stat-label">
-                        ${mostPlayed
+                        ${lastPlayed
                 ? `${_t('navStatMostPlayed', 'Mais Jogado')} · ${mostPlayedFmt}`
                 : _t('navStatMostPlayed', 'Mais Jogado')}
                     </span>
@@ -3049,7 +3126,7 @@ window.isNavMenuOpen = false;
                 const pData = _getPlatformData(item.LaunchUrl || item.Source);
 
                 const card = document.createElement('div');
-                card.className = `nav-profile-recent-card${index === 0 ? ' is-most-played' : ''}`;
+                card.className = `nav-profile-recent-card${index === 0 ? ' is-top-played' : ''}`;
                 card.dataset.historyGameName = item.Name;
 
                 card.innerHTML = staticSrc
@@ -3057,7 +3134,6 @@ window.isNavMenuOpen = false;
                     : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:rgba(255,255,255,0.1);font-size:2rem;">⊞</div>`;
 
                 card.innerHTML += `
-                ${index === 0 ? `<span class="nav-profile-most-played-mark">${_t('navMostPlayedMark', 'Mais jogado')}</span>` : ''}
                 <div class="nav-card-gradient"></div>
                 <div class="nav-profile-recent-info">
                     <div class="nav-profile-recent-platform-icon">${pData.svg}</div>
@@ -3108,6 +3184,8 @@ window.isNavMenuOpen = false;
             if (images.verticalSourceUrl) item.ShowcaseVerticalImageUrl = images.verticalSourceUrl;
             if (images.horizontal) item.HistoryHorizontalLocalImage = images.horizontal;
             if (images.horizontalSourceUrl) item.HistoryHorizontalImageUrl = images.horizontalSourceUrl;
+            if (images.banner) item.ProfileBannerLocalImage = images.banner;
+            if (images.bannerSourceUrl) item.ProfileBannerImageUrl = images.bannerSourceUrl;
             const previousIndex = _contentIdx;
             _renderContent('profile');
             _contentIdx = Math.max(0, Math.min(previousIndex, _contentItems.length - 1));
@@ -3894,6 +3972,13 @@ window.isNavMenuOpen = false;
                 .nav-icon-btn.nav-focused-el { border-color: #fff; background: rgba(255,255,255,0.15); color: #fff; transform: scale(1.06); box-shadow: 0 8px 20px rgba(0,0,0,0.4); z-index: 10; position: relative;}
                 .nav-btn-danger { color: #ff6b6b; border-color: rgba(255,107,107,0.3); width: 100%; padding: 14px; font-size: 1rem; }
                 .nav-btn-danger.nav-focused-el { background: rgba(255,107,107,0.15); border-color: #ff6b6b; color: #fff; }
+                .nav-profile-sync { margin:14px 0 6px; display:flex; align-items:center; gap:14px; min-height:54px; }
+                .nav-profile-sync-status { color:rgba(255,255,255,.52); font-size:.86rem; }
+                .nav-profile-sync-status.connected { color:#83d7a0; }
+                .nav-profile-sync-actions { display:flex; gap:10px; }
+                .nav-profile-sync-actions .nav-icon-btn { width:52px; height:52px; min-width:52px; padding:0; border-radius:50%; flex:none; }
+                .nav-profile-sync-actions .profile-sync-google { width:21px; height:21px; }
+                .nav-profile-sync-actions svg:not(.profile-sync-google) { width:20px; height:20px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
             `;
             document.head.appendChild(s);
         }
@@ -3993,6 +4078,15 @@ window.isNavMenuOpen = false;
                         <span id="navSaveStatus" style="color:#6ee696; font-size:0.95rem; font-weight:500; opacity:0; transition:opacity 0.3s;">${_t('toastChangesSaved', '✓ Alterações Salvas')}</span>
                     </div>
 
+                    <div class="nav-profile-sync">
+                        <div class="nav-profile-sync-actions">
+                            <button class="nav-icon-btn" id="navProfileSyncConnect" tabindex="-1" title="${_t('profileSyncLoginGoogle', 'Entrar com Google')}" aria-label="${_t('profileSyncLoginGoogle', 'Entrar com Google')}">${window.DoorpiProfileSync?.googleIcon || 'G'}</button>
+                            <button class="nav-icon-btn" id="navProfileSyncNow" tabindex="-1" title="${_t('profileSyncNow', 'Sincronizar agora')}" aria-label="${_t('profileSyncNow', 'Sincronizar agora')}">${window.DoorpiProfileSync?.googleIcon || 'G'}</button>
+                            <button class="nav-icon-btn" id="navProfileSyncDisconnect" tabindex="-1" title="${_t('profileSyncDisconnect', 'Desconectar')}" aria-label="${_t('profileSyncDisconnect', 'Desconectar')}"><svg viewBox="0 0 24 24"><path d="M9 15l6-6"/><path d="M7.2 11.2 5.4 13a4 4 0 0 0 5.6 5.6l1.8-1.8"/><path d="m16.8 12.8 1.8-1.8A4 4 0 0 0 13 5.4l-1.8 1.8"/><path d="M4 4l16 16"/></svg></button>
+                        </div>
+                        <span class="nav-profile-sync-status" id="navProfileSyncStatus"></span>
+                    </div>
+
                     <button class="nav-icon-btn" id="navAccountSharing" tabindex="-1" style="width:100%; padding:14px; font-size:1rem;">${_t('navSetSharing', 'Contas dos apps')}</button>
                     <button class="nav-icon-btn nav-btn-danger" id="navDeleteUser" tabindex="-1" style="margin-top:12px;">${_t('btnDeleteProfile', 'Excluir Perfil')}</button>
                 </div>
@@ -4006,6 +4100,9 @@ window.isNavMenuOpen = false;
             body.querySelector('#navProfApi'),
             body.querySelector('#navApiPaste'),
             body.querySelector('#navApiLink'),
+            body.querySelector('#navProfileSyncConnect'),
+            body.querySelector('#navProfileSyncNow'),
+            body.querySelector('#navProfileSyncDisconnect'),
             body.querySelector('#navAccountSharing'),
             body.querySelector('#navDeleteUser')
         ].filter(Boolean);
@@ -4028,6 +4125,57 @@ window.isNavMenuOpen = false;
         const linkBtn = body.querySelector('#navApiLink');
         const sharingBtn = body.querySelector('#navAccountSharing');
         const deleteBtn = body.querySelector('#navDeleteUser');
+
+        const refreshSyncUi = () => {
+            const connected = !!_profileSyncUi.connected;
+            const busy = !!_profileSyncUi.busy;
+            const status = body.querySelector('#navProfileSyncStatus');
+            const connect = body.querySelector('#navProfileSyncConnect');
+            const syncNow = body.querySelector('#navProfileSyncNow');
+            const disconnect = body.querySelector('#navProfileSyncDisconnect');
+            if (status) {
+                status.textContent = busy
+                    ? _t('profileSyncWorking', 'Sincronizando...')
+                    : (_profileSyncUi.message || (connected ? _t('profileSyncConnected', 'Sincronizado') : _t('profileSyncDisconnected', 'Não conectado')));
+                status.classList.toggle('connected', connected && !busy);
+            }
+            if (connect) connect.style.display = connected ? 'none' : 'flex';
+            if (syncNow) syncNow.style.display = connected ? 'flex' : 'none';
+            if (disconnect) disconnect.style.display = connected ? 'flex' : 'none';
+            if (connect) connect.disabled = busy;
+            if (syncNow) syncNow.disabled = busy;
+            if (disconnect) disconnect.disabled = busy;
+            _contentItems = [
+                body.querySelector('#setBack'), body.querySelector('#navProfilePhoto'),
+                body.querySelector('#navProfName'), body.querySelector('#navProfPin'),
+                body.querySelector('#navProfApi'), body.querySelector('#navApiPaste'),
+                body.querySelector('#navApiLink'), body.querySelector('#navProfileSyncConnect'),
+                body.querySelector('#navProfileSyncNow'), body.querySelector('#navProfileSyncDisconnect'),
+                body.querySelector('#navAccountSharing'), body.querySelector('#navDeleteUser')
+            ].filter(item => item && item.offsetWidth > 0 && item.offsetHeight > 0);
+            _contentIdx = Math.min(_contentIdx, Math.max(0, _contentItems.length - 1));
+        };
+        window._refreshProfileSyncAccountUi = refreshSyncUi;
+        refreshSyncUi();
+        postToHost?.({ action: 'profileSyncStatus' });
+
+        body.querySelector('#navProfileSyncConnect')?.addEventListener('click', () => {
+            _profileSyncUi.busy = true;
+            refreshSyncUi();
+            postToHost?.({ action: 'profileSyncConnect' });
+        });
+        body.querySelector('#navProfileSyncNow')?.addEventListener('click', () => {
+            _profileSyncUi.busy = true;
+            refreshSyncUi();
+            postToHost?.({ action: 'profileSyncNow' });
+        });
+        body.querySelector('#navProfileSyncDisconnect')?.addEventListener('click', () => {
+            window.DoorpiProfileSync?.confirmDisconnect?.('', deleteCloud => {
+                _profileSyncUi.busy = true;
+                refreshSyncUi();
+                postToHost?.({ action: 'profileSyncDisconnect', deleteCloud });
+            });
+        });
 
         const _showSavedFeedback = () => {
             const status = document.getElementById('navSaveStatus');
@@ -5630,26 +5778,32 @@ window.isNavMenuOpen = false;
 
         // Navegação Complexa nos menus de Settings da Conta
         if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'account') {
-            const map = {
-                0: { ArrowDown: 1, ArrowRight: 1 },
-                1: { ArrowUp: 0, ArrowDown: 2, ArrowRight: 2 },
-                2: { ArrowUp: 1, ArrowDown: 3, ArrowLeft: 1 },
-                3: { ArrowUp: 2, ArrowDown: 4, ArrowLeft: 1 },
-                4: { ArrowUp: 3, ArrowDown: 7, ArrowRight: 5, ArrowLeft: 1 },
-                5: { ArrowUp: 3, ArrowDown: 7, ArrowLeft: 4, ArrowRight: 6 },
-                6: { ArrowUp: 3, ArrowDown: 7, ArrowLeft: 5 },
-                7: { ArrowUp: 4, ArrowDown: 8 },
-                8: { ArrowUp: 7 }
-            };
-
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
-                if (map[_contentIdx] && map[_contentIdx][key] !== undefined) {
-                    _contentIdx = map[_contentIdx][key];
+                const byId = Object.fromEntries(_contentItems.map((item, index) => [item.id, index]));
+                const activeId = _contentItems[_contentIdx]?.id;
+                const syncPrimaryId = byId.navProfileSyncNow !== undefined ? 'navProfileSyncNow' : 'navProfileSyncConnect';
+                const routes = {
+                    setBack: { ArrowDown: 'navProfilePhoto', ArrowRight: 'navProfilePhoto' },
+                    navProfilePhoto: { ArrowUp: 'setBack', ArrowDown: 'navProfName', ArrowRight: 'navProfName' },
+                    navProfName: { ArrowUp: 'navProfilePhoto', ArrowDown: 'navProfPin', ArrowLeft: 'navProfilePhoto' },
+                    navProfPin: { ArrowUp: 'navProfName', ArrowDown: 'navProfApi', ArrowLeft: 'navProfilePhoto' },
+                    navProfApi: { ArrowUp: 'navProfPin', ArrowDown: syncPrimaryId, ArrowRight: 'navApiPaste', ArrowLeft: 'navProfilePhoto' },
+                    navApiPaste: { ArrowUp: 'navProfPin', ArrowDown: syncPrimaryId, ArrowLeft: 'navProfApi', ArrowRight: 'navApiLink' },
+                    navApiLink: { ArrowUp: 'navProfPin', ArrowDown: syncPrimaryId, ArrowLeft: 'navApiPaste' },
+                    navProfileSyncConnect: { ArrowUp: 'navProfApi', ArrowDown: 'navAccountSharing' },
+                    navProfileSyncNow: { ArrowUp: 'navProfApi', ArrowDown: 'navAccountSharing', ArrowRight: 'navProfileSyncDisconnect' },
+                    navProfileSyncDisconnect: { ArrowUp: 'navApiPaste', ArrowDown: 'navAccountSharing', ArrowLeft: 'navProfileSyncNow' },
+                    navAccountSharing: { ArrowUp: syncPrimaryId, ArrowDown: 'navDeleteUser' },
+                    navDeleteUser: { ArrowUp: 'navAccountSharing' }
+                };
+                const nextId = routes[activeId]?.[key];
+                if (nextId && byId[nextId] !== undefined) {
+                    _contentIdx = byId[nextId];
                     _updateContentFocus();
-                } else if (key === 'ArrowUp' && _contentIdx === 0) { 
+                } else if (key === 'ArrowUp' && activeId === 'setBack') {
                     _setTopbarFocus(true);
                 }
-                return;
+                return true;
             }
         }
         if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'accountHub') {
@@ -5997,6 +6151,35 @@ window.isNavMenuOpen = false;
         }
         return false;
     }
+
+    window.addEventListener('doorpi:profile-sync-message', event => {
+        const data = event.detail || {};
+        if (data.setup) return;
+        if (data.type === 'profileSyncBusy') {
+            _profileSyncUi.busy = !!data.busy;
+        } else if (data.type === 'profileSyncStatus') {
+            _profileSyncUi.status = data.status || 'Disconnected';
+            _profileSyncUi.connected = !!data.connected;
+            _profileSyncUi.busy = false;
+            _profileSyncUi.message = _profileSyncUi.connected
+                ? _t('profileSyncConnected', 'Sincronizado')
+                : _t('profileSyncDisconnected', 'Não conectado');
+        } else if (data.type === 'profileSyncResult' || data.type === 'profileSyncConflict') {
+            _profileSyncUi.status = data.status || _profileSyncUi.status;
+            _profileSyncUi.busy = false;
+            if (data.status === 'Disconnected') _profileSyncUi.connected = false;
+            else if (['Synced', 'Uploaded', 'Downloaded', 'Conflict'].includes(data.status)) _profileSyncUi.connected = true;
+            _profileSyncUi.message = data.status === 'Offline'
+                ? _t('profileSyncOffline', 'Sem conexão. Os dados locais foram mantidos.')
+                : data.status === 'AuthenticationRequired'
+                    ? _t('profileSyncAuthRequired', 'Entre novamente para sincronizar.')
+                    : data.status === 'Failed'
+                        ? _t('profileSyncFailed', 'Falha na sincronização')
+                        : (_profileSyncUi.connected ? _t('profileSyncConnected', 'Sincronizado') : _t('profileSyncDisconnected', 'Não conectado'));
+        }
+        window._refreshProfileSyncAccountUi?.();
+        if (window.isNavMenuOpen && _settingsSubView === 'account') _updateContentFocus();
+    });
 
     // ── Bridge Update ─────────────────────────────────────────────────────────
     if (window.chrome?.webview) {

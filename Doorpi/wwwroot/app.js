@@ -2946,6 +2946,13 @@
             return true;
         }
 
+        function isForCurrentProfile(notification) {
+            const profileId = String(notification?.profileId || '').trim().toLowerCase();
+            if (!profileId) return true;
+            const currentId = String(window._doorpiCurrentUserId || '').trim().toLowerCase();
+            return !!currentId && profileId === currentId;
+        }
+
         function ensureRoot() {
             let root = document.getElementById('doorpiNotificationCenter');
             if (root) return root;
@@ -2994,6 +3001,12 @@
                     window.DoorpiUpdatePrompt?.show?.();
                 } else if (row?.dataset.action === 'windows-update') {
                     window.DoorpiQuickPanel?.open?.('updates');
+                } else if (row?.dataset.action === 'profile-sync-conflict') {
+                    close();
+                    postToHost?.({
+                        action: 'profileSyncNow',
+                        profileId: row.dataset.profileId || window._doorpiCurrentUserId || ''
+                    });
                 }
             });
 
@@ -3222,7 +3235,7 @@
         }
 
         function pendingCount() {
-            return Array.from(items.values()).filter(n => !n.read || n.persistent).length;
+            return Array.from(items.values()).filter(n => isForCurrentProfile(n) && (!n.read || n.persistent)).length;
         }
 
         function render() {
@@ -3237,10 +3250,11 @@
             }
             if (list) {
                 const rows = Array.from(items.values())
+                    .filter(isForCurrentProfile)
                     .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
                 list.innerHTML = rows.length
                     ? rows.map(n => `
-                        <button class="doorpi-notification-item" type="button" tabindex="0" data-notification-id="${esc(n.id)}" data-action="${esc(n.action || '')}">
+                        <button class="doorpi-notification-item" type="button" tabindex="0" data-notification-id="${esc(n.id)}" data-action="${esc(n.action || '')}" data-profile-id="${esc(n.profileId || '')}">
                             <span>
                                 <span class="doorpi-notification-title">${esc(n.title)}</span>
                                 <span class="doorpi-notification-message">${esc(n.message)}</span>
@@ -3271,7 +3285,9 @@
                 scheduleToast();
                 return;
             }
-            showToast(toastQueue.shift());
+            const index = toastQueue.findIndex(isForCurrentProfile);
+            if (index < 0) return;
+            showToast(toastQueue.splice(index, 1)[0]);
         }
 
         function scheduleToast() {
@@ -3329,7 +3345,7 @@
             isOpen = true;
             root.classList.add('is-open');
             items.forEach(n => {
-                if (!n.persistent) n.read = true;
+                if (isForCurrentProfile(n) && !n.persistent) n.read = true;
             });
             render();
         }
@@ -3339,7 +3355,7 @@
             isOpen = false;
             root.classList.remove('is-open');
             Array.from(items.values()).forEach(n => {
-                if (!n.persistent && n.read) items.delete(n.id);
+                if (isForCurrentProfile(n) && !n.persistent && n.read) items.delete(n.id);
             });
             render();
         }
@@ -3451,7 +3467,12 @@
         window.addEventListener('message', (event) => {
             const data = event.data;
             const type = typeof data === 'string' ? data : data?.type;
-            if (type === 'currentUserUpdated' || type === 'userSwitchComplete') setTimeout(render, 250);
+            if (type === 'currentUserUpdated' || type === 'userSwitchComplete') {
+                setTimeout(() => {
+                    render();
+                    scheduleToast();
+                }, 250);
+            }
         });
 
         window.isDoorpiNotificationCenterOpen = () => isOpen;
@@ -3544,6 +3565,9 @@
 
             if (force) return false;
 
+            if (document.querySelector('.profile-sync-overlay')) {
+                window.DoorpiProfileSync?.deferConflictForUpdate?.();
+            }
             if (window.isNavMenuOpen || ['opening', 'closing'].includes(window._navMenuPhase || 'closed')) return true;
             if (window.isModalOpen || window.isSetupOpen || window._vkbIsOpen) return true;
             if (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) return true;
@@ -3624,7 +3648,7 @@
             document.body.appendChild(prompt);
 
             prompt.querySelector('#doorpiUpdateStartBtn')?.addEventListener('click', () => {
-                hide(false);
+                hide(false, false);
                 if (typeof postToHost === 'function') {
                     postToHost({ action: 'startSystemUpdate' });
                 }
@@ -3774,6 +3798,7 @@
                 }
             }
 
+            window.DoorpiProfileSync?.deferConflictForUpdate?.();
             renderPrompt();
             const prompt = ensurePrompt();
             isVisible = true;
@@ -3787,13 +3812,14 @@
             });
         }
 
-        function hide(refocus = false) {
+        function hide(refocus = false, resumeProfileConflict = true) {
             const prompt = document.getElementById('doorpiUpdatePrompt');
             isVisible = false;
             prompt?.classList.remove('is-visible');
             document.body.classList.remove('doorpi-update-modal-open');
             window.updateDoorpiQuickMenuAvailability?.();
             if (refocus) setTimeout(() => recoverGlobalFocus?.(), 60);
+            if (resumeProfileConflict) window.DoorpiProfileSync?.resumePendingConflict?.();
         }
 
         function evaluate() {
@@ -4074,6 +4100,9 @@
             evaluate,
             show: () => show(true),
             hide: () => hide(true),
+            hasPendingUpdate: () => hasUpdate(latestStatus) && (
+                !!latestStatus?.forceUpdate || targetKey(latestStatus) !== dismissedTarget()
+            ),
             refreshBadge: updateBadge
         };
 
@@ -4472,6 +4501,9 @@
             else if (data.type === 'setupFolderAdded') {
                 window._setupHandleFolderAdded?.(data.path);
             }
+            else if (data.type === 'setupFolderDialogClosed') {
+                window._setupHandleFolderDialogClosed?.(data.path || '');
+            }
             else if (data.type === 'browsersDetected') {
                 window._setupRenderBrowsers?.(data.browsers);
             }
@@ -4539,7 +4571,7 @@
                     if (picker) picker.style.display = 'none';
                     document.body.classList.remove('user-picker-open');
                     window._pendingUserSwitchId = '';
-                    window.DoorpiIntro?.finishHandoff?.();
+                    if (!window._userSwitching) window.DoorpiIntro?.finishHandoff?.();
                     requestAnimationFrame(() => window.updateDoorpiTopClusterVisibility?.());
                 }
                 window.DoorpiFirstRunTutorial?.maybeShow?.();
@@ -4560,6 +4592,10 @@
                 window._navMenuSetGpuUpdateStatus?.(data);
             }
             else if (data.type === 'doorpiNotification') {
+                if (data.remove && data.id) {
+                    window.DoorpiNotifications?.remove?.(data.id);
+                    return;
+                }
                 if (data.category === 'steamgrid-download-failed') {
                     window.DoorpiNotifications?.notifySteamGridDownloadFailure?.();
                 } else if (data.category === 'steamgrid-art-not-found') {
@@ -4570,6 +4606,8 @@
                         title: data.title || t('notificationsTitle'),
                         message: data.message || '',
                         persistent: !!data.persistent,
+                        action: data.action || '',
+                        profileId: data.profileId || '',
                     });
                 }
             }
@@ -5219,6 +5257,15 @@
             animation: none !important;
             filter: none !important;
             opacity: 1 !important;
+        }
+        .doorpi-user-overlay.doorpi-switching-out .doorpi-user-panel,
+        body.doorpi-intro-handoff-active .doorpi-user-overlay.doorpi-switching-out .doorpi-user-panel {
+            animation: none !important;
+            opacity: 0 !important;
+            visibility: hidden;
+            transform: scale(.985);
+            pointer-events: none;
+            transition: opacity .18s ease, transform .22s ease, visibility 0s linear .22s !important;
         }
         body.doorpi-intro-handoff-active .doorpi-user-overlay,
         body.doorpi-intro-handoff-active .doorpi-user-overlay * {
@@ -7576,7 +7623,7 @@ function showUserPicker(users, requireSelection = false) {
     window.openCreateUserDialog = openCreateUserDialog;
 
     window.isDoorpiOverlayOpen = function () {
-        return Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay, .doorpi-pin-panel, .doorpi-update-prompt.is-visible'))
+        return Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay, .doorpi-pin-panel, .doorpi-update-prompt.is-visible, .profile-sync-overlay'))
             .some(el => el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
     };
 
@@ -7600,7 +7647,7 @@ function showUserPicker(users, requireSelection = false) {
         }
         if (e.target?.closest?.('.vkb-overlay, .doorpi-vkb-overlay, .context-menu.visible')) return;
         if (window.isDoorpiOverlayOpen && window.isDoorpiOverlayOpen()) {
-            const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay, .doorpi-pin-panel, .doorpi-update-prompt.is-visible'))
+            const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay, .doorpi-pin-panel, .doorpi-update-prompt.is-visible, .profile-sync-overlay'))
                 .filter(el => el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
             const topOverlay = overlays.at(-1);
 
@@ -7614,7 +7661,7 @@ function showUserPicker(users, requireSelection = false) {
     });
 
     window.getDoorpiOverlayItems = function () {
-        const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay, .doorpi-pin-panel'))
+        const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay, .doorpi-pin-panel, .profile-sync-overlay'))
             .filter(el => el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
         const top = overlays.at(-1);
         if (!top) return [];
@@ -7623,11 +7670,15 @@ function showUserPicker(users, requireSelection = false) {
     };
 
     window.closeDoorpiTopOverlay = function (force = false) {
-        const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay, .doorpi-pin-panel'))
+        const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay, .doorpi-pin-panel, .profile-sync-overlay'))
             .filter(el => el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
         const top = overlays.at(-1);
         if (!force && top?.dataset.required === 'true') return;
         if (top) {
+            if (top.classList.contains('profile-sync-overlay')) {
+                window.DoorpiProfileSync?.close?.();
+                return;
+            }
             if (top.id === 'doorpiQuickPanel' && window.DoorpiQuickPanel?.back && !force) {
                 window.DoorpiQuickPanel.back();
                 return;
@@ -10659,7 +10710,7 @@ function renderFolderList(folders) {
         const openMode = mode => {
             closeSource(false);
             openArtworkWizard(card, mode, item.Name, {
-                categories: ['vertical', 'horizontal'],
+                categories: ['vertical', 'horizontal', 'banner'],
                 applyAction: 'applyHistoryArtworkSelection',
                 gameName: item.Name,
                 returnFocus: card,
@@ -11966,6 +12017,7 @@ function renderFolderList(folders) {
             logoutOverlay.style.pointerEvents = 'none';
             logoutOverlay.style.display = 'none';
         }
+        window.DoorpiIntro?.finishHandoff?.();
         window._setDoorpiHomeInteractionBlocked?.(false);
         requestAnimationFrame(() => {
             window.resetDoorpiGamepadInputState?.();
@@ -12051,17 +12103,18 @@ function renderFolderList(folders) {
 
     function _ensureUserSwitchLogoutOverlay(mode = 'switch', user = {}) {
         const copy = _getUserSwitchOverlayCopy(mode);
+        const userName = String(user.Name || user.name || '').trim();
+        const markText = userName || copy.mark;
         let overlay = document.getElementById('doorpiUserSwitchLogout');
         if (!overlay) {
             overlay = document.createElement('div');
             overlay.id = 'doorpiUserSwitchLogout';
             overlay.innerHTML = `
-                <div class="logout-avatar-slot">${_userSwitchAvatarHtml(user)}</div>
-                <div class="logout-mark">${copy.mark}</div>
                 <div class="logout-title">${copy.title}</div>
+                <div class="logout-mark">${escapeHtml(markText)}</div>
+                <div class="logout-avatar-slot">${_userSwitchAvatarHtml(user)}</div>
                 <div class="logout-sub">${copy.sub}</div>
                 <div class="logout-spinner" aria-hidden="true"></div>
-                <div class="logout-dots"><span></span><span></span><span></span></div>
             `;
             document.body.appendChild(overlay);
         } else {
@@ -12070,7 +12123,7 @@ function renderFolderList(folders) {
             const sub = overlay.querySelector('.logout-sub');
             const avatar = overlay.querySelector('.logout-avatar-slot');
             if (avatar) avatar.innerHTML = _userSwitchAvatarHtml(user);
-            if (mark) mark.textContent = copy.mark;
+            if (mark) mark.textContent = markText;
             if (title) title.textContent = copy.title;
             if (sub) sub.textContent = copy.sub;
         }
@@ -12097,6 +12150,12 @@ function renderFolderList(folders) {
         if (bgBlur) { bgBlur.style.opacity = '0'; bgBlur.removeAttribute('src'); }
         if (logoEl) logoEl.classList.remove('visible');
         if (gridBg) gridBg.removeAttribute('src');
+        window._stopBlobBg?.();
+        window.DoorpiIntro?.startUserPickerAmbient?.();
+        window.DoorpiIntro?.freezeUserPickerAmbient?.();
+
+        const userPicker = document.getElementById('doorpiUserPicker');
+        if (userPicker?.style.display !== 'none') userPicker.classList.add('doorpi-switching-out');
 
         const logoutOverlay = _ensureUserSwitchLogoutOverlay(data.mode || 'switch', data.user || window._doorpiProfile || {});
         logoutOverlay.style.display = 'flex';
@@ -12150,6 +12209,7 @@ function renderFolderList(folders) {
             resumeTransitionAudio();
             window._doorpiAllowLibraryRenderDuringSessionTransition = false;
             window._setDoorpiHomeInteractionBlocked?.(false);
+            window.DoorpiIntro?.finishHandoff?.();
             await _completeUserSwitchInteraction(data);
             return;
         }
@@ -12180,6 +12240,7 @@ function renderFolderList(folders) {
             resumeTransitionAudio();
             window._doorpiAllowLibraryRenderDuringSessionTransition = false;
             window._setDoorpiHomeInteractionBlocked?.(false);
+            window.DoorpiIntro?.finishHandoff?.();
             await _completeUserSwitchInteraction(data);
             return;
         }
@@ -12216,6 +12277,7 @@ function renderFolderList(folders) {
             window._doorpiAllowLibraryRenderDuringSessionTransition = false;
             window._setDoorpiHomeInteractionBlocked?.(false);
             resumeTransitionAudio();
+            window.DoorpiIntro?.finishHandoff?.();
             await _completeUserSwitchInteraction(data);
         });
     }
