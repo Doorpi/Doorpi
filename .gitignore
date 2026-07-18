@@ -10,6 +10,8 @@ Identidade_visual_doorpi/
 *.userosscache
 *.sln.docstates
 *.env
+google-oauth.local.json
+**/GoogleTokens/
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs

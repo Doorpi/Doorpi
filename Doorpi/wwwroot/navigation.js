@@ -868,7 +868,8 @@ function moveFocus(direction) {
             return;
         }
 
-        let target = findSpatialCandidate(items, current, direction);
+        let target = window._resolveSetupNavigationTarget?.(current, direction, items) ||
+            findSpatialCandidate(items, current, direction);
 
         if (target && target !== current) {
             target.focus();
@@ -1358,8 +1359,11 @@ document.addEventListener('keydown', e => {
 
         // 2. Se for Setup, Contexto, Edição ou Modal, fecha normalmente
         if (isSetupOpen) {
+            const backToAuth = document.getElementById('btnSetupBackAuth');
             const cancelBtn = document.getElementById('btnSetupCancel');
-            if (cancelBtn && cancelBtn.style.display !== 'none') cancelBtn.click();
+            if (backToAuth?.classList.contains('visible') && typeof setupBack === 'function') setupBack();
+            else if (cancelBtn && cancelBtn.style.display !== 'none') cancelBtn.click();
+            else if (typeof setupBack === 'function') setupBack();
             return;
         }
         if (isCtxMenuOpen) { closeCtxMenu(); return; }
@@ -1593,6 +1597,12 @@ window.requestDoorpiBackAction = function () {
     }
 
     if (typeof isSetupOpen !== 'undefined' && isSetupOpen) {
+        const backToAuth = document.getElementById('btnSetupBackAuth');
+        if (backToAuth?.classList.contains('visible') && typeof setupBack === 'function') {
+            setupBack();
+            window.DoorpiUiSound?.play('back');
+            return true;
+        }
         const cancelBtn = document.getElementById('btnSetupCancel');
         if (cancelBtn && cancelBtn.style.display !== 'none') {
             cancelBtn.click();
@@ -2157,8 +2167,10 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             if (isCtxMenuOpen) closeCtxMenu();
             else if (isEditModalOpen) window._editModalClose?.();
             else if (isSetupOpen) {
+                const backToAuth = document.getElementById('btnSetupBackAuth');
                 const cancelBtn = document.getElementById('btnSetupCancel');
-                if (cancelBtn && cancelBtn.style.display !== 'none') cancelBtn.click();
+                if (backToAuth?.classList.contains('visible') && typeof setupBack === 'function') setupBack();
+                else if (cancelBtn && cancelBtn.style.display !== 'none') cancelBtn.click();
             }
             else if (isModalOpen) closeModal?.(); // Fecha Add Jogo/App
             else gamepadCancel();

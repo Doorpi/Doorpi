@@ -515,6 +515,14 @@
         state.ambientRaf = requestAnimationFrame(runAmbientPhysics);
     }
 
+    function freezeAmbient() {
+        if (state.ambientRaf) cancelAnimationFrame(state.ambientRaf);
+        state.ambientRaf = 0;
+        state.ambientBlobs.forEach(blob => {
+            blob.el.style.willChange = 'auto';
+        });
+    }
+
     function finishHandoff() {
         if (!state.handoffActive) return;
         state.handoffActive = false;
@@ -665,6 +673,7 @@
         isComplete: () => state.completed,
         isHandoffActive: () => state.handoffActive,
         startUserPickerAmbient: () => createNativeHandoffAmbient(),
+        freezeUserPickerAmbient: freezeAmbient,
         setVolume: postIntroVolume,
         getUserPickerClasses: () => {
             const cfg = state.handoffConfig || {};

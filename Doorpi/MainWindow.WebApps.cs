@@ -5345,9 +5345,6 @@ namespace Doorpi
 
     function _vkbRequestNativeBackspace() {{
         if (!_vkbInputEl || !_vkbInputEl.isConnected) return;
-        const before = _vkbTextInField();
-        _vkbDeleteChar();
-        if (_vkbTextInField() !== before) {{ _vkbSyncPreviewFromField(); return; }}
         try {{ _vkbInputEl.focus({{ preventScroll:true }}); }}
         catch(_) {{ try {{ _vkbInputEl.focus(); }} catch(__) {{}} }}
         _vkbNotifyHost('vkb_native_backspace');

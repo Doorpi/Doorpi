@@ -1,45 +1,51 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202607171721,
-    "publishedAt":  "2026-07-17T20:22:36.4816025Z",
-    "expiresAt":  "2026-07-31T20:22:36.4816025Z",
+    "manifestVersion":  202607181834,
+    "publishedAt":  "2026-07-18T21:35:00.5724700Z",
+    "expiresAt":  "2026-08-01T21:35:00.5724700Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.1.13",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.13/doorpi-0.1.13.doorpiupdate.zip",
-                   "sha256":  "92d7a89d5bd62f1486ef59d5f83375ec8bbada8c0a1ac70290e76fc5f2f4870b",
-                   "sizeBytes":  132982570,
+                   "version":  "0.2.13",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.2.13/doorpi-0.2.13.doorpiupdate.zip",
+                   "sha256":  "0e4c106765ce1a644ebdf15e986a5fac9fa41bf80f9e1be7b7c5c8b7563db20e",
+                   "sizeBytes":  133434931,
                    "minUpdaterVersion":  "0.1.0",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
                     "version":  "0.1.0",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.1.13/updater-0.1.0.doorpiupdate.zip",
-                    "sha256":  "6dae389e7cdadd64ba381ede75890602c65e669621599da1f50467bf4ae9b828",
-                    "sizeBytes":  69944473,
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.2.13/updater-0.1.0.doorpiupdate.zip",
+                    "sha256":  "c63bf534f86e1927551fec4b0800699cdf490b6f9dca83225c89c79890410675",
+                    "sizeBytes":  69946125,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.1.13",
-                          "title":  "Doorpi 0.1.13",
+                          "version":  "0.2.13",
+                          "title":  "Doorpi 0.2.13",
                           "items":  [
-                                        "Hotfix com correções de desempenho do teclado VKB em aplicativos web."
+                                        "Login com Google.",
+                                        "Sincronização dos dados na nuvem com a sua conta Google, mantendo suas informações disponíveis de forma persistente.",
+                                        "Melhorias visuais."
                                     ],
                           "locales":  {
                                           "pt-BR":  {
-                                                        "title":  "Doorpi 0.1.13",
+                                                        "title":  "Doorpi 0.2.13",
                                                         "items":  [
-                                                                      "Hotfix com correções de desempenho do teclado VKB em aplicativos web."
+                                                                      "Login com Google.",
+                                                                      "Sincronização dos dados na nuvem com a sua conta Google, mantendo suas informações disponíveis de forma persistente.",
+                                                                      "Melhorias visuais."
                                                                   ]
                                                     },
                                           "en":  {
-                                                     "title":  "Doorpi 0.1.13",
+                                                     "title":  "Doorpi 0.2.13",
                                                      "items":  [
-                                                                   "Hotfix with VKB keyboard performance fixes in web apps."
+                                                                   "Google sign-in.",
+                                                                   "Cloud data sync with your Google account, keeping your information persistently available.",
+                                                                   "Visual improvements."
                                                                ]
                                                  }
                                       }
@@ -48,6 +54,6 @@
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "PEOg/0oBiHMqDkndUHXv3rDM66WbFpWVXxaTEg/H3kc5vIJoT5g0WTLgQM1F6AUVLB/JtfsRjFwkMuPlnEHJlMVO7TsBklsr+uQgCxncxiPnajHJs0NtWFlOGF0mUoipEmDApK5VS9r+viReW1038IbkB4x9touhn14eHpCxGtQY6tKwmDUuJjfvCzBkSmdqaVqDI/Rtu0oeLaOip0q/OpqJW2z6zu2EEoXNy/Ii/MTuLBBnKIM68nA+nWC+m6mDqxu1p/n4+lbJyVOu44wYluBFrbvrnxVINuaT1K6IsnvyQmQ5okoRuDON9P8oosW1bVa8J1bl8AnLCyzol6mmAfQfuIpJmr3ylgahL5QgQ8OnR6F/sUpXzD+2vg1/WZQIE2+HJ1RkqBW2/yajjiGv+9LZSg+BkwhkfgAQFrTPoxBxZ2dbNp3KzAWLw97noikySorTxiJ1MqAjUacng3rRd2bKK7eqw3Yz6jo++dnU7YLQAqwfzmoLJaEHuBYriN2z"
+                      "value":  "Nu+Itt8H4V74ZBcEfeh65IJSyFCicMFAethELjtzoiMZpuVO2+9Ke4rj0g4R/bVLpzHG57KXXsGxkphRgt5bEkqHj1Y1QI5BkMbLou4UtScexrtZW0tPBmVI8ugi/rLD2u3hAqVntyn6fEeg7vJpo9cPyCXD2JN49BOFyewuSGc8fIFu29/HOQx+a4ghYYwT6MW5q1w8X6hUxOcP5LgzSZwWjo+L5BOBjwkyJW3r22+fSyEq2DJLloKXBAJ9d78rlM9ZaorPlnCDxCfbPYzR5Q361VTNgk4nBBOWwVY/TDTvrOgP5VbfLSpezf/Ipey9W1oeh2N9a84FkPK9zNrTvvID48hqHq1wrXcxQk4LcZNtRtQmPQ7xPVxSyR79GPz2E8d9S1XNZWp8vVkMNLg/KZj9Ja3L6TZiJhXMqBZ2+9qbJbpwt6nPXLenl27P1g1E6peDeUGzoDpJO7MXcAvLtFFBFPRYGJZmbx+OP2z6B6679NfjFevlGbiL6t6YmsmN"
                   }
 }
