@@ -2143,11 +2143,12 @@ window.isNavMenuOpen = false;
 .nav-vertical-card.nav-focused .nav-vertical-card-title { opacity: 1; transform: translateY(0); }
 
 /* ── HUB de Perfil (Visual Cinemático) ── */
-.nav-profile-showcase { display: flex; flex-direction: column; gap: clamp(12px, 2.2vh, 34px); animation: fadeInTop 0.3s ease; max-width: clamp(85%, 75vw, 1100px); }
-.nav-profile-cover { min-height: clamp(240px, 31vh, 420px); position: relative; overflow: hidden; border-radius: 16px; border: 1px solid rgba(255,255,255,.08); background: linear-gradient(135deg, rgba(255,255,255,.07), rgba(255,255,255,.025)); box-shadow: 0 24px 70px rgba(0,0,0,.26); }
+.nav-content-body.profile-showcase-active { display: flex; flex-direction: column; align-items: center; }
+.nav-profile-showcase { width: 100%; max-width: min(1800px, 100%); margin-inline: auto; display: flex; flex-direction: column; gap: clamp(12px, 2.2vh, 34px); animation: fadeInTop 0.3s ease; box-sizing: border-box; }
+.nav-profile-cover { width: 100%; min-height: clamp(260px, 33vh, 460px); position: relative; overflow: hidden; border-radius: 16px; border: 1px solid rgba(255,255,255,.08); background: linear-gradient(135deg, rgba(255,255,255,.07), rgba(255,255,255,.025)); box-shadow: 0 24px 70px rgba(0,0,0,.26); box-sizing: border-box; }
 .nav-profile-cover-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 40%; opacity: .58; filter: saturate(.92) contrast(.96); }
 .nav-profile-cover::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(7,10,20,.9) 0%, rgba(7,10,20,.62) 34%, rgba(7,10,20,.08) 100%), linear-gradient(0deg, rgba(0,0,0,.42) 0%, rgba(0,0,0,.08) 58%, rgba(0,0,0,.22) 100%); }
-.nav-profile-header { position: relative; z-index: 2; min-height: inherit; display: flex; align-items: flex-end; gap: clamp(14px, 2.5vw, 40px); justify-content: flex-start; padding: clamp(24px, 2.8vw, 48px); margin-bottom: 0; }
+.nav-profile-header { position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; display: flex; align-items: flex-end; gap: clamp(14px, 2.5vw, 40px); justify-content: flex-start; padding: clamp(24px, 2.8vw, 48px); margin-bottom: 0; box-sizing: border-box; }
 .nav-profile-avatar-large { 
     width: clamp(70px, 12vh, 120px); height: clamp(70px, 12vh, 120px); 
     border-radius: 50%; border: 3px solid rgba(255,255,255,0.15); box-shadow: 0 15px 40px rgba(0,0,0,0.5); 
@@ -2163,7 +2164,7 @@ window.isNavMenuOpen = false;
     transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1); font-weight: 500;
 }
 .nav-profile-edit-btn.nav-focused-el { background: #fff; color: #000; transform: scale(1.05); box-shadow: 0 10px 30px rgba(255,255,255,0.2); }
-.nav-profile-section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; border-bottom: 1px solid rgba(255,255,255,0.1); margin-top: 10px; }
+.nav-profile-section-head { width: 100%; box-sizing: border-box; display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; border-bottom: 1px solid rgba(255,255,255,0.1); margin-top: 10px; }
 .nav-profile-section-head .nav-profile-section-title { border-bottom: 0; margin-top: 0; padding-bottom: 12px; }
 .nav-profile-journey-btn { margin-bottom: 8px; padding: 7px 13px; border: 1px solid rgba(255,255,255,.14); border-radius: 6px; background: rgba(255,255,255,.055); color: rgba(255,255,255,.66); font: inherit; font-size: clamp(.72rem, .78vw, .9rem); font-weight: 600; outline: none; transition: background .16s ease, color .16s ease, border-color .16s ease, transform .16s ease; }
 .nav-profile-journey-btn.nav-focused-el { background: rgba(255,255,255,.16); border-color: #fff; color: #fff; transform: translateY(-2px); }
@@ -2182,7 +2183,7 @@ window.isNavMenuOpen = false;
 .nav-profile-history-time { color: rgba(255,255,255,.66); font-size: clamp(.82rem, 1vw, 1.12rem); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .nav-profile-history-empty { padding: 50px 0; color: rgba(255,255,255,.35); }
 
-.nav-profile-stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: clamp(10px, 1.5vw, 24px); }
+.nav-profile-stats-row { width: 100%; box-sizing: border-box; display: grid; grid-template-columns: repeat(3, 1fr); gap: clamp(10px, 1.5vw, 24px); }
 .nav-profile-stat-box {
     background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;
     padding: clamp(10px, 1.5vh, 24px) clamp(12px, 1.5vw, 24px); display: flex; flex-direction: column; gap: clamp(4px, 0.8vh, 8px); box-shadow: 0 10px 20px rgba(0,0,0,0.2);
@@ -2221,6 +2222,7 @@ window.isNavMenuOpen = false;
 
 /* ── Cards Recentes ── */
 .nav-profile-recent-grid {
+    width: 100%; box-sizing: border-box;
     display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(110px, 10vw, 205px), 1fr));
     gap: clamp(10px, 1.2vw, 24px); padding-bottom: 40px;
 }
@@ -2229,9 +2231,10 @@ window.isNavMenuOpen = false;
     position: relative; display: flex; flex-direction: column; transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.2s ease;
 }
 .nav-profile-recent-card.is-top-played { grid-row: span 2; aspect-ratio: 2/3; border-color: rgba(255,255,255,.22); box-shadow: 0 22px 52px rgba(0,0,0,.38); }
-.nav-profile-recent-card.is-top-played .nav-card-gradient { opacity: .58; backdrop-filter: none; }
-.nav-profile-recent-card.is-top-played .nav-profile-recent-info { opacity: 1; transform: none; }
 .nav-profile-recent-card.is-top-played .nav-profile-recent-title { font-size: clamp(1.02rem, 1.32vw, 1.7rem); max-width: 92%; }
+.nav-profile-top-badge { position: absolute; top: clamp(9px, 1vw, 16px); left: clamp(9px, 1vw, 16px); z-index: 4; width: clamp(30px, 2.25vw, 42px); height: clamp(30px, 2.25vw, 42px); display: grid; place-items: center; border-radius: 999px; color: rgba(255,255,255,.86); background: linear-gradient(135deg, rgba(255,255,255,.22), rgba(255,255,255,.07)); border: 1px solid rgba(255,255,255,.24); box-shadow: 0 12px 30px rgba(0,0,0,.32), inset 0 0 18px rgba(255,255,255,.06); opacity: .88; pointer-events: none; transition: transform .2s ease, opacity .2s ease, background .2s ease; }
+.nav-profile-top-badge svg { width: 58%; height: 58%; display: block; }
+.nav-profile-recent-card.nav-focused-el .nav-profile-top-badge { opacity: 1; transform: translateY(-2px) scale(1.04); background: linear-gradient(135deg, rgba(255,255,255,.32), rgba(255,255,255,.1)); }
 .nav-profile-recent-card img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .nav-profile-recent-card.nav-focused-el { transform: scale(1.05); box-shadow: 0 15px 40px rgba(0,0,0,0.6); z-index: 10; }
 .nav-profile-recent-card .nav-card-gradient {
@@ -3152,6 +3155,17 @@ window.isNavMenuOpen = false;
                     ? `<img src="${staticSrc}" alt="${item.Name}" />`
                     : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:rgba(255,255,255,0.1);font-size:2rem;">⊞</div>`;
 
+                if (index === 0) {
+                    card.innerHTML += `
+                <div class="nav-profile-top-badge" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M7 4h10v3.3c0 3.7-2 6-5 6s-5-2.3-5-6V4Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                        <path d="M7 6H4.8c0 3.1 1.4 5 3.7 5.5M17 6h2.2c0 3.1-1.4 5-3.7 5.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M12 13.5V17M8.8 20h6.4M10 17h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                    </svg>
+                </div>`;
+                }
+
                 card.innerHTML += `
                 <div class="nav-card-gradient"></div>
                 <div class="nav-profile-recent-info">
@@ -3199,12 +3213,24 @@ window.isNavMenuOpen = false;
     function _openHistoryArtworkPicker(item, element) {
         if (!item || !element || typeof window.openDoorpiHistoryArtworkPicker !== 'function') return;
         window.openDoorpiHistoryArtworkPicker(element, item, images => {
-            if (images.vertical) item.ShowcaseVerticalLocalImage = images.vertical;
-            if (images.verticalSourceUrl) item.ShowcaseVerticalImageUrl = images.verticalSourceUrl;
-            if (images.horizontal) item.HistoryHorizontalLocalImage = images.horizontal;
-            if (images.horizontalSourceUrl) item.HistoryHorizontalImageUrl = images.horizontalSourceUrl;
-            if (images.banner) item.ProfileBannerLocalImage = images.banner;
-            if (images.bannerSourceUrl) item.ProfileBannerImageUrl = images.bannerSourceUrl;
+            if (images.verticalSourceUrl) {
+                item.ShowcaseVerticalImageUrl = images.verticalSourceUrl;
+                item.ShowcaseVerticalLocalImage = '';
+            } else if (images.vertical) {
+                item.ShowcaseVerticalLocalImage = images.vertical;
+            }
+            if (images.horizontalSourceUrl) {
+                item.HistoryHorizontalImageUrl = images.horizontalSourceUrl;
+                item.HistoryHorizontalLocalImage = '';
+            } else if (images.horizontal) {
+                item.HistoryHorizontalLocalImage = images.horizontal;
+            }
+            if (images.bannerSourceUrl) {
+                item.ProfileBannerImageUrl = images.bannerSourceUrl;
+                item.ProfileBannerLocalImage = '';
+            } else if (images.banner) {
+                item.ProfileBannerLocalImage = images.banner;
+            }
             const previousIndex = _contentIdx;
             _renderContent('profile');
             _contentIdx = Math.max(0, Math.min(previousIndex, _contentItems.length - 1));
@@ -6177,6 +6203,13 @@ window.isNavMenuOpen = false;
     window.addEventListener('doorpi:profile-sync-message', event => {
         const data = event.detail || {};
         if (data.setup) return;
+        if (data.type === 'profileSyncDataApplied') {
+            const profileId = data.profileId || window._doorpiCurrentUserId || '';
+            if (_sameId(profileId, window._doorpiCurrentUserId || _menuDataUserId)) {
+                _setMenuUserContext(window._doorpiProfile || _menuData.user, profileId, true);
+            }
+            return;
+        }
         if (data.type === 'profileSyncArtworkUpdated') {
             const item = (_menuData.history || []).find(entry =>
                 String(entry?.Name || '').localeCompare(String(data.gameName || ''), undefined, { sensitivity: 'base' }) === 0);

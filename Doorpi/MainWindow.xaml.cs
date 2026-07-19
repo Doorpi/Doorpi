@@ -657,6 +657,8 @@ namespace Doorpi
             Directory.CreateDirectory(Path.Combine(dataFolder, "intros"));
             Directory.CreateDirectory(Path.Combine(dataFolder, "users"));
             Directory.CreateDirectory(dataFolder);
+            try { InitializeWebViewProfileStorage(); }
+            catch (Exception ex) { Debug.WriteLine("[WebViewProfiles] Inicialização adiada após falha: " + ex.Message); }
             Directory.CreateDirectory(gridFolder);
             Directory.CreateDirectory(heroFolder);
             Directory.CreateDirectory(gridHorizontalFolder);
@@ -1252,6 +1254,7 @@ namespace Doorpi
                 });
 
                 BeginStartupUpdateCheck();
+                _ = PrewarmMediaWebViewEnvironmentsAsync();
             };
 
             // ConfiguraÃ§Ãµes de ProduÃ§Ã£o
@@ -1745,13 +1748,6 @@ namespace Doorpi
                 IndentedJsonOptions));
         }
 
-        private string GetUserProfileToken(string userId, IReadOnlyList<UserProfile>? users = null)
-        {
-            users ??= LoadUserProfiles();
-            var user = users.FirstOrDefault(u => string.Equals(u.Id, userId, StringComparison.OrdinalIgnoreCase));
-            return SafeBrowserProfileToken(!string.IsNullOrWhiteSpace(user?.Name) ? user.Name : userId);
-        }
-
         private static string GetMediaAppKey(MediaAppModel app)
         {
             if (!string.IsNullOrWhiteSpace(app.Id)) return SafeBrowserProfileToken(app.Id);
@@ -1786,132 +1782,6 @@ namespace Doorpi
             app.SharedWithUserName = app.SharedWithUserNames.FirstOrDefault() ?? "";
         }
 
-        private string GetBrowserProfileNameForMediaApp(MediaAppModel app)
-        {
-            var users = LoadUserProfiles();
-            var owner = string.IsNullOrWhiteSpace(app.OwnerUserId) ? currentUserId : app.OwnerUserId;
-            var appKey = GetMediaAppKey(app);
-
-            if (app.ShareMode == "all")
-                return SafePathSegment($"{GetUserProfileToken(owner, users)}_{appKey}_publico");
-
-            if (app.ShareMode == "user" || app.IsSharedFromOtherUser)
-            {
-                var ids = NormalizeSharedUserIds(app);
-                var participants = new[] { owner }
-                    .Concat(ids)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
-                    .Select(id => GetUserProfileToken(id, users));
-                return SafePathSegment($"{string.Join("_", participants)}_{appKey}");
-            }
-
-            return SafePathSegment($"{owner}-{appKey}");
-        }
-
-        private string BrowserProfilesFolder => DoorpiPaths.BrowserProfilesFolder;
-
-        private string GetBrowserProfilePath(string profileName) =>
-            Path.Combine(BrowserProfilesFolder, profileName);
-
-        private void CopyDirectoryContent(string source, string destination)
-        {
-            Directory.CreateDirectory(destination);
-            foreach (var directory in Directory.GetDirectories(source, "*", SearchOption.AllDirectories))
-            {
-                Directory.CreateDirectory(directory.Replace(source, destination));
-            }
-            foreach (var file in Directory.GetFiles(source, "*", SearchOption.AllDirectories))
-            {
-                var dest = file.Replace(source, destination);
-                Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
-                SafeCopy(file, dest);
-            }
-        }
-
-        private void MoveOrCopyBrowserProfile(string sourceName, string destinationName)
-        {
-            if (string.Equals(sourceName, destinationName, StringComparison.OrdinalIgnoreCase)) return;
-            var source = GetBrowserProfilePath(sourceName);
-            var destination = GetBrowserProfilePath(destinationName);
-            if (!Directory.Exists(source)) return;
-
-            Directory.CreateDirectory(BrowserProfilesFolder);
-            try
-            {
-                if (!Directory.Exists(destination))
-                    Directory.Move(source, destination);
-                else
-                    CopyDirectoryContent(source, destination);
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[Sharing] Falha ao migrar perfil {sourceName} -> {destinationName}: {ex.Message}");
-                try { CopyDirectoryContent(source, destination); } catch { }
-            }
-        }
-
-        private IEnumerable<string> BrowserProfileCandidatesForApp(string appKey, IEnumerable<string> affectedUserIds)
-        {
-            var users = LoadUserProfiles();
-            foreach (var userId in affectedUserIds.Distinct(StringComparer.OrdinalIgnoreCase))
-            {
-                yield return SafePathSegment($"{userId}-{appKey}");
-                yield return SafePathSegment($"{GetUserProfileToken(userId, users)}_{appKey}");
-            }
-            foreach (var user in users)
-            {
-                yield return SafePathSegment($"shared-{user.Id}-{appKey}");
-                yield return SafePathSegment($"{GetUserProfileToken(user.Id, users)}_{appKey}_publico");
-            }
-        }
-
-        private void DeleteBrowserProfiles(IEnumerable<string> profileNames, string exceptProfileName)
-        {
-            foreach (var profileName in profileNames.Distinct(StringComparer.OrdinalIgnoreCase))
-            {
-                if (string.IsNullOrWhiteSpace(profileName) ||
-                    string.Equals(profileName, exceptProfileName, StringComparison.OrdinalIgnoreCase))
-                    continue;
-                try
-                {
-                    var path = GetBrowserProfilePath(profileName);
-                    if (Directory.Exists(path)) ForceDeleteDirectory(path);
-                }
-                catch (Exception ex) { Debug.WriteLine($"[Sharing] Falha ao remover perfil {profileName}: {ex.Message}"); }
-            }
-        }
-
-        private void PrepareBrowserProfileForSharingChange(MediaAppModel before, MediaAppModel after)
-        {
-            try
-            {
-                var appKey = GetMediaAppKey(after);
-                var beforeName = GetBrowserProfileNameForMediaApp(before);
-                var afterName = GetBrowserProfileNameForMediaApp(after);
-                var hadCurrentProfile = Directory.Exists(GetBrowserProfilePath(beforeName));
-                MoveOrCopyBrowserProfile(beforeName, afterName);
-
-                var legacyBeforeName = before.ShareMode == "private"
-                    ? SafePathSegment($"{before.OwnerUserId}-{appKey}")
-                    : SafePathSegment($"shared-{before.OwnerUserId}-{appKey}");
-                if (!hadCurrentProfile)
-                    MoveOrCopyBrowserProfile(legacyBeforeName, afterName);
-
-                var users = LoadUserProfiles();
-                var affected = after.ShareMode == "all"
-                    ? users.Select(u => u.Id).ToList()
-                    : new[] { after.OwnerUserId }.Concat(NormalizeSharedUserIds(after)).ToList();
-
-                DeleteBrowserProfiles(BrowserProfileCandidatesForApp(appKey, affected), afterName);
-                DeleteBrowserProfiles(new[] { beforeName, legacyBeforeName }, afterName);
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine("[Sharing] Falha ao preparar perfil de navegador: " + ex.Message);
-            }
-        }
-
         private void SetActiveUser(UserProfile profile, bool migrateLegacyFiles)
         {
             if (string.IsNullOrWhiteSpace(profile.Id)) profile.Id = MakeUserId(profile.Name);
@@ -1944,7 +1814,7 @@ namespace Doorpi
             if (!File.Exists(storesFile)) File.WriteAllText(storesFile, "[]");
 
             SaveUserProfile(profile);
-            ScheduleProfileSync(profile.Id, notifyFailure: true);
+            ScheduleProfileSync(profile.Id, notifyFailure: true, delayMs: 150);
             ResumeProfileSyncArtworkDownloads(profile.Id);
             MirrorCurrentUserDataFiles();
             File.WriteAllText(currentUserFile, currentUserId);
@@ -2792,6 +2662,7 @@ namespace Doorpi
 
                 if (userToRemove != null)
                 {
+                    await DeleteWebViewProfilesForOwnerAsync(userToRemove.Id).ConfigureAwait(false);
                     users.RemoveAll(u => string.Equals(u.Id, userToRemove.Id, StringComparison.OrdinalIgnoreCase));
                     SaveUserProfiles(users);
 
@@ -2804,38 +2675,6 @@ namespace Doorpi
                         Debug.WriteLine($"Erro ao deletar pasta do usuÃ¡rio: {ex.Message}");
                     }
 
-                    try
-                    {
-                        string safeName = string.IsNullOrWhiteSpace(userToRemove.Name)
-                            ? "default"
-                            : string.Concat(userToRemove.Name.Where(c => !Path.GetInvalidFileNameChars().Contains(c)));
-                        string userToken = SafeBrowserProfileToken(userToRemove.Name);
-                        string[] profilePrefixes =
-                        {
-                            $"{userToRemove.Id}-",
-                            $"{userToRemove.Id}_",
-                            $"{userToken}-",
-                            $"{userToken}_",
-                            $"{safeName}-",
-                            $"{safeName}_"
-                        };
-                        string profilesDir = DoorpiPaths.BrowserProfilesFolder;
-                        if (Directory.Exists(profilesDir))
-                        {
-                            foreach (var dir in Directory.GetDirectories(profilesDir))
-                            {
-                                string dirName = Path.GetFileName(dir);
-                                if (profilePrefixes.Any(prefix => dirName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
-                                {
-                                    ForceDeleteDirectory(dir);
-                                }
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"Erro ao limpar caches do usuÃ¡rio: {ex.Message}");
-                    }
                 }
 
                 StopWatchers();
@@ -14067,30 +13906,10 @@ namespace Doorpi
                             if (media != null)
                             {
                                 DeleteMediaImages(media);
+                                await DeleteMediaWebViewProfileAsync(media);
                                 medias.Remove(media);
                                 SaveMediaApps(medias);
                                 Debug.WriteLine($"[deleteGame] MÃ­dia Removida: {gameId}");
-
-                                // Apagar Cache fÃ­sico do WebView2
-                                try
-                                {
-                                    var nativeApp = _nativeApps.FirstOrDefault(a =>
-                                        string.Equals(media.Id, a.Id, StringComparison.OrdinalIgnoreCase) ||
-                                        IsSameCanonicalWebUrl(media.Url, a.Url));
-                                    if (nativeApp != default && nativeApp.Id != "youtube")
-                                    {
-                                        string profileName = nativeApp.MultiUser ? $"shared-{nativeApp.Id}" : $"{currentUserId}-{nativeApp.Id}";
-                                        string cachePath = Path.Combine(DoorpiPaths.BrowserProfilesFolder, profileName);
-
-                                        if (Directory.Exists(cachePath))
-                                        {
-                                            GC.Collect();
-                                            GC.WaitForPendingFinalizers();
-                                            Directory.Delete(cachePath, true);
-                                        }
-                                    }
-                                }
-                                catch (Exception ex) { Debug.WriteLine($"[deleteGame] Erro cache: {ex.Message}"); }
 
                                 // Atualiza a fila de mÃ­dia para preencher o buraco
                                 _ = Task.Run(async () =>
@@ -14656,36 +14475,6 @@ namespace Doorpi
 
                     if (existingUser != null)
                     {
-                        // ----- LÃ“GICA INFALÃVEL DE RENOMEAR CACHES (Webview Profiles) -----
-                        string oldSafeName = string.IsNullOrWhiteSpace(existingUser.Name) ? "default" : string.Concat(existingUser.Name.Where(c => !Path.GetInvalidFileNameChars().Contains(c)));
-                        string newSafeName = string.IsNullOrWhiteSpace(profile.Name) ? "default" : string.Concat(profile.Name.Where(c => !Path.GetInvalidFileNameChars().Contains(c)));
-
-                        if (!string.Equals(oldSafeName, newSafeName, StringComparison.OrdinalIgnoreCase))
-                        {
-                            try
-                            {
-                                string profilesDir = DoorpiPaths.BrowserProfilesFolder;
-                                if (Directory.Exists(profilesDir))
-                                {
-                                    foreach (var dir in Directory.GetDirectories(profilesDir))
-                                    {
-                                        string dirName = Path.GetFileName(dir);
-                                        if (dirName.StartsWith($"{oldSafeName}-", StringComparison.OrdinalIgnoreCase))
-                                        {
-                                            string suffix = dirName.Substring(oldSafeName.Length + 1);
-                                            string newPath = Path.Combine(profilesDir, $"{newSafeName}-{suffix}");
-                                            if (!Directory.Exists(newPath))
-                                            {
-                                                try { Directory.Move(dir, newPath); } catch { }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            catch (Exception ex) { Debug.WriteLine($"Erro ao renomear caches: {ex.Message}"); }
-                        }
-                        // --------------------------------------------------------
-
                         existingUser.Name = profile.Name;
                         existingUser.PhotoBase64 = profile.PhotoBase64;
                         if (hasPhotoMetadata)
@@ -14956,8 +14745,6 @@ namespace Doorpi
                             !string.Equals(app.Type, "webview", StringComparison.OrdinalIgnoreCase))
                             return;
 
-                        var before = CloneMediaApp(app);
-                        if (string.IsNullOrWhiteSpace(before.OwnerUserId)) before.OwnerUserId = currentUserId;
                         app.OwnerUserId = currentUserId;
                         app.ShareMode = shareMode is "all" or "user" ? shareMode : "private";
                         if (app.ShareMode == "user" && sharedWithUserIds.Count == 0)
@@ -14971,7 +14758,6 @@ namespace Doorpi
                                 .ToList()
                             : new List<string>();
                         app.SharedWithUserName = app.SharedWithUserNames.FirstOrDefault() ?? "";
-                        PrepareBrowserProfileForSharingChange(before, app);
                         SaveMediaApps(apps);
                         SendUsersDataToUI();
                         SendMediaAppsToUI(LoadMediaApps());
@@ -16010,11 +15796,10 @@ namespace Doorpi
             return patch;
         }
 
-        private async Task<Dictionary<string, string>> SaveSelectedHistoryArtworkAsync(string gameName, JsonElement imagesEl)
+        private Task<Dictionary<string, string>> SaveSelectedHistoryArtworkAsync(string gameName, JsonElement imagesEl)
         {
             var patch = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            var sourceUrls = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            string safeName = "history_" + StableAssetName(currentUserId + "_" + gameName + "_" + DateTime.UtcNow.Ticks);
+            string profileId = currentUserId;
 
             var selected = imagesEl.EnumerateObject()
                 .Where(property => property.Name is "vertical" or "horizontal" or "banner")
@@ -16023,55 +15808,82 @@ namespace Doorpi
                                (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
                 .ToList();
 
-            foreach (var item in selected)
-            {
-                string urlFolder = item.Category switch
-                {
-                    "vertical" => "history-vertical",
-                    "banner" => "history-banner",
-                    _ => "history-horizontal"
-                };
-                string targetFolder = Path.Combine(dataFolder, "images", urlFolder);
-                string suffix = item.Category switch { "vertical" => "_v", "banner" => "_b", _ => "_h" };
-                string? local = await DownloadImageAsync(item.Value, targetFolder, safeName + suffix)
-                    .ConfigureAwait(false);
-                if (local == null) continue;
-
-                patch[item.Category] = $"https://data.local/images/{urlFolder}/{Path.GetFileName(local)}";
-                sourceUrls[item.Category] = item.Value;
-            }
-
-            if (patch.Count == 0) return patch;
+            if (selected.Count == 0) return Task.FromResult(patch);
 
             lock (_gameHistoryFileLock)
             {
-                var history = LoadGameHistory();
+                string historyPath = Path.Combine(dataFolder, "users", profileId, "game-history.json");
+                List<GameHistoryEntry> history;
+                try
+                {
+                    history = File.Exists(historyPath)
+                        ? JsonSerializer.Deserialize<List<GameHistoryEntry>>(SafeReadAllText(historyPath)) ?? new()
+                        : new List<GameHistoryEntry>();
+                }
+                catch
+                {
+                    return Task.FromResult(patch);
+                }
+
                 string key = NormalizeGameName(gameName);
                 var entry = history.FirstOrDefault(item => NormalizeGameName(item.Name) == key);
-                if (entry == null) return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                if (entry == null) return Task.FromResult(patch);
 
-                if (patch.TryGetValue("vertical", out string? vertical))
+                foreach (var item in selected)
                 {
-                    entry.ShowcaseVerticalLocalImage = vertical;
-                    entry.ShowcaseVerticalImageUrl = sourceUrls["vertical"];
-                    patch["verticalSourceUrl"] = sourceUrls["vertical"];
+                    if (item.Category == "vertical")
+                    {
+                        entry.ShowcaseVerticalImageUrl = item.Value;
+                        entry.ShowcaseVerticalLocalImage = "";
+                    }
+                    else if (item.Category == "horizontal")
+                    {
+                        entry.HistoryHorizontalImageUrl = item.Value;
+                        entry.HistoryHorizontalLocalImage = "";
+                    }
+                    else
+                    {
+                        entry.ProfileBannerImageUrl = item.Value;
+                        entry.ProfileBannerLocalImage = "";
+                    }
+
+                    patch[item.Category] = item.Value;
+                    patch[item.Category + "SourceUrl"] = item.Value;
                 }
-                if (patch.TryGetValue("horizontal", out string? horizontal))
-                {
-                    entry.HistoryHorizontalLocalImage = horizontal;
-                    entry.HistoryHorizontalImageUrl = sourceUrls["horizontal"];
-                    patch["horizontalSourceUrl"] = sourceUrls["horizontal"];
-                }
-                if (patch.TryGetValue("banner", out string? banner))
-                {
-                    entry.ProfileBannerLocalImage = banner;
-                    entry.ProfileBannerImageUrl = sourceUrls["banner"];
-                    patch["bannerSourceUrl"] = sourceUrls["banner"];
-                }
-                SaveGameHistory(history);
+
+                string json = JsonSerializer.Serialize(history, IndentedJsonOptions);
+                SafeWriteAllText(historyPath, json);
+                if (string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase))
+                    SafeWriteAllText(Path.Combine(dataFolder, "game-history.json"), json);
             }
 
-            return patch;
+            ScheduleProfileSync(profileId, notifyFailure: true, delayMs: 100);
+            _ = CacheSelectedHistoryArtworkAsync(profileId, gameName, selected);
+            return Task.FromResult(patch);
+        }
+
+        private async Task CacheSelectedHistoryArtworkAsync(
+            string profileId,
+            string gameName,
+            IReadOnlyList<(string Category, string Value)> selected)
+        {
+            try
+            {
+                foreach (var item in selected)
+                {
+                    await DownloadProfileHistoryArtworkAsync(
+                            profileId,
+                            gameName,
+                            item.Category,
+                            item.Value,
+                            "")
+                        .ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[ProfileSync] Falha ao armazenar arte selecionada em cache: " + ex.Message);
+            }
         }
 
         private async Task<string?> DownloadImageAsync(string url, string folder, string name)
@@ -17601,7 +17413,7 @@ namespace Doorpi
             try { _ytWebView?.Dispose(); } catch { }
             try { _popupWebView?.Dispose(); } catch { }
             try { webView?.Dispose(); } catch { }
-            lock (_webViewEnvironmentCacheLock) _webViewEnvironmentCache.Clear();
+            ClearMediaWebViewEnvironmentReferences();
             _genericBrowserEnvironment = null;
 
             // 3. Cancela as threads de monitoramento ativas
