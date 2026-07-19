@@ -2372,7 +2372,11 @@ namespace Doorpi
 
                     SetActiveUser(user, migrateLegacyFiles: false);
                     RestartWatchers();
-                    await InitializeNativeAppsAsync(currentUserId, mediaFile, silent: true).ConfigureAwait(false);
+                    await SynchronizeNativeAppsAsync(
+                        currentUserId,
+                        mediaFile,
+                        addMissingApps: false,
+                        silent: true).ConfigureAwait(false);
 
                     await Dispatcher.InvokeAsync(LoadCurrentUserIntoUI);
                     await WaitForConsoleShellReadyForUserTransitionAsync().ConfigureAwait(false);
@@ -6090,7 +6094,7 @@ namespace Doorpi
             ("kick",        "Kick",         "Kick (Website)",            "https://www.kick.com",         "browser", false),
             (DoorpiBrowserAppId, "Browser", "Google (Website)",          "https://www.google.com",       "browser", false),
             ("disneyplus",  "Disney +",      "Disney + (Website)",     "https://www.disneyplus.com",   "browser", true ),
-            ("primevideo",  "Prime VÃ­deo",  "Prime Video (Website)",     "https://www.primevideo.com",   "browser", true ),
+            ("primevideo",  "Prime V\u00EDdeo",  "Prime Video (Website)",     "https://www.primevideo.com",   "browser", true ),
             ("appletv",     "Apple TV",    "Apple TV (Website)",   "https://tv.apple.com",         "browser", true ),
             ("max",         "Max",          "HBO Max (Website)",         "https://www.max.com",          "browser", true ),
             ("crunchyroll", "Crunchyroll",  "Crunchyroll (Website)",     "https://www.crunchyroll.com",  "browser", true ),
@@ -6122,11 +6126,12 @@ namespace Doorpi
             string localHorizontal = FindNativeAssetUrl(id, "grid-horizontal");
             string localHero = FindNativeAssetUrl(id, "hero");
             string localLogo = FindNativeAssetUrl(id, "logo");
+            string resolvedName = ResolveNativeMediaAppName(id, name, existingEntry.Name);
 
             return new MediaAppModel
             {
                 Id = id,
-                Name = name,
+                Name = resolvedName,
                 Url = url,
                 Type = type,
                 AssetQuery = !string.IsNullOrWhiteSpace(existingEntry.AssetQuery) ? existingEntry.AssetQuery : assetQuery,
@@ -6149,6 +6154,23 @@ namespace Doorpi
                 LastPlayed = existingEntry.LastPlayed,
                 DateAdded = existingEntry.DateAdded == DateTime.MinValue ? DateTime.Now : existingEntry.DateAdded
             };
+        }
+
+        private static string ResolveNativeMediaAppName(string id, string defaultName, string existingName)
+        {
+            if (string.IsNullOrWhiteSpace(existingName))
+                return defaultName;
+
+            // Corrige automaticamente apenas os valores antigos do Prime Video que
+            // foram persistidos a partir do literal com encoding corrompido.
+            string trimmedName = existingName.Trim();
+            bool isBrokenPrimeVideoName = id.Equals("primevideo", StringComparison.OrdinalIgnoreCase)
+                && trimmedName.StartsWith("Prime V", StringComparison.OrdinalIgnoreCase)
+                && (trimmedName.Contains('\u00C3')
+                    || trimmedName.Contains('\u00C2')
+                    || trimmedName.Contains('\uFFFD'));
+
+            return isBrokenPrimeVideoName ? defaultName : existingName;
         }
 
 
@@ -6179,8 +6201,14 @@ namespace Doorpi
             return (null, null, null, null);
         }
 
-        // ParÃ¢metros foram adicionados para isolar a tarefa
-        private async Task InitializeNativeAppsAsync(string targetUserId, string targetMediaFile, bool silent = false)
+        // Adiciona todo o catálogo apenas na criação da conta. Nas sincronizações
+        // seguintes, apps removidos pelo usuário permanecem removidos; somente o
+        // YouTube é obrigatório porque não pode ser adicionado manualmente.
+        private async Task SynchronizeNativeAppsAsync(
+            string targetUserId,
+            string targetMediaFile,
+            bool addMissingApps,
+            bool silent = false)
         {
             var existing = LoadMediaAppsForUser(targetUserId);
             var existingById = existing.ToDictionary(a => a.Id, StringComparer.OrdinalIgnoreCase);
@@ -6189,9 +6217,13 @@ namespace Doorpi
             foreach (var app in _nativeApps)
             {
                 var (id, name, query, url, type, multiUser) = app;
-                if (targetUserId == currentUserId) PostProgress(id, "active");
+                bool alreadyExists = existingById.TryGetValue(id, out var prev);
+                bool isRequiredYouTube = id.Equals("youtube", StringComparison.OrdinalIgnoreCase);
+                if (!alreadyExists && !addMissingApps && !isRequiredYouTube)
+                    continue;
 
-                var existingEntry = existingById.TryGetValue(id, out var prev) ? prev : new MediaAppModel();
+                if (targetUserId == currentUserId) PostProgress(id, "active");
+                var existingEntry = alreadyExists ? prev! : new MediaAppModel();
                 if (id.Equals(DoorpiBrowserAppId, StringComparison.OrdinalIgnoreCase) &&
                     string.IsNullOrWhiteSpace(existingEntry.GridImage) &&
                     string.IsNullOrWhiteSpace(existingEntry.HeroImage) &&
@@ -14409,7 +14441,11 @@ namespace Doorpi
                                         {
                                             string mediaPath = Path.Combine(dataFolder, "users", item.Profile.Id, "media.json");
                                             bool isActive = string.Equals(item.Profile.Id, currentUserId, StringComparison.OrdinalIgnoreCase);
-                                            initTasks.Add(InitializeNativeAppsAsync(item.Profile.Id, mediaPath, silent: !isActive));
+                                            initTasks.Add(SynchronizeNativeAppsAsync(
+                                                item.Profile.Id,
+                                                mediaPath,
+                                                addMissingApps: true,
+                                                silent: !isActive));
                                         }
 
                                         await Task.WhenAll(initTasks).ConfigureAwait(false);
@@ -14533,7 +14569,10 @@ namespace Doorpi
                         {
                             try
                             {
-                                await InitializeNativeAppsAsync(taskUserId, taskMediaFile);
+                                await SynchronizeNativeAppsAsync(
+                                    taskUserId,
+                                    taskMediaFile,
+                                    addMissingApps: existingUser == null);
                                 if (isLast)
                                 {
                                     await Dispatcher.InvokeAsync(LoadCurrentUserIntoUI);
