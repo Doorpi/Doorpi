@@ -1,48 +1,51 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202607181932,
-    "publishedAt":  "2026-07-18T22:33:11.6389781Z",
-    "expiresAt":  "2026-08-01T22:33:11.6389781Z",
+    "manifestVersion":  202607191847,
+    "publishedAt":  "2026-07-19T21:48:10.1770016Z",
+    "expiresAt":  "2026-08-02T21:48:10.1770016Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.2.14",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.2.14/doorpi-0.2.14.doorpiupdate.zip",
-                   "sha256":  "761f657e7ee0f4b7eafa0a932fdd4ada987e4d26d0b4241e9205cc5521822ca5",
-                   "sizeBytes":  133442037,
+                   "version":  "0.2.15",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.2.15/doorpi-0.2.15.doorpiupdate.zip",
+                   "sha256":  "b9634ff55f16adbb867d7b7c5101d2a197a94ab4f693b7237fa4d94aaf0e7626",
+                   "sizeBytes":  133433543,
                    "minUpdaterVersion":  "0.1.0",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
                     "version":  "0.1.0",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.2.14/updater-0.1.0.doorpiupdate.zip",
-                    "sha256":  "f6cab9dc027237267b75f0428c253520ddff59f06a5a4f4c16fa04bc817084d5",
-                    "sizeBytes":  69946118,
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.2.15/updater-0.1.0.doorpiupdate.zip",
+                    "sha256":  "57a83cbb1cda61894a23d150ccfb08bfb4994072de8350cde5113a9e363878da",
+                    "sizeBytes":  69946112,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.2.14",
-                          "title":  "Doorpi 0.2.14",
+                          "version":  "0.2.15",
+                          "title":  "Doorpi 0.2.15",
                           "items":  [
-                                        "Hotfix na sincronização e no tratamento de conflitos entre contas.",
-                                        "Correções de foco indevido em interfaces e pop-ups."
+                                        "Mudança na arquitetura dos web apps para maior consistência, desempenho e menor consumo de memória do sistema.",
+                                        "Correções de bugs do teclado VKB em pop-ups.",
+                                        "Melhorias visuais no perfil do usuário."
                                     ],
                           "locales":  {
                                           "pt-BR":  {
-                                                        "title":  "Doorpi 0.2.14",
+                                                        "title":  "Doorpi 0.2.15",
                                                         "items":  [
-                                                                      "Hotfix na sincronização e no tratamento de conflitos entre contas.",
-                                                                      "Correções de foco indevido em interfaces e pop-ups."
+                                                                      "Mudança na arquitetura dos web apps para maior consistência, desempenho e menor consumo de memória do sistema.",
+                                                                      "Correções de bugs do teclado VKB em pop-ups.",
+                                                                      "Melhorias visuais no perfil do usuário."
                                                                   ]
                                                     },
                                           "en":  {
-                                                     "title":  "Doorpi 0.2.14",
+                                                     "title":  "Doorpi 0.2.15",
                                                      "items":  [
-                                                                   "Hotfix for sync behavior and account conflict handling.",
-                                                                   "Fixed incorrect focus behavior in interfaces and pop-ups."
+                                                                   "Changed the web app architecture for better consistency, performance, and lower system memory usage.",
+                                                                   "Fixed VKB keyboard bugs in pop-ups.",
+                                                                   "Visual improvements to the user profile."
                                                                ]
                                                  }
                                       }
@@ -51,6 +54,6 @@
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "RsMupit9dl7jlE38dI3F3hz7/a4ba46JN1bPfNQGxo06hxxcUVmRFRVMy7Haj0VdDoOE9eSemTpR5/OhSHkrORscyM5ziZo1AVzPDx+aH3XMdX8I2XRiX8oBvCKsFjgz2SY7j7Rr0fR6af9WqwVxJPZjjBLWYFidm9g+aAu2ovpkUBiVobBTSyKwUiRf8BkAI/ybwVe8ES9y7lAYjj5+FkbW0v0rw6vq1AVHwM3awYVEFprW69eZr7NDJViEhnz4HC78RmCl08juQcykOp6Ea4joxgQP3B3xUEm7YCAO+Uqn9PDWZY9OQlGE1Vx9c7zRN8v/WGHDfH4q7UAohA+xBMu8ZcJ5xkvBiRJkzy+6eozJQGxMQ2uPANu5UvVYzK3LWwG5QAh65kWGiCpS0ObVNfmvQAWs/LMAtE9e60JlqoyDj2WfS5hrVBsIUuF/N8S63wOFWoq5Dgc0u1HdsyJOeAL5ds3lTKBbVr8L4lsRl54vfsKjPFse/iU8auy5pZJ+"
+                      "value":  "eBM19ZAvq2WUFOEcsebFQTvqL2S87hFyHwJki17oVuK8BIEHKL7AFIkleG+d5rQIuDrSOEyLK3k3zzRAwikY55uYbnk9D0po27CPZFEsUuklSig7GQYWNbnw7RVVZuYGAZG+xCFVh2gEX5nQZz30Ys5mSmvV1tBFTOeqLOGXEZYS75UtfNOjilvGDoSU5DTm4DghrQZCUqc8d88AM40Y3A2wiBoeYvdEVhwUZpMcn09dD69nudxPOoAW3LTeMMBLOqDax2i3DmiFiJKkLC13cGeca4ePzIA3l70d0EoaHysoFNRPi1L38kRb34dVJHFimk95iIAQBQnOoczVvUxrX/KLShwWCnqimXMeaAMb92oz/JINgcup6wjEwiS4vu9GHDLCIBT2AY8mRj9DVpYKYTtgxWk5mdgoefeuGhs0P2LVLxnpHpBIxt9sQmJgOnSBYTOYYw+5IJqP3HakUOdUY8213AFWAsrBtQZml6YOgi5uh+CKYj+kFXT3Z2vEDKoi"
                   }
 }

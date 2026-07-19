@@ -149,24 +149,23 @@ namespace Doorpi
                 SendRuntimeSessionsToUI();
             });
 
+            string storeBrowserProfilePath = "";
             try
             {
-                string profilePath = Path.Combine(
-                    DoorpiPaths.BrowserProfilesFolder,
-                    "store-installer",
-                    SafePathSegment(storeId));
-                QueueWebViewProfileCacheTrim(profilePath, "store-installer-before-open");
+                storeBrowserProfilePath = CreateStoreInstallerWebViewProfilePath(storeId);
 
                 string downloadFolder = Path.Combine(
                     DoorpiPaths.DataFolder,
                     "store-installers",
                     SafePathSegment(storeId));
 
-                var environment = await CoreWebView2Environment.CreateAsync(null, profilePath);
+                var environment = await CoreWebView2Environment.CreateAsync(null, storeBrowserProfilePath);
 
                 await Dispatcher.InvokeAsync(async () =>
                 {
                     _storeDownloadWindow = new StoreDownloadWindow(_pendingStoreInstallName, downloadFolder);
+                    _storeDownloadWindow.Closed += (_, _) =>
+                        ScheduleStoreInstallerWebViewProfileCleanup(storeBrowserProfilePath);
 
                     _storeDownloadWindow.DownloadProgress += (path, percent) =>
                     {
@@ -226,6 +225,7 @@ namespace Doorpi
             }
             catch (Exception ex)
             {
+                ScheduleStoreInstallerWebViewProfileCleanup(storeBrowserProfilePath);
                 Debug.WriteLine("[StoreInstall] Falha ao abrir site: " + ex.Message);
                 await Dispatcher.InvokeAsync(() => FailStoreInstall("Não foi possível abrir o site da loja.", canRetry: true));
             }

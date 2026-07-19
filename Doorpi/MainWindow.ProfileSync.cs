@@ -545,7 +545,10 @@ public partial class MainWindow
         }
     }
 
-    private void ScheduleProfileSync(string? profileId = null, bool notifyFailure = false)
+    private void ScheduleProfileSync(
+        string? profileId = null,
+        bool notifyFailure = false,
+        int delayMs = 1400)
     {
         if (Volatile.Read(ref _profileSyncApplyingRemote) == 1) return;
         string id = string.IsNullOrWhiteSpace(profileId) ? currentUserId : profileId;
@@ -571,7 +574,7 @@ public partial class MainWindow
         {
             try
             {
-                await Task.Delay(1400, cts.Token).ConfigureAwait(false);
+                await Task.Delay(Math.Max(0, delayMs), cts.Token).ConfigureAwait(false);
                 if (!string.Equals(id, currentUserId, StringComparison.OrdinalIgnoreCase)) return;
                 ProfileConnectionStatus status = await ProfileSyncService.GetConnectionStatusAsync(id, cts.Token)
                     .ConfigureAwait(false);
@@ -654,7 +657,6 @@ public partial class MainWindow
                 await store.CreateBackupAsync(local.Value.Snapshot, "before-cloud-apply").ConfigureAwait(false);
             }
 
-            RenameBrowserProfilesForSyncedName(profile.Name, remote.ProfileName);
             profile.Name = remote.ProfileName;
             profile.PinCode = NormalizePinCode(remote.PinCode);
             profile.SteamGridApiKey = remote.SteamGridApiKey ?? "";
@@ -693,9 +695,18 @@ public partial class MainWindow
                     HistoryHorizontalImageUrl = game.HistoryHorizontalImageUrl ?? "",
                     ProfileBannerImageUrl = game.ProfileBannerImageUrl ?? "",
                     SteamGridGameId = game.SteamGridGameId,
-                    ShowcaseVerticalLocalImage = old?.ShowcaseVerticalLocalImage ?? "",
-                    HistoryHorizontalLocalImage = old?.HistoryHorizontalLocalImage ?? "",
-                    ProfileBannerLocalImage = old?.ProfileBannerLocalImage ?? "",
+                    ShowcaseVerticalLocalImage = PreserveArtworkCache(
+                        old?.ShowcaseVerticalImageUrl,
+                        game.ShowcaseVerticalImageUrl,
+                        old?.ShowcaseVerticalLocalImage),
+                    HistoryHorizontalLocalImage = PreserveArtworkCache(
+                        old?.HistoryHorizontalImageUrl,
+                        game.HistoryHorizontalImageUrl,
+                        old?.HistoryHorizontalLocalImage),
+                    ProfileBannerLocalImage = PreserveArtworkCache(
+                        old?.ProfileBannerImageUrl,
+                        game.ProfileBannerImageUrl,
+                        old?.ProfileBannerLocalImage),
                     GridImage = old?.GridImage ?? "",
                     GridStaticImage = old?.GridStaticImage ?? "",
                     GridHorizontalImage = old?.GridHorizontalImage ?? "",
@@ -714,6 +725,12 @@ public partial class MainWindow
                 await Dispatcher.InvokeAsync(LoadCurrentUserIntoUI);
             }
 
+            PostProfileSyncMessage(new
+            {
+                type = "profileSyncDataApplied",
+                profileId
+            });
+
             ResumeProfileSyncArtworkDownloads(profileId, initialDelayMs: 3500);
 
             CloudProfileV1 appliedSnapshot = ProfileSyncSnapshotFactory.Create(
@@ -728,6 +745,20 @@ public partial class MainWindow
         {
             Interlocked.Exchange(ref _profileSyncApplyingRemote, 0);
         }
+    }
+
+    private static string PreserveArtworkCache(
+        string? previousRemoteUrl,
+        string? currentRemoteUrl,
+        string? localUrl)
+    {
+        if (string.IsNullOrWhiteSpace(localUrl)) return "";
+        return string.Equals(
+            previousRemoteUrl?.Trim(),
+            currentRemoteUrl?.Trim(),
+            StringComparison.OrdinalIgnoreCase)
+            ? localUrl
+            : "";
     }
 
     private void ResumeProfileSyncArtworkDownloads(string profileId, int initialDelayMs = 6500)
@@ -896,6 +927,7 @@ public partial class MainWindow
         string? localPath = await DownloadImageAsync(remoteUrl, targetFolder, fileName).ConfigureAwait(false);
         if (localPath == null) return;
         string savedUrl = $"https://data.local/images/{urlFolder}/{Path.GetFileName(localPath)}";
+        bool cacheApplied = false;
 
         lock (_gameHistoryFileLock)
         {
@@ -913,6 +945,22 @@ public partial class MainWindow
             GameHistoryEntry? target = latest.FirstOrDefault(item =>
                 ProfileSyncSnapshotFactory.NormalizeGameKey(item.Name) == key);
             if (target == null) return;
+
+            string currentRemoteUrl = category switch
+            {
+                "vertical" => target.ShowcaseVerticalImageUrl,
+                "banner" => target.ProfileBannerImageUrl,
+                _ => target.HistoryHorizontalImageUrl
+            };
+            if (!string.Equals(
+                    currentRemoteUrl?.Trim(),
+                    remoteUrl.Trim(),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                try { File.Delete(localPath); } catch { }
+                return;
+            }
+
             if (category == "vertical") target.ShowcaseVerticalLocalImage = savedUrl;
             else if (category == "banner") target.ProfileBannerLocalImage = savedUrl;
             else target.HistoryHorizontalLocalImage = savedUrl;
@@ -923,7 +971,9 @@ public partial class MainWindow
                 string mirror = Path.Combine(dataFolder, "game-history.json");
                 SafeWriteAllText(mirror, json);
             }
+            cacheApplied = true;
         }
+        if (!cacheApplied) return;
         PostProfileSyncMessage(new
         {
             type = "profileSyncArtworkUpdated",
@@ -1014,35 +1064,6 @@ public partial class MainWindow
                 "Não foi possível sincronizar o perfil. Os dados locais foram mantidos.",
                 "The profile could not be synchronized. Local data was preserved.")
         };
-
-    private static void RenameBrowserProfilesForSyncedName(string oldName, string newName)
-    {
-        string oldSafeName = string.IsNullOrWhiteSpace(oldName)
-            ? "default"
-            : string.Concat(oldName.Where(character => !Path.GetInvalidFileNameChars().Contains(character)));
-        string newSafeName = string.IsNullOrWhiteSpace(newName)
-            ? "default"
-            : string.Concat(newName.Where(character => !Path.GetInvalidFileNameChars().Contains(character)));
-        if (string.Equals(oldSafeName, newSafeName, StringComparison.OrdinalIgnoreCase)) return;
-
-        try
-        {
-            string profilesDirectory = DoorpiPaths.BrowserProfilesFolder;
-            if (!Directory.Exists(profilesDirectory)) return;
-            foreach (string directory in Directory.GetDirectories(profilesDirectory))
-            {
-                string directoryName = Path.GetFileName(directory);
-                if (!directoryName.StartsWith(oldSafeName + "-", StringComparison.OrdinalIgnoreCase)) continue;
-                string suffix = directoryName[(oldSafeName.Length + 1)..];
-                string destination = Path.Combine(profilesDirectory, newSafeName + "-" + suffix);
-                if (!Directory.Exists(destination)) Directory.Move(directory, destination);
-            }
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine("[ProfileSync] Falha ao renomear perfis do navegador: " + ex.Message);
-        }
-    }
 
     private async Task CompletePendingSetupProfileSyncAsync(string profileId, bool importCloud)
     {

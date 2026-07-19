@@ -121,16 +121,13 @@ namespace Doorpi
         private Popup? _genericBrowserWidgetsPopup;
         private WebView2? _genericBrowserExtensionPopupView;
         private CoreWebView2Environment? _genericBrowserEnvironment;
-        private readonly object _webViewEnvironmentCacheLock = new();
-        private readonly Dictionary<string, Task<CoreWebView2Environment>> _webViewEnvironmentCache = new(StringComparer.OrdinalIgnoreCase);
-        private static readonly object _webViewCacheTrimLock = new();
-        private static readonly Dictionary<string, DateTime> _webViewCacheTrimLastRunUtc = new(StringComparer.OrdinalIgnoreCase);
         private bool _genericBrowserExtensionOutsideCloseHooked;
         private DateTime _genericBrowserIgnoreOutsideClickUntilUtc = DateTime.MinValue;
         private bool _isGenericBrowserMode;
         private bool _genericBrowserCaptureWebAppUrl;
         private string _genericBrowserCaptureTarget = "webApp";
-        private string _activeMediaWebViewProfilePath = "";
+        private string _activeMediaWebViewProfileName = "";
+        private CoreWebView2Environment? _activeMediaWebViewEnvironment;
         private string _genericBrowserCaptureInitialClipboard = "";
         private System.Windows.Threading.DispatcherTimer? _genericBrowserCaptureClipboardTimer;
         private DateTime _genericBrowserControllerInputUntilUtc = DateTime.MinValue;
@@ -1564,10 +1561,12 @@ namespace Doorpi
 
             try
             {
-                if (_genericBrowserEnvironment != null)
-                    await popupView.EnsureCoreWebView2Async(_genericBrowserEnvironment);
-                else
-                    await popupView.EnsureCoreWebView2Async();
+                if (_genericBrowserEnvironment == null || string.IsNullOrWhiteSpace(_activeMediaWebViewProfileName))
+                    throw new InvalidOperationException("O perfil ativo do Doorpi Browser não está disponível.");
+                await EnsureWebViewWithProfileAsync(
+                    popupView,
+                    _genericBrowserEnvironment,
+                    _activeMediaWebViewProfileName);
 
                 ApplyProductionWebViewSettings(popupView.CoreWebView2, allowDefaultContextMenus: true);
                 popupView.CoreWebView2.NavigationCompleted += OnGenericBrowserExtensionPopupNavigationCompleted;
@@ -1988,10 +1987,12 @@ namespace Doorpi
 
             try
             {
-                if (_genericBrowserEnvironment != null)
-                    await popupView.EnsureCoreWebView2Async(_genericBrowserEnvironment);
-                else
-                    await popupView.EnsureCoreWebView2Async();
+                if (_genericBrowserEnvironment == null || string.IsNullOrWhiteSpace(_activeMediaWebViewProfileName))
+                    throw new InvalidOperationException("O perfil ativo do Doorpi Browser não está disponível.");
+                await EnsureWebViewWithProfileAsync(
+                    popupView,
+                    _genericBrowserEnvironment,
+                    _activeMediaWebViewProfileName);
 
                 ApplyProductionWebViewSettings(popupView.CoreWebView2, allowDefaultContextMenus: true);
                 popupView.CoreWebView2.Navigate(popupUrl);
@@ -3439,116 +3440,6 @@ namespace Doorpi
             return string.Join(" ", args.Where(arg => !string.IsNullOrWhiteSpace(arg)));
         }
 
-        private Task<CoreWebView2Environment> GetWebAppEnvironmentAsync(string userDataPath, bool enableExtensions, string browserArgs)
-        {
-            string fullPath = Path.GetFullPath(userDataPath);
-            string key = $"{fullPath}|ext:{enableExtensions}|args:{browserArgs}";
-            lock (_webViewEnvironmentCacheLock)
-            {
-                if (_webViewEnvironmentCache.TryGetValue(key, out var cached))
-                    return cached;
-
-                QueueWebViewProfileCacheTrim(fullPath, "before-environment-create");
-                LogWebViewDiagnostic($"environment-create profile={fullPath} extensions={enableExtensions} args={browserArgs}");
-                var options = new CoreWebView2EnvironmentOptions(browserArgs)
-                {
-                    AreBrowserExtensionsEnabled = enableExtensions
-                };
-                var created = CoreWebView2Environment.CreateAsync(null, fullPath, options);
-                _webViewEnvironmentCache[key] = created;
-                _ = created.ContinueWith(t =>
-                {
-                    if (!t.IsFaulted && !t.IsCanceled) return;
-                    lock (_webViewEnvironmentCacheLock)
-                    {
-                        if (_webViewEnvironmentCache.TryGetValue(key, out var current) && ReferenceEquals(current, created))
-                            _webViewEnvironmentCache.Remove(key);
-                    }
-                }, TaskScheduler.Default);
-                return created;
-            }
-        }
-
-        private static void QueueWebViewProfileCacheTrim(string profilePath, string reason, int delayMs = 0)
-        {
-            if (string.IsNullOrWhiteSpace(profilePath))
-                return;
-
-            string fullPath;
-            try { fullPath = Path.GetFullPath(profilePath); }
-            catch { return; }
-
-            lock (_webViewCacheTrimLock)
-            {
-                if (_webViewCacheTrimLastRunUtc.TryGetValue(fullPath, out var lastRun) &&
-                    DateTime.UtcNow - lastRun < TimeSpan.FromHours(6))
-                {
-                    return;
-                }
-
-                _webViewCacheTrimLastRunUtc[fullPath] = DateTime.UtcNow;
-            }
-
-            _ = Task.Run(async () =>
-            {
-                if (delayMs > 0)
-                    await Task.Delay(delayMs).ConfigureAwait(false);
-
-                TrimWebViewProfileCache(fullPath, reason);
-            });
-        }
-
-        private static void TrimWebViewProfileCache(string profilePath, string reason)
-        {
-            try
-            {
-                if (!Directory.Exists(profilePath))
-                    return;
-
-                string root = Path.GetFullPath(DoorpiPaths.BrowserProfilesFolder);
-                string full = Path.GetFullPath(profilePath);
-                if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase))
-                    return;
-
-                string[] relativeCacheDirs =
-                {
-                    "Default\\Cache",
-                    "Default\\Code Cache",
-                    "Default\\GPUCache",
-                    "Default\\DawnCache",
-                    "Default\\Media Cache",
-                    "Default\\Service Worker\\CacheStorage",
-                    "Default\\blob_storage",
-                    "GrShaderCache",
-                    "GraphiteDawnCache",
-                    "ShaderCache"
-                };
-
-                foreach (string relative in relativeCacheDirs)
-                {
-                    string candidate = Path.Combine(full, relative);
-                    try
-                    {
-                        if (Directory.Exists(candidate))
-                            Directory.Delete(candidate, recursive: true);
-                    }
-                    catch { }
-                }
-
-                try
-                {
-                    string browserMetrics = Path.Combine(full, "BrowserMetrics");
-                    if (Directory.Exists(browserMetrics))
-                        Directory.Delete(browserMetrics, recursive: true);
-                }
-                catch { }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[WebView2] Falha ao limpar cache do perfil ({reason}): {ex.Message}");
-            }
-        }
-
         private async Task TrySuspendDoorpiHomeWebViewAsync()
         {
             if (string.Equals(Environment.GetEnvironmentVariable("DOORPI_DISABLE_HOME_WEBVIEW_SUSPEND"), "1", StringComparison.OrdinalIgnoreCase))
@@ -3620,8 +3511,10 @@ namespace Doorpi
 
             try
             {
+                // O host já recebeu vkb_opening/vkb_opened. Reenviar a notificação
+                // daqui cria um ciclo C# -> JS -> C# que acaba saturando o popup.
                 popupView.CoreWebView2.ExecuteScriptAsync(
-                    "try{window.__doorpiVkbEnsureFocus?.(true);}catch(e){}");
+                    "try{window.__doorpiVkbEnsureFocus?.(false);}catch(e){}");
             }
             catch { }
         }
@@ -4249,13 +4142,17 @@ namespace Doorpi
                 if (!keepPopupBehindLoading)
                     _popupWindow.Activate();
 
-                var env = _ytWebView!.CoreWebView2.Environment;
-                await _popupWebView.EnsureCoreWebView2Async(env);
+                var mainView = _ytWebView ?? throw new InvalidOperationException("A WebView principal foi encerrada.");
+                var env = _activeMediaWebViewEnvironment ?? mainView.CoreWebView2.Environment;
+                await EnsureWebViewWithProfileAsync(
+                    _popupWebView,
+                    env,
+                    _activeMediaWebViewProfileName);
 
                 await _popupWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync("window.name = 'doorpi_popup';");
                 try
                 {
-                    var popupTrackingLevel = _ytWebView.CoreWebView2.Profile.PreferredTrackingPreventionLevel;
+                    var popupTrackingLevel = mainView.CoreWebView2.Profile.PreferredTrackingPreventionLevel;
                     _popupWebView.CoreWebView2.Profile.PreferredTrackingPreventionLevel = popupTrackingLevel;
                     LogWebViewSiteDiagnostic($"popup-tracking-prevention level={popupTrackingLevel} uri={TruncateForLog(e.Uri ?? "")}");
                 }
@@ -4320,29 +4217,51 @@ namespace Doorpi
         }
 
         // ── Extensões Chrome ──────────────────────────────────────────────────
-        private static async Task LoadExtensionsAsync(CoreWebView2 cw)
+        private async Task LoadExtensionsAsync(CoreWebView2 cw)
         {
-            string extBase = Path.Combine(DoorpiPaths.DataFolder, "extensions");
-            if (!Directory.Exists(extBase)) return;
-            foreach (var extFolder in Directory.GetDirectories(extBase))
+            var desiredExtensions = LoadBrowserExtensions()
+                .Where(extension => !string.IsNullOrWhiteSpace(extension.InstalledPath) &&
+                                    Directory.Exists(extension.InstalledPath))
+                .ToList();
+            var installedExtensions = (await cw.Profile.GetBrowserExtensionsAsync()).ToList();
+            var desiredIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            bool desiredSetResolved = true;
+
+            foreach (var extension in desiredExtensions)
             {
                 try
                 {
-                    string manifestPath = Path.Combine(extFolder, "manifest.json");
-                    string loadPath = extFolder;
-                    if (!File.Exists(manifestPath))
-                    {
-                        var versionFolder = Directory.GetDirectories(extFolder)
-                            .FirstOrDefault(d => File.Exists(Path.Combine(d, "manifest.json")));
-                        if (versionFolder == null) { Debug.WriteLine($"[Extension] manifest.json não encontrado em: {extFolder}"); continue; }
-                        loadPath = versionFolder;
-                    }
+                    string manifestPath = ResolveExtensionManifestPath(extension);
+                    if (string.IsNullOrWhiteSpace(manifestPath))
+                        throw new FileNotFoundException("manifest.json não encontrado.", extension.InstalledPath);
+
+                    string loadPath = Path.GetDirectoryName(manifestPath)!;
                     var loadedExtension = await cw.Profile.AddBrowserExtensionAsync(loadPath);
-                    RememberLoadedExtensionId(extFolder, loadedExtension.Id);
+                    desiredIds.Add(loadedExtension.Id);
+                    RememberLoadedExtensionId(extension.InstalledPath, loadedExtension.Id);
                     RememberLoadedExtensionId(loadPath, loadedExtension.Id);
-                    Debug.WriteLine($"[Extension] Carregada: {Path.GetFileName(extFolder)} ({loadedExtension.Id})");
+                    Debug.WriteLine($"[Extension] Carregada: {extension.Name} ({loadedExtension.Id})");
                 }
-                catch (Exception ex) { Debug.WriteLine($"[Extension] Falha: {Path.GetFileName(extFolder)} — {ex.Message}"); }
+                catch (Exception ex)
+                {
+                    desiredSetResolved = false;
+                    Debug.WriteLine($"[Extension] Falha: {extension.Name} — {ex.Message}");
+                }
+            }
+
+            if (!desiredSetResolved) return;
+            foreach (var installed in installedExtensions)
+            {
+                if (desiredIds.Contains(installed.Id)) continue;
+                try
+                {
+                    await installed.RemoveAsync();
+                    Debug.WriteLine($"[Extension] Removida do perfil: {installed.Name} ({installed.Id})");
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[Extension] Falha ao remover {installed.Id}: {ex.Message}");
+                }
             }
         }
         private static async Task LoadEasyListAsync()
@@ -6712,6 +6631,7 @@ namespace Doorpi
 
         private async Task OpenWebViewInlineAsync(string url, bool isYouTube = false, string appName = "", string heroImg = "", string gridImg = "", bool isGenericBrowser = false, string logoImg = "")
         {
+            CancelMediaWebViewGlobalWarmup();
             // Corrige a URL logo de cara se a abertura já for apontando para a home
             ResetWebKeyboardBackState(suppressUntilPhysicalRelease: IsWebKeyboardBackPhysicallyDown());
             HideWebAppCloseHoldOverlay();
@@ -6828,6 +6748,7 @@ namespace Doorpi
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Stretch,
             };
+            try { _ytWebView.DefaultBackgroundColor = System.Drawing.Color.Black; } catch { }
 
             if (isUtility)
             {
@@ -6882,20 +6803,20 @@ namespace Doorpi
                 await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
             }
 
-            string profileName = GetBrowserProfileNameForUrl(url, isYouTube);
-            string userDataPath = Path.Combine(DoorpiPaths.BrowserProfilesFolder, profileName);
-            _activeMediaWebViewProfilePath = userDataPath;
+            MediaWebViewProfileIdentity profile = ResolveMediaWebViewProfile(url, isYouTube);
+            RegisterMediaWebViewProfile(profile);
+            _activeMediaWebViewProfileName = profile.ProfileName;
 
-            bool enableBrowserExtensions = !isUtility;
-            string renderModeEnv = isYouTube ? "DOORPI_YOUTUBE_WEBVIEW_RENDER_MODE" : "DOORPI_WEBVIEW_RENDER_MODE";
-            string defaultRenderMode = isYouTube ? "hardware" : "disable-gpu";
-            string extraArgsEnv = isYouTube ? "DOORPI_YOUTUBE_WEBVIEW_EXTRA_ARGS" : "DOORPI_MEDIA_WEBVIEW_EXTRA_ARGS";
-            string browserArgs = BuildWebViewAdditionalArguments(renderModeEnv, defaultRenderMode, extraArgsEnv);
+            bool enableBrowserExtensions = !isYouTube && !isUtility;
             string defaultProcessPriority = "normal";
-            var env = await GetWebAppEnvironmentAsync(userDataPath, enableExtensions: enableBrowserExtensions, browserArgs);
+            var env = await GetMediaWebViewEnvironmentAsync(isYouTube);
+            _activeMediaWebViewEnvironment = env;
             if (isGenericBrowser)
                 _genericBrowserEnvironment = env;
-            await _ytWebView.EnsureCoreWebView2Async(env);
+            await EnsureWebViewWithProfileAsync(_ytWebView, env, profile.ProfileName);
+            MarkMediaWebViewEnvironmentWarmed(isYouTube);
+            LogWebViewDiagnostic(
+                $"profile-open name={profile.ProfileName} owner={profile.OwnerUserId} app={profile.AppKey} kind={profile.EnvironmentKind}");
             LogWebViewProcessSnapshot($"open-start url={url} generic={isGenericBrowser} youtube={isYouTube} utility={isUtility}", _ytWebView.CoreWebView2);
             await AttachMediaWebViewDiagnosticsAsync(_ytWebView.CoreWebView2, url, appName, isGenericBrowser, isYouTube, isUtility);
             QueueWebViewProcessPriorityNormalization(_ytWebView.CoreWebView2, "open-start", defaultProcessPriority);
@@ -7127,41 +7048,6 @@ namespace Doorpi
 })();";
             await cw.AddScriptToExecuteOnDocumentCreatedAsync(script);
         }
-        private string GetBrowserProfileNameForUrl(string url, bool isYouTube)
-        {
-            string appKey = isYouTube ? "youtube" : "";
-            MediaAppModel? media = null;
-            try
-            {
-                media = LoadMediaApps().FirstOrDefault(m =>
-                    string.Equals(m.Url, url, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(m.Id, url, StringComparison.OrdinalIgnoreCase));
-            }
-            catch { }
-
-            if (media != null)
-            {
-                appKey = GetMediaAppKey(media);
-
-                if (media.ShareMode == "all" || media.ShareMode == "user" || media.IsSharedFromOtherUser)
-                {
-                    return GetBrowserProfileNameForMediaApp(media);
-                }
-            }
-
-            if (string.IsNullOrWhiteSpace(appKey))
-            {
-                var nativeApp = _nativeApps.FirstOrDefault(a => IsSameCanonicalWebUrl(url, a.Url));
-                appKey = nativeApp != default
-                    ? nativeApp.Id
-                    : Convert.ToHexString(System.Security.Cryptography.MD5.HashData(
-                        System.Text.Encoding.UTF8.GetBytes(url)))[..10].ToLowerInvariant();
-            }
-
-            string user = string.IsNullOrWhiteSpace(currentUserId) ? "default" : currentUserId;
-            return SafePathSegment($"{user}-{SafeBrowserProfileToken(appKey)}");
-        }
-
         // ── Fechar app ────────────────────────────────────────────────────────
         public void CloseYouTubeInline(bool skipStoreCompletion = false)
         {
@@ -7271,12 +7157,14 @@ namespace Doorpi
             catch { }
 
             RestoreDoorpiAfterWebAppWindowClosed();
-            try { ytWebView.Dispose(); } catch { }
             LogWebViewDiagnostic("close-end");
-            string closedProfilePath = _activeMediaWebViewProfilePath;
-            _activeMediaWebViewProfilePath = "";
-            QueueWebViewProfileCacheTrim(closedProfilePath, "after-close", delayMs: 1800);
             _ytWebView = null;
+            _activeMediaWebViewProfileName = "";
+            _activeMediaWebViewEnvironment = null;
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                try { ytWebView.Dispose(); } catch { }
+            }, System.Windows.Threading.DispatcherPriority.Background);
             _genericBrowserShell = null;
             _genericBrowserToolbarRow = null;
             _genericBrowserToolbar = null;
@@ -7332,6 +7220,8 @@ namespace Doorpi
             // Só fecha sessão de loja quando a própria loja está rodando em modo web.
             if (shouldFinalizeStoreFromThisWebClose)
                 FinalizeStoreSessionFromWebClose();
+
+            _ = PrewarmMediaWebViewEnvironmentsAsync(delayMilliseconds: 2200);
         }
 
         // ── Handlers ─────────────────────────────────────────────────────────

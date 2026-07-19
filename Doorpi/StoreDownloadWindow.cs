@@ -86,6 +86,7 @@ namespace Doorpi
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Stretch
             };
+            try { _webView.DefaultBackgroundColor = System.Drawing.Color.Black; } catch { }
             root.Children.Add(_webView);
 
             _statusPanel = BuildStatusPanel(
