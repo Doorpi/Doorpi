@@ -9,6 +9,7 @@ public sealed class ProfileSyncLocalStore
     private const int BackupRetentionCount = 10;
     private readonly string _profileDirectory;
     private readonly string _statePath;
+    private readonly string _baseSnapshotPath;
     private readonly string _pendingRemotePath;
     private readonly string _backupsDirectory;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -20,6 +21,7 @@ public sealed class ProfileSyncLocalStore
 
         _profileDirectory = Path.GetFullPath(profileDirectory);
         _statePath = Path.Combine(_profileDirectory, "profile-sync-state.json");
+        _baseSnapshotPath = Path.Combine(_profileDirectory, "profile-sync-base.json");
         _pendingRemotePath = Path.Combine(_profileDirectory, "profile-sync-pending-remote.json");
         _backupsDirectory = Path.Combine(_profileDirectory, "sync-backups");
     }
@@ -52,6 +54,102 @@ public sealed class ProfileSyncLocalStore
         {
             await AtomicWriteAsync(_statePath, ProfileSyncSerializer.SerializeState(state), cancellationToken)
                 .ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<CloudProfileV1?> LoadBaseSnapshotAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (!File.Exists(_baseSnapshotPath)) return null;
+            string json = await File.ReadAllTextAsync(_baseSnapshotPath, cancellationToken).ConfigureAwait(false);
+            return ProfileSyncSerializer.DeserializeProfile(json);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            Debug.WriteLine("[ProfileSync] Falha ao ler snapshot-base: " + ex.Message);
+            return null;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task SaveBaseSnapshotAsync(
+        CloudProfileV1 profile,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await AtomicWriteAsync(
+                    _baseSnapshotPath,
+                    ProfileSyncSerializer.SerializeProfile(profile),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<CloudProfileV1?> FindSnapshotByContentHashAsync(
+        string contentHash,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(contentHash)) return null;
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var candidates = new List<string> { _baseSnapshotPath, _pendingRemotePath };
+            if (Directory.Exists(_backupsDirectory))
+            {
+                candidates.AddRange(Directory.EnumerateDirectories(_backupsDirectory)
+                    .OrderByDescending(path => path, StringComparer.OrdinalIgnoreCase)
+                    .Select(path => Path.Combine(path, "cloud-profile.json")));
+            }
+
+            foreach (string path in candidates)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!File.Exists(path)) continue;
+                try
+                {
+                    string json = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
+                    CloudProfileV1? profile = ProfileSyncSerializer.DeserializeProfile(json);
+                    if (profile != null && string.Equals(
+                            ProfileSyncSerializer.ComputeContentHash(profile),
+                            contentHash,
+                            StringComparison.Ordinal))
+                        return profile;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+                {
+                    Debug.WriteLine("[ProfileSync] Snapshot de migracao ignorado: " + ex.Message);
+                }
+            }
+            return null;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task ClearBaseSnapshotAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (File.Exists(_baseSnapshotPath)) File.Delete(_baseSnapshotPath);
         }
         finally
         {
