@@ -1,51 +1,48 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202607192017,
-    "publishedAt":  "2026-07-19T23:18:32.2651083Z",
-    "expiresAt":  "2026-08-02T23:18:32.2651083Z",
+    "manifestVersion":  202607192127,
+    "publishedAt":  "2026-07-20T00:28:32.4123824Z",
+    "expiresAt":  "2026-08-03T00:28:32.4123824Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.2.16",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.2.16/doorpi-0.2.16.doorpiupdate.zip",
-                   "sha256":  "3ca491dc8ec358c789871ce88eb7b2e28f7a48b42956d86a23e0863233d05ae4",
-                   "sizeBytes":  133433753,
+                   "version":  "0.2.17",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.2.17/doorpi-0.2.17.doorpiupdate.zip",
+                   "sha256":  "36c6a51ece79e4eb2c3bf64b0beb4d020698ee166318e47e0425adb0a52161d2",
+                   "sizeBytes":  133441770,
                    "minUpdaterVersion":  "0.1.0",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
                     "version":  "0.1.0",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.2.16/updater-0.1.0.doorpiupdate.zip",
-                    "sha256":  "2b8873e6a1562e64fd93da11d7c13a8bf9f3b79f4588462226e40ccb20fdf17c",
-                    "sizeBytes":  69946111,
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.2.17/updater-0.1.0.doorpiupdate.zip",
+                    "sha256":  "1f19a32bf24275fb1ba282f4ca7cbd2f4f635d799933740b93b32eeb8d60eea5",
+                    "sizeBytes":  69946116,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.2.16",
-                          "title":  "Doorpi 0.2.16",
+                          "version":  "0.2.17",
+                          "title":  "Doorpi 0.2.17",
                           "items":  [
-                                        "Corrigida acentuação incorreta no Prime Video.",
-                                        "Corrigido web app nativo voltando após ser deletado.",
-                                        "Corrigidas edições de nome que eram descartadas."
+                                        "Hotfix para jogos que estavam falhando ao inicializar no Doorpi.",
+                                        "Corrigido falso positivo de conflito na nuvem durante a sincronização."
                                     ],
                           "locales":  {
                                           "pt-BR":  {
-                                                        "title":  "Doorpi 0.2.16",
+                                                        "title":  "Doorpi 0.2.17",
                                                         "items":  [
-                                                                      "Corrigida acentuação incorreta no Prime Video.",
-                                                                      "Corrigido web app nativo voltando após ser deletado.",
-                                                                      "Corrigidas edições de nome que eram descartadas."
+                                                                      "Hotfix para jogos que estavam falhando ao inicializar no Doorpi.",
+                                                                      "Corrigido falso positivo de conflito na nuvem durante a sincronização."
                                                                   ]
                                                     },
                                           "en":  {
-                                                     "title":  "Doorpi 0.2.16",
+                                                     "title":  "Doorpi 0.2.17",
                                                      "items":  [
-                                                                   "Fixed incorrect accents in Prime Video.",
-                                                                   "Fixed native web apps returning after being deleted.",
-                                                                   "Fixed name edits being discarded."
+                                                                   "Hotfix for games that were failing to launch in Doorpi.",
+                                                                   "Fixed false-positive cloud conflict detection during sync."
                                                                ]
                                                  }
                                       }
@@ -54,6 +51,6 @@
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "V8LnBZpLIg2cj/WN4+6JbppNbJwTlzlnnRbNF59u0R5p5bT56d+s/F4F/HVjnAYYMHxyy1EObVM4gRwKN0imw+4EGDxa4kh3xbT2mqiy2IY8xL7PaRO80cl9a70VaQ18FstKKOc7Sn00NCq9q35pJ+YY6brPFiLiwRDF/mAEZJET7bmKAqD/Uf17HStS7C59mCUfoZYVy7oTNnQijugAllAhxVL1+yOtDKVFoy4nrIM8TWVFBWPILKnTcR1lIuJsiVYoqwcfPxGbRtOOJdVEWuc5hP6PRvEAFFy2X23DiGfM5/QDGcOekeCDBh73Q2UIa3fg03a3NtmLegHlapRp1HiLLm3tdr7jstngl7XuoXTPDjHu9f4/LrbaNfn8N5DoM+hbZl1Szzy+TelTwQEuFlyc+jSgot+O4FSC0yiFGV8QZGytvzbLqWtYEs5Smxu7onr0X3A9MMt5PIvLpk4JpMAFr2kBQ3ywjGup5CBSC/WgEsnvKTpbx+wU6xQboVcZ"
+                      "value":  "dxJ1hhbcNk7XpsYvNUsuO8IARwVjIkyWFF9rZHn92kTSNcDPxL8GsRnBbLxu37CnynaBFAmDpq3UM+n1eYzPcj1dUFFlNRZEQEduZo8B7FNtkz4a+YHJtnhlEwvgFhXECVLCb8VeQAbZP3uHRSeAW2nUvKptfYkLnKmevOzEaa7LIu2cGTgZfs2TcP6yGPCWraOElCNfUlKH38o82wWxfgSJBCXX+fCw7soJfvn0ZGRR+zqQNjiG/IHH1glZNswwAlM0kafCE94LFPTRiTwa2+YMi3GVs8s8NhQNEfNDiqBhokULnHCY/jgRLVjnpweu1wEE7PVoUlELkscI5LMXdJmP6beDNYlSVMQGsDeqaY63+1PSm9VO8ODvaLUR7h1ebYKKI3vfS9PjVydtS9IAOmHbPM+brSvhqi+r2MQpv/S+nE6nOEsvmy2tOjIdSgdCnsSWIPlVtK3lsgMvNVRmDBuUs7Qv3EuqZeNX6I8u3kKRVpu7KQL9EygEshVi4+Zp"
                   }
 }
