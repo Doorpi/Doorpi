@@ -142,6 +142,15 @@ public sealed class ProfileSyncDecision
     public IReadOnlyList<ProfileDifference> Differences { get; init; } = Array.Empty<ProfileDifference>();
 }
 
+public sealed class ProfileThreeWayMergeResult
+{
+    public required CloudProfileV1 MergedProfile { get; init; }
+    public IReadOnlyList<ProfileDifference> Conflicts { get; init; } = Array.Empty<ProfileDifference>();
+    public bool HasConflicts => Conflicts.Count > 0;
+    public bool LocalNeedsUpdate { get; init; }
+    public bool RemoteNeedsUpdate { get; init; }
+}
+
 public sealed class ProfileSyncResult
 {
     public SyncStatus Status { get; init; }

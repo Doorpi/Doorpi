@@ -2447,11 +2447,27 @@
         document.body.appendChild(overlay);
 
         overlay.querySelector('#gameFocusFallbackManual')?.addEventListener('click', () => {
+            const payload = _gameFocusFallbackPayload;
+            if (payload?.mode === 'hung') {
+                window.hideGameFocusFallbackPopup?.(false);
+                postToHost({
+                    action: 'closeRunningItem',
+                    id: payload.id || '',
+                    url: '',
+                    channel: 'games',
+                    appType: 'game'
+                });
+                return;
+            }
             window.hideGameFocusFallbackPopup?.(false);
             postToHost({ action: 'manualGameWindowRestore' });
         });
         overlay.querySelector('#gameFocusFallbackClose')?.addEventListener('click', () => {
             const payload = _gameFocusFallbackPayload;
+            if (payload?.mode === 'hung') {
+                window.hideGameFocusFallbackPopup?.(true);
+                return;
+            }
             window.hideGameFocusFallbackPopup?.(true);
             postToHost({
                 action: 'closeRunningItem',
@@ -2495,13 +2511,14 @@
         }
     };
 
-    window.showGameFocusFallbackPopup = function ({ id, name } = {}) {
+    window.showGameFocusFallbackPopup = function ({ id, name, mode = 'focus' } = {}) {
         const overlay = _ensureGameFocusFallbackOverlay();
         const wasVisible = overlay.classList.contains('visible');
         if (!wasVisible) _gameFocusFallbackReturnFocusEl = document.activeElement;
 
         const fallbackName = name || (typeof t === 'function' ? t('sessionConflictCurrent') : 'atual');
-        _gameFocusFallbackPayload = { id: id || '', channel: 'games', appType: 'game' };
+        const isHung = mode === 'hung';
+        _gameFocusFallbackPayload = { id: id || '', channel: 'games', appType: 'game', mode };
 
         const kickerEl = overlay.querySelector('#gameFocusFallbackKicker');
         const titleEl = overlay.querySelector('#gameFocusFallbackTitle');
@@ -2510,23 +2527,35 @@
         const manualBtn = overlay.querySelector('#gameFocusFallbackManual');
         const closeBtn = overlay.querySelector('#gameFocusFallbackClose');
 
-        const title = typeof t === 'function' ? t('gameFocusFallbackTitle') : 'Janela do jogo detectada';
-        const message = (typeof t === 'function'
-            ? t('gameFocusFallbackMessage')
-            : 'A janela de {name} foi encontrada, mas o Windows manteve o Doorpi em primeiro plano. Deseja escolher a janela manualmente pelo alternador nativo?')
+        const title = isHung
+            ? (typeof t === 'function' ? t('gameHungTitle') : 'O jogo não está respondendo')
+            : (typeof t === 'function' ? t('gameFocusFallbackTitle') : 'Janela do jogo detectada');
+        const message = (isHung
+            ? (typeof t === 'function' ? t('gameHungMessage') : '{name} não está respondendo. Deseja encerrar o processo?')
+            : (typeof t === 'function'
+                ? t('gameFocusFallbackMessage')
+                : 'A janela de {name} foi encontrada, mas o Windows manteve o Doorpi em primeiro plano. Deseja escolher a janela manualmente pelo alternador nativo?'))
             .replace('{name}', fallbackName);
 
-        if (kickerEl) kickerEl.textContent = typeof t === 'function' ? t('gameFocusFallbackKicker') : 'Foco da janela';
+        if (kickerEl) kickerEl.textContent = isHung
+            ? (typeof t === 'function' ? t('gameHungKicker') : 'Processo não respondendo')
+            : (typeof t === 'function' ? t('gameFocusFallbackKicker') : 'Foco da janela');
         if (titleEl) titleEl.textContent = title;
         if (messageEl) messageEl.textContent = message;
-        if (hintEl) hintEl.textContent = typeof t === 'function' ? t('gameFocusFallbackHint') : 'Use o alternador do Windows para escolher a janela ativa.';
+        if (hintEl) hintEl.textContent = isHung
+            ? (typeof t === 'function' ? t('gameHungHint') : 'Você pode continuar aguardando e tentar novamente depois.')
+            : (typeof t === 'function' ? t('gameFocusFallbackHint') : 'Use o alternador do Windows para escolher a janela ativa.');
         if (manualBtn) {
             const textEl = manualBtn.querySelector('.action-text');
-            if (textEl) textEl.textContent = typeof t === 'function' ? t('gameFocusFallbackManual') : 'Escolher janela';
+            if (textEl) textEl.textContent = isHung
+                ? (typeof t === 'function' ? t('gameHungTerminate') : 'Encerrar jogo')
+                : (typeof t === 'function' ? t('gameFocusFallbackManual') : 'Escolher janela');
         }
         if (closeBtn) {
             const textEl = closeBtn.querySelector('.action-text');
-            if (textEl) textEl.textContent = typeof t === 'function' ? t('gameFocusFallbackClose') : 'Encerrar';
+            if (textEl) textEl.textContent = isHung
+                ? (typeof t === 'function' ? t('gameHungWait') : 'Continuar aguardando')
+                : (typeof t === 'function' ? t('gameFocusFallbackClose') : 'Encerrar');
         }
 
         overlay.classList.add('visible');
@@ -4700,6 +4729,13 @@
                 window.showGameFocusFallbackPopup?.({
                     id: data.id || '',
                     name: data.name || data.gameName || ''
+                });
+            }
+            else if (data.type === 'gameHungRestorePrompt') {
+                window.showGameFocusFallbackPopup?.({
+                    id: data.id || '',
+                    name: data.name || data.gameName || '',
+                    mode: 'hung'
                 });
             }
             else if (data.type === 'hideGameFocusFallbackPrompt') {

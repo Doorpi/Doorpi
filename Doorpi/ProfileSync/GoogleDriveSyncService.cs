@@ -169,6 +169,7 @@ public sealed class GoogleDriveSyncService
             await store.SaveStateAsync(new ProfileSyncState { ProfileId = profileId }, cancellationToken)
                 .ConfigureAwait(false);
             await store.ClearPendingRemoteAsync(cancellationToken).ConfigureAwait(false);
+            await store.ClearBaseSnapshotAsync(cancellationToken).ConfigureAwait(false);
             return DisconnectedResult();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -202,7 +203,11 @@ public sealed class GoogleDriveSyncService
         CloudProfileV1? pending = await source.LoadPendingRemoteAsync(cancellationToken).ConfigureAwait(false);
         if (pending != null)
             await target.SavePendingRemoteAsync(pending, cancellationToken).ConfigureAwait(false);
+        CloudProfileV1? baseline = await source.LoadBaseSnapshotAsync(cancellationToken).ConfigureAwait(false);
+        if (baseline != null)
+            await target.SaveBaseSnapshotAsync(baseline, cancellationToken).ConfigureAwait(false);
         await source.ClearPendingRemoteAsync(cancellationToken).ConfigureAwait(false);
+        await source.ClearBaseSnapshotAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<ProfileSyncResult> UploadProfileAsync(
@@ -289,37 +294,6 @@ public sealed class GoogleDriveSyncService
             ProfileSyncState state = await store.LoadStateAsync(cancellationToken).ConfigureAwait(false);
             if (!state.IsConnected) return DisconnectedResult();
 
-            if (state.PendingAction is ProfileSyncAction.Conflict or ProfileSyncAction.InitialChoiceRequired)
-            {
-                CloudProfileV1? pending = await store.LoadPendingRemoteAsync(cancellationToken).ConfigureAwait(false);
-                if (pending != null)
-                {
-                    var pendingArtworkMerge = ProfileSyncEngine.MergeMissingArtwork(localProfile, pending);
-                    if (pendingArtworkMerge.RemoteChanged)
-                        await store.SavePendingRemoteAsync(pending, cancellationToken).ConfigureAwait(false);
-                    ProfileSyncComparison comparison = ProfileSyncEngine.Compare(localProfile, pending);
-                    if (!comparison.HasDifferences)
-                    {
-                        state.PendingAction = null;
-                        state.PendingConflict = null;
-                        state.ConflictPromptDeferred = false;
-                        await store.SaveStateAsync(state, cancellationToken).ConfigureAwait(false);
-                        await store.ClearPendingRemoteAsync(cancellationToken).ConfigureAwait(false);
-                    }
-                    else return new ProfileSyncResult
-                    {
-                        Status = SyncStatus.Conflict,
-                        Action = state.PendingAction.Value,
-                        Message = "Existem alterações locais e na nuvem aguardando sua escolha.",
-                        RemoteProfile = pending,
-                        LocalArtworkEnrichment = pendingArtworkMerge.LocalChanged ? localProfile : null,
-                        RemoteRevision = state.PendingConflict?.RemoteRevision ?? state.RemoteProfileRevision,
-                        Differences = comparison.Differences,
-                        ConflictPromptDeferred = state.ConflictPromptDeferred
-                    };
-                }
-            }
-
             using GoogleOAuthSession? session = await RequireSessionAsync(profileId, cancellationToken)
                 .ConfigureAwait(false);
             if (session == null) return DisconnectedResult();
@@ -398,79 +372,171 @@ public sealed class GoogleDriveSyncService
         GoogleDriveAppDataClient drive,
         CancellationToken cancellationToken)
     {
-        var artworkMerge = ProfileSyncEngine.MergeMissingArtwork(localProfile, remote.Profile);
-        ProfileSyncDecision decision = ProfileSyncEngine.Evaluate(
+        CloudProfileV1? baseline = await LoadOrMigrateBaseSnapshotAsync(
+            store,
+            state,
             localProfile,
             remote.Profile,
-            state.LastSyncedContentHash);
+            cancellationToken).ConfigureAwait(false);
+        var artworkMerge = ProfileSyncEngine.MergeMissingArtwork(localProfile, remote.Profile);
+        ProfileThreeWayMergeResult merge = baseline != null
+            ? ProfileSyncEngine.MergeThreeWay(baseline, localProfile, remote.Profile)
+            : ProfileSyncEngine.MergeLegacy(localProfile, remote.Profile);
 
-        switch (decision.Action)
+        if (merge.HasConflicts)
         {
-            case ProfileSyncAction.None:
-                if (artworkMerge.RemoteChanged)
-                {
-                    ProfileSyncResult enrichedUpload = await UploadProfileCoreAsync(
-                        profileId,
-                        localProfile,
-                        localProfilePhoto,
-                        remote.ProfileFile.Revision,
-                        drive,
-                        cancellationToken).ConfigureAwait(false);
-                    return WithLocalArtworkEnrichment(
-                        enrichedUpload,
-                        artworkMerge.LocalChanged ? localProfile : null);
-                }
-                await MarkSynchronizedAsync(store, state, remote, decision.LocalContentHash, cancellationToken)
-                    .ConfigureAwait(false);
-                return new ProfileSyncResult
-                {
-                    Status = SyncStatus.Synced,
-                    Action = ProfileSyncAction.None,
-                    Message = "Perfil sincronizado.",
-                    LocalArtworkEnrichment = artworkMerge.LocalChanged ? localProfile : null
-                };
-
-            case ProfileSyncAction.UploadLocal:
-                return WithLocalArtworkEnrichment(await UploadProfileCoreAsync(
-                    profileId,
-                    localProfile,
-                    localProfilePhoto,
-                    remote.ProfileFile.Revision,
-                    drive,
-                    cancellationToken).ConfigureAwait(false),
-                    artworkMerge.LocalChanged ? localProfile : null);
-
-            case ProfileSyncAction.DownloadRemote:
-                state.PendingAction = ProfileSyncAction.DownloadRemote;
-                state.RemoteProfileFileId = remote.ProfileFile.Id;
-                state.RemoteProfileRevision = remote.ProfileFile.Revision;
-                state.RemotePhotoFileId = remote.PhotoFile?.Id ?? "";
-                state.RemotePhotoRevision = remote.PhotoFile?.Revision ?? "";
-                await store.SavePendingRemoteAsync(remote.Profile, cancellationToken).ConfigureAwait(false);
-                await store.SaveStateAsync(state, cancellationToken).ConfigureAwait(false);
-                return WithLocalArtworkEnrichment(
-                    DownloadResult(remote),
-                    artworkMerge.LocalChanged ? localProfile : null);
-
-            case ProfileSyncAction.Conflict:
-            case ProfileSyncAction.InitialChoiceRequired:
-                await SaveConflictAsync(store, state, decision, remote, cancellationToken).ConfigureAwait(false);
-                return new ProfileSyncResult
-                {
-                    Status = SyncStatus.Conflict,
-                    Action = decision.Action,
-                    Message = "Existem alterações diferentes neste dispositivo e na nuvem.",
-                    RemoteProfile = remote.Profile,
-                    LocalArtworkEnrichment = artworkMerge.LocalChanged ? localProfile : null,
-                    RemoteProfilePhoto = remote.Photo,
-                    RemoteRevision = remote.ProfileFile.Revision,
-                    Differences = decision.Differences
-                };
-
-            default:
-                return RemoteMissingResult();
+            ProfileSyncComparison comparison = ProfileSyncEngine.Compare(localProfile, remote.Profile);
+            var decision = new ProfileSyncDecision
+            {
+                Action = ProfileSyncAction.Conflict,
+                LocalContentHash = comparison.LocalContentHash,
+                RemoteContentHash = comparison.RemoteContentHash,
+                BaseContentHash = baseline == null
+                    ? state.LastSyncedContentHash
+                    : ProfileSyncSerializer.ComputeContentHash(baseline),
+                Differences = merge.Conflicts
+            };
+            await SaveConflictAsync(store, state, decision, remote, cancellationToken).ConfigureAwait(false);
+            return new ProfileSyncResult
+            {
+                Status = SyncStatus.Conflict,
+                Action = ProfileSyncAction.Conflict,
+                Message = "Existem alterações diferentes neste dispositivo e na nuvem.",
+                RemoteProfile = remote.Profile,
+                LocalArtworkEnrichment = artworkMerge.LocalChanged ? localProfile : null,
+                RemoteProfilePhoto = remote.Photo,
+                RemoteRevision = remote.ProfileFile.Revision,
+                Differences = merge.Conflicts,
+                ConflictPromptDeferred = state.ConflictPromptDeferred
+            };
         }
+
+        if (baseline == null)
+        {
+            await store.CreateBackupAsync(localProfile, "before-sync-migration-local", cancellationToken)
+                .ConfigureAwait(false);
+            await store.CreateBackupAsync(remote.Profile, "before-sync-migration-cloud", cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        CloudProfileV1 merged = merge.MergedProfile;
+        byte[]? mergedPhoto = SelectMergedProfilePhoto(
+            merged,
+            localProfile,
+            localProfilePhoto,
+            remote);
+
+        if (merge.RemoteNeedsUpdate)
+        {
+            ProfileSyncResult upload = await UploadProfileCoreAsync(
+                profileId,
+                merged,
+                mergedPhoto,
+                remote.ProfileFile.Revision,
+                drive,
+                cancellationToken).ConfigureAwait(false);
+            if (!merge.LocalNeedsUpdate)
+                return WithLocalArtworkEnrichment(
+                    upload,
+                    artworkMerge.LocalChanged ? localProfile : null);
+
+            return new ProfileSyncResult
+            {
+                Status = SyncStatus.Downloaded,
+                Action = ProfileSyncAction.DownloadRemote,
+                Message = "Alterações locais e da nuvem foram combinadas.",
+                RemoteProfile = merged,
+                LocalArtworkEnrichment = artworkMerge.LocalChanged ? localProfile : null,
+                RemoteProfilePhoto = mergedPhoto,
+                RemoteRevision = upload.RemoteRevision
+            };
+        }
+
+        if (merge.LocalNeedsUpdate)
+        {
+            state.PendingAction = ProfileSyncAction.DownloadRemote;
+            state.RemoteProfileFileId = remote.ProfileFile.Id;
+            state.RemoteProfileRevision = remote.ProfileFile.Revision;
+            state.RemotePhotoFileId = remote.PhotoFile?.Id ?? "";
+            state.RemotePhotoRevision = remote.PhotoFile?.Revision ?? "";
+            await store.SavePendingRemoteAsync(merged, cancellationToken).ConfigureAwait(false);
+            await store.SaveStateAsync(state, cancellationToken).ConfigureAwait(false);
+            return new ProfileSyncResult
+            {
+                Status = SyncStatus.Downloaded,
+                Action = ProfileSyncAction.DownloadRemote,
+                Message = "Alterações da nuvem foram aplicadas.",
+                RemoteProfile = merged,
+                LocalArtworkEnrichment = artworkMerge.LocalChanged ? localProfile : null,
+                RemoteProfilePhoto = mergedPhoto,
+                RemoteRevision = remote.ProfileFile.Revision
+            };
+        }
+
+        await MarkSynchronizedAsync(
+            store,
+            state,
+            remote,
+            merged,
+            cancellationToken).ConfigureAwait(false);
+        return new ProfileSyncResult
+        {
+            Status = SyncStatus.Synced,
+            Action = ProfileSyncAction.None,
+            Message = "Perfil sincronizado.",
+            LocalArtworkEnrichment = artworkMerge.LocalChanged ? localProfile : null
+        };
     }
+
+    private static async Task<CloudProfileV1?> LoadOrMigrateBaseSnapshotAsync(
+        ProfileSyncLocalStore store,
+        ProfileSyncState state,
+        CloudProfileV1 local,
+        CloudProfileV1 remote,
+        CancellationToken cancellationToken)
+    {
+        CloudProfileV1? baseline = await store.LoadBaseSnapshotAsync(cancellationToken).ConfigureAwait(false);
+        if (baseline != null) return baseline;
+
+        string hash = state.LastSyncedContentHash ?? "";
+        if (string.IsNullOrWhiteSpace(hash)) return null;
+
+        if (string.Equals(ProfileSyncSerializer.ComputeContentHash(local), hash, StringComparison.Ordinal))
+            baseline = CloneProfile(local);
+        else if (string.Equals(ProfileSyncSerializer.ComputeContentHash(remote), hash, StringComparison.Ordinal))
+            baseline = CloneProfile(remote);
+        else
+            baseline = await store.FindSnapshotByContentHashAsync(hash, cancellationToken).ConfigureAwait(false);
+
+        if (baseline != null)
+            await store.SaveBaseSnapshotAsync(baseline, cancellationToken).ConfigureAwait(false);
+        return baseline;
+    }
+
+    private static byte[]? SelectMergedProfilePhoto(
+        CloudProfileV1 merged,
+        CloudProfileV1 local,
+        byte[]? localPhoto,
+        RemoteProfilePayload remote)
+    {
+        if (!merged.ProfilePhoto.HasPhoto) return null;
+        string hash = merged.ProfilePhoto.ContentHash ?? "";
+        if (localPhoto is { Length: > 0 } && string.Equals(
+                hash,
+                local.ProfilePhoto.ContentHash ?? "",
+                StringComparison.Ordinal))
+            return localPhoto;
+        if (remote.Photo is { Length: > 0 } && string.Equals(
+                hash,
+                remote.Profile.ProfilePhoto.ContentHash ?? "",
+                StringComparison.Ordinal))
+            return remote.Photo;
+        return localPhoto is { Length: > 0 } ? localPhoto : remote.Photo;
+    }
+
+    private static CloudProfileV1 CloneProfile(CloudProfileV1 profile)
+        => ProfileSyncSerializer.DeserializeProfile(ProfileSyncSerializer.SerializeProfile(profile))
+           ?? throw new InvalidOperationException("Não foi possível clonar o perfil sincronizado.");
 
     private static ProfileSyncResult WithLocalArtworkEnrichment(
         ProfileSyncResult result,
@@ -528,6 +594,7 @@ public sealed class GoogleDriveSyncService
             state.PendingAction = null;
             state.PendingConflict = null;
             state.ConflictPromptDeferred = false;
+            await store.SaveBaseSnapshotAsync(appliedProfile, cancellationToken).ConfigureAwait(false);
             await store.SaveStateAsync(state, cancellationToken).ConfigureAwait(false);
             await store.ClearPendingRemoteAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -608,6 +675,7 @@ public sealed class GoogleDriveSyncService
         state.PendingAction = null;
         state.PendingConflict = null;
         state.ConflictPromptDeferred = false;
+        await store.SaveBaseSnapshotAsync(profile, cancellationToken).ConfigureAwait(false);
         await store.SaveStateAsync(state, cancellationToken).ConfigureAwait(false);
         await store.ClearPendingRemoteAsync(cancellationToken).ConfigureAwait(false);
 
@@ -646,7 +714,7 @@ public sealed class GoogleDriveSyncService
         ProfileSyncLocalStore store,
         ProfileSyncState state,
         RemoteProfilePayload remote,
-        string contentHash,
+        CloudProfileV1 synchronizedProfile,
         CancellationToken cancellationToken)
     {
         state.IsConnected = true;
@@ -654,11 +722,12 @@ public sealed class GoogleDriveSyncService
         state.RemoteProfileRevision = remote.ProfileFile.Revision;
         state.RemotePhotoFileId = remote.PhotoFile?.Id ?? "";
         state.RemotePhotoRevision = remote.PhotoFile?.Revision ?? "";
-        state.LastSyncedContentHash = contentHash;
+        state.LastSyncedContentHash = ProfileSyncSerializer.ComputeContentHash(synchronizedProfile);
         state.LastSyncedAtUtc = DateTimeOffset.UtcNow;
         state.PendingAction = null;
         state.PendingConflict = null;
         state.ConflictPromptDeferred = false;
+        await store.SaveBaseSnapshotAsync(synchronizedProfile, cancellationToken).ConfigureAwait(false);
         await store.SaveStateAsync(state, cancellationToken).ConfigureAwait(false);
         await store.ClearPendingRemoteAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -670,8 +739,12 @@ public sealed class GoogleDriveSyncService
         RemoteProfilePayload remote,
         CancellationToken cancellationToken)
     {
+        bool sameConflict = state.PendingConflict != null &&
+            string.Equals(state.PendingConflict.LocalContentHash, decision.LocalContentHash, StringComparison.Ordinal) &&
+            string.Equals(state.PendingConflict.RemoteContentHash, decision.RemoteContentHash, StringComparison.Ordinal) &&
+            string.Equals(state.PendingConflict.RemoteRevision, remote.ProfileFile.Revision, StringComparison.Ordinal);
         state.PendingAction = decision.Action;
-        state.ConflictPromptDeferred = false;
+        if (!sameConflict) state.ConflictPromptDeferred = false;
         state.PendingConflict = new PendingProfileConflict
         {
             LocalContentHash = decision.LocalContentHash,

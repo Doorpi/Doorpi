@@ -260,6 +260,7 @@ namespace Doorpi
         private System.Threading.Timer? _mousePollTimer;
         private const int MOUSE_IDLE_MS = 3000;
         private static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
+        private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
 
         [DllImport("user32.dll")]
         private static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
@@ -7172,24 +7173,61 @@ namespace Doorpi
 
                 string lockedGameProcessName = _lockedGameProcessName;
                 Process? pendingLaunchProcess = _pendingLaunchProcess;
+                int confirmedGameProcessId = 0;
+                try
+                {
+                    if (_currentGameHwnd != IntPtr.Zero)
+                    {
+                        GetWindowProcessId(_currentGameHwnd, out uint pidRaw);
+                        confirmedGameProcessId = (int)pidRaw;
+                    }
+                }
+                catch { }
 
                 _ = Task.Run(() =>
                 {
                     try
                     {
-                        if (!string.IsNullOrWhiteSpace(lockedGameProcessName))
+                        bool killedConfirmedProcess = false;
+
+                        if (confirmedGameProcessId > 0)
+                        {
+                            try
+                            {
+                                using var process = Process.GetProcessById(confirmedGameProcessId);
+                                if (!SafeHasExited(process))
+                                {
+                                    process.Kill(entireProcessTree: true);
+                                    killedConfirmedProcess = true;
+                                }
+                            }
+                            catch { }
+                        }
+
+                        // Fallback somente por nome EXATO. Busca por substring poderia
+                        // encerrar launchers ou aplicativos alheios com nomes parecidos.
+                        if (!killedConfirmedProcess && !string.IsNullOrWhiteSpace(lockedGameProcessName))
                         {
                             foreach (var process in Process.GetProcessesByName(lockedGameProcessName))
                             {
-                                try { if (!SafeHasExited(process)) process.Kill(true); }
+                                try
+                                {
+                                    if (!SafeHasExited(process))
+                                    {
+                                        process.Kill(entireProcessTree: true);
+                                        killedConfirmedProcess = true;
+                                    }
+                                }
                                 catch { }
                                 finally { try { process.Dispose(); } catch { } }
                             }
                         }
 
-                        if (pendingLaunchProcess != null && !SafeHasExited(pendingLaunchProcess))
+                        if (!killedConfirmedProcess &&
+                            pendingLaunchProcess != null &&
+                            !SafeHasExited(pendingLaunchProcess))
                         {
-                            try { pendingLaunchProcess.Kill(true); } catch { }
+                            try { pendingLaunchProcess.Kill(entireProcessTree: true); } catch { }
                         }
                     }
                     catch { }
@@ -7400,7 +7438,7 @@ namespace Doorpi
                 ScheduleDoorpiRefocusIfTaskbarStealsFocus();
             });
         }
-        private void FocusDoorpiKeepSession()
+        private void FocusDoorpiKeepSession(bool forceAboveHungGame = false)
         {
           
             try { webView?.CoreWebView2?.GetType().GetMethod("Resume", Type.EmptyTypes)?.Invoke(webView.CoreWebView2, null); } catch { }
@@ -7418,7 +7456,16 @@ namespace Doorpi
                     : new System.Windows.Interop.WindowInteropHelper(this).Handle;
 
                 if (WindowState != WindowState.Maximized) WindowState = WindowState.Maximized;
-                ReleaseDoorpiTopmost();
+                if (forceAboveHungGame)
+                {
+                    this.Topmost = true;
+                    SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                }
+                else
+                {
+                    ReleaseDoorpiTopmost();
+                }
 
                 this.Show();
                 SetForegroundWindow(hwnd);
@@ -7449,6 +7496,15 @@ namespace Doorpi
                 SendRuntimeSessionsToUI();
                 DiscordRpcManager.Instance.UpdateState("menu");
                 ScheduleDoorpiRefocusIfTaskbarStealsFocus();
+
+                if (forceAboveHungGame)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(1000).ConfigureAwait(false);
+                        await Dispatcher.InvokeAsync(ReleaseDoorpiTopmost);
+                    });
+                }
 
             });
         }
@@ -7496,12 +7552,15 @@ namespace Doorpi
             if (targetHwnd != IntPtr.Zero)
             {
                 // PostMessage SC_MINIMIZE Ã© mais confiÃ¡vel para DX9/DX11 fullscreen exclusivo;
-                // ShowWindowAsync fica como fallback caso a janela nÃ£o processe WM_SYSCOMMAND.
-                if (!PostMessage(targetHwnd, WM_SYSCOMMAND, new IntPtr(SC_MINIMIZE), IntPtr.Zero))
-                    ShowWindowAsync(targetHwnd, 6);
+                // ShowWindowAsync tambem e enviado sempre: PostMessage pode retornar true
+                // mesmo quando uma janela travada nunca processara o WM_SYSCOMMAND.
+                PostMessage(targetHwnd, WM_SYSCOMMAND, new IntPtr(SC_MINIMIZE), IntPtr.Zero);
+                ShowWindowAsync(targetHwnd, 6);
 
                 _lastVisibleWindowBeforeMinimize = targetHwnd;
             }
+
+            bool targetWasHung = targetHwnd != IntPtr.Zero && IsWindowMarkedNotResponding(targetHwnd);
 
             DiscordRpcManager.Instance.UpdateState("menu");
 
@@ -7509,7 +7568,7 @@ namespace Doorpi
             Task.Run(async () =>
             {
                 await Task.Delay(500);
-                Dispatcher.Invoke(() => FocusDoorpiKeepSession());
+                Dispatcher.Invoke(() => FocusDoorpiKeepSession(targetWasHung));
             });
 
             Debug.WriteLine("=======================================================\n");
@@ -7833,7 +7892,11 @@ namespace Doorpi
             return coverage >= 0.80;
         }
 
-        private void StartGameLaunchMonitor(GameModel game, Process? launched, HashSet<int> baselineProcessIds)
+        private void StartGameLaunchMonitor(
+            GameModel game,
+            Process? launched,
+            HashSet<int> baselineProcessIds,
+            HashSet<IntPtr> baselineWindowHandles)
         {
             CancellationTokenSource cts;
             lock (_gameLaunchMonitorLock)
@@ -7851,11 +7914,14 @@ namespace Doorpi
             _currentLauncherHwnd = IntPtr.Zero;
             _lockedGameProcessName = "";  // ? NOVO: limpa sessÃ£o anterior
 
-            // Fotografa as janelas existentes ANTES do jogo abrir qualquer coisa.
-            var windowSnapshot = SnapshotVisibleWindows();
             SendRuntimeSessionsToUI();
 
-            _ = Task.Run(() => MonitorGameLaunchAsync(game, windowSnapshot, baselineProcessIds, launched, cts.Token));
+            _ = Task.Run(() => MonitorGameLaunchAsync(
+                game,
+                baselineWindowHandles,
+                baselineProcessIds,
+                launched,
+                cts.Token));
         }
         private void TryFocusAndMaximizeNewWindow(HashSet<IntPtr> snapshot, HashSet<IntPtr> alreadyProcessed)
         {
@@ -7942,7 +8008,6 @@ namespace Doorpi
                 int missingChecks = 0;
                 var startedUtc = DateTime.UtcNow;
                 string lockedProcessName = "";
-                DateTime unresponsiveSinceUtc = DateTime.MinValue;
                 var context = new GameLaunchMonitorContext
                 {
                     Game = game,
@@ -7971,24 +8036,6 @@ namespace Doorpi
 
                         await Task.Delay(500, token).ConfigureAwait(false);
                         continue;
-                    }
-
-                    if (doorpiHidden && IsWindowMarkedNotResponding(_currentGameHwnd))
-                    {
-                        if (unresponsiveSinceUtc == DateTime.MinValue)
-                        {
-                            unresponsiveSinceUtc = DateTime.UtcNow;
-                            Debug.WriteLine($"[GameLaunchMonitor] Unresponsive game window detected: {game.Name}");
-                        }
-                        else if (DateTime.UtcNow - unresponsiveSinceUtc >= HUNG_WINDOW_RECOVERY_GRACE)
-                        {
-                            await RecoverFromHungGameAsync(game, _currentGameHwnd).ConfigureAwait(false);
-                            return;
-                        }
-                    }
-                    else
-                    {
-                        unresponsiveSinceUtc = DateTime.MinValue;
                     }
 
                     var candidates = FindGameplayWindowCandidates(windowSnapshot, context);
@@ -8149,66 +8196,6 @@ namespace Doorpi
             }
             catch (OperationCanceledException) { }
             catch (Exception ex) { Debug.WriteLine($"[GameLaunchMonitor] {ex.Message}"); }
-        }
-
-        private async Task RecoverFromHungGameAsync(GameModel game, IntPtr hwnd)
-        {
-            int processId = 0;
-            try
-            {
-                GetWindowProcessId(hwnd, out uint pid);
-                processId = (int)pid;
-                if (processId > 0)
-                {
-                    using var process = Process.GetProcessById(processId);
-                    if (!SafeHasExited(process))
-                    {
-                        Debug.WriteLine($"[GameLaunchMonitor] Recovering unresponsive game: {game.Name} pid={processId}");
-                        process.Kill(entireProcessTree: true);
-                        try { process.WaitForExit(1500); } catch { }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[GameLaunchMonitor] Failed to close unresponsive game pid={processId}: {ex.Message}");
-            }
-
-            await Dispatcher.InvokeAsync(() =>
-            {
-                // Ignore a stale recovery after another game has already replaced this session.
-                if (_currentGameHwnd != hwnd)
-                    return;
-
-                bool hadStoreChildContext =
-                    _storeChildGameActive &&
-                    string.Equals(_gameSessionParentKind, "store", StringComparison.OrdinalIgnoreCase);
-                string storeId = hadStoreChildContext ? _storeChildGameStoreId : "";
-
-                _launchCancelled = true;
-                CommitActiveSession();
-                ClearGameWindowSession();
-                _storeChildGameActive = false;
-                _storeChildGameStoreId = "";
-                _storeChildGameId = "";
-
-                if (hadStoreChildContext &&
-                    _isStoreLauncherSession &&
-                    string.Equals(_activeStoreId, storeId, StringComparison.OrdinalIgnoreCase))
-                {
-                    DelayStorePendingChildClosedGrace();
-                    _storeMinimizeState = StoreMinimizeState.StoreReturningToValid;
-                }
-
-                ForceFocus();
-                SendGameLaunchStatus(
-                    "gameLaunchFailed",
-                    game.Name,
-                    game.HeroImage ?? "",
-                    game.GridImage ?? "",
-                    "notResponding");
-                SendRuntimeSessionsToUI();
-            });
         }
 
         private void CancelUnresolvedGameLaunch(GameModel? game = null)
@@ -8819,6 +8806,13 @@ namespace Doorpi
             if (!_gameSessionActive || _gameIsMinimized)
                 return false;
 
+            // Uma janela que ja foi confirmada como jogo continua sendo uma rota valida
+            // de volta para a Home mesmo se deixou de responder. Nesse caso ignoramos
+            // as travas de transicao/grace: o botao Xbox e sempre a saida de emergencia.
+            bool confirmed = HasConfirmedGameWindow();
+            if (confirmed && IsWindowMarkedNotResponding(_currentGameHwnd))
+                return true;
+
             if (_storeChildGameActive &&
                 _isStoreLauncherSession &&
                 !_storePausedByDoorpi &&
@@ -8827,7 +8821,6 @@ namespace Doorpi
                 return false;
             }
 
-            bool confirmed = HasConfirmedGameWindow();
             if (_storeChildGameActive &&
                 string.Equals(_gameSessionParentKind, "store", StringComparison.OrdinalIgnoreCase))
             {
@@ -8896,6 +8889,40 @@ namespace Doorpi
             }
             catch { }
 
+            SendRuntimeSessionsToUI();
+        }
+
+        private bool TryGetHungCurrentGameWindow(out IntPtr hwnd)
+        {
+            hwnd = ResolveCurrentGameWindow();
+            return IsRestorableGameWindow(hwnd) && IsWindowMarkedNotResponding(hwnd);
+        }
+
+        private void ShowHungGameRestorePrompt(GameModel? game = null)
+        {
+            if (!_gameSessionActive || string.IsNullOrWhiteSpace(_activeSessionGameId))
+                return;
+
+            game ??= LoadGames().FirstOrDefault(g =>
+                string.Equals(g.LaunchUrl, _activeSessionGameId, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(g.Path, _activeSessionGameId, StringComparison.OrdinalIgnoreCase));
+
+            _gameIsMinimized = true;
+            _gameIsRunningAndDoorpiHidden = false;
+            SuspendExecutionLockWatch();
+
+            try
+            {
+                webView?.CoreWebView2?.PostWebMessageAsString(JsonSerializer.Serialize(new
+                {
+                    type = "gameHungRestorePrompt",
+                    id = _activeSessionGameId,
+                    name = game?.Name ?? _activeSessionGameName ?? "Jogo"
+                }));
+            }
+            catch { }
+
+            SendGameLaunchStatus("gameLaunchDone");
             SendRuntimeSessionsToUI();
         }
 
@@ -8987,15 +9014,37 @@ namespace Doorpi
             if (!_gameSessionActive)
                 return;
 
+            if (TryGetHungCurrentGameWindow(out _))
+            {
+                ShowHungGameRestorePrompt();
+                return;
+            }
+
             ClearGameFocusFallbackPrompt();
             SendGameLaunchStatus("gameLaunchDone");
             ReleaseAllStuckKeys();
 
             _ = Task.Run(async () =>
             {
+                bool directRestoreSucceeded = false;
                 bool altDown = false;
                 try
                 {
+                    // O botao Xbox ja restaura pelo HWND confirmado. Fazemos a mesma
+                    // tentativa aqui antes de recorrer ao Alt+Tab, cuja ordem Z pode
+                    // selecionar um mini-launcher intermediario em vez do jogo.
+                    Dispatcher.Invoke(() =>
+                    {
+                        var hwnd = ResolveCurrentGameWindow();
+                        if (IsRestorableGameWindow(hwnd))
+                            RestoreGameCleanly(hwnd);
+                    });
+
+                    await Task.Delay(900).ConfigureAwait(false);
+                    directRestoreSucceeded = IsForegroundOwnedByCurrentGame();
+                    if (directRestoreSucceeded)
+                        return;
+
                     SendKey(VK_MENU);
                     altDown = true;
                     await Task.Delay(80).ConfigureAwait(false);
@@ -9033,7 +9082,7 @@ namespace Doorpi
                     {
                         if (!_gameSessionActive) return;
 
-                        if (IsForegroundOwnedByCurrentGame())
+                        if (directRestoreSucceeded || IsForegroundOwnedByCurrentGame())
                         {
                             _gameIsMinimized = false;
                             _gameIsRunningAndDoorpiHidden = true;
@@ -9650,38 +9699,58 @@ namespace Doorpi
 
         private async void RestoreExecutionLockSession()
         {
-            // Keep the execution lock in front until A/R2 is physically released.
-            // Otherwise the release is delivered to the window being restored.
-            await WaitForPrimaryControllerReleaseAsync();
-
-            ResumeExecutionLockWatch();
-
+            // Capture the target before waiting for the controller release. Runtime
+            // refreshes are allowed to update/clear the visible lock in the meantime.
             string kind = _executionLockKind;
             string id = _executionLockId;
             string url = _executionLockUrl;
 
+            // Keep the execution lock in front until A/R2 is physically released.
+            // Otherwise the release is delivered to the window being restored.
+            await WaitForPrimaryControllerReleaseAsync();
+            await Task.Delay(50);
+
             if (string.Equals(kind, "gpuUpdater", StringComparison.OrdinalIgnoreCase))
             {
+                ResumeExecutionLockWatch();
                 RestoreGpuUpdaterFromExecutionLock();
                 return;
             }
 
-            ClearExecutionLock();
-
-            if (kind == "game" && !string.IsNullOrWhiteSpace(id))
+            if (string.Equals(kind, "game", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(id))
             {
+                var game = LoadGames().FirstOrDefault(g =>
+                    string.Equals(g.LaunchUrl, id, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(g.Path, id, StringComparison.OrdinalIgnoreCase));
+
+                if (TryGetHungCurrentGameWindow(out _))
+                {
+                    ShowHungGameRestorePrompt(game);
+                    return;
+                }
+
+                // Do not let the Activated/runtime watchers rebuild EM EXECUCAO while
+                // focus is being transferred. This mirrors the card restore path that
+                // is already reliable after minimizing with the Xbox shortcut.
+                Interlocked.Exchange(ref _executionLockSuppressUntilUtcTicks,
+                    DateTime.UtcNow.AddSeconds(3).Ticks);
+                SuspendExecutionLockWatch();
+                ReleaseAllStuckKeys();
+                EnsureCursorVisible();
+                _mainScreenMouseVisible = true;
+                CenterCursorOnScreen();
+
                 var hwnd = ResolveCurrentGameWindow();
                 if (hwnd != IntPtr.Zero)
                 {
                     RestoreGameCleanly(hwnd);
                     _gameIsMinimized = false;
-                    _gameIsRunningAndDoorpiHidden = false;
+                    _gameIsRunningAndDoorpiHidden = true;
                     SendGameLaunchStatus("gameLaunchDone");
                     SendRuntimeSessionsToUI();
+                    ResumeExecutionLockWatch();
 
-                    var game = LoadGames().FirstOrDefault(g =>
-                        string.Equals(g.LaunchUrl, id, StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(g.Path, id, StringComparison.OrdinalIgnoreCase));
                     if (game != null)
                         VerifyGameFocusOrPromptAsync(hwnd, game);
                 }
@@ -9690,11 +9759,15 @@ namespace Doorpi
                     _gameIsRunningAndDoorpiHidden = false;
                     SendGameLaunchStatus("gameLaunchDone");
                     SendRuntimeSessionsToUI();
+                    ResumeExecutionLockWatch();
                     if (IsForegroundDoorpi())
                         ShowExecutionLockForGame();
                 }
                 return;
             }
+
+            ResumeExecutionLockWatch();
+            ClearExecutionLock();
 
             if (kind == "store")
             {
@@ -16125,6 +16198,12 @@ namespace Doorpi
                     {
                         Debug.WriteLine($"\n[RESTORE] Restaurando: {game.Name}");
 
+                        if (TryGetHungCurrentGameWindow(out _))
+                        {
+                            ShowHungGameRestorePrompt(game);
+                            return;
+                        }
+
                         _gameSessionActive = true;  // re-estabelece se foi perdida via ForceFocus
                         _gameIsMinimized = false;
 
@@ -16253,7 +16332,11 @@ namespace Doorpi
                     }
                     SuspendMainUiGamepadForGameLaunch();
 
+                    // Os dois baselines precisam ser capturados antes de Process.Start.
+                    // Mini-launchers podem criar a janela real do jogo imediatamente;
+                    // fotografar as janelas depois faria o monitor ignorar esse HWND.
                     var processSnapshot = SnapshotProcessIds();
+                    var windowSnapshot = SnapshotVisibleWindows();
                     _launchCancelled = false;
                     _pendingLaunchProcess = null;
                     // 3. JOGA A TENTATIVA DE ABRIR O LAUNCHER PARA SEGUNDO PLANO
@@ -16382,7 +16465,7 @@ namespace Doorpi
                             {
                                 _pendingLaunchProcess = launched;
                                 _sessionStartUtc = DateTime.UtcNow;
-                                StartGameLaunchMonitor(game, launched, processSnapshot);
+                                StartGameLaunchMonitor(game, launched, processSnapshot, windowSnapshot);
                                 Dispatcher.Invoke(() =>
                                 {
                                     EnsureCursorVisible();

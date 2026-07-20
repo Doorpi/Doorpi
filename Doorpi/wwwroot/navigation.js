@@ -1833,7 +1833,11 @@ if (window.chrome?.webview) {
         const isWaitingLaunch = !!(launchOverlay &&
             launchOverlay.classList.contains('visible') &&
             launchOverlay.classList.contains('state-loading'));
-        if (document.hasFocus() && window.isDoorpiFocused && (!window.isMediaAppActive || isWaitingLaunch))
+        const isExecutionLock = !!(launchOverlay &&
+            launchOverlay.classList.contains('visible') &&
+            launchOverlay.classList.contains('execution-lock-visible'));
+        if (document.hasFocus() && window.isDoorpiFocused &&
+            (!window.isMediaAppActive || isWaitingLaunch || isExecutionLock))
             _doorpiNativeController.pendingPressed |= Number(data.pressed || 0) >>> 0;
         else
             _doorpiNativeController.pendingPressed = 0;
@@ -1980,7 +1984,11 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             _currentDirection = null;
             _moveState = 0;
 
-            if (primaryJustPressed(buttons, GAMEPAD)) document.activeElement?.click();
+            if (primaryJustPressed(buttons, GAMEPAD)) {
+                const active = document.activeElement;
+                if (active && active.closest?.('#executionLockActions')) active.click();
+                else document.getElementById('executionLockRestore')?.click();
+            }
             if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) document.getElementById('executionLockClose')?.click();
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
                 if (window.requestDoorpiBackAction?.()) return;
