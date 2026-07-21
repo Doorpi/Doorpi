@@ -2960,6 +2960,12 @@ body {
     transition-delay: 0.18s;
 }
 
+body.doorpi-session-transition #doorpiUserSwitchLogout.visible {
+    opacity: 1;
+    transition: none;
+    transition-delay: 0s;
+}
+
 #doorpiUserSwitchLogout .logout-mark {
     font-size: 0.78rem;
     font-weight: 700;

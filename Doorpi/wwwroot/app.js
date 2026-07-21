@@ -5336,6 +5336,11 @@
             pointer-events: none;
             transition: opacity .18s ease, transform .22s ease, visibility 0s linear .22s !important;
         }
+        body.doorpi-session-transition .doorpi-user-overlay.doorpi-switching-out .doorpi-user-panel {
+            opacity: 0 !important;
+            visibility: hidden !important;
+            transition: none !important;
+        }
         body.doorpi-intro-handoff-active .doorpi-user-overlay,
         body.doorpi-intro-handoff-active .doorpi-user-overlay * {
             filter: none !important;
@@ -5730,8 +5735,11 @@
         return `<div class="doorpi-avatar">${user.PhotoBase64 ? `<img src="${_normalizeUserPhotoSrc(user.PhotoBase64)}" />` : `<svg viewBox="0 0 24 24" width="40" height="40" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`}</div>`;
     }
 
-    function closeUserPinPrompt() {
-        window._vkbForceClose?.();
+    function closeUserPinPrompt(options = {}) {
+        window._vkbForceClose?.({
+            restoreFocus: options.restoreFocus !== false,
+            immediate: options.immediate === true
+        });
         const prompt = document.getElementById('doorpiUserPinPrompt');
         prompt?._doorpiCleanup?.();
         prompt?.remove();
@@ -5990,6 +5998,7 @@
 
         input._doorpiPinCallbacks = {
             mode: 'numeric',
+            allowProgrammatic: true,
             onOk: () => prompt.dataset.mode === 'recoveryPin' ? submitRecoveryPin() : submit(),
             onCancel: cancel
         };
@@ -6045,6 +6054,40 @@
         document.addEventListener('click', recoveryVkbEnterHandler, true);
         const previousVkbEnterConfirm = window._doorpiVkbShouldConfirmEnter;
         const previousVkbConfirmOverride = window._doorpiVkbConfirmOverride;
+        const physicalPinKeyHandler = (event) => {
+            if (!prompt.isConnected ||
+                (prompt.dataset.mode !== 'pin' && prompt.dataset.mode !== 'recoveryPin') ||
+                prompt.dataset.submitting === 'true' ||
+                event.ctrlKey || event.altKey || event.metaKey)
+                return;
+
+            if (/^[0-9]$/.test(event.key)) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                const digits = pinDigits();
+                if (digits.length >= 4) return;
+                input.value = digits + event.key;
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                return;
+            }
+
+            if (event.key === 'Backspace' || event.key === 'Delete') {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                const digits = pinDigits();
+                input.value = digits.slice(0, -1);
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                return;
+            }
+
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                if (prompt.dataset.mode === 'recoveryPin') submitRecoveryPin();
+                else submit();
+            }
+        };
+        document.addEventListener('keydown', physicalPinKeyHandler, true);
         window._doorpiVkbShouldConfirmEnter = () => prompt.isConnected && prompt.dataset.mode === 'recoveryName';
         window._doorpiVkbConfirmOverride = () => {
             if (!prompt.isConnected || prompt.dataset.mode !== 'recoveryName') return false;
@@ -6053,6 +6096,7 @@
         };
         prompt._doorpiCleanup = () => {
             document.removeEventListener('click', recoveryVkbEnterHandler, true);
+            document.removeEventListener('keydown', physicalPinKeyHandler, true);
             window._doorpiVkbShouldConfirmEnter = previousVkbEnterConfirm;
             window._doorpiVkbConfirmOverride = previousVkbConfirmOverride;
         };
@@ -11769,12 +11813,14 @@ function renderFolderList(folders) {
 
         function _forceClose(options = {}) {
             if (!_el) return;
+            const immediate = options?.immediate === true;
             const restoreFocus = options?.restoreFocus !== false && document.visibilityState !== 'hidden';
             const closedInput = _inputEl;
             _callbacks = {};
             _pendingAccent = null;
             window._vkbIsOpen = false;
             _el.classList.remove('visible');
+            if (immediate) _el.style.display = 'none';
 
             if (_inputEl) { _inputEl.classList.remove('vkb-active'); _inputEl = null; }
             if (typeof _editOverlay !== 'undefined' && _editOverlay) _editOverlay.classList.remove('vkb-active');
@@ -11787,7 +11833,8 @@ function renderFolderList(folders) {
                 window.resetDoorpiGamepadInputState?.();
             }
             document.dispatchEvent(new CustomEvent('doorpi-vkb-closed', { detail: { input: closedInput } }));
-            setTimeout(() => { if (_el && !_el.classList.contains('visible')) _el.style.display = 'none'; }, 180);
+            if (!immediate)
+                setTimeout(() => { if (_el && !_el.classList.contains('visible')) _el.style.display = 'none'; }, 180);
         }
 
         function _cancelWithCallback() {
@@ -11869,13 +11916,15 @@ function renderFolderList(folders) {
             || el.dataset?.vkbMode === 'numeric';
     };
     window._vkbOpen = (el, callbacks) => {
-        if (window._doorpiIsControllerActivation?.() !== true) return false;
+        const opts = { ...((callbacks || el?._doorpiVkbCallbacks) || {}) };
+        const allowProgrammatic = opts.allowProgrammatic === true;
+        delete opts.allowProgrammatic;
+        if (!allowProgrammatic && window._doorpiIsControllerActivation?.() !== true) return false;
         if (el?.dataset?.vkbDisabled === 'true') return false;
         if (el && el.tagName === 'INPUT') {
             const type = (el.type || '').toLowerCase();
             if (!_TEXT_INPUT_TYPES.has(type) && !window._vkbIsNumericInput(el)) return false;
         }
-        const opts = { ...((callbacks || el?._doorpiVkbCallbacks) || {}) };
         if (!opts.mode && window._vkbIsNumericInput(el)) opts.mode = 'numeric';
         VKB.open(el, opts);
         return true;
@@ -12429,6 +12478,7 @@ function renderFolderList(folders) {
 
     function _userSwitchFadeOut(data = {}) {
         if (data.showTransition === false) return;
+        closeUserPinPrompt({ immediate: true, restoreFocus: false });
         // Limpa o hero na hora, sem delay, e bloqueia novos switches
         window._userSwitching = true;
         document.body.classList.add('doorpi-session-transition');
@@ -12458,7 +12508,7 @@ function renderFolderList(folders) {
         logoutOverlay.style.display = 'flex';
         logoutOverlay.style.pointerEvents = 'auto';
         window._setDoorpiHomeInteractionBlocked?.(true);
-        requestAnimationFrame(() => logoutOverlay.classList.add('visible'));
+        logoutOverlay.classList.add('visible');
 
         const wrap = document.querySelector('.main-content-wrapper');
         if (!wrap) return;
