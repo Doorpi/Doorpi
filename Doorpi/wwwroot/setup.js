@@ -1597,11 +1597,11 @@ window.addEventListener('doorpi:profile-sync-message', event => {
         return;
     }
     if (data.type === 'profileSyncResult' && data.status && !['Synced', 'Uploaded', 'Downloaded', 'Disconnected'].includes(data.status)) {
-        const failure = data.status === 'Offline'
+        const failure = data.message || (data.status === 'Offline'
             ? (typeof t === 'function' ? t('profileSyncOffline', 'Sem conexão. Os dados locais foram mantidos.') : 'Sem conexão. Os dados locais foram mantidos.')
             : data.status === 'AuthenticationRequired'
                 ? (typeof t === 'function' ? t('profileSyncAuthRequired', 'Entre novamente para sincronizar.') : 'Entre novamente para sincronizar.')
-                : (typeof t === 'function' ? t('profileSyncFailed', 'Não foi possível conectar.') : 'Não foi possível conectar.');
+                : (typeof t === 'function' ? t('profileSyncFailed', 'Não foi possível conectar.') : 'Não foi possível conectar.'));
         if (_setupSyncConnectFromRegistration) _setupShowRegistrationSyncError(failure);
         else _setupShowAuthError(failure);
     }

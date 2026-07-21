@@ -14,6 +14,7 @@ namespace Doorpi.ProfileSync;
 
 public sealed class DoorpiGoogleCodeReceiver : ICodeReceiver, IDisposable
 {
+    private static readonly TimeSpan AuthorizationTimeout = TimeSpan.FromMinutes(5);
     private readonly TcpListener _listener;
     private readonly Action? _onAuthorizationCompleted;
     private BrowserWindowSession? _browserWindow;
@@ -42,8 +43,23 @@ public sealed class DoorpiGoogleCodeReceiver : ICodeReceiver, IDisposable
 
         try
         {
-            using TcpClient client = await _listener.AcceptTcpClientAsync(taskCancellationToken)
-                .ConfigureAwait(false);
+            using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(taskCancellationToken);
+            Task<TcpClient> callbackTask = _listener.AcceptTcpClientAsync(waitCts.Token).AsTask();
+            Task browserClosedTask = _browserWindow.WaitForClosedAsync(waitCts.Token);
+            Task timeoutTask = Task.Delay(AuthorizationTimeout, waitCts.Token);
+            Task completed = await Task.WhenAny(callbackTask, browserClosedTask, timeoutTask).ConfigureAwait(false);
+
+            if (completed != callbackTask && !callbackTask.IsCompletedSuccessfully)
+            {
+                waitCts.Cancel();
+                await IgnoreCancellationAsync(callbackTask).ConfigureAwait(false);
+                taskCancellationToken.ThrowIfCancellationRequested();
+                throw new GoogleOAuthCanceledException(timedOut: completed != browserClosedTask);
+            }
+
+            using TcpClient client = await callbackTask.ConfigureAwait(false);
+            waitCts.Cancel();
+            await IgnoreCancellationAsync(browserClosedTask).ConfigureAwait(false);
             await using NetworkStream stream = client.GetStream();
             string requestTarget = await ReadRequestTargetAsync(stream, taskCancellationToken).ConfigureAwait(false);
             Uri redirect = new(RedirectUri);
@@ -78,6 +94,14 @@ public sealed class DoorpiGoogleCodeReceiver : ICodeReceiver, IDisposable
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         try { _listener.Stop(); } catch { }
         _browserWindow?.Dispose();
+    }
+
+    private static async Task IgnoreCancellationAsync(Task task)
+    {
+        try { await task.ConfigureAwait(false); }
+        catch (OperationCanceledException) { }
+        catch (ObjectDisposedException) { }
+        catch (SocketException) { }
     }
 
     private static async Task<string> ReadRequestTargetAsync(
@@ -210,6 +234,25 @@ internal sealed class BrowserWindowSession : IDisposable
             for (int attempt = 0; attempt < 25 && IsWindow(handle); attempt++)
                 await Task.Delay(40).ConfigureAwait(false);
         }
+    }
+
+    public async Task WaitForClosedAsync(CancellationToken cancellationToken)
+    {
+        if (!_canClose)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        nint handle = await _windowHandleTask.ConfigureAwait(false);
+        if (handle == 0)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        while (IsWindow(handle))
+            await Task.Delay(120, cancellationToken).ConfigureAwait(false);
     }
 
     public void Dispose() => _ = CloseAsync();

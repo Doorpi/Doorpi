@@ -6254,13 +6254,13 @@ window.isNavMenuOpen = false;
             _profileSyncUi.busy = false;
             if (data.status === 'Disconnected') _profileSyncUi.connected = false;
             else if (['Synced', 'Uploaded', 'Downloaded', 'Conflict'].includes(data.status)) _profileSyncUi.connected = true;
-            _profileSyncUi.message = data.status === 'Offline'
+            _profileSyncUi.message = data.message || (data.status === 'Offline'
                 ? _t('profileSyncOffline', 'Sem conexão. Os dados locais foram mantidos.')
                 : data.status === 'AuthenticationRequired'
                     ? _t('profileSyncAuthRequired', 'Entre novamente para sincronizar.')
                     : data.status === 'Failed'
                         ? _t('profileSyncFailed', 'Falha na sincronização')
-                        : (_profileSyncUi.connected ? _t('profileSyncConnected', 'Sincronizado') : _t('profileSyncDisconnected', 'Não conectado'));
+                        : (_profileSyncUi.connected ? _t('profileSyncConnected', 'Sincronizado') : _t('profileSyncDisconnected', 'Não conectado')));
         }
         window._refreshProfileSyncAccountUi?.();
         if (window.isNavMenuOpen && _settingsSubView === 'account') _updateContentFocus();

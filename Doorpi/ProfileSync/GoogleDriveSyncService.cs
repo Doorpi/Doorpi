@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Http;
@@ -132,7 +133,7 @@ public sealed class GoogleDriveSyncService
             {
                 Status = status,
                 HasStoredAuthorization = await SafeHasTokenAsync(profileId).ConfigureAwait(false),
-                Message = FailureMessage(status)
+                Message = FailureMessage(ex, status)
             };
         }
         finally
@@ -814,31 +815,135 @@ public sealed class GoogleDriveSyncService
         {
             Status = status,
             Action = ProfileSyncAction.None,
-            Message = FailureMessage(status)
+            Message = FailureMessage(exception, status)
         };
     }
 
     private static SyncStatus Classify(Exception exception)
     {
-        if (exception is GoogleOAuthConfigurationException) return SyncStatus.Failed;
-        if (exception is TokenResponseException tokenException &&
+        if (FindException<GoogleOAuthConfigurationException>(exception) != null) return SyncStatus.Failed;
+        if (FindException<GoogleOAuthCanceledException>(exception) != null) return SyncStatus.Failed;
+        if (FindException<TokenResponseException>(exception) is { } tokenException &&
             string.Equals(tokenException.Error?.Error, "invalid_grant", StringComparison.OrdinalIgnoreCase))
             return SyncStatus.AuthenticationRequired;
-        if (exception is GoogleApiException apiException && apiException.HttpStatusCode == HttpStatusCode.Unauthorized)
-            return SyncStatus.AuthenticationRequired;
-        if (exception is HttpRequestException or TimeoutException or TaskCanceledException)
+        if (FindException<GoogleApiException>(exception) is { } apiException)
+        {
+            if (apiException.HttpStatusCode == HttpStatusCode.Unauthorized)
+                return SyncStatus.AuthenticationRequired;
+            int statusCode = (int)apiException.HttpStatusCode;
+            if (apiException.HttpStatusCode == HttpStatusCode.RequestTimeout ||
+                statusCode == 429 ||
+                statusCode >= 500)
+                return SyncStatus.Offline;
+        }
+        if (FindException<HttpRequestException>(exception) != null ||
+            FindException<TimeoutException>(exception) != null ||
+            FindException<TaskCanceledException>(exception) != null)
             return SyncStatus.Offline;
         return SyncStatus.Failed;
     }
 
-    private static string FailureMessage(SyncStatus status)
-        => status switch
+    private static string FailureMessage(Exception exception, SyncStatus status)
+    {
+        if (FindException<GoogleOAuthCanceledException>(exception) is { } canceled)
+            return Localized(canceled.Message, canceled.TimedOut
+                ? "The sign-in session expired. Try again."
+                : "Sign-in was canceled before authorization was completed.");
+
+        if (FindException<TokenResponseException>(exception) is { } tokenException &&
+            string.Equals(tokenException.Error?.Error, "access_denied", StringComparison.OrdinalIgnoreCase))
+            return Localized(
+                "O acesso à conta Google não foi autorizado.",
+                "Access to the Google account was not authorized.");
+
+        if (IsDriveStorageFull(exception))
+            return Localized(
+                "O armazenamento do Google Drive está cheio. Libere espaço e tente sincronizar novamente.",
+                "Google Drive storage is full. Free up space and try syncing again.");
+
+        if (IsLocalStorageFull(exception))
+            return Localized(
+                "O armazenamento deste dispositivo está cheio. Libere espaço para concluir a sincronização.",
+                "This device is out of storage. Free up space to finish syncing.");
+
+        if (FindException<GoogleApiException>(exception) is { } apiException)
         {
-            SyncStatus.Offline => "Não foi possível acessar o Google Drive. O perfil local continua disponível.",
-            SyncStatus.AuthenticationRequired => "A conexão com o Google expirou. Entre novamente para sincronizar.",
-            SyncStatus.Disconnected => "Perfil não conectado ao Google Drive.",
-            _ => "Não foi possível sincronizar o perfil. O perfil local não foi alterado."
+            string reason = GoogleApiReason(apiException);
+            if (reason is "rateLimitExceeded" or "userRateLimitExceeded" or "dailyLimitExceeded")
+                return Localized(
+                    "O Google Drive atingiu um limite temporário. A sincronização será tentada novamente depois.",
+                    "Google Drive reached a temporary limit. Sync will be retried later.");
+            if (reason is "domainPolicy" or "appNotAuthorizedToFile")
+                return Localized(
+                    "Esta conta Google não permite que o Doorpi acesse os dados de sincronização.",
+                    "This Google account does not allow Doorpi to access sync data.");
+            if (apiException.HttpStatusCode == HttpStatusCode.Forbidden)
+                return Localized(
+                    "O Google Drive recusou o acesso aos dados de sincronização.",
+                    "Google Drive denied access to the sync data.");
+        }
+
+        return status switch
+        {
+            SyncStatus.Offline => Localized(
+                "Não foi possível acessar o Google Drive. Verifique a conexão; os dados locais foram mantidos.",
+                "Google Drive could not be reached. Check your connection; local data was preserved."),
+            SyncStatus.AuthenticationRequired => Localized(
+                "A conexão com o Google expirou ou foi revogada. Entre novamente para sincronizar.",
+                "Your Google authorization expired or was revoked. Sign in again to sync."),
+            SyncStatus.Disconnected => Localized(
+                "Perfil não conectado ao Google Drive.",
+                "Profile is not connected to Google Drive."),
+            _ => Localized(
+                "Não foi possível sincronizar o perfil. Os dados locais foram mantidos.",
+                "The profile could not be synchronized. Local data was preserved.")
         };
+    }
+
+    private static bool IsDriveStorageFull(Exception exception)
+    {
+        GoogleApiException? apiException = FindException<GoogleApiException>(exception);
+        if (apiException == null) return false;
+        string reason = GoogleApiReason(apiException);
+        return reason == "storageQuotaExceeded" ||
+               (apiException.Message?.Contains("storage quota", StringComparison.OrdinalIgnoreCase) ?? false);
+    }
+
+    private static bool IsLocalStorageFull(Exception exception)
+    {
+        IOException? ioException = FindException<IOException>(exception);
+        if (ioException == null) return false;
+        int errorCode = ioException.HResult & 0xFFFF;
+        return errorCode is 0x27 or 0x70;
+    }
+
+    private static string GoogleApiReason(GoogleApiException exception)
+        => exception.Error?.Errors?
+            .Select(error => error.Reason ?? "")
+            .FirstOrDefault(reason => !string.IsNullOrWhiteSpace(reason)) ?? "";
+
+    private static T? FindException<T>(Exception? exception) where T : Exception
+    {
+        while (exception != null)
+        {
+            if (exception is T match) return match;
+            if (exception is AggregateException aggregate)
+            {
+                foreach (Exception inner in aggregate.Flatten().InnerExceptions)
+                {
+                    T? nested = FindException<T>(inner);
+                    if (nested != null) return nested;
+                }
+            }
+            exception = exception.InnerException;
+        }
+        return null;
+    }
+
+    private static string Localized(string portuguese, string english)
+        => CultureInfo.CurrentUICulture.Name.StartsWith("pt", StringComparison.OrdinalIgnoreCase)
+            ? portuguese
+            : english;
 
     private sealed record RemoteProfilePayload(
         CloudProfileV1 Profile,

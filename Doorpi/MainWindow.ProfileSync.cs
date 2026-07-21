@@ -406,6 +406,10 @@ public partial class MainWindow
 
     private void PostProfileSyncResult(string profileId, ProfileSyncResult result, bool setup = false)
     {
+        if (result.Status is (SyncStatus.Offline or SyncStatus.AuthenticationRequired or SyncStatus.Failed) &&
+            _profileOAuthInputModeActive)
+            StopProfileOAuthInputMode(restoreDoorpiFocus: true);
+
         bool actionableConflict = result.Status == SyncStatus.Conflict && result.Differences.Count > 0;
         if (actionableConflict)
         {
@@ -480,7 +484,7 @@ public partial class MainWindow
         PostProfileSyncResult(profileId, result);
 
         if (notifyFailure && result.Status is (SyncStatus.Offline or SyncStatus.AuthenticationRequired or SyncStatus.Failed))
-            PostProfileSyncFailureNotification(profileId, result.Status);
+            PostProfileSyncFailureNotification(profileId, result.Status, result.Message);
     }
 
     private void ApplyLocalArtworkEnrichment(string profileId, CloudProfileV1 enrichment)
@@ -581,7 +585,7 @@ public partial class MainWindow
                 if (status.HasStoredAuthorization && status.Status != SyncStatus.Disconnected)
                 {
                     if (status.Status is SyncStatus.Offline or SyncStatus.AuthenticationRequired or SyncStatus.Failed)
-                        PostProfileSyncFailureNotification(id, status.Status);
+                        PostProfileSyncFailureNotification(id, status.Status, status.Message);
                     if (status.Status == SyncStatus.Synced)
                         await RunProfileSyncAsync(id, notifyFailure: true, cts.Token).ConfigureAwait(false);
                 }
@@ -1004,7 +1008,10 @@ public partial class MainWindow
         catch { return false; }
     }
 
-    private void PostProfileSyncFailureNotification(string profileId, SyncStatus status)
+    private void PostProfileSyncFailureNotification(
+        string profileId,
+        SyncStatus status,
+        string? detail = null)
     {
         PostProfileSyncMessage(new
         {
@@ -1013,7 +1020,7 @@ public partial class MainWindow
             category = "profile-sync",
             profileId,
             title = ProfileSyncLocalized("Sincronização do perfil", "Profile synchronization"),
-            message = ProfileSyncFailureMessage(status),
+            message = string.IsNullOrWhiteSpace(detail) ? ProfileSyncFailureMessage(status) : detail,
             persistent = false
         });
     }

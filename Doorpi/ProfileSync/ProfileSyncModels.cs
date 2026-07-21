@@ -196,3 +196,16 @@ public sealed class GoogleOAuthConfigurationException : InvalidOperationExceptio
 {
     public GoogleOAuthConfigurationException(string message) : base(message) { }
 }
+
+public sealed class GoogleOAuthCanceledException : InvalidOperationException
+{
+    public GoogleOAuthCanceledException(bool timedOut)
+        : base(timedOut
+            ? "O tempo para concluir o login expirou."
+            : "A janela de login foi fechada antes da autorização.")
+    {
+        TimedOut = timedOut;
+    }
+
+    public bool TimedOut { get; }
+}
