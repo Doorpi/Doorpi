@@ -101,7 +101,7 @@ const STRINGS = {
         inlineScanReadingFolder: (name) => `Lendo: ${name}...`,
         inlineScanSearchingGames: 'Buscando jogos...',
         inlineScanSearchingApps: 'Buscando apps...',
-        inlineScanWaitingWindows: 'Aguardando o Windows...',
+        inlineScanWaitingWindows: 'Aguardando a seleção...',
         inlineScanUpdatingList: 'Atualizando lista...',
 
         // ---- Sessões / execution lock ----
@@ -198,6 +198,7 @@ const STRINGS = {
         quickPower: 'Energia',
         quickPowerExpandedDesc: 'Opções de energia, perfis e sistema.',
         quickPanel: 'Painel rápido',
+        fileExplorerTitle: 'Explorador de arquivos',
         quickUpdatesDesc: 'Verifique o Doorpi e o Windows sem sair da experiência de console.',
         quickDoorpiDesc: 'Aplicativo, Updater e manifesto assinado.',
         quickWindowsDesc: 'Windows Update, instalação em segundo plano e reinício.',
@@ -1198,7 +1199,7 @@ const STRINGS = {
         inlineScanReadingFolder: (name) => `Reading: ${name}...`,
         inlineScanSearchingGames: 'Searching games...',
         inlineScanSearchingApps: 'Searching apps...',
-        inlineScanWaitingWindows: 'Waiting for Windows...',
+        inlineScanWaitingWindows: 'Waiting for selection...',
         inlineScanUpdatingList: 'Updating list...',
 
         // ---- Sessions / execution lock ----
@@ -1295,6 +1296,7 @@ const STRINGS = {
         quickPower: 'Power',
         quickPowerExpandedDesc: 'Power, profile, and system options.',
         quickPanel: 'Quick panel',
+        fileExplorerTitle: 'File explorer',
         quickUpdatesDesc: 'Check Doorpi and Windows without leaving the console experience.',
         quickDoorpiDesc: 'Application, Updater, and signed manifest.',
         quickWindowsDesc: 'Windows Update, background installation, and restart.',

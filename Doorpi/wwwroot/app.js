@@ -4454,6 +4454,7 @@
             }
             else if (data.type === 'openQuickPanel') {
                 if (window.isDoorpiUpdatePromptOpen?.()) return;
+                if (window.isDoorpiFileBrowserOpen?.()) return;
                 window.DoorpiQuickPanel?.toggle?.();
             }
             else if (data.type === 'displaySettings') {
@@ -6680,7 +6681,8 @@ function showUserPicker(users, requireSelection = false) {
         }
 
         function canOpen() {
-            return window.isDoorpiStableHomeState?.() === true;
+            return window.isDoorpiStableHomeState?.() === true &&
+                window.isDoorpiFileBrowserOpen?.() !== true;
         }
 
         function ensure() {
@@ -6785,6 +6787,7 @@ function showUserPicker(users, requireSelection = false) {
                 updates: '<path d="M21 12a9 9 0 0 1-15.5 6.2"/><path d="M3 12A9 9 0 0 1 18.5 5.8"/><path d="M18.5 2.8v3h-3"/><path d="M5.5 21.2v-3h3"/>',
                 connectivity: '<path d="M12 2v20l6-6-6-4 6-4-6-6Z"/><path d="M6.5 6.5 12 12l-5.5 5.5"/>',
                 sound: '<path d="M4 9v6h4l5 4V5L8 9H4Z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/>',
+                files: '<path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/><path d="M3 11h18"/>',
                 users: '<path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.85"/><path d="M16 3.15a4 4 0 0 1 0 7.7"/>',
                 power: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>',
                 settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.72l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/>',
@@ -6807,6 +6810,7 @@ function showUserPicker(users, requireSelection = false) {
                 ['updates', t('updatesTitle'), updateDot],
                 ['sound', t('soundTitle'), ''],
                 ['connectivity', t('navSetConnectivity'), ''],
+                ['files', t('fileExplorerTitle'), ''],
                 ['settings', t('navSettings'), '']
             ];
             return `
@@ -7186,6 +7190,11 @@ function showUserPicker(users, requireSelection = false) {
                 window._doorpiUserPickerReturnToQuickPanel = true;
                 close();
                 postToHost?.({ action: 'requestUsers' });
+                return;
+            }
+            if (section === 'files') {
+                close();
+                postToHost?.({ action: 'openDoorpiFileExplorer' });
                 return;
             }
             if (section === 'settings') {
@@ -11155,7 +11164,8 @@ function renderFolderList(folders) {
         overlay.querySelector('#editBrowseLaunchCommandBtn')?.addEventListener('click', () => {
             postToHost({
                 action: 'browseEditLaunchCommand',
-                dialogTitle: typeof t === 'function' ? t('editLaunchCommandDialogTitle', 'Selecionar programa ou atalho') : 'Selecionar programa ou atalho'
+                dialogTitle: typeof t === 'function' ? t('editLaunchCommandDialogTitle', 'Selecionar programa ou atalho') : 'Selecionar programa ou atalho',
+                initialPath: commandInput?.value?.trim() || currentLaunchTarget
             });
         });
 

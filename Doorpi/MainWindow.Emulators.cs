@@ -1899,42 +1899,41 @@ namespace Doorpi
             }
             if (action == "browseEmulatorExecutable")
             {
-                await Dispatcher.InvokeAsync(() =>
+                await Dispatcher.InvokeAsync(async () =>
                 {
-                    var dialog = new Microsoft.Win32.OpenFileDialog
-                    {
-                        Title = GetStr(root, "dialogTitle", "Selecione o executável do emulador"),
-                        Filter = "Executáveis (*.exe)|*.exe|Todos os arquivos (*.*)|*.*"
-                    };
-                    bool? result = ShowDialogWithController(dialog, "emulatorExecutable");
-                    var detected = result == true ? DetectEmulator(dialog.FileName) : null;
+                    string? selectedFile = await ShowDoorpiFileBrowserAsync(
+                        GetStr(root, "dialogTitle", "Selecione o executável do emulador"),
+                        false,
+                        "Executáveis (*.exe)|*.exe|Todos os arquivos (*.*)|*.*",
+                        "emulatorExecutable",
+                        GetStr(root, "initialPath"));
+                    var detected = !string.IsNullOrWhiteSpace(selectedFile) ? DetectEmulator(selectedFile) : null;
                     webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
                     {
                         type = "emulatorExecutableSelected",
-                        path = result == true ? dialog.FileName : "",
+                        path = selectedFile ?? "",
                         detected = detected != null ? EmulatorCatalogPayload(detected) : null
                     }));
-                });
+                }).Task.Unwrap();
                 return true;
             }
             if (action == "browseEmulatorRomFolder")
             {
                 string slotId = GetStr(root, "slotId");
-                await Dispatcher.InvokeAsync(() =>
+                await Dispatcher.InvokeAsync(async () =>
                 {
-                    var dialog = new Microsoft.Win32.OpenFolderDialog
-                    {
-                        Title = GetStr(root, "dialogTitle", "Selecione a pasta das ROMs"),
-                        Multiselect = false
-                    };
-                    bool? result = ShowDialogWithController(dialog, "emulatorRoms");
+                    string? selectedFolder = await ShowDoorpiFileBrowserAsync(
+                        GetStr(root, "dialogTitle", "Selecione a pasta das ROMs"),
+                        true,
+                        source: "emulatorRoms",
+                        initialPath: GetStr(root, "initialPath"));
                     webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
                     {
                         type = "emulatorRomFolderSelected",
                         slotId,
-                        path = result == true ? dialog.FolderName : ""
+                        path = selectedFolder ?? ""
                     }));
-                });
+                }).Task.Unwrap();
                 return true;
             }
             if (action == "previewEmulatorLibrary")

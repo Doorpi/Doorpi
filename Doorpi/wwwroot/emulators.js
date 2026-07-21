@@ -313,10 +313,14 @@
             ${state.draft.romFolders.length > 1 ? `<button class="emulator-remove-folder emulator-nav" type="button" tabindex="0" data-folder-index="${index}" aria-label="${text('emulatorRemoveFolder', 'Remover pasta')}">×</button>` : ''}
         </div>`).join('');
         host.querySelectorAll('.emulator-rom-input').forEach(input => input.addEventListener('input', () => invalidateAndScheduleScan()));
-        host.querySelectorAll('.emulator-folder-browse').forEach(button => button.addEventListener('click', () => postToHost({
-            action: 'browseEmulatorRomFolder', slotId: button.dataset.folderIndex,
-            dialogTitle: text('emulatorRomFolderDialog', 'Selecione a pasta das ROMs')
-        })));
+        host.querySelectorAll('.emulator-folder-browse').forEach(button => button.addEventListener('click', () => {
+            const currentFolder = button.closest('.emulator-path-row')?.querySelector('.emulator-rom-input')?.value?.trim() || '';
+            postToHost({
+                action: 'browseEmulatorRomFolder', slotId: button.dataset.folderIndex,
+                dialogTitle: text('emulatorRomFolderDialog', 'Selecione a pasta das ROMs'),
+                initialPath: currentFolder
+            });
+        }));
         host.querySelectorAll('.emulator-remove-folder').forEach(button => button.addEventListener('click', () => {
             syncDraftFromInputs();
             state.draft.romFolders.splice(Number(button.dataset.folderIndex), 1);
@@ -405,7 +409,11 @@
                 ? text('emulatorLibraryReady', 'Biblioteca pronta para adicionar.')
                 : text('emulatorNoGamesFound', 'Nenhum jogo compatível foi encontrado.');
         }
-        document.getElementById('emulatorExecutableBrowse')?.addEventListener('click', () => postToHost({ action: 'browseEmulatorExecutable', dialogTitle: text('emulatorExecutableDialog', 'Selecione o executável do emulador') }));
+        document.getElementById('emulatorExecutableBrowse')?.addEventListener('click', () => postToHost({
+            action: 'browseEmulatorExecutable',
+            dialogTitle: text('emulatorExecutableDialog', 'Selecione o executável do emulador'),
+            initialPath: document.getElementById('emulatorExecutablePath')?.value?.trim() || ''
+        }));
         document.getElementById('emulatorExecutablePath')?.addEventListener('input', event => {
             state.draft.executablePath = event.target.value.trim();
             const detected = catalogForPath(state.draft.executablePath);

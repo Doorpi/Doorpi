@@ -1170,6 +1170,40 @@ function smoothHorizontalScroll(element, onDone) {
 });
 
 document.addEventListener('keydown', e => {
+    if (window.isDoorpiFileBrowserOpen?.() && !isVkbOpenForNavigation()) {
+        const direction = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' }[e.key];
+        if (direction) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            window.DoorpiFileBrowser?.moveFocus?.(direction);
+            return;
+        }
+        if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            window.DoorpiFileBrowser?.activate?.();
+            return;
+        }
+        if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'BrowserBack') {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            window.DoorpiFileBrowser?.back?.();
+            return;
+        }
+        const fileBrowserInputFocused = document.activeElement?.matches?.('input, textarea');
+        if ((e.key || '').toLowerCase() === 'x' && !fileBrowserInputFocused) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            window.DoorpiFileBrowser?.context?.();
+            return;
+        }
+        if ((e.key || '').toLowerCase() === 'y' && !fileBrowserInputFocused) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            window.DoorpiFileBrowser?.createFolder?.();
+            return;
+        }
+    }
     if (window.DoorpiProfileSync?.isOpen?.()) {
         const direction = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' }[e.key];
         if (direction) {
@@ -1993,6 +2027,22 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
 
         const { GAMEPAD } = NAV, buttons = gamepad.buttons;
         const thr = GAMEPAD.AXIS_THRESHOLD, now = performance.now();
+
+        if (window.isDoorpiFileBrowserOpen?.() && !isVkbOpenForNavigation()) {
+            _currentDirection = null;
+            _moveState = 0;
+            if (primaryJustPressed(buttons, GAMEPAD))
+                window.DoorpiFileBrowser?.activate?.();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL))
+                window.DoorpiFileBrowser?.back?.();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START))
+                window.DoorpiFileBrowser?.confirm?.();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE))
+                window.DoorpiFileBrowser?.context?.();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_TRIANGLE], GAMEPAD.BTN_TRIANGLE))
+                window.DoorpiFileBrowser?.createFolder?.();
+            return;
+        }
 
         if (isEmulatorDiscSelector) {
             _currentDirection = null;

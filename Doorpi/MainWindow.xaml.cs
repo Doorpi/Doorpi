@@ -259,6 +259,10 @@ namespace Doorpi
         private readonly SemaphoreSlim _cacheLock = new SemaphoreSlim(1, 1);
         private DateTime _lastCacheBuilt = DateTime.MinValue;
         private string _lastPlatformIconHydrationCacheFile = "";
+        private readonly object _watchedFolderRefreshScheduleLock = new();
+        private CancellationTokenSource? _watchedFolderRefreshScheduleCts;
+        private bool _watchedFolderRefreshRunning;
+        private DateTime _lastWatchedFolderRefreshCompletedUtc = DateTime.MinValue;
 
         private bool _mainScreenMouseVisible = false;
         private POINT _lastKnownCursorPos;
@@ -3993,22 +3997,6 @@ namespace Doorpi
             });
         }
 
-        private bool? ShowDialogWithController(Microsoft.Win32.CommonDialog dialog, string source = "nativeDialog")
-        {
-            BeginNativeDialogInputShield(source);
-            StartDialogControllerMode();
-            CenterOwnedDialogSoon();
-            try
-            {
-                return dialog.ShowDialog(this);
-            }
-            finally
-            {
-                StopDialogControllerMode();
-                EndNativeDialogInputShield(source);
-            }
-        }
-
         private void CenterOwnedDialogSoon()
         {
             Task.Run(async () =>
@@ -5641,6 +5629,8 @@ namespace Doorpi
 
                     if (anyReturnShortcut)
                     {
+                        if (RequestCloseDoorpiFileExplorerLaunch())
+                            break;
                         ExitDesktopMode();
                         break;
                     }
@@ -11219,7 +11209,10 @@ namespace Doorpi
 
         // ========================= LÃ“GICA OTIMIZADA DE DIFF DE PASTAS =========================
 
-        private (List<InstalledApp> Apps, Dictionary<string, long> Timestamps, bool Changed) ScanWatchedFoldersOptimized(AppCacheModel cache, Action<string, int>? onProgress = null)
+        private (List<InstalledApp> Apps, Dictionary<string, long> Timestamps, bool Changed) ScanWatchedFoldersOptimized(
+            AppCacheModel cache,
+            Action<string, int>? onProgress = null,
+            bool forceFullScan = false)
         {
             bool changed = false;
             var currentApps = cache.FolderApps ?? new List<InstalledApp>();
@@ -11248,7 +11241,9 @@ namespace Doorpi
                         long lastWrite = dirInfo.LastWriteTimeUtc.Ticks;
                         newTimestamps[gameDir] = lastWrite;
 
-                        if (currentTimestamps.TryGetValue(gameDir, out long oldWrite) && oldWrite == lastWrite)
+                        if (!forceFullScan &&
+                            currentTimestamps.TryGetValue(gameDir, out long oldWrite) &&
+                            oldWrite == lastWrite)
                         {
                             var appsInDir = currentApps.Where(a => a.Path.StartsWith(gameDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList();
                             newFolderApps.AddRange(appsInDir);
@@ -11334,7 +11329,9 @@ namespace Doorpi
                         string key = rootExe.FullName;
                         newTimestamps[key] = lastWrite;
 
-                        if (currentTimestamps.TryGetValue(key, out long oldWrite) && oldWrite == lastWrite)
+                        if (!forceFullScan &&
+                            currentTimestamps.TryGetValue(key, out long oldWrite) &&
+                            oldWrite == lastWrite)
                         {
                             var app = currentApps.FirstOrDefault(a => string.Equals(a.Path, key, StringComparison.OrdinalIgnoreCase));
                             if (app != null) { newFolderApps.Add(app); foundInRoot++; }
@@ -11814,6 +11811,168 @@ namespace Doorpi
             {
                 _cacheLock.Release();
             }
+        }
+
+        private void ScheduleWatchedFolderRefresh(string reason)
+        {
+            CancellationTokenSource scheduleCts;
+            lock (_watchedFolderRefreshScheduleLock)
+            {
+                if (_watchedFolderRefreshRunning)
+                {
+                    Debug.WriteLine($"[WatchedFolders] Varredura já ativa; gatilho agrupado: {reason}.");
+                    return;
+                }
+
+                if ((DateTime.UtcNow - _lastWatchedFolderRefreshCompletedUtc).TotalSeconds < 8)
+                {
+                    Debug.WriteLine($"[WatchedFolders] Varredura recente; gatilho ignorado: {reason}.");
+                    return;
+                }
+
+                try { _watchedFolderRefreshScheduleCts?.Cancel(); }
+                catch { }
+                try { _watchedFolderRefreshScheduleCts?.Dispose(); }
+                catch { }
+
+                scheduleCts = new CancellationTokenSource();
+                _watchedFolderRefreshScheduleCts = scheduleCts;
+            }
+
+            _ = RunScheduledWatchedFolderRefreshAsync(scheduleCts, reason);
+        }
+
+        private async Task RunScheduledWatchedFolderRefreshAsync(
+            CancellationTokenSource scheduleCts,
+            string reason)
+        {
+            try
+            {
+                await Task.Delay(1400, scheduleCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            lock (_watchedFolderRefreshScheduleLock)
+            {
+                if (!ReferenceEquals(_watchedFolderRefreshScheduleCts, scheduleCts) ||
+                    _watchedFolderRefreshRunning)
+                    return;
+
+                _watchedFolderRefreshScheduleCts = null;
+                _watchedFolderRefreshRunning = true;
+            }
+
+            try
+            {
+                Debug.WriteLine($"[WatchedFolders] Atualizando após {reason}.");
+                await RefreshWatchedFoldersAfterFileActivityAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[WatchedFolders] Falha na atualização após {reason}: {ex.Message}");
+            }
+            finally
+            {
+                lock (_watchedFolderRefreshScheduleLock)
+                {
+                    _watchedFolderRefreshRunning = false;
+                    _lastWatchedFolderRefreshCompletedUtc = DateTime.UtcNow;
+                }
+                scheduleCts.Dispose();
+            }
+        }
+
+        private async Task RefreshWatchedFoldersAfterFileActivityAsync()
+        {
+            List<GameModel> removedGames = new();
+            await _cacheLock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                var cache = LoadAppCache() ?? new AppCacheModel();
+                var result = await Task.Run(() =>
+                    ScanWatchedFoldersOptimized(cache, PostScanProgress, forceFullScan: true))
+                    .ConfigureAwait(false);
+                result.Apps.ForEach(app => app.Source = "Folder");
+                cache.FolderApps = result.Apps;
+                cache.FolderTimestamps = result.Timestamps;
+                RefreshAutoAddSuppressions(cache);
+                SaveAppCache(cache);
+                _lastCacheBuilt = DateTime.Now;
+
+                removedGames.AddRange(ReconcileDoorpiGamesWithPlatformCache(cache));
+                removedGames.AddRange(ReconcileMissingWatchedFolderGames());
+            }
+            finally
+            {
+                _cacheLock.Release();
+            }
+
+            if (removedGames.Count > 0)
+                PublishRemovedGamesToUI(removedGames);
+            else
+                SendInstalledAppsToUI();
+        }
+
+        private List<GameModel> ReconcileMissingWatchedFolderGames()
+        {
+            var watchedFolders = GetWatchedFolderPaths()
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Select(path =>
+                {
+                    try { return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path)); }
+                    catch { return ""; }
+                })
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (watchedFolders.Count == 0) return new List<GameModel>();
+
+            var games = LoadGames();
+            var removed = games
+                .Where(game => TryGetMissingWatchedGamePath(game, watchedFolders, out _))
+                .ToList();
+
+            if (removed.Count == 0) return removed;
+
+            foreach (GameModel game in removed)
+            {
+                DeleteGameImages(game);
+                games.Remove(game);
+            }
+            SaveGames(games);
+            return removed;
+        }
+
+        private static bool TryGetMissingWatchedGamePath(
+            GameModel game,
+            IReadOnlyCollection<string> watchedFolders,
+            out string missingPath)
+        {
+            missingPath = "";
+            string candidate = !string.IsNullOrWhiteSpace(game.Path)
+                ? game.Path
+                : game.LaunchUrl;
+            candidate = candidate.Trim().Trim('"');
+            if (string.IsNullOrWhiteSpace(candidate) || !Path.IsPathRooted(candidate))
+                return false;
+
+            string fullPath;
+            try { fullPath = Path.GetFullPath(candidate); }
+            catch { return false; }
+            if (File.Exists(fullPath) || Directory.Exists(fullPath))
+                return false;
+
+            bool belongsToWatchedFolder = watchedFolders.Any(root =>
+                fullPath.Equals(root, StringComparison.OrdinalIgnoreCase) ||
+                fullPath.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+            if (!belongsToWatchedFolder)
+                return false;
+
+            missingPath = fullPath;
+            return true;
         }
 
         private void SendInstalledAppsToUI()
@@ -13265,6 +13424,9 @@ namespace Doorpi
                 if (await TryHandleProfileSyncWebMessageAsync(action, root).ConfigureAwait(true))
                     return;
 
+                if (await TryHandleDoorpiFileBrowserMessageAsync(action, root).ConfigureAwait(true))
+                    return;
+
                 if (action == "requestInstalledApps")
                 {
                     bool cachedOnly = root.TryGetProperty("cachedOnly", out var cachedOnlyElement)
@@ -13830,13 +13992,12 @@ namespace Doorpi
                     {
                         try
                         {
-                            var dlg = new Microsoft.Win32.OpenFileDialog { Filter = dialogFilter, Title = dialogTitle };
+                            string? selectedFile = await ShowDoorpiFileBrowserAsync(
+                                dialogTitle, false, dialogFilter, "manualMedia");
 
-                            bool? dialogResult = ShowDialogWithController(dlg);
-
-                            if (dialogResult == true)
+                            if (!string.IsNullOrWhiteSpace(selectedFile))
                             {
-                                string filePath = dlg.FileName;
+                                string filePath = selectedFile;
                                 string filePathJson = JsonSerializer.Serialize(filePath);
                                 await webView.CoreWebView2.ExecuteScriptAsync(
                                     $"window.newGameIdsThisSession?.add({filePathJson}); window.AppStore?.mutations?.markNew?.({filePathJson});");
@@ -13860,7 +14021,7 @@ namespace Doorpi
                             System.Windows.MessageBox.Show(errMsg + ex.Message);
                             webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}");
                         }
-                    });
+                    }).Task.Unwrap();
                 }
                 else if (action == "browseManual")
                 {
@@ -13874,15 +14035,10 @@ namespace Doorpi
                     {
                         try
                         {
-                            var dlg = new Microsoft.Win32.OpenFileDialog
-                            {
-                                Filter = dialogFilter,
-                                Title = dialogTitle
-                            };
+                            string? selectedFile = await ShowDoorpiFileBrowserAsync(
+                                dialogTitle, false, dialogFilter, "manualGame");
 
-                            bool? dialogResult = ShowDialogWithController(dlg);
-
-                            if (dialogResult == true)
+                            if (!string.IsNullOrWhiteSpace(selectedFile))
                             {
                                 webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
                                 {
@@ -13890,7 +14046,7 @@ namespace Doorpi
                                     title = loadTitle,
                                     subtitle = loadSub
                                 }));
-                                string filePath = dlg.FileName;
+                                string filePath = selectedFile;
                                 string filePathJson = JsonSerializer.Serialize(filePath);
                                 await webView.CoreWebView2.ExecuteScriptAsync(
                                     $"window.newGameIdsThisSession?.add({filePathJson}); window.AppStore?.mutations?.markNew?.({filePathJson});");
@@ -13913,7 +14069,7 @@ namespace Doorpi
                             System.Windows.MessageBox.Show(errMsg + ex.Message);
                             webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}");
                         }
-                    });
+                    }).Task.Unwrap();
                 }
                 else if (action == "requestFolders")
                 {
@@ -13930,17 +14086,16 @@ namespace Doorpi
                     string forbiddenTitle = GetStr(root, "forbiddenTitle");
                     string errMsg = GetStr(root, "errorMsg");
 
-                    await Dispatcher.InvokeAsync(() =>
+                    await Dispatcher.InvokeAsync(async () =>
                     {
                         try
                         {
-                            var dlg = new Microsoft.Win32.OpenFolderDialog { Title = dialogTitle, Multiselect = false };
+                            string? selectedFolder = await ShowDoorpiFileBrowserAsync(
+                                dialogTitle, true, source: "watchedFolder");
 
-                            bool? dialogResult = ShowDialogWithController(dlg);
-
-                            if (dialogResult == true)
+                            if (!string.IsNullOrWhiteSpace(selectedFolder))
                             {
-                                string selectedPath = dlg.FolderName;
+                                string selectedPath = selectedFolder;
                                 if (IsFolderForbidden(selectedPath))
                                 {
                                     System.Windows.MessageBox.Show(forbiddenMsg, forbiddenTitle, MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -13987,7 +14142,7 @@ namespace Doorpi
                             System.Windows.MessageBox.Show(errMsg + ex.Message);
                             webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}");
                         }
-                    });
+                    }).Task.Unwrap();
                 }
                 else if (action == "editFolder" && root.TryGetProperty("path", out var oldPathEl))
                 {
@@ -13997,17 +14152,16 @@ namespace Doorpi
                     string forbiddenTitle = GetStr(root, "forbiddenTitle");
                     string errMsg = GetStr(root, "errorMsg");
 
-                    await Dispatcher.InvokeAsync(() =>
+                    await Dispatcher.InvokeAsync(async () =>
                     {
                         try
                         {
-                            var dlg = new Microsoft.Win32.OpenFolderDialog { Title = dialogTitle, Multiselect = false };
+                            string? selectedFolder = await ShowDoorpiFileBrowserAsync(
+                                dialogTitle, true, source: "editWatchedFolder", initialPath: oldPath);
 
-                            bool? dialogResult = ShowDialogWithController(dlg);
-
-                            if (dialogResult == true)
+                            if (!string.IsNullOrWhiteSpace(selectedFolder))
                             {
-                                string newPath = dlg.FolderName;
+                                string newPath = selectedFolder;
                                 if (IsFolderForbidden(newPath))
                                 {
                                     System.Windows.MessageBox.Show(forbiddenMsg, forbiddenTitle, MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -14058,7 +14212,7 @@ namespace Doorpi
                             System.Windows.MessageBox.Show(errMsg + ex.Message);
                             webView.CoreWebView2.PostWebMessageAsString("{\"type\":\"hideLoading\"}");
                         }
-                    });
+                    }).Task.Unwrap();
                 }
                 else if (action == "deleteFolder" && root.TryGetProperty("path", out var delPathEl))
                 {
@@ -14411,16 +14565,14 @@ namespace Doorpi
                 {
                     string requestId = GetStr(root, "requestId");
                     string dialogTitle = GetStr(root, "dialogTitle", "Select profile photo");
-                    await Dispatcher.InvokeAsync(() =>
+                    await Dispatcher.InvokeAsync(async () =>
                     {
-                        var dlg = new Microsoft.Win32.OpenFileDialog
-                        {
-                            Title = dialogTitle,
-                            Filter = "Static images (*.png;*.jpg;*.jpeg;*.webp)|*.png;*.jpg;*.jpeg;*.webp"
-                        };
-
-                        bool? dialogResult = ShowDialogWithController(dlg, "profilePhoto");
-                        if (dialogResult != true)
+                        string? selectedFile = await ShowDoorpiFileBrowserAsync(
+                            dialogTitle,
+                            false,
+                            "Static images (*.png;*.jpg;*.jpeg;*.webp)|*.png;*.jpg;*.jpeg;*.webp",
+                            "profilePhoto");
+                        if (string.IsNullOrWhiteSpace(selectedFile))
                         {
                             webView.CoreWebView2.PostWebMessageAsString(
                                 JsonSerializer.Serialize(new { type = "profilePhotoSourceCanceled", requestId }));
@@ -14429,10 +14581,10 @@ namespace Doorpi
 
                         try
                         {
-                            var info = new FileInfo(dlg.FileName);
+                            var info = new FileInfo(selectedFile);
                             if (info.Length > ProfilePhotoMaxBytes)
                                 throw new InvalidDataException("profile-photo-too-large");
-                            byte[] bytes = File.ReadAllBytes(dlg.FileName);
+                            byte[] bytes = File.ReadAllBytes(selectedFile);
                             if (!TryGetStaticProfilePhotoMime(bytes, out string mime))
                                 throw new InvalidDataException("profile-photo-invalid-format");
                             string dataUrl = $"data:{mime};base64,{Convert.ToBase64String(bytes)}";
@@ -14453,7 +14605,7 @@ namespace Doorpi
                             webView.CoreWebView2.PostWebMessageAsString(
                                 JsonSerializer.Serialize(new { type = "profilePhotoSourceFailed", requestId, error }));
                         }
-                    });
+                    }).Task.Unwrap();
                 }
                 else if (action == "pickArtworkImage")
                 {
@@ -14462,29 +14614,24 @@ namespace Doorpi
                     string dialogTitle = GetStr(root, "dialogTitle", "Select image");
                     string dialogFilter = GetStr(root, "dialogFilter", "Images (*.png;*.jpg;*.jpeg;*.webp;*.gif)|*.png;*.jpg;*.jpeg;*.webp;*.gif");
 
-                    await Dispatcher.InvokeAsync(() =>
+                    await Dispatcher.InvokeAsync(async () =>
                     {
-                        var dlg = new Microsoft.Win32.OpenFileDialog
-                        {
-                            Title = dialogTitle,
-                            Filter = dialogFilter
-                        };
+                        string? selectedFile = await ShowDoorpiFileBrowserAsync(
+                            dialogTitle, false, dialogFilter, "artworkImage");
 
-                        bool? dialogResult = ShowDialogWithController(dlg, "artworkImage");
-
-                        if (dialogResult == true)
+                        if (!string.IsNullOrWhiteSpace(selectedFile))
                         {
-                            string ext = ExtensionForImagePath(dlg.FileName);
+                            string ext = ExtensionForImagePath(selectedFile);
                             string mime = ext is ".jpg" or ".jpeg" ? "image/jpeg" :
                                 ext == ".webp" ? "image/webp" :
                                 ext == ".gif" ? "image/gif" : "image/png";
-                            string b64 = Convert.ToBase64String(File.ReadAllBytes(dlg.FileName));
+                            string b64 = Convert.ToBase64String(File.ReadAllBytes(selectedFile));
                             webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
                             {
                                 type = "artworkImagePicked",
                                 requestId,
                                 category,
-                                path = dlg.FileName,
+                                path = selectedFile,
                                 preview = $"data:{mime};base64,{b64}"
                             }));
                         }
@@ -14497,7 +14644,7 @@ namespace Doorpi
                                 category
                             }));
                         }
-                    });
+                    }).Task.Unwrap();
                 }
                 else if (action == "applyArtworkSelection" &&
                          root.TryGetProperty("gameId", out var artworkIdEl) &&
@@ -14566,21 +14713,21 @@ namespace Doorpi
                 else if (action == "browseEditLaunchCommand")
                 {
                     string dialogTitle = GetStr(root, "dialogTitle", "Selecionar programa ou atalho");
-                    await Dispatcher.InvokeAsync(() =>
+                    string initialPath = GetStr(root, "initialPath");
+                    await Dispatcher.InvokeAsync(async () =>
                     {
-                        var dlg = new Microsoft.Win32.OpenFileDialog
-                        {
-                            Title = dialogTitle,
-                            Filter = "Arquivos iniciaveis (*.exe;*.com;*.bat;*.cmd;*.lnk;*.url)|*.exe;*.com;*.bat;*.cmd;*.lnk;*.url|Todos os arquivos (*.*)|*.*"
-                        };
-
-                        bool? dialogResult = ShowDialogWithController(dlg, "editLaunchCommand");
+                        string? selectedFile = await ShowDoorpiFileBrowserAsync(
+                            dialogTitle,
+                            false,
+                            "Arquivos iniciaveis (*.exe;*.com;*.bat;*.cmd;*.lnk;*.url)|*.exe;*.com;*.bat;*.cmd;*.lnk;*.url|Todos os arquivos (*.*)|*.*",
+                            "editLaunchCommand",
+                            initialPath);
                         webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
                         {
                             type = "editLaunchCommandSelected",
-                            path = dialogResult == true ? dlg.FileName : ""
+                            path = selectedFile ?? ""
                         }));
-                    });
+                    }).Task.Unwrap();
                 }
                 else if (action == "editGame" && root.TryGetProperty("gameId", out var editIdEl))
                 {
@@ -15121,23 +15268,18 @@ namespace Doorpi
                     string dialogTitle = GetStr(root, "dialogTitle", "Select profile photo");
                     string dialogFilter = GetStr(root, "dialogFilter", "Images (*.png;*.jpg;*.jpeg;*.webp;*.gif)|*.png;*.jpg;*.jpeg;*.webp;*.gif");
 
-                    await Dispatcher.InvokeAsync(() =>
+                    await Dispatcher.InvokeAsync(async () =>
                     {
-                        var dlg = new Microsoft.Win32.OpenFileDialog
-                        {
-                            Title = dialogTitle,
-                            Filter = dialogFilter
-                        };
+                        string? selectedFile = await ShowDoorpiFileBrowserAsync(
+                            dialogTitle, false, dialogFilter, "legacyProfilePhoto");
 
-                        bool? dialogResult = ShowDialogWithController(dlg);
-
-                        if (dialogResult == true)
+                        if (!string.IsNullOrWhiteSpace(selectedFile))
                         {
-                            string b64 = Convert.ToBase64String(File.ReadAllBytes(dlg.FileName));
+                            string b64 = Convert.ToBase64String(File.ReadAllBytes(selectedFile));
                             webView.CoreWebView2.PostWebMessageAsString(
                                 JsonSerializer.Serialize(new { type = "profilePhotoSelected", base64 = b64 }));
                         }
-                    });
+                    }).Task.Unwrap();
                 }
                 else if (action == "openUrl" && root.TryGetProperty("url", out var urlEl))
                 {
@@ -15456,16 +15598,15 @@ namespace Doorpi
                     string forbiddenMsg = GetStr(root, "forbiddenMsg");
                     string forbiddenTitle = GetStr(root, "forbiddenTitle");
 
-                    await Dispatcher.InvokeAsync(() =>
+                    await Dispatcher.InvokeAsync(async () =>
                     {
-                        var dlg = new Microsoft.Win32.OpenFolderDialog { Title = dialogTitle };
-
-                        bool? dialogResult = ShowDialogWithController(dlg);
+                        string? selectedFolder = await ShowDoorpiFileBrowserAsync(
+                            dialogTitle, true, source: "setupFolder");
                         string selectedPath = "";
 
-                        if (dialogResult == true)
+                        if (!string.IsNullOrWhiteSpace(selectedFolder))
                         {
-                            string path = dlg.FolderName;
+                            string path = selectedFolder;
                             if (IsFolderForbidden(path))
                             {
                                 System.Windows.MessageBox.Show(forbiddenMsg, forbiddenTitle,
@@ -15478,7 +15619,7 @@ namespace Doorpi
                         }
                         webView.CoreWebView2.PostWebMessageAsString(
                             JsonSerializer.Serialize(new { type = "setupFolderDialogClosed", path = selectedPath }));
-                    });
+                    }).Task.Unwrap();
                 }
                 else if (action == "readClipboard")
                 {

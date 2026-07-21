@@ -114,21 +114,19 @@ namespace Doorpi
 
         private async Task AddGpuUpdaterFromDialogAsync()
         {
-            await Dispatcher.InvokeAsync(() =>
+            await Dispatcher.InvokeAsync(async () =>
             {
                 try
                 {
-                    var dialog = new Microsoft.Win32.OpenFileDialog
-                    {
-                        Filter = "Executáveis (*.exe)|*.exe",
-                        Title = "Selecionar atualizador de placa de vídeo"
-                    };
+                    string? selectedFile = await ShowDoorpiFileBrowserAsync(
+                        "Selecionar atualizador de placa de vídeo",
+                        false,
+                        "Executáveis (*.exe)|*.exe",
+                        "gpuUpdater");
 
-                    bool? result = ShowDialogWithController(dialog);
-
-                    if (result == true)
+                    if (!string.IsNullOrWhiteSpace(selectedFile))
                     {
-                        GpuUpdates.AddManualUpdater(dialog.FileName);
+                        GpuUpdates.AddManualUpdater(selectedFile);
                         RefreshGpuUpdateStatus();
                     }
                 }
@@ -136,7 +134,7 @@ namespace Doorpi
                 {
                     Debug.WriteLine("[GpuUpdate] Add dialog falhou: " + ex.Message);
                 }
-            });
+            }).Task.Unwrap();
         }
 
         private void RemoveGpuUpdater(string id)
