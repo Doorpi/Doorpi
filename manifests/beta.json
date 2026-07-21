@@ -1,51 +1,45 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202607211913,
-    "publishedAt":  "2026-07-21T22:13:54.7911211Z",
-    "expiresAt":  "2026-08-04T22:13:54.7911211Z",
+    "manifestVersion":  202607212010,
+    "publishedAt":  "2026-07-21T23:11:04.0035062Z",
+    "expiresAt":  "2026-08-04T23:11:04.0035062Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.3.17",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.3.17/doorpi-0.3.17.doorpiupdate.zip",
-                   "sha256":  "44d7672e15173b88d40085c90ec541268526a3c49eb8ef79e1c2f752ae89dc7e",
-                   "sizeBytes":  133567338,
+                   "version":  "0.3.18",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.3.18/doorpi-0.3.18.doorpiupdate.zip",
+                   "sha256":  "126df9855f24c3384167d0b734ddc9f666be1f286f64cc8f7e41322a534f6636",
+                   "sizeBytes":  133571441,
                    "minUpdaterVersion":  "0.1.0",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
                     "version":  "0.1.0",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.3.17/updater-0.1.0.doorpiupdate.zip",
-                    "sha256":  "8168a8f3e42e36c5272013cf5e81dcf0738b9236d65eda70d48914f909039267",
-                    "sizeBytes":  69946108,
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.3.18/updater-0.1.0.doorpiupdate.zip",
+                    "sha256":  "42f16d4aee04e9094e07042c22ee983beb8a7e8e806d004424fcc55997b32a30",
+                    "sizeBytes":  69946122,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.3.17",
-                          "title":  "Doorpi 0.3.17",
+                          "version":  "0.3.18",
+                          "title":  "Doorpi 0.3.18",
                           "items":  [
-                                        "Novo: adicionado suporte para emuladores.",
-                                        "Novo: explorador de arquivos próprio, com extrator de ZIP/RAR e gerenciamento de arquivos.",
-                                        "O navegador agora tem histórico completo de downloads e facilita a instalação de programas."
+                                        "Hotfix: corrigida a falta de tratamento no login com Google ao fechar a janela."
                                     ],
                           "locales":  {
                                           "pt-BR":  {
-                                                        "title":  "Doorpi 0.3.17",
+                                                        "title":  "Doorpi 0.3.18",
                                                         "items":  [
-                                                                      "Novo: adicionado suporte para emuladores.",
-                                                                      "Novo: explorador de arquivos próprio, com extrator de ZIP/RAR e gerenciamento de arquivos.",
-                                                                      "O navegador agora tem histórico completo de downloads e facilita a instalação de programas."
+                                                                      "Hotfix: corrigida a falta de tratamento no login com Google ao fechar a janela."
                                                                   ]
                                                     },
                                           "en":  {
-                                                     "title":  "Doorpi 0.3.17",
+                                                     "title":  "Doorpi 0.3.18",
                                                      "items":  [
-                                                                   "New: added emulator support.",
-                                                                   "New: built-in file explorer with ZIP/RAR extraction and file management.",
-                                                                   "The browser now has a full download history and makes program installation easier."
+                                                                   "Hotfix: fixed missing handling for Google sign-in when closing the window."
                                                                ]
                                                  }
                                       }
@@ -54,6 +48,6 @@
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "OCRyevkFNQi7iAXr14fbBCJGGIsLGkWVZ6zxIBJRnKVIqdV/2QFTd1ch4oxjVfMp/VndA3S+CtwsBQXzmOKd3iU11PLzTjUmafOo2Zi9e6BexPM3P9j9Fv5woWqvjzfXEH1oKqv53InhQS6WA7xRPq+mnATvTk4kmRuoZZ7GZvH/KdTRw5nnapmTULSvSCzSrlpzP4K9Lq+nHeLSzKAw53Ri5HI4Tn+Xijvr5yyLOO/1Xzr82+KAKsnj7sF/7NqUgGC0bkgcU6b4qQz4cG/IG5qQJ9elc7ehblWiJS1ykVmSocdsDvt9e0mWnZuWsrCw3OcnBTecjS80TrtoEuVyaeoeOjULxuyu+UaWUleQb8UeDhdNEhvltu6yqO0A8qpwIHWPBHnF9uoY+Kd4Rxq1XBPk6AjHGMZ/a5tJW4xeBz+BPfyfn6UTAuujhQC3vIRXoXpdVIzKsCZhnxbAwQGaUQE2n+NyDGQkv5n05jfZ7m9S35g5cUZLP0xF2sTNHfCZ"
+                      "value":  "jl7m/IlI7y4m38uys9AgWU2/EQjlCay3laANBcfaVMe8s4bhoIiyrXHVjqyffobKw4U3mlaRdSwn5X43Wv83djycwRcK3h6u4p0W4nRFxIqj0O0r9i3vDIgXSgZRmmqqrBg4f53EUOrFRUTrswBBOpjBBnYbfUv0DVKfCXBHtNPyD1CF9DA08/ing1emnkaiwfZQ79sI2MaHm/pAklxBC6cIglf15nZOnoEJEDJKHU/k8OY5ReG/8YFnP0/VQ3jlwmLiNKZVEI7pe1iFpeKWrj5R5zzS6Fpf5OGQkDPt9f8DKnWk1qNGOfS7DAYjAnI4KUeutAFSqgorzixAlc0VoPzE6UxsAS4TrtF0V9B81yOzJPpjUvnayIx4NC6Xy9xYyd5bkW295u3JzgmBPicpIqSWbOT3G5eGxkFp0rDzlPNFHKKoL8cOhliYBA6nL2opN4e9eoutVuWVc/6RNAW7FBS/fTmJnnsX95rWs6brjjcqvQ2SBiHOck5RQjPfuzlJ"
                   }
 }
