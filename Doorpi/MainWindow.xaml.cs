@@ -30,6 +30,7 @@ namespace Doorpi
         public string Id { get; set; } = "";
         public string Name { get; set; } = "";
         public string Url { get; set; } = "";
+        public string LaunchCommand { get; set; } = "";
         public string Type { get; set; } = "browser"; // "browser" | "webview"
         public bool MultiUser { get; set; } = true;
         public string OwnerUserId { get; set; } = "";
@@ -71,6 +72,11 @@ namespace Doorpi
         public string Source { get; set; } = "";
         public bool IsAdminLocked { get; set; } = false;
         public string AdminLockReason { get; set; } = "";
+        public string EmulatorId { get; set; } = "";
+        public string RomPath { get; set; } = "";
+        public List<string> EmulatorDiscPaths { get; set; } = new();
+        public string LaunchCommand { get; set; } = "";
+        public string EmulatorDetectedName { get; set; } = "";
     }
 
     public class SteamGridArtworkResult
@@ -1246,6 +1252,7 @@ namespace Doorpi
                 }
 
                 TryReleaseInitialUserGate("navigation-completed");
+                ScheduleEmulatorLibraryReconcile();
 
                 Dispatcher.InvokeAsync(() =>
                 {
@@ -3220,6 +3227,11 @@ namespace Doorpi
             if (_mediaExeSessionId != sessionId)
                 return;
 
+            var executableSession = ActiveExecutableAppSession;
+            bool closeProcessOnReturn = executableSession?.CloseProcessOnReturn == true;
+            string capturedUrl = _mediaExeCurrentUrl;
+            var capturedProcess = _mediaExeProcess;
+
             bool vkbWasOpen = false;
             Dispatcher.Invoke(() =>
             {
@@ -3231,7 +3243,7 @@ namespace Doorpi
                 }
             });
 
-            if (vkbWasOpen)
+            if (vkbWasOpen && !closeProcessOnReturn)
                 return;
 
             _mediaExeModeActive = false;
@@ -3254,8 +3266,14 @@ namespace Doorpi
 
             Interlocked.Exchange(ref _returnFromExternalModeSuppressUntil, DateTime.UtcNow.AddMilliseconds(350).Ticks);
 
-            var process = FindAliveMediaExeProcess(_mediaExeCurrentUrl, _mediaExeProcess);
-            if (process != null && !SafeHasExited(process))
+            var process = FindAliveMediaExeProcess(capturedUrl, capturedProcess);
+            if (closeProcessOnReturn)
+            {
+                try { KillMediaExeProcessTree(capturedUrl, process ?? capturedProcess); } catch { }
+                ClearExecutionLock();
+                ClearExecutableAppSession();
+            }
+            else if (process != null && !SafeHasExited(process))
             {
                 try { MinimizeProcessWindows(process); }
                 catch
@@ -3305,6 +3323,7 @@ namespace Doorpi
                     }
 
                     if (anyMouseShortcut &&
+                        ActiveExecutableAppSession?.AllowControllerInput == true &&
                         DateTime.UtcNow.Ticks >= Interlocked.Read(ref _mediaExeMouseModeShortcutSuppressUntilTicks) &&
                         IsForegroundOwnedByActiveMediaExe())
                     {
@@ -4315,6 +4334,27 @@ namespace Doorpi
         private static string ResolveMediaExecutableUrl(MediaAppModel? media, string urlOrId)
             => !string.IsNullOrWhiteSpace(media?.Url) ? media!.Url : urlOrId;
 
+        private static string ResolveMediaLaunchCommand(MediaAppModel? media, string urlOrId)
+            => !string.IsNullOrWhiteSpace(media?.LaunchCommand)
+                ? media!.LaunchCommand.Trim()
+                : ResolveMediaExecutableUrl(media, urlOrId);
+
+        private MediaAppModel? FindMediaAppForExecutableSession(string urlOrId)
+        {
+            var direct = FindMediaAppByUrlOrId(urlOrId);
+            if (direct != null) return direct;
+
+            return LoadMediaApps().FirstOrDefault(media =>
+            {
+                string executable = LaunchCommand.ExecutablePathOrName(media.LaunchCommand);
+                return !string.IsNullOrWhiteSpace(executable) &&
+                       string.Equals(executable, urlOrId, StringComparison.OrdinalIgnoreCase);
+            });
+        }
+
+        private static string ResolveMediaExecutablePath(MediaAppModel? media, string urlOrId)
+            => LaunchCommand.ExecutablePathOrName(ResolveMediaLaunchCommand(media, urlOrId));
+
         private Dictionary<int, int> SnapshotParentProcessIds()
         {
             var parents = new Dictionary<int, int>();
@@ -4409,7 +4449,11 @@ namespace Doorpi
             return false;
         }
 
-        private void InitializeMediaExeProcessGroup(string mediaUrl, Process? rootProcess, HashSet<int>? baselineProcessIds = null)
+        private void InitializeMediaExeProcessGroup(
+            string mediaUrl,
+            Process? rootProcess,
+            HashSet<int>? baselineProcessIds = null,
+            string? executablePath = null)
         {
             if (string.IsNullOrWhiteSpace(mediaUrl)) return;
 
@@ -4417,14 +4461,18 @@ namespace Doorpi
             session.ResetProcessTracking(baselineProcessIds ?? SnapshotProcessIds());
             session.ProcessGroupRootDirectory = "";
             session.ProcessGroupExeName = "";
+            session.ExecutablePath = executablePath ?? ResolveMediaExecutablePath(FindMediaAppForExecutableSession(mediaUrl), mediaUrl);
 
             try
             {
-                if (File.Exists(mediaUrl))
+                if (File.Exists(session.ExecutablePath))
                 {
-                    session.ProcessGroupRootDirectory = Path.GetDirectoryName(Path.GetFullPath(mediaUrl)) ?? "";
-                    session.ProcessGroupExeName = Path.GetFileNameWithoutExtension(mediaUrl);
+                    session.ExecutablePath = Path.GetFullPath(session.ExecutablePath);
+                    session.ProcessGroupRootDirectory = Path.GetDirectoryName(session.ExecutablePath) ?? "";
+                    session.ProcessGroupExeName = Path.GetFileNameWithoutExtension(session.ExecutablePath);
                 }
+                else if (!string.IsNullOrWhiteSpace(session.ExecutablePath))
+                    session.ProcessGroupExeName = Path.GetFileNameWithoutExtension(session.ExecutablePath);
             }
             catch { }
 
@@ -4471,7 +4519,7 @@ namespace Doorpi
                     bool isDescendant = HasAncestorInExecutableGroup(pid, parentIds, session);
                     bool isNewRelatedProcess =
                         !session.IsBaselineProcess(pid) &&
-                        (ProcessPathBelongsToMediaRoot(process, session.Url, session.ProcessGroupRootDirectory) ||
+                        (ProcessPathBelongsToMediaRoot(process, session.ExecutablePath, session.ProcessGroupRootDirectory) ||
                          (!string.IsNullOrWhiteSpace(session.ProcessGroupExeName) &&
                           string.Equals(SafeProcessName(process), session.ProcessGroupExeName, StringComparison.OrdinalIgnoreCase)));
 
@@ -4549,7 +4597,7 @@ namespace Doorpi
 
         private List<Process> GetMediaExeProcessGroup(string mediaUrl, Process? knownProcess)
         {
-            var media = FindMediaAppByUrlOrId(mediaUrl);
+            var media = FindMediaAppForExecutableSession(mediaUrl);
             string resolvedUrl = ResolveMediaExecutableUrl(media, mediaUrl);
             var session = GetExecutableAppSession(resolvedUrl) ?? GetExecutableAppSession(mediaUrl);
 
@@ -4609,11 +4657,15 @@ namespace Doorpi
 
             try
             {
-                if (File.Exists(mediaUrl))
+                var media = FindMediaAppForExecutableSession(mediaUrl);
+                string executablePath = ResolveMediaExecutablePath(media, mediaUrl);
+                if (File.Exists(executablePath))
                 {
-                    fullPath = Path.GetFullPath(mediaUrl);
-                    processName = Path.GetFileNameWithoutExtension(mediaUrl);
+                    fullPath = Path.GetFullPath(executablePath);
+                    processName = Path.GetFileNameWithoutExtension(executablePath);
                 }
+                else if (!string.IsNullOrWhiteSpace(executablePath))
+                    processName = Path.GetFileNameWithoutExtension(executablePath);
             }
             catch { }
 
@@ -4707,6 +4759,7 @@ namespace Doorpi
             bool requireControllerActive = true,
             CancellationToken token = default)
         {
+            string mediaExecutablePath = ResolveMediaExecutablePath(FindMediaAppForExecutableSession(mediaUrl), mediaUrl);
             bool isSteamStoreLaunch =
                 _isStoreLauncherSession &&
                 IsSteamStoreWindowLookup(_activeStoreId ?? "", mediaUrl);
@@ -4732,7 +4785,7 @@ namespace Doorpi
                          IsGogStoreWindowLookup(_activeStoreId ?? "", mediaUrl));
                     if (!canResolveTargetLater && SafeHasExited(targetProc))
                     {
-                        targetProc = FindRunningProcessForExe(mediaUrl);
+                        targetProc = FindRunningProcessForExe(mediaExecutablePath);
                         if (targetProc == null) continue;
                     }
 
@@ -4788,7 +4841,7 @@ namespace Doorpi
                     {
                         if (SafeHasExited(targetProc))
                         {
-                            targetProc = FindRunningProcessForExe(mediaUrl);
+                            targetProc = FindRunningProcessForExe(mediaExecutablePath);
                             if (targetProc == null) continue;
                         }
 
@@ -4849,7 +4902,8 @@ namespace Doorpi
             {
                 try
                 {
-                    string exeName = Path.GetFileNameWithoutExtension(mediaUrl);
+                    string executablePath = ResolveMediaExecutablePath(FindMediaAppForExecutableSession(mediaUrl), mediaUrl);
+                    string exeName = Path.GetFileNameWithoutExtension(executablePath);
                     bool hasStarted = false;
                     DateTime startTime = DateTime.UtcNow;
 
@@ -5018,7 +5072,7 @@ namespace Doorpi
                             });
                             if (!mediaProcessStillAlive)
                             {
-                                try { mediaProcessStillAlive = FindRunningProcessForExe(mediaUrl) != null; } catch { }
+                                try { mediaProcessStillAlive = FindRunningProcessForExe(executablePath) != null; } catch { }
                             }
 
                             if (mediaProcessStillAlive)
@@ -5074,18 +5128,13 @@ namespace Doorpi
 
         private Process? StartMediaExecutable(string mediaUrl)
         {
-            if (string.IsNullOrWhiteSpace(mediaUrl) || !File.Exists(mediaUrl))
-                return null;
-
             try
             {
-                return Process.Start(new ProcessStartInfo
-                {
-                    FileName = mediaUrl,
-                    UseShellExecute = true,
-                    WorkingDirectory = Path.GetDirectoryName(mediaUrl),
-                    WindowStyle = ProcessWindowStyle.Maximized
-                });
+                var media = FindMediaAppForExecutableSession(mediaUrl);
+                string command = ResolveMediaLaunchCommand(media, mediaUrl);
+                return string.IsNullOrWhiteSpace(command)
+                    ? null
+                    : LaunchCommand.Start(command, ProcessWindowStyle.Maximized);
             }
             catch { return null; }
         }
@@ -5128,12 +5177,13 @@ namespace Doorpi
             string appName,
             CancellationToken token = default)
         {
+            string executablePath = ResolveMediaExecutablePath(FindMediaAppForExecutableSession(mediaUrl), mediaUrl);
             var found = await WaitForMediaExeWindowAsync(mediaUrl, appName, 16, 125, allowNewWindowFallback: false, token).ConfigureAwait(false);
             if (found.Hwnd != IntPtr.Zero)
                 return found;
 
             var aliveBeforeRelaunch = FindAliveMediaExeProcess(mediaUrl, _mediaExeProcess);
-            if (aliveBeforeRelaunch != null && File.Exists(mediaUrl))
+            if (aliveBeforeRelaunch != null && !string.IsNullOrWhiteSpace(executablePath))
             {
                 var session = GetExecutableAppSession(mediaUrl);
                 if (session != null)
@@ -5144,7 +5194,7 @@ namespace Doorpi
                     return found;
             }
 
-            if (File.Exists(mediaUrl))
+            if (!string.IsNullOrWhiteSpace(executablePath))
             {
                 try { KillMediaExeProcessTree(mediaUrl, aliveBeforeRelaunch); } catch { }
                 await Task.Delay(250, token).ConfigureAwait(false);
@@ -5152,7 +5202,7 @@ namespace Doorpi
                 var relaunched = StartMediaExecutable(mediaUrl);
                 if (relaunched != null)
                 {
-                    InitializeMediaExeProcessGroup(mediaUrl, relaunched, baselineBeforeLaunch);
+                    InitializeMediaExeProcessGroup(mediaUrl, relaunched, baselineBeforeLaunch, executablePath);
                     _mediaExeProcess = relaunched;
                 }
 
@@ -5316,7 +5366,16 @@ namespace Doorpi
                 return true;
             }, IntPtr.Zero);
         }
-        private void EnterMediaExeMode(Process proc, string url, string appName, string heroImg, string gridImg, HashSet<int>? baselineProcessIds = null)
+        private void EnterMediaExeMode(
+            Process proc,
+            string url,
+            string appName,
+            string heroImg,
+            string gridImg,
+            HashSet<int>? baselineProcessIds = null,
+            string? executablePath = null,
+            bool closeProcessOnReturn = false,
+            bool allowControllerInput = true)
         {
             ActivateExecutableAppSession(url);
             if (_mediaExeModeActive) return;
@@ -5328,28 +5387,36 @@ namespace Doorpi
 
             _mediaExeProcess = proc;
             _mediaExeCurrentUrl = url;
-            InitializeMediaExeProcessGroup(url, proc, baselineProcessIds);
-            _mediaExeMouseModeRequested = true;
+            InitializeMediaExeProcessGroup(url, proc, baselineProcessIds, executablePath);
+            _mediaExeMouseModeRequested = allowControllerInput;
             _mediaExeMouseModeInitialized = true;
-            _mediaExeGamepadDisabled = false;
+            _mediaExeGamepadDisabled = !allowControllerInput;
             _mediaExeModeActive = true;
-            _mediaExeMouseInputTemporarilyDisabled = false;
+            _mediaExeMouseInputTemporarilyDisabled = !allowControllerInput;
             _mediaExeWatcherPaused = false;
             _doorpiSuspendedForMedia = false;
+
+            var executableSession = EnsureExecutableAppSession(url);
+            executableSession.CloseProcessOnReturn = closeProcessOnReturn;
+            executableSession.AllowControllerInput = allowControllerInput;
 
             Dispatcher.Invoke(() =>
             {
                 while (ShowCursor(true) < 0) { }
                 _mainScreenMouseVisible = true;
-                CenterCursorOnScreen();
-                UpdateHoverStateInWebView(); // Devolve controle do hover se for MÃ­dia
+                if (allowControllerInput)
+                {
+                    CenterCursorOnScreen();
+                    UpdateHoverStateInWebView(); // Devolve controle do hover se for MÃ­dia
+                }
             });
 
             SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg, "app");
             _ = TryMaximizeExternalWindowAsync(proc, url, token: _mediaExeWatcherCts.Token);
             StartMediaExeWatcher(proc, url, appName, _mediaExeWatcherCts.Token);
             EnsureMediaExeShortcutThread(sessionId);
-            EnsureMediaExeControllerThread(sessionId);
+            if (allowControllerInput)
+                EnsureMediaExeControllerThread(sessionId);
             SendRuntimeSessionsToUI();
         }
         private void ExitMediaExeMode()
@@ -6133,7 +6200,7 @@ namespace Doorpi
             {
                 Id = id,
                 Name = resolvedName,
-                Url = url,
+                Url = !string.IsNullOrWhiteSpace(existingEntry.Url) ? existingEntry.Url : url,
                 Type = type,
                 AssetQuery = !string.IsNullOrWhiteSpace(existingEntry.AssetQuery) ? existingEntry.AssetQuery : assetQuery,
                 MultiUser = multiUser,
@@ -7051,16 +7118,18 @@ namespace Doorpi
                     var media = LoadMediaApps().FirstOrDefault(m =>
                         string.Equals(m.Url, session.Url, StringComparison.OrdinalIgnoreCase) ||
                         string.Equals(m.Id, session.Url, StringComparison.OrdinalIgnoreCase));
+                    var emulator = FindConfiguredEmulatorByExecutablePath(session.Url);
 
                     running.Add(new
                     {
                         channel = "media",
                         url = session.Url,
                         kind = "exe",
+                        appType = emulator != null ? "emulator" : "exe",
                         status = session.DoorpiSuspended ? "minimized" : (session.MouseModeActive ? "active" : "running"),
-                        name = media?.Name ?? Path.GetFileNameWithoutExtension(session.Url) ?? "Aplicativo",
+                        name = emulator?.Name ?? media?.Name ?? Path.GetFileNameWithoutExtension(session.Url) ?? "Aplicativo",
                         heroImage = MediaHeroVisual(media),
-                        gridImage = MediaGridVisual(media)
+                        gridImage = emulator?.GridImage ?? MediaGridVisual(media)
                     });
                 }
 
@@ -7279,9 +7348,10 @@ namespace Doorpi
             {
                 var media = FindMediaAppByUrlOrId(url);
                 string mediaUrl = ResolveMediaExecutableUrl(media, url);
+                string executablePath = ResolveMediaExecutablePath(media, mediaUrl);
                 var session = GetExecutableAppSession(mediaUrl) ?? GetExecutableAppSession(url);
                 var process = FindAliveMediaExeProcess(mediaUrl, session?.Process);
-                if (session != null || process != null || File.Exists(mediaUrl))
+                if (session != null || process != null || !string.IsNullOrWhiteSpace(executablePath))
                 {
                     Interlocked.Exchange(ref _executionLockSuppressUntilUtcTicks,
                         DateTime.UtcNow.AddSeconds(3).Ticks);
@@ -9460,6 +9530,7 @@ namespace Doorpi
                 return false;
 
             var media = FindMediaAppByUrlOrId(mediaUrl);
+            var emulator = FindConfiguredEmulatorByExecutablePath(mediaUrl);
             mediaUrl = ResolveMediaExecutableUrl(media, mediaUrl);
             ActivateExecutableAppSession(mediaUrl);
             _mediaExeCurrentUrl = mediaUrl;
@@ -9490,13 +9561,13 @@ namespace Doorpi
 
             ShowExecutionLock(
                 "exe",
-                media?.Name ?? Path.GetFileNameWithoutExtension(mediaUrl) ?? "Aplicativo",
+                emulator?.Name ?? media?.Name ?? Path.GetFileNameWithoutExtension(ResolveMediaExecutablePath(media, mediaUrl)) ?? "Aplicativo",
                 "",
                 mediaUrl,
                 "media",
-                "exe",
+                emulator != null ? "emulator" : "exe",
                 MediaHeroVisual(media),
-                MediaGridVisual(media));
+                emulator?.GridImage ?? MediaGridVisual(media));
             return true;
         }
 
@@ -9802,13 +9873,72 @@ namespace Doorpi
             if (kind == "exe" && !string.IsNullOrWhiteSpace(url))
             {
                 var media = FindMediaAppByUrlOrId(url);
+                var emulator = FindConfiguredEmulatorByExecutablePath(url);
                 string mediaUrl = ResolveMediaExecutableUrl(media, url);
                 ActivateExecutableAppSession(mediaUrl);
                 _mediaExeCurrentUrl = mediaUrl;
 
                 var aliveProcess = FindAliveMediaExeProcess(mediaUrl, _mediaExeProcess);
+                string executablePath = ResolveMediaExecutablePath(media, mediaUrl);
+
+                if (emulator != null)
+                {
+                    if (aliveProcess == null)
+                    {
+                        ForceFocus();
+                        SendRuntimeSessionsToUI();
+                        return;
+                    }
+
+                    _mediaExeProcess = aliveProcess;
+                    var restoredEmulator = await WaitForMediaExeWindowAsync(
+                        mediaUrl,
+                        emulator.Name,
+                        attempts: 20,
+                        delayMs: 100,
+                        allowNewWindowFallback: true);
+                    if (restoredEmulator.Process != null)
+                    {
+                        aliveProcess = restoredEmulator.Process;
+                        _mediaExeProcess = restoredEmulator.Process;
+                    }
+
+                    IntPtr emulatorHwnd = restoredEmulator.Hwnd;
+                    if (emulatorHwnd == IntPtr.Zero)
+                    {
+                        foreach (var candidate in GetMediaExeProcessGroup(mediaUrl, aliveProcess))
+                        {
+                            emulatorHwnd = FindAnyWindowForProcess(candidate.Id);
+                            if (emulatorHwnd != IntPtr.Zero) break;
+                        }
+                    }
+
+                    if (emulatorHwnd != IntPtr.Zero)
+                    {
+                        if (IsIconic(emulatorHwnd)) ShowWindow(emulatorHwnd, 9);
+                        ShowWindow(emulatorHwnd, 3);
+                        FocusExternalWindow(emulatorHwnd);
+                    }
+
+                    _mediaExeMouseModeRequested = false;
+                    _mediaExeMouseModeInitialized = true;
+                    _mediaExeGamepadDisabled = true;
+                    _mediaExeMouseInputTemporarilyDisabled = true;
+                    _mediaExeModeActive = true;
+                    _doorpiSuspendedForMedia = false;
+                    _mediaExeWatcherPaused = false;
+                    int emulatorSessionId = NextExecutableAppSessionId();
+
+                    _mediaExeWatcherCts?.Cancel();
+                    _mediaExeWatcherCts = new CancellationTokenSource();
+                    StartMediaExeWatcher(aliveProcess, mediaUrl, emulator.Name, _mediaExeWatcherCts.Token);
+                    EnsureMediaExeShortcutThread(emulatorSessionId);
+                    SendRuntimeSessionsToUI();
+                    return;
+                }
+
                 HashSet<int>? baselineBeforeLaunch = null;
-                if (aliveProcess == null && File.Exists(mediaUrl))
+                if (aliveProcess == null && !string.IsNullOrWhiteSpace(executablePath))
                 {
                     baselineBeforeLaunch = SnapshotProcessIds();
                     aliveProcess = StartMediaExecutable(mediaUrl);
@@ -9817,11 +9947,11 @@ namespace Doorpi
                 if (aliveProcess != null)
                 {
                     _mediaExeProcess = aliveProcess;
-                    InitializeMediaExeProcessGroup(mediaUrl, aliveProcess, baselineBeforeLaunch);
+                    InitializeMediaExeProcessGroup(mediaUrl, aliveProcess, baselineBeforeLaunch, executablePath);
 
                     var restored = await RestoreMediaExeWindowWithFallbacksAsync(
                         mediaUrl,
-                        media?.Name ?? Path.GetFileNameWithoutExtension(mediaUrl) ?? "Aplicativo");
+                        emulator?.Name ?? media?.Name ?? Path.GetFileNameWithoutExtension(executablePath) ?? "Aplicativo");
                     if (restored.Process != null)
                     {
                         aliveProcess = restored.Process;
@@ -9853,7 +9983,7 @@ namespace Doorpi
                     StartMediaExeWatcher(
                         aliveProcess,
                         mediaUrl,
-                        media?.Name ?? Path.GetFileNameWithoutExtension(mediaUrl) ?? "Aplicativo",
+                        emulator?.Name ?? media?.Name ?? Path.GetFileNameWithoutExtension(executablePath) ?? "Aplicativo",
                         _mediaExeWatcherCts.Token);
 
                     EnsureMediaExeShortcutThread(sessionId);
@@ -9872,6 +10002,32 @@ namespace Doorpi
             string url = _executionLockUrl;
             string channel = _executionLockChannel;
             string appType = _executionLockAppType;
+
+            var configuredEmulator =
+                string.Equals(appType, "emulator", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(kind, "exe", StringComparison.OrdinalIgnoreCase)
+                    ? FindConfiguredEmulatorByExecutablePath(url)
+                    : null;
+
+            if (configuredEmulator != null)
+            {
+                string emulatorUrl = configuredEmulator.ExecutablePath;
+                ActivateExecutableAppSession(emulatorUrl);
+                var emulatorSession = GetExecutableAppSession(emulatorUrl);
+                var emulatorProcess = FindAliveMediaExeProcess(emulatorUrl, emulatorSession?.Process);
+                try { emulatorSession?.WatcherCts?.Cancel(); } catch { }
+                try { KillMediaExeProcessTree(emulatorUrl, emulatorProcess ?? emulatorSession?.Process); } catch { }
+
+                if (emulatorSession != null)
+                    _executableAppSessions.TryRemove(emulatorSession.Key, out _);
+                if (string.Equals(_activeExecutableAppSessionKey, emulatorSession?.Key, StringComparison.OrdinalIgnoreCase))
+                    _activeExecutableAppSessionKey = "";
+
+                ClearExecutionLock();
+                ForceFocus();
+                SendRuntimeSessionsToUI();
+                return;
+            }
 
             bool shouldCloseStoreChildGame =
                 _gameSessionActive &&
@@ -10014,6 +10170,13 @@ namespace Doorpi
         {
             try
             {
+                if (!string.IsNullOrWhiteSpace(game.LaunchCommand))
+                {
+                    string configuredExecutable = LaunchCommand.ExecutablePathOrName(game.LaunchCommand);
+                    if (!string.IsNullOrWhiteSpace(configuredExecutable) && File.Exists(configuredExecutable))
+                        return Path.GetFullPath(configuredExecutable);
+                }
+
                 if (!string.IsNullOrWhiteSpace(game.Path) && File.Exists(game.Path))
                     return Path.GetFullPath(game.Path);
 
@@ -10035,7 +10198,8 @@ namespace Doorpi
                 "remaster", "remastered", "definitive", "standard", "windows", "game"
             };
 
-            var raw = $"{game.Name} {Path.GetFileNameWithoutExtension(game.Path ?? "")}";
+            string configuredExecutable = LaunchCommand.ExecutablePathOrName(game.LaunchCommand);
+            var raw = $"{game.Name} {Path.GetFileNameWithoutExtension(game.Path ?? "")} {Path.GetFileNameWithoutExtension(configuredExecutable)}";
             return Regex.Replace(raw, @"[^\p{L}\p{Nd}]+", " ")
                 .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Where(t => t.Length >= 3 && !stop.Contains(t))
@@ -11678,6 +11842,8 @@ namespace Doorpi
                 cache.SteamApps, cache.EpicApps, cache.GogApps, cache.RiotApps,
                 cache.XboxApps,
                 availableWindowsApps, availableFolderApps, existingMap);
+            finalList.AddRange(BuildEmulatorInstalledApps());
+            finalList = finalList.OrderBy(app => app.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
 
             var payload = new { type = "installedAppsList", apps = finalList };
             Dispatcher.Invoke(() =>
@@ -12447,6 +12613,8 @@ namespace Doorpi
                         cache.SteamApps, cache.EpicApps, cache.GogApps, cache.RiotApps,
                         cache.XboxApps,
                         cache.WindowsApps, cache.FolderApps, existingMap);
+                    apps.AddRange(BuildEmulatorInstalledApps());
+                    apps = apps.OrderBy(app => app.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
 
                     Dispatcher.Invoke(() =>
                         webView.CoreWebView2.PostWebMessageAsString(
@@ -13064,7 +13232,22 @@ namespace Doorpi
         }
         private async void WebView_WebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
         {
-            var jsonMessage = e.TryGetWebMessageAsString();
+            string jsonMessage;
+            try
+            {
+                jsonMessage = e.TryGetWebMessageAsString();
+            }
+            catch (ArgumentException)
+            {
+                // postMessage(objeto) chega como JSON, não como string. Aceitar os
+                // dois formatos evita derrubar o handler por uma mensagem válida.
+                jsonMessage = e.WebMessageAsJson;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[WebView] Falha ao ler mensagem: " + ex.Message);
+                return;
+            }
             if (string.IsNullOrEmpty(jsonMessage)) return;
             if (!IsTrustedMainWebMessageSource(e.Source))
             {
@@ -13587,7 +13770,8 @@ namespace Doorpi
                 else if (action == "launch" && root.TryGetProperty("path", out var pathElement))
                 {
                     string errorMsg = GetStr(root, "errorMsg", "Erro ao iniciar jogo: ");
-                    LaunchGame(pathElement.GetString(), errorMsg);
+                    string discPath = GetStr(root, "discPath");
+                    LaunchGame(pathElement.GetString(), errorMsg, discPath);
                 }
                 else if (action == "cancelGameLaunch")
                 {
@@ -13987,6 +14171,8 @@ namespace Doorpi
 
                             if (game != null)
                             {
+                                if (!string.IsNullOrWhiteSpace(game.EmulatorId))
+                                    SuppressEmulatorGame(game);
                                 DeleteGameImages(game);
                                 games.Remove(game);
                                 SaveGames(games);
@@ -14374,11 +14560,37 @@ namespace Doorpi
                         });
                     }
                 }
+                else if (await TryHandleEmulatorMessageAsync(action, root))
+                {
+                }
+                else if (action == "browseEditLaunchCommand")
+                {
+                    string dialogTitle = GetStr(root, "dialogTitle", "Selecionar programa ou atalho");
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        var dlg = new Microsoft.Win32.OpenFileDialog
+                        {
+                            Title = dialogTitle,
+                            Filter = "Arquivos iniciaveis (*.exe;*.com;*.bat;*.cmd;*.lnk;*.url)|*.exe;*.com;*.bat;*.cmd;*.lnk;*.url|Todos os arquivos (*.*)|*.*"
+                        };
+
+                        bool? dialogResult = ShowDialogWithController(dlg, "editLaunchCommand");
+                        webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                        {
+                            type = "editLaunchCommandSelected",
+                            path = dialogResult == true ? dlg.FileName : ""
+                        }));
+                    });
+                }
                 else if (action == "editGame" && root.TryGetProperty("gameId", out var editIdEl))
                 {
                     string gameId = editIdEl.GetString() ?? "";
                     bool hasNewName = root.TryGetProperty("newName", out var editNameEl);
                     string newName = hasNewName ? (editNameEl.GetString() ?? "") : "";
+                    bool hasNewLaunchCommand = root.TryGetProperty("newLaunchCommand", out var editCommandEl);
+                    string newLaunchCommand = hasNewLaunchCommand ? (editCommandEl.GetString() ?? "").Trim() : "";
+                    bool hasNewUrl = root.TryGetProperty("newUrl", out var editUrlEl);
+                    string newUrl = hasNewUrl ? (editUrlEl.GetString() ?? "").Trim() : "";
                     bool hasDisableGamepad = root.TryGetProperty("disableGamepadControl", out var dgcEl);
 
                     if (!string.IsNullOrEmpty(gameId))
@@ -14390,17 +14602,26 @@ namespace Doorpi
 
                         if (game != null)
                         {
+                            bool changed = false;
                             if (hasNewName && !string.IsNullOrEmpty(newName))
                             {
                                 game.Name = newName;
-                                SaveGames(games);
+                                changed = true;
                                 Debug.WriteLine($"[editGame] '{game.Path}' renomeado para: {newName}");
                             }
+                            if (hasNewLaunchCommand && !string.IsNullOrWhiteSpace(newLaunchCommand))
+                            {
+                                string defaultTarget = !string.IsNullOrWhiteSpace(game.LaunchUrl) ? game.LaunchUrl.Trim() : game.Path.Trim();
+                                game.LaunchCommand = string.Equals(newLaunchCommand, defaultTarget, StringComparison.OrdinalIgnoreCase)
+                                    ? ""
+                                    : newLaunchCommand;
+                                changed = true;
+                                Debug.WriteLine($"[editGame] Comando atualizado para: {game.Name}");
+                            }
+                            if (changed) SaveGames(games);
                         }
                         else
                         {
-                            if (gameId.Equals("youtube", StringComparison.OrdinalIgnoreCase)) return;
-
                             var medias = LoadMediaAppsForUser(currentUserId);
                             var media = medias.FirstOrDefault(m =>
                                 string.Equals(m.Id, gameId, StringComparison.OrdinalIgnoreCase) ||
@@ -14420,6 +14641,26 @@ namespace Doorpi
                                     media.DisableGamepadControl = dgcEl.GetBoolean();
                                     changed = true;
                                     Debug.WriteLine($"[editGame] DisableGamepadControl={media.DisableGamepadControl} para: {gameId}");
+                                }
+                                if (hasNewLaunchCommand &&
+                                    string.Equals(media.Type, "exe", StringComparison.OrdinalIgnoreCase) &&
+                                    !string.IsNullOrWhiteSpace(newLaunchCommand))
+                                {
+                                    media.LaunchCommand = string.Equals(newLaunchCommand, media.Url.Trim(), StringComparison.OrdinalIgnoreCase)
+                                        ? ""
+                                        : newLaunchCommand;
+                                    changed = true;
+                                    Debug.WriteLine($"[editGame] Comando atualizado para o app: {media.Name}");
+                                }
+                                if (hasNewUrl &&
+                                    (string.Equals(media.Type, "browser", StringComparison.OrdinalIgnoreCase) ||
+                                     string.Equals(media.Type, "webview", StringComparison.OrdinalIgnoreCase)) &&
+                                    Uri.TryCreate(newUrl, UriKind.Absolute, out var parsedUrl) &&
+                                    (parsedUrl.Scheme == Uri.UriSchemeHttp || parsedUrl.Scheme == Uri.UriSchemeHttps))
+                                {
+                                    media.Url = newUrl;
+                                    changed = true;
+                                    Debug.WriteLine($"[editGame] URL atualizada para o Web App: {media.Name}");
                                 }
                                 if (changed) SaveMediaApps(medias);
                             }
@@ -15016,14 +15257,15 @@ namespace Doorpi
                         {
                             string executableUrl = !string.IsNullOrWhiteSpace(media?.Url) ? media!.Url : resolvedRequestedMediaUrl;
                             string resolvedExecutable = ResolveCurrentVersionedExecutablePath(executableUrl);
+                            bool hasConfiguredCommand = !string.IsNullOrWhiteSpace(media?.LaunchCommand);
 
-                            if (Path.IsPathRooted(executableUrl) && !File.Exists(resolvedExecutable))
+                            if (!hasConfiguredCommand && Path.IsPathRooted(executableUrl) && !File.Exists(resolvedExecutable))
                             {
                                 Debug.WriteLine($"[launchMediaApp/exe] ExecutÃ¡vel nÃ£o encontrado: {executableUrl}");
                                 return;
                             }
 
-                            if (File.Exists(resolvedExecutable))
+                            if (!hasConfiguredCommand && File.Exists(resolvedExecutable))
                             {
                                 mediaUrl = resolvedExecutable;
                                 if (media != null && !string.Equals(media.Url, resolvedExecutable, StringComparison.OrdinalIgnoreCase))
@@ -15080,6 +15322,8 @@ namespace Doorpi
                             {
                                 try
                                 {
+                                    string configuredCommand = ResolveMediaLaunchCommand(media, mediaUrl);
+                                    string executablePath = ResolveMediaExecutablePath(media, mediaUrl);
                                     ActivateExecutableAppSession(mediaUrl);
 
                                     string mediaName = media?.Name ?? "App";
@@ -15094,9 +15338,9 @@ namespace Doorpi
                                     {
                                         existingProc = _mediaExeProcess;
                                     }
-                                    else if (File.Exists(mediaUrl))
+                                    else if (File.Exists(executablePath))
                                     {
-                                        existingProc = FindRunningProcessForExe(mediaUrl);
+                                        existingProc = FindRunningProcessForExe(executablePath);
                                     }
                                     if (existingProc != null)
                                     {
@@ -15122,7 +15366,7 @@ namespace Doorpi
                                             _mediaExeWatcherCts = new CancellationTokenSource();
                                             _mediaExeProcess = existingProc;
                                             _mediaExeCurrentUrl = mediaUrl;
-                                            InitializeMediaExeProcessGroup(mediaUrl, existingProc);
+                                            InitializeMediaExeProcessGroup(mediaUrl, existingProc, executablePath: executablePath);
                                             StartMediaExeWatcher(existingProc, mediaUrl, mediaName, _mediaExeWatcherCts.Token);
                                             int sessionId = NextExecutableAppSessionId();
                                             EnsureMediaExeShortcutThread(sessionId);
@@ -15140,24 +15384,9 @@ namespace Doorpi
                                     _mediaExeWatcherCts?.Cancel();
 
                                     Process? proc = null;
-                                    HashSet<int>? baselineBeforeLaunch = null;
-                                    if (File.Exists(mediaUrl))
-                                    {
-                                        baselineBeforeLaunch = SnapshotProcessIds();
-                                        proc = Process.Start(new ProcessStartInfo
-                                        {
-                                            FileName = mediaUrl,
-                                            UseShellExecute = true,
-                                            WorkingDirectory = Path.GetDirectoryName(mediaUrl),
-                                            WindowStyle = ProcessWindowStyle.Maximized
-                                        });
-                                    }
-                                    else if (!string.IsNullOrWhiteSpace(mediaUrl))
-                                    {
-                                        EnsureLauncherRunning(mediaUrl);
-                                        baselineBeforeLaunch = SnapshotProcessIds();
-                                        proc = Process.Start(new ProcessStartInfo(mediaUrl) { UseShellExecute = true });
-                                    }
+                                    HashSet<int>? baselineBeforeLaunch = SnapshotProcessIds();
+                                    if (!string.IsNullOrWhiteSpace(configuredCommand))
+                                        proc = LaunchCommand.Start(configuredCommand, ProcessWindowStyle.Maximized);
 
                                     if (proc != null || baselineBeforeLaunch != null)
                                     {
@@ -15167,7 +15396,7 @@ namespace Doorpi
 
                                         if (proc != null && _mediaExeMouseModeRequested)
                                         {
-                                            EnterMediaExeMode(proc, mediaUrl, mediaName, heroImg, gridImg, baselineBeforeLaunch);
+                                            EnterMediaExeMode(proc, mediaUrl, mediaName, heroImg, gridImg, baselineBeforeLaunch, executablePath);
                                         }
                                         else
                                         {
@@ -15175,7 +15404,7 @@ namespace Doorpi
                                             _mediaExeWatcherCts = new CancellationTokenSource();
                                             _mediaExeProcess = proc;
                                             _mediaExeCurrentUrl = mediaUrl;
-                                            InitializeMediaExeProcessGroup(mediaUrl, proc, baselineBeforeLaunch);
+                                            InitializeMediaExeProcessGroup(mediaUrl, proc, baselineBeforeLaunch, executablePath);
                                             _mediaExeWatcherPaused = false;
                                             _doorpiSuspendedForMedia = false;
                                             int sessionId = NextExecutableAppSessionId();
@@ -15343,8 +15572,30 @@ namespace Doorpi
                 if (!string.IsNullOrWhiteSpace(app.Source) && IsStoreBlockedForCurrentUser(app.Source))
                     continue;
 
-                if (existingGames.Any(g => InstalledAppMatchesGame(app, g)))
-                    continue;
+                bool isEmulatorGame = !string.IsNullOrWhiteSpace(app.EmulatorId) &&
+                    !string.IsNullOrWhiteSpace(app.RomPath);
+                var appEmulatorPaths = (app.EmulatorDiscPaths?.Count > 0
+                        ? app.EmulatorDiscPaths
+                        : new List<string> { app.RomPath })
+                    .Select(NormalizeEmulatorRomPath)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                bool alreadyExists = isEmulatorGame
+                    ? existingGames.Any(game =>
+                        game.EmulatorId.Equals(app.EmulatorId, StringComparison.OrdinalIgnoreCase) &&
+                        (game.EmulatorDiscPaths?.Count > 0 ? game.EmulatorDiscPaths : new List<string> { game.RomPath })
+                            .Select(NormalizeEmulatorRomPath)
+                            .Any(appEmulatorPaths.Contains))
+                    : existingGames.Any(game => InstalledAppMatchesGame(app, game));
+                if (alreadyExists) continue;
+
+                EmulatorConfigModel? emulatorConfig = null;
+                if (isEmulatorGame)
+                {
+                    emulatorConfig = LoadEmulatorConfigs().FirstOrDefault(item =>
+                        item.Id.Equals(app.EmulatorId, StringComparison.OrdinalIgnoreCase));
+                    if (emulatorConfig == null || (!File.Exists(app.RomPath) && !Directory.Exists(app.RomPath)))
+                        continue;
+                }
 
                 string? steamAppId = null;
                 if (!string.IsNullOrEmpty(app.LaunchUrl) && app.LaunchUrl.StartsWith("steam://run/", StringComparison.OrdinalIgnoreCase))
@@ -15384,10 +15635,27 @@ namespace Doorpi
                     IconBase64 = iconBase64,
                     LastPlayed = DateTime.MinValue,
                     DateAdded = DateTime.Now,
-                    Source = NormalizeStorePolicyKey(app.Source)
+                    Source = isEmulatorGame ? "emulator" : NormalizeStorePolicyKey(app.Source),
+                    EmulatorId = isEmulatorGame ? app.EmulatorId : "",
+                    RomPath = isEmulatorGame ? app.RomPath : "",
+                    EmulatorDiscPaths = isEmulatorGame
+                        ? (app.EmulatorDiscPaths?.Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
+                           ?? new List<string>())
+                        : new List<string>(),
+                    EmulatorDetectedName = isEmulatorGame
+                        ? (string.IsNullOrWhiteSpace(app.EmulatorDetectedName) ? app.Name : app.EmulatorDetectedName)
+                        : "",
+                    LaunchCommand = isEmulatorGame ? app.LaunchCommand : ""
                 };
 
                 existingGames.Add(game);
+                if (isEmulatorGame)
+                {
+                    foreach (string discPath in app.EmulatorDiscPaths?.Count > 0
+                                 ? app.EmulatorDiscPaths
+                                 : new List<string> { app.RomPath })
+                        UnsuppressEmulatorGame(app.EmulatorId, discPath);
+                }
                 dbChanged = true;
             }
 
@@ -16124,7 +16392,7 @@ namespace Doorpi
             }
         }
 
-        private void LaunchGame(string? identifier, string errorMsg)
+        private void LaunchGame(string? identifier, string errorMsg, string? requestedDiscPath = null)
         {
             if (string.IsNullOrEmpty(identifier)) return;
 
@@ -16144,6 +16412,34 @@ namespace Doorpi
                         SendAdminPolicyBlocked("game", game.Name, StorePolicyKeyForGame(game));
                         SendGameLaunchStatus("gameLaunchDone");
                         return;
+                    }
+
+                    string launchCommandForSession = game.LaunchCommand;
+                    if (!string.IsNullOrWhiteSpace(game.EmulatorId) &&
+                        !string.IsNullOrWhiteSpace(requestedDiscPath))
+                    {
+                        string normalizedRequestedDisc = NormalizeEmulatorRomPath(requestedDiscPath);
+                        var allowedDiscs = (game.EmulatorDiscPaths?.Count > 0
+                                ? game.EmulatorDiscPaths
+                                : new List<string> { game.RomPath })
+                            .Where(File.Exists)
+                            .ToList();
+                        string? selectedDisc = allowedDiscs.FirstOrDefault(path =>
+                            NormalizeEmulatorRomPath(path).Equals(normalizedRequestedDisc, StringComparison.OrdinalIgnoreCase));
+                        if (selectedDisc == null)
+                        {
+                            SendGameLaunchStatus("gameLaunchDone");
+                            return;
+                        }
+
+                        var emulatorConfig = LoadEmulatorConfigs().FirstOrDefault(config =>
+                            config.Id.Equals(game.EmulatorId, StringComparison.OrdinalIgnoreCase));
+                        if (emulatorConfig == null)
+                        {
+                            SendGameLaunchStatus("gameLaunchDone");
+                            return;
+                        }
+                        launchCommandForSession = ExpandEmulatorLaunchTemplate(emulatorConfig, selectedDisc, selectedDisc);
                     }
 
                     // -- Verifica estado atual da sessÃ£o ------------------------------------
@@ -16347,7 +16643,12 @@ namespace Doorpi
                             Process? launched = null;
                             bool launchAttempted = false;
 
-                            if (IsGogLaunchUrl(game.LaunchUrl))
+                            if (!string.IsNullOrWhiteSpace(launchCommandForSession))
+                            {
+                                launchAttempted = true;
+                                launched = LaunchCommand.Start(launchCommandForSession);
+                            }
+                            else if (IsGogLaunchUrl(game.LaunchUrl))
                             {
                                 launchAttempted = TryStartLocalGamePath(game, out launched);
                             }
@@ -16999,6 +17300,8 @@ namespace Doorpi
                 name = game.Name,
                 path = game.Path,
                 launchUrl = game.LaunchUrl,
+                launchCommand = game.LaunchCommand,
+                emulatorDiscPaths = game.EmulatorDiscPaths,
                 type = "game",
                 imageData = game.GridImage,
                 staticImageData = game.GridStaticImage,
@@ -17071,6 +17374,8 @@ namespace Doorpi
                 name = game.Name,
                 path = game.Path,
                 launchUrl = game.LaunchUrl,
+                launchCommand = game.LaunchCommand,
+                emulatorDiscPaths = game.EmulatorDiscPaths,
                 imageData = game.GridImage,
                 staticImageData = game.GridStaticImage,
                 horizontalImage = game.GridHorizontalImage,
