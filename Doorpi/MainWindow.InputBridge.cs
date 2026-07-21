@@ -124,7 +124,7 @@ namespace Doorpi
             }
         }
 
-        private void StopElevatedInputBridge()
+        private void StopElevatedInputBridge(int gracefulTimeoutMilliseconds = 0)
         {
             StreamWriter? writer;
             NamedPipeServerStream? pipe;
@@ -154,6 +154,8 @@ namespace Doorpi
 
             try
             {
+                if (process != null && gracefulTimeoutMilliseconds > 0 && !process.HasExited)
+                    process.WaitForExit(gracefulTimeoutMilliseconds);
                 if (process != null && !process.HasExited)
                     process.Kill(entireProcessTree: true);
             }
@@ -167,6 +169,9 @@ namespace Doorpi
 
         private bool TrySendElevatedVirtualKey(ushort vk)
             => TrySendElevatedInput($"key|{vk}");
+
+        private bool TrySendElevatedTerminateProcess(int processId)
+            => processId > 0 && TrySendElevatedInput($"kill|{processId}");
 
         private bool TrySendElevatedUnicodeString(string text)
         {
@@ -412,6 +417,7 @@ namespace Doorpi
                        _gameLaunchStoreMouseModeActive ||
                        _dialogModeActive ||
                        _systemControllerActive ||
+                       IsDoorpiFileExplorerLaunchActive() ||
                        IsStoreInstallFlowActive() ||
                        IsGpuUpdaterSessionActive();
             }

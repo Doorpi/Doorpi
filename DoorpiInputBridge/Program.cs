@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
@@ -109,6 +110,19 @@ namespace DoorpiInputBridge
                 {
                     string text = Encoding.UTF8.GetString(Convert.FromBase64String(parts[1]));
                     SendUnicodeString(text);
+                }
+                catch { }
+                return;
+            }
+
+            if (parts[0] == "kill" && parts.Length >= 2 &&
+                int.TryParse(parts[1], out int processId) && processId > 0)
+            {
+                try
+                {
+                    using var process = Process.GetProcessById(processId);
+                    if (!process.HasExited)
+                        process.Kill(entireProcessTree: true);
                 }
                 catch { }
             }

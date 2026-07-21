@@ -127,7 +127,7 @@ function getModalGroups() {
     const activeTabEl = document.querySelector('.view-section.active');
     const activeTab = activeTabEl ? activeTabEl.id : 'view-apps';
     const sidebar = Array.from(document.querySelectorAll('.sidebar-menu .menu-tab'));
-    let filters = [], apps = [], actions = [], folderBtns = [], subtabs = [], inputs = [], storeBtns = [];
+    let filters = [], apps = [], actions = [], folderBtns = [], subtabs = [], inputs = [], storeBtns = [], emulatorItems = [], emulatorMenus = [];
 
     if (activeTab === 'view-apps') {
         filters = Array.from(document.querySelectorAll('.filter-bar .filter-btn'));
@@ -151,8 +151,15 @@ function getModalGroups() {
                 btn.getAttribute('aria-disabled') !== 'true' &&
                 !!btn.dataset.downloadUrl);
         actions = Array.from(document.querySelectorAll('#view-stores .action-buttons button'));
+    } else if (activeTab === 'view-emulators') {
+        emulatorItems = Array.from(document.querySelectorAll('#emulatorViewContent .emulator-nav:not(.emulator-card-menu), #view-emulators .emulator-editor-overlay .emulator-nav:not(.emulator-card-menu)'))
+            .filter(item => !item.disabled && item.offsetWidth > 0 && item.offsetHeight > 0);
+        emulatorMenus = Array.from(document.querySelectorAll('#emulatorViewContent .emulator-card-menu'))
+            .filter(item => !item.disabled && item.offsetWidth > 0 && item.offsetHeight > 0);
+        actions = Array.from(document.querySelectorAll('#emulatorActions .emulator-nav'))
+            .filter(item => !item.disabled && item.offsetWidth > 0 && item.offsetHeight > 0);
     }
-    return { sidebar, filters, apps, actions, folderBtns, subtabs, inputs, storeBtns, activeTab };
+    return { sidebar, filters, apps, actions, folderBtns, subtabs, inputs, storeBtns, emulatorItems, emulatorMenus, activeTab };
 }
 
 function getNavigableItems() {
@@ -161,6 +168,11 @@ function getNavigableItems() {
     const transientPicker = document.querySelector('.profile-photo-picker-overlay, .artwork-wizard-overlay');
     if (transientPicker) {
         return Array.from(transientPicker.querySelectorAll('input, button'))
+            .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0 && !el.disabled);
+    }
+    const emulatorEditor = document.querySelector('#view-emulators .emulator-editor-overlay');
+    if (emulatorEditor) {
+        return Array.from(emulatorEditor.querySelectorAll('input, button'))
             .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0 && !el.disabled);
     }
     if (window.isDoorpiOverlayOpen?.()) return window.getDoorpiOverlayItems?.() || [];
@@ -224,6 +236,7 @@ function getNavigableItems() {
     if (g.activeTab === 'view-folders') return [...g.sidebar, ...g.folderBtns, ...g.actions].filter(el => isVisible(el) && isNavigable(el));
     if (g.activeTab === 'view-media-apps') return [...g.sidebar, ...g.subtabs, ...g.inputs, ...g.apps, ...g.actions].filter(el => isVisible(el) && isNavigable(el));
     if (g.activeTab === 'view-stores') return [...g.sidebar, ...g.storeBtns, ...g.actions].filter(el => isVisible(el) && isNavigable(el));
+    if (g.activeTab === 'view-emulators') return [...g.sidebar, ...g.emulatorItems, ...g.emulatorMenus, ...g.actions].filter(el => isVisible(el) && isNavigable(el));
 
     return [];
 }
@@ -529,7 +542,7 @@ function findVkbCandidate(items, current, direction) {
 }
 
 function getGroupTransition(direction, groupName, groups, current) {
-    const { sidebar, filters, apps, actions, folderBtns, subtabs, inputs, storeBtns, activeTab } = groups;
+    const { sidebar, filters, apps, actions, folderBtns, subtabs, inputs, storeBtns, emulatorItems, emulatorMenus, activeTab } = groups;
     const firstVisible = (arr) => arr.find(el => el.offsetWidth > 0 && el.offsetHeight > 0);
 
     const bestSidebar = () => {
@@ -651,6 +664,24 @@ function getGroupTransition(direction, groupName, groups, current) {
         if (groupName === 'sidebar') {
             if (direction === 'RIGHT' || direction === 'DOWN') return bestStoreBtn() || actions[0];
         }
+    } else if (activeTab === 'view-emulators') {
+        const emulatorEditor = document.querySelector('#view-emulators .emulator-editor-overlay');
+        if (emulatorEditor?.contains(current)) return current;
+        if (groupName === 'emulator') {
+            if (direction === 'LEFT') return bestSidebar();
+            if (direction === 'DOWN') return firstVisible(actions);
+        }
+        if (groupName === 'emulatorMenu') {
+            if (direction === 'DOWN')
+                return current.closest('.emulator-library-card')?.querySelector('.emulator-card-launch') || current;
+            return current;
+        }
+        if (groupName === 'action') {
+            if (direction === 'UP') return emulatorItems[emulatorItems.length - 1] ?? null;
+            if (direction === 'LEFT' && actions.indexOf(current) === 0) return bestSidebar();
+        }
+        if (groupName === 'sidebar' && (direction === 'RIGHT' || direction === 'DOWN'))
+            return firstVisible(emulatorItems || []) || firstVisible(actions);
     }
     return null;
 }
@@ -1002,6 +1033,9 @@ function moveFocus(direction) {
     else if (current.classList.contains('filter-btn')) { groupName = 'filter'; groupItems = groups.filters; }
     else if (current.classList.contains('app-item')) { groupName = 'app'; groupItems = groups.apps; }
     else if (current.classList.contains('store-install-card')) { groupName = 'storeBtn'; groupItems = groups.storeBtns; }
+    else if (current.closest?.('#emulatorActions')) { groupName = 'action'; groupItems = groups.actions; }
+    else if (current.classList.contains('emulator-card-menu')) { groupName = 'emulatorMenu'; groupItems = groups.emulatorMenus; }
+    else if (current.classList.contains('emulator-nav')) { groupName = 'emulator'; groupItems = groups.emulatorItems; }
     else if (current.classList.contains('icon-btn')) { groupName = 'folderBtn'; groupItems = groups.folderBtns; }
     else if (current.classList.contains('subtab')) { groupName = 'subtab'; groupItems = groups.subtabs; }
     else if (current.tagName === 'INPUT' || current.id === 'btnWebAppPaste' || current.id === 'btnWebAppBrowser') { groupName = 'input'; groupItems = groups.inputs; }
@@ -1012,7 +1046,16 @@ function moveFocus(direction) {
     if (groupName === 'sidebar') _lastFocusedSidebar = current;
 
     let target = null;
-    if (!(groupName === 'sidebar' && direction === 'RIGHT')) {
+    if (groups.activeTab === 'view-emulators' &&
+        groupName === 'emulator' &&
+        current.classList.contains('emulator-card-launch') &&
+        direction === 'UP') {
+        target = current.closest('.emulator-library-card')?.querySelector('.emulator-card-menu') || null;
+    } else if (groups.activeTab === 'view-emulators' &&
+        groupName === 'emulatorMenu' &&
+        direction === 'DOWN') {
+        target = current.closest('.emulator-library-card')?.querySelector('.emulator-card-launch') || null;
+    } else if (!(groupName === 'sidebar' && direction === 'RIGHT')) {
         target = findSpatialCandidate(groupItems.filter(i => items.includes(i)), current, direction);
     }
 
@@ -1127,6 +1170,40 @@ function smoothHorizontalScroll(element, onDone) {
 });
 
 document.addEventListener('keydown', e => {
+    if (window.isDoorpiFileBrowserOpen?.() && !isVkbOpenForNavigation()) {
+        const direction = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' }[e.key];
+        if (direction) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            window.DoorpiFileBrowser?.moveFocus?.(direction);
+            return;
+        }
+        if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            window.DoorpiFileBrowser?.activate?.();
+            return;
+        }
+        if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'BrowserBack') {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            window.DoorpiFileBrowser?.back?.();
+            return;
+        }
+        const fileBrowserInputFocused = document.activeElement?.matches?.('input, textarea');
+        if ((e.key || '').toLowerCase() === 'x' && !fileBrowserInputFocused) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            window.DoorpiFileBrowser?.context?.();
+            return;
+        }
+        if ((e.key || '').toLowerCase() === 'y' && !fileBrowserInputFocused) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            window.DoorpiFileBrowser?.createFolder?.();
+            return;
+        }
+    }
     if (window.DoorpiProfileSync?.isOpen?.()) {
         const direction = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' }[e.key];
         if (direction) {
@@ -1376,6 +1453,7 @@ document.addEventListener('keydown', e => {
             window._artworkWizardShortcut?.('cancel');
             return;
         }
+        if (window.handleEmulatorBack?.()) return;
 
         // 1. Se for o Overlay de Perfil, aplica a trava de segurança
         if (window.isDoorpiOverlayOpen?.()) {
@@ -1523,6 +1601,12 @@ function isDoorpiGameInputSuppressed() {
 }
 
 window.requestDoorpiBackAction = function () {
+    if (window.isEmulatorDiscSelectorOpen?.()) {
+        window.closeEmulatorDiscSelector?.(true);
+        window.DoorpiUiSound?.play('back');
+        return true;
+    }
+
     const launchOverlay = document.getElementById('gameLaunchOverlay');
     const isSessionConflict = window.isSessionConflictPopupOpen?.() === true;
     const isExecutionLock = !isSessionConflict && launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('execution-lock-visible');
@@ -1609,6 +1693,11 @@ window.requestDoorpiBackAction = function () {
 
     if (isVkbOpenForNavigation()) {
         window._vkbCancel?.();
+        window.DoorpiUiSound?.play('back');
+        return true;
+    }
+
+    if (window.handleEmulatorBack?.()) {
         window.DoorpiUiSound?.play('back');
         return true;
     }
@@ -1764,6 +1853,7 @@ function refreshGamepadPresence() {
     _controllerType = 'xbox';
     updateGamepadUI(isGamepadConnected, _controllerType);
 }
+window.refreshDoorpiGamepadHints = refreshGamepadPresence;
 
 function readAllGamepadInput() {
     if (!_doorpiNativeController.connected) return null;
@@ -1908,6 +1998,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         }
 
         const isSessionConflict = window.isSessionConflictPopupOpen?.() === true;
+        const isEmulatorDiscSelector = window.isEmulatorDiscSelectorOpen?.() === true;
         const launchOverlay = document.getElementById('gameLaunchOverlay');
         const isExecutionLock = !isSessionConflict && launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('execution-lock-visible');
         const isWaitingLaunch = !isSessionConflict && launchOverlay && launchOverlay.classList.contains('visible') && launchOverlay.classList.contains('state-loading');
@@ -1936,6 +2027,33 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
 
         const { GAMEPAD } = NAV, buttons = gamepad.buttons;
         const thr = GAMEPAD.AXIS_THRESHOLD, now = performance.now();
+
+        if (window.isDoorpiFileBrowserOpen?.() && !isVkbOpenForNavigation()) {
+            _currentDirection = null;
+            _moveState = 0;
+            if (primaryJustPressed(buttons, GAMEPAD))
+                window.DoorpiFileBrowser?.activate?.();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL))
+                window.DoorpiFileBrowser?.back?.();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START))
+                window.DoorpiFileBrowser?.confirm?.();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE))
+                window.DoorpiFileBrowser?.context?.();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_TRIANGLE], GAMEPAD.BTN_TRIANGLE))
+                window.DoorpiFileBrowser?.createFolder?.();
+            return;
+        }
+
+        if (isEmulatorDiscSelector) {
+            _currentDirection = null;
+            _moveState = 0;
+            if (primaryJustPressed(buttons, GAMEPAD)) document.activeElement?.click();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
+                window.closeEmulatorDiscSelector?.(true);
+                window.DoorpiUiSound?.play('back');
+            }
+            return;
+        }
 
         // As direcoes chegam pelo loop nativo C# como teclas. A/R2 e B, porem,
         // chegam por este snapshot e precisam ignorar completamente o nav-menu.
@@ -2206,6 +2324,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
             // 1. Se estiver na seleção de perfil, checa a trava
             if (window.requestDoorpiBackAction?.()) return;
+            if (window.closeEmulatorContextMenu?.()) return;
             if (window.isDoorpiOverlayOpen?.()) {
                 if (!canCloseProfileSelection()) return;
                 window.closeDoorpiTopOverlay?.();
@@ -2232,6 +2351,8 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
                     else document.getElementById('btnConfirmAddMedia')?.click();
                 } else if (activeView?.id === 'view-folders') {
                     document.getElementById('btnScanFolder')?.click();
+                } else if (activeView?.id === 'view-emulators') {
+                    window.advanceEmulatorSetup?.();
                 } else {
                     document.getElementById('btnConfirmAdd')?.click();
                 }
@@ -2246,6 +2367,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
                 window.hideStoreSessionMenu?.();
                 if (typeof postToHost === 'function') postToHost({ action: 'closeStore' });
             }
+            else if (window.openFocusedEmulatorContextMenu?.()) { }
             else if (isEditModalOpen) window._editModalClose?.();
             else triggerContextMenu();
         }

@@ -437,6 +437,9 @@ const CardRenderer = (() => {
         card.dataset.staticLogo = item.staticLogo || '';
         card.dataset.iconBase64 = item.iconBase64 || '';
         card.dataset.assetQuery = item.assetQuery || item.AssetQuery || '';
+        card.dataset.path = item.path || '';
+        card.dataset.launchUrl = item.launchUrl || '';
+        card.dataset.launchCommand = item.launchCommand || '';
         card.dataset.isAnimated = item.isAnimated ? 'true' : 'false';
         if (item.disableGamepadControl != null) {
             card.dataset.disableGamepadControl = item.disableGamepadControl ? 'true' : 'false';
@@ -511,6 +514,9 @@ const CardRenderer = (() => {
         card.dataset.staticHero = item.staticHero || '';
         card.dataset.staticLogo = item.staticLogo || '';
         card.dataset.iconBase64 = item.iconBase64 || '';
+        card.dataset.path = item.path || '';
+        card.dataset.launchUrl = item.launchUrl || '';
+        card.dataset.launchCommand = item.launchCommand || '';
 
         if (item.channel === 'games') {
             card.dataset.gameId = item.id;
@@ -604,15 +610,26 @@ const CardRenderer = (() => {
             const hasConflict = window._handleSessionConflictFromLaunch?.(item, launchId) === true;
             if (hasConflict) return;
 
-            window.AppStore.mutations.trackOpened(item.id);
-
             if (item.channel === 'games') {
-                window.suspendDoorpiGameInput?.();
-                postToHost({ action: 'launch', path: launchId, errorMsg: typeof t === 'function' ? t('msgErrorLaunch') : 'Erro ao iniciar' });
+                const launch = (discPath = '') => {
+                    window.AppStore.mutations.trackOpened(item.id);
+                    window.suspendDoorpiGameInput?.();
+                    postToHost({
+                        action: 'launch',
+                        path: launchId,
+                        discPath,
+                        errorMsg: typeof t === 'function' ? t('msgErrorLaunch') : 'Erro ao iniciar'
+                    });
+                };
+                if (Array.isArray(item.emulatorDiscPaths) && item.emulatorDiscPaths.length > 1 &&
+                    window.openEmulatorDiscSelector?.(item, launch)) return;
+                launch();
             } else if (item.channel === 'stores') {
+                window.AppStore.mutations.trackOpened(item.id);
                 window.isStoreSessionActive = true;
                 postToHost({ action: 'openStore', storeId: item.id || launchId });
             } else {
+                window.AppStore.mutations.trackOpened(item.id);
                 window.isMediaAppActive = true;
                 window._rememberLaunchedWebAppForConflict?.(item, launchId);
                 postToHost({

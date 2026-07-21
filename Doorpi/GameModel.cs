@@ -11,6 +11,11 @@ namespace Doorpi
         public string Name { get; set; } = "";
         public string Path { get; set; } = "";
         public string LaunchUrl { get; set; } = "";
+        public string LaunchCommand { get; set; } = "";
+        public string EmulatorId { get; set; } = "";
+        public string RomPath { get; set; } = "";
+        public List<string> EmulatorDiscPaths { get; set; } = new();
+        public string EmulatorDetectedName { get; set; } = "";
 
         public DateTime DateAdded { get; set; } = DateTime.Now;
         public string GridImage { get; set; } = "";

@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Doorpi</title>
-    <link rel="stylesheet" href="style.css?v=20260717m">
+    <link rel="stylesheet" href="style.css?v=20260721f">
+    <link rel="stylesheet" href="file-browser.css?v=20260721l">
 
    
 </head>
@@ -168,6 +169,18 @@
                                 <span data-i18n="tabStores">Lojas</span>
                             </button>
 
+                            <button class="menu-tab" tabindex="0" onclick="switchTab('emulators')">
+                                <span class="tab-icon">
+                                    <svg viewBox="0 0 24 24" fill="none">
+                                        <rect x="3" y="5" width="18" height="14" rx="3" stroke="currentColor" stroke-width="1.5" />
+                                        <path d="M7 12h4M9 10v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+                                        <circle cx="16" cy="10.5" r="0.9" fill="currentColor" />
+                                        <circle cx="18" cy="13" r="0.9" fill="currentColor" />
+                                    </svg>
+                                </span>
+                                <span data-i18n="tabEmulators">Emuladores</span>
+                            </button>
+
                         </div>
 
                         <button class="menu-tab" tabindex="0" onclick="switchTab('folders')">
@@ -290,6 +303,18 @@
                         </div>
                     </div>
 
+                    <!-- View: Emuladores -->
+                    <div id="view-emulators" class="view-section hidden">
+                        <div class="view-header">
+                            <h2 data-i18n="emulatorsTitle">Emuladores</h2>
+                            <p class="subtitle" data-i18n="emulatorsSubtitle">Configure um emulador e adicione suas ROMs diretamente à biblioteca.</p>
+                        </div>
+                        <div class="applist-wrapper emulator-view-wrapper">
+                            <div id="emulatorViewContent"></div>
+                        </div>
+                        <div class="action-bar" id="emulatorActions"></div>
+                    </div>
+
                     <!-- View: Gerenciar Pastas -->
                     <div id="view-folders" class="view-section hidden">
                         <div class="view-header">
@@ -357,20 +382,22 @@
     <div id="setupContainer"></div>
 
     <!-- Scripts de lógica da UI e Navegação -->
-    <script src="strings.js?v=20260718f"></script>
-    <script src="store.js"></script>
-    <script src="renderer.js?v=20260619b"></script>
+    <script src="strings.js?v=20260721d"></script>
+    <script src="store.js?v=20260721b"></script>
+    <script src="renderer.js?v=20260721b"></script>
     <script src="grid-controller.js"></script>
-    <script src="navigation.js?v=20260718c"></script>
-    <script src="app.js?v=20260718c"></script>
+    <script src="file-browser.js?v=20260721o"></script>
+    <script src="navigation.js?v=20260721j"></script>
+    <script src="app.js?v=20260721j"></script>
     <script src="bluetooth-ui.js?v=20260619c"></script>
     <script src="wifi-ui.js?v=20260619a"></script>
     <script src="sound-ui.js?v=20260627a"></script>
     <script src="media.js"></script>
     <script src="stores.js"></script>
+    <script src="emulators.js?v=20260721k"></script>
     <script src="profile-photo-picker.js?v=20260714k"></script>
     <script src="profile-sync-ui.js?v=20260718b"></script>
-    <script src="nav-menu.js?v=20260718a"></script>
+    <script src="nav-menu.js?v=20260721a"></script>
     <script src="setup.js?v=20260718i"></script>
 </body>
 </html>

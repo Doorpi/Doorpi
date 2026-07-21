@@ -120,6 +120,7 @@ namespace Doorpi
         private Border? _genericBrowserWidgetsPanel;
         private Popup? _genericBrowserWidgetsPopup;
         private WebView2? _genericBrowserExtensionPopupView;
+        private Button? _genericBrowserDownloadsButton;
         private CoreWebView2Environment? _genericBrowserEnvironment;
         private bool _genericBrowserExtensionOutsideCloseHooked;
         private DateTime _genericBrowserIgnoreOutsideClickUntilUtc = DateTime.MinValue;
@@ -856,6 +857,7 @@ namespace Doorpi
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             Button MakeButton(object content, string tooltip, double minWidth = 44)
             {
@@ -966,12 +968,20 @@ namespace Doorpi
             Grid.SetColumn(addressHost, 4);
             row.Children.Add(addressHost);
 
+            _genericBrowserDownloadsButton = MakeButton(
+                CreateGenericBrowserDownloadsButtonContent(),
+                "Downloads",
+                46);
+            _genericBrowserDownloadsButton.Click += (_, _) => ToggleGenericBrowserDownloadsPanel();
+            Grid.SetColumn(_genericBrowserDownloadsButton, 5);
+            row.Children.Add(_genericBrowserDownloadsButton);
+
             var widgetsButton = MakeButton(
                 CreateExtensionPuzzleIcon(25),
                 "Ver extensoes instaladas",
                 46);
             widgetsButton.Click += (_, _) => ToggleGenericBrowserWidgetsPanel();
-            Grid.SetColumn(widgetsButton, 5);
+            Grid.SetColumn(widgetsButton, 6);
             row.Children.Add(widgetsButton);
 
             var copyButton = MakeButton(CreateBrowserIcon("M9 9 H20 V20 H9 Z M4 4 H15 V15 H4 Z"), "Copiar link", 42);
@@ -991,7 +1001,7 @@ namespace Doorpi
                 }
                 catch { }
             };
-            Grid.SetColumn(copyButton, 6);
+            Grid.SetColumn(copyButton, 7);
             row.Children.Add(copyButton);
 
             toolbar.Child = row;
@@ -1048,6 +1058,7 @@ namespace Doorpi
                 return;
             }
 
+            CloseGenericBrowserDownloadsPopup();
             RenderGenericBrowserExtensionList();
             _ = RefreshGenericBrowserExtensionUpdatesForPopupAsync();
             SuppressGenericBrowserOutsideCloseBriefly();
@@ -2130,21 +2141,6 @@ namespace Doorpi
                 _genericBrowserForwardButton.IsEnabled = _ytWebView.CoreWebView2.CanGoForward;
         }
 
-        private void OnGenericBrowserDownloadStarting(object? sender, CoreWebView2DownloadStartingEventArgs e)
-        {
-            try
-            {
-                string suggestedName = Path.GetFileName(e.ResultFilePath);
-                string targetPath = AvailableDownloadPath(UserDownloadsFolder, suggestedName);
-                e.ResultFilePath = targetPath;
-                e.Handled = false;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine("[DoorpiBrowser] Falha ao preparar download: " + ex.Message);
-            }
-        }
-
         private static bool IsCapturableWebUrl(string value)
         {
             if (string.IsNullOrWhiteSpace(value)) return false;
@@ -2236,6 +2232,7 @@ namespace Doorpi
             }
 
             CloseGenericBrowserExtensionsPopup();
+            CloseGenericBrowserDownloadsPopup();
             if (_genericBrowserKeyboardTarget != GenericBrowserKeyboardTarget.None)
                 CloseGenericBrowserKeyboard(_genericBrowserKeyboardTarget == GenericBrowserKeyboardTarget.WebInput);
 
@@ -7057,6 +7054,7 @@ namespace Doorpi
             var ytWebView = _ytWebView;
             if (_ytClosing || ytWebView == null) return;
             _ytClosing = true;
+            bool shouldRefreshWatchedFoldersAfterClose = _isGenericBrowserMode;
             Application.Current.Deactivated -= OnApplicationDeactivated;
             bool shouldFinalizeStoreFromThisWebClose =
                 !skipStoreCompletion &&
@@ -7133,6 +7131,7 @@ namespace Doorpi
                 RestoreDoorpiAfterWebAppWindowClosed();
 
             CloseGenericBrowserExtensionsPopup();
+            CloseGenericBrowserDownloadsPopup();
             if (_webAppTutorialPlacementTarget != null)
                 _webAppTutorialPlacementTarget.SizeChanged -= OnWebAppTutorialPlacementTargetSizeChanged;
             if (webAppWindow != null)
@@ -7172,6 +7171,10 @@ namespace Doorpi
             _genericBrowserAddressPlaceholder = null;
             _genericBrowserBackButton = null;
             _genericBrowserForwardButton = null;
+            _genericBrowserDownloadsButton = null;
+            _genericBrowserDownloadsPopup = null;
+            _genericBrowserDownloadsPanel = null;
+            _genericBrowserDownloadsBadge = null;
             _genericBrowserWidgetsPanel = null;
             _genericBrowserWidgetsPopup = null;
             _webAppLoadingOverlay = null;
@@ -7220,6 +7223,9 @@ namespace Doorpi
             // Só fecha sessão de loja quando a própria loja está rodando em modo web.
             if (shouldFinalizeStoreFromThisWebClose)
                 FinalizeStoreSessionFromWebClose();
+
+            if (shouldRefreshWatchedFoldersAfterClose)
+                ScheduleWatchedFolderRefresh("fechamento do navegador");
 
             _ = PrewarmMediaWebViewEnvironmentsAsync(delayMilliseconds: 2200);
         }

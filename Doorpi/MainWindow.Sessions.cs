@@ -58,6 +58,9 @@ namespace Doorpi
             public int ShortcutThreadSessionId;
             public string ProcessGroupRootDirectory = "";
             public string ProcessGroupExeName = "";
+            public string ExecutablePath = "";
+            public bool CloseProcessOnReturn;
+            public bool AllowControllerInput = true;
             public int SessionId;
 
             public int ProcessGroupCount

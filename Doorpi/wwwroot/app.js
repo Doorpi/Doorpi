@@ -2657,6 +2657,10 @@
             type: 'svg',
             icon: `<svg viewBox="0 0 88 88" fill="#0078d4" xmlns="http://www.w3.org/2000/svg"><path d="M0 12.4 35.7 7.6V42H0zm40.3-5.5L88 0v42H40.3zM0 46h35.7v34.4L0 75.6zm40.3.1H88V88L40.3 81.4z"/></svg>`
         },
+        Emulador: {
+            type: 'svg',
+            icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#8da2ff" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg"><path d="M7.5 8h9a4.5 4.5 0 0 1 4.2 2.9l1.1 3a3.1 3.1 0 0 1-5 3.4l-1.5-1.4H8.7l-1.5 1.4a3.1 3.1 0 0 1-5-3.4l1.1-3A4.5 4.5 0 0 1 7.5 8Z"/><path d="M7 11v4M5 13h4M16.5 12.5h.01M19 14.5h.01"/></svg>`
+        },
     };
 
     const FILTER_SOURCES = {
@@ -2667,6 +2671,7 @@
         Riot: ['Riot'],
         Xbox: ['Xbox'],
         Windows: ['Windows', 'Folder'],
+        Emulador: ['Emulador'],
     };
 
     const SCAN_LIBS = ['Steam', 'Epic', 'GOG', 'Riot', 'Xbox', 'Windows', 'Folder'];
@@ -4160,16 +4165,36 @@
         const makeSvg = (svg) => "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
         const safeIcon = String(iconBase64 || '').replace(/"/g, '&quot;').trim();
         const hasIcon = !!safeIcon;
+        const escapeSvgText = value => String(value || 'App').replace(/[&<>"']/g, char => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;'
+        }[char]));
+        const fitFallbackName = (value, maxWidth, fontSize) => {
+            const raw = String(value || 'App').trim() || 'App';
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            if (!context) return raw;
+            context.font = `600 ${fontSize}px Arial, sans-serif`;
+            if (context.measureText(raw).width <= maxWidth) return raw;
+            let low = 0;
+            let high = raw.length;
+            while (low < high) {
+                const middle = Math.ceil((low + high) / 2);
+                if (context.measureText(`${raw.slice(0, middle).trimEnd()}…`).width <= maxWidth) low = middle;
+                else high = middle - 1;
+            }
+            return `${raw.slice(0, Math.max(1, low)).trimEnd()}…`;
+        };
         const genericIcon = `<g fill="none" stroke="#eef4ff" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
             <rect x="150" y="210" width="300" height="300" rx="72"/>
             <path d="M210 330h180M300 270v180"/>
             <path d="M210 600h180M300 540v120"/>
         </g>`;
-        const iconSvg = (w, h, mainSize, blurSize) => {
+        const iconSvg = (w, h, mainSize, blurSize, fontSize, textY, horizontalPadding) => {
             const xMain = (w - mainSize) / 2;
             const yMain = (h - mainSize) / 2;
             const xBlur = (w - blurSize) / 2;
             const yBlur = (h - blurSize) / 2;
+            const fittedName = escapeSvgText(fitFallbackName(name, w - (horizontalPadding * 2), fontSize));
             return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}">
                 <defs>
                     <filter id="doorpiIconBlur"><feGaussianBlur stdDeviation="${Math.round(Math.min(w, h) * 0.08)}"/></filter>
@@ -4182,13 +4207,15 @@
                 <image href="data:image/png;base64,${safeIcon}" x="${xBlur}" y="${yBlur}" width="${blurSize}" height="${blurSize}" preserveAspectRatio="xMidYMid meet" opacity="0.7" filter="url(#doorpiIconBlur)"/>
                 <rect width="${w}" height="${h}" fill="#03040c" opacity="0.35"/>
                 <image href="data:image/png;base64,${safeIcon}" x="${xMain}" y="${yMain}" width="${mainSize}" height="${mainSize}" preserveAspectRatio="xMidYMid meet"/>
+                <text x="${w / 2}" y="${textY}" text-anchor="middle" fill="#eef4ff" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="600">${fittedName}</text>
             </svg>`;
         };
-        const genericSvg = (w, h, scale = 1) => {
+        const genericSvg = (w, h, scale, fontSize, textY, horizontalPadding) => {
             const iconW = 600 * scale;
             const iconH = 900 * scale;
             const tx = (w - iconW) / 2;
             const ty = (h - iconH) / 2;
+            const fittedName = escapeSvgText(fitFallbackName(name, w - (horizontalPadding * 2), fontSize));
             return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}">
                 <defs>
                     <radialGradient id="doorpiGenericShade" cx="50%" cy="35%" r="78%">
@@ -4201,16 +4228,17 @@
                 <rect width="${w}" height="${h}" fill="url(#doorpiGenericShade)"/>
                 <g transform="translate(${tx} ${ty}) scale(${scale})" opacity="0.16" filter="url(#doorpiGenericGlow)">${genericIcon}</g>
                 <g transform="translate(${tx} ${ty}) scale(${scale})" opacity="0.78">${genericIcon}</g>
+                <text x="${w / 2}" y="${textY}" text-anchor="middle" fill="#eef4ff" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="600">${fittedName}</text>
             </svg>`;
         };
 
         if (type === 'grid') {
-            if (hasIcon) return makeSvg(iconSvg(600, 900, 190, 760));
-            return makeSvg(genericSvg(600, 900, 1));
+            if (hasIcon) return makeSvg(iconSvg(600, 900, 190, 760, 34, 820, 42));
+            return makeSvg(genericSvg(600, 900, 0.82, 34, 820, 42));
 
         } else if (type === 'horizontal') {
-            if (hasIcon) return makeSvg(iconSvg(920, 430, 150, 560));
-            return makeSvg(genericSvg(920, 430, 0.42));
+            if (hasIcon) return makeSvg(iconSvg(920, 430, 150, 560, 28, 376, 46));
+            return makeSvg(genericSvg(920, 430, 0.38, 28, 376, 46));
 
         } else if (type === 'logo') {
             if (hasIcon) return makeSvg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 150"><image href="data:image/png;base64,${safeIcon}" x="0" y="18" width="112" height="112" preserveAspectRatio="xMidYMid meet"/></svg>`);
@@ -4285,7 +4313,10 @@
             // ─────────────────────────────────────────────────────────────────────
 
             // 1. Quando o C# envia um ÚNICO jogo novo
-            if (data.type === 'newGame') {
+            if (data.type === 'editLaunchCommandSelected') {
+                window._editLaunchCommandBrowseResult?.(data.path || '');
+            }
+            else if (data.type === 'newGame') {
                 const channel = (data.isMedia || data.tab === 'media' || data.appUrl !== undefined || data.appType !== undefined) ? 'media' : 'games';
                 _enqueueNewGameForLibrary(channel, data);
             }
@@ -4423,6 +4454,7 @@
             }
             else if (data.type === 'openQuickPanel') {
                 if (window.isDoorpiUpdatePromptOpen?.()) return;
+                if (window.isDoorpiFileBrowserOpen?.()) return;
                 window.DoorpiQuickPanel?.toggle?.();
             }
             else if (data.type === 'displaySettings') {
@@ -5118,6 +5150,7 @@
 
             window._mediaHandleMessage?.(data);
             window._storesHandleMessage?.(data);
+            window._emulatorsHandleMessage?.(data);
 
             if ((data.type === 'libraryRevalidated' || data.type === 'newGamesDetected') && Array.isArray(data.games)) {
                 const autoAddedGames = data.games.filter(g => g.autoAdded);
@@ -5302,6 +5335,11 @@
             transform: scale(.985);
             pointer-events: none;
             transition: opacity .18s ease, transform .22s ease, visibility 0s linear .22s !important;
+        }
+        body.doorpi-session-transition .doorpi-user-overlay.doorpi-switching-out .doorpi-user-panel {
+            opacity: 0 !important;
+            visibility: hidden !important;
+            transition: none !important;
         }
         body.doorpi-intro-handoff-active .doorpi-user-overlay,
         body.doorpi-intro-handoff-active .doorpi-user-overlay * {
@@ -5697,8 +5735,11 @@
         return `<div class="doorpi-avatar">${user.PhotoBase64 ? `<img src="${_normalizeUserPhotoSrc(user.PhotoBase64)}" />` : `<svg viewBox="0 0 24 24" width="40" height="40" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`}</div>`;
     }
 
-    function closeUserPinPrompt() {
-        window._vkbForceClose?.();
+    function closeUserPinPrompt(options = {}) {
+        window._vkbForceClose?.({
+            restoreFocus: options.restoreFocus !== false,
+            immediate: options.immediate === true
+        });
         const prompt = document.getElementById('doorpiUserPinPrompt');
         prompt?._doorpiCleanup?.();
         prompt?.remove();
@@ -5957,6 +5998,7 @@
 
         input._doorpiPinCallbacks = {
             mode: 'numeric',
+            allowProgrammatic: true,
             onOk: () => prompt.dataset.mode === 'recoveryPin' ? submitRecoveryPin() : submit(),
             onCancel: cancel
         };
@@ -6012,6 +6054,40 @@
         document.addEventListener('click', recoveryVkbEnterHandler, true);
         const previousVkbEnterConfirm = window._doorpiVkbShouldConfirmEnter;
         const previousVkbConfirmOverride = window._doorpiVkbConfirmOverride;
+        const physicalPinKeyHandler = (event) => {
+            if (!prompt.isConnected ||
+                (prompt.dataset.mode !== 'pin' && prompt.dataset.mode !== 'recoveryPin') ||
+                prompt.dataset.submitting === 'true' ||
+                event.ctrlKey || event.altKey || event.metaKey)
+                return;
+
+            if (/^[0-9]$/.test(event.key)) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                const digits = pinDigits();
+                if (digits.length >= 4) return;
+                input.value = digits + event.key;
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                return;
+            }
+
+            if (event.key === 'Backspace' || event.key === 'Delete') {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                const digits = pinDigits();
+                input.value = digits.slice(0, -1);
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                return;
+            }
+
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                if (prompt.dataset.mode === 'recoveryPin') submitRecoveryPin();
+                else submit();
+            }
+        };
+        document.addEventListener('keydown', physicalPinKeyHandler, true);
         window._doorpiVkbShouldConfirmEnter = () => prompt.isConnected && prompt.dataset.mode === 'recoveryName';
         window._doorpiVkbConfirmOverride = () => {
             if (!prompt.isConnected || prompt.dataset.mode !== 'recoveryName') return false;
@@ -6020,6 +6096,7 @@
         };
         prompt._doorpiCleanup = () => {
             document.removeEventListener('click', recoveryVkbEnterHandler, true);
+            document.removeEventListener('keydown', physicalPinKeyHandler, true);
             window._doorpiVkbShouldConfirmEnter = previousVkbEnterConfirm;
             window._doorpiVkbConfirmOverride = previousVkbConfirmOverride;
         };
@@ -6648,7 +6725,8 @@ function showUserPicker(users, requireSelection = false) {
         }
 
         function canOpen() {
-            return window.isDoorpiStableHomeState?.() === true;
+            return window.isDoorpiStableHomeState?.() === true &&
+                window.isDoorpiFileBrowserOpen?.() !== true;
         }
 
         function ensure() {
@@ -6753,6 +6831,7 @@ function showUserPicker(users, requireSelection = false) {
                 updates: '<path d="M21 12a9 9 0 0 1-15.5 6.2"/><path d="M3 12A9 9 0 0 1 18.5 5.8"/><path d="M18.5 2.8v3h-3"/><path d="M5.5 21.2v-3h3"/>',
                 connectivity: '<path d="M12 2v20l6-6-6-4 6-4-6-6Z"/><path d="M6.5 6.5 12 12l-5.5 5.5"/>',
                 sound: '<path d="M4 9v6h4l5 4V5L8 9H4Z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/>',
+                files: '<path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/><path d="M3 11h18"/>',
                 users: '<path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.85"/><path d="M16 3.15a4 4 0 0 1 0 7.7"/>',
                 power: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>',
                 settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.72l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/>',
@@ -6775,6 +6854,7 @@ function showUserPicker(users, requireSelection = false) {
                 ['updates', t('updatesTitle'), updateDot],
                 ['sound', t('soundTitle'), ''],
                 ['connectivity', t('navSetConnectivity'), ''],
+                ['files', t('fileExplorerTitle'), ''],
                 ['settings', t('navSettings'), '']
             ];
             return `
@@ -7154,6 +7234,11 @@ function showUserPicker(users, requireSelection = false) {
                 window._doorpiUserPickerReturnToQuickPanel = true;
                 close();
                 postToHost?.({ action: 'requestUsers' });
+                return;
+            }
+            if (section === 'files') {
+                close();
+                postToHost?.({ action: 'openDoorpiFileExplorer' });
                 return;
             }
             if (section === 'settings') {
@@ -7658,6 +7743,91 @@ function showUserPicker(users, requireSelection = false) {
     window.openExtensionsManager = openExtensionsManager;
     window.openCreateUserDialog = openCreateUserDialog;
 
+    let _emulatorDiscSelection = null;
+
+    function _escapeDiscSelectorText(value) {
+        return String(value ?? '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#39;');
+    }
+
+    window.closeEmulatorDiscSelector = function (restoreFocus = true) {
+        const overlay = document.getElementById('emulatorDiscSelector');
+        const previousFocus = _emulatorDiscSelection?.previousFocus;
+        overlay?.remove();
+        _emulatorDiscSelection = null;
+        if (restoreFocus && previousFocus?.isConnected) {
+            requestAnimationFrame(() => previousFocus.focus({ preventScroll: true }));
+        }
+    };
+
+    window.isEmulatorDiscSelectorOpen = function () {
+        return document.getElementById('emulatorDiscSelector') != null;
+    };
+
+    window.openEmulatorDiscSelector = function (item, onSelect) {
+        const discPaths = Array.isArray(item?.emulatorDiscPaths)
+            ? item.emulatorDiscPaths.filter(Boolean)
+            : [];
+        if (discPaths.length < 2) return false;
+
+        window.closeEmulatorDiscSelector(false);
+        const previousFocus = document.activeElement;
+        const overlay = document.createElement('div');
+        overlay.id = 'emulatorDiscSelector';
+        overlay.className = 'doorpi-manager-overlay';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:10050;display:flex;align-items:center;justify-content:center;background:rgba(5,7,17,.82);backdrop-filter:blur(14px);padding:36px;';
+        const artwork = item.staticVertical || item.vertical || '';
+        overlay.innerHTML = `
+            <section role="dialog" aria-modal="true" aria-labelledby="emulatorDiscSelectorTitle" style="width:min(760px,92vw);max-height:min(760px,88vh);display:grid;grid-template-columns:${artwork ? '190px minmax(0,1fr)' : 'minmax(0,1fr)'};gap:28px;padding:28px;border:1px solid rgba(255,255,255,.18);border-radius:18px;background:linear-gradient(145deg,rgba(34,39,59,.98),rgba(15,19,34,.98));box-shadow:0 28px 80px rgba(0,0,0,.5);color:#fff;">
+                ${artwork ? `<img src="${_escapeDiscSelectorText(artwork)}" alt="" style="width:190px;aspect-ratio:2/3;object-fit:cover;border-radius:12px;background:rgba(255,255,255,.06);">` : ''}
+                <div style="min-width:0;display:flex;flex-direction:column;">
+                    <div style="font-size:14px;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.6);">Selecione o disco</div>
+                    <h2 id="emulatorDiscSelectorTitle" style="margin:7px 0 6px;font-size:28px;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_escapeDiscSelectorText(item.name || 'Jogo')}</h2>
+                    <p style="margin:0 0 20px;color:rgba(255,255,255,.66);">Qual disco deseja iniciar?</p>
+                    <div style="display:flex;flex-direction:column;gap:10px;overflow-y:auto;padding:3px;">
+                        ${discPaths.map((path, index) => {
+                            const fileName = String(path).split(/[\\/]/).pop() || path;
+                            return `<button type="button" class="emulator-disc-option" data-disc-index="${index}" tabindex="0" style="display:flex;align-items:center;gap:16px;width:100%;padding:14px 16px;border:1px solid rgba(255,255,255,.18);border-radius:10px;background:rgba(255,255,255,.055);color:#fff;text-align:left;cursor:pointer;">
+                                <strong style="flex:0 0 auto;font-size:16px;">Disco ${index + 1}</strong>
+                                <span title="${_escapeDiscSelectorText(fileName)}" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:rgba(255,255,255,.58);font-size:13px;">${_escapeDiscSelectorText(fileName)}</span>
+                            </button>`;
+                        }).join('')}
+                    </div>
+                    <button type="button" id="emulatorDiscSelectorCancel" tabindex="0" data-gamepad-hint="cancel" style="align-self:flex-end;margin-top:20px;padding:10px 18px;border:0;border-bottom:2px solid rgba(255,255,255,.3);background:transparent;color:#fff;font-weight:700;cursor:pointer;">Voltar</button>
+                </div>
+            </section>`;
+
+        document.body.appendChild(overlay);
+        _emulatorDiscSelection = { previousFocus, onSelect, discPaths };
+        overlay.querySelectorAll('.emulator-disc-option').forEach(button => {
+            button.addEventListener('click', () => {
+                const index = Number(button.dataset.discIndex || 0);
+                const selectedPath = discPaths[index];
+                const callback = _emulatorDiscSelection?.onSelect;
+                window.closeEmulatorDiscSelector(false);
+                callback?.(selectedPath);
+            });
+        });
+        overlay.querySelector('#emulatorDiscSelectorCancel')?.addEventListener('click', () => window.closeEmulatorDiscSelector(true));
+        overlay.addEventListener('keydown', event => {
+            if (event.key !== 'Escape' && event.key !== 'Backspace' && event.key !== 'BrowserBack') return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            window.closeEmulatorDiscSelector(true);
+            window.DoorpiUiSound?.play('back');
+        });
+        overlay.addEventListener('pointerdown', event => {
+            if (event.target === overlay) window.closeEmulatorDiscSelector(true);
+        });
+        requestAnimationFrame(() => overlay.querySelector('.emulator-disc-option')?.focus());
+        window.refreshDoorpiGamepadHints?.();
+        return true;
+    };
+
     window.isDoorpiOverlayOpen = function () {
         return Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay, .doorpi-pin-panel, .doorpi-update-prompt.is-visible, .profile-sync-overlay'))
             .some(el => el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
@@ -7709,6 +7879,10 @@ function showUserPicker(users, requireSelection = false) {
         const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay, .doorpi-pin-panel, .profile-sync-overlay'))
             .filter(el => el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
         const top = overlays.at(-1);
+        if (top?.id === 'emulatorDiscSelector') {
+            window.closeEmulatorDiscSelector(true);
+            return;
+        }
         if (!force && top?.dataset.required === 'true') return;
         if (top) {
             if (top.classList.contains('profile-sync-overlay')) {
@@ -7839,8 +8013,8 @@ function showUserPicker(users, requireSelection = false) {
         if (isFeatured && key === 'staticHero') switchHeroBackground(newUrl, card.dataset.staticLogo || card.dataset.logo);
     }
 
-    const _TAB_MAP = { 'apps': 0, 'media-apps': 1, 'stores': 2, 'folders': 3 };
-    const _VIEW_MAP = { 'apps': 'view-apps', 'media-apps': 'view-media-apps', 'stores': 'view-stores', 'folders': 'view-folders' };
+    const _TAB_MAP = { 'apps': 0, 'media-apps': 1, 'stores': 2, 'emulators': 3, 'folders': 4 };
+    const _VIEW_MAP = { 'apps': 'view-apps', 'media-apps': 'view-media-apps', 'stores': 'view-stores', 'emulators': 'view-emulators', 'folders': 'view-folders' };
     let _pendingAddModalContentFocus = '';
     let _addModalUserInteracted = false;
 
@@ -7879,6 +8053,8 @@ function showUserPicker(users, requireSelection = false) {
         } else if (tabId === 'stores' && activeView === 'view-stores') {
             target = document.querySelector('#storeInstallList .store-install-card:not(.installed):not([aria-disabled="true"])')
                 || document.querySelector('#view-stores .action-buttons button');
+        } else if (tabId === 'emulators' && activeView === 'view-emulators') {
+            target = document.querySelector('#view-emulators .emulator-nav:not(:disabled)');
         } else if (tabId === 'folders' && activeView === 'view-folders') {
             target = document.querySelector('#folderList .icon-btn')
                 || document.getElementById('btnScanFolder')
@@ -7893,7 +8069,7 @@ function showUserPicker(users, requireSelection = false) {
     }
 
     function resetAddModalScrollPosition() {
-        ['appList', 'appListMedia', 'storeInstallList', 'folderList'].forEach(id => {
+        ['appList', 'appListMedia', 'storeInstallList', 'folderList', 'emulatorViewContent'].forEach(id => {
             const el = document.getElementById(id);
             if (!el) return;
             el.scrollTop = 0;
@@ -7956,6 +8132,11 @@ function showUserPicker(users, requireSelection = false) {
             }
             renderStoreInstallList();
             postToHost({ action: 'requestStores' });
+        }
+        else if (tabId === 'emulators') {
+            if (modalActions) modalActions.style.display = 'none';
+            if (mediaAppActions) mediaAppActions.style.display = 'none';
+            window.openEmulatorsView?.();
         }
         queueAddModalContentFocus(tabId);
     }
@@ -8238,6 +8419,9 @@ document.getElementById('btnAddStore')?.addEventListener('click', () => openAddM
     }
 
     function _modalAppKey(app) {
+        const emulatorId = app?.EmulatorId || app?.emulatorId || '';
+        const romPath = app?.RomPath || app?.romPath || app?.Path || app?.path || '';
+        if (emulatorId && romPath) return `emulator:${emulatorId}:${romPath}`.trim().toLowerCase();
         const launch = app?.LaunchUrl || app?.launchUrl || '';
         const path = app?.Path || app?.path || '';
         const name = app?.Name || app?.name || '';
@@ -8291,6 +8475,11 @@ document.getElementById('btnAddStore')?.addEventListener('click', () => openAddM
         item.dataset.name = name;
         item.dataset.source = source || '';
         item.dataset.iconBase64 = icon || '';
+        item.dataset.emulatorId = app.EmulatorId || app.emulatorId || '';
+        item.dataset.romPath = app.RomPath || app.romPath || '';
+        item.dataset.launchCommand = app.LaunchCommand || app.launchCommand || '';
+        item.dataset.emulatorDetectedName = app.EmulatorDetectedName || app.emulatorDetectedName || '';
+        item.dataset.emulatorDiscPaths = JSON.stringify(app.EmulatorDiscPaths || app.emulatorDiscPaths || []);
 
         item.innerHTML = `
             ${icon ? `<img class="app-icon" src="data:image/png;base64,${icon}" />` : ''}
@@ -8326,6 +8515,7 @@ document.getElementById('btnAddStore')?.addEventListener('click', () => openAddM
             app?.IsAdded === true || app?.isAdded === true ? '1' : '0',
             app?.AddedTo || app?.addedTo || '',
             app?.AddState || app?.addState || '',
+            (app?.EmulatorDiscPaths || app?.emulatorDiscPaths || []).join('|'),
             app?.IsAdminLocked === true || app?.isAdminLocked === true ? '1' : '0',
             app?.AdminLockReason || app?.adminLockReason || ''
         ].join('\u001f');
@@ -8579,9 +8769,15 @@ document.getElementById('btnAddStore')?.addEventListener('click', () => openAddM
             }
 
             // Lógica normal se estivermos na aba de JOGOS (view-apps)
-            const selected = Array.from(appList.querySelectorAll('.app-item.selected')).map(el => ({
-                Name: el.dataset.name, Path: el.dataset.path, LaunchUrl: el.dataset.launch, Source: el.dataset.source || '', IconBase64: el.dataset.iconBase64 || '',
-            }));
+            const selected = Array.from(appList.querySelectorAll('.app-item.selected')).map(el => {
+                let emulatorDiscPaths = [];
+                try { emulatorDiscPaths = JSON.parse(el.dataset.emulatorDiscPaths || '[]'); } catch { }
+                return {
+                    Name: el.dataset.name, Path: el.dataset.path, LaunchUrl: el.dataset.launch, Source: el.dataset.source || '', IconBase64: el.dataset.iconBase64 || '',
+                    EmulatorId: el.dataset.emulatorId || '', RomPath: el.dataset.romPath || '', LaunchCommand: el.dataset.launchCommand || '', EmulatorDetectedName: el.dataset.emulatorDetectedName || '',
+                    EmulatorDiscPaths: emulatorDiscPaths
+                };
+            });
 
             if (selected.length > 0) {
                 selected.forEach(g => newGameIdsThisSession.add(g.LaunchUrl || g.Path));
@@ -9524,6 +9720,9 @@ function renderFolderList(folders) {
             border-color: rgba(100,160,255,0.6);
             box-shadow: 0 0 0 3px rgba(100,160,255,0.12);
         }
+        .edit-command-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: stretch; }
+        .edit-command-row .edit-modal-input { min-width: 0; font-family: 'Cascadia Mono', 'Consolas', monospace; font-size: 13px; }
+        .edit-command-browse { min-width: 104px; padding-inline: 16px; }
         .edit-modal-input-hint {
             font-size: 10px; color: rgba(255,255,255,0.22);
             display: flex; align-items: center; gap: 4px;
@@ -10444,6 +10643,11 @@ function renderFolderList(folders) {
                 close();
                 return;
             }
+            if (options.clientOnly === true) {
+                options.onApplied?.(images);
+                close();
+                return;
+            }
             postToHost({
                 action: options.applyAction || 'applyArtworkSelection',
                 requestId,
@@ -10660,6 +10864,7 @@ function renderFolderList(folders) {
     }
 
     window._artworkWizardHandleResults = data => _artworkWizard?.renderResults?.(data.category, data.images || []);
+    window.openDoorpiArtworkWizard = openArtworkWizard;
     window._artworkWizardHandlePicked = data => _artworkWizard?.pickLocal?.(data.category, data.path, data.preview);
     window._artworkWizardHandleApplied = data => _artworkWizard?.applied?.(data.images || {});
     window._artworkWizardIsOpen = () => !!_artworkWizard?.overlay;
@@ -10792,11 +10997,27 @@ function renderFolderList(folders) {
 
 
         const appType = card.dataset.appType || 'browser';
+        const normalizedAppType = appType.toLowerCase();
         const canManageBrowser = isMediaCard && appType !== 'browser' ? false : (isMediaCard && appType !== 'exe');
-        const canManageSharing = isMediaCard && ['browser', 'webview'].includes(appType.toLowerCase());
+        const canManageSharing = isMediaCard && ['browser', 'webview'].includes(normalizedAppType);
         const isSharedFromOther = card.dataset.sharedFromOther === 'true';
 
-        const isExeApp = isMediaCard && appType === 'exe';
+        const isExeApp = isMediaCard && normalizedAppType === 'exe';
+        const isWebApp = isMediaCard && ['browser', 'webview'].includes(normalizedAppType);
+        const libraryChannel = isMediaCard ? 'media' : 'games';
+        const libraryItemId = isMediaCard ? (card.dataset.appId || gameId || '') : (card.dataset.id || gameId || '');
+        const libraryItem = !isStoreCard
+            ? window.AppStore?.queries?.getItem?.(libraryChannel, libraryItemId)
+            : null;
+        const canEditLaunchCommand = !isStoreCard && (!isMediaCard || isExeApp);
+        const canEditWebUrl = isWebApp && !isSharedFromOther;
+        const canEditLaunchTarget = canEditLaunchCommand || canEditWebUrl;
+        const defaultLaunchTarget = isMediaCard
+            ? (libraryItem?.url || card.dataset.appUrl || '')
+            : (libraryItem?.launchUrl || card.dataset.launchUrl || libraryItem?.path || card.dataset.path || gameId || '');
+        const currentLaunchTarget = canEditLaunchTarget
+            ? (canEditWebUrl ? defaultLaunchTarget : (libraryItem?.launchCommand || card.dataset.launchCommand || defaultLaunchTarget))
+            : '';
         const storeItemForInput = isStoreCard
             ? window.AppStore?.queries?.getItem?.('stores', card.dataset.appId || card.dataset.id || card.dataset.appUrl || '')
             : null;
@@ -10881,6 +11102,21 @@ function renderFolderList(folders) {
                             ${typeof t === 'function' ? t('editModalHint', 'Pressione enter para alterar') : 'Pressione enter para alterar'}
                         </span>
                     </div>
+                    ${canEditLaunchTarget ? `
+                    <div class="edit-modal-field">
+                        <label class="edit-modal-label" for="editLaunchCommandInput">
+                            ${canEditWebUrl
+                                ? (typeof t === 'function' ? t('editWebAppUrlLabel', 'URL DO SITE') : 'URL DO SITE')
+                                : (typeof t === 'function' ? t('editLaunchCommandLabel', 'CAMINHO') : 'CAMINHO')}
+                        </label>
+                        <div class="edit-command-row">
+                            <input class="edit-modal-input" id="editLaunchCommandInput" type="text" autocomplete="off" spellcheck="false" tabindex="0" ${canEditWebUrl ? '' : 'data-nav-right="#editBrowseLaunchCommandBtn"'} />
+                            ${canEditWebUrl ? '' : `
+                            <button class="modal-btn secondary edit-command-browse" id="editBrowseLaunchCommandBtn" type="button" tabindex="0" data-nav-left="#editLaunchCommandInput">
+                                ${typeof t === 'function' ? t('editLaunchCommandBrowse', 'Alterar') : 'Alterar'}
+                            </button>`}
+                        </div>
+                    </div>` : ''}
                     <div class="edit-modal-field">
                         <label class="edit-modal-label">${t('artworkWizardTitle')}</label>
                         <div class="edit-artwork-actions">
@@ -10924,6 +11160,8 @@ function renderFolderList(folders) {
 
         const input = overlay.querySelector('#editNameInput');
         input.value = currentName;
+        const commandInput = overlay.querySelector('#editLaunchCommandInput');
+        if (commandInput) commandInput.value = currentLaunchTarget;
         if (isStoreCard) {
             input.disabled = true;
             input.setAttribute('aria-readonly', 'true');
@@ -10933,6 +11171,7 @@ function renderFolderList(folders) {
 
         const doClose = () => {
             isEditModalOpen = false;
+            window._editLaunchCommandBrowseResult = null;
             window._vkbForceClose();
             overlay.style.opacity = '0';
             overlay.style.transition = 'opacity 0.12s';
@@ -10959,9 +11198,43 @@ function renderFolderList(folders) {
             openArtworkWizard(card, 'local', card.dataset.assetQuery || input.value.trim() || currentName);
         });
 
+        window._editLaunchCommandBrowseResult = (path) => {
+            if (!path || !commandInput || !document.body.contains(overlay)) return;
+            commandInput.value = path;
+            commandInput.dispatchEvent(new Event('input', { bubbles: true }));
+            commandInput.focus({ preventScroll: true });
+        };
+
+        overlay.querySelector('#editBrowseLaunchCommandBtn')?.addEventListener('click', () => {
+            postToHost({
+                action: 'browseEditLaunchCommand',
+                dialogTitle: typeof t === 'function' ? t('editLaunchCommandDialogTitle', 'Selecionar programa ou atalho') : 'Selecionar programa ou atalho',
+                initialPath: commandInput?.value?.trim() || currentLaunchTarget
+            });
+        });
+
         const doSave = () => {
             const newName = input.value.trim();
             const nameChanged = newName && newName !== currentName;
+            let newLaunchTarget = commandInput?.value?.trim() || '';
+            if (canEditWebUrl && newLaunchTarget && !/^https?:\/\//i.test(newLaunchTarget))
+                newLaunchTarget = `https://${newLaunchTarget}`;
+
+            if (canEditWebUrl) {
+                let validWebUrl = false;
+                try {
+                    const parsedUrl = new URL(newLaunchTarget);
+                    validWebUrl = ['http:', 'https:'].includes(parsedUrl.protocol) && !!parsedUrl.hostname;
+                } catch { }
+                if (!validWebUrl) {
+                    commandInput?.classList.add('error');
+                    commandInput?.focus({ preventScroll: true });
+                    return;
+                }
+            }
+
+            const launchCommandChanged = canEditLaunchCommand && !!newLaunchTarget && newLaunchTarget !== currentLaunchTarget;
+            const webUrlChanged = canEditWebUrl && newLaunchTarget !== currentLaunchTarget;
 
             const disableCheckbox = overlay.querySelector('#editDisableGamepadControl');
             const newDisable = disableCheckbox ? !disableCheckbox.checked : disableGamepadControl;
@@ -10969,8 +11242,11 @@ function renderFolderList(folders) {
             const storeAutoAddCheckbox = overlay.querySelector('#editStoreAutoAdd');
             const newStoreAutoAdd = storeAutoAddCheckbox ? storeAutoAddCheckbox.checked : storeAutoAdd;
             const storeAutoAddChanged = isStoreCard && newStoreAutoAdd !== storeAutoAdd;
+            const editEntityId = isMediaCard
+                ? (card.dataset.appId || card.dataset.gameId || card.dataset.appUrl)
+                : card.dataset.gameId;
             if (nameChanged) {
-                const gameId = card.dataset.gameId || card.dataset.appId;
+                const gameId = editEntityId;
                 const allCards = Array.from(document.querySelectorAll('.card, .nav-vertical-card')).filter(c =>
                     c.dataset.gameId === gameId || c.dataset.appId === gameId
                 );
@@ -11024,7 +11300,7 @@ function renderFolderList(folders) {
                 if (typeof _menuData !== 'undefined') {
                     ['games', 'media'].forEach(cat => {
                         if (!_menuData[cat]) return;
-                        const item = _menuData[cat].find(i => (i.LaunchUrl || i.Path || i.Url) === gameId);
+                        const item = _menuData[cat].find(i => (i.LaunchUrl || i.Path || i.Url || i.Id) === gameId);
                         if (item) item.Name = newName;
                     });
                 }
@@ -11044,12 +11320,41 @@ function renderFolderList(folders) {
                     window._storeAutoAddSettings[storeId] = newStoreAutoAdd;
                     postToHost({ action: 'setStoreAutoAdd', store: storeId, enabled: newStoreAutoAdd });
                 }
-            } else if (nameChanged || disableChanged) {
-                const gameId = card.dataset.gameId || card.dataset.appId;
+            } else if (nameChanged || disableChanged || launchCommandChanged || webUrlChanged) {
+                const gameId = editEntityId;
                 const payload = { action: 'editGame', gameId };
                 if (nameChanged) payload.newName = newName;
                 if (isExeApp) payload.disableGamepadControl = newDisable;
+                if (launchCommandChanged) payload.newLaunchCommand = newLaunchTarget;
+                if (webUrlChanged) payload.newUrl = newLaunchTarget;
                 postToHost(payload);
+
+                if (launchCommandChanged) {
+                    document.querySelectorAll('.card, .nav-vertical-card').forEach(candidate => {
+                        if (candidate.dataset.gameId === gameId || candidate.dataset.appId === gameId)
+                            candidate.dataset.launchCommand = newLaunchTarget;
+                    });
+                    window.AppStore?.mutations?.patchItem?.(libraryChannel, gameId, { launchCommand: newLaunchTarget });
+                    if (typeof _menuData !== 'undefined' && Array.isArray(_menuData[libraryChannel])) {
+                        const menuItem = _menuData[libraryChannel].find(item =>
+                            (item.LaunchUrl || item.Path || item.Url || item.Id) === gameId);
+                        if (menuItem) menuItem.LaunchCommand = newLaunchTarget;
+                    }
+                }
+
+                if (webUrlChanged) {
+                    document.querySelectorAll('.card, .nav-vertical-card').forEach(candidate => {
+                        if (candidate.dataset.appId !== gameId) return;
+                        candidate.dataset.appUrl = newLaunchTarget;
+                        if (candidate.classList.contains('nav-vertical-card')) candidate.dataset.gameId = newLaunchTarget;
+                    });
+                    window.AppStore?.mutations?.patchItem?.('media', gameId, { url: newLaunchTarget });
+                    if (typeof _menuData !== 'undefined' && Array.isArray(_menuData.media)) {
+                        const menuItem = _menuData.media.find(item => (item.Id || item.Url) === gameId);
+                        if (menuItem) menuItem.Url = newLaunchTarget;
+                    }
+                    window._navMenuDataChanged?.('media');
+                }
 
                 if (disableChanged) {
                     card.dataset.disableGamepadControl = String(newDisable);
@@ -11070,7 +11375,7 @@ function renderFolderList(folders) {
             if (window._vkbIsOpen) return;
 
             // 1. Enter no Input -> Abre o teclado virtual
-            if (e.target.id === 'editNameInput' && e.key === 'Enter') {
+            if ((e.target.id === 'editNameInput' || e.target.id === 'editLaunchCommandInput') && e.key === 'Enter') {
                 e.preventDefault();
                 window._vkbOpen?.(e.target);
                 return;
@@ -11508,12 +11813,14 @@ function renderFolderList(folders) {
 
         function _forceClose(options = {}) {
             if (!_el) return;
+            const immediate = options?.immediate === true;
             const restoreFocus = options?.restoreFocus !== false && document.visibilityState !== 'hidden';
             const closedInput = _inputEl;
             _callbacks = {};
             _pendingAccent = null;
             window._vkbIsOpen = false;
             _el.classList.remove('visible');
+            if (immediate) _el.style.display = 'none';
 
             if (_inputEl) { _inputEl.classList.remove('vkb-active'); _inputEl = null; }
             if (typeof _editOverlay !== 'undefined' && _editOverlay) _editOverlay.classList.remove('vkb-active');
@@ -11526,7 +11833,8 @@ function renderFolderList(folders) {
                 window.resetDoorpiGamepadInputState?.();
             }
             document.dispatchEvent(new CustomEvent('doorpi-vkb-closed', { detail: { input: closedInput } }));
-            setTimeout(() => { if (_el && !_el.classList.contains('visible')) _el.style.display = 'none'; }, 180);
+            if (!immediate)
+                setTimeout(() => { if (_el && !_el.classList.contains('visible')) _el.style.display = 'none'; }, 180);
         }
 
         function _cancelWithCallback() {
@@ -11608,13 +11916,15 @@ function renderFolderList(folders) {
             || el.dataset?.vkbMode === 'numeric';
     };
     window._vkbOpen = (el, callbacks) => {
-        if (window._doorpiIsControllerActivation?.() !== true) return false;
+        const opts = { ...((callbacks || el?._doorpiVkbCallbacks) || {}) };
+        const allowProgrammatic = opts.allowProgrammatic === true;
+        delete opts.allowProgrammatic;
+        if (!allowProgrammatic && window._doorpiIsControllerActivation?.() !== true) return false;
         if (el?.dataset?.vkbDisabled === 'true') return false;
         if (el && el.tagName === 'INPUT') {
             const type = (el.type || '').toLowerCase();
             if (!_TEXT_INPUT_TYPES.has(type) && !window._vkbIsNumericInput(el)) return false;
         }
-        const opts = { ...((callbacks || el?._doorpiVkbCallbacks) || {}) };
         if (!opts.mode && window._vkbIsNumericInput(el)) opts.mode = 'numeric';
         VKB.open(el, opts);
         return true;
@@ -12168,6 +12478,7 @@ function renderFolderList(folders) {
 
     function _userSwitchFadeOut(data = {}) {
         if (data.showTransition === false) return;
+        closeUserPinPrompt({ immediate: true, restoreFocus: false });
         // Limpa o hero na hora, sem delay, e bloqueia novos switches
         window._userSwitching = true;
         document.body.classList.add('doorpi-session-transition');
@@ -12197,7 +12508,7 @@ function renderFolderList(folders) {
         logoutOverlay.style.display = 'flex';
         logoutOverlay.style.pointerEvents = 'auto';
         window._setDoorpiHomeInteractionBlocked?.(true);
-        requestAnimationFrame(() => logoutOverlay.classList.add('visible'));
+        logoutOverlay.classList.add('visible');
 
         const wrap = document.querySelector('.main-content-wrapper');
         if (!wrap) return;

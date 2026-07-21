@@ -30,6 +30,8 @@ window.AppStore = (() => {
             return {
                 id, name: raw.name || raw.Name || '', path: raw.path || raw.Path || '',
                 launchUrl: raw.launchUrl || raw.LaunchUrl || '', channel: 'games', appType: 'game',
+                launchCommand: raw.launchCommand || raw.LaunchCommand || '',
+                emulatorDiscPaths: raw.emulatorDiscPaths || raw.EmulatorDiscPaths || [],
                 staticVertical: raw.staticImageData || raw.GridStaticImage || raw.staticVertical || '',
                 staticHorizontal: raw.staticHorizontalImage || raw.GridHorizontalStaticImage || raw.staticHorizontal || '',
                 staticHero: raw.staticHero || raw.HeroStaticImage || '', staticLogo: raw.staticLogo || raw.LogoStaticImage || '',
@@ -73,6 +75,7 @@ window.AppStore = (() => {
 
         return {
             id, name: raw.Name || raw.name || '', url: raw.Url || raw.url || '', channel: 'media',
+            launchCommand: raw.LaunchCommand || raw.launchCommand || '',
             appType: raw.Type || raw.type || raw.appType || 'browser', shareMode: raw.ShareMode || raw.shareMode || 'private',
             sharedFromOther: raw.IsSharedFromOtherUser || raw.isSharedFromOtherUser || false,
             sharedFromName: raw.SharedFromUserName || raw.sharedFromName || '',
@@ -282,6 +285,8 @@ window.AppStore = (() => {
             if (patch.logo || patch.LogoImage) normalizedPatch.logo = patch.logo || patch.LogoImage;
             if (patch.iconBase64 || patch.IconBase64) normalizedPatch.iconBase64 = patch.iconBase64 || patch.IconBase64;
             if (patch.assetQuery || patch.AssetQuery) normalizedPatch.assetQuery = patch.assetQuery || patch.AssetQuery;
+            if (patch.url || patch.Url) normalizedPatch.url = patch.url || patch.Url;
+            if (patch.launchCommand || patch.LaunchCommand) normalizedPatch.launchCommand = patch.launchCommand || patch.LaunchCommand;
             if (patch.disableGamepadControl != null || patch.DisableGamepadControl != null) normalizedPatch.disableGamepadControl = patch.disableGamepadControl ?? patch.DisableGamepadControl;
             if (patch.isAdminLocked != null || patch.IsAdminLocked != null) normalizedPatch.isAdminLocked = patch.isAdminLocked ?? patch.IsAdminLocked;
             if (patch.adminStoreBlocked != null || patch.AdminStoreBlocked != null) normalizedPatch.adminStoreBlocked = patch.adminStoreBlocked ?? patch.AdminStoreBlocked;

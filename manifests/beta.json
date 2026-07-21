@@ -1,48 +1,51 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202607192127,
-    "publishedAt":  "2026-07-20T00:28:32.4123824Z",
-    "expiresAt":  "2026-08-03T00:28:32.4123824Z",
+    "manifestVersion":  202607211913,
+    "publishedAt":  "2026-07-21T22:13:54.7911211Z",
+    "expiresAt":  "2026-08-04T22:13:54.7911211Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.2.17",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.2.17/doorpi-0.2.17.doorpiupdate.zip",
-                   "sha256":  "36c6a51ece79e4eb2c3bf64b0beb4d020698ee166318e47e0425adb0a52161d2",
-                   "sizeBytes":  133441770,
+                   "version":  "0.3.17",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.3.17/doorpi-0.3.17.doorpiupdate.zip",
+                   "sha256":  "44d7672e15173b88d40085c90ec541268526a3c49eb8ef79e1c2f752ae89dc7e",
+                   "sizeBytes":  133567338,
                    "minUpdaterVersion":  "0.1.0",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
                     "version":  "0.1.0",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.2.17/updater-0.1.0.doorpiupdate.zip",
-                    "sha256":  "1f19a32bf24275fb1ba282f4ca7cbd2f4f635d799933740b93b32eeb8d60eea5",
-                    "sizeBytes":  69946116,
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.3.17/updater-0.1.0.doorpiupdate.zip",
+                    "sha256":  "8168a8f3e42e36c5272013cf5e81dcf0738b9236d65eda70d48914f909039267",
+                    "sizeBytes":  69946108,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.2.17",
-                          "title":  "Doorpi 0.2.17",
+                          "version":  "0.3.17",
+                          "title":  "Doorpi 0.3.17",
                           "items":  [
-                                        "Hotfix para jogos que estavam falhando ao inicializar no Doorpi.",
-                                        "Corrigido falso positivo de conflito na nuvem durante a sincronização."
+                                        "Novo: adicionado suporte para emuladores.",
+                                        "Novo: explorador de arquivos próprio, com extrator de ZIP/RAR e gerenciamento de arquivos.",
+                                        "O navegador agora tem histórico completo de downloads e facilita a instalação de programas."
                                     ],
                           "locales":  {
                                           "pt-BR":  {
-                                                        "title":  "Doorpi 0.2.17",
+                                                        "title":  "Doorpi 0.3.17",
                                                         "items":  [
-                                                                      "Hotfix para jogos que estavam falhando ao inicializar no Doorpi.",
-                                                                      "Corrigido falso positivo de conflito na nuvem durante a sincronização."
+                                                                      "Novo: adicionado suporte para emuladores.",
+                                                                      "Novo: explorador de arquivos próprio, com extrator de ZIP/RAR e gerenciamento de arquivos.",
+                                                                      "O navegador agora tem histórico completo de downloads e facilita a instalação de programas."
                                                                   ]
                                                     },
                                           "en":  {
-                                                     "title":  "Doorpi 0.2.17",
+                                                     "title":  "Doorpi 0.3.17",
                                                      "items":  [
-                                                                   "Hotfix for games that were failing to launch in Doorpi.",
-                                                                   "Fixed false-positive cloud conflict detection during sync."
+                                                                   "New: added emulator support.",
+                                                                   "New: built-in file explorer with ZIP/RAR extraction and file management.",
+                                                                   "The browser now has a full download history and makes program installation easier."
                                                                ]
                                                  }
                                       }
@@ -51,6 +54,6 @@
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "dxJ1hhbcNk7XpsYvNUsuO8IARwVjIkyWFF9rZHn92kTSNcDPxL8GsRnBbLxu37CnynaBFAmDpq3UM+n1eYzPcj1dUFFlNRZEQEduZo8B7FNtkz4a+YHJtnhlEwvgFhXECVLCb8VeQAbZP3uHRSeAW2nUvKptfYkLnKmevOzEaa7LIu2cGTgZfs2TcP6yGPCWraOElCNfUlKH38o82wWxfgSJBCXX+fCw7soJfvn0ZGRR+zqQNjiG/IHH1glZNswwAlM0kafCE94LFPTRiTwa2+YMi3GVs8s8NhQNEfNDiqBhokULnHCY/jgRLVjnpweu1wEE7PVoUlELkscI5LMXdJmP6beDNYlSVMQGsDeqaY63+1PSm9VO8ODvaLUR7h1ebYKKI3vfS9PjVydtS9IAOmHbPM+brSvhqi+r2MQpv/S+nE6nOEsvmy2tOjIdSgdCnsSWIPlVtK3lsgMvNVRmDBuUs7Qv3EuqZeNX6I8u3kKRVpu7KQL9EygEshVi4+Zp"
+                      "value":  "OCRyevkFNQi7iAXr14fbBCJGGIsLGkWVZ6zxIBJRnKVIqdV/2QFTd1ch4oxjVfMp/VndA3S+CtwsBQXzmOKd3iU11PLzTjUmafOo2Zi9e6BexPM3P9j9Fv5woWqvjzfXEH1oKqv53InhQS6WA7xRPq+mnATvTk4kmRuoZZ7GZvH/KdTRw5nnapmTULSvSCzSrlpzP4K9Lq+nHeLSzKAw53Ri5HI4Tn+Xijvr5yyLOO/1Xzr82+KAKsnj7sF/7NqUgGC0bkgcU6b4qQz4cG/IG5qQJ9elc7ehblWiJS1ykVmSocdsDvt9e0mWnZuWsrCw3OcnBTecjS80TrtoEuVyaeoeOjULxuyu+UaWUleQb8UeDhdNEhvltu6yqO0A8qpwIHWPBHnF9uoY+Kd4Rxq1XBPk6AjHGMZ/a5tJW4xeBz+BPfyfn6UTAuujhQC3vIRXoXpdVIzKsCZhnxbAwQGaUQE2n+NyDGQkv5n05jfZ7m9S35g5cUZLP0xF2sTNHfCZ"
                   }
 }
