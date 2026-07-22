@@ -816,7 +816,11 @@ namespace Doorpi
         private void OnApplicationDeactivated(object? sender, EventArgs e)
         {
           
-            Dispatcher.Invoke(() => CloseGenericBrowserExtensionsPopup());
+            Dispatcher.Invoke(() =>
+            {
+                CloseGenericBrowserExtensionsPopup();
+                CloseGenericBrowserDownloadsPopup();
+            });
         }
         private Grid BuildGenericBrowserShell(WebView2 browser, string appName, string logoImg)
         {
@@ -2289,6 +2293,7 @@ namespace Doorpi
 
         private void StartMediaControllerMode()
         {
+            _mainUiOwnsDirectionalNavigation = false;
             ResetWebKeyboardBackState(suppressUntilPhysicalRelease: IsWebKeyboardBackPhysicallyDown());
             _mediaMouseActive = true;
 
@@ -6955,13 +6960,6 @@ namespace Doorpi
                 LogWebViewSiteDiagnostic($"user-agent mode=native value={TruncateForLog(nativeUserAgent)}");
             }
             ApplyProductionWebViewSettings(_ytWebView.CoreWebView2, allowDefaultContextMenus: true);
-            if (isYouTube)
-            {
-                // Mantido restrito ao YouTube TV para diagnosticar e ajustar os
-                // patches de layout sem liberar DevTools nos demais Web Apps.
-                _ytWebView.CoreWebView2.Settings.AreDevToolsEnabled = true;
-                _ytWebView.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = true;
-            }
 
             if (isGenericBrowser)
             {
@@ -7113,12 +7111,7 @@ namespace Doorpi
                     await InjectInstalledExtensionsAsync(_ytWebView.CoreWebView2);
             };
 
-            if (isYouTube)
-            {
-                EnsureCursorVisible();
-                _mainScreenMouseVisible = true;
-            }
-            else if (_mainScreenMouseVisible)
+            if (_mainScreenMouseVisible)
             {
                 EnsureCursorHidden();
                 _mainScreenMouseVisible = false;
@@ -7395,17 +7388,6 @@ namespace Doorpi
 
         private void YtOnKeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Key == Key.F12 && _isCurrentSiteYouTube)
-            {
-                try { _ytWebView?.CoreWebView2?.OpenDevToolsWindow(); }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine("[YouTubeTV] Falha ao abrir DevTools: " + ex.Message);
-                }
-                e.Handled = true;
-                return;
-            }
-
             if (e.Key == Key.Home)
             {
                 Interlocked.Exchange(ref _webKeyboardHomeRequested, 1);

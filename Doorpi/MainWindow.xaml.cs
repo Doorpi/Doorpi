@@ -3123,11 +3123,17 @@ namespace Doorpi
                     ReturnToDoorpiFromMediaExeSession(sessionId);
                 },
                 handleXboxButton: false,
-                shouldAcceptInput: () => _mediaExeModeActive && !_mediaExeMouseInputTemporarilyDisabled
+                shouldAcceptInput: () =>
+                {
+                    var current = GetExecutableAppSessionBySessionId(sessionId);
+                    return IsActiveExecutableAppSession(current) &&
+                           current!.MouseModeActive &&
+                           !current.MouseInputTemporarilyDisabled;
+                }
             );
 
-            var session = ActiveExecutableAppSession;
-            if (session != null && session.SessionId == sessionId)
+            var session = GetExecutableAppSessionBySessionId(sessionId);
+            if (session != null)
                 session.ControllerActive = false;
         }
 
@@ -3136,26 +3142,31 @@ namespace Doorpi
 
         private void InitializeMediaExeMouseModeForSession(MediaAppModel? media)
         {
-            if (_mediaExeMouseModeInitialized) return;
+            var session = ActiveExecutableAppSession;
+            if (session != null)
+                InitializeMediaExeMouseModeForSession(session, media);
+        }
 
-            _mediaExeMouseModeRequested = ShouldStartMouseMode(media);
-            _mediaExeMouseModeInitialized = true;
+        private static void InitializeMediaExeMouseModeForSession(ExecutableAppSession session, MediaAppModel? media)
+        {
+            if (session.MouseModeInitialized) return;
+
+            session.MouseModeRequested = ShouldStartMouseMode(media);
+            session.MouseModeInitialized = true;
         }
 
         private void StartMediaExeMouseModeForSession(int sessionId, bool centerCursor)
         {
-            if (_mediaExeSessionId != sessionId)
-            {
-                return;
-            }
+            var session = GetExecutableAppSessionBySessionId(sessionId);
+            if (!IsActiveExecutableAppSession(session)) return;
 
             if (!IsMediaExeLogicalSessionActive(sessionId))
                 return;
 
-            _mediaExeMouseModeRequested = true;
-            _mediaExeMouseModeInitialized = true;
-            _mediaExeGamepadDisabled = false;
-            _mediaExeMouseInputTemporarilyDisabled = false;
+            session!.MouseModeRequested = true;
+            session.MouseModeInitialized = true;
+            session.GamepadDisabled = false;
+            session.MouseInputTemporarilyDisabled = false;
 
             Dispatcher.Invoke(() =>
             {
@@ -3165,23 +3176,23 @@ namespace Doorpi
                 UpdateHoverStateInWebView();
             });
 
-            _mediaExeModeActive = true;
+            session.MouseModeActive = true;
             EnsureMediaExeControllerThread(sessionId);
             SendRuntimeSessionsToUI();
         }
 
         private bool IsMediaExeLogicalSessionActive(int sessionId)
         {
-            var session = ActiveExecutableAppSession;
+            var session = GetExecutableAppSessionBySessionId(sessionId);
             return session != null &&
-                   session.SessionId == sessionId &&
+                   IsActiveExecutableAppSession(session) &&
                    !string.IsNullOrWhiteSpace(session.Url);
         }
 
         private void EnsureMediaExeControllerThread(int sessionId)
         {
-            var session = ActiveExecutableAppSession;
-            if (session == null || session.SessionId != sessionId)
+            var session = GetExecutableAppSessionBySessionId(sessionId);
+            if (session == null || !IsActiveExecutableAppSession(session))
                 return;
 
             if (session.ControllerThread?.IsAlive == true &&
@@ -3199,11 +3210,11 @@ namespace Doorpi
 
         private void StopMediaExeMouseModeForSession(int sessionId)
         {
-            if (_mediaExeSessionId != sessionId)
-                return;
+            var session = GetExecutableAppSessionBySessionId(sessionId);
+            if (!IsActiveExecutableAppSession(session)) return;
 
-            _mediaExeMouseModeInitialized = true;
-            _mediaExeMouseInputTemporarilyDisabled = true;
+            session!.MouseModeInitialized = true;
+            session.MouseInputTemporarilyDisabled = true;
 
             Dispatcher.Invoke(() =>
             {
@@ -3223,7 +3234,10 @@ namespace Doorpi
             Interlocked.Exchange(ref _mediaExeMouseModeShortcutSuppressUntilTicks,
                 DateTime.UtcNow.AddMilliseconds(650).Ticks);
 
-            if (!_mediaExeMouseInputTemporarilyDisabled && _mediaExeModeActive)
+            var session = GetExecutableAppSessionBySessionId(sessionId);
+            if (!IsActiveExecutableAppSession(session)) return;
+
+            if (!session!.MouseInputTemporarilyDisabled && session.MouseModeActive)
                 StopMediaExeMouseModeForSession(sessionId);
             else
                 StartMediaExeMouseModeForSession(sessionId, centerCursor: true);
@@ -3231,13 +3245,12 @@ namespace Doorpi
 
         private void ReturnToDoorpiFromMediaExeSession(int sessionId)
         {
-            if (_mediaExeSessionId != sessionId)
-                return;
+            var executableSession = GetExecutableAppSessionBySessionId(sessionId);
+            if (!IsActiveExecutableAppSession(executableSession)) return;
 
-            var executableSession = ActiveExecutableAppSession;
-            bool closeProcessOnReturn = executableSession?.CloseProcessOnReturn == true;
-            string capturedUrl = _mediaExeCurrentUrl;
-            var capturedProcess = _mediaExeProcess;
+            bool closeProcessOnReturn = executableSession!.CloseProcessOnReturn;
+            string capturedUrl = executableSession.Url;
+            var capturedProcess = executableSession.Process;
 
             bool vkbWasOpen = false;
             Dispatcher.Invoke(() =>
@@ -3253,10 +3266,11 @@ namespace Doorpi
             if (vkbWasOpen && !closeProcessOnReturn)
                 return;
 
-            _mediaExeModeActive = false;
-            _mediaExeMouseInputTemporarilyDisabled = false;
-            _mediaExeWatcherCts?.Cancel();
-            _doorpiSuspendedForMedia = true;
+            executableSession.MouseModeActive = false;
+            executableSession.MouseInputTemporarilyDisabled = false;
+            executableSession.ControllerActive = false;
+            executableSession.DoorpiSuspended = true;
+            executableSession.WatcherCts?.Cancel();
             SuspendExecutionLockWatch();
 
             if (_isStoreLauncherSession)
@@ -3278,7 +3292,7 @@ namespace Doorpi
             {
                 try { KillMediaExeProcessTree(capturedUrl, process ?? capturedProcess); } catch { }
                 ClearExecutionLock();
-                ClearExecutableAppSession();
+                ClearExecutableAppSession(executableSession);
             }
             else if (process != null && !SafeHasExited(process))
             {
@@ -3330,7 +3344,7 @@ namespace Doorpi
                     }
 
                     if (anyMouseShortcut &&
-                        ActiveExecutableAppSession?.AllowControllerInput == true &&
+                        GetExecutableAppSessionBySessionId(sessionId)?.AllowControllerInput == true &&
                         DateTime.UtcNow.Ticks >= Interlocked.Read(ref _mediaExeMouseModeShortcutSuppressUntilTicks) &&
                         IsForegroundOwnedByActiveMediaExe())
                     {
@@ -3345,8 +3359,8 @@ namespace Doorpi
 
         private void EnsureMediaExeShortcutThread(int sessionId)
         {
-            var session = ActiveExecutableAppSession;
-            if (session == null || session.SessionId != sessionId)
+            var session = GetExecutableAppSessionBySessionId(sessionId);
+            if (session == null || !IsActiveExecutableAppSession(session))
                 return;
 
             if (session.ShortcutThread?.IsAlive == true &&
@@ -3451,6 +3465,7 @@ namespace Doorpi
                 return;
             }
 
+            _mainUiOwnsDirectionalNavigation = false;
             _storeMouseModeRequested = true;
             _storeGamepadDisabled = false;
             _storeMouseModeActive = true;
@@ -4204,8 +4219,9 @@ namespace Doorpi
             process = null;
             hwnd = IntPtr.Zero;
 
-            foreach (var p in GetMediaExeProcessGroup(mediaUrl, _mediaExeProcess)
-                         .Concat(EnumerateMediaExeProcesses(mediaUrl, _mediaExeProcess))
+            var knownProcess = session?.Process;
+            foreach (var p in GetMediaExeProcessGroup(mediaUrl, knownProcess)
+                         .Concat(EnumerateMediaExeProcesses(mediaUrl, knownProcess))
                          .GroupBy(p =>
                          {
                              try { return p.Id; } catch { return -1; }
@@ -4448,7 +4464,7 @@ namespace Doorpi
         {
             if (string.IsNullOrWhiteSpace(mediaUrl)) return;
 
-            var session = EnsureExecutableAppSession(mediaUrl);
+            var session = GetOrCreateExecutableAppSession(mediaUrl, activate: false);
             session.ResetProcessTracking(baselineProcessIds ?? SnapshotProcessIds());
             session.ProcessGroupRootDirectory = "";
             session.ProcessGroupExeName = "";
@@ -4751,6 +4767,7 @@ namespace Doorpi
             CancellationToken token = default)
         {
             string mediaExecutablePath = ResolveMediaExecutablePath(FindMediaAppForExecutableSession(mediaUrl), mediaUrl);
+            var targetSession = GetExecutableAppSession(mediaUrl);
             bool isSteamStoreLaunch =
                 _isStoreLauncherSession &&
                 IsSteamStoreWindowLookup(_activeStoreId ?? "", mediaUrl);
@@ -4764,7 +4781,9 @@ namespace Doorpi
             for (int i = 0; i < maxAttempts; i++)
             {
                 // CRÃTICO: Para imediatamente se saÃ­mos do modo (botÃ£o Xbox)
-                if (token.IsCancellationRequested || (requireControllerActive && !_mediaExeModeActive)) return;
+                if (token.IsCancellationRequested ||
+                    (requireControllerActive &&
+                     (!IsActiveExecutableAppSession(targetSession) || targetSession?.MouseModeActive != true))) return;
 
                 await Task.Delay(200, token);
                 try
@@ -4842,7 +4861,9 @@ namespace Doorpi
 
                     if (hwnd != IntPtr.Zero)
                     {
-                        if (token.IsCancellationRequested || (requireControllerActive && !_mediaExeModeActive)) return;
+                        if (token.IsCancellationRequested ||
+                            (requireControllerActive &&
+                             (!IsActiveExecutableAppSession(targetSession) || targetSession?.MouseModeActive != true))) return;
 
                         ShowWindow(hwnd, 3); // SW_MAXIMIZE
                         FocusExternalWindow(hwnd);
@@ -4885,8 +4906,8 @@ namespace Doorpi
 
         private void StartMediaExeWatcher(Process? proc, string mediaUrl, string appName, CancellationToken token)
         {
-            var session = GetExecutableAppSession(mediaUrl);
-            if (session == null || session.ProcessGroupCount == 0)
+            var watchedSession = GetOrCreateExecutableAppSession(mediaUrl, activate: false);
+            if (watchedSession.ProcessGroupCount == 0)
                 InitializeMediaExeProcessGroup(mediaUrl, proc);
 
             _ = Task.Run(async () =>
@@ -4903,18 +4924,18 @@ namespace Doorpi
                     // ==============================================================
                     while (!hasStarted && !token.IsCancellationRequested)
                     {
-                        if (_mediaExeWatcherPaused) { await Task.Delay(100, token); continue; }
+                        if (watchedSession.WatcherPaused) { await Task.Delay(100, token); continue; }
 
                         if ((DateTime.UtcNow - startTime).TotalMinutes > 3)
                         {
-                            SendGameLaunchStatus("gameLaunchFailed", appName, "", "", "timeout");
-                            ReturnToDoorpiFromMedia(mediaUrl);
+                            if (IsActiveExecutableAppSession(watchedSession))
+                                SendGameLaunchStatus("gameLaunchFailed", appName, "", "", "timeout");
+                            ReturnToDoorpiFromMedia(watchedSession);
                             return;
                         }
 
-                        session = GetExecutableAppSession(mediaUrl);
                         bool foundWindow = TryFindMediaExeWindowCandidate(
-                            session,
+                            watchedSession,
                             mediaUrl,
                             appName,
                             allowNewWindowFallback: true,
@@ -4926,22 +4947,23 @@ namespace Doorpi
                             if (activeProcess != null)
                             {
                                 proc = activeProcess;
-                                _mediaExeProcess = activeProcess;
-                                session = GetExecutableAppSession(mediaUrl);
-                                try { session?.AddProcessGroupId(activeProcess.Id); } catch { }
+                                watchedSession.Process = activeProcess;
+                                try { watchedSession.AddProcessGroupId(activeProcess.Id); } catch { }
                             }
 
                             hasStarted = true;
-                            SendGameLaunchStatus("gameLaunchReady");
+                            if (IsActiveExecutableAppSession(watchedSession))
+                                SendGameLaunchStatus("gameLaunchReady");
 
                             await EnsureMinimumAnimationTimeAsync(token);
-                            if (token.IsCancellationRequested || (!_mediaExeModeActive && !_mediaExeGamepadDisabled)) return;
+                            if (token.IsCancellationRequested || (!watchedSession.MouseModeActive && !watchedSession.GamepadDisabled)) return;
 
                             await Task.Delay(300, token);
-                            if (token.IsCancellationRequested || (!_mediaExeModeActive && !_mediaExeGamepadDisabled)) return;
+                            if (token.IsCancellationRequested || (!watchedSession.MouseModeActive && !watchedSession.GamepadDisabled)) return;
 
                             Dispatcher.Invoke(() =>
                             {
+                                if (!IsActiveExecutableAppSession(watchedSession)) return;
                                 if (this.Topmost) this.Topmost = false;
                                 // Empurra o Doorpi para o fundo da pilha Z-order, atrÃ¡s de todos os apps
                                 SetWindowPos(_mainWindowHandle, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
@@ -4949,8 +4971,11 @@ namespace Doorpi
 
                             });
 
-                            SendGameLaunchStatus("gameLaunchDone");
-                            DiscordRpcManager.Instance.UpdateState("media", mediaUrl, appName);
+                            if (IsActiveExecutableAppSession(watchedSession))
+                            {
+                                SendGameLaunchStatus("gameLaunchDone");
+                                DiscordRpcManager.Instance.UpdateState("media", mediaUrl, appName);
+                            }
 
                             break;
                         }
@@ -4989,12 +5014,11 @@ namespace Doorpi
                             if (h != IntPtr.Zero && !IsIconic(h))
                             {
                                 proc = p;
-                                _mediaExeProcess = p;
-                                session = GetExecutableAppSession(mediaUrl);
+                                watchedSession.Process = p;
                                 try
                                 {
-                                    session?.AddProcessGroupId(p.Id);
-                                    session?.AddAttachedWindowHandle(h);
+                                    watchedSession.AddProcessGroupId(p.Id);
+                                    watchedSession.AddAttachedWindowHandle(h);
                                 }
                                 catch { }
 
@@ -5016,7 +5040,7 @@ namespace Doorpi
                                 Debug.WriteLine($"[MediaWatcher] Recovering unresponsive app: {appName}");
                                 KillMediaExeProcessTree(mediaUrl, proc);
                                 await Task.Delay(350, token).ConfigureAwait(false);
-                                ReturnToDoorpiFromMedia(mediaUrl);
+                                ReturnToDoorpiFromMedia(watchedSession);
                                 return;
                             }
                         }
@@ -5027,9 +5051,8 @@ namespace Doorpi
 
                         if (!hasActiveWindow)
                         {
-                            session = GetExecutableAppSession(mediaUrl);
                             if (TryFindMediaExeWindowCandidate(
-                                    session,
+                                    watchedSession,
                                     mediaUrl,
                                     appName,
                                     allowNewWindowFallback: true,
@@ -5040,11 +5063,11 @@ namespace Doorpi
                                 !IsIconic(inheritedHwnd))
                             {
                                 proc = inheritedProcess;
-                                _mediaExeProcess = inheritedProcess;
+                                watchedSession.Process = inheritedProcess;
                                 try
                                 {
-                                    session?.AddProcessGroupId(inheritedProcess.Id);
-                                    session?.AddAttachedWindowHandle(inheritedHwnd);
+                                    watchedSession.AddProcessGroupId(inheritedProcess.Id);
+                                    watchedSession.AddAttachedWindowHandle(inheritedHwnd);
                                 }
                                 catch { }
 
@@ -5068,14 +5091,14 @@ namespace Doorpi
 
                             if (mediaProcessStillAlive)
                             {
-                                Dispatcher.Invoke(() => FinalizeMediaExeTraySession(mediaUrl));
+                                Dispatcher.Invoke(() => FinalizeMediaExeTraySession(watchedSession));
                                 return;
                             }
 
                             missingCount++;
                             if (missingCount >= 2)
                             {
-                                ReturnToDoorpiFromMedia(mediaUrl);
+                                ReturnToDoorpiFromMedia(watchedSession);
                                 return;
                             }
                         }
@@ -5091,26 +5114,31 @@ namespace Doorpi
             }, token);
         }
 
-        private void FinalizeMediaExeTraySession(string mediaUrl)
+        private void FinalizeMediaExeTraySession(ExecutableAppSession session)
         {
+            string mediaUrl = session.Url;
             var media = FindMediaAppByUrlOrId(mediaUrl);
             string resolvedUrl = ResolveMediaExecutableUrl(media, mediaUrl);
 
-            ActivateExecutableAppSession(resolvedUrl);
-            _mediaExeCurrentUrl = resolvedUrl;
-
-            var process = FindAliveMediaExeProcess(resolvedUrl, _mediaExeProcess);
-            try { _desktopVkb?.Close(); } catch { }
-            _desktopVkb = null;
-
-            _mediaExeModeActive = false;
-            _mediaExeGamepadDisabled = !_mediaExeMouseModeRequested;
-            _mediaExeMouseInputTemporarilyDisabled = false;
-            _mediaExeWatcherPaused = false;
-            _doorpiSuspendedForMedia = true;
+            var process = FindAliveMediaExeProcess(resolvedUrl, session.Process);
+            session.MouseModeActive = false;
+            session.ControllerActive = false;
+            session.GamepadDisabled = !session.MouseModeRequested;
+            session.MouseInputTemporarilyDisabled = false;
+            session.WatcherPaused = false;
+            session.DoorpiSuspended = true;
 
             if (process != null)
-                _mediaExeProcess = process;
+                session.Process = process;
+
+            if (!IsActiveExecutableAppSession(session))
+            {
+                SendRuntimeSessionsToUI();
+                return;
+            }
+
+            try { _desktopVkb?.Close(); } catch { }
+            _desktopVkb = null;
 
             ClearExecutionLock();
             SendRuntimeSessionsToUI();
@@ -5148,7 +5176,7 @@ namespace Doorpi
                     return (candidateProcess, candidateHwnd);
                 }
 
-                var alive = FindAliveMediaExeProcess(mediaUrl, _mediaExeProcess);
+                var alive = FindAliveMediaExeProcess(mediaUrl, session?.Process);
                 if (alive != null)
                 {
                     var hwnd = FindAnyWindowForProcess(alive.Id);
@@ -5173,12 +5201,11 @@ namespace Doorpi
             if (found.Hwnd != IntPtr.Zero)
                 return found;
 
-            var aliveBeforeRelaunch = FindAliveMediaExeProcess(mediaUrl, _mediaExeProcess);
+            var session = GetOrCreateExecutableAppSession(mediaUrl, activate: false);
+            var aliveBeforeRelaunch = FindAliveMediaExeProcess(mediaUrl, session.Process);
             if (aliveBeforeRelaunch != null && !string.IsNullOrWhiteSpace(executablePath))
             {
-                var session = GetExecutableAppSession(mediaUrl);
-                if (session != null)
-                    session.ReplaceBaselineProcessIds(SnapshotProcessIds());
+                session.ReplaceBaselineProcessIds(SnapshotProcessIds());
                 StartMediaExecutable(mediaUrl);
                 found = await WaitForMediaExeWindowAsync(mediaUrl, appName, 24, 125, allowNewWindowFallback: true, token).ConfigureAwait(false);
                 if (found.Hwnd != IntPtr.Zero)
@@ -5194,7 +5221,7 @@ namespace Doorpi
                 if (relaunched != null)
                 {
                     InitializeMediaExeProcessGroup(mediaUrl, relaunched, baselineBeforeLaunch, executablePath);
-                    _mediaExeProcess = relaunched;
+                    session.Process = relaunched;
                 }
 
                 found = await WaitForMediaExeWindowAsync(mediaUrl, appName, 32, 125, allowNewWindowFallback: true, token).ConfigureAwait(false);
@@ -5202,7 +5229,7 @@ namespace Doorpi
                     return found;
             }
 
-            return (FindAliveMediaExeProcess(mediaUrl, _mediaExeProcess), IntPtr.Zero);
+            return (FindAliveMediaExeProcess(mediaUrl, session.Process), IntPtr.Zero);
         }
 
         // Helper para centralizar a volta ao Doorpi
@@ -5210,22 +5237,42 @@ namespace Doorpi
         // DEPOIS
         private void ReturnToDoorpiFromMedia(string? mediaUrl = null)
         {
+            ExecutableAppSession? session = ActiveExecutableAppSession;
             if (!string.IsNullOrWhiteSpace(mediaUrl))
             {
                 var media = FindMediaAppByUrlOrId(mediaUrl);
                 string resolvedUrl = ResolveMediaExecutableUrl(media, mediaUrl);
-                ActivateExecutableAppSession(resolvedUrl);
-                _mediaExeCurrentUrl = resolvedUrl;
-                mediaUrl = resolvedUrl;
+                session = GetExecutableAppSession(resolvedUrl) ?? GetExecutableAppSession(mediaUrl);
             }
 
-            int capturedSession = _mediaExeSessionId;
-            string capturedUrl = _mediaExeCurrentUrl;
+            if (session != null)
+                ReturnToDoorpiFromMedia(session);
+        }
+
+        private void ReturnToDoorpiFromMedia(ExecutableAppSession session)
+        {
+            int capturedSession = session.SessionId;
+            string capturedUrl = session.Url;
+            bool ownsForeground = IsActiveExecutableAppSession(session);
 
             // -- Para imediatamente a Thread do Mouse, mas MANTÃ‰M as variÃ¡veis de processo VIVAS --
-            _mediaExeModeActive = false;
-            _mediaExeGamepadDisabled = !_mediaExeMouseModeRequested;
-            _doorpiSuspendedForMedia = false;
+            session.MouseModeActive = false;
+            session.ControllerActive = false;
+            session.GamepadDisabled = !session.MouseModeRequested;
+            session.DoorpiSuspended = false;
+
+            var aliveProcess = FindAliveMediaExeProcess(capturedUrl, session.Process);
+            bool processStillAlive = aliveProcess != null;
+            if (processStillAlive)
+                session.Process = aliveProcess;
+            else
+                ClearExecutableAppSession(session);
+
+            if (!ownsForeground)
+            {
+                SendRuntimeSessionsToUI();
+                return;
+            }
 
             EnsureCursorHidden();
             _mainScreenMouseVisible = false;
@@ -5237,27 +5284,18 @@ namespace Doorpi
 
             SendGameLaunchStatus("gameLaunchDone");
 
-            var aliveProcess = FindAliveMediaExeProcess(capturedUrl, _mediaExeProcess);
-            bool processStillAlive = aliveProcess != null;
-
             Dispatcher.Invoke(() =>
             {
-                if (!string.IsNullOrWhiteSpace(capturedUrl))
-                    ActivateExecutableAppSession(capturedUrl);
-
-                if (_mediaExeSessionId != capturedSession) return;
+                if (processStillAlive &&
+                    (!IsActiveExecutableAppSession(session) || session.SessionId != capturedSession))
+                    return;
+                if (!processStillAlive &&
+                    !string.IsNullOrWhiteSpace(_activeExecutableAppSessionKey) &&
+                    !string.Equals(_activeExecutableAppSessionKey, session.Key, StringComparison.OrdinalIgnoreCase))
+                    return;
 
                 _desktopVkb?.Close();
                 _desktopVkb = null;
-
-                if (processStillAlive)
-                {
-                    _mediaExeProcess = aliveProcess;
-                }
-                else
-                {
-                    ClearExecutableAppSession();
-                }
 
                 EnsureCursorVisible();
                 EnsureCursorHidden();
@@ -5267,7 +5305,7 @@ namespace Doorpi
 
                 if (processStillAlive)
                 {
-                    ShowMediaExeExecutionLockAfterReturningToDoorpi(capturedUrl);
+                    RestoreDoorpiAfterMinimizingMediaExe();
                     return;
                 }
 
@@ -5283,7 +5321,7 @@ namespace Doorpi
             });
         }
 
-        private void ShowMediaExeExecutionLockAfterReturningToDoorpi(string mediaUrl)
+        private void RestoreDoorpiAfterMinimizingMediaExe()
         {
             _mainUiGamepadSuspendedForGame = false;
             Interlocked.Exchange(ref _mainUiGamepadSuppressUntilUtcTicks, 0);
@@ -5291,7 +5329,7 @@ namespace Doorpi
             Interlocked.Exchange(ref _executionLockSuppressUntilUtcTicks, 0);
             ReleaseAllStuckKeys();
 
-            _ = Dispatcher.BeginInvoke(async () =>
+            _ = Dispatcher.BeginInvoke(() =>
             {
                 var hwnd = _mainWindowHandle != IntPtr.Zero
                     ? _mainWindowHandle
@@ -5320,18 +5358,13 @@ namespace Doorpi
                     {
                         type = "windowFocused",
                         appAlive = true,
-                        hasBlockingSession = true,
+                        hasBlockingSession = false,
                         hasLiveExternalSession = true,
                         shouldMuteDoorpiAudio = true
                     }));
 
                 SendRuntimeSessionsToUI();
                 DiscordRpcManager.Instance.UpdateState("menu");
-
-                await Task.Delay(180);
-                if (!string.IsNullOrWhiteSpace(mediaUrl))
-                    ActivateExecutableAppSession(mediaUrl);
-                ShowExecutionLockForMediaExe(mediaUrl, showInDoorpiWhenForeground: true);
             });
         }
         private void MinimizeAllWindowsExcept(IntPtr excludeHwnd)
@@ -5368,26 +5401,26 @@ namespace Doorpi
             bool closeProcessOnReturn = false,
             bool allowControllerInput = true)
         {
+            _mainUiOwnsDirectionalNavigation = false;
             ActivateExecutableAppSession(url);
-            if (_mediaExeModeActive) return;
-
-            _mediaExeWatcherCts?.Cancel();
-            _mediaExeWatcherCts = new CancellationTokenSource();
-
-            int sessionId = NextExecutableAppSessionId();
-
-            _mediaExeProcess = proc;
-            _mediaExeCurrentUrl = url;
-            InitializeMediaExeProcessGroup(url, proc, baselineProcessIds, executablePath);
-            _mediaExeMouseModeRequested = allowControllerInput;
-            _mediaExeMouseModeInitialized = true;
-            _mediaExeGamepadDisabled = !allowControllerInput;
-            _mediaExeModeActive = true;
-            _mediaExeMouseInputTemporarilyDisabled = !allowControllerInput;
-            _mediaExeWatcherPaused = false;
-            _doorpiSuspendedForMedia = false;
-
             var executableSession = EnsureExecutableAppSession(url);
+            if (executableSession.MouseModeActive) return;
+
+            executableSession.WatcherCts?.Cancel();
+            executableSession.WatcherCts = new CancellationTokenSource();
+
+            int sessionId = NextExecutableAppSessionId(executableSession);
+
+            executableSession.Process = proc;
+            executableSession.Url = url;
+            InitializeMediaExeProcessGroup(url, proc, baselineProcessIds, executablePath);
+            executableSession.MouseModeRequested = allowControllerInput;
+            executableSession.MouseModeInitialized = true;
+            executableSession.GamepadDisabled = !allowControllerInput;
+            executableSession.MouseModeActive = true;
+            executableSession.MouseInputTemporarilyDisabled = !allowControllerInput;
+            executableSession.WatcherPaused = false;
+            executableSession.DoorpiSuspended = false;
             executableSession.CloseProcessOnReturn = closeProcessOnReturn;
             executableSession.AllowControllerInput = allowControllerInput;
 
@@ -5403,8 +5436,8 @@ namespace Doorpi
             });
 
             SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg, "app");
-            _ = TryMaximizeExternalWindowAsync(proc, url, token: _mediaExeWatcherCts.Token);
-            StartMediaExeWatcher(proc, url, appName, _mediaExeWatcherCts.Token);
+            _ = TryMaximizeExternalWindowAsync(proc, url, token: executableSession.WatcherCts.Token);
+            StartMediaExeWatcher(proc, url, appName, executableSession.WatcherCts.Token);
             EnsureMediaExeShortcutThread(sessionId);
             if (allowControllerInput)
                 EnsureMediaExeControllerThread(sessionId);
@@ -5446,6 +5479,7 @@ namespace Doorpi
         }
         private void EnterDesktopMode()
         {
+            _mainUiOwnsDirectionalNavigation = false;
             // Se estÃ¡vamos no topo protegendo o fundo, liberamos a prioridade
             ReleaseDoorpiTopmost();
 
@@ -7116,6 +7150,7 @@ namespace Doorpi
                     running.Add(new
                     {
                         channel = "media",
+                        id = media?.Id ?? "",
                         url = session.Url,
                         kind = "exe",
                         appType = emulator != null ? "emulator" : "exe",
@@ -7132,6 +7167,7 @@ namespace Doorpi
                     running.Add(new
                     {
                         channel = "media",
+                        id = media?.Id ?? "",
                         url = _currentWebAppUrl,
                         kind = "web",
                         appType = string.IsNullOrWhiteSpace(media?.Type) ? "webview" : media!.Type,
@@ -7356,11 +7392,7 @@ namespace Doorpi
                     });
 
                     if (session != null)
-                    {
-                        _executableAppSessions.TryRemove(session.Key, out _);
-                        if (string.Equals(_activeExecutableAppSessionKey, session.Key, StringComparison.OrdinalIgnoreCase))
-                            _activeExecutableAppSessionKey = "";
-                    }
+                        ClearExecutableAppSession(session);
                     else if (string.Equals(_mediaExeCurrentUrl, mediaUrl, StringComparison.OrdinalIgnoreCase) ||
                              string.Equals(_mediaExeCurrentUrl, url, StringComparison.OrdinalIgnoreCase))
                     {
@@ -7419,6 +7451,28 @@ namespace Doorpi
             });
         }
 
+        private void RestoreMainUiControllerOwnership()
+        {
+            // A Home voltou a ser a superficie interativa. Nenhum controlador de
+            // mouse de uma janela externa pode continuar consumindo o direcional.
+            RequestMediaMouseInputAbort();
+            StopMediaControllerMode();
+            foreach (var session in _executableAppSessions.Values)
+                ReleaseExecutableForegroundOwnership(session);
+            StopGameLaunchStoreMouseMode();
+            _launcherMouseActive = false;
+            _storeMouseModeActive = false;
+            _storeMouseInputTemporarilyDisabled = false;
+            _mainUiGamepadSuspendedForGame = false;
+            _mainUiOwnsDirectionalNavigation = true;
+            Interlocked.Exchange(ref _mainUiGamepadSuppressUntilUtcTicks, 0);
+            Interlocked.Exchange(ref _focusRestoredAtTicks, DateTime.UtcNow.Ticks);
+            if (Dispatcher.CheckAccess())
+                CloseGenericBrowserDownloadsPopup();
+            else
+                _ = Dispatcher.BeginInvoke(CloseGenericBrowserDownloadsPopup);
+        }
+
         public void ForceFocus()
         {
             // Se o jogo foi minimizado pelo usuÃ¡rio (Xbox button) e ainda estÃ¡ vivo,
@@ -7448,14 +7502,8 @@ namespace Doorpi
 
             ClearExecutionLock();
             ClearGameFocusFallbackPrompt();
-
-            if (_mediaExeModeActive) _mediaExeModeActive = false;
+            RestoreMainUiControllerOwnership();
             if (_systemControllerActive) StopSystemControllerMode();
-            _launcherMouseActive = false;
-
-            _mainUiGamepadSuspendedForGame = false;
-            Interlocked.Exchange(ref _mainUiGamepadSuppressUntilUtcTicks, 0);
-            Interlocked.Exchange(ref _focusRestoredAtTicks, DateTime.UtcNow.Ticks);
 
             SendGameLaunchStatus("gameLaunchDone");
             ReleaseAllStuckKeys();
@@ -7505,9 +7553,7 @@ namespace Doorpi
         {
           
             try { webView?.CoreWebView2?.GetType().GetMethod("Resume", Type.EmptyTypes)?.Invoke(webView.CoreWebView2, null); } catch { }
-            _mainUiGamepadSuspendedForGame = false;
-            Interlocked.Exchange(ref _mainUiGamepadSuppressUntilUtcTicks, 0);
-            Interlocked.Exchange(ref _focusRestoredAtTicks, DateTime.UtcNow.Ticks);
+            RestoreMainUiControllerOwnership();
 
             SendGameLaunchStatus("gameLaunchDone");
             ReleaseAllStuckKeys();
@@ -9528,24 +9574,27 @@ namespace Doorpi
             ActivateExecutableAppSession(mediaUrl);
             _mediaExeCurrentUrl = mediaUrl;
 
-            var aliveProcess = FindAliveMediaExeProcess(mediaUrl, _mediaExeProcess);
+            var targetSession = GetExecutableAppSession(mediaUrl);
+            var aliveProcess = FindAliveMediaExeProcess(mediaUrl, targetSession?.Process);
             if (aliveProcess == null)
                 return false;
 
-            _mediaExeProcess = aliveProcess;
+            if (targetSession != null)
+                targetSession.Process = aliveProcess;
             var hwnd = FindAnyWindowForProcess(aliveProcess.Id);
             if (hwnd == IntPtr.Zero) hwnd = aliveProcess.MainWindowHandle;
             if (!showInDoorpiWhenForeground && hwnd != IntPtr.Zero && IsForegroundDoorpi())
             {
-                var session = GetExecutableAppSession(mediaUrl);
-                bool shouldTryFocus = session?.AddFocusedWindowHandle(hwnd) ?? true;
+                bool shouldTryFocus = targetSession?.AddFocusedWindowHandle(hwnd) ?? true;
                 if (shouldTryFocus)
                 {
                     FocusExternalWindow(hwnd);
                     _ = Dispatcher.BeginInvoke(async () =>
                     {
                         await Task.Delay(650);
-                        if (IsForegroundDoorpi() && FindAliveMediaExeProcess(mediaUrl, _mediaExeProcess) != null)
+                        if (IsActiveExecutableAppSession(targetSession) &&
+                            IsForegroundDoorpi() &&
+                            FindAliveMediaExeProcess(mediaUrl, targetSession?.Process) != null)
                             ShowExecutionLockForMediaExe(mediaUrl);
                     });
                     return false;
@@ -9870,8 +9919,9 @@ namespace Doorpi
                 string mediaUrl = ResolveMediaExecutableUrl(media, url);
                 ActivateExecutableAppSession(mediaUrl);
                 _mediaExeCurrentUrl = mediaUrl;
+                var executableSession = EnsureExecutableAppSession(mediaUrl);
 
-                var aliveProcess = FindAliveMediaExeProcess(mediaUrl, _mediaExeProcess);
+                var aliveProcess = FindAliveMediaExeProcess(mediaUrl, executableSession.Process);
                 string executablePath = ResolveMediaExecutablePath(media, mediaUrl);
 
                 if (emulator != null)
@@ -9883,7 +9933,7 @@ namespace Doorpi
                         return;
                     }
 
-                    _mediaExeProcess = aliveProcess;
+                    executableSession.Process = aliveProcess;
                     var restoredEmulator = await WaitForMediaExeWindowAsync(
                         mediaUrl,
                         emulator.Name,
@@ -9893,7 +9943,7 @@ namespace Doorpi
                     if (restoredEmulator.Process != null)
                     {
                         aliveProcess = restoredEmulator.Process;
-                        _mediaExeProcess = restoredEmulator.Process;
+                        executableSession.Process = restoredEmulator.Process;
                     }
 
                     IntPtr emulatorHwnd = restoredEmulator.Hwnd;
@@ -9913,18 +9963,18 @@ namespace Doorpi
                         FocusExternalWindow(emulatorHwnd);
                     }
 
-                    _mediaExeMouseModeRequested = false;
-                    _mediaExeMouseModeInitialized = true;
-                    _mediaExeGamepadDisabled = true;
-                    _mediaExeMouseInputTemporarilyDisabled = true;
-                    _mediaExeModeActive = true;
-                    _doorpiSuspendedForMedia = false;
-                    _mediaExeWatcherPaused = false;
-                    int emulatorSessionId = NextExecutableAppSessionId();
+                    executableSession.MouseModeRequested = false;
+                    executableSession.MouseModeInitialized = true;
+                    executableSession.GamepadDisabled = true;
+                    executableSession.MouseInputTemporarilyDisabled = true;
+                    executableSession.MouseModeActive = true;
+                    executableSession.DoorpiSuspended = false;
+                    executableSession.WatcherPaused = false;
+                    int emulatorSessionId = NextExecutableAppSessionId(executableSession);
 
-                    _mediaExeWatcherCts?.Cancel();
-                    _mediaExeWatcherCts = new CancellationTokenSource();
-                    StartMediaExeWatcher(aliveProcess, mediaUrl, emulator.Name, _mediaExeWatcherCts.Token);
+                    executableSession.WatcherCts?.Cancel();
+                    executableSession.WatcherCts = new CancellationTokenSource();
+                    StartMediaExeWatcher(aliveProcess, mediaUrl, emulator.Name, executableSession.WatcherCts.Token);
                     EnsureMediaExeShortcutThread(emulatorSessionId);
                     SendRuntimeSessionsToUI();
                     return;
@@ -9939,7 +9989,7 @@ namespace Doorpi
 
                 if (aliveProcess != null)
                 {
-                    _mediaExeProcess = aliveProcess;
+                    executableSession.Process = aliveProcess;
                     InitializeMediaExeProcessGroup(mediaUrl, aliveProcess, baselineBeforeLaunch, executablePath);
 
                     var restored = await RestoreMediaExeWindowWithFallbacksAsync(
@@ -9948,7 +9998,7 @@ namespace Doorpi
                     if (restored.Process != null)
                     {
                         aliveProcess = restored.Process;
-                        _mediaExeProcess = restored.Process;
+                        executableSession.Process = restored.Process;
                         try
                         {
                             var session = GetExecutableAppSession(mediaUrl);
@@ -9965,23 +10015,23 @@ namespace Doorpi
                         FocusExternalWindow(hwnd);
                     }
 
-                    InitializeMediaExeMouseModeForSession(media);
-                    _mediaExeGamepadDisabled = !_mediaExeMouseModeRequested;
-                    _doorpiSuspendedForMedia = false;
-                    _mediaExeWatcherPaused = false;
-                    int sessionId = NextExecutableAppSessionId();
+                    InitializeMediaExeMouseModeForSession(executableSession, media);
+                    executableSession.GamepadDisabled = !executableSession.MouseModeRequested;
+                    executableSession.DoorpiSuspended = false;
+                    executableSession.WatcherPaused = false;
+                    int sessionId = NextExecutableAppSessionId(executableSession);
 
-                    _mediaExeWatcherCts?.Cancel();
-                    _mediaExeWatcherCts = new CancellationTokenSource();
+                    executableSession.WatcherCts?.Cancel();
+                    executableSession.WatcherCts = new CancellationTokenSource();
                     StartMediaExeWatcher(
                         aliveProcess,
                         mediaUrl,
                         emulator?.Name ?? media?.Name ?? Path.GetFileNameWithoutExtension(executablePath) ?? "Aplicativo",
-                        _mediaExeWatcherCts.Token);
+                        executableSession.WatcherCts.Token);
 
                     EnsureMediaExeShortcutThread(sessionId);
 
-                    if (_mediaExeMouseModeRequested)
+                    if (executableSession.MouseModeRequested)
                         StartMediaExeMouseModeForSession(sessionId, centerCursor: false);
                 }
                 return;
@@ -15550,6 +15600,7 @@ namespace Doorpi
                                     string configuredCommand = ResolveMediaLaunchCommand(media, mediaUrl);
                                     string executablePath = ResolveMediaExecutablePath(media, mediaUrl);
                                     ActivateExecutableAppSession(mediaUrl);
+                                    var executableSession = EnsureExecutableAppSession(mediaUrl);
 
                                     string mediaName = media?.Name ?? "App";
                                     string heroImg = media?.HeroImage ?? "";
@@ -15558,10 +15609,9 @@ namespace Doorpi
                                     // -- JÃ¡ estÃ¡ rodando? Restaura em vez de relanÃ§ar -------------
                                     Process? existingProc = null;
 
-                                    if (_mediaExeProcess != null && !SafeHasExited(_mediaExeProcess) &&
-                                        string.Equals(_mediaExeCurrentUrl, mediaUrl, StringComparison.OrdinalIgnoreCase))
+                                    if (executableSession.Process != null && !SafeHasExited(executableSession.Process))
                                     {
-                                        existingProc = _mediaExeProcess;
+                                        existingProc = executableSession.Process;
                                     }
                                     else if (File.Exists(executablePath))
                                     {
@@ -15569,14 +15619,33 @@ namespace Doorpi
                                     }
                                     if (existingProc != null)
                                     {
-                                        IntPtr hwnd = FindVisibleWindowForProcess(existingProc.Id);
+                                        IntPtr hwnd = IntPtr.Zero;
+                                        if (TryFindMediaExeWindowCandidate(
+                                                executableSession,
+                                                mediaUrl,
+                                                mediaName,
+                                                allowNewWindowFallback: true,
+                                                out var windowProcess,
+                                                out var windowHandle) &&
+                                            windowProcess != null)
+                                        {
+                                            existingProc = windowProcess;
+                                            hwnd = windowHandle;
+                                        }
+
+                                        if (hwnd == IntPtr.Zero)
+                                        {
+                                            hwnd = FindVisibleWindowForProcess(existingProc.Id);
+                                            if (hwnd == IntPtr.Zero)
+                                                hwnd = FindAnyWindowForProcess(existingProc.Id);
+                                        }
 
                                         if (hwnd != IntPtr.Zero)
                                         {
-                                            _mediaExeModeActive = false;
+                                            executableSession.MouseModeActive = false;
 
-                                            InitializeMediaExeMouseModeForSession(media);
-                                            _mediaExeGamepadDisabled = !_mediaExeMouseModeRequested;
+                                            InitializeMediaExeMouseModeForSession(executableSession, media);
+                                            executableSession.GamepadDisabled = !executableSession.MouseModeRequested;
 
                                             // -- MÃGICA: Zera o temporizador de seguranÃ§a para pular os 3 segundos de carregamento artificial --
                                             _launchAnimationStartedUtc = DateTime.MinValue;
@@ -15587,26 +15656,30 @@ namespace Doorpi
                                             FocusExternalWindow(hwnd);
 
                                             // SEMPRE cancela e recria o watcher, pois o antigo deu return ao minimizar!
-                                            _mediaExeWatcherCts?.Cancel();
-                                            _mediaExeWatcherCts = new CancellationTokenSource();
-                                            _mediaExeProcess = existingProc;
-                                            _mediaExeCurrentUrl = mediaUrl;
+                                            executableSession.WatcherCts?.Cancel();
+                                            executableSession.WatcherCts = new CancellationTokenSource();
+                                            executableSession.Process = existingProc;
+                                            executableSession.Url = mediaUrl;
+                                            executableSession.DoorpiSuspended = false;
+                                            executableSession.WatcherPaused = false;
                                             InitializeMediaExeProcessGroup(mediaUrl, existingProc, executablePath: executablePath);
-                                            StartMediaExeWatcher(existingProc, mediaUrl, mediaName, _mediaExeWatcherCts.Token);
-                                            int sessionId = NextExecutableAppSessionId();
+                                            StartMediaExeWatcher(existingProc, mediaUrl, mediaName, executableSession.WatcherCts.Token);
+                                            int sessionId = NextExecutableAppSessionId(executableSession);
                                             EnsureMediaExeShortcutThread(sessionId);
 
                                             // Liga o modo controle novamente
-                                            if (_mediaExeMouseModeRequested)
+                                            if (executableSession.MouseModeRequested)
                                                 StartMediaExeMouseModeForSession(sessionId, centerCursor: true);
+
+                                            SendRuntimeSessionsToUI();
 
                                             return;
                                         }
                                     }
 
                                     // -- LanÃ§a um processo novo ------------------------------------
-                                    if (_mediaExeModeActive) _mediaExeModeActive = false;
-                                    _mediaExeWatcherCts?.Cancel();
+                                    executableSession.MouseModeActive = false;
+                                    executableSession.WatcherCts?.Cancel();
 
                                     Process? proc = null;
                                     HashSet<int>? baselineBeforeLaunch = SnapshotProcessIds();
@@ -15615,26 +15688,26 @@ namespace Doorpi
 
                                     if (proc != null || baselineBeforeLaunch != null)
                                     {
-                                        _mediaExeMouseModeRequested = ShouldStartMouseMode(media);
-                                        _mediaExeMouseModeInitialized = true;
-                                        _mediaExeGamepadDisabled = !_mediaExeMouseModeRequested;
+                                        executableSession.MouseModeRequested = ShouldStartMouseMode(media);
+                                        executableSession.MouseModeInitialized = true;
+                                        executableSession.GamepadDisabled = !executableSession.MouseModeRequested;
 
-                                        if (proc != null && _mediaExeMouseModeRequested)
+                                        if (proc != null && executableSession.MouseModeRequested)
                                         {
                                             EnterMediaExeMode(proc, mediaUrl, mediaName, heroImg, gridImg, baselineBeforeLaunch, executablePath);
                                         }
                                         else
                                         {
                                             SendGameLaunchStatus("gameLaunching", mediaName, heroImg, gridImg, "app");
-                                            _mediaExeWatcherCts = new CancellationTokenSource();
-                                            _mediaExeProcess = proc;
-                                            _mediaExeCurrentUrl = mediaUrl;
+                                            executableSession.WatcherCts = new CancellationTokenSource();
+                                            executableSession.Process = proc;
+                                            executableSession.Url = mediaUrl;
                                             InitializeMediaExeProcessGroup(mediaUrl, proc, baselineBeforeLaunch, executablePath);
-                                            _mediaExeWatcherPaused = false;
-                                            _doorpiSuspendedForMedia = false;
-                                            int sessionId = NextExecutableAppSessionId();
+                                            executableSession.WatcherPaused = false;
+                                            executableSession.DoorpiSuspended = false;
+                                            int sessionId = NextExecutableAppSessionId(executableSession);
 
-                                            StartMediaExeWatcher(proc, mediaUrl, mediaName, _mediaExeWatcherCts.Token);
+                                            StartMediaExeWatcher(proc, mediaUrl, mediaName, executableSession.WatcherCts.Token);
                                             EnsureMediaExeShortcutThread(sessionId);
                                         }
                                     }
@@ -17821,6 +17894,7 @@ namespace Doorpi
         private Thread? _mainUiGamepadThread;
         private volatile bool _mainUiGamepadActive = false;
         private volatile bool _mainUiGamepadSuspendedForGame = false;
+        private volatile bool _mainUiOwnsDirectionalNavigation = true;
         private long _mainUiGamepadSuppressUntilUtcTicks = 0;
         private IntPtr _mainWindowHandle = IntPtr.Zero;
         private bool IsDoorpiMainWindowForeground()
@@ -17868,6 +17942,7 @@ namespace Doorpi
 
         private void SuspendMainUiGamepadForGameLaunch(int milliseconds = 15000)
         {
+            _mainUiOwnsDirectionalNavigation = false;
             _mainUiGamepadSuspendedForGame = true;
             Interlocked.Exchange(ref _mainUiGamepadSuppressUntilUtcTicks,
                 DateTime.UtcNow.AddMilliseconds(milliseconds).Ticks);
@@ -18036,6 +18111,7 @@ namespace Doorpi
                     // unico dono da navegacao direcional. O JS continua responsavel
                     // apenas pelos botoes de acao, evitando dois movimentos por input.
                     bool executionLockOwnsMainUiInput = _executionLockActive && foregroundOk;
+                    bool mainUiOwnsDirectionalNavigation = _mainUiOwnsDirectionalNavigation && foregroundOk;
                     bool isLaunchingOrRunning = !executionLockOwnsMainUiInput &&
                         ((_gameSessionActive && !_gameIsMinimized)
                          || _mediaMouseActive
@@ -18044,7 +18120,10 @@ namespace Doorpi
                          || _systemControllerActive
                          || IsMainUiGamepadSuspendedForGame());
 
-                    if (_systemControllerActive || _dialogModeActive || _launcherMouseActive || !foregroundOk || isLaunchingOrRunning)
+                    if (_dialogModeActive ||
+                        !foregroundOk ||
+                        (!mainUiOwnsDirectionalNavigation &&
+                         (_systemControllerActive || _launcherMouseActive || isLaunchingOrRunning)))
                     {
                         // QUANDO O JOGO ESTÃ RODANDO
                         if (_gameSessionActive && !_gameIsMinimized)
@@ -18158,7 +18237,11 @@ namespace Doorpi
 
             // 3. Cancela as threads de monitoramento ativas
             _mainUiGamepadActive = false;
-            try { _mediaExeWatcherCts?.Cancel(); } catch { }
+            foreach (var session in _executableAppSessions.Values)
+            {
+                try { session.WatcherCts?.Cancel(); } catch { }
+                session.ControllerActive = false;
+            }
             try { lock (_gameLaunchMonitorLock) { _gameLaunchMonitorCts?.Cancel(); } } catch { }
 
             // 4. Limpa recursos de hardware (seu cÃ³digo original)
