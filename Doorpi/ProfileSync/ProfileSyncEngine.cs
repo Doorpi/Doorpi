@@ -14,7 +14,7 @@ public static class ProfileSyncSnapshotFactory
         ArgumentNullException.ThrowIfNull(history);
 
         List<CloudGameHistoryEntryV1> games = history
-            .Where(entry => !string.IsNullOrWhiteSpace(entry.Name))
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.Name) && entry.TotalPlaytimeMinutes >= 1)
             .GroupBy(entry => NormalizeGameKey(entry.Name), StringComparer.Ordinal)
             .Where(group => !string.IsNullOrWhiteSpace(group.Key))
             .Select(group => CreateGame(group.Key, group))
@@ -310,20 +310,36 @@ public static class ProfileSyncEngine
             localGames.TryGetValue(key, out CloudGameHistoryEntryV1? localGame);
             remoteGames.TryGetValue(key, out CloudGameHistoryEntryV1? remoteGame);
 
-            // O histórico é eterno: ausência nunca representa exclusão.
+            // Com ancestral comum, uma ausência pode representar exclusão explícita.
+            if (baseGame == null)
+            {
+                if (localGame == null && remoteGame == null) continue;
+                if (localGame == null) mergedGames.Add(CloneGame(remoteGame!));
+                else if (remoteGame == null) mergedGames.Add(CloneGame(localGame));
+                else mergedGames.Add(MergeGame(
+                    key,
+                    new CloudGameHistoryEntryV1 { GameKey = key },
+                    localGame,
+                    remoteGame,
+                    conflictPaths));
+                continue;
+            }
+
             if (localGame == null && remoteGame == null) continue;
             if (localGame == null)
             {
-                mergedGames.Add(CloneGame(remoteGame!));
+                if (GameContentEquals(baseGame, remoteGame!)) continue;
+                conflictPaths.Add($"games.{key}");
                 continue;
             }
             if (remoteGame == null)
             {
+                if (GameContentEquals(baseGame, localGame)) continue;
+                conflictPaths.Add($"games.{key}");
                 mergedGames.Add(CloneGame(localGame));
                 continue;
             }
 
-            baseGame ??= new CloudGameHistoryEntryV1 { GameKey = key };
             mergedGames.Add(MergeGame(key, baseGame, localGame, remoteGame, conflictPaths));
         }
 
@@ -705,6 +721,20 @@ public static class ProfileSyncEngine
             SteamGridGameId = game.SteamGridGameId
         };
 
+    private static bool GameContentEquals(
+        CloudGameHistoryEntryV1 left,
+        CloudGameHistoryEntryV1 right)
+        => string.Equals(left.GameKey ?? "", right.GameKey ?? "", StringComparison.Ordinal) &&
+           string.Equals(left.Name ?? "", right.Name ?? "", StringComparison.Ordinal) &&
+           left.TotalPlaytimeSeconds == right.TotalPlaytimeSeconds &&
+           left.LastSessionSeconds == right.LastSessionSeconds &&
+           NormalizeDate(left.FirstPlayedUtc) == NormalizeDate(right.FirstPlayedUtc) &&
+           NormalizeDate(left.LastPlayedUtc) == NormalizeDate(right.LastPlayedUtc) &&
+           string.Equals(left.ShowcaseVerticalImageUrl ?? "", right.ShowcaseVerticalImageUrl ?? "", StringComparison.Ordinal) &&
+           string.Equals(left.HistoryHorizontalImageUrl ?? "", right.HistoryHorizontalImageUrl ?? "", StringComparison.Ordinal) &&
+           string.Equals(left.ProfileBannerImageUrl ?? "", right.ProfileBannerImageUrl ?? "", StringComparison.Ordinal) &&
+           left.SteamGridGameId == right.SteamGridGameId;
+
     private static CloudProfilePhotoV1 ClonePhoto(CloudProfilePhotoV1 photo)
         => new()
         {
@@ -830,7 +860,7 @@ public static class ProfileSyncEngine
     private static Dictionary<string, CloudGameHistoryEntryV1> ToGameDictionary(
         IEnumerable<CloudGameHistoryEntryV1>? games)
         => (games ?? Array.Empty<CloudGameHistoryEntryV1>())
-            .Where(game => !string.IsNullOrWhiteSpace(game.GameKey))
+            .Where(game => !string.IsNullOrWhiteSpace(game.GameKey) && game.TotalPlaytimeSeconds >= 60)
             .GroupBy(game => game.GameKey, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
 

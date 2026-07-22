@@ -29,15 +29,84 @@ namespace Doorpi
             public CoreWebView2DownloadOperation? Operation { get; set; }
         }
 
+        private sealed class GenericBrowserSettings
+        {
+            public string DownloadFolder { get; set; } = "";
+        }
+
         private readonly List<GenericBrowserDownloadItem> _genericBrowserDownloads = new();
         private Popup? _genericBrowserDownloadsPopup;
         private Border? _genericBrowserDownloadsPanel;
         private TextBlock? _genericBrowserDownloadsBadge;
         private bool _genericBrowserDownloadsLoaded;
+        private bool _genericBrowserSettingsLoaded;
+        private bool _genericBrowserDownloadsSettingsOpen;
+        private string _genericBrowserConfiguredDownloadFolder = "";
         private long _genericBrowserDownloadLastRenderTicks;
 
         private static string GenericBrowserDownloadsHistoryPath =>
             Path.Combine(DoorpiPaths.DataFolder, "browser-downloads.json");
+
+        private static string GenericBrowserSettingsPath =>
+            Path.Combine(DoorpiPaths.DataFolder, "browser-settings.json");
+
+        private string GetGenericBrowserDownloadFolder()
+        {
+            LoadGenericBrowserSettings();
+            string configured = _genericBrowserConfiguredDownloadFolder;
+            string target = string.IsNullOrWhiteSpace(configured)
+                ? DefaultUserDownloadsFolder
+                : configured;
+            try
+            {
+                target = Path.GetFullPath(Environment.ExpandEnvironmentVariables(target));
+                Directory.CreateDirectory(target);
+                return target;
+            }
+            catch
+            {
+                return DefaultUserDownloadsFolder;
+            }
+        }
+
+        private void LoadGenericBrowserSettings()
+        {
+            if (_genericBrowserSettingsLoaded) return;
+            _genericBrowserSettingsLoaded = true;
+            try
+            {
+                if (!File.Exists(GenericBrowserSettingsPath)) return;
+                var settings = JsonSerializer.Deserialize<GenericBrowserSettings>(
+                    File.ReadAllText(GenericBrowserSettingsPath));
+                _genericBrowserConfiguredDownloadFolder = settings?.DownloadFolder?.Trim() ?? "";
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[DoorpiBrowser] Falha ao carregar configurações: " + ex.Message);
+            }
+        }
+
+        private void SaveGenericBrowserDownloadFolder(string folder)
+        {
+            string fullPath = Path.GetFullPath(Environment.ExpandEnvironmentVariables(folder));
+            if (!Directory.Exists(fullPath))
+                throw new DirectoryNotFoundException("A pasta selecionada não está disponível.");
+
+            _genericBrowserConfiguredDownloadFolder = fullPath;
+            _genericBrowserSettingsLoaded = true;
+            Directory.CreateDirectory(DoorpiPaths.DataFolder);
+            File.WriteAllText(
+                GenericBrowserSettingsPath,
+                JsonSerializer.Serialize(
+                    new GenericBrowserSettings { DownloadFolder = fullPath },
+                    new JsonSerializerOptions { WriteIndented = true }));
+            try
+            {
+                if (_ytWebView?.CoreWebView2?.Profile != null)
+                    _ytWebView.CoreWebView2.Profile.DefaultDownloadFolderPath = fullPath;
+            }
+            catch { }
+        }
 
         private object CreateGenericBrowserDownloadsButtonContent()
         {
@@ -258,9 +327,16 @@ namespace Doorpi
             if (_genericBrowserDownloadsPanel == null) return;
 
             LoadGenericBrowserDownloadHistory();
+            if (_genericBrowserDownloadsSettingsOpen)
+            {
+                RenderGenericBrowserDownloadSettings();
+                return;
+            }
+
             var root = new DockPanel();
             var header = new Grid { Margin = new Thickness(2, 0, 2, 14) };
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var heading = new StackPanel();
             heading.Children.Add(new TextBlock
@@ -292,11 +368,21 @@ namespace Doorpi
             };
             Grid.SetColumn(clear, 1);
             header.Children.Add(clear);
+
+            var settings = CreateGenericBrowserDownloadSettingsButton();
+            settings.Margin = new Thickness(8, 0, 0, 0);
+            settings.Click += (_, _) =>
+            {
+                _genericBrowserDownloadsSettingsOpen = true;
+                RenderGenericBrowserDownloadsPanel();
+            };
+            Grid.SetColumn(settings, 2);
+            header.Children.Add(settings);
             DockPanel.SetDock(header, Dock.Top);
             root.Children.Add(header);
 
             var footer = new Grid { Margin = new Thickness(0, 14, 0, 0) };
-            var openFolder = CreateGenericBrowserDownloadActionButton("Abrir pasta Downloads", true);
+            var openFolder = CreateGenericBrowserDownloadActionButton("Abrir pasta de downloads", true);
             openFolder.HorizontalAlignment = HorizontalAlignment.Stretch;
             openFolder.Click += (_, _) => OpenDoorpiDownloadInExplorer(UserDownloadsFolder);
             footer.Children.Add(openFolder);
@@ -328,6 +414,105 @@ namespace Doorpi
                 MaxHeight = 500,
                 Content = list
             });
+            _genericBrowserDownloadsPanel.Child = root;
+        }
+
+        private Button CreateGenericBrowserDownloadSettingsButton()
+        {
+            return new Button
+            {
+                Content = new TextBlock
+                {
+                    Text = "\uE713",
+                    FontFamily = new FontFamily("Segoe MDL2 Assets"),
+                    FontSize = 17,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                },
+                ToolTip = "Configurações de downloads",
+                Width = 36,
+                Height = 34,
+                Padding = new Thickness(0),
+                Foreground = Brushes.White,
+                Cursor = System.Windows.Input.Cursors.Hand,
+                Background = new SolidColorBrush(Color.FromRgb(47, 54, 69)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(50, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                Style = CreateBrowserToolbarButtonStyle()
+            };
+        }
+
+        private void RenderGenericBrowserDownloadSettings()
+        {
+            if (_genericBrowserDownloadsPanel == null) return;
+
+            var root = new DockPanel();
+            var header = new Grid { Margin = new Thickness(2, 0, 2, 18) };
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var back = CreateGenericBrowserDownloadActionButton("Voltar", false);
+            back.Margin = new Thickness(0, 0, 12, 0);
+            back.Click += (_, _) =>
+            {
+                _genericBrowserDownloadsSettingsOpen = false;
+                RenderGenericBrowserDownloadsPanel();
+            };
+            header.Children.Add(back);
+
+            var title = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            title.Children.Add(new TextBlock
+            {
+                Text = "Configurações de downloads",
+                Foreground = Brushes.White,
+                FontSize = 19,
+                FontWeight = FontWeights.Bold
+            });
+            title.Children.Add(new TextBlock
+            {
+                Text = "Escolha onde os novos arquivos serão salvos.",
+                Foreground = new SolidColorBrush(Color.FromRgb(164, 173, 189)),
+                FontSize = 11,
+                Margin = new Thickness(0, 3, 0, 0)
+            });
+            Grid.SetColumn(title, 1);
+            header.Children.Add(title);
+            DockPanel.SetDock(header, Dock.Top);
+            root.Children.Add(header);
+
+            var content = new StackPanel();
+            content.Children.Add(new TextBlock
+            {
+                Text = "Pasta atual",
+                Foreground = new SolidColorBrush(Color.FromRgb(180, 188, 201)),
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(2, 0, 2, 8)
+            });
+            var pathBorder = new Border
+            {
+                Padding = new Thickness(13, 11, 13, 11),
+                CornerRadius = new CornerRadius(9),
+                Background = new SolidColorBrush(Color.FromRgb(34, 40, 53)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(38, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                Child = new TextBlock
+                {
+                    Text = UserDownloadsFolder,
+                    Foreground = Brushes.White,
+                    FontSize = 13,
+                    TextWrapping = TextWrapping.Wrap
+                }
+            };
+            content.Children.Add(pathBorder);
+
+            var choose = CreateGenericBrowserDownloadActionButton("Escolher outra pasta", true);
+            choose.Height = 40;
+            choose.HorizontalAlignment = HorizontalAlignment.Stretch;
+            choose.Margin = new Thickness(0, 14, 0, 0);
+            choose.Click += (_, _) => ChooseGenericBrowserDownloadFolder();
+            content.Children.Add(choose);
+            root.Children.Add(content);
             _genericBrowserDownloadsPanel.Child = root;
         }
 
@@ -468,17 +653,54 @@ namespace Doorpi
         private static long NormalizeGenericBrowserDownloadTotal(ulong? total)
             => total.HasValue && total.Value <= long.MaxValue ? (long)total.Value : 0;
 
+        private async void ChooseGenericBrowserDownloadFolder()
+        {
+            if (!_isGenericBrowserMode || _ytClosing) return;
+
+            string currentFolder = UserDownloadsFolder;
+            CloseGenericBrowserDownloadsPopup();
+
+            string? selectedFolder = null;
+            try
+            {
+                selectedFolder = await ShowDoorpiFileBrowserAsync(
+                    "Selecionar pasta de downloads",
+                    selectFolder: true,
+                    source: "browserDownloadFolder",
+                    initialPath: currentFolder);
+                if (!string.IsNullOrWhiteSpace(selectedFolder))
+                    SaveGenericBrowserDownloadFolder(selectedFolder);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[DoorpiBrowser] Falha ao alterar pasta de downloads: " + ex.Message);
+            }
+            finally
+            {
+                RestoreGenericBrowserAfterDoorpiFileExplorerClose(() =>
+                {
+                    _genericBrowserDownloadsSettingsOpen = true;
+                    RenderGenericBrowserDownloadsPanel();
+                    OpenGenericBrowserDownloadsPopup();
+                });
+            }
+        }
+
         private void OpenDoorpiDownloadInExplorer(string path)
         {
             CloseGenericBrowserDownloadsPopup();
-            StopMediaControllerMode();
-            FocusDoorpiKeepSession();
-            Dispatcher.BeginInvoke(
-                () => OpenDoorpiFileExplorer(path, returnToBrowserOnClose: true),
-                System.Windows.Threading.DispatcherPriority.ContextIdle);
+            try
+            {
+                OpenDoorpiFileExplorer(path, returnToBrowserOnClose: true);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[DoorpiBrowser] Falha ao abrir explorador sobre o browser: " + ex.Message);
+                RestoreGenericBrowserAfterDoorpiFileExplorerClose();
+            }
         }
 
-        private void RestoreGenericBrowserAfterDoorpiFileExplorerClose()
+        private void RestoreGenericBrowserAfterDoorpiFileExplorerClose(Action? afterRestore = null)
         {
             Dispatcher.BeginInvoke(() =>
             {
@@ -488,6 +710,20 @@ namespace Doorpi
 
                 try
                 {
+                    // FocusDoorpiKeepSession retoma a Home para hospedar o seletor.
+                    // Ao voltar ao browser, devolva a posse exclusiva do controle ao
+                    // modo de midia antes de tornar sua janela interativa novamente.
+                    SuspendMainUiGamepadForGameLaunch();
+                    RequestMediaMouseInputAbort();
+                    ReleaseAllStuckKeys();
+                    Interlocked.Increment(ref _genericBrowserVkbOpenRequestId);
+                    _genericBrowserControllerInputUntilUtc = DateTime.MinValue;
+                    try { _desktopVkb?.StopHold(); } catch { }
+                    try { _desktopVkb?.Close(); } catch { }
+                    _desktopVkb = null;
+                    ClearGenericBrowserKeyboardStateForControllerAbort();
+                    _ = TrySuspendDoorpiHomeWebViewAsync();
+
                     if (browserWindow.WindowState == WindowState.Minimized)
                         browserWindow.WindowState = WindowState.Maximized;
                     browserWindow.Show();
@@ -495,8 +731,10 @@ namespace Doorpi
                         WindowState = WindowState.Minimized;
                     browserWindow.Activate();
                     _ytWebView?.Focus();
+                    _ = _ytWebView?.CoreWebView2?.ExecuteScriptAsync("try{window.focus();}catch(e){}");
                     StartMediaControllerMode();
                     EnsureCursorVisible();
+                    afterRestore?.Invoke();
                 }
                 catch { }
             }, System.Windows.Threading.DispatcherPriority.ContextIdle);

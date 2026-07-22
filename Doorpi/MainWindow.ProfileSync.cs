@@ -97,9 +97,12 @@ public partial class MainWindow
         {
             try
             {
-                List<GameHistoryEntry> history =
+                List<GameHistoryEntry> loaded =
                     JsonSerializer.Deserialize<List<GameHistoryEntry>>(SafeReadAllText(path)) ?? new();
-                bool changed = false;
+                List<GameHistoryEntry> history = loaded
+                    .Where(entry => !string.IsNullOrWhiteSpace(entry.Name) && entry.TotalPlaytimeMinutes >= 1)
+                    .ToList();
+                bool changed = history.Count != loaded.Count;
                 foreach (GameHistoryEntry entry in history)
                 {
                     if (string.IsNullOrWhiteSpace(entry.ShowcaseVerticalImageUrl) &&
@@ -685,7 +688,9 @@ public partial class MainWindow
             var previousByKey = previous
                 .GroupBy(entry => ProfileSyncSnapshotFactory.NormalizeGameKey(entry.Name))
                 .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
-            List<GameHistoryEntry> appliedHistory = remote.Games.Select(game =>
+            List<GameHistoryEntry> appliedHistory = remote.Games
+                .Where(game => game.TotalPlaytimeSeconds >= 60)
+                .Select(game =>
             {
                 previousByKey.TryGetValue(game.GameKey, out GameHistoryEntry? old);
                 return new GameHistoryEntry
@@ -719,6 +724,13 @@ public partial class MainWindow
                     Source = old?.Source ?? ""
                 };
             }).ToList();
+
+            HashSet<string> removedHistoryKeys = previousByKey.Keys
+                .Except(
+                    appliedHistory.Select(entry => ProfileSyncSnapshotFactory.NormalizeGameKey(entry.Name)),
+                    StringComparer.Ordinal)
+                .ToHashSet(StringComparer.Ordinal);
+            ResetLibraryPlaytimeForDeletedHistory(profileId, removedHistoryKeys);
 
             string historyPath = Path.Combine(dataFolder, "users", profileId, "game-history.json");
             SafeWriteAllText(historyPath, JsonSerializer.Serialize(appliedHistory, IndentedJsonOptions));

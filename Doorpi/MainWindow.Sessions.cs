@@ -147,7 +147,7 @@ namespace Doorpi
             public bool IsClosing;
             public bool IsYouTube;
             public bool CanUseXInputEx = true;
-            public bool MouseActive;
+            public volatile bool MouseActive;
             public bool VkbIsOpen;
             public bool VkbHasFocus;
             public volatile WebView2? VkbOwnerView;

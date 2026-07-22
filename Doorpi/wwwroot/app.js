@@ -10128,14 +10128,15 @@ function renderFolderList(folders) {
             id: card.dataset.id || '',
             channel: card.dataset.channel || '',
             updaterId: card.dataset.updaterId || '',
-            deviceId: card.dataset.deviceId || ''
+            deviceId: card.dataset.deviceId || '',
+            historyGameName: card.dataset.historyGameName || ''
         };
     }
 
     function _findCtxReturnCard(key) {
         if (!key) return null;
         const root = key.gridId ? document.getElementById(key.gridId) : document;
-        const cards = Array.from((root || document).querySelectorAll('.card, [data-gpu-updater-card="true"], [data-bluetooth-device-card="true"]'));
+        const cards = Array.from((root || document).querySelectorAll('.card, [data-gpu-updater-card="true"], [data-bluetooth-device-card="true"], [data-history-game-name]'));
         return cards.find(card => {
             if (key.gameId && card.dataset.gameId === key.gameId) return true;
             if (key.appId && card.dataset.appId === key.appId) return true;
@@ -10143,6 +10144,7 @@ function renderFolderList(folders) {
             if (key.id && card.dataset.id === key.id) return true;
             if (key.updaterId && card.dataset.updaterId === key.updaterId) return true;
             if (key.deviceId && card.dataset.deviceId === key.deviceId) return true;
+            if (key.historyGameName && card.dataset.historyGameName === key.historyGameName) return true;
             return false;
         }) || null;
     }
@@ -10194,6 +10196,7 @@ function renderFolderList(folders) {
             .some(id => String(id).toLowerCase() === 'youtube');
         const isGpuUpdaterCard = card.dataset.gpuUpdaterCard === 'true';
         const isBluetoothDeviceCard = card.dataset.bluetoothDeviceCard === 'true';
+        const isHistoryCard = !!card.dataset.historyGameName;
         _ctxMenu.classList.toggle('gpu-updater-context', isGpuUpdaterCard);
         _ctxMenu.classList.toggle('bluetooth-device-context', isBluetoothDeviceCard);
 
@@ -10208,6 +10211,8 @@ function renderFolderList(folders) {
         const ctxStoreAutoAddText = _ctxMenu.querySelector('#ctxStoreAutoAddText');
         const storeId = card.dataset.appId || card.dataset.id || card.dataset.appUrl || '';
         const isRunning = window.isCardRuntimeRunning?.(card) === true;
+        const ctxEditText = ctxEditBtn?.querySelector('[data-i18n], span:last-child');
+        if (ctxEditText) ctxEditText.textContent = t('ctxEditName');
         if (ctxRuntimeBtn && ctxRuntimeText) {
             ctxRuntimeBtn.classList.toggle('ctx-danger', isRunning);
             ctxRuntimeText.textContent = isGpuUpdaterCard
@@ -10268,7 +10273,25 @@ function renderFolderList(folders) {
             _ctxMenu.appendChild(ctxCloseBtn);
         }
 
-        if (isBluetoothDeviceCard) {
+        if (isHistoryCard) {
+            if (ctxRuntimeBtn) ctxRuntimeBtn.style.display = 'none';
+            if (ctxStoreGamepadBtn) ctxStoreGamepadBtn.style.display = 'none';
+            if (ctxStoreAutoAddBtn) ctxStoreAutoAddBtn.style.display = 'none';
+            if (ctxEditBtn) {
+                ctxEditBtn.style.display = 'flex';
+                const text = ctxEditBtn.querySelector('[data-i18n], span:last-child');
+                if (text) text.textContent = t('historyContextArtwork');
+            }
+            if (ctxExtensionsBtn) ctxExtensionsBtn.style.display = 'none';
+            if (ctxSharingBtn) ctxSharingBtn.style.display = 'none';
+            if (ctxDeleteBtn) {
+                ctxDeleteBtn.style.display = 'flex';
+                const text = ctxDeleteBtn.querySelector('[data-i18n], span:last-child');
+                if (text) text.textContent = t('historyContextDelete');
+            }
+            ctxCloseBtn.style.display = 'none';
+            _ctxMenu.querySelector('#ctxGameName').textContent = card.dataset.historyGameName;
+        } else if (isBluetoothDeviceCard) {
             if (ctxRuntimeBtn) ctxRuntimeBtn.style.display = 'flex';
             if (ctxStoreGamepadBtn) ctxStoreGamepadBtn.style.display = 'none';
             if (ctxStoreAutoAddBtn) ctxStoreAutoAddBtn.style.display = 'none';
@@ -10337,7 +10360,9 @@ function renderFolderList(folders) {
             _ctxMenu.classList.add('visible');
             isCtxMenuOpen = true;
 
-            ctxRuntimeBtn?.focus();
+            const firstVisibleItem = Array.from(_ctxMenu.querySelectorAll('.ctx-item'))
+                .find(item => _isCtxItemVisible(item));
+            firstVisibleItem?.focus();
         });
     }
     function _closeCtxMenu(options = {}) {
@@ -10367,7 +10392,12 @@ function renderFolderList(folders) {
 
     document.getElementById('ctxEdit').addEventListener('click', () => {
         const card = _ctxCard; _closeCtxMenu({ restoreFocus: false });
-        if (card) openEditGameModal(card);
+        if (!card) return;
+        if (card.dataset.historyGameName) {
+            window._navMenuEditHistoryArtwork?.(card);
+            return;
+        }
+        openEditGameModal(card);
     });
 
     document.getElementById('ctxExtensions').addEventListener('click', () => {
@@ -10474,6 +10504,10 @@ function renderFolderList(folders) {
         }
         if (card.dataset.bluetoothDeviceCard === 'true') {
             window.DoorpiBluetoothUI?.remove?.(card.dataset.deviceId || '');
+            return;
+        }
+        if (card.dataset.historyGameName) {
+            window._navMenuDeleteHistory?.(card);
             return;
         }
         _executeDelete(card);

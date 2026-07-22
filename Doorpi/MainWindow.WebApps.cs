@@ -205,7 +205,7 @@ namespace Doorpi
             public bool IsLoading { get; set; }
         }
 
-        private static string UserDownloadsFolder
+        private static string DefaultUserDownloadsFolder
         {
             get
             {
@@ -216,6 +216,8 @@ namespace Doorpi
                     : downloads;
             }
         }
+
+        private string UserDownloadsFolder => GetGenericBrowserDownloadFolder();
 
         private static string NormalizeGenericBrowserInput(string input)
         {
@@ -714,15 +716,15 @@ namespace Doorpi
         {
             Dispatcher.Invoke(() =>
             {
+                var ownerView = _vkbOwnerView ?? _ytWebView;
                 if (key == "CANCEL")
                 {
                     CloseGenericBrowserKeyboard(true);
-                    _ytWebView?.Focus();
+                    ownerView?.Focus();
                     return;
                 }
 
                 string json = System.Text.Json.JsonSerializer.Serialize(key);
-                var ownerView = _vkbOwnerView ?? _ytWebView;
                 _ = ownerView?.CoreWebView2?.ExecuteScriptAsync($"try{{window.__doorpiNativeVkbKey?.({json});}}catch(e){{}}");
                 if (key == "ENTER")
                 {
@@ -816,7 +818,7 @@ namespace Doorpi
           
             Dispatcher.Invoke(() => CloseGenericBrowserExtensionsPopup());
         }
-        private Grid BuildGenericBrowserShell(WebView2 browser)
+        private Grid BuildGenericBrowserShell(WebView2 browser, string appName, string logoImg)
         {
             browser.PreviewMouseDown += (_, _) =>
             {
@@ -1010,6 +1012,14 @@ namespace Doorpi
 
             Grid.SetRow(browser, 1);
             shell.Children.Add(browser);
+
+            _webAppLoadingOverlay = BuildWebAppLoadingOverlay(appName, logoImg);
+            Grid.SetRowSpan(_webAppLoadingOverlay, 2);
+            Panel.SetZIndex(_webAppLoadingOverlay, 100);
+            shell.Children.Add(_webAppLoadingOverlay);
+            _webAppLoadingActive = true;
+            _webAppLoadingReleaseStarted = false;
+            _webAppLoadingStartedAtUtc = DateTime.UtcNow;
 
             _genericBrowserWidgetsPanel = new Border
             {
@@ -2279,13 +2289,30 @@ namespace Doorpi
 
         private void StartMediaControllerMode()
         {
-            if (_mediaControllerThread?.IsAlive == true)
-            {
-                LogMediaControllerDiagnostic("media-controller-start-skip-alive");
-                return;
-            }
             ResetWebKeyboardBackState(suppressUntilPhysicalRelease: IsWebKeyboardBackPhysicallyDown());
             _mediaMouseActive = true;
+
+            if (_mediaControllerThread?.IsAlive == true)
+            {
+                // StopMediaControllerMode pode ter desligado o sinal enquanto a thread
+                // ainda encerrava a iteracao atual. Reative-o antes de reutilizar a
+                // thread, evitando devolver o controle direcional ao loop da Home.
+                LogMediaControllerDiagnostic("media-controller-start-reactivate-alive");
+                Thread reusedThread = _mediaControllerThread;
+                _ = Task.Run(() => reusedThread.Join(350)).ContinueWith(joinTask =>
+                {
+                    if (joinTask.Status != TaskStatus.RanToCompletion || !joinTask.Result)
+                        return;
+
+                    _ = Dispatcher.BeginInvoke(() =>
+                    {
+                        if (_mediaMouseActive && ReferenceEquals(_mediaControllerThread, reusedThread))
+                            StartMediaControllerMode();
+                    });
+                }, TaskScheduler.Default);
+                return;
+            }
+
             LogMediaControllerDiagnostic("media-controller-start");
             _mediaControllerThread = new Thread(MediaControllerLoop) { IsBackground = true };
             _mediaControllerThread.Start();
@@ -2990,6 +3017,58 @@ namespace Doorpi
                     // loop, including YouTube's hold-to-close gesture.
                     bool useJavaScriptCloseHold = false;
 
+                    if (_doorpiFileBrowserSession?.HostedInBrowser == true && !vkbInputVisible)
+                    {
+                        if (currentNavDirBtn == 0)
+                        {
+                            if (input.ThumbLY > mergedDeadZone) { currentNavDirBtn = XI_DPAD_UP; currentNavVk = 0x26; }
+                            else if (input.ThumbLY < -mergedDeadZone) { currentNavDirBtn = XI_DPAD_DOWN; currentNavVk = 0x28; }
+                            else if (input.ThumbLX < -mergedDeadZone) { currentNavDirBtn = XI_DPAD_LEFT; currentNavVk = 0x25; }
+                            else if (input.ThumbLX > mergedDeadZone) { currentNavDirBtn = XI_DPAD_RIGHT; currentNavVk = 0x27; }
+                        }
+
+                        if (currentNavDirBtn != 0)
+                        {
+                            if (currentNavDirBtn != webNavLastDir)
+                            {
+                                webNavLastDir = currentNavDirBtn;
+                                webNavDirStartMs = nowMs;
+                                webNavDirLastRepeat = nowMs;
+                                SendMediaVirtualKey(currentNavVk);
+                            }
+                            else if ((nowMs - webNavDirStartMs) > WEB_NAV_INITIAL_MS &&
+                                     (nowMs - webNavDirLastRepeat) > WEB_NAV_REPEAT_MS)
+                            {
+                                webNavDirLastRepeat = nowMs;
+                                SendMediaVirtualKey(currentNavVk);
+                            }
+                        }
+                        else
+                        {
+                            webNavLastDir = 0;
+                        }
+
+                        if (anyAPressed) SendMediaVirtualKey(0x0D);
+                        if (anyBPressed) SendMediaVirtualKey(0x1B);
+                        if (anyXPressed) SendMediaVirtualKey(0x58);
+                        if (anyYPressed) SendMediaVirtualKey(0x59);
+                        if (anyStartPressed)
+                        {
+                            _ = Dispatcher.BeginInvoke(() =>
+                            {
+                                try
+                                {
+                                    _ = DoorpiFileBrowserCore?.ExecuteScriptAsync(
+                                        "try{window.DoorpiFileBrowser?.confirm?.();}catch(e){}");
+                                }
+                                catch { }
+                            });
+                        }
+
+                        Thread.Sleep(10);
+                        continue;
+                    }
+
                     if (!vkbInputVisible && !useJavaScriptCloseHold)
                     {
                         if (anyBPressed)
@@ -3536,7 +3615,33 @@ namespace Doorpi
             if (!isYouTube && !isUtility)
                 return;
 
-            core.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
+            if (isYouTube)
+            {
+                // Não faça round-trip pelo processo host para segmentos de áudio e
+                // vídeo. Os anúncios do player são removidos na resposta youtubei;
+                // interceptar Media apenas atrasa o primeiro carregamento do player.
+                CoreWebView2WebResourceContext[] filteredContexts =
+                {
+                    CoreWebView2WebResourceContext.Document,
+                    CoreWebView2WebResourceContext.Stylesheet,
+                    CoreWebView2WebResourceContext.Image,
+                    CoreWebView2WebResourceContext.Font,
+                    CoreWebView2WebResourceContext.Script,
+                    CoreWebView2WebResourceContext.XmlHttpRequest,
+                    CoreWebView2WebResourceContext.Fetch,
+                    CoreWebView2WebResourceContext.TextTrack,
+                    CoreWebView2WebResourceContext.EventSource,
+                    CoreWebView2WebResourceContext.Manifest,
+                    CoreWebView2WebResourceContext.Ping,
+                    CoreWebView2WebResourceContext.Other
+                };
+                foreach (CoreWebView2WebResourceContext context in filteredContexts)
+                    core.AddWebResourceRequestedFilter("*", context);
+            }
+            else
+            {
+                core.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
+            }
             core.WebResourceRequested += YtOnWebResourceRequested;
         }
 
@@ -6768,7 +6873,7 @@ namespace Doorpi
 
                 if (isGenericBrowser)
                 {
-                    var browserShell = BuildGenericBrowserShell(_ytWebView);
+                    var browserShell = BuildGenericBrowserShell(_ytWebView, appName, logoImg);
                     AttachWebAppCloseHoldOverlay(browserShell);
                     _webAppWindow.Content = browserShell;
                 }
@@ -6850,6 +6955,13 @@ namespace Doorpi
                 LogWebViewSiteDiagnostic($"user-agent mode=native value={TruncateForLog(nativeUserAgent)}");
             }
             ApplyProductionWebViewSettings(_ytWebView.CoreWebView2, allowDefaultContextMenus: true);
+            if (isYouTube)
+            {
+                // Mantido restrito ao YouTube TV para diagnosticar e ajustar os
+                // patches de layout sem liberar DevTools nos demais Web Apps.
+                _ytWebView.CoreWebView2.Settings.AreDevToolsEnabled = true;
+                _ytWebView.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = true;
+            }
 
             if (isGenericBrowser)
             {
@@ -6932,7 +7044,6 @@ namespace Doorpi
                 await YtInjectGamepadAsync(_ytWebView.CoreWebView2);
                 await YtInjectZoomHackAsync(_ytWebView.CoreWebView2);
                 await YtInjectForceUserSelectionAsync(_ytWebView.CoreWebView2);
-                await YtInjectUltrawideFixAsync(_ytWebView.CoreWebView2);
                 await YtInjectPlayerBackgroundAsync(_ytWebView.CoreWebView2);
                 await YtInjectTitleTrackerAsync(_ytWebView.CoreWebView2);
                 _ytWebView.ZoomFactor = 0.3;
@@ -6957,6 +7068,7 @@ namespace Doorpi
                         _ytWebView.CoreWebView2.DocumentTitle ?? _genericBrowserActiveTab.Title,
                         isLoading: false);
                     Dispatcher.Invoke(UpdateGenericBrowserChrome);
+
                 }
                 // Utilitários (SteamGridDB, Chrome Web Store): garante cursor visível após qualquer navegação
                 if (isUtility)
@@ -7001,7 +7113,12 @@ namespace Doorpi
                     await InjectInstalledExtensionsAsync(_ytWebView.CoreWebView2);
             };
 
-            if (_mainScreenMouseVisible)
+            if (isYouTube)
+            {
+                EnsureCursorVisible();
+                _mainScreenMouseVisible = true;
+            }
+            else if (_mainScreenMouseVisible)
             {
                 EnsureCursorHidden();
                 _mainScreenMouseVisible = false;
@@ -7013,6 +7130,8 @@ namespace Doorpi
                 _ytWebView.Focus();
 
             StartMediaControllerMode();
+            if (isGenericBrowser)
+                _ = PrewarmDoorpiFileBrowserOverlayAsync();
             SendRuntimeSessionsToUI();
         }
         private static async Task YtInjectTitleTrackerAsync(CoreWebView2 cw)
@@ -7116,6 +7235,9 @@ namespace Doorpi
             if (_genericBrowserKeyboardTarget != GenericBrowserKeyboardTarget.None)
                 CloseGenericBrowserKeyboard(false);
 
+            if (_doorpiFileBrowserSession?.HostedInBrowser == true)
+                CloseDoorpiFileBrowser(_doorpiFileBrowserSession, null);
+
             var webAppWindow = _webAppWindow;
             _webAppWindow = null;
             try
@@ -7175,6 +7297,17 @@ namespace Doorpi
             _genericBrowserDownloadsPopup = null;
             _genericBrowserDownloadsPanel = null;
             _genericBrowserDownloadsBadge = null;
+            _genericBrowserDownloadsSettingsOpen = false;
+            try { _doorpiFileBrowserOverlayView?.Dispose(); } catch { }
+            if (_doorpiFileBrowserOverlayWindow != null)
+            {
+                try { _doorpiFileBrowserOverlayWindow.Content = null; } catch { }
+                try { _doorpiFileBrowserOverlayWindow.Close(); } catch { }
+            }
+            _doorpiFileBrowserOverlayView = null;
+            _doorpiFileBrowserOverlayWindow = null;
+            _doorpiFileBrowserOverlayInitTask = null;
+            _doorpiFileBrowserImageResourceCores.Clear();
             _genericBrowserWidgetsPanel = null;
             _genericBrowserWidgetsPopup = null;
             _webAppLoadingOverlay = null;
@@ -7262,6 +7395,17 @@ namespace Doorpi
 
         private void YtOnKeyDown(object sender, KeyEventArgs e)
         {
+            if (e.Key == Key.F12 && _isCurrentSiteYouTube)
+            {
+                try { _ytWebView?.CoreWebView2?.OpenDevToolsWindow(); }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[YouTubeTV] Falha ao abrir DevTools: " + ex.Message);
+                }
+                e.Handled = true;
+                return;
+            }
+
             if (e.Key == Key.Home)
             {
                 Interlocked.Exchange(ref _webKeyboardHomeRequested, 1);
@@ -7669,11 +7813,26 @@ namespace Doorpi
     }
 
     const origParse = JSON.parse;
+    function containsAdMarkers(raw) {
+        if (typeof raw !== 'string' || raw.length < 16) return false;
+        return /adPlacements|adSlots|playerAds|adBreakHeartbeatParams|tvMastheadAdRenderer|adSlotRenderer|promoShelfRenderer|brandVideoSingletonRenderer|statementBannerRenderer/.test(raw);
+    }
+
+    // O bootstrap inicial do YouTube pode entregar player ads antes de qualquer
+    // fetch/XHR observável. Inspecione apenas JSON que já contenha uma assinatura
+    // explícita de anúncio; os demais parses não pagam o custo da árvore recursiva.
     JSON.parse = function() {
-        let res = origParse.apply(this, arguments);
-        try { if (res) processJSON(res); } catch(e) {}
-        return res;
+        const raw = arguments[0];
+        const result = origParse.apply(this, arguments);
+        if (containsAdMarkers(raw)) {
+            try { processJSON(result); } catch(e) {}
+        }
+        return result;
     };
+
+    function shouldCleanResponse(url) {
+        return /\/youtubei\/v1\/(player|browse|next|search|guide)(?:[/?]|$)/i.test(url || '');
+    }
 
     const origFetch = window.fetch;
     if (origFetch) {
@@ -7682,9 +7841,11 @@ namespace Doorpi
             if (url.includes('/youtubei/v1/') && args[1] && typeof args[1].body === 'string')
                 args[1].body = overrideClientPayload(args[1].body);
             const res = await origFetch.apply(this, args);
-            if (url.includes('/youtubei/v1/')) {
+            if (shouldCleanResponse(url)) {
                 try {
-                    const json = await res.clone().json();
+                    // Use o parser original para que a barreira global acima não
+                    // processe a mesma resposta clonada duas vezes.
+                    const json = origParse(await res.clone().text());
                     if (processJSON(json))
                         return new Response(JSON.stringify(json), {
                             status: res.status, statusText: res.statusText, headers: res.headers
@@ -7705,7 +7866,7 @@ namespace Doorpi
         if (this._reqUrl && this._reqUrl.includes('/youtubei/v1/') && typeof body === 'string')
             body = overrideClientPayload(body);
         this.addEventListener('readystatechange', function() {
-            if (this.readyState === 4 && this._reqUrl.includes('/youtubei/v1/') && !this._doorpiCleaned) {
+            if (this.readyState === 4 && shouldCleanResponse(this._reqUrl) && !this._doorpiCleaned) {
                 try {
                     let isJson = this.responseType === 'json';
                     let data = isJson ? this.response : origParse(this.responseText);

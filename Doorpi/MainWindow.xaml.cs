@@ -262,6 +262,9 @@ namespace Doorpi
         private readonly object _watchedFolderRefreshScheduleLock = new();
         private CancellationTokenSource? _watchedFolderRefreshScheduleCts;
         private bool _watchedFolderRefreshRunning;
+        private bool _watchedFolderRefreshPendingAfterRun;
+        private string _watchedFolderRefreshPendingReason = "";
+        private int _watchedFolderRefreshPendingDelayMs = 1400;
         private DateTime _lastWatchedFolderRefreshCompletedUtc = DateTime.MinValue;
 
         private bool _mainScreenMouseVisible = false;
@@ -11813,18 +11816,30 @@ namespace Doorpi
             }
         }
 
-        private void ScheduleWatchedFolderRefresh(string reason)
+        private void ScheduleWatchedFolderRefresh(
+            string reason,
+            int delayMs = 1400,
+            bool requireAfterRunning = false)
         {
             CancellationTokenSource scheduleCts;
             lock (_watchedFolderRefreshScheduleLock)
             {
                 if (_watchedFolderRefreshRunning)
                 {
+                    if (requireAfterRunning)
+                    {
+                        _watchedFolderRefreshPendingAfterRun = true;
+                        _watchedFolderRefreshPendingReason = reason;
+                        _watchedFolderRefreshPendingDelayMs = Math.Min(
+                            _watchedFolderRefreshPendingDelayMs,
+                            Math.Max(0, delayMs));
+                    }
                     Debug.WriteLine($"[WatchedFolders] Varredura já ativa; gatilho agrupado: {reason}.");
                     return;
                 }
 
-                if ((DateTime.UtcNow - _lastWatchedFolderRefreshCompletedUtc).TotalSeconds < 8)
+                if (!requireAfterRunning &&
+                    (DateTime.UtcNow - _lastWatchedFolderRefreshCompletedUtc).TotalSeconds < 8)
                 {
                     Debug.WriteLine($"[WatchedFolders] Varredura recente; gatilho ignorado: {reason}.");
                     return;
@@ -11839,16 +11854,20 @@ namespace Doorpi
                 _watchedFolderRefreshScheduleCts = scheduleCts;
             }
 
-            _ = RunScheduledWatchedFolderRefreshAsync(scheduleCts, reason);
+            _ = RunScheduledWatchedFolderRefreshAsync(
+                scheduleCts,
+                reason,
+                Math.Max(0, delayMs));
         }
 
         private async Task RunScheduledWatchedFolderRefreshAsync(
             CancellationTokenSource scheduleCts,
-            string reason)
+            string reason,
+            int delayMs)
         {
             try
             {
-                await Task.Delay(1400, scheduleCts.Token).ConfigureAwait(false);
+                await Task.Delay(delayMs, scheduleCts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -11876,12 +11895,53 @@ namespace Doorpi
             }
             finally
             {
+                bool runPending;
+                string pendingReason;
+                int pendingDelayMs;
                 lock (_watchedFolderRefreshScheduleLock)
                 {
                     _watchedFolderRefreshRunning = false;
                     _lastWatchedFolderRefreshCompletedUtc = DateTime.UtcNow;
+                    runPending = _watchedFolderRefreshPendingAfterRun;
+                    pendingReason = _watchedFolderRefreshPendingReason;
+                    pendingDelayMs = _watchedFolderRefreshPendingDelayMs;
+                    _watchedFolderRefreshPendingAfterRun = false;
+                    _watchedFolderRefreshPendingReason = "";
+                    _watchedFolderRefreshPendingDelayMs = 1400;
                 }
                 scheduleCts.Dispose();
+                if (runPending)
+                {
+                    ScheduleWatchedFolderRefresh(
+                        pendingReason,
+                        pendingDelayMs,
+                        requireAfterRunning: true);
+                }
+            }
+        }
+
+        private async Task ReconcileMissingWatchedFolderGamesAfterFileOperationAsync()
+        {
+            List<GameModel> removedGames = new();
+            try
+            {
+                await _cacheLock.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    removedGames.AddRange(await Task.Run(ReconcileMissingWatchedFolderGames)
+                        .ConfigureAwait(false));
+                }
+                finally
+                {
+                    _cacheLock.Release();
+                }
+
+                if (removedGames.Count > 0)
+                    PublishRemovedGamesToUI(removedGames);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[WatchedFolders] Falha na reconciliação imediata: " + ex.Message);
             }
         }
 
@@ -14707,6 +14767,29 @@ namespace Doorpi
                         });
                     }
                 }
+                else if (action == "deleteGameHistory")
+                {
+                    string gameName = GetStr(root, "gameName");
+                    string profileId = currentUserId;
+                    if (!string.IsNullOrWhiteSpace(gameName) && !string.IsNullOrWhiteSpace(profileId))
+                    {
+                        _ = Task.Run(() =>
+                        {
+                            bool removed = DeleteGameHistoryEntry(profileId, gameName);
+                            Dispatcher.Invoke(() =>
+                            {
+                                if (removed) LoadGamesIntoUI();
+                                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                                {
+                                    type = "gameHistoryDeleted",
+                                    profileId,
+                                    gameName,
+                                    removed
+                                }));
+                            });
+                        });
+                    }
+                }
                 else if (await TryHandleEmulatorMessageAsync(action, root))
                 {
                 }
@@ -16383,6 +16466,88 @@ namespace Doorpi
             return Task.FromResult(patch);
         }
 
+        private bool DeleteGameHistoryEntry(string profileId, string gameName)
+        {
+            string key = NormalizeGameName(gameName);
+            if (string.IsNullOrWhiteSpace(key)) return false;
+
+            lock (_gameHistoryFileLock)
+            {
+                string historyPath = Path.Combine(dataFolder, "users", profileId, "game-history.json");
+                List<GameHistoryEntry> history;
+                try
+                {
+                    history = File.Exists(historyPath)
+                        ? JsonSerializer.Deserialize<List<GameHistoryEntry>>(SafeReadAllText(historyPath)) ?? new()
+                        : new List<GameHistoryEntry>();
+                }
+                catch
+                {
+                    return false;
+                }
+
+                int previousCount = history.Count;
+                history.RemoveAll(entry =>
+                    NormalizeGameName(entry.Name) == key);
+                if (history.Count == previousCount) return false;
+
+                string json = JsonSerializer.Serialize(history, IndentedJsonOptions);
+                SafeWriteAllText(historyPath, json);
+                if (string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase))
+                    SafeWriteAllText(Path.Combine(dataFolder, "game-history.json"), json);
+            }
+
+            ResetLibraryPlaytimeForDeletedHistory(
+                profileId,
+                new HashSet<string>(StringComparer.Ordinal) { key });
+            ScheduleProfileSync(profileId, notifyFailure: true, delayMs: 100);
+            return true;
+        }
+
+        private void ResetLibraryPlaytimeForDeletedHistory(
+            string profileId,
+            IReadOnlySet<string> removedHistoryKeys)
+        {
+            if (removedHistoryKeys.Count == 0) return;
+
+            lock (_gamesFileLock)
+            {
+                string profileGamesPath = Path.Combine(dataFolder, "users", profileId, "games.json");
+                if (!File.Exists(profileGamesPath)) return;
+
+                List<GameModel> games;
+                try
+                {
+                    games = JsonSerializer.Deserialize<List<GameModel>>(SafeReadAllText(profileGamesPath)) ?? new();
+                }
+                catch
+                {
+                    return;
+                }
+
+                bool changed = false;
+                foreach (GameModel game in games)
+                {
+                    string gameKey = NormalizeGameName(game.Name);
+                    if (!removedHistoryKeys.Contains(gameKey)) continue;
+                    if (game.TotalPlaytimeMinutes == 0 &&
+                        game.LastSessionMinutes == 0 &&
+                        game.LastPlayed <= DateTime.MinValue) continue;
+
+                    game.TotalPlaytimeMinutes = 0;
+                    game.LastSessionMinutes = 0;
+                    game.LastPlayed = DateTime.MinValue;
+                    changed = true;
+                }
+
+                if (!changed) return;
+                string json = JsonSerializer.Serialize(games, IndentedJsonOptions);
+                SafeWriteAllText(profileGamesPath, json);
+                if (string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase))
+                    SafeWriteAllText(Path.Combine(dataFolder, "games.json"), json);
+            }
+        }
+
         private async Task CacheSelectedHistoryArtworkAsync(
             string profileId,
             string gameName,
@@ -17157,7 +17322,7 @@ namespace Doorpi
         }
 
         private static bool HasGameBeenPlayed(GameModel game)
-            => game.TotalPlaytimeMinutes > 0 || game.LastPlayed > DateTime.MinValue;
+            => game.TotalPlaytimeMinutes >= 1;
 
         private static string FirstNotBlank(IEnumerable<string> values)
             => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "";
@@ -17214,14 +17379,20 @@ namespace Doorpi
                 if (!File.Exists(gameHistoryFile)) return new List<GameHistoryEntry>();
                 try
                 {
-                    var history = JsonSerializer.Deserialize<List<GameHistoryEntry>>(SafeReadAllText(gameHistoryFile)) ?? new();
-                    bool migrated = false;
+                    var loaded = JsonSerializer.Deserialize<List<GameHistoryEntry>>(SafeReadAllText(gameHistoryFile)) ?? new();
+                    var history = loaded
+                        .Where(entry => !string.IsNullOrWhiteSpace(entry.Name) && entry.TotalPlaytimeMinutes >= 1)
+                        .ToList();
+                    bool migrated = history.Count != loaded.Count;
                     foreach (var entry in history)
                         migrated |= EnsureDedicatedHistoryArtwork(entry);
                     if (migrated)
                     {
                         string json = JsonSerializer.Serialize(history, IndentedJsonOptions);
                         SafeWriteAllText(gameHistoryFile, json);
+                        string currentMirror = Path.Combine(dataFolder, "game-history.json");
+                        if (!string.Equals(gameHistoryFile, currentMirror, StringComparison.OrdinalIgnoreCase))
+                            SafeWriteAllText(currentMirror, json);
                     }
                     return history;
                 }
@@ -17237,7 +17408,7 @@ namespace Doorpi
             lock (_gameHistoryFileLock)
             {
                 var ordered = history
-                    .Where(entry => !string.IsNullOrWhiteSpace(entry.Name))
+                    .Where(entry => !string.IsNullOrWhiteSpace(entry.Name) && entry.TotalPlaytimeMinutes >= 1)
                     .OrderByDescending(entry => entry.LastPlayed)
                     .ThenBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase)
                     .ToList();
@@ -17343,6 +17514,7 @@ namespace Doorpi
 
         private void RecordDeletedGameSession(string gameName, int sessionMinutes)
         {
+            if (sessionMinutes < 1) return;
             var history = LoadGameHistory();
             string key = NormalizeGameName(gameName);
             var entry = history.FirstOrDefault(item => NormalizeGameName(item.Name) == key);
