@@ -1706,6 +1706,28 @@
         };
     }
 
+    function _normalizeRuntimeTarget(value) {
+        return String(value || '')
+            .trim()
+            .replace(/^"|"$/g, '')
+            .replace(/\\/g, '/')
+            .replace(/\/+$/, '')
+            .toLowerCase();
+    }
+
+    function _runtimeEntryMatchesLaunchTarget(entry, item, launchId) {
+        if (!entry) return false;
+
+        const runtimeTargets = [entry.id, entry.url]
+            .map(_normalizeRuntimeTarget)
+            .filter(Boolean);
+        const launchTargets = [item?.id, item?.url, launchId]
+            .map(_normalizeRuntimeTarget)
+            .filter(Boolean);
+
+        return runtimeTargets.some(runtimeTarget => launchTargets.includes(runtimeTarget));
+    }
+
     function _findSessionConflictEntry(item, launchId) {
         const entries = Array.isArray(window.DoorpiRuntimeState?.running) ? window.DoorpiRuntimeState.running : [];
         const channel = (item?.channel || '').toLowerCase();
@@ -1715,7 +1737,7 @@
             return entries.find(e =>
                 (e.channel === 'games' || e.kind === 'game') &&
                 !!e.id &&
-                e.id !== item.id
+                !_runtimeEntryMatchesLaunchTarget(e, item, launchId)
             ) || null;
         }
 
@@ -1723,7 +1745,7 @@
             return entries.find(e =>
                 (e.channel === 'stores' || e.kind === 'store') &&
                 !!e.id &&
-                e.id !== item.id
+                !_runtimeEntryMatchesLaunchTarget(e, item, launchId)
             ) || null;
         }
 
@@ -1732,7 +1754,7 @@
                 const runningWeb = entries.find(e =>
                     e.channel === 'media' &&
                     e.kind === 'web' &&
-                    ((!!e.url && e.url !== launchId) || !e.url)
+                    !_runtimeEntryMatchesLaunchTarget(e, item, launchId)
                 );
                 if (runningWeb) return runningWeb;
 
@@ -1740,7 +1762,7 @@
                 if (rememberedWeb &&
                     rememberedWeb.channel === 'media' &&
                     rememberedWeb.kind === 'web' &&
-                    rememberedWeb.url !== launchId) {
+                    !_runtimeEntryMatchesLaunchTarget(rememberedWeb, item, launchId)) {
                     return rememberedWeb;
                 }
 
@@ -1748,12 +1770,9 @@
             }
 
             if (appType === 'exe') {
-                return entries.find(e =>
-                    e.channel === 'media' &&
-                    e.kind === 'exe' &&
-                    !!e.url &&
-                    e.url !== launchId
-                ) || null;
+                // Executaveis possuem sessoes independentes. Clicar no mesmo alvo
+                // restaura a sessao existente; alvos diferentes podem coexistir.
+                return null;
             }
         }
 
@@ -2779,7 +2798,9 @@
             if (window.DoorpiIntro?.isRunning?.()) return false;
             if (window.isGlobalLoading) return false;
             if (window.isModalOpen || window.isSetupOpen || window._vkbIsOpen) return false;
-            if (window.isMediaAppActive || window._isExternalAppRunning) return false;
+            // Uma sessao minimizada continua viva para preservar processo e audio,
+            // mas nao deve esconder nem bloquear os controles globais da Home.
+            if (window.isMediaAppActive) return false;
             if (window.isDoorpiUpdatePromptOpen?.()) return false;
             if (window.isDoorpiOverlayOpen?.()) return false;
             if (window.isNavMenuOpen || ['opening', 'closing'].includes(window._navMenuPhase || 'closed')) return false;

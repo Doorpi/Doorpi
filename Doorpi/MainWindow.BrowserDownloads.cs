@@ -276,6 +276,20 @@ namespace Doorpi
 
         private void OpenGenericBrowserDownloadsPopup()
         {
+            Window? browserWindow = _webAppWindow;
+            bool browserCanOwnPopup =
+                _isGenericBrowserMode &&
+                !_ytClosing &&
+                browserWindow != null &&
+                browserWindow.IsVisible &&
+                browserWindow.IsActive &&
+                browserWindow.WindowState != WindowState.Minimized;
+            if (!browserCanOwnPopup)
+            {
+                CloseGenericBrowserDownloadsPopup();
+                return;
+            }
+
             if (_genericBrowserDownloadsButton == null) return;
             EnsureGenericBrowserDownloadsPopup();
             if (_genericBrowserDownloadsPopup == null || _genericBrowserDownloadsPanel == null) return;

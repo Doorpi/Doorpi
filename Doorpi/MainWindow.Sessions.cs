@@ -165,6 +165,7 @@ namespace Doorpi
         private GameWindowSession? _gameSession;
         private readonly ConcurrentDictionary<string, ExecutableAppSession> _executableAppSessions = new(StringComparer.OrdinalIgnoreCase);
         private string _activeExecutableAppSessionKey = "";
+        private int _executableAppSessionSerial;
         private WebAppSession? _webAppSession;
         private DesktopControlSession? _desktopControlSession;
 
@@ -198,7 +199,7 @@ namespace Doorpi
             }
         }
 
-        private ExecutableAppSession EnsureExecutableAppSession(string? url = null)
+        private ExecutableAppSession GetOrCreateExecutableAppSession(string? url, bool activate)
         {
             string key = NormalizeExecutableSessionKey(url ?? _activeExecutableAppSessionKey);
             var session = _executableAppSessions.GetOrAdd(
@@ -209,9 +210,14 @@ namespace Doorpi
                     Url = sessionKey == "__active__" ? "" : sessionKey
                 });
 
-            _activeExecutableAppSessionKey = key;
+            if (activate)
+                SetActiveExecutableAppSession(session);
+
             return session;
         }
+
+        private ExecutableAppSession EnsureExecutableAppSession(string? url = null)
+            => GetOrCreateExecutableAppSession(url, activate: true);
 
         private ExecutableAppSession? GetExecutableAppSession(string? url)
         {
@@ -221,8 +227,44 @@ namespace Doorpi
 
         private void ActivateExecutableAppSession(string? url)
         {
-            _activeExecutableAppSessionKey = NormalizeExecutableSessionKey(url);
+            string key = NormalizeExecutableSessionKey(url);
+            if (_executableAppSessions.TryGetValue(key, out var session))
+                SetActiveExecutableAppSession(session);
+            else
+            {
+                var previous = ActiveExecutableAppSession;
+                if (previous != null && !string.Equals(previous.Key, key, StringComparison.OrdinalIgnoreCase))
+                    ReleaseExecutableForegroundOwnership(previous);
+                _activeExecutableAppSessionKey = key;
+            }
         }
+
+        private void SetActiveExecutableAppSession(ExecutableAppSession session)
+        {
+            var previous = ActiveExecutableAppSession;
+            if (previous != null && !ReferenceEquals(previous, session))
+                ReleaseExecutableForegroundOwnership(previous);
+
+            _activeExecutableAppSessionKey = session.Key;
+        }
+
+        private static void ReleaseExecutableForegroundOwnership(ExecutableAppSession session)
+        {
+            // A sessao continua viva, mas deixa de possuir a entrada.
+            session.ControllerActive = false;
+            session.MouseModeActive = false;
+            session.MouseInputTemporarilyDisabled = true;
+            session.DoorpiSuspended = true;
+        }
+
+        private bool IsActiveExecutableAppSession(ExecutableAppSession? session)
+            => session != null &&
+               string.Equals(_activeExecutableAppSessionKey, session.Key, StringComparison.OrdinalIgnoreCase) &&
+               _executableAppSessions.TryGetValue(session.Key, out var current) &&
+               ReferenceEquals(current, session);
+
+        private ExecutableAppSession? GetExecutableAppSessionBySessionId(int sessionId)
+            => _executableAppSessions.Values.FirstOrDefault(session => session.SessionId == sessionId);
 
         private WebAppSession EnsureWebAppSession()
             => _webAppSession ??= new WebAppSession();
@@ -303,16 +345,23 @@ namespace Doorpi
             _gameSession = null;
         }
 
-        private void ClearExecutableAppSession()
+        private void ClearExecutableAppSession(ExecutableAppSession? session)
         {
-            var session = ActiveExecutableAppSession;
             try { session?.WatcherCts?.Cancel(); } catch { }
 
             if (session != null)
+            {
+                session.ControllerActive = false;
+                session.MouseModeActive = false;
                 _executableAppSessions.TryRemove(session.Key, out _);
 
-            _activeExecutableAppSessionKey = "";
+                if (string.Equals(_activeExecutableAppSessionKey, session.Key, StringComparison.OrdinalIgnoreCase))
+                    _activeExecutableAppSessionKey = "";
+            }
         }
+
+        private void ClearExecutableAppSession()
+            => ClearExecutableAppSession(ActiveExecutableAppSession);
 
         private void ClearWebAppSession()
         {
@@ -322,7 +371,13 @@ namespace Doorpi
         private int NextExecutableAppSessionId()
         {
             var session = EnsureExecutableAppSession();
-            return Interlocked.Increment(ref session.SessionId);
+            return NextExecutableAppSessionId(session);
+        }
+
+        private int NextExecutableAppSessionId(ExecutableAppSession session)
+        {
+            session.SessionId = Interlocked.Increment(ref _executableAppSessionSerial);
+            return session.SessionId;
         }
 
         private int _mediaExeSessionId
