@@ -2971,7 +2971,8 @@ window.isNavMenuOpen = false;
         const name = prof.Name || '—';
         const photo = prof.PhotoBase64 || '';
         const games = _menuData.games || [];
-        const history = _menuData.history || [];
+        const history = (_menuData.history || [])
+            .filter(item => item?.Name && (Number(item.TotalPlaytimeMinutes) || 0) >= 1);
 
         const totalGames = games.length;
 
@@ -3207,7 +3208,7 @@ window.isNavMenuOpen = false;
                 });
                 card.addEventListener('contextmenu', event => {
                     event.preventDefault();
-                    _openHistoryArtworkPicker(item, card);
+                    _openHistoryContextMenu(card);
                 });
             });
         }
@@ -3241,9 +3242,21 @@ window.isNavMenuOpen = false;
         });
     }
 
+    function _openHistoryContextMenu(element) {
+        if (!element || typeof window._ctxMenuOpen !== 'function') return;
+        const rect = element.getBoundingClientRect();
+        window._ctxMenuOpen(element, rect.right + 2, rect.top);
+    }
+
+    function _findHistoryItem(element) {
+        const name = element?.dataset?.historyGameName || '';
+        return (_menuData.history || []).find(entry =>
+            String(entry?.Name || '').localeCompare(name, undefined, { sensitivity: 'base' }) === 0);
+    }
+
     function _renderProfileHistory(body) {
         const history = [...(_menuData.history || [])]
-            .filter(item => item?.Name)
+            .filter(item => item?.Name && (Number(item.TotalPlaytimeMinutes) || 0) >= 1)
             .sort((a, b) => (b.TotalPlaytimeMinutes || 0) - (a.TotalPlaytimeMinutes || 0));
         const fmtTime = (minutes) => {
             const total = Math.max(0, Number(minutes) || 0);
@@ -3307,7 +3320,7 @@ window.isNavMenuOpen = false;
                 _contentItems.push(row);
                 row.addEventListener('contextmenu', event => {
                     event.preventDefault();
-                    _openHistoryArtworkPicker(item, row);
+                    _openHistoryContextMenu(row);
                 });
             });
         }
@@ -6272,6 +6285,23 @@ window.isNavMenuOpen = false;
             try {
                 const data = JSON.parse(e.data);
 
+                if (data.type === 'gameHistoryDeleted' && data.removed) {
+                    const deletedName = String(data.gameName || '');
+                    _menuData.history = (_menuData.history || []).filter(entry =>
+                        String(entry?.Name || '').localeCompare(
+                            deletedName,
+                            undefined,
+                            { sensitivity: 'base' }) !== 0);
+
+                    if (window.isNavMenuOpen && CATS[_catIdx]?.id === 'profile') {
+                        const previousIndex = _contentIdx;
+                        _renderContent('profile');
+                        _contentIdx = Math.max(0, Math.min(previousIndex, _contentItems.length - 1));
+                        _setTopbarFocus(false);
+                        _updateContentFocus();
+                    }
+                }
+
                 if (data.type === 'clipboardText' && window._isPastingApiKey) {
                     window._isPastingApiKey = false;
                     const text = data.text.trim();
@@ -6360,8 +6390,7 @@ window.isNavMenuOpen = false;
         const catId = CATS[_catIdx]?.id;
         const focusedProfileItem = _contentItems[_contentIdx];
         if (catId === 'profile' && focusedProfileItem?.dataset?.historyGameName) {
-            const item = (_menuData.history || []).find(entry => entry?.Name === focusedProfileItem.dataset.historyGameName);
-            if (item) _openHistoryArtworkPicker(item, focusedProfileItem);
+            _openHistoryContextMenu(focusedProfileItem);
             return;
         }
         const allowGpuUpdaterContext =
@@ -6411,6 +6440,15 @@ window.isNavMenuOpen = false;
     };
     window._navMenuDataChanged = function (catId = 'games') {
         _reloadMenuAfterLibraryChange(catId);
+    };
+    window._navMenuEditHistoryArtwork = function (element) {
+        const item = _findHistoryItem(element);
+        if (item) _openHistoryArtworkPicker(item, element);
+    };
+    window._navMenuDeleteHistory = function (element) {
+        const item = _findHistoryItem(element);
+        if (!item) return;
+        postToHost?.({ action: 'deleteGameHistory', gameName: item.Name });
     };
     window._navMenuRemoveItem = function (catId, itemKey) {
         if (catId === 'games' && Array.isArray(_menuData.games)) {

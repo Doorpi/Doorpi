@@ -1,45 +1,54 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202607212010,
-    "publishedAt":  "2026-07-21T23:11:04.0035062Z",
-    "expiresAt":  "2026-08-04T23:11:04.0035062Z",
+    "manifestVersion":  202607221239,
+    "publishedAt":  "2026-07-22T15:39:53.7538782Z",
+    "expiresAt":  "2026-08-05T15:39:53.7538782Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.3.18",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.3.18/doorpi-0.3.18.doorpiupdate.zip",
-                   "sha256":  "126df9855f24c3384167d0b734ddc9f666be1f286f64cc8f7e41322a534f6636",
-                   "sizeBytes":  133571441,
+                   "version":  "0.3.19",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.3.19/doorpi-0.3.19.doorpiupdate.zip",
+                   "sha256":  "90a315647f7e20313013e0e2a2b20c4397f85488ae1365df22580244d3836e6d",
+                   "sizeBytes":  133584403,
                    "minUpdaterVersion":  "0.1.0",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
                     "version":  "0.1.0",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.3.18/updater-0.1.0.doorpiupdate.zip",
-                    "sha256":  "42f16d4aee04e9094e07042c22ee983beb8a7e8e806d004424fcc55997b32a30",
-                    "sizeBytes":  69946122,
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.3.19/updater-0.1.0.doorpiupdate.zip",
+                    "sha256":  "7f308237c57a72462ee85dc803e658cc1ef4fce3f8cdcd7d484d9f0199b52dd5",
+                    "sizeBytes":  69946166,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.3.18",
-                          "title":  "Doorpi 0.3.18",
+                          "version":  "0.3.19",
+                          "title":  "Doorpi 0.3.19",
                           "items":  [
-                                        "Hotfix: corrigida a falta de tratamento no login com Google ao fechar a janela."
+                                        "Adicionada opção para personalizar o caminho de download do navegador.",
+                                        "Mudanças na arquitetura do explorador de arquivos.",
+                                        "Hotfixes de desempenho e responsividade no YouTube TV.",
+                                        "Patch ultrawide do YouTube TV desabilitado temporariamente."
                                     ],
                           "locales":  {
                                           "pt-BR":  {
-                                                        "title":  "Doorpi 0.3.18",
+                                                        "title":  "Doorpi 0.3.19",
                                                         "items":  [
-                                                                      "Hotfix: corrigida a falta de tratamento no login com Google ao fechar a janela."
+                                                                      "Adicionada opção para personalizar o caminho de download do navegador.",
+                                                                      "Mudanças na arquitetura do explorador de arquivos.",
+                                                                      "Hotfixes de desempenho e responsividade no YouTube TV.",
+                                                                      "Patch ultrawide do YouTube TV desabilitado temporariamente."
                                                                   ]
                                                     },
                                           "en":  {
-                                                     "title":  "Doorpi 0.3.18",
+                                                     "title":  "Doorpi 0.3.19",
                                                      "items":  [
-                                                                   "Hotfix: fixed missing handling for Google sign-in when closing the window."
+                                                                   "Added an option to customize the browser download path.",
+                                                                   "File explorer architecture changes.",
+                                                                   "Performance and responsiveness hotfixes for YouTube TV.",
+                                                                   "YouTube TV ultrawide patch temporarily disabled."
                                                                ]
                                                  }
                                       }
@@ -48,6 +57,6 @@
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "jl7m/IlI7y4m38uys9AgWU2/EQjlCay3laANBcfaVMe8s4bhoIiyrXHVjqyffobKw4U3mlaRdSwn5X43Wv83djycwRcK3h6u4p0W4nRFxIqj0O0r9i3vDIgXSgZRmmqqrBg4f53EUOrFRUTrswBBOpjBBnYbfUv0DVKfCXBHtNPyD1CF9DA08/ing1emnkaiwfZQ79sI2MaHm/pAklxBC6cIglf15nZOnoEJEDJKHU/k8OY5ReG/8YFnP0/VQ3jlwmLiNKZVEI7pe1iFpeKWrj5R5zzS6Fpf5OGQkDPt9f8DKnWk1qNGOfS7DAYjAnI4KUeutAFSqgorzixAlc0VoPzE6UxsAS4TrtF0V9B81yOzJPpjUvnayIx4NC6Xy9xYyd5bkW295u3JzgmBPicpIqSWbOT3G5eGxkFp0rDzlPNFHKKoL8cOhliYBA6nL2opN4e9eoutVuWVc/6RNAW7FBS/fTmJnnsX95rWs6brjjcqvQ2SBiHOck5RQjPfuzlJ"
+                      "value":  "m2Sa82h6CEr+Av9QVe/ylJJPcKFnGCF5wVPgArO0tUZxpqFkFagKNOgybTyjtwzr74/FFiSoUphD2+c19EnEZBSksLoOrgQKwJIRZ0cLJExy5u3p6WpJL1ZoVNW2bMr3nd8y37jlCwXm3OPn1ZOkEQ+uqbHzrOiK3mzG1BVghAR6Mg1e6aHEMMz2wjKRUoXV2KLNA7dCNVcXaT3rRHOfdjMNoHmRewTdA3X6WekkQHpkmq1P7uO2ENTbNEfz764bileJpTpF33pz6YF6Jz1QZEUUSJ4ctPjripn8vp+tMtfZtw5xHoHeD1rEwIUBCWXjt+PJTspk+38fPbGcDEvjcj2fxQAkKbQ2ECDgh6l5G4bUM+k+wTw8jcsyis8o1oa3qvSIUc/WYyz7kcB+0ZcxRORrEdxin9mQ7AH251o0/rKOKvOtMq3uB1ZqfbKyG5KragRyKFNcwqOBkSxiSzuIRXVMh8qClKBLESZuzxrzl91FfhbUdC+WkBPu8g8HAmTi"
                   }
 }

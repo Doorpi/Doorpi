@@ -10,6 +10,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.Wpf;
 using Microsoft.Win32;
 
 namespace Doorpi
@@ -23,6 +24,7 @@ namespace Doorpi
             public bool SelectFolder { get; init; }
             public bool Standalone { get; init; }
             public bool ReturnToBrowserOnClose { get; init; }
+            public bool HostedInBrowser { get; init; }
             public string FilterLabel { get; init; } = "";
             public HashSet<string> Extensions { get; init; } = new(StringComparer.OrdinalIgnoreCase);
             public TaskCompletionSource<string?> Completion { get; } =
@@ -45,6 +47,10 @@ namespace Doorpi
             long TotalBytes);
 
         private DoorpiFileBrowserSession? _doorpiFileBrowserSession;
+        private WebView2? _doorpiFileBrowserOverlayView;
+        private System.Windows.Window? _doorpiFileBrowserOverlayWindow;
+        private Task? _doorpiFileBrowserOverlayInitTask;
+        private readonly HashSet<CoreWebView2> _doorpiFileBrowserImageResourceCores = new();
         private readonly ConcurrentDictionary<string, (string Kind, string DataUrl)> _doorpiFileBrowserVisualCache =
             new(StringComparer.OrdinalIgnoreCase);
         private readonly SemaphoreSlim _doorpiFileBrowserVisualGate = new(4, 4);
@@ -61,10 +67,141 @@ namespace Doorpi
             new[] { ".zip", ".rar", ".7z" },
             StringComparer.OrdinalIgnoreCase);
         private const string DoorpiFileBrowserImageHost = "doorpi-image.local";
-        private bool _doorpiFileBrowserImageResourceHandlerRegistered;
         private string _doorpiFileBrowserImagePath = "";
         private string _doorpiFileBrowserImageRequestId = "";
         private readonly List<Stream> _doorpiFileBrowserImageResponseStreams = new();
+
+        private CoreWebView2? DoorpiFileBrowserCore =>
+            _doorpiFileBrowserSession?.HostedInBrowser == true
+                ? _doorpiFileBrowserOverlayView?.CoreWebView2
+                : webView?.CoreWebView2;
+
+        private void PostDoorpiFileBrowserMessage(object payload)
+        {
+            DoorpiFileBrowserCore?.PostWebMessageAsString(JsonSerializer.Serialize(payload));
+        }
+
+        private async Task EnsureDoorpiFileBrowserOverlayAsync()
+        {
+            if (_doorpiFileBrowserOverlayView?.CoreWebView2 != null)
+                return;
+            if (_doorpiFileBrowserOverlayInitTask != null)
+            {
+                await _doorpiFileBrowserOverlayInitTask;
+                return;
+            }
+
+            async Task InitializeAsync()
+            {
+                if (_genericBrowserShell == null || webView?.CoreWebView2 == null)
+                    throw new InvalidOperationException("O browser não está disponível para hospedar o explorador.");
+
+                var overlayView = new WebView2
+                {
+                    HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch,
+                    VerticalAlignment = System.Windows.VerticalAlignment.Stretch,
+                    Visibility = System.Windows.Visibility.Visible
+                };
+                try { overlayView.DefaultBackgroundColor = System.Drawing.Color.Transparent; } catch { }
+                var windowHost = new System.Windows.Controls.Grid { Opacity = 0 };
+                windowHost.Children.Add(overlayView);
+                var overlayWindow = new System.Windows.Window
+                {
+                    Owner = _webAppWindow,
+                    WindowStyle = System.Windows.WindowStyle.None,
+                    ResizeMode = System.Windows.ResizeMode.NoResize,
+                    ShowInTaskbar = false,
+                    ShowActivated = false,
+                    WindowStartupLocation = System.Windows.WindowStartupLocation.Manual,
+                    Background = new System.Windows.Media.SolidColorBrush(
+                        System.Windows.Media.Color.FromRgb(8, 11, 17)),
+                    Left = -32000,
+                    Top = -32000,
+                    Width = 1,
+                    Height = 1,
+                    Content = windowHost
+                };
+                _doorpiFileBrowserOverlayView = overlayView;
+                _doorpiFileBrowserOverlayWindow = overlayWindow;
+                overlayWindow.Show();
+
+                await Dispatcher.InvokeAsync(
+                    () => { },
+                    System.Windows.Threading.DispatcherPriority.Loaded);
+
+                await overlayView.EnsureCoreWebView2Async(webView.CoreWebView2.Environment);
+                ApplyProductionWebViewSettings(overlayView.CoreWebView2);
+                string assetsFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot");
+                overlayView.CoreWebView2.SetVirtualHostNameToFolderMapping(
+                    "app.local", assetsFolder, CoreWebView2HostResourceAccessKind.Allow);
+                overlayView.CoreWebView2.SetVirtualHostNameToFolderMapping(
+                    "data.local", DoorpiPaths.DataFolder, CoreWebView2HostResourceAccessKind.Allow);
+                overlayView.CoreWebView2.WebMessageReceived += WebView_WebMessageReceived;
+
+                var loaded = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                void OnCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs args)
+                    => loaded.TrySetResult(args.IsSuccess);
+                overlayView.CoreWebView2.NavigationCompleted += OnCompleted;
+                overlayView.CoreWebView2.Navigate("https://app.local/file-browser-host.html");
+                bool success = await loaded.Task;
+                overlayView.CoreWebView2.NavigationCompleted -= OnCompleted;
+                if (!success)
+                    throw new InvalidOperationException("Não foi possível carregar a interface do explorador.");
+                overlayWindow.Hide();
+                overlayWindow.ShowActivated = true;
+                windowHost.Opacity = 1;
+            }
+
+            _doorpiFileBrowserOverlayInitTask = InitializeAsync();
+            try { await _doorpiFileBrowserOverlayInitTask; }
+            catch
+            {
+                _doorpiFileBrowserOverlayInitTask = null;
+                throw;
+            }
+        }
+
+        private void ShowDoorpiFileBrowserOverlay()
+        {
+            if (_doorpiFileBrowserOverlayView == null ||
+                _doorpiFileBrowserOverlayWindow == null)
+            {
+                return;
+            }
+            CloseGenericBrowserDownloadsPopup();
+            CloseGenericBrowserExtensionsPopup();
+            _doorpiFileBrowserOverlayView.Visibility = System.Windows.Visibility.Visible;
+            _doorpiFileBrowserOverlayWindow.WindowState = System.Windows.WindowState.Maximized;
+            _doorpiFileBrowserOverlayWindow.Show();
+            _doorpiFileBrowserOverlayWindow.Activate();
+            _doorpiFileBrowserOverlayView.Focus();
+            System.Windows.Input.Keyboard.Focus(_doorpiFileBrowserOverlayView);
+            RequestMediaMouseInputAbort();
+        }
+
+        private void HideDoorpiFileBrowserOverlay()
+        {
+            _doorpiFileBrowserOverlayWindow?.Hide();
+            ResetGenericBrowserKeyboardForNavigation();
+            _genericBrowserVkbSuppressUntilUtc = DateTime.UtcNow.AddMilliseconds(180);
+            _webAppWindow?.Activate();
+            _ytWebView?.Focus();
+            EnsureCursorVisible();
+        }
+
+        private async Task PrewarmDoorpiFileBrowserOverlayAsync()
+        {
+            try
+            {
+                await Task.Delay(250);
+                if (_isGenericBrowserMode && !_ytClosing && _webAppWindow != null)
+                    await EnsureDoorpiFileBrowserOverlayAsync();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[FileBrowser] Falha no pre-aquecimento da interface: " + ex.Message);
+            }
+        }
 
         private async Task<string?> ShowDoorpiFileBrowserAsync(
             string title,
@@ -82,6 +219,11 @@ namespace Doorpi
             if (_doorpiFileBrowserSession != null)
                 CloseDoorpiFileBrowser(_doorpiFileBrowserSession, null);
 
+            bool hostedInBrowser = string.Equals(source, "browserDownloadFolder", StringComparison.Ordinal) &&
+                                   _isGenericBrowserMode && _webAppWindow != null;
+            if (hostedInBrowser)
+                await EnsureDoorpiFileBrowserOverlayAsync();
+
             string sessionId = Guid.NewGuid().ToString("N");
             var (filterLabel, extensions) = ParseDoorpiFileBrowserFilter(filter);
             var session = new DoorpiFileBrowserSession
@@ -89,13 +231,16 @@ namespace Doorpi
                 Id = sessionId,
                 Source = source,
                 SelectFolder = selectFolder,
+                HostedInBrowser = hostedInBrowser,
                 FilterLabel = filterLabel,
                 Extensions = extensions
             };
             _doorpiFileBrowserSession = session;
 
             var (startPath, initialSelection) = ResolveDoorpiFileBrowserStart(initialPath);
-            webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+            if (hostedInBrowser)
+                ShowDoorpiFileBrowserOverlay();
+            PostDoorpiFileBrowserMessage(new
             {
                 type = "doorpiFileBrowserOpen",
                 sessionId,
@@ -105,24 +250,29 @@ namespace Doorpi
                 startPath,
                 initialSelection,
                 winRarAvailable = FindDoorpiWinRarPath() != null
-            }));
+            });
 
             string? result = await session.Completion.Task;
             return result;
         }
 
-        private void OpenDoorpiFileExplorer(
+        private async void OpenDoorpiFileExplorer(
             string? initialPath = null,
             bool returnToBrowserOnClose = false)
         {
             if (!Dispatcher.CheckAccess())
             {
-                Dispatcher.Invoke(() => OpenDoorpiFileExplorer(initialPath, returnToBrowserOnClose));
+                _ = Dispatcher.BeginInvoke(new Action(
+                    () => OpenDoorpiFileExplorer(initialPath, returnToBrowserOnClose)));
                 return;
             }
 
             if (_doorpiFileBrowserSession != null)
                 CloseDoorpiFileBrowser(_doorpiFileBrowserSession, null);
+
+            bool hostedInBrowser = returnToBrowserOnClose && _isGenericBrowserMode && _webAppWindow != null;
+            if (hostedInBrowser)
+                await EnsureDoorpiFileBrowserOverlayAsync();
 
             string sessionId = Guid.NewGuid().ToString("N");
             var session = new DoorpiFileBrowserSession
@@ -132,11 +282,14 @@ namespace Doorpi
                 SelectFolder = false,
                 Standalone = true,
                 ReturnToBrowserOnClose = returnToBrowserOnClose,
+                HostedInBrowser = hostedInBrowser,
                 FilterLabel = "Todos os arquivos"
             };
             _doorpiFileBrowserSession = session;
             var (startPath, initialSelection) = ResolveDoorpiFileBrowserStart(initialPath);
-            webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+            if (hostedInBrowser)
+                ShowDoorpiFileBrowserOverlay();
+            PostDoorpiFileBrowserMessage(new
             {
                 type = "doorpiFileBrowserOpen",
                 sessionId,
@@ -146,7 +299,7 @@ namespace Doorpi
                 startPath,
                 initialSelection,
                 winRarAvailable = FindDoorpiWinRarPath() != null
-            }));
+            });
         }
 
         private static (string StartPath, string InitialSelection) ResolveDoorpiFileBrowserStart(string? requestedPath)
@@ -208,7 +361,8 @@ namespace Doorpi
                                "doorpiFileBrowserConfirm" or "doorpiFileBrowserCancel" or
                                "doorpiFileBrowserVisualRequest" or "doorpiFileBrowserOperation" or
                                "doorpiFileBrowserCopyPath" or "doorpiFileBrowserReadClipboard" or
-                               "doorpiFileBrowserViewImage" or "doorpiFileBrowserCloseImage"))
+                               "doorpiFileBrowserViewImage" or "doorpiFileBrowserCloseImage" or
+                               "doorpiFileBrowserKeyboardOpen"))
                 return false;
 
             if (action == "openDoorpiFileExplorer")
@@ -219,8 +373,25 @@ namespace Doorpi
 
             string sessionId = GetStr(root, "sessionId");
             DoorpiFileBrowserSession? session = _doorpiFileBrowserSession;
-            if (session == null || !string.Equals(session.Id, sessionId, StringComparison.Ordinal))
+            if (session == null ||
+                (action != "doorpiFileBrowserKeyboardOpen" &&
+                 !string.Equals(session.Id, sessionId, StringComparison.Ordinal)))
                 return true;
+
+            if (action == "doorpiFileBrowserKeyboardOpen" && session.HostedInBrowser)
+            {
+                double bottom = root.TryGetProperty("bottom", out var bottomElement) &&
+                                bottomElement.TryGetDouble(out double parsedBottom)
+                    ? parsedBottom
+                    : System.Windows.SystemParameters.PrimaryScreenHeight * 0.55;
+                int targetY = (int)Math.Round(
+                    _doorpiFileBrowserOverlayView?.PointToScreen(new System.Windows.Point(0, bottom)).Y ?? bottom);
+                OpenGenericBrowserKeyboard(
+                    GenericBrowserKeyboardTarget.WebInput,
+                    targetY,
+                    _doorpiFileBrowserOverlayView);
+                return true;
+            }
 
             if (action == "doorpiFileBrowserCancel")
             {
@@ -258,12 +429,12 @@ namespace Doorpi
             {
                 string text = "";
                 try { text = System.Windows.Clipboard.GetText(); } catch { }
-                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                PostDoorpiFileBrowserMessage(new
                 {
                     type = "doorpiFileBrowserClipboard",
                     sessionId = session.Id,
                     text
-                }));
+                });
                 return true;
             }
 
@@ -339,7 +510,7 @@ namespace Doorpi
                 string fileName = Path.GetFileName(path);
                 string url = $"https://{DoorpiFileBrowserImageHost}/{_doorpiFileBrowserImageRequestId}/{Uri.EscapeDataString(fileName)}" +
                              $"?v={File.GetLastWriteTimeUtc(path).Ticks}";
-                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                PostDoorpiFileBrowserMessage(new
                 {
                     type = "doorpiFileBrowserImage",
                     sessionId = session.Id,
@@ -347,29 +518,29 @@ namespace Doorpi
                     path,
                     name = fileName,
                     url
-                }));
+                });
             }
             catch (Exception ex)
             {
-                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                PostDoorpiFileBrowserMessage(new
                 {
                     type = "doorpiFileBrowserImage",
                     sessionId = session.Id,
                     success = false,
                     path = requestedPath,
                     message = FriendlyDoorpiFileBrowserOperationError(ex)
-                }));
+                });
             }
         }
 
         private void EnsureDoorpiFileBrowserImageResourceHandler()
         {
-            if (_doorpiFileBrowserImageResourceHandlerRegistered) return;
-            webView.CoreWebView2.AddWebResourceRequestedFilter(
+            CoreWebView2? core = DoorpiFileBrowserCore;
+            if (core == null || !_doorpiFileBrowserImageResourceCores.Add(core)) return;
+            core.AddWebResourceRequestedFilter(
                 $"https://{DoorpiFileBrowserImageHost}/*",
                 CoreWebView2WebResourceContext.Image);
-            webView.CoreWebView2.WebResourceRequested += OnDoorpiFileBrowserImageResourceRequested;
-            _doorpiFileBrowserImageResourceHandlerRegistered = true;
+            core.WebResourceRequested += OnDoorpiFileBrowserImageResourceRequested;
         }
 
         private void OnDoorpiFileBrowserImageResourceRequested(
@@ -403,7 +574,8 @@ namespace Doorpi
                     $"Content-Length: {stream.Length}\r\n" +
                     "Cache-Control: no-store\r\n" +
                     "X-Content-Type-Options: nosniff\r\n";
-                e.Response = webView.CoreWebView2.Environment.CreateWebResourceResponse(
+                CoreWebView2? requestCore = sender as CoreWebView2;
+                e.Response = (requestCore ?? DoorpiFileBrowserCore)?.Environment.CreateWebResourceResponse(
                     stream,
                     200,
                     "OK",
@@ -456,7 +628,7 @@ namespace Doorpi
                 if (_doorpiFileBrowserSession?.Id != session.Id)
                     return;
 
-                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                PostDoorpiFileBrowserMessage(new
                 {
                     type = "doorpiFileBrowserEntries",
                     sessionId = session.Id,
@@ -464,7 +636,7 @@ namespace Doorpi
                     parentPath = result.ParentPath,
                     entries = result.Entries,
                     initialSelection
-                }));
+                });
             }
             catch (Exception ex)
             {
@@ -628,14 +800,14 @@ namespace Doorpi
                 if (_doorpiFileBrowserSession?.Id != session.Id)
                     return;
 
-                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                PostDoorpiFileBrowserMessage(new
                 {
                     type = "doorpiFileBrowserVisual",
                     sessionId = session.Id,
                     path = requestedPath,
                     kind = visual.Kind,
                     dataUrl = visual.DataUrl
-                }));
+                });
             }
             catch (Exception ex)
             {
@@ -914,9 +1086,25 @@ namespace Doorpi
                         throw new InvalidOperationException("Operação de arquivo desconhecida.");
                 }
 
-                if (operation is "rename" or "createFolder" or "move" or "recycle" or "delete" or
-                    "extractHere" or "extractFolder" or "extractWinRarHere" or "extractWinRarFolder")
+                bool changesFileSystem = operation is
+                    "rename" or "createFolder" or "move" or "recycle" or "delete" or
+                    "extractHere" or "extractFolder" or "extractWinRarHere" or "extractWinRarFolder";
+                bool canChangeExecutableLibrary = operation is
+                    "rename" or "move" or "recycle" or "delete" or
+                    "extractHere" or "extractFolder" or "extractWinRarHere" or "extractWinRarFolder";
+                if (changesFileSystem)
                     _doorpiFileBrowserVisualCache.Clear();
+
+                if (operation is "rename" or "move" or "recycle" or "delete")
+                    await ReconcileMissingWatchedFolderGamesAfterFileOperationAsync();
+
+                if (canChangeExecutableLibrary)
+                {
+                    ScheduleWatchedFolderRefresh(
+                        $"operação '{operation}' no explorador de arquivos",
+                        delayMs: 300,
+                        requireAfterRunning: true);
+                }
 
                 string message = operation switch
                 {
@@ -1516,7 +1704,7 @@ namespace Doorpi
             string refreshPath = "",
             string resultPath = "")
         {
-            webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+            PostDoorpiFileBrowserMessage(new
             {
                 type = "doorpiFileBrowserOperationResult",
                 sessionId,
@@ -1525,7 +1713,7 @@ namespace Doorpi
                 message,
                 refreshPath,
                 resultPath
-            }));
+            });
         }
 
         private void PostDoorpiFileBrowserProgress(
@@ -1539,7 +1727,7 @@ namespace Doorpi
             {
                 if (_doorpiFileBrowserSession?.Id != sessionId)
                     return;
-                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                PostDoorpiFileBrowserMessage(new
                 {
                     type = "doorpiFileBrowserProgress",
                     sessionId,
@@ -1547,18 +1735,18 @@ namespace Doorpi
                     processedBytes,
                     totalBytes,
                     currentName
-                }));
+                });
             });
         }
 
         private void PostDoorpiFileBrowserError(string sessionId, string message)
         {
-            webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+            PostDoorpiFileBrowserMessage(new
             {
                 type = "doorpiFileBrowserError",
                 sessionId,
                 message
-            }));
+            });
         }
 
         private void CloseDoorpiFileBrowser(DoorpiFileBrowserSession session, string? result)
@@ -1566,13 +1754,16 @@ namespace Doorpi
             if (_doorpiFileBrowserSession?.Id != session.Id)
                 return;
 
-            _doorpiFileBrowserSession = null;
+            CoreWebView2? targetCore = DoorpiFileBrowserCore;
             ClearDoorpiFileBrowserImageMapping();
-            webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+            targetCore?.PostWebMessageAsString(JsonSerializer.Serialize(new
             {
                 type = "doorpiFileBrowserClose",
                 sessionId = session.Id
             }));
+            _doorpiFileBrowserSession = null;
+            if (session.HostedInBrowser)
+                HideDoorpiFileBrowserOverlay();
             session.Completion.TrySetResult(result);
             if (session.Standalone)
                 ScheduleWatchedFolderRefresh("fechamento do explorador de arquivos");
