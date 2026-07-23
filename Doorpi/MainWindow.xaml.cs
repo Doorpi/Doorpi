@@ -2970,7 +2970,7 @@ namespace Doorpi
                             isClicking = false;
                         }
                         aDoubleClickPending = false;
-                        Thread.Sleep(25);
+                        Thread.Sleep(8);
                         continue;
                     }
 
@@ -3353,7 +3353,7 @@ namespace Doorpi
                 }
                 catch (Exception ex) { Debug.WriteLine($"[MediaExeShortcutLoop] {ex.Message}"); }
 
-                Thread.Sleep(25);
+                Thread.Sleep(8);
             }
         }
 
@@ -18136,7 +18136,9 @@ namespace Doorpi
                             moveState = 0; currentDir = null;
                         }
 
-                        Thread.Sleep(50);
+                        // O Guide pode ser um pulso curto, especialmente no controle
+                        // local enquanto um controle virtual do Parsec ocupa outro slot.
+                        Thread.Sleep(8);
                         continue;
                     }
 
