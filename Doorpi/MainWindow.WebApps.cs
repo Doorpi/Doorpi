@@ -2892,6 +2892,14 @@ namespace Doorpi
                     var input = GetUnifiedControllerInput();
                     ushort btn = input.Buttons;
                     buttonTracker.Update(input.Source ?? XInputControllerHub.Read());
+                    if (buttonTracker.TaskSwitcherShortcutJustPressed ||
+                        Volatile.Read(ref _nativeTaskSwitcherActive) == 1)
+                    {
+                        ReleaseMediaLeftMouseIfDown();
+                        ResetMediaControllerTransientState();
+                        Thread.Sleep(8);
+                        continue;
+                    }
                     bool syntheticReturnDown = Interlocked.Exchange(ref _webKeyboardHomeRequested, 0) == 1 ||
                                                (GetAsyncKeyState(VK_HOME) & 0x8000) != 0;
                     if (syntheticReturnDown)

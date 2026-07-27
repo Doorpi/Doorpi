@@ -99,7 +99,10 @@ namespace Doorpi
         private static string StoreArtworkVersionKey(string storeId, string sgdbQuery)
             => storeId.Equals("Riot", StringComparison.OrdinalIgnoreCase)
                 ? $"{sgdbQuery}|grid={RiotStorePreferredGridId}|store-art-v2"
-                : $"{sgdbQuery}|store-art-v2";
+                : storeId.Equals("Steam", StringComparison.OrdinalIgnoreCase) ||
+                  storeId.Equals("Xbox", StringComparison.OrdinalIgnoreCase)
+                    ? $"{sgdbQuery}|preferred-index=1|store-art-v3"
+                    : $"{sgdbQuery}|store-art-v2";
 
         private static readonly Dictionary<string, bool> DefaultStoreAutoAdd = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -5499,13 +5502,23 @@ namespace Doorpi
                     !string.Equals(entry.AssetQuery, desiredAssetQuery, StringComparison.OrdinalIgnoreCase);
 
                 if (string.IsNullOrEmpty(entry.GridImage) ||
+                    string.IsNullOrEmpty(entry.GridHorizontalImage) ||
                     string.IsNullOrEmpty(entry.HeroImage) ||
                     string.IsNullOrEmpty(entry.LogoImage) ||
                     refreshStoreArt)
                 {
                     try
                     {
-                        var (gridUrl, _, heroUrl, logoUrl) = await FetchMediaAppAssetsAsync(name, sgdbQuery).ConfigureAwait(false);
+                        int preferredArtworkIndex =
+                            string.Equals(id, "Steam", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(id, "Xbox", StringComparison.OrdinalIgnoreCase)
+                                ? 1
+                                : 0;
+                        var (gridUrl, horizontalUrl, heroUrl, logoUrl) =
+                            await FetchMediaAppAssetsAsync(
+                                name,
+                                sgdbQuery,
+                                preferredArtworkIndex).ConfigureAwait(false);
                         if (string.Equals(id, "Riot", StringComparison.OrdinalIgnoreCase))
                         {
                             gridUrl = await TryGetSteamGridImageUrlByIdAsync(RiotStorePreferredGridId).ConfigureAwait(false)
@@ -5513,14 +5526,16 @@ namespace Doorpi
                         }
                         string safeName = "store_" + StableAssetName(id);
                         var tGrid = gridUrl != null ? DownloadImageAsync(gridUrl, gridFolder, safeName) : Task.FromResult<string?>(null);
+                        var tHorizontal = horizontalUrl != null ? DownloadImageAsync(horizontalUrl, gridHorizontalFolder, safeName + "_h") : Task.FromResult<string?>(null);
                         var tHero = heroUrl != null ? DownloadImageAsync(heroUrl, heroFolder, safeName) : Task.FromResult<string?>(null);
                         var tLogo = logoUrl != null ? DownloadImageAsync(logoUrl, logoFolder, safeName + "_logo") : Task.FromResult<string?>(null);
-                        await Task.WhenAll(tGrid, tHero, tLogo).ConfigureAwait(false);
+                        await Task.WhenAll(tGrid, tHorizontal, tHero, tLogo).ConfigureAwait(false);
 
                         bool downloadedAnyAsset = false;
-                        if (tGrid.Result != null) { entry.GridImage = $"https://data.local/images/grid/{Path.GetFileName(tGrid.Result)}"; changed = true; downloadedAnyAsset = true; }
-                        if (tHero.Result != null) { entry.HeroImage = $"https://data.local/images/hero/{Path.GetFileName(tHero.Result)}"; changed = true; downloadedAnyAsset = true; }
-                        if (tLogo.Result != null) { entry.LogoImage = $"https://data.local/images/logo/{Path.GetFileName(tLogo.Result)}"; changed = true; downloadedAnyAsset = true; }
+                        if (tGrid.Result != null) { entry.GridImage = $"https://data.local/images/grid/{Path.GetFileName(tGrid.Result)}"; entry.GridStaticImage = ""; changed = true; downloadedAnyAsset = true; }
+                        if (tHorizontal.Result != null) { entry.GridHorizontalImage = $"https://data.local/images/grid-horizontal/{Path.GetFileName(tHorizontal.Result)}"; entry.GridHorizontalStaticImage = ""; changed = true; downloadedAnyAsset = true; }
+                        if (tHero.Result != null) { entry.HeroImage = $"https://data.local/images/hero/{Path.GetFileName(tHero.Result)}"; entry.HeroStaticImage = ""; changed = true; downloadedAnyAsset = true; }
+                        if (tLogo.Result != null) { entry.LogoImage = $"https://data.local/images/logo/{Path.GetFileName(tLogo.Result)}"; entry.LogoStaticImage = ""; changed = true; downloadedAnyAsset = true; }
                         if (downloadedAnyAsset)
                         {
                             entry.AssetQuery = desiredAssetQuery;
@@ -5577,8 +5592,8 @@ namespace Doorpi
                             installed = installedById.TryGetValue(s.Id, out bool installed) && installed,
                             s.GridImage,
                             s.GridStaticImage,
-                            GridHorizontalImage = "",
-                            GridHorizontalStaticImage = "",
+                            s.GridHorizontalImage,
+                            s.GridHorizontalStaticImage,
                             s.HeroImage,
                             s.HeroStaticImage,
                             s.LogoImage,
@@ -5596,8 +5611,8 @@ namespace Doorpi
                             s.DisableGamepadControlConfigured,
                             s.GridImage,
                             s.GridStaticImage,
-                            GridHorizontalImage = "",
-                            GridHorizontalStaticImage = "",
+                            s.GridHorizontalImage,
+                            s.GridHorizontalStaticImage,
                             s.HeroImage,
                             s.HeroStaticImage,
                             s.LogoImage,

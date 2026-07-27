@@ -7,10 +7,10 @@
 // =============================================================================
 
 function _doorpiFeaturedCardSrc(card) {
-    return card?.dataset?.staticHorizontal
-        || card?.dataset?.horizontal
-        || card?.dataset?.staticVertical
+    return card?.dataset?.staticVertical
         || card?.dataset?.vertical
+        || card?.dataset?.staticHorizontal
+        || card?.dataset?.horizontal
         || '';
 }
 
@@ -20,6 +20,227 @@ function _doorpiRestingCardSrc(card) {
         || (canUseLiveAsStatic ? card?.dataset?.vertical : '')
         || '';
 }
+
+let _doorpiFeatureArtRequest = 0;
+let _doorpiFeatureBannerRequest = 0;
+
+function _doorpiHomeChannelLabel(channel) {
+    if (channel === 'media') return typeof t === 'function' ? t('homeAppsEyebrow') : 'Aplicativo selecionado';
+    if (channel === 'stores') return typeof t === 'function' ? t('homeStoresEyebrow') : 'Loja selecionada';
+    return typeof t === 'function' ? t('homeGamesEyebrow') : 'Jogo selecionado';
+}
+
+function _doorpiHomeSourceLabel(card) {
+    const source = String(card?.dataset?.source || card?.dataset?.appType || '').trim();
+    const channel = String(card?.dataset?.channel || '').toLowerCase();
+    const appType = String(card?.dataset?.appType || '').toLowerCase();
+    const emulatorId = String(card?.dataset?.emulatorId || '').trim();
+    const emulatorName = String(card?.dataset?.emulatorName || '').trim();
+    const appId = String(card?.dataset?.id || card?.dataset?.appId || '').toLowerCase();
+    const streamingAppIds = new Set([
+        'youtube', 'netflix', 'twitch', 'kick', 'disneyplus',
+        'primevideo', 'appletv', 'max', 'crunchyroll'
+    ]);
+
+    if (channel === 'games' && emulatorId) {
+        if (emulatorName) return emulatorName;
+        return emulatorId.split(/[-_\s]+/).filter(Boolean)
+            .map(part => part.length <= 4
+                ? part.toUpperCase()
+                : part.charAt(0).toUpperCase() + part.slice(1))
+            .join(' ') || (typeof t === 'function' ? t('platformLabels.Emulador') : 'Emulador');
+    }
+
+    if (channel === 'media') {
+        if (streamingAppIds.has(appId))
+            return typeof t === 'function' ? t('homeSourceStreaming') : 'Streaming';
+        if (appType === 'exe')
+            return typeof t === 'function' ? t('homeSourceApplication') : 'Aplicativo';
+        if (appType === 'browser' || appType === 'webview')
+            return typeof t === 'function' ? t('homeSourceWebApp') : 'Aplicativo web';
+    }
+
+    const known = {
+        steam: 'Steam',
+        epic: 'Epic Games',
+        gog: 'GOG',
+        windows: 'Windows',
+        folder: 'Windows',
+        emulator: 'Emulador',
+        web: typeof t === 'function' ? t('homeSourceWebApp') : 'Aplicativo web',
+        browser: typeof t === 'function' ? t('homeSourceWebApp') : 'Aplicativo web',
+        webview: typeof t === 'function' ? t('homeSourceWebApp') : 'Aplicativo web',
+        exe: typeof t === 'function' ? t('homeSourceApplication') : 'Aplicativo',
+        store: typeof t === 'function' ? t('homeSourceStore') : 'Loja'
+    };
+    return known[source.toLowerCase()] || source;
+}
+
+function _doorpiSetFeatureArt(target, src) {
+    const stage = document.getElementById('homeFeatureStage');
+    const requestId = ++_doorpiFeatureArtRequest;
+    if (!target || !stage) return;
+
+    if (!src) {
+        target.removeAttribute('src');
+        stage.classList.remove('has-art');
+        return;
+    }
+
+    const current = target.getAttribute('src') || '';
+    if (current === src || target.src?.endsWith(src)) {
+        stage.classList.add('has-art');
+        return;
+    }
+
+    stage.classList.add('is-changing');
+    const preload = new Image();
+    preload.onload = () => {
+        if (requestId !== _doorpiFeatureArtRequest) return;
+        target.src = src;
+        stage.classList.add('has-art');
+        requestAnimationFrame(() => stage.classList.remove('is-changing'));
+    };
+    preload.onerror = () => {
+        if (requestId !== _doorpiFeatureArtRequest) return;
+        target.removeAttribute('src');
+        stage.classList.remove('has-art', 'is-changing');
+    };
+    preload.src = src;
+}
+
+function _doorpiSetFeatureBanner(target, src) {
+    const stage = document.getElementById('homeFeatureStage');
+    const requestId = ++_doorpiFeatureBannerRequest;
+    if (!target || !stage) return;
+
+    if (!src) {
+        target.removeAttribute('src');
+        stage.classList.remove('has-scene-art');
+        return;
+    }
+
+    const current = target.getAttribute('src') || '';
+    if (current === src || target.src?.endsWith(src)) {
+        stage.classList.add('has-scene-art');
+        return;
+    }
+
+    stage.classList.remove('has-scene-art');
+    const preload = new Image();
+    preload.onload = () => {
+        if (requestId !== _doorpiFeatureBannerRequest) return;
+        target.src = src;
+        requestAnimationFrame(() => stage.classList.add('has-scene-art'));
+    };
+    preload.onerror = () => {
+        if (requestId !== _doorpiFeatureBannerRequest) return;
+        target.removeAttribute('src');
+        stage.classList.remove('has-scene-art');
+    };
+    preload.src = src;
+}
+
+function _doorpiFormatMinutes(value) {
+    const minutes = Math.max(0, Math.round(Number(value) || 0));
+    if (!minutes) return '';
+    const hours = Math.floor(minutes / 60);
+    const rest = minutes % 60;
+    if (!hours) return `${rest}min`;
+    if (!rest) return `${hours}h`;
+    return `${hours}h ${rest}min`;
+}
+
+window.updateHomeFeatureStage = function (card, options = {}) {
+    if (!card || card.classList.contains('add-card') || card.classList.contains('loading-card')) return;
+
+    const stage = document.getElementById('homeFeatureStage');
+    const art = document.getElementById('homeFeatureArt');
+    const banner = document.getElementById('homeFeatureBanner');
+    const logo = document.getElementById('gameLogo');
+    const title = document.getElementById('homeFeatureTitle');
+    const eyebrow = document.getElementById('homeFeatureEyebrow');
+    const meta = document.getElementById('homeFeatureMeta');
+    const action = document.getElementById('homeFeatureActionLabel');
+    const libraryTitle = document.getElementById('homeLibraryTitle');
+    const libraryPosition = document.getElementById('homeLibraryPosition');
+    const playtime = document.getElementById('homeFeaturePlaytime');
+    const playtimeValue = document.getElementById('homeFeaturePlaytimeValue');
+    const lastSession = document.getElementById('homeFeatureLastSession');
+    if (!stage || !art || !logo || !title || !eyebrow || !meta || !action) return;
+
+    const channel = card.dataset.channel || 'games';
+    const name = card.querySelector('.title')?.textContent?.trim() || card.dataset.name || '';
+    // O card vertical é o único gatilho. Depois do pequeno atraso controlado por
+    // CardInteraction, todas as artes podem trocar juntas para sua versão animada.
+    const animateArtwork = options.animate === true;
+    const horizontalArt = animateArtwork
+        ? (card.dataset.horizontal || card.dataset.staticHorizontal || '')
+        : (card.dataset.staticHorizontal || card.dataset.horizontal || '');
+    const heroArt = animateArtwork
+        ? (card.dataset.hero || card.dataset.staticHero || '')
+        : (card.dataset.staticHero || card.dataset.hero || '');
+    const artSrc = horizontalArt
+        || card.dataset.staticVertical || card.dataset.vertical
+        || heroArt || '';
+    const bannerSrc = heroArt || horizontalArt || '';
+    const logoSrc = animateArtwork
+        ? (card.dataset.logo || card.dataset.staticLogo || '')
+        : (card.dataset.staticLogo || card.dataset.logo || '');
+    const isRunning = card.classList.contains('is-running');
+    const isNew = card.classList.contains('new-game');
+    const isLocked = card.classList.contains('admin-locked');
+    const source = _doorpiHomeSourceLabel(card);
+
+    stage.dataset.channel = channel;
+    stage.dataset.cardId = card.dataset.id || card.dataset.gameId || card.dataset.appId || '';
+    stage.classList.toggle('is-running', isRunning);
+    stage.classList.toggle('has-logo', !!logoSrc);
+    stage.classList.toggle('uses-contained-art', !horizontalArt && !!artSrc);
+    _doorpiSetFeatureArt(art, artSrc);
+    _doorpiSetFeatureBanner(banner, bannerSrc);
+
+    if (logoSrc) {
+        logo.onload = () => logo.classList.add('visible');
+        logo.src = logoSrc;
+        if (logo.complete && logo.naturalWidth > 0) logo.classList.add('visible');
+    } else {
+        logo.classList.remove('visible');
+        logo.removeAttribute('src');
+    }
+
+    title.textContent = name;
+    eyebrow.textContent = _doorpiHomeChannelLabel(channel);
+    action.textContent = isRunning
+        ? (typeof t === 'function' ? t('resumeLabel') : 'Retomar')
+        : (typeof t === 'function' ? t(channel === 'games' ? 'homePlayAction' : 'homeOpenAction') : (channel === 'games' ? 'Jogar' : 'Abrir'));
+
+    meta.replaceChildren();
+    [source, isRunning ? (typeof t === 'function' ? t('runningLabel') : 'Em execução') : '', isNew ? (typeof t === 'function' ? t('badgeNew') : 'Novo') : '', isLocked ? 'Bloqueado' : '']
+        .filter(Boolean)
+        .forEach(value => {
+            const chip = document.createElement('span');
+            chip.textContent = value;
+            meta.appendChild(chip);
+        });
+
+    const totalPlaytime = _doorpiFormatMinutes(card.dataset.totalPlaytimeMinutes);
+    const sessionPlaytime = _doorpiFormatMinutes(card.dataset.lastSessionMinutes);
+    const showPlaytime = channel === 'games' && !!totalPlaytime;
+    if (playtime && playtimeValue && lastSession) {
+        playtime.hidden = !showPlaytime;
+        playtimeValue.textContent = totalPlaytime;
+        lastSession.textContent = sessionPlaytime
+            ? `${typeof t === 'function' ? t('homeLastSessionLabel') : 'Última sessão'} · ${sessionPlaytime}`
+            : '';
+    }
+
+    if (libraryTitle) libraryTitle.textContent = typeof t === 'function' ? t('homeLibraryTitle') : 'Sua biblioteca';
+    const grid = card.closest('#gameGrid, #mediaGrid, #storesGrid');
+    const cards = grid ? Array.from(grid.querySelectorAll('.card:not(.add-card):not(.loading-card)')) : [];
+    const index = cards.indexOf(card);
+    if (libraryPosition) libraryPosition.textContent = index >= 0 ? `${index + 1} / ${cards.length}` : '';
+};
 
 function _doorpiSetCardImage(card, src) {
     const img = card?.querySelector?.('img');
@@ -61,6 +282,7 @@ const CardInteraction = (() => {
         const channel = card.dataset.channel;
         if (channel === 'media' && window.getCurrentHomeTab?.() !== 'media') return;
         if (channel === 'stores' && window.getCurrentHomeTab?.() !== 'stores') return;
+        window.updateHomeFeatureStage?.(card, { animate: false });
 
         if (currentActiveCard && currentActiveCard !== card) {
             stop(currentActiveCard);
@@ -84,6 +306,7 @@ const CardInteraction = (() => {
         heroTimer = setTimeout(() => {
             if (currentActiveCard === card && typeof switchHeroBackground === 'function') {
                 switchHeroBackground(bgSrc, null, heroSrc); // null = não setar logo aqui
+                window.updateHomeFeatureStage?.(card);
             }
         }, heroDelay);
 
@@ -113,17 +336,26 @@ const CardInteraction = (() => {
         if (staticSrc && img.src && !img.src.endsWith(staticSrc)) {
             img.src = staticSrc;
         }
+
+        const stage = document.getElementById('homeFeatureStage');
+        const cardId = card.dataset.id || card.dataset.gameId || card.dataset.appId || '';
+        if (stage?.dataset.cardId === cardId) {
+            window.updateHomeFeatureStage?.(card, { animate: false });
+            const bgSrc = card.dataset.staticVertical || card.dataset.vertical || '';
+            const heroSrc = card.dataset.staticHero || card.dataset.hero
+                || card.dataset.staticHorizontal || card.dataset.horizontal
+                || bgSrc;
+            if (typeof switchHeroBackground === 'function') {
+                switchHeroBackground(bgSrc, null, heroSrc);
+            }
+        }
     }
 
     function triggerAnimations(card) {
         const isFeatured = card.classList.contains('featured');
 
         const isStore = card.dataset.channel === 'stores';
-        const animSrc = isStore
-            ? card.dataset.vertical
-            : isFeatured
-            ? (card.dataset.horizontal || card.dataset.vertical)
-            : card.dataset.vertical;
+        const animSrc = card.dataset.vertical;
         const staticSrc = isFeatured
             ? _doorpiFeaturedCardSrc(card)
             : _doorpiRestingCardSrc(card);
@@ -133,10 +365,15 @@ const CardInteraction = (() => {
             if (img) safeLoadImage(img, animSrc, () => currentActiveCard === card);
         }
 
-        const animHero = card.dataset.hero;
-        if (animHero && animHero !== card.dataset.staticHero) {
-            const heroImg = document.getElementById('heroImage');
-            if (heroImg) safeLoadImage(heroImg, animHero, () => currentActiveCard === card);
+        // O foco do card vertical inicia também a arte horizontal da vitrine.
+        window.updateHomeFeatureStage?.(card, { animate: true });
+
+        const liveBgSrc = card.dataset.vertical || card.dataset.staticVertical || '';
+        const liveHeroSrc = card.dataset.hero || card.dataset.staticHero
+            || card.dataset.horizontal || card.dataset.staticHorizontal
+            || liveBgSrc;
+        if (typeof switchHeroBackground === 'function') {
+            switchHeroBackground(liveBgSrc, null, liveHeroSrc);
         }
 
         // ← MUDANÇA: logo tratado aqui exclusivamente (sem concorrência com setImgSrc)
@@ -404,9 +641,8 @@ const CardRenderer = (() => {
 
     function _selectedImageSrc(item, isFeatured) {
         const canUseLiveAsStatic = !item.isAnimated;
-        return isFeatured
-            ? (item.staticHorizontal || item.horizontal || item.staticVertical || item.vertical || '')
-            : (item.staticVertical || (canUseLiveAsStatic ? item.vertical : ''));
+        return item.staticVertical || (canUseLiveAsStatic ? item.vertical : '')
+            || item.staticHorizontal || item.horizontal || '';
     }
 
     function _queueStaticExtraction(card, item) {
@@ -427,6 +663,20 @@ const CardRenderer = (() => {
     }
 
     function _syncCardData(card, item, isFeatured) {
+        card.dataset.id = item.id || '';
+        card.dataset.channel = item.channel || '';
+        card.dataset.appType = item.appType || '';
+        if (item.channel === 'games') {
+            card.dataset.gameId = item.id || '';
+            card.dataset.source = item.source || '';
+            delete card.dataset.appId;
+            delete card.dataset.appUrl;
+        } else {
+            card.dataset.appId = item.id || '';
+            card.dataset.appUrl = item.url || '';
+            delete card.dataset.gameId;
+        }
+        card.dataset.name = item.name || '';
         card.dataset.vertical = item.vertical || '';
         card.dataset.horizontal = item.horizontal || '';
         card.dataset.hero = item.hero || '';
@@ -441,6 +691,9 @@ const CardRenderer = (() => {
         card.dataset.launchUrl = item.launchUrl || '';
         card.dataset.launchCommand = item.launchCommand || '';
         card.dataset.emulatorId = item.emulatorId || '';
+        card.dataset.emulatorName = item.emulatorName || '';
+        card.dataset.totalPlaytimeMinutes = String(item.totalPlaytimeMinutes || 0);
+        card.dataset.lastSessionMinutes = String(item.lastSessionMinutes || 0);
         card.dataset.isAnimated = item.isAnimated ? 'true' : 'false';
         if (item.disableGamepadControl != null) {
             card.dataset.disableGamepadControl = item.disableGamepadControl ? 'true' : 'false';
@@ -498,6 +751,7 @@ const CardRenderer = (() => {
 
         card.tabIndex = 0;
         card.dataset.badgeNew = typeof t === 'function' ? t('badgeNew') : 'Novo';
+        card.dataset.name = item.name || '';
         card.dataset.id = item.id;
         card.dataset.channel = item.channel;
         card.dataset.appType = item.appType;
@@ -519,6 +773,9 @@ const CardRenderer = (() => {
         card.dataset.launchUrl = item.launchUrl || '';
         card.dataset.launchCommand = item.launchCommand || '';
         card.dataset.emulatorId = item.emulatorId || '';
+        card.dataset.emulatorName = item.emulatorName || '';
+        card.dataset.totalPlaytimeMinutes = String(item.totalPlaytimeMinutes || 0);
+        card.dataset.lastSessionMinutes = String(item.lastSessionMinutes || 0);
 
         if (item.channel === 'games') {
             card.dataset.gameId = item.id;
@@ -733,31 +990,59 @@ const CardRenderer = (() => {
     function applyPatch(id, patch, gridEl) {
         const card = gridEl.querySelector(`.card[data-id="${CSS.escape(id)}"]`);
         if (!card) return;
+        const hasOwn = key => Object.prototype.hasOwnProperty.call(patch, key);
+        const artworkChanged = [
+            'staticVertical', 'staticHorizontal', 'staticHero', 'staticLogo',
+            'vertical', 'horizontal', 'hero', 'logo'
+        ].some(hasOwn);
 
         if (patch.name != null) {
             const titleEl = card.querySelector('.title');
             if (titleEl) titleEl.textContent = patch.name;
         }
-        if (patch.staticVertical) card.dataset.staticVertical = patch.staticVertical;
-        if (patch.staticHorizontal) card.dataset.staticHorizontal = patch.staticHorizontal;
-        if (patch.staticHero) card.dataset.staticHero = patch.staticHero;
-        if (patch.staticLogo) card.dataset.staticLogo = patch.staticLogo;
-        if (patch.vertical) card.dataset.vertical = patch.vertical;
-        if (patch.horizontal) card.dataset.horizontal = patch.horizontal;
-        if (patch.hero) card.dataset.hero = patch.hero;
-        if (patch.logo) card.dataset.logo = patch.logo;
-        if (patch.iconBase64) card.dataset.iconBase64 = patch.iconBase64;
+
+        if (hasOwn('staticVertical')) card.dataset.staticVertical = patch.staticVertical || '';
+        if (hasOwn('staticHorizontal')) card.dataset.staticHorizontal = patch.staticHorizontal || '';
+        if (hasOwn('staticHero')) card.dataset.staticHero = patch.staticHero || '';
+        if (hasOwn('staticLogo')) card.dataset.staticLogo = patch.staticLogo || '';
+        if (hasOwn('vertical')) card.dataset.vertical = patch.vertical || '';
+        if (hasOwn('horizontal')) card.dataset.horizontal = patch.horizontal || '';
+        if (hasOwn('hero')) card.dataset.hero = patch.hero || '';
+        if (hasOwn('logo')) card.dataset.logo = patch.logo || '';
+        if (hasOwn('iconBase64')) card.dataset.iconBase64 = patch.iconBase64 || '';
         if (patch.iconBase64 != null) _syncFallback(card, card.dataset.iconBase64 || '');
         if (patch.shareMode) card.dataset.shareMode = patch.shareMode;
         if (patch.disableGamepadControl != null) card.dataset.disableGamepadControl = String(patch.disableGamepadControl);
         const img = card.querySelector('img');
-        if (img && (patch.staticVertical || patch.staticHorizontal || patch.vertical || patch.horizontal)) {
-            card.classList.remove('no-art');
+        if (img && artworkChanged) {
+            const cardSrc = card.classList.contains('featured')
+                ? _doorpiFeaturedCardSrc(card)
+                : _doorpiRestingCardSrc(card);
+            card.classList.toggle('no-art', !cardSrc);
             const fallbackEl = card.querySelector('.media-card-fallback');
-            if (fallbackEl) fallbackEl.style.display = 'none';
-            const isFeatured = card.classList.contains('featured');
-            _doorpiSetCardImage(card, isFeatured ? _doorpiFeaturedCardSrc(card) : _doorpiRestingCardSrc(card));
-            img.style.display = '';
+            if (fallbackEl) fallbackEl.style.display = cardSrc ? 'none' : '';
+            _doorpiSetCardImage(card, cardSrc);
+            img.style.display = cardSrc ? '' : 'none';
+        }
+
+        const stage = document.getElementById('homeFeatureStage');
+        const cardId = card.dataset.id || card.dataset.gameId || card.dataset.appId || '';
+        const isCurrentFeature = stage?.dataset.cardId === cardId
+            || document.activeElement === card
+            || card.matches(':hover');
+        if (artworkChanged && isCurrentFeature) {
+            const animateArtwork = document.activeElement === card || card.matches(':hover');
+            window.updateHomeFeatureStage?.(card, { animate: animateArtwork });
+            const bgSrc = card.dataset.staticVertical || card.dataset.vertical || '';
+            const heroSrc = animateArtwork
+                ? (card.dataset.hero || card.dataset.staticHero
+                    || card.dataset.horizontal || card.dataset.staticHorizontal || bgSrc)
+                : (card.dataset.staticHero || card.dataset.hero
+                || card.dataset.staticHorizontal || card.dataset.horizontal
+                || bgSrc);
+            if (typeof switchHeroBackground === 'function') {
+                switchHeroBackground(bgSrc, null, heroSrc);
+            }
         }
     }
 

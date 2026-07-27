@@ -99,9 +99,8 @@ window.GridController = (() => {
 
                 const img = card.querySelector('img');
                 if (img) {
-                    const src = isFeatured
-                        ? (card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical)
-                        : (card.dataset.staticVertical || card.dataset.vertical);
+                    const src = card.dataset.staticVertical || card.dataset.vertical
+                        || card.dataset.staticHorizontal || card.dataset.horizontal;
                     if (src) img.src = src;
                 }
 

@@ -4588,6 +4588,9 @@
             else if (data.type === 'artworkSelectionApplied') {
                 window._artworkWizardHandleApplied?.(data);
             }
+            else if (data.type === 'artworkDownloadProgress') {
+                window._artworkWizardHandleDownloadProgress?.(data);
+            }
             else if (data.type === 'setupFolderAdded') {
                 window._setupHandleFolderAdded?.(data.path);
             }
@@ -4621,6 +4624,7 @@
                     || window.AppStore.queries.isArtworkPending?.('games', data.gameId);
                 const hasMedia = window.AppStore.queries.hasItem('media', data.gameId)
                     || window.AppStore.queries.isArtworkPending?.('media', data.gameId);
+                const hasStore = window.AppStore.queries.hasItem('stores', data.gameId);
 
                 if (hasGame) {
                     window.AppStore.mutations.patchItem('games', data.gameId, patch);
@@ -4628,7 +4632,11 @@
                 } else if (hasMedia) {
                     window.AppStore.mutations.patchItem('media', data.gameId, patch);
                     if (data.imageType === 'GridStatic') window._navMenuDataChanged?.('media');
+                } else if (hasStore) {
+                    window.AppStore.mutations.patchItem('stores', data.gameId, patch);
+                    if (data.imageType === 'GridStatic') window._navMenuDataChanged?.('stores');
                 }
+                window._artworkWizardHandleStaticSaved?.(data);
             }
             else if (data.type === 'clearMediaGrid') {
                 if (window.AppStore) window.AppStore.mutations.setBatch('media', []);
@@ -9050,7 +9058,13 @@ function renderFolderList(folders) {
                     const c = document.createElement('canvas');
                     c.width = tmp.naturalWidth; c.height = tmp.naturalHeight;
                     c.getContext('2d').drawImage(tmp, 0, 0);
-                    postToHost({ action: 'saveStaticFrame', gameId: entityId, imageType, base64: c.toDataURL('image/png') });
+                    postToHost({
+                        action: 'saveStaticFrame',
+                        gameId: entityId,
+                        imageType,
+                        sourceUrl: src,
+                        base64: c.toDataURL('image/png')
+                    });
                 } catch { card.dataset[dsKey] = src; }
                 finally { URL.revokeObjectURL(blobUrl); resolve(); }
             };
@@ -9088,6 +9102,7 @@ function renderFolderList(folders) {
                         action: 'saveStaticFrame',
                         gameId: id,
                         imageType,
+                        sourceUrl: src,
                         base64: c.toDataURL('image/png')
                     });
                     finish(true);
@@ -9120,7 +9135,7 @@ function renderFolderList(folders) {
 
         const img = card.querySelector('img');
         if (img) {
-            img.src = card.dataset.staticHorizontal || card.dataset.horizontal || card.dataset.staticVertical || card.dataset.vertical || '';
+            img.src = card.dataset.staticVertical || card.dataset.vertical || card.dataset.staticHorizontal || card.dataset.horizontal || '';
         }
         window.syncFeaturedCardArt?.(grid);
 
@@ -9199,7 +9214,7 @@ function renderFolderList(folders) {
 
 
         const currentTab = (typeof window.getCurrentHomeTab === 'function') ? window.getCurrentHomeTab() : 'games';
-        const gridId = currentTab === 'media' ? 'mediaGrid' : 'gameGrid';
+        const gridId = currentTab === 'media' ? 'mediaGrid' : (currentTab === 'stores' ? 'storesGrid' : 'gameGrid');
         const grid = document.getElementById(gridId);
 
         if (grid && !grid.querySelector('.card:not(.add-card)')) {
@@ -9225,7 +9240,15 @@ function renderFolderList(folders) {
 
         if (!bgSrc) return;
 
-        if (_currentBgSrc.split('?')[0] === bgSrc.split('?')[0]) {
+        const comparableSrc = value => {
+            if (!value) return '';
+            try { return new URL(value, window.location.href).href.split('?')[0]; }
+            catch { return String(value).split('?')[0]; }
+        };
+        const requestedHeroSrc = heroSrc || bgSrc;
+        const currentHeroSrc = heroImg?.getAttribute('src') || '';
+        if (comparableSrc(_currentBgSrc) === comparableSrc(bgSrc)
+            && comparableSrc(currentHeroSrc) === comparableSrc(requestedHeroSrc)) {
             if (heroImg) heroImg.style.opacity = '1';
             if (gridBg) gridBg.style.opacity = '1';
             if (bgBlur) bgBlur.style.opacity = '1';
@@ -9787,6 +9810,20 @@ function renderFolderList(folders) {
         .artwork-pick-btn { max-width: min(340px, 72vw); min-height: 48px; white-space: normal; line-height: 1.25; text-align: center; }
         .artwork-local-preview { max-width: min(420px, 68vw); max-height: 250px; border-radius: 14px; object-fit: contain; background: rgba(0,0,0,.25); border: 1px solid rgba(255,255,255,.08); }
         .artwork-clear-btn { width: 46px; min-width: 46px; height: 46px; padding: 0; color: #ff7777; border-color: rgba(255,90,90,.38); font-size: 18px; font-weight: 800; }
+        .artwork-results.is-progress { display: flex; align-items: stretch; justify-content: stretch; overflow: hidden; padding: 12px; }
+        .artwork-progress-panel { width: 100%; min-height: 0; display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 18px; border: 1px solid rgba(255,255,255,.10); border-radius: 18px; background: radial-gradient(circle at 50% 34%, rgba(100,157,255,.14), transparent 38%), rgba(255,255,255,.025); padding: clamp(30px, 5vw, 74px); box-sizing: border-box; text-align: center; }
+        .artwork-progress-icon { width: clamp(76px, 7vw, 112px); height: clamp(76px, 7vw, 112px); display: grid; place-items: center; border-radius: 50%; border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.075); color: rgba(255,255,255,.94); box-shadow: 0 18px 54px rgba(0,0,0,.28); }
+        .artwork-progress-icon svg { width: 48%; height: 48%; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+        .artwork-progress-icon.is-processing svg { animation: artwork-progress-pulse 1.45s ease-in-out infinite; }
+        .artwork-progress-icon.is-complete { color: #a9e6bf; border-color: rgba(115,220,154,.34); background: rgba(87,183,123,.12); }
+        .artwork-progress-title { color: #fff; font-size: clamp(22px, 2vw, 32px); font-weight: 620; letter-spacing: -.02em; }
+        .artwork-progress-category { min-height: 20px; color: rgba(255,255,255,.54); font-size: clamp(13px, 1vw, 16px); }
+        .artwork-progress-track { width: min(620px, 76vw); height: 7px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.10); box-shadow: inset 0 1px 2px rgba(0,0,0,.32); }
+        .artwork-progress-fill { width: 0%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #76aaff, #b3d5ff); box-shadow: 0 0 18px rgba(103,166,255,.42); transition: width .16s linear; }
+        .artwork-progress-track.is-indeterminate .artwork-progress-fill { width: 34%; animation: artwork-progress-slide 1.2s ease-in-out infinite; }
+        .artwork-progress-detail { min-height: 20px; color: rgba(255,255,255,.38); font-size: 12px; font-variant-numeric: tabular-nums; }
+        @keyframes artwork-progress-slide { 0% { transform: translateX(-110%); } 100% { transform: translateX(310%); } }
+        @keyframes artwork-progress-pulse { 0%, 100% { opacity: .52; transform: scale(.92); } 50% { opacity: 1; transform: scale(1.04); } }
         .edit-modal-field { display: flex; flex-direction: column; gap: 6px; }
         .edit-modal-label {
             font-size: 10px; text-transform: uppercase; letter-spacing: 0.10em;
@@ -10637,7 +10674,7 @@ function renderFolderList(folders) {
                 if (next) {
                     next.classList.add('featured');
                     const img = next.querySelector('img');
-                    if (img) img.src = next.dataset.staticHorizontal || next.dataset.horizontal || next.dataset.staticVertical || '';
+                    if (img) img.src = next.dataset.staticVertical || next.dataset.vertical || next.dataset.staticHorizontal || '';
                     window.syncFeaturedCardArt?.(grid);
                     next._startInteraction?.();
                 } else {
@@ -10681,10 +10718,22 @@ function renderFolderList(folders) {
 
     function _artworkPatchFromCategories(images) {
         const patch = {};
-        if (images.vertical) patch.vertical = images.vertical;
-        if (images.horizontal) patch.horizontal = images.horizontal;
-        if (images.banner) patch.hero = images.banner;
-        if (images.logo) patch.logo = images.logo;
+        if (images.vertical) {
+            patch.vertical = images.vertical;
+            patch.staticVertical = '';
+        }
+        if (images.horizontal) {
+            patch.horizontal = images.horizontal;
+            patch.staticHorizontal = '';
+        }
+        if (images.banner) {
+            patch.hero = images.banner;
+            patch.staticHero = '';
+        }
+        if (images.logo) {
+            patch.logo = images.logo;
+            patch.staticLogo = '';
+        }
         return patch;
     }
 
@@ -10692,13 +10741,12 @@ function renderFolderList(folders) {
         const requestId = `art_${Date.now()}_${Math.random().toString(16).slice(2)}`;
         const isStore = card.dataset.channel === 'stores' || card.closest('#storesGrid') !== null;
         const isMedia = !isStore && (card.hasAttribute('data-app-id') || card.closest('#mediaGrid') !== null);
-        const gameId = card.dataset.gameId || card.dataset.appId || card.dataset.appUrl || '';
+        const gameId = card.dataset.gameId || card.dataset.appId || card.dataset.appUrl
+            || card.dataset.id || card.dataset.launchUrl || card.dataset.path || '';
         const requestedCategories = Array.isArray(options.categories) ? new Set(options.categories) : null;
         const categories = requestedCategories
             ? ARTWORK_CATEGORIES.filter(cat => requestedCategories.has(cat.key))
-            : isStore
-                ? ARTWORK_CATEGORIES.filter(cat => cat.key !== 'horizontal')
-                : ARTWORK_CATEGORIES;
+            : ARTWORK_CATEGORIES;
         const state = {
             requestId,
             mode,
@@ -10763,6 +10811,57 @@ function renderFolderList(folders) {
             ).join('');
         };
 
+        const formatArtworkBytes = value => {
+            const bytes = Math.max(0, Number(value) || 0);
+            if (bytes < 1024) return `${Math.round(bytes)} B`;
+            if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+            return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+        };
+
+        const showProgressPanel = () => {
+            state.isApplying = true;
+            renderSteps();
+            const results = overlay.querySelector('.artwork-results');
+            results.className = 'artwork-results is-progress';
+            results.innerHTML = `
+                <div class="artwork-progress-panel" role="status" aria-live="polite">
+                    <div class="artwork-progress-icon is-processing">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M12 3v12m0 0 4-4m-4 4-4-4"></path>
+                            <path d="M5 19h14"></path>
+                        </svg>
+                    </div>
+                    <div class="artwork-progress-title">${t('artworkDownloading')}</div>
+                    <div class="artwork-progress-category">${t('artworkStartingDownload')}</div>
+                    <div class="artwork-progress-track is-indeterminate">
+                        <div class="artwork-progress-fill"></div>
+                    </div>
+                    <div class="artwork-progress-detail"></div>
+                </div>`;
+            overlay.querySelector('.artwork-search-row').style.display = 'none';
+            overlay.querySelector('.artwork-actions').style.display = 'none';
+            overlay.querySelector('.artwork-status').textContent = t('artworkApplying');
+        };
+
+        const setProgressComplete = () => {
+            const icon = overlay.querySelector('.artwork-progress-icon');
+            const title = overlay.querySelector('.artwork-progress-title');
+            const category = overlay.querySelector('.artwork-progress-category');
+            const track = overlay.querySelector('.artwork-progress-track');
+            const fill = overlay.querySelector('.artwork-progress-fill');
+            icon?.classList.remove('is-processing');
+            icon?.classList.add('is-complete');
+            if (icon) {
+                icon.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"></path></svg>`;
+            }
+            if (title) title.textContent = t('artworkReady');
+            if (category) category.textContent = t('artworkReadyHint');
+            track?.classList.remove('is-indeterminate');
+            if (fill) fill.style.width = '100%';
+            overlay.querySelector('.artwork-progress-detail').textContent = '';
+            overlay.querySelector('.artwork-status').textContent = '';
+        };
+
         const finish = () => {
             const images = {};
             for (const cat of categories) {
@@ -10777,17 +10876,20 @@ function renderFolderList(folders) {
                 close();
                 return;
             }
+            if (mode === 'steamgrid') showProgressPanel();
             postToHost({
                 action: options.applyAction || 'applyArtworkSelection',
                 requestId,
                 gameId,
-                gameName: options.gameName || '',
+                gameName: options.gameName || card.dataset.name
+                    || card.querySelector('.title')?.textContent?.trim() || '',
                 isMedia,
                 isStore,
                 localFiles: mode === 'local',
                 images
             });
-            overlay.querySelector('.artwork-status').textContent = t('artworkApplying');
+            if (mode !== 'steamgrid')
+                overlay.querySelector('.artwork-status').textContent = t('artworkApplying');
         };
 
         const next = () => {
@@ -10800,6 +10902,10 @@ function renderFolderList(folders) {
         };
 
         const close = () => {
+            if (state.preparationTimer) {
+                clearTimeout(state.preparationTimer);
+                state.preparationTimer = null;
+            }
             overlay.remove();
             if (_artworkWizard === state) _artworkWizard = null;
             if (options.returnFocus?.isConnected)
@@ -10915,9 +11021,15 @@ function renderFolderList(folders) {
             }
         });
         overlay.querySelector('#artworkSkipBtn').addEventListener('click', next);
-        overlay.querySelector('#artworkCancelBtn').addEventListener('click', close);
-        overlay.addEventListener('mousedown', e => { if (e.target === overlay) close(); });
-        overlay.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+        overlay.querySelector('#artworkCancelBtn').addEventListener('click', () => {
+            if (!state.isApplying) close();
+        });
+        overlay.addEventListener('mousedown', e => {
+            if (e.target === overlay && !state.isApplying) close();
+        });
+        overlay.addEventListener('keydown', e => {
+            if (e.key === 'Escape' && !state.isApplying) close();
+        });
 
         state.renderResults = (category, images) => {
             if (!_artworkWizard || _artworkWizard.requestId !== requestId) return;
@@ -10971,16 +11083,105 @@ function renderFolderList(folders) {
             render();
         };
 
-        state.applied = (images) => {
+        state.downloadProgress = data => {
+            if (data?.requestId !== requestId || !state.isApplying) return;
+            const categoryKey = String(data.category || '');
+            const category = categories.find(item => item.key === categoryKey);
+            const received = Math.max(0, Number(data.receivedBytes) || 0);
+            const total = Math.max(0, Number(data.totalBytes) || 0);
+            const percent = total > 0
+                ? Math.max(0, Math.min(100, received / total * 100))
+                : null;
+            const title = overlay.querySelector('.artwork-progress-title');
+            const categoryEl = overlay.querySelector('.artwork-progress-category');
+            const track = overlay.querySelector('.artwork-progress-track');
+            const fill = overlay.querySelector('.artwork-progress-fill');
+            const detail = overlay.querySelector('.artwork-progress-detail');
+
+            if (title) title.textContent = t('artworkDownloading');
+            if (categoryEl) {
+                categoryEl.textContent = t(
+                    'artworkDownloadingCategory',
+                    category ? artworkLabel(category) : categoryKey
+                );
+            }
+            track?.classList.toggle('is-indeterminate', percent === null);
+            if (fill && percent !== null) fill.style.width = `${percent.toFixed(2)}%`;
+            if (detail) {
+                detail.textContent = total > 0
+                    ? `${formatArtworkBytes(received)} / ${formatArtworkBytes(total)} · ${Math.round(percent)}%`
+                    : formatArtworkBytes(received);
+            }
+        };
+
+        state.applied = (data) => {
+            const images = data?.images || data || {};
             if (typeof options.onApplied === 'function') {
                 options.onApplied(images || {});
                 close();
                 return;
             }
+            if (state.isApplying && Object.keys(images || {}).length === 0) {
+                state.isApplying = false;
+                const icon = overlay.querySelector('.artwork-progress-icon');
+                icon?.classList.remove('is-processing');
+                if (icon) {
+                    icon.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"></path></svg>`;
+                }
+                overlay.querySelector('.artwork-progress-title').textContent =
+                    t('artworkDownloadFailed');
+                overlay.querySelector('.artwork-progress-category').textContent =
+                    t('artworkDownloadFailedHint');
+                overlay.querySelector('.artwork-progress-track').style.display = 'none';
+                overlay.querySelector('.artwork-progress-detail').textContent = '';
+                const actions = overlay.querySelector('.artwork-actions');
+                actions.style.display = 'grid';
+                overlay.querySelector('#artworkSkipBtn').style.display = 'none';
+                overlay.querySelector('#artworkCancelBtn').style.display = 'inline-flex';
+                overlay.querySelector('.artwork-status').textContent = '';
+                requestAnimationFrame(() =>
+                    overlay.querySelector('#artworkCancelBtn')?.focus({ preventScroll: true }));
+                return;
+            }
             const patch = _artworkPatchFromCategories(images || {});
             const channel = isStore ? 'stores' : (isMedia ? 'media' : 'games');
             window.AppStore?.mutations?.patchItem(channel, gameId, patch);
-            close();
+            const pending = Array.isArray(data?.pendingStaticTypes)
+                ? data.pendingStaticTypes.filter(Boolean)
+                : [];
+            if (pending.length) {
+                state.pendingStaticTypes = new Set(pending);
+                const title = overlay.querySelector('.artwork-progress-title');
+                const category = overlay.querySelector('.artwork-progress-category');
+                const track = overlay.querySelector('.artwork-progress-track');
+                if (title) title.textContent = t('artworkPreparing');
+                if (category) category.textContent = t('artworkExtractingFrame');
+                track?.classList.add('is-indeterminate');
+                overlay.querySelector('.artwork-progress-detail').textContent = '';
+                overlay.querySelector('.artwork-status').textContent = '';
+                return;
+            }
+            if (state.isApplying) {
+                setProgressComplete();
+                setTimeout(close, 650);
+            } else {
+                close();
+            }
+        };
+
+        state.staticSaved = (data) => {
+            if (!state.pendingStaticTypes ||
+                String(data?.gameId || '').toLowerCase() !== String(gameId).toLowerCase())
+                return;
+            state.pendingStaticTypes.delete(data.imageType);
+            const detail = overlay.querySelector('.artwork-progress-detail');
+            if (detail && state.pendingStaticTypes.size > 0) {
+                detail.textContent = t('artworkFramesRemaining', state.pendingStaticTypes.size);
+            }
+            if (state.pendingStaticTypes.size === 0) {
+                setProgressComplete();
+                setTimeout(close, 650);
+            }
         };
 
         render();
@@ -10995,7 +11196,9 @@ function renderFolderList(folders) {
     window._artworkWizardHandleResults = data => _artworkWizard?.renderResults?.(data.category, data.images || []);
     window.openDoorpiArtworkWizard = openArtworkWizard;
     window._artworkWizardHandlePicked = data => _artworkWizard?.pickLocal?.(data.category, data.path, data.preview);
-    window._artworkWizardHandleApplied = data => _artworkWizard?.applied?.(data.images || {});
+    window._artworkWizardHandleApplied = data => _artworkWizard?.applied?.(data);
+    window._artworkWizardHandleDownloadProgress = data => _artworkWizard?.downloadProgress?.(data);
+    window._artworkWizardHandleStaticSaved = data => _artworkWizard?.staticSaved?.(data);
     window._artworkWizardIsOpen = () => !!_artworkWizard?.overlay;
     window._artworkWizardHandleClipboard = value => {
         if (!_artworkWizard?.overlay || _artworkWizard.mode !== 'url') return false;
@@ -11033,6 +11236,7 @@ function renderFolderList(folders) {
             return true;
         }
         if (action === 'cancel') {
+            if (_artworkWizard.isApplying) return true;
             overlay.querySelector('#artworkCancelBtn')?.click();
             return true;
         }
@@ -11040,6 +11244,7 @@ function renderFolderList(folders) {
     };
     window._artworkWizardClose = () => {
         if (!_artworkWizard?.overlay) return false;
+        if (_artworkWizard.isApplying) return true;
         _artworkWizard.overlay.remove();
         _artworkWizard = null;
         return true;

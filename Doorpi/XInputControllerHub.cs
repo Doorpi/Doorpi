@@ -266,10 +266,13 @@ namespace Doorpi
     internal sealed class XInputButtonTracker
     {
         private const ushort Guide = 0x0400;
+        private const ushort Back = 0x0020;
+        private const ushort Shoulders = 0x0300;
         private const ushort ReturnAlternative = 0x0380; // L1 + R1 + R3
         private const ushort L3 = 0x0040;
         private const ushort R3 = 0x0080;
         private const long MouseChordWindowMs = 450;
+        private const long GuideHoldReturnDelayMs = 300;
 
         private readonly ushort[] _previous = new ushort[XInputControllerHub.SlotCount];
         private readonly ushort[] _previousNative = new ushort[XInputControllerHub.SlotCount];
@@ -280,6 +283,11 @@ namespace Doorpi
         private readonly long[] _lastL3PressedAt = new long[XInputControllerHub.SlotCount];
         private readonly long[] _lastR3PressedAt = new long[XInputControllerHub.SlotCount];
         private readonly bool[] _mouseChordLatched = new bool[XInputControllerHub.SlotCount];
+        private readonly bool[] _taskSwitcherChordLatched = new bool[XInputControllerHub.SlotCount];
+        private readonly bool[] _guideReturnArmed = new bool[XInputControllerHub.SlotCount];
+        private readonly bool[] _guideConsumedByTaskSwitcher = new bool[XInputControllerHub.SlotCount];
+        private readonly bool[] _guideReturnDispatched = new bool[XInputControllerHub.SlotCount];
+        private readonly long[] _guidePressedAt = new long[XInputControllerHub.SlotCount];
         private byte _connectedMask;
         private bool _initialized;
 
@@ -292,6 +300,8 @@ namespace Doorpi
         internal bool RightTriggerJustPressed { get; private set; }
         internal bool ReturnShortcutJustPressed { get; private set; }
         internal byte ReturnShortcutSlotMask { get; private set; }
+        internal bool TaskSwitcherShortcutJustPressed { get; private set; }
+        internal byte TaskSwitcherShortcutSlotMask { get; private set; }
         internal bool MouseModeShortcutJustPressed { get; private set; }
 
         internal void Update(XInputSnapshot snapshot)
@@ -305,6 +315,8 @@ namespace Doorpi
             RightTriggerJustPressed = false;
             ReturnShortcutJustPressed = false;
             ReturnShortcutSlotMask = 0;
+            TaskSwitcherShortcutJustPressed = false;
+            TaskSwitcherShortcutSlotMask = 0;
             MouseModeShortcutJustPressed = false;
             long now = Environment.TickCount64;
 
@@ -346,10 +358,62 @@ namespace Doorpi
                 RightTriggerJustPressed |= currentRightTrigger > 128 && previousRightTrigger <= 128;
 
                 bool guidePressed = (pressed & Guide) != 0;
+                bool guideReleased = connected && (released & Guide) != 0;
+                if (guidePressed)
+                {
+                    _guideReturnArmed[slot] = true;
+                    _guideConsumedByTaskSwitcher[slot] = false;
+                    _guideReturnDispatched[slot] = false;
+                    _guidePressedAt[slot] = now;
+                }
+
+                bool taskSwitcherChord =
+                    (current & (Guide | Back)) == (Guide | Back) ||
+                    (current & (Shoulders | Back)) == (Shoulders | Back);
+                if (!taskSwitcherChord)
+                    _taskSwitcherChordLatched[slot] = false;
+                else if (!_taskSwitcherChordLatched[slot])
+                {
+                    _taskSwitcherChordLatched[slot] = true;
+                    TaskSwitcherShortcutJustPressed = true;
+                    TaskSwitcherShortcutSlotMask |= bit;
+                    if ((current & Guide) != 0)
+                        _guideConsumedByTaskSwitcher[slot] = true;
+                }
+
+                bool guideHeldLongEnough =
+                    connected &&
+                    (current & Guide) != 0 &&
+                    _guideReturnArmed[slot] &&
+                    !_guideConsumedByTaskSwitcher[slot] &&
+                    !_guideReturnDispatched[slot] &&
+                    now - _guidePressedAt[slot] >= GuideHoldReturnDelayMs;
+                if (guideHeldLongEnough)
+                {
+                    ReturnShortcutJustPressed = true;
+                    ReturnShortcutSlotMask |= bit;
+                    _guideReturnDispatched[slot] = true;
+                }
+
+                if (guideReleased)
+                {
+                    if (_guideReturnArmed[slot] &&
+                        !_guideConsumedByTaskSwitcher[slot] &&
+                        !_guideReturnDispatched[slot])
+                    {
+                        ReturnShortcutJustPressed = true;
+                        ReturnShortcutSlotMask |= bit;
+                    }
+                    _guideReturnArmed[slot] = false;
+                    _guideConsumedByTaskSwitcher[slot] = false;
+                    _guideReturnDispatched[slot] = false;
+                    _guidePressedAt[slot] = 0;
+                }
+
                 bool alternativePressed =
                     (current & ReturnAlternative) == ReturnAlternative &&
                     (previous & ReturnAlternative) != ReturnAlternative;
-                if (guidePressed || alternativePressed)
+                if (alternativePressed)
                 {
                     ReturnShortcutJustPressed = true;
                     ReturnShortcutSlotMask |= bit;
@@ -375,6 +439,11 @@ namespace Doorpi
                     _lastL3PressedAt[slot] = 0;
                     _lastR3PressedAt[slot] = 0;
                     _mouseChordLatched[slot] = false;
+                    _taskSwitcherChordLatched[slot] = false;
+                    _guideReturnArmed[slot] = false;
+                    _guideConsumedByTaskSwitcher[slot] = false;
+                    _guideReturnDispatched[slot] = false;
+                    _guidePressedAt[slot] = 0;
                 }
 
                 _previous[slot] = current;

@@ -1019,7 +1019,7 @@ function moveFocus(direction) {
             current._stopInteraction?.();
             if (typeof cancelHeroTransition === 'function') cancelHeroTransition();
             pendingInteractionCard = null;
-            target.focus();
+            target.focus({ preventScroll: true });
             smoothHorizontalScroll(target, () => {
                 if (document.activeElement === target || target.matches(':hover')) target._startInteraction?.();
             });
@@ -1107,14 +1107,14 @@ window.focusFeaturedCard = function () {
     if (!grid) return false;
     const featured = grid.querySelector('.card.featured');
     if (featured) {
-        featured.focus();
+        featured.focus({ preventScroll: true });
         grid.scrollLeft = 0;
         featured._startInteraction?.();
         return document.activeElement === featured;
     }
 
     const first = grid.querySelector('.card');
-    first?.focus();
+    first?.focus({ preventScroll: true });
     return !!first && document.activeElement === first;
 };
 
@@ -1122,7 +1122,7 @@ function focusItemByIndex(index) {
     const items = getNavigableItems();
     if (!items.length) return;
     const el = items[(index + items.length) % items.length];
-    el.focus();
+    el.focus({ preventScroll: !isModalOpen });
     if (isModalOpen) el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
     else smoothHorizontalScroll(el);
 }

@@ -1,51 +1,51 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202607271037,
-    "publishedAt":  "2026-07-27T13:38:43.1971117Z",
-    "expiresAt":  "2026-08-10T13:38:43.1971117Z",
+    "manifestVersion":  202607272053,
+    "publishedAt":  "2026-07-27T23:54:09.9648740Z",
+    "expiresAt":  "2026-08-10T23:54:09.9648740Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.3.21",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.3.21/doorpi-0.3.21.doorpiupdate.zip",
-                   "sha256":  "7f74a10d0e148c7e2ed633b94d132651b2b978aa1edd0f35abefacb95578eeee",
-                   "sizeBytes":  133592966,
+                   "version":  "0.3.22",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.3.22/doorpi-0.3.22.doorpiupdate.zip",
+                   "sha256":  "c9a259ce739f3120852c1657a7b8eed87a2b1a6945c1955e5e60226945d0fbce",
+                   "sizeBytes":  133612549,
                    "minUpdaterVersion":  "0.1.0",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
                     "version":  "0.1.0",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.3.21/updater-0.1.0.doorpiupdate.zip",
-                    "sha256":  "6f780c6703cd343e9a2e2f2e9922f5dc663c14b29061a8cfb5ba7adcac5f021a",
-                    "sizeBytes":  69946163,
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.3.22/updater-0.1.0.doorpiupdate.zip",
+                    "sha256":  "9ccef9c3c0643c4c1da9403b6fdd62dbc54c218d2bc70e1e0925ad73e6603915",
+                    "sizeBytes":  69946159,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.3.21",
-                          "title":  "Doorpi 0.3.21",
+                          "version":  "0.3.22",
+                          "title":  "Doorpi 0.3.22",
                           "items":  [
-                                        "Melhorias visuais.",
-                                        "Corrigidos problemas ao deletar usuário.",
-                                        "Adicionadas filtragem e busca na biblioteca."
+                                        "Mudanças visuais.",
+                                        "Novo atalho Xbox + Select/LB + RB + Select para Alt + Tab.",
+                                        "Botão minimizar para o Doorpi mais confiável."
                                     ],
                           "locales":  {
                                           "pt-BR":  {
-                                                        "title":  "Doorpi 0.3.21",
+                                                        "title":  "Doorpi 0.3.22",
                                                         "items":  [
-                                                                      "Melhorias visuais.",
-                                                                      "Corrigidos problemas ao deletar usuário.",
-                                                                      "Adicionadas filtragem e busca na biblioteca."
+                                                                      "Mudanças visuais.",
+                                                                      "Novo atalho Xbox + Select/LB + RB + Select para Alt + Tab.",
+                                                                      "Botão minimizar para o Doorpi mais confiável."
                                                                   ]
                                                     },
                                           "en":  {
-                                                     "title":  "Doorpi 0.3.21",
+                                                     "title":  "Doorpi 0.3.22",
                                                      "items":  [
-                                                                   "Visual improvements.",
-                                                                   "Fixed issues when deleting users.",
-                                                                   "Added filtering and search to the library."
+                                                                   "Visual changes.",
+                                                                   "New Xbox + Select/LB + RB + Select shortcut for Alt + Tab.",
+                                                                   "More reliable minimize button for Doorpi."
                                                                ]
                                                  }
                                       }
@@ -54,6 +54,6 @@
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "RvPJK4AjNNarf64PAbHLhCTDHFr3VLCc/O0uG8/Y3cHHG1ZWEJa1DXUiycKrFiL3KkdF4foaxmAtGOSh+o6I1GgrryL6JVmd7lWPFetkF67g/mdWChF/2Kt34MtFn+u3ePNr7msxdfNqLDKzo7smtEX0WJPs1w6ZnE/MEl7QSjUf8GeJQE+IU/X8UmxiX43fNDRSNCVSMetaaqPt6Oz+bilN2ShTC4anz4WzQoHSkt5o+mCXdeXH5PUipPqOG1h82NkGNg35HHenSDsSQENBy+Bj6s7pktgmTj/8itbYkO9R5Hl/cg/k6AJh/mAxbJv/SNRku9f4RLfHWU7h5gb1LZbMc4sgaSBRE+tjKlV4jCl63bBn/cPVmxxzVBFoF2EZ0YPp/+LzDW8q9W/I2V0//YQaKdeU7gQ3exaqD6TSzfkwnSE7eOez8iyHAedJG7H1qajEf+NbXl0U6yuWB5DGdhYYrOJcvYcMOHP2e8pFVRa4AS99nnS2x3VzCSaOL0En"
+                      "value":  "LiqIDZsbMIUvJBfFEeEl19NpxBMdJpLerVR0Nd2V8orQP6hX05AbTiZQI3fG4aOM05HOAA4pYv5+YC72ajGWma5FVXF+p+raVyVeTn1SMbY8UJsy9Sv7yuEymxe2Ppjo5N/igogUAirBNKwfqTCWNbG0a+u6F0ho+pXprzlY8s5DR3QcB2d1VcFQSa4ppbCLHQ2/aNpM781km0Bka2YLubk21+BZR5vu8VDKsaTFmsM4TfS0ELXClH/UkeDtnVl80RVorQLMx0c6ExgJABc92UhhFGMlhykT22ReYoO+2FJ3YEwb2s7xuYi//FtyfwXCsq6rubcnmRwj/td4JVPp/+Q3ncUlV9JIFvmiNY7BKaaky4FOI9L5srL9RN3TKtg+M4WymA2X9MKDrzEu77w8jcW91xgjRpDzy8Azb77PJDG1YUgxhFRNrtYMn2acxPhhJaDWPCQ1RHJOfOHRGWKQUfNp8iivZGOtfHJTt6ty66qKP/uXxdL9jtpvuxxm+RuC"
                   }
 }

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Doorpi</title>
-    <link rel="stylesheet" href="style.css?v=20260723b">
+    <link rel="stylesheet" href="style.css?v=20260727s">
     <link rel="stylesheet" href="file-browser.css?v=20260721l">
 
    
@@ -42,21 +42,78 @@
             <img id="bgBlur" loading="eager" fetchpriority="high" decoding="async" />
         </div>
 
-        <!-- Logo do jogo -->
-        <img id="gameLogo" />
-
-        <!-- Grid -->
+        <!-- Vitrine editorial e biblioteca -->
         <div class="grid-bg">
             <img id="gridBgImg" />
             <div class="main-content-wrapper">
-                <div class="home-tabs" id="homeTabs">
+                <section class="home-feature-stage" id="homeFeatureStage" aria-live="polite">
+                    <img class="home-feature-scene-art" id="homeFeatureBanner" alt="" aria-hidden="true" />
+                    <div class="home-feature-art-shell">
+                        <img id="homeFeatureArt" alt="" loading="eager" decoding="async" />
+                        <div class="home-feature-art-fallback" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <rect x="3" y="6" width="18" height="12" rx="3" stroke="currentColor" stroke-width="1.4" />
+                                <path d="M7 12h4M9 10v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+                                <circle cx="16.5" cy="11" r=".9" fill="currentColor" />
+                                <circle cx="18.5" cy="13" r=".9" fill="currentColor" />
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="home-feature-copy">
+                        <span class="home-feature-eyebrow" id="homeFeatureEyebrow"></span>
+                        <img id="gameLogo" alt="" />
+                        <h1 class="home-feature-title" id="homeFeatureTitle"></h1>
+                        <div class="home-feature-meta" id="homeFeatureMeta"></div>
+                        <div class="home-feature-playtime" id="homeFeaturePlaytime" hidden>
+                            <span class="home-feature-playtime-label" data-i18n="homePlaytimeLabel"></span>
+                            <strong id="homeFeaturePlaytimeValue"></strong>
+                            <small id="homeFeatureLastSession"></small>
+                        </div>
+                        <div class="home-feature-primary">
+                            <span class="home-feature-a">A</span>
+                            <span id="homeFeatureActionLabel"></span>
+                        </div>
+                    </div>
+                </section>
 
-                    <div class="home-tabs-group">
-                        <button class="home-tab active" data-tab="games" tabindex="0" data-i18n="tabGames"></button>
-                        <button class="home-tab" data-tab="media" tabindex="0" data-i18n="tabMedia"></button>
-                        <button class="home-tab" data-tab="stores" tabindex="0" data-i18n="tabStores"></button>
+                <div class="home-library-toolbar">
+                    <div class="home-tabs" id="homeTabs">
+                        <div class="home-tabs-group">
+                            <button class="home-tab active" data-tab="games" tabindex="0" data-i18n="tabGames"></button>
+                            <button class="home-tab" data-tab="media" tabindex="0" data-i18n="tabMedia"></button>
+                            <button class="home-tab" data-tab="stores" tabindex="0" data-i18n="tabStores"></button>
+                        </div>
+                    </div>
+                    <div class="home-library-head">
+                        <span class="home-library-title" id="homeLibraryTitle" data-i18n="homeLibraryTitle"></span>
+                        <span class="home-library-position" id="homeLibraryPosition"></span>
+                    </div>
+                </div>
+
+                <div class="home-library-rail">
+                    <div class="game-grid" id="gameGrid">
+                        <div class="card add-card" tabindex="0" id="btnAdd">
+                            <div class="plus">+</div>
+                            <div class="title" data-i18n="btnAddLabel"></div>
+                        </div>
                     </div>
 
+                    <div class="game-grid" id="mediaGrid">
+                        <div class="card add-card" tabindex="0" id="btnAddMedia">
+                            <div class="plus">+</div>
+                            <div class="title" data-i18n="btnAddAppLabel">Adicionar App</div>
+                        </div>
+                    </div>
+
+                    <div class="game-grid" id="storesGrid">
+                        <div class="card add-card" tabindex="0" id="btnAddStore">
+                            <div class="plus">+</div>
+                            <div class="title" data-i18n="btnAddStoreLabel">Adicionar Loja</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="home-controls-bar">
                     <div class="gp-hints">
                         <div class="gp-hints-inner">
                             <span class="gp-hint-item">
@@ -100,28 +157,6 @@
                     <span class="home-tabs-hint">
                         <b>LB</b> <b>RB</b> <span data-i18n="tabsHint"></span>
                     </span>
-
-                </div>
-
-                <div class="game-grid" id="gameGrid">
-                    <div class="card add-card" tabindex="0" id="btnAdd">
-                        <div class="plus">+</div>
-                        <div class="title" data-i18n="btnAddLabel"></div>
-                    </div>
-                </div>
-
-                <div class="game-grid" id="mediaGrid">
-                    <div class="card add-card" tabindex="0" id="btnAddMedia">
-                        <div class="plus">+</div>
-                        <div class="title" data-i18n="btnAddAppLabel">Adicionar App</div>
-                    </div>
-                </div>
-
-                <div class="game-grid" id="storesGrid">
-                    <div class="card add-card" tabindex="0" id="btnAddStore">
-                        <div class="plus">+</div>
-                        <div class="title" data-i18n="btnAddStoreLabel">Adicionar Loja</div>
-                    </div>
                 </div>
             </div>
         </div>
@@ -383,13 +418,13 @@
     <div id="setupContainer"></div>
 
     <!-- Scripts de lógica da UI e Navegação -->
-    <script src="strings.js?v=20260723a"></script>
-    <script src="store.js?v=20260723a"></script>
-    <script src="renderer.js?v=20260723a"></script>
-    <script src="grid-controller.js"></script>
+    <script src="strings.js?v=20260727e"></script>
+    <script src="store.js?v=20260727c"></script>
+    <script src="renderer.js?v=20260727g"></script>
+    <script src="grid-controller.js?v=20260727a"></script>
     <script src="file-browser.js?v=20260721o"></script>
-    <script src="navigation.js?v=20260721j"></script>
-    <script src="app.js?v=20260723h"></script>
+    <script src="navigation.js?v=20260727b"></script>
+    <script src="app.js?v=20260727e"></script>
     <script src="bluetooth-ui.js?v=20260619c"></script>
     <script src="wifi-ui.js?v=20260619a"></script>
     <script src="sound-ui.js?v=20260627a"></script>
