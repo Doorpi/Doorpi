@@ -272,6 +272,7 @@ namespace Doorpi
                         if (ReferenceEquals(_doorpiFileExplorerLaunchSession, session))
                             _doorpiFileExplorerLaunchSession = null;
                     }
+                    ScheduleEmulatorLibraryReconcileAfterExternalMutation();
                 }
             });
             return true;

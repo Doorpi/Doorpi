@@ -5,7 +5,7 @@ window.isNavMenuOpen = false;
 (function () {
 
     // ── Dados Locais ──────────────────────────────────────────────────────────
-    let _menuData = { user: {}, games: [], history: [], media: [] };
+    let _menuData = { user: {}, games: [], history: [], media: [], emulators: [] };
     let _menuDataUserId = '';
     let _menuReloadToken = 0;
     let _profileSyncUi = { status: 'Disconnected', connected: false, busy: false, message: '' };
@@ -664,6 +664,357 @@ window.isNavMenuOpen = false;
     let _lazyGrid = null;   // grid de jogos (persistente)
     let _lazyGridMedia = null;   // grid de mídia (persistente)
     let _dualPaneContainer = null;
+    const _gameLibraryFilters = new Set();
+    const _librarySearch = { games: '', media: '' };
+    let _libraryInteractionMode = null;
+
+    function _librarySource(item) {
+        if (item?.EmulatorId || item?.emulatorId || /^(emulator|emulador)$/i.test(String(item?.Source || item?.source || ''))) {
+            return `emulator:${String(item?.EmulatorId || item?.emulatorId || 'unknown').trim().toLowerCase()}`;
+        }
+        const source = String(item?.Source || item?.source || '').trim().toLowerCase();
+        if (source === 'steam') return 'steam';
+        if (source === 'epic') return 'epic';
+        if (source === 'gog') return 'gog';
+        return 'windows';
+    }
+
+    function _libraryFilterLabel(filter) {
+        const labels = {
+            steam: 'Steam',
+            epic: 'Epic Games',
+            gog: 'GOG',
+            windows: _t('filterLabels.Windows', 'Windows e pastas')
+        };
+        if (labels[filter]) return labels[filter];
+        const emulatorId = String(filter || '').replace(/^emulator:/, '');
+        const config = (_menuData.emulators || []).find(item =>
+            String(item?.Id || item?.id || '').trim().toLowerCase() === emulatorId);
+        const configuredName = String(config?.Name || config?.name || '').trim();
+        if (configuredName) return configuredName;
+        const knownNames = {
+            rpcs3: 'RPCS3', pcsx2: 'PCSX2', ppsspp: 'PPSSPP', xenia: 'Xenia',
+            dolphin: 'Dolphin', cemu: 'Cemu', ryujinx: 'Ryujinx', eden: 'Eden',
+            azahar: 'Azahar', citra: 'Citra', vita3k: 'Vita3K', duckstation: 'DuckStation',
+            project64: 'Project64', snes9x: 'Snes9x', shadps4: 'shadPS4'
+        };
+        if (knownNames[emulatorId]) return knownNames[emulatorId];
+        return emulatorId.split(/[-_\s]+/).filter(Boolean)
+            .map(part => part.length <= 4 ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1))
+            .join(' ') || 'Emulador';
+    }
+
+    function _libraryPane(catId) {
+        return _dualPaneContainer?.querySelector(catId === 'media' ? '#navPaneMedia' : '#navPaneGames');
+    }
+
+    function _libraryGrid(catId) {
+        return catId === 'media' ? _lazyGridMedia : _lazyGrid;
+    }
+
+    function _filteredLibraryItems(catId) {
+        const sourceItems = catId === 'media' ? (_menuData.media || []) : (_menuData.games || []);
+        const query = String(_librarySearch[catId] || '').trim().toLocaleLowerCase();
+        return sourceItems.filter(item => {
+            if (catId === 'games' && _gameLibraryFilters.size > 0 &&
+                !_gameLibraryFilters.has(_librarySource(item))) return false;
+            return !query || String(item?.Name || item?.name || '').toLocaleLowerCase().includes(query);
+        });
+    }
+
+    function _libraryActionItems(catId) {
+        const pane = _libraryPane(catId);
+        if (!pane) return [];
+        return Array.from(pane.querySelectorAll('.nav-library-action'));
+    }
+
+    function _syncLibraryContentItems(catId, focusedCard = null) {
+        if (CATS[_catIdx]?.id !== catId) return;
+        const pane = _libraryPane(catId);
+        if (!pane) return;
+
+        if (_libraryInteractionMode === 'filters' && catId === 'games') {
+            _contentItems = Array.from(pane.querySelectorAll('.nav-library-filter-option, .nav-library-filter-footer button'));
+        } else {
+            const actions = _libraryActionItems(catId);
+            const cards = _libraryGrid(catId)?._cards || [];
+            _contentItems = [...actions, ...cards];
+        }
+
+        if (focusedCard) {
+            const nextIndex = _contentItems.indexOf(focusedCard);
+            if (nextIndex >= 0) _contentIdx = nextIndex;
+        }
+        _contentIdx = Math.max(0, Math.min(Math.max(0, _contentItems.length - 1), _contentIdx));
+    }
+
+    function _rebuildLibraryGrid(catId, { resetScroll = false } = {}) {
+        const pane = _libraryPane(catId);
+        if (!pane) return;
+
+        const previousScroll = pane.scrollTop;
+        const oldGrid = _libraryGrid(catId);
+        oldGrid?.destroy();
+        if (catId === 'media') _lazyGridMedia = null;
+        else _lazyGrid = null;
+        pane.querySelector('.nav-library-empty')?.remove();
+
+        const items = _filteredLibraryItems(catId);
+        if (!items.length) {
+            const empty = document.createElement('div');
+            empty.className = 'nav-library-empty';
+            empty.innerHTML = `<strong>${catId === 'media' ? 'Nenhum aplicativo encontrado' : 'Nenhum jogo encontrado'}</strong><span>Tente outro termo${catId === 'games' ? ' ou combinação de filtros' : ''}.</span>`;
+            pane.appendChild(empty);
+            _syncLibraryContentItems(catId);
+            return;
+        }
+
+        const nextGrid = new _NavLazyGrid({
+            body: pane, scrollRoot: pane,
+            items, catId, emptyIcon: catId === 'media' ? '▶' : '⊞',
+            onLaunchAction: (idx) => _launchAction(catId, idx, items),
+            onFocusUpdate: (cards, idx) => {
+                if (CATS[_catIdx]?.id !== catId) return;
+                const focusedCard = idx >= 0 ? cards[idx] : null;
+                _syncLibraryContentItems(catId, focusedCard);
+                if (idx >= 0) {
+                    _topbarFocus = false;
+                    _updateContentFocus();
+                }
+            }
+        });
+        if (catId === 'media') _lazyGridMedia = nextGrid;
+        else _lazyGrid = nextGrid;
+        pane.scrollTop = resetScroll ? 0 : previousScroll;
+        _syncLibraryContentItems(catId);
+    }
+
+    function _availableLibraryFilters() {
+        const items = _menuData.games || [];
+        const counts = new Map();
+        items.forEach(item => {
+            const source = _librarySource(item);
+            counts.set(source, (counts.get(source) || 0) + 1);
+        });
+        const baseFilters = ['steam', 'epic', 'gog', 'windows'].filter(filter => counts.has(filter));
+        const emulatorFilters = [...counts.keys()].filter(key => key.startsWith('emulator:')).sort();
+        return [...baseFilters, ...emulatorFilters].map(id => ({
+            id,
+            label: _libraryFilterLabel(id),
+            count: counts.get(id) || 0
+        }));
+    }
+
+    function _refreshLibraryActionState(catId) {
+        const pane = _libraryPane(catId);
+        if (!pane) return;
+        pane.querySelector('[data-library-action="search"]')?.classList.toggle('has-value', !!_librarySearch[catId]);
+        const filterAction = pane.querySelector('[data-library-action="filters"]');
+        filterAction?.classList.toggle('has-value', _gameLibraryFilters.size > 0);
+        const badge = filterAction?.querySelector('.nav-library-action-badge');
+        if (badge) {
+            badge.textContent = String(_gameLibraryFilters.size);
+            badge.hidden = _gameLibraryFilters.size === 0;
+        }
+    }
+
+    function _closeLibrarySearch(catId) {
+        const pane = _libraryPane(catId);
+        const sheet = pane?.querySelector('.nav-library-search-sheet');
+        if (!sheet) return;
+        sheet.classList.remove('is-open');
+        pane.classList.remove('is-search-open');
+        _libraryInteractionMode = null;
+        _syncLibraryContentItems(catId);
+        const action = pane.querySelector('[data-library-action="search"]');
+        const idx = _contentItems.indexOf(action);
+        if (idx >= 0) _contentIdx = idx;
+        _topbarFocus = false;
+        _updateContentFocus();
+    }
+
+    function _openLibrarySearch(catId) {
+        const pane = _libraryPane(catId);
+        const sheet = pane?.querySelector('.nav-library-search-sheet');
+        const search = sheet?.querySelector('input');
+        if (!sheet || !search) return;
+
+        _closeLibraryFilters(false);
+        _libraryInteractionMode = 'search';
+        sheet.classList.add('is-open');
+        pane.classList.add('is-search-open');
+        search.value = _librarySearch[catId] || '';
+        search._doorpiVkbReturnFocus = pane.querySelector('[data-library-action="search"]');
+        search.focus({ preventScroll: true });
+        search.setSelectionRange(search.value.length, search.value.length);
+        window._vkbOpen?.(search, {
+            allowProgrammatic: true,
+            placement: 'below',
+            align: 'start',
+            anchorElement: sheet.querySelector('.nav-library-expanded-search'),
+            offsetY: 22,
+            onEnter: () => _closeLibrarySearch(catId)
+        });
+    }
+
+    function _renderLibraryFilterPanel() {
+        const pane = _libraryPane('games');
+        const panel = pane?.querySelector('.nav-library-filter-panel');
+        if (!panel) return;
+        const filters = _availableLibraryFilters();
+        panel.innerHTML = `
+            <div class="nav-library-filter-head">
+                <div><span>Biblioteca</span><h3>Filtros</h3></div>
+                <span class="nav-library-filter-selected">${_gameLibraryFilters.size} selecionado(s)</span>
+            </div>
+            <div class="nav-library-filter-list">
+                ${filters.map(filter => `
+                    <button class="nav-library-filter-option${_gameLibraryFilters.has(filter.id) ? ' selected' : ''}" type="button" tabindex="-1" data-filter-id="${_esc(filter.id)}" aria-pressed="${_gameLibraryFilters.has(filter.id)}">
+                        <span class="nav-library-filter-copy"><strong>${_esc(filter.label)}</strong><small>${filter.count} ${filter.count === 1 ? 'jogo' : 'jogos'}</small></span>
+                        <span class="nav-library-switch" aria-hidden="true"><i></i></span>
+                    </button>`).join('')}
+            </div>
+            <div class="nav-library-filter-footer">
+                <button type="button" tabindex="-1" data-filter-command="reset">Resetar</button>
+                <button type="button" tabindex="-1" data-filter-command="done">Concluir</button>
+            </div>`;
+
+        panel.querySelectorAll('[data-filter-id]').forEach(button => {
+            button.addEventListener('click', () => {
+                const id = button.dataset.filterId;
+                if (_gameLibraryFilters.has(id)) _gameLibraryFilters.delete(id);
+                else _gameLibraryFilters.add(id);
+                button.classList.toggle('selected', _gameLibraryFilters.has(id));
+                button.setAttribute('aria-pressed', String(_gameLibraryFilters.has(id)));
+                panel.querySelector('.nav-library-filter-selected').textContent = `${_gameLibraryFilters.size} selecionado(s)`;
+                _refreshLibraryActionState('games');
+                _rebuildLibraryGrid('games', { resetScroll: true });
+                _syncLibraryContentItems('games');
+                _contentIdx = Math.max(0, _contentItems.indexOf(button));
+                _updateContentFocus();
+            });
+        });
+        panel.querySelector('[data-filter-command="reset"]')?.addEventListener('click', () => {
+            _gameLibraryFilters.clear();
+            _refreshLibraryActionState('games');
+            _renderLibraryFilterPanel();
+            _rebuildLibraryGrid('games', { resetScroll: true });
+            _syncLibraryContentItems('games');
+            _contentIdx = Math.max(0, _contentItems.findIndex(item => item.dataset?.filterCommand === 'reset'));
+            _updateContentFocus();
+        });
+        panel.querySelector('[data-filter-command="done"]')?.addEventListener('click', () => _closeLibraryFilters());
+        panel.querySelectorAll('.nav-library-filter-option, .nav-library-filter-footer button').forEach(item => {
+            item.addEventListener('mouseenter', () => {
+                if (_libraryInteractionMode !== 'filters') return;
+                _syncLibraryContentItems('games');
+                const idx = _contentItems.indexOf(item);
+                if (idx >= 0) {
+                    _contentIdx = idx;
+                    _updateContentFocus();
+                }
+            });
+        });
+    }
+
+    function _openLibraryFilters() {
+        const pane = _libraryPane('games');
+        const panel = pane?.querySelector('.nav-library-filter-panel');
+        if (!panel) return;
+        window._vkbForceClose?.({ restoreFocus: false });
+        pane.querySelector('.nav-library-search-sheet')?.classList.remove('is-open');
+        _libraryInteractionMode = 'filters';
+        _renderLibraryFilterPanel();
+        panel.classList.add('is-open');
+        _syncLibraryContentItems('games');
+        _contentIdx = 0;
+        _topbarFocus = false;
+        _updateContentFocus();
+    }
+
+    function _closeLibraryFilters(restoreFocus = true) {
+        const pane = _libraryPane('games');
+        const panel = pane?.querySelector('.nav-library-filter-panel');
+        if (!panel?.classList.contains('is-open')) return false;
+        panel.classList.remove('is-open');
+        _libraryInteractionMode = null;
+        _syncLibraryContentItems('games');
+        if (restoreFocus) {
+            const action = pane.querySelector('[data-library-action="filters"]');
+            const idx = _contentItems.indexOf(action);
+            if (idx >= 0) _contentIdx = idx;
+            _topbarFocus = false;
+            _updateContentFocus();
+        }
+        return true;
+    }
+
+    function _buildLibraryControls(pane, catId) {
+        pane.classList.add('nav-library-pane');
+        const controls = document.createElement('div');
+        controls.className = 'nav-library-actions';
+        controls.innerHTML = `
+            <button class="nav-library-action" type="button" tabindex="-1" data-library-action="search" aria-label="Pesquisar">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.3"/><path d="m16 16 4.2 4.2"/></svg>
+                <span>Pesquisar</span>
+            </button>
+            ${catId === 'games' ? `
+            <button class="nav-library-action" type="button" tabindex="-1" data-library-action="filters" aria-label="Filtros">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 7h14M8 12h8M10.5 17h3"/><path d="m4 5 1 2-1 2M7 10l1 2-1 2M9.5 15l1 2-1 2"/></svg>
+                <span>Filtros</span><b class="nav-library-action-badge" hidden>0</b>
+            </button>` : ''}`;
+        pane.prepend(controls);
+
+        const searchSheet = document.createElement('div');
+        searchSheet.className = 'nav-library-search-sheet';
+        searchSheet.innerHTML = `
+            <div class="nav-library-expanded-search">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.3"/><path d="m16 16 4.2 4.2"/></svg>
+                <input type="search" autocomplete="off" spellcheck="false" placeholder="${catId === 'games' ? 'Pesquisar jogos' : 'Pesquisar aplicativos'}" value="${_esc(_librarySearch[catId])}" />
+            </div>
+            <button type="button" class="nav-library-search-cancel" tabindex="-1">Cancelar</button>`;
+        pane.prepend(searchSheet);
+
+        if (catId === 'games') {
+            const filterPanel = document.createElement('aside');
+            filterPanel.className = 'nav-library-filter-panel';
+            filterPanel.setAttribute('aria-label', 'Filtros da biblioteca');
+            pane.prepend(filterPanel);
+        }
+
+        const search = searchSheet.querySelector('input');
+        search?.addEventListener('input', () => {
+            _librarySearch[catId] = search.value || '';
+            _refreshLibraryActionState(catId);
+            _rebuildLibraryGrid(catId, { resetScroll: true });
+        });
+        searchSheet.querySelector('.nav-library-search-cancel')?.addEventListener('click', () => {
+            window._vkbForceClose?.({ restoreFocus: false });
+            _closeLibrarySearch(catId);
+        });
+        controls.querySelector('[data-library-action="search"]')?.addEventListener('click', () => _openLibrarySearch(catId));
+        controls.querySelector('[data-library-action="filters"]')?.addEventListener('click', () => _openLibraryFilters());
+
+        document.addEventListener('doorpi-vkb-closed', event => {
+            if (event.detail?.input === search && _libraryInteractionMode === 'search') {
+                _closeLibrarySearch(catId);
+            }
+        });
+
+        _libraryActionItems(catId).forEach(action => {
+            action.addEventListener('mouseenter', () => {
+                if (CATS[_catIdx]?.id !== catId || _libraryInteractionMode) return;
+                _syncLibraryContentItems(catId);
+                const idx = _contentItems.indexOf(action);
+                if (idx >= 0) {
+                    _topbarFocus = false;
+                    _contentIdx = idx;
+                    _updateContentFocus();
+                }
+            });
+        });
+        _refreshLibraryActionState(catId);
+    }
 
     function _currentLazyGrid() {
         const id = CATS[_catIdx]?.id;
@@ -749,6 +1100,10 @@ window.isNavMenuOpen = false;
         _menuData.games = [];
         _menuData.history = [];
         _menuData.media = [];
+        _menuData.emulators = [];
+        _gameLibraryFilters.clear();
+        _librarySearch.games = '';
+        _librarySearch.media = '';
         const activeCatId = CATS[_catIdx]?.id || 'games';
         _destroyLazyGrid();
 
@@ -801,32 +1156,16 @@ window.isNavMenuOpen = false;
 
         const gamesItems = _menuData.games || [];
         if (gamesItems.length) {
-            _lazyGrid = new _NavLazyGrid({
-                body: gamesPane, scrollRoot: gamesPane,
-                items: gamesItems, catId: 'games', emptyIcon: '⊞',
-                onLaunchAction: (idx) => _launchAction('games', idx),
-                onFocusUpdate: (cards, idx) => {
-                    if (CATS[_catIdx]?.id !== 'games') return;
-                    _contentItems = cards;
-                    if (idx >= 0) { _topbarFocus = false; _contentIdx = idx; _updateContentFocus(); }
-                }
-            });
+            _buildLibraryControls(gamesPane, 'games');
+            _rebuildLibraryGrid('games', { resetScroll: true });
         } else {
             gamesPane.innerHTML = `<div class="nav-placeholder"><div class="nav-placeholder-icon">⊞</div><div class="nav-placeholder-text">${_t('navNoGames', 'Nenhum jogo encontrado')}</div></div>`;
         }
 
         const mediaItems = _menuData.media || [];
         if (mediaItems.length) {
-            _lazyGridMedia = new _NavLazyGrid({
-                body: mediaPane, scrollRoot: mediaPane,
-                items: mediaItems, catId: 'media', emptyIcon: '▶',
-                onLaunchAction: (idx) => _launchAction('media', idx),
-                onFocusUpdate: (cards, idx) => {
-                    if (CATS[_catIdx]?.id !== 'media') return;
-                    _contentItems = cards;
-                    if (idx >= 0) { _topbarFocus = false; _contentIdx = idx; _updateContentFocus(); }
-                }
-            });
+            _buildLibraryControls(mediaPane, 'media');
+            _rebuildLibraryGrid('media', { resetScroll: true });
         } else {
             mediaPane.innerHTML = `<div class="nav-placeholder"><div class="nav-placeholder-icon">▶</div><div class="nav-placeholder-text">${_t('navNoMedia', 'Nenhum aplicativo configurado')}</div></div>`;
         }
@@ -836,6 +1175,11 @@ window.isNavMenuOpen = false;
         const gamesPane = _dualPaneContainer?.querySelector('#navPaneGames');
         const mediaPane = _dualPaneContainer?.querySelector('#navPaneMedia');
         if (!gamesPane || !mediaPane) return;
+
+        gamesPane.querySelector('.nav-library-filter-panel')?.classList.remove('is-open');
+        _dualPaneContainer.querySelectorAll('.nav-library-search-sheet').forEach(sheet => sheet.classList.remove('is-open'));
+        _dualPaneContainer.querySelectorAll('.nav-library-pane').forEach(pane => pane.classList.remove('is-search-open'));
+        _libraryInteractionMode = null;
 
         const showGames = catId === 'games';
         const visPane = showGames ? gamesPane : mediaPane;
@@ -852,7 +1196,8 @@ window.isNavMenuOpen = false;
         const grid = showGames ? _lazyGrid : _lazyGridMedia;
         grid?.hydrateInitialPage?.();
         grid?.hydrateViewportBand?.();
-        _contentItems = grid ? grid._cards : [];
+        _libraryInteractionMode = null;
+        _syncLibraryContentItems(catId);
     }
 
     function _switchDualPane(catId) {
@@ -1650,11 +1995,12 @@ window.isNavMenuOpen = false;
         let loadedMediaFromJson = false;
         try {
             const ts = new Date().getTime();
-            const [uRes, gRes, hRes, mRes] = await Promise.allSettled([
+            const [uRes, gRes, hRes, mRes, eRes] = await Promise.allSettled([
                 fetch(`https://data.local/user.json?t=${ts}`),
                 fetch(`https://data.local/games.json?t=${ts}`),
                 fetch(`https://data.local/game-history.json?t=${ts}`),
-                fetch(`https://data.local/media.json?t=${ts}`)
+                fetch(`https://data.local/media.json?t=${ts}`),
+                fetch(`https://data.local/emulators.json?t=${ts}`)
             ]);
 
             if (uRes.status === 'fulfilled' && uRes.value.ok) {
@@ -1683,6 +2029,20 @@ window.isNavMenuOpen = false;
             if (mRes.status === 'fulfilled' && mRes.value.ok) {
                 _menuData.media = await mRes.value.json();
                 loadedMediaFromJson = true;
+            }
+            if (eRes.status === 'fulfilled' && eRes.value.ok) {
+                const emulators = await eRes.value.json();
+                _menuData.emulators = Array.isArray(emulators) ? emulators : [];
+            }
+            if ((!_menuData.emulators || _menuData.emulators.length === 0) && window._doorpiCurrentUserId) {
+                try {
+                    const userId = encodeURIComponent(String(window._doorpiCurrentUserId));
+                    const userEmulators = await fetch(`https://data.local/users/${userId}/emulators.json?t=${ts}`);
+                    if (userEmulators.ok) {
+                        const emulators = await userEmulators.json();
+                        _menuData.emulators = Array.isArray(emulators) ? emulators : [];
+                    }
+                } catch (_) { }
             }
         } catch (e) {
             console.warn("Fetch bloqueado pelo WebView (CORS). Usando fallback local...", e);
@@ -1852,7 +2212,7 @@ window.isNavMenuOpen = false;
     // ── Categorias ────────────────────────────────────────────────────────────
     const CATS = [
         { id: 'games', icon: '⊞', get label() { return _t('navGames', 'Jogos'); } },
-        { id: 'media', icon: '▶', get label() { return _t('navMedia', 'Multimídia'); } },
+        { id: 'media', icon: '▶', get label() { return _t('navMedia', 'Aplicativos'); } },
         { id: 'settings', icon: '⚙', get label() { return _t('navSettings', 'Configurações'); } },
         { id: 'profile', icon: '◉', get label() { return _t('navProfile', 'Perfil'); } },
     ];
@@ -1937,6 +2297,240 @@ window.isNavMenuOpen = false;
 }
 #navPaneGames::-webkit-scrollbar,
 #navPaneMedia::-webkit-scrollbar { display: none; }
+
+/* Biblioteca estilo console: ações compactas e painéis ocultos por padrão. */
+.nav-library-pane { padding-left: clamp(116px, 7.2vw, 154px) !important; }
+.nav-library-actions {
+    position: fixed;
+    left: clamp(30px, 3vw, 58px);
+    top: clamp(230px, 25vh, 360px);
+    z-index: 45;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(14px, 1.5vh, 22px);
+    opacity: 1;
+    transform: translateX(0);
+    transition: opacity .18s ease, transform .22s cubic-bezier(.22,1,.36,1);
+}
+.nav-library-action {
+    position: relative;
+    width: clamp(64px, 4.6vw, 88px);
+    height: clamp(64px, 4.6vw, 88px);
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 1px solid rgba(255,255,255,.10);
+    border-radius: 50%;
+    outline: 0;
+    color: rgba(255,255,255,.78);
+    background: rgba(255,255,255,.075);
+    font-family: inherit;
+    box-shadow: 0 14px 34px rgba(0,0,0,.24);
+    cursor: pointer;
+    transition: color .16s ease, background .16s ease, border-color .16s ease, transform .16s ease, box-shadow .16s ease;
+}
+.nav-library-action svg { width: 45%; height: 45%; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.nav-library-action > span {
+    position: absolute;
+    left: calc(100% + 13px);
+    top: 50%;
+    padding: 7px 11px;
+    border-radius: 7px;
+    color: #fff;
+    background: rgba(13,16,30,.94);
+    font-size: .78rem;
+    font-weight: 600;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-6px,-50%);
+    transition: opacity .15s ease, transform .15s ease;
+    white-space: nowrap;
+}
+.nav-library-action.nav-focused-el {
+    color: #101522;
+    border-color: #fff;
+    background: #fff;
+    transform: scale(1.08);
+    box-shadow: 0 0 0 4px rgba(255,255,255,.16), 0 18px 42px rgba(0,0,0,.36);
+}
+.nav-library-action.nav-focused-el > span { opacity: 1; transform: translate(0,-50%); }
+.nav-library-action.has-value::after {
+    content: '';
+    position: absolute;
+    right: 2px;
+    top: 2px;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    border: 2px solid rgba(8,10,20,.8);
+    background: #75baff;
+}
+.nav-library-action-badge {
+    position: absolute;
+    right: -4px;
+    top: -5px;
+    min-width: 22px;
+    height: 22px;
+    padding: 0 5px;
+    box-sizing: border-box;
+    border-radius: 999px;
+    color: #07101d;
+    background: #fff;
+    font-size: .68rem;
+    line-height: 22px;
+    text-align: center;
+}
+.nav-library-search-sheet {
+    position: fixed;
+    left: clamp(168px, 8.8vw, 230px);
+    right: clamp(44px, 4vw, 84px);
+    top: clamp(266px, 26vh, 390px);
+    z-index: 70;
+    display: flex;
+    align-items: center;
+    gap: 0;
+    min-height: clamp(68px, 6.4vh, 90px);
+    border: 1px solid rgba(255,255,255,.16);
+    border-bottom-color: rgba(255,255,255,.72);
+    background: rgba(255,255,255,.095);
+    box-shadow: 0 18px 52px rgba(0,0,0,.22);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-14px);
+    transition: opacity .2s ease, transform .22s cubic-bezier(.22,1,.36,1);
+}
+.nav-library-search-sheet.is-open { opacity: 1; pointer-events: auto; transform: translateY(0); }
+.nav-library-search-sheet::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background: rgba(4,6,15,.48);
+    backdrop-filter: blur(15px) brightness(.78);
+}
+.nav-library-expanded-search {
+    flex: 1;
+    align-self: stretch;
+    min-height: clamp(66px, 6.3vh, 88px);
+    display: flex;
+    align-items: center;
+    gap: clamp(14px, 1.3vw, 24px);
+    padding: 0 clamp(20px, 2vw, 34px);
+    box-sizing: border-box;
+    background: transparent;
+}
+.nav-library-expanded-search svg { width: clamp(28px, 2vw, 38px); height: clamp(28px, 2vw, 38px); stroke: #fff; stroke-width: 1.8; }
+.nav-library-expanded-search input { min-width: 0; flex: 1; border: 0; outline: 0; color: #fff; background: transparent; font-family: inherit; font-size: clamp(1.15rem, 1.55vw, 1.75rem); font-weight: 480; }
+.nav-library-expanded-search input::placeholder { color: rgba(255,255,255,.42); }
+.nav-library-search-cancel {
+    min-width: clamp(150px, 12vw, 230px);
+    align-self: stretch;
+    min-height: clamp(66px, 6.3vh, 88px);
+    border: 0;
+    border-left: 1px solid rgba(255,255,255,.16);
+    border-radius: 0;
+    outline: 0;
+    color: #fff;
+    background: transparent;
+    font-family: inherit;
+    font-size: clamp(.92rem, 1.1vw, 1.25rem);
+    font-weight: 650;
+}
+.nav-library-search-cancel:hover,
+.nav-library-search-cancel:focus { background: rgba(255,255,255,.09); }
+.nav-library-pane.is-search-open .nav-library-actions {
+    opacity: 0;
+    transform: translateX(-18px);
+    pointer-events: none;
+}
+.nav-library-pane .nlg-wrapper,
+.nav-library-pane .nav-library-empty {
+    transition: transform .34s cubic-bezier(.22,1,.36,1), opacity .24s ease;
+    transform-origin: center top;
+}
+.nav-library-pane.is-search-open .nlg-wrapper,
+.nav-library-pane.is-search-open .nav-library-empty {
+    opacity: .22;
+    transform: translateY(clamp(300px, 38vh, 480px));
+    pointer-events: none;
+}
+.nav-library-filter-panel {
+    --nav-library-filter-top: clamp(210px, 22vh, 330px);
+    position: fixed;
+    left: clamp(112px, 8.8vw, 184px);
+    top: var(--nav-library-filter-top);
+    z-index: 68;
+    width: min(clamp(440px, 31vw, 620px), calc(100vw - 160px));
+    max-height: calc(100vh - var(--nav-library-filter-top) - clamp(28px, 3vh, 52px));
+    display: flex;
+    flex-direction: column;
+    padding: clamp(22px, 2.2vw, 34px);
+    box-sizing: border-box;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,.18);
+    background: linear-gradient(145deg, rgba(64,72,101,.96), rgba(30,35,58,.97));
+    box-shadow: 0 32px 80px rgba(0,0,0,.52);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(-18px) scale(.985);
+    transition: opacity .18s ease, transform .2s cubic-bezier(.22,1,.36,1);
+}
+.nav-library-filter-panel.is-open { opacity: 1; pointer-events: auto; transform: none; }
+.nav-library-filter-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; padding-bottom: 18px; border-bottom: 1px solid rgba(255,255,255,.2); }
+.nav-library-filter-head span { color: rgba(255,255,255,.52); font-size: .78rem; }
+.nav-library-filter-head h3 { margin: 2px 0 0; color: #fff; font-size: clamp(1.35rem, 1.8vw, 2rem); font-weight: 480; }
+.nav-library-filter-list {
+    min-height: 0;
+    display: grid;
+    gap: 5px;
+    padding: 12px 4px 12px 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,.28) transparent;
+}
+.nav-library-filter-list::-webkit-scrollbar { width: 6px; }
+.nav-library-filter-list::-webkit-scrollbar-track { background: transparent; }
+.nav-library-filter-list::-webkit-scrollbar-thumb { border-radius: 999px; background: rgba(255,255,255,.28); }
+.nav-library-filter-option {
+    min-height: clamp(62px, 5.7vh, 82px);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 10px 14px;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    outline: 0;
+    color: #fff;
+    background: transparent;
+    font: inherit;
+    text-align: left;
+}
+.nav-library-filter-copy { min-width: 0; display: grid; gap: 2px; }
+.nav-library-filter-copy strong { overflow: hidden; font-size: clamp(.95rem, 1.08vw, 1.2rem); font-weight: 520; text-overflow: ellipsis; white-space: nowrap; }
+.nav-library-filter-copy small { color: rgba(255,255,255,.48); font-size: .72rem; }
+.nav-library-filter-option.nav-focused-el { border-color: #fff; background: rgba(255,255,255,.16); box-shadow: 0 0 0 2px rgba(255,255,255,.14); }
+.nav-library-switch { width: 48px; height: 27px; flex: 0 0 48px; padding: 3px; box-sizing: border-box; border: 1px solid rgba(255,255,255,.24); border-radius: 999px; background: rgba(0,0,0,.24); }
+.nav-library-switch i { display: block; width: 19px; height: 19px; border-radius: 50%; background: rgba(255,255,255,.55); transition: transform .18s ease, background .18s ease; }
+.nav-library-filter-option.selected .nav-library-switch { border-color: rgba(255,255,255,.8); background: rgba(255,255,255,.24); }
+.nav-library-filter-option.selected .nav-library-switch i { background: #fff; transform: translateX(20px); }
+.nav-library-filter-footer { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,.16); }
+.nav-library-filter-footer button {
+    min-height: 52px;
+    border: 1px solid rgba(255,255,255,.13);
+    border-radius: 999px;
+    outline: 0;
+    color: #fff;
+    background: rgba(255,255,255,.075);
+    font-family: inherit;
+    font-size: .86rem;
+    font-weight: 650;
+}
+.nav-library-filter-footer button.nav-focused-el { color: #121827; border-color: #fff; background: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,.14); }
+.nav-library-empty { min-height: 58%; display: grid; place-content: center; gap: 8px; text-align: center; color: rgba(255,255,255,.58); }
+.nav-library-empty strong { color: #fff; font-size: clamp(1.1rem, 1.45vw, 1.7rem); font-weight: 550; }
+.nav-library-empty span { font-size: clamp(.82rem, .95vw, 1.1rem); }
 /* ── Lazy Grid Skeleton & Shimmer ── */
 .nlg-wrapper { width: 100%; }
 .nlg-grid { padding-bottom: 80px; }
@@ -2035,19 +2629,13 @@ window.isNavMenuOpen = false;
 
 .nav-cat-item {
     display: flex; align-items: center; gap: 10px; padding: 10px;
-    cursor: pointer; outline: none; border: none; background: none;
+    cursor: pointer; outline: none; border: 1px solid transparent; border-radius: 8px; background: none;
     font-family: inherit; color: rgba(255,255,255,0.35); position: relative; transition: color 0.2s ease;
 }
-.nav-cat-item::after {
-    content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
-    background: #fff; transform: scaleX(0); transform-origin: center;
-    transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1); box-shadow: 0 0 10px rgba(255,255,255,0.5);
-}
+.nav-cat-item::after { content: none; }
 .nav-cat-item.active { color: #fff; }
-.nav-cat-item.active::after { transform: scaleX(1); }
-.nav-cat-item.nav-focused { color: #fff; background: #f0f8ff1c; transform: scale(1.04); }
-.nav-cat-item.nav-focused::after { transform: scaleX(1); height: 3px; }
-.nav-cat-label { font-size: clamp(0.9rem, 1.1vw, 1.2rem); font-weight: 500; letter-spacing: 0.02em; }
+.nav-cat-item.nav-focused { color: #fff; border-color: rgba(255,255,255,.92); }
+.nav-cat-label { font-size: clamp(.92rem, 1.08vw, 1.12rem); font-weight: 500; letter-spacing: 0.02em; }
 
 .nav-content {
     --nav-focus-gutter: clamp(26px, 2vw, 46px);
@@ -2061,8 +2649,8 @@ window.isNavMenuOpen = false;
     margin-bottom: clamp(20px, 3vh, 32px); flex-shrink: 0; text-align: left;
     animation: fadeInTop 0.4s cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
 }
-.nav-content-title { font-size: clamp(1.2rem, 2vw, 3.2rem); font-weight: 300; color: #fff; margin: 0 0 4px; letter-spacing: -0.01em; }
-.nav-content-subtitle { font-size: clamp(0.85rem, 0.9vw, 1.1rem); color: rgba(255,255,255,0.4); margin: 0; font-weight: 400; }
+.nav-content-title { font-size: clamp(1.65rem, 2.5vw, 3.6rem); font-weight: 300; color: #fff; margin: 0 0 6px; letter-spacing: -0.01em; }
+.nav-content-subtitle { font-size: clamp(1rem, 1.08vw, 1.3rem); color: rgba(255,255,255,0.48); margin: 0; font-weight: 400; }
 
 .nav-content-body {
     flex: 1; margin: 0; padding: 10px var(--nav-focus-gutter) 42px;
@@ -2094,7 +2682,7 @@ window.isNavMenuOpen = false;
 
     /* 🔹 Subtrai 1px para evitar que dízimas infinitas do Windows quebrem o grid */
     --card-h-raw: calc(((var(--available-h) - var(--total-gap-h)) / var(--rows)) - 1px);
-    --card-h-limit: clamp(270px, 29vh, 390px);
+    --card-h-limit: clamp(300px, 32vh, 440px);
     --card-h: min(var(--card-h-raw), var(--card-h-limit));
     --card-w: calc(var(--card-h) * (2 / 3));
 
@@ -2110,10 +2698,9 @@ window.isNavMenuOpen = false;
 
 /* 🔹 Escada Matemática: Adiciona +1 linha conforme a tela cresce para manter a capa no tamanho perfeito */
 @container pane (max-height: 480px) { .nav-big-grid { --rows: 1; } } /* Somente para janelas super amassadas */
-@container pane (min-height: 980px) { .nav-big-grid { --rows: 3; } } /* 1080p real fica em 2 linhas; areas maiores sobem para 3 */
-@container pane (min-height: 1500px) { .nav-big-grid { --rows: 4; } } /* Telas 2K puras / 4K com scaling */
-@container pane (min-height: 1800px) { .nav-big-grid { --rows: 5; } } /* Telas 4K puras / 5K */
-@container pane (min-height: 2400px) { .nav-big-grid { --rows: 6; } } /* Telas 8K */
+@container pane (min-height: 1320px) { .nav-big-grid { --rows: 3; } }
+@container pane (min-height: 1900px) { .nav-big-grid { --rows: 4; } }
+@container pane (min-height: 2500px) { .nav-big-grid { --rows: 5; } }
 
 .nav-vertical-card {
     box-sizing: border-box; /* 🔹 Isso obriga a borda de 2px a nascer para DENTRO do card, não para fora */
@@ -2146,12 +2733,12 @@ window.isNavMenuOpen = false;
 .nav-vertical-card.nav-focused .nav-vertical-card-title { opacity: 1; transform: translateY(0); }
 
 /* ── HUB de Perfil (Visual Cinemático) ── */
-.nav-content-body.profile-showcase-active { display: flex; flex-direction: column; align-items: center; }
-.nav-profile-showcase { width: 100%; max-width: min(1800px, 100%); margin-inline: auto; display: flex; flex-direction: column; gap: clamp(12px, 2.2vh, 34px); animation: fadeInTop 0.3s ease; box-sizing: border-box; }
-.nav-profile-cover { width: 100%; min-height: clamp(260px, 33vh, 460px); position: relative; overflow: hidden; border-radius: 16px; border: 1px solid rgba(255,255,255,.08); background: linear-gradient(135deg, rgba(255,255,255,.07), rgba(255,255,255,.025)); box-shadow: 0 24px 70px rgba(0,0,0,.26); box-sizing: border-box; }
-.nav-profile-cover-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 40%; opacity: .58; filter: saturate(.92) contrast(.96); }
-.nav-profile-cover::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(7,10,20,.9) 0%, rgba(7,10,20,.62) 34%, rgba(7,10,20,.08) 100%), linear-gradient(0deg, rgba(0,0,0,.42) 0%, rgba(0,0,0,.08) 58%, rgba(0,0,0,.22) 100%); }
-.nav-profile-header { position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; display: flex; align-items: flex-end; gap: clamp(14px, 2.5vw, 40px); justify-content: flex-start; padding: clamp(24px, 2.8vw, 48px); margin-bottom: 0; box-sizing: border-box; }
+.nav-content-body.profile-showcase-active { display: flex; flex-direction: column; align-items: center; overflow: hidden; }
+.nav-profile-showcase { width: 100%; height: 100%; max-width: min(1900px, 100%); max-height: 100%; margin-inline: auto; display: flex; flex-direction: column; gap: clamp(10px, 1.35vh, 22px); overflow: hidden; animation: fadeInTop 0.3s ease; box-sizing: border-box; }
+.nav-profile-cover { width: 100%; min-height: 0; height: clamp(270px, 36%, 470px); flex: 0 0 auto; position: relative; overflow: hidden; border-radius: clamp(14px, 1vw, 20px); border: 1px solid rgba(255,255,255,.1); background: linear-gradient(135deg, rgba(255,255,255,.07), rgba(255,255,255,.025)); box-shadow: 0 24px 70px rgba(0,0,0,.26); box-sizing: border-box; }
+.nav-profile-cover-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 40%; opacity: .7; filter: saturate(.94) contrast(.98); transform: scale(1.002); }
+.nav-profile-cover::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(6,9,19,.92) 0%, rgba(6,9,19,.62) 30%, rgba(6,9,19,.12) 58%, rgba(6,9,19,.42) 100%), linear-gradient(0deg, rgba(2,5,13,.76) 0%, rgba(2,5,13,.08) 56%, rgba(2,5,13,.2) 100%); }
+.nav-profile-header { position: absolute; z-index: 2; left: 0; bottom: 0; width: min(54%, 800px); display: flex; align-items: center; gap: clamp(14px, 1.8vw, 32px); justify-content: flex-start; padding: clamp(24px, 2.7vw, 52px); margin-bottom: 0; box-sizing: border-box; }
 .nav-profile-avatar-large { 
     width: clamp(70px, 12vh, 120px); height: clamp(70px, 12vh, 120px); 
     border-radius: 50%; border: 3px solid rgba(255,255,255,0.15); box-shadow: 0 15px 40px rgba(0,0,0,0.5); 
@@ -2164,9 +2751,15 @@ window.isNavMenuOpen = false;
 .nav-profile-edit-btn {
     background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 30px;
     padding: 12px 24px; color: #fff; font-size: 1rem; font-family: inherit; cursor: pointer; outline: none;
-    transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1); font-weight: 500;
+    transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1); font-weight: 500; position: absolute; z-index: 3; top: clamp(18px, 1.7vw, 32px); right: clamp(18px, 1.7vw, 32px);
 }
 .nav-profile-edit-btn.nav-focused-el { background: #fff; color: #000; transform: scale(1.05); box-shadow: 0 10px 30px rgba(255,255,255,0.2); }
+.nav-profile-cover-game { position: absolute; z-index: 2; right: clamp(26px, 3vw, 58px); bottom: clamp(26px, 2.7vw, 52px); width: min(38%, 560px); display: flex; flex-direction: column; align-items: flex-end; gap: clamp(5px, .6vh, 9px); color: #fff; text-align: right; }
+.nav-profile-cover-game-kicker { color: rgba(255,255,255,.58); font-size: clamp(.68rem, .72vw, .84rem); font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+.nav-profile-cover-game-title { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(1.25rem, 1.7vw, 2.2rem); font-weight: 520; line-height: 1.08; letter-spacing: -.02em; text-shadow: 0 2px 16px rgba(0,0,0,.5); }
+.nav-profile-cover-game-meta { display: flex; align-items: center; justify-content: flex-end; gap: 9px; color: rgba(255,255,255,.72); font-size: clamp(.78rem, .86vw, 1rem); font-weight: 550; }
+.nav-profile-cover-game-platform { width: clamp(18px, 1.35vw, 24px); height: clamp(18px, 1.35vw, 24px); display: grid; place-items: center; opacity: .86; }
+.nav-profile-cover-game-platform svg { width: 100%; height: 100%; }
 .nav-profile-section-head { width: 100%; box-sizing: border-box; display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; border-bottom: 1px solid rgba(255,255,255,0.1); margin-top: 10px; }
 .nav-profile-section-head .nav-profile-section-title { border-bottom: 0; margin-top: 0; padding-bottom: 12px; }
 .nav-profile-journey-btn { margin-bottom: 8px; padding: 7px 13px; border: 1px solid rgba(255,255,255,.14); border-radius: 6px; background: rgba(255,255,255,.055); color: rgba(255,255,255,.66); font: inherit; font-size: clamp(.72rem, .78vw, .9rem); font-weight: 600; outline: none; transition: background .16s ease, color .16s ease, border-color .16s ease, transform .16s ease; }
@@ -2186,19 +2779,26 @@ window.isNavMenuOpen = false;
 .nav-profile-history-time { color: rgba(255,255,255,.66); font-size: clamp(.82rem, 1vw, 1.12rem); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .nav-profile-history-empty { padding: 50px 0; color: rgba(255,255,255,.35); }
 
-.nav-profile-stats-row { width: 100%; box-sizing: border-box; display: grid; grid-template-columns: repeat(3, 1fr); gap: clamp(10px, 1.5vw, 24px); }
+.nav-profile-stats-row { width: 100%; min-height: clamp(82px, 9vh, 112px); box-sizing: border-box; display: grid; grid-template-columns: minmax(190px, .72fr) minmax(220px, .9fr) minmax(360px, 1.65fr); gap: 0; padding: clamp(8px, .75vw, 14px); border: 1px solid rgba(255,255,255,.09); border-radius: clamp(12px, .85vw, 17px); background: linear-gradient(100deg, rgba(255,255,255,.045), rgba(255,255,255,.018)); box-shadow: 0 16px 42px rgba(0,0,0,.14); overflow: hidden; }
 .nav-profile-stat-box {
-    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;
-    padding: clamp(10px, 1.5vh, 24px) clamp(12px, 1.5vw, 24px); display: flex; flex-direction: column; gap: clamp(4px, 0.8vh, 8px); box-shadow: 0 10px 20px rgba(0,0,0,0.2);
-    align-items: center; text-align: center;
+    min-width: 0; position: relative; padding: clamp(8px, .8vh, 13px) clamp(18px, 1.5vw, 30px); display: flex; flex-direction: row; gap: clamp(12px, 1vw, 18px);
+    align-items: center; text-align: left;
 }
+.nav-profile-stat-box + .nav-profile-stat-box::before { content: ""; position: absolute; left: 0; top: 14%; bottom: 14%; width: 1px; background: linear-gradient(transparent, rgba(255,255,255,.13), transparent); }
 .nav-profile-stat-box.future-placeholder { opacity: 0.35; }
-.nav-profile-stat-box.nav-profile-last-stat { min-width: 0; flex-direction: row; justify-content: flex-start; gap: clamp(10px, 1vw, 16px); text-align: left; }
-.nav-profile-stat-thumb { width: clamp(48px, 4.4vw, 72px); aspect-ratio: 16/9; border-radius: 7px; overflow: hidden; flex: none; display: grid; place-items: center; background: rgba(0,0,0,.28); border: 1px solid rgba(255,255,255,.08); }
+.nav-profile-stat-icon { width: clamp(38px, 2.8vw, 52px); height: clamp(38px, 2.8vw, 52px); flex: none; display: grid; place-items: center; color: rgba(255,255,255,.78); border-radius: 50%; background: rgba(255,255,255,.065); border: 1px solid rgba(255,255,255,.08); }
+.nav-profile-stat-icon svg { width: 52%; height: 52%; }
+.nav-profile-stat-box.nav-profile-last-stat { min-width: 0; justify-content: flex-start; gap: clamp(12px, 1.1vw, 20px); text-align: left; }
+.nav-profile-stat-thumb { width: clamp(88px, 7vw, 132px); aspect-ratio: 92/43; border-radius: 8px; overflow: hidden; flex: none; display: grid; place-items: center; background: rgba(0,0,0,.28); border: 1px solid rgba(255,255,255,.08); }
 .nav-profile-stat-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .nav-profile-stat-thumb .nav-profile-stat-platform { width: 42%; height: 42%; opacity: .75; }
-.nav-profile-stat-copy { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
-.nav-profile-stat-copy .stat-value { font-size: clamp(.92rem, 1.12vw, 1.42rem); font-weight: 560; line-height: 1.16; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-profile-stat-copy { min-width: 0; display: flex; flex-direction: column; gap: clamp(3px, .4vh, 6px); }
+.nav-profile-stat-copy .stat-value { font-size: clamp(1.25rem, 1.65vw, 2rem); font-weight: 350; line-height: 1.05; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-profile-stat-copy .stat-label { order: -1; font-size: clamp(.66rem, .7vw, .82rem); }
+.nav-profile-last-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #fff; font-size: clamp(.94rem, 1.12vw, 1.36rem); font-weight: 600; line-height: 1.16; }
+.nav-profile-last-meta { min-width: max-content; margin-left: auto; padding-left: clamp(10px, 1vw, 18px); display: flex; flex-direction: column; align-items: flex-end; gap: 3px; color: rgba(255,255,255,.78); text-align: right; font-variant-numeric: tabular-nums; }
+.nav-profile-last-meta strong { font-size: clamp(.88rem, 1vw, 1.16rem); font-weight: 560; }
+.nav-profile-last-meta small { color: rgba(255,255,255,.43); font-size: clamp(.66rem, .7vw, .8rem); font-weight: 550; text-transform: capitalize; }
 .nav-profile-last-stat > .stat-value { min-width: 0; display: block; text-align: left !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(.92rem, 1.12vw, 1.42rem) !important; font-weight: 560; line-height: 1.18 !important; }
 .nav-profile-last-stat > .stat-value::after { content: "Último jogado"; display: block; margin-top: 5px; color: rgba(255,255,255,0.5); font-size: clamp(0.7rem, 0.8vw, 0.85rem); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
 .nav-profile-last-stat > .stat-label { display: none; }
@@ -2226,8 +2826,10 @@ window.isNavMenuOpen = false;
 /* ── Cards Recentes ── */
 .nav-profile-recent-grid {
     width: 100%; box-sizing: border-box;
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(110px, 10vw, 205px), 1fr));
-    gap: clamp(10px, 1.2vw, 24px); padding-bottom: 40px;
+    flex: 1 1 0; min-height: 0; overflow: hidden; align-content: start;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(clamp(150px, min(11.5vw, 19vh), 230px), 1fr));
+    gap: clamp(12px, 1vw, 22px); padding: 8px;
 }
 .nav-profile-recent-card {
     aspect-ratio: 2/3; border-radius: 8px; overflow: hidden; background: rgba(255,255,255,0.03); border: 2px solid transparent;
@@ -2262,14 +2864,15 @@ window.isNavMenuOpen = false;
 @media (max-height: 1080px) {
     .nav-content-body.profile-showcase-active { overflow-y: hidden; padding-bottom: 10px; }
     .nav-profile-showcase { width: 100%; height: 100%; max-height: 100%; gap: clamp(8px, 1.2vh, 14px); }
-    .nav-profile-cover { min-height: 0; height: clamp(160px, 32%, 285px); flex: 0 0 auto; border-radius: 12px; }
+    .nav-profile-cover { min-height: 0; height: clamp(250px, 37%, 330px); flex: 0 0 auto; border-radius: 12px; }
     .nav-profile-header { padding: clamp(18px, 2vw, 32px); gap: clamp(12px, 1.8vw, 28px); }
     .nav-profile-avatar-large { width: clamp(62px, 9vh, 96px); height: clamp(62px, 9vh, 96px); }
     .nav-profile-name { font-size: clamp(1.5rem, 2.35vw, 3rem); }
     .nav-profile-edit-btn { padding: 8px 18px; font-size: .9rem; }
-    .nav-profile-stats-row { flex: 0 0 auto; gap: clamp(8px, 1vw, 14px); }
-    .nav-profile-stat-box { min-height: 58px; padding: 8px 12px; gap: 3px; }
-    .nav-profile-stat-thumb { width: clamp(42px, 3.8vw, 60px); }
+    .nav-profile-stats-row { flex: 0 0 auto; min-height: 78px; gap: 0; padding: 6px 8px; }
+    .nav-profile-stat-box { min-height: 58px; padding: 8px clamp(13px, 1.2vw, 22px); gap: clamp(9px, .8vw, 14px); }
+    .nav-profile-stat-thumb { width: clamp(78px, 6vw, 108px); }
+    .nav-profile-cover-game { right: clamp(22px, 2.5vw, 40px); bottom: clamp(22px, 2.2vw, 36px); }
     .nav-profile-section-head { flex: 0 0 auto; margin-top: 0; min-height: 36px; }
     .nav-profile-section-head .nav-profile-section-title { padding-bottom: 7px; }
     .nav-profile-journey-btn { margin-bottom: 5px; padding: 5px 11px; }
@@ -2480,7 +3083,7 @@ window.isNavMenuOpen = false;
         --gap-x: clamp(16px, 1.45vw, 24px);
         --gap-y: clamp(24px, 2.4vh, 38px);
         --padding-y: clamp(20px, 2.8vh, 34px);
-        --card-h-limit: clamp(230px, 25.5vh, 300px);
+        --card-h-limit: clamp(260px, 29vh, 340px);
     }
     .nav-vertical-card.nav-focused { transform: scale(1.035); }
     .nav-system-startup-panel-compact { zoom: .94; }
@@ -2534,15 +3137,11 @@ window.isNavMenuOpen = false;
 
 #navMenuOverlay .nav-cat-item.nav-focused {
     color: #fff;
-    background: var(--nav-focus-bg);
+    background: transparent;
+    border-color: rgba(255,255,255,.92);
     border-radius: 8px;
-    box-shadow: var(--nav-focus-shadow);
+    box-shadow: none;
     transform: none;
-}
-
-#navMenuOverlay .nav-cat-item.nav-focused::after {
-    transform: scaleX(1);
-    height: 2px;
 }
 
 #navMenuOverlay :is(
@@ -2902,8 +3501,8 @@ window.isNavMenuOpen = false;
 
     // ── Launch ────────────────────────────────────────────────────────────────
 
-    function _launchAction(catId, idx) {
-        const items = catId === 'games' ? _menuData.games : _menuData.media;
+    function _launchAction(catId, idx, itemList = null) {
+        const items = itemList || (catId === 'games' ? _menuData.games : _menuData.media);
         const item = items[idx];
         if (!item) return;
         if (catId === 'games' && _isAdminLockedGame(item)) {
@@ -3029,27 +3628,20 @@ window.isNavMenuOpen = false;
         const lastPlayedArt = artFor(lastPlayed, true);
         const lastPlayedPlatform = _getPlatformData(lastPlayed?.Source || '');
         const mostPlayedArt = mostPlayed
-            ? (mostPlayed.ProfileBannerLocalImage || mostPlayed.ProfileBannerImageUrl || '')
+            ? (mostPlayed.ProfileBannerLocalImage || mostPlayed.ProfileBannerImageUrl || artFor(mostPlayed, true))
             : '';
         const mostPlayedPlatform = _getPlatformData(mostPlayed?.Source || '');
-        const mostPlayedHero = mostPlayed ? `
-            <div class="nav-profile-hero">
-                ${mostPlayedArt ? `<img src="${mostPlayedArt}" alt="${_esc(mostPlayed.Name)}" />` : ''}
-                <div class="nav-profile-hero-content">
-                    <span class="nav-profile-hero-kicker">${_t('navStatMostPlayed', 'Mais jogado')}</span>
-                    <h3 class="nav-profile-hero-title">${_esc(mostPlayed.Name)}</h3>
-                    <div class="nav-profile-hero-meta">
-                        <span class="nav-profile-hero-platform">${mostPlayedPlatform.svg}</span>
-                        <span>${mostPlayedFmt || '--'} ${_t('navProfileTotalSuffix', 'no total')}</span>
-                        ${validDate(mostPlayed.LastPlayed) ? `<span>· ${relDate(mostPlayed.LastPlayed)}</span>` : ''}
-                    </div>
-                </div>
-            </div>` : '';
-
+        const lastPlayedSessionFmt = lastPlayed ? (fmtTime(lastPlayed.LastSessionMinutes) || '') : '';
+        const lastPlayedWhen = lastPlayed && validDate(lastPlayed.LastPlayed) ? relDate(lastPlayed.LastPlayed) : '';
+        const libraryStatIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4" width="17" height="16" rx="2.5"/><path d="M8 4v16M12 8h5M12 12h5M12 16h3"/></svg>`;
+        const timeStatIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5l3.5 2"/></svg>`;
         body.innerHTML = `
         <div class="nav-profile-showcase">
             <div class="nav-profile-cover">
                 ${mostPlayedArt ? `<img class="nav-profile-cover-art" src="${mostPlayedArt}" alt="" />` : ''}
+                <button class="nav-profile-edit-btn" id="btnEditProfileHub" tabindex="-1">
+                    ${_t('navEditProfileBtn', 'Editar Perfil')}
+                </button>
                 <div class="nav-profile-header">
                 <div class="nav-profile-avatar-large">
                     ${photo ? `<img src="${window._doorpiUserPhotoSrc?.(photo) || `data:image/png;base64,${photo}`}" />` : '◉'}
@@ -3057,20 +3649,32 @@ window.isNavMenuOpen = false;
                 <div class="nav-profile-info">
                     <h2 class="nav-profile-name">${name}</h2>
                 </div>
-                <button class="nav-profile-edit-btn" id="btnEditProfileHub" tabindex="-1">
-                    ${_t('navEditProfileBtn', 'Editar Perfil')}
-                </button>
                 </div>
+                ${mostPlayed ? `
+                <div class="nav-profile-cover-game">
+                    <span class="nav-profile-cover-game-kicker">${_t('navStatMostPlayed', 'Mais jogado')}</span>
+                    <strong class="nav-profile-cover-game-title">${_esc(mostPlayed.Name)}</strong>
+                    <span class="nav-profile-cover-game-meta">
+                        <span class="nav-profile-cover-game-platform">${mostPlayedPlatform.svg}</span>
+                        <span>${mostPlayedFmt || '--'} ${_t('navProfileTotalSuffix', 'no total')}</span>
+                    </span>
+                </div>` : ''}
             </div>
 
             <div class="nav-profile-stats-row">
                 <div class="nav-profile-stat-box">
-                    <span class="stat-value">${totalGames}</span>
-                    <span class="stat-label">${_t('navStatGames', 'Jogos na Biblioteca')}</span>
+                    <span class="nav-profile-stat-icon">${libraryStatIcon}</span>
+                    <span class="nav-profile-stat-copy">
+                        <span class="stat-label">${_t('navStatGames', 'Jogos na Biblioteca')}</span>
+                        <span class="stat-value">${totalGames}</span>
+                    </span>
                 </div>
                 <div class="nav-profile-stat-box ${totalMinutes === 0 ? 'future-placeholder' : ''}">
-                    <span class="stat-value">${totalFmt}</span>
-                    <span class="stat-label">${_t('navStatTime', 'Horas Jogadas')}</span>
+                    <span class="nav-profile-stat-icon">${timeStatIcon}</span>
+                    <span class="nav-profile-stat-copy">
+                        <span class="stat-label">${_t('navStatTime', 'Horas Jogadas')}</span>
+                        <span class="stat-value">${totalFmt}</span>
+                    </span>
                 </div>
                 <div class="nav-profile-stat-box nav-profile-last-stat ${!lastPlayed ? 'future-placeholder' : ''}">
                     <span class="nav-profile-stat-thumb">
@@ -3078,13 +3682,13 @@ window.isNavMenuOpen = false;
                 ? `<img src="${lastPlayedArt}" alt="${lastPlayed ? _esc(lastPlayed.Name) : ''}" />`
                 : `<span class="nav-profile-stat-platform">${lastPlayedPlatform.svg}</span>`}
                     </span>
-                    <span class="stat-value" style="font-size:clamp(0.85rem,1.3vw,1.6rem); line-height:1.2; text-align:center;">
-                        ${lastPlayed ? _esc(lastPlayed.Name) : '--'}
+                    <span class="nav-profile-stat-copy">
+                        <span class="stat-label">${_t('navLastPlayed', 'Último jogado')}</span>
+                        <span class="nav-profile-last-name">${lastPlayed ? _esc(lastPlayed.Name) : '--'}</span>
                     </span>
-                    <span class="stat-label">
-                        ${lastPlayed
-                ? `${_t('navStatMostPlayed', 'Mais Jogado')} · ${mostPlayedFmt}`
-                : _t('navStatMostPlayed', 'Mais Jogado')}
+                    <span class="nav-profile-last-meta">
+                        <strong>${lastPlayedSessionFmt || '--'}</strong>
+                        <small>${lastPlayedSessionFmt ? `${_t('navLastSession', 'última sessão')} · ` : ''}${lastPlayedWhen || _t('navNoRecentActivity', 'sem atividade recente')}</small>
                     </span>
                 </div>
             </div>
@@ -3132,10 +3736,18 @@ window.isNavMenuOpen = false;
 
         const grid = body.querySelector('#profileRecentGrid');
 
-        const idealCardWidth = Math.max(110, Math.min(205, window.innerWidth * .1));
-        const gridGap = Math.max(10, Math.min(24, window.innerWidth * .012));
-        const visibleSlots = Math.max(3, Math.floor((grid.clientWidth + gridGap) / (idealCardWidth + gridGap)));
+        const idealCardWidth = Math.max(
+            150,
+            Math.min(230, window.innerWidth * .115, window.innerHeight * .19)
+        );
+        const gridGap = Math.max(12, Math.min(22, window.innerWidth * .01));
+        const availableGridWidth = Math.max(0, grid.clientWidth - 16);
+        const visibleSlots = Math.max(
+            2,
+            Math.floor((availableGridWidth + gridGap) / (idealCardWidth + gridGap))
+        );
         const showcaseGames = playedGames.slice(0, visibleSlots);
+        grid.style.gridTemplateColumns = `repeat(${visibleSlots}, minmax(0, 1fr))`;
 
         if (showcaseGames.length === 0) {
             grid.innerHTML = `<div style="color:rgba(255,255,255,0.3); grid-column:1/-1;">
@@ -5364,6 +5976,7 @@ window.isNavMenuOpen = false;
         if (_isLazyCat() && _lg) {
             // Garante que o indice não passe dos limites
             const globalIdx = Math.max(0, Math.min((_contentItems.length || 1) - 1, _contentIdx));
+            _contentItems.forEach(el => el?.classList.remove('nav-focused-el'));
 
             // Remove dos anteriores
             for (const card of _lg._cards) {
@@ -5375,26 +5988,49 @@ window.isNavMenuOpen = false;
 
             const card = _contentItems[globalIdx];
             if (card) {
+                if (!card.classList.contains('nav-vertical-card')) {
+                    card.classList.add('nav-focused-el');
+                    card.focus?.({ preventScroll: true });
+                    const filterList = card.closest?.('.nav-library-filter-list');
+                    if (filterList) {
+                        const itemRect = card.getBoundingClientRect();
+                        const listRect = filterList.getBoundingClientRect();
+                        const edgePadding = 8;
+                        if (itemRect.bottom > listRect.bottom - edgePadding) {
+                            filterList.scrollBy({
+                                top: itemRect.bottom - listRect.bottom + edgePadding,
+                                behavior: 'smooth'
+                            });
+                        } else if (itemRect.top < listRect.top + edgePadding) {
+                            filterList.scrollBy({
+                                top: itemRect.top - listRect.top - edgePadding,
+                                behavior: 'smooth'
+                            });
+                        }
+                    }
+                    return;
+                }
          
                 const cols = _gridCols();
                 const container = card.closest('#navPaneGames, #navPaneMedia');
+                const cardIdx = _lg._cards.indexOf(card);
 
     
-                if (globalIdx < cols && container) {
+                if (cardIdx >= 0 && cardIdx < cols && container) {
                    
                     if (container.scrollTop > 4) {
                         container.scrollTo({ top: 0, behavior: 'smooth' });
                     }
                 } else {
                     
-                    const paneRect = container.getBoundingClientRect();
+                    const paneRect = container?.getBoundingClientRect();
                     const cardRect = card.getBoundingClientRect();
                     const PADDING = 10; 
 
-                    if (cardRect.bottom > paneRect.bottom - PADDING) {
+                    if (paneRect && cardRect.bottom > paneRect.bottom - PADDING) {
                         
                         container.scrollBy({ top: cardRect.bottom - paneRect.bottom + PADDING, behavior: 'smooth' });
-                    } else if (cardRect.top < paneRect.top + PADDING) {
+                    } else if (paneRect && cardRect.top < paneRect.top + PADDING) {
                         
                         container.scrollBy({ top: cardRect.top - paneRect.top - PADDING, behavior: 'smooth' });
                     }
@@ -5402,6 +6038,7 @@ window.isNavMenuOpen = false;
 
              
                 card.classList.add('nav-focused');
+                if (document.activeElement !== card) card.focus?.({ preventScroll: true });
                 card._startInteraction?.();
 
                 _lg._loadCard(card);
@@ -5418,7 +6055,8 @@ window.isNavMenuOpen = false;
             const focused = _contentItems[_contentIdx];
             if (focused && typeof focused.focus === 'function' && document.activeElement !== focused) {
                 focused.focus({ preventScroll: true });
-                focused.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                const isProfileShowcase = CATS[_catIdx]?.id === 'profile' && _profileSubView !== 'history';
+                if (!isProfileShowcase) focused.scrollIntoView({ block: 'center', behavior: 'smooth' });
             }
         }
     }
@@ -5616,6 +6254,8 @@ window.isNavMenuOpen = false;
     window._navMenuHandleKey = function (key) {
         if (window._vkbIsOpen) return false;
         if (_navMenuPhase === 'closing') return false;
+        if ((key === 'Escape' || key === 'Backspace') && _libraryInteractionMode === 'filters' &&
+            _closeLibraryFilters()) return true;
         if ((key === 'Escape' || key === 'Backspace') && window._navMenuExitReleaseNotesScroll?.()) return true;
         if ((key === 'L1' || key === 'R1') && window._navMenuCycleSharingSubtab?.(key === 'R1' ? 1 : -1)) return true;
         if (key === 'L1') { window._navMenuCycleTab(-1); return true; }
@@ -5727,7 +6367,14 @@ window.isNavMenuOpen = false;
             case 'Enter':
                 if (_contentItems.length > 0) {
                     _setTopbarFocus(false);
-                    _contentIdx = 0;
+                    if (_isLazyCat()) {
+                        const catId = CATS[_catIdx]?.id;
+                        const actionCount = _libraryActionItems(catId).length;
+                        const cardCount = _libraryGrid(catId)?._cards?.length || 0;
+                        _contentIdx = cardCount ? actionCount : 0;
+                    } else {
+                        _contentIdx = 0;
+                    }
                     _updateContentFocus();
                 }
                 return true;
@@ -5738,6 +6385,99 @@ window.isNavMenuOpen = false;
                 return true;
         }
         return false;
+    }
+
+    function _navLibraryContent(key) {
+        const catId = CATS[_catIdx]?.id;
+        if (catId !== 'games' && catId !== 'media') return false;
+        const total = _contentItems.length;
+        if (!total) {
+            if (key === 'ArrowUp' || key === 'Escape' || key === 'Backspace') _setTopbarFocus(true);
+            return true;
+        }
+
+        if (_libraryInteractionMode === 'filters' && catId === 'games') {
+            const footerStart = _contentItems.findIndex(item => item?.dataset?.filterCommand);
+            const onFooter = footerStart >= 0 && _contentIdx >= footerStart;
+            if (key === 'Enter') _contentItems[_contentIdx]?.click();
+            else if (key === 'ArrowLeft' || key === 'ArrowRight') {
+                if (onFooter) {
+                    const resetIdx = _contentItems.findIndex(item => item?.dataset?.filterCommand === 'reset');
+                    const doneIdx = _contentItems.findIndex(item => item?.dataset?.filterCommand === 'done');
+                    if (resetIdx >= 0 && doneIdx >= 0) {
+                        const nextIdx = _contentIdx === resetIdx ? doneIdx : resetIdx;
+                        if (nextIdx !== _contentIdx) _contentIdx = nextIdx;
+                    }
+                } else if (key === 'ArrowLeft') {
+                    _closeLibraryFilters();
+                }
+            }
+            else if (key === 'ArrowUp') {
+                if (onFooter && footerStart > 0) _contentIdx = Math.max(0, footerStart - 1);
+                else _contentIdx = Math.max(0, _contentIdx - 1);
+            }
+            else if (key === 'ArrowDown') {
+                if (!onFooter) _contentIdx = Math.min(total - 1, _contentIdx + 1);
+            }
+            else if (key === 'Escape' || key === 'Backspace') _closeLibraryFilters();
+            else return true;
+            _updateContentFocus();
+            return true;
+        }
+
+        const actions = _libraryActionItems(catId);
+        const actionCount = actions.length;
+        const grid = _libraryGrid(catId);
+        const cards = grid?._cards || [];
+        const current = _contentItems[_contentIdx];
+        const onAction = current?.classList?.contains('nav-library-action');
+
+        if (key === 'Enter') {
+            current?.click();
+            return true;
+        }
+        if (key === 'Escape' || key === 'Backspace') {
+            _setTopbarFocus(true);
+            return true;
+        }
+
+        if (onAction) {
+            if (key === 'ArrowUp') {
+                if (_contentIdx > 0) _contentIdx--;
+                else _setTopbarFocus(true);
+            } else if (key === 'ArrowDown') {
+                if (_contentIdx + 1 < actionCount) _contentIdx++;
+                else if (cards.length) _contentIdx = actionCount;
+            } else if (key === 'ArrowRight' && cards.length) {
+                _contentIdx = actionCount;
+            }
+            _updateContentFocus();
+            return true;
+        }
+
+        const cols = _gridCols();
+        const cardIdx = Math.max(0, _contentIdx - actionCount);
+        if (key === 'ArrowLeft') {
+            if (cardIdx % cols === 0) _contentIdx = 0;
+            else _contentIdx--;
+        } else if (key === 'ArrowRight') {
+            if (cardIdx + 1 < cards.length) _contentIdx++;
+        } else if (key === 'ArrowUp') {
+            if (cardIdx < cols) {
+                _setTopbarFocus(true);
+                return true;
+            }
+            else _contentIdx -= cols;
+        } else if (key === 'ArrowDown') {
+            if (cardIdx + cols < cards.length) _contentIdx += cols;
+        } else if (key === ' ' || key === 'Square') {
+            window._navMenuTriggerCtxMenu();
+            return true;
+        } else {
+            return false;
+        }
+        _updateContentFocus();
+        return true;
     }
 
     function _navContent(key) {
@@ -5809,36 +6549,7 @@ window.isNavMenuOpen = false;
             return true;
         }
 
-        // Comportamento focado no Grid com o LazyLoading ativo (O(1) sem travamentos)
-        if (_isLazyCat()) {
-            switch (key) {
-                case 'ArrowLeft':
-                    if (_contentIdx > 0) { _contentIdx--; _updateContentFocus(); }
-                    break;
-                case 'ArrowRight':
-                    if (_contentIdx < total - 1) { _contentIdx++; _updateContentFocus(); }
-                    break;
-                case 'ArrowUp':
-                    if (_contentIdx < cols) { _setTopbarFocus(true); }
-                    else { _contentIdx = Math.max(0, _contentIdx - cols); _updateContentFocus(); }
-                    break;
-                case 'ArrowDown':
-                    if (_contentIdx + cols < total) { _contentIdx += cols; _updateContentFocus(); }
-                    break;
-                case 'Enter': {
-                    const card = _contentItems[_contentIdx];
-                    if (card) card.click();
-                    return true;
-                }
-                case 'Escape': case 'Backspace':
-                    _setTopbarFocus(true);
-                    return true;
-                case ' ': case 'Square':
-                    window._navMenuTriggerCtxMenu();
-                    return true;
-            }
-            return false;
-        }
+        if (_isLazyCat()) return _navLibraryContent(key);
 
         // Navegação Complexa nos menus de Settings da Conta
         if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'account') {

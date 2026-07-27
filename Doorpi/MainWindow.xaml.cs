@@ -2298,6 +2298,10 @@ namespace Doorpi
                 webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(BuildCurrentUserPayload(user))));
 
             LoadGamesIntoUI();
+            // O usuário ativo já está definido aqui. A chamada feita durante a
+            // criação do WebView pode ocorrer cedo demais e apontar para outro
+            // diretório de perfil.
+            ScheduleEmulatorLibraryReconcile(force: true);
             var apps = LoadMediaApps();
             if (apps.Count > 0) SendMediaAppsToUI(apps);
             _ = Task.Run(InitializeStoreLaunchersAsync);
@@ -10067,6 +10071,7 @@ namespace Doorpi
                     _activeExecutableAppSessionKey = "";
 
                 ClearExecutionLock();
+                ScheduleEmulatorLibraryReconcileAfterExternalMutation();
                 ForceFocus();
                 SendRuntimeSessionsToUI();
                 return;

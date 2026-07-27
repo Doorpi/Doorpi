@@ -2884,18 +2884,19 @@
                 border: 0;
                 border-left: 1px solid rgba(255,255,255,.32);
                 background: transparent;
-                color: rgba(255,255,255,.80);
-                filter: drop-shadow(0 2px 8px rgba(0,0,0,.45));
+                color: rgba(255,255,255,.94);
+                filter: none;
                 transition: width .18s ease, padding .18s ease, background .18s ease, border-color .18s ease;
             }
             .top-quick-menu-cue svg {
                 width: 22px;
                 height: 22px;
                 stroke-width: 1.95;
+                filter: drop-shadow(0 1px 1px rgba(0,0,0,.72));
             }
             .top-quick-menu-label {
                 display: none;
-                font-size: 15px;
+                font-size: 17px;
                 font-weight: 600;
                 letter-spacing: 0;
                 color: rgba(255,255,255,.88);
@@ -2925,9 +2926,9 @@
                 opacity: 0;
             }
             .top-profile-btn .doorpi-avatar {
-                width: clamp(58px, 4.25vw, 78px);
-                height: clamp(58px, 4.25vw, 78px);
-                margin-left: clamp(10px, 1.45vw, 30px);
+                width: clamp(54px, 3.9vw, 76px);
+                height: clamp(54px, 3.9vw, 76px);
+                margin-left: clamp(10px, 1.35vw, 28px);
                 border-radius: 50%;
                 background: rgb(255 255 255 / 0%);
                 border: 1px solid rgba(255,255,255,0.28);
@@ -2947,14 +2948,17 @@
             .top-profile-btn .doorpi-avatar svg { width: 54%; height: 54%; color: rgba(255,255,255,.76); }
             .top-profile-name {
                 display: inline-block;
-                max-width: clamp(130px, 13vw, 260px);
+                max-width: clamp(160px, 14vw, 300px);
                 overflow: hidden;
                 text-overflow: ellipsis;
-                font-size: clamp(16px, 1.04vw, 20px);
+                font-size: clamp(18px, 1.2vw, 24px);
                 font-weight: 540;
-                color: rgba(255,255,255,0.80);
+                color: rgba(255,255,255,0.90);
                 white-space: nowrap;
-                filter: drop-shadow(1px 2px 1px black);
+                filter: none;
+                text-shadow:
+                    0 1px 2px rgba(0,0,0,.58),
+                    0 0 1px rgba(0,0,0,.40);
             }
             .top-profile-btn:focus .top-profile-name, .top-profile-btn:hover .top-profile-name {
                 color: #fff;
@@ -3137,9 +3141,9 @@
                     width: 36px;
                     height: 36px;
                     border-radius: 50%;
-                    border: 1px solid rgba(255,255,255,.10);
+                    border: 1px solid rgba(255,255,255,.18);
                     background: transparent;
-                    color: rgba(255,255,255,.55);
+                    color: rgba(255,255,255,.90);
                     display: grid;
                     place-items: center;
                     box-shadow: none;
@@ -3155,6 +3159,7 @@
                 .doorpi-notification-icon svg {
                     width: 18px;
                     height: 18px;
+                    filter: drop-shadow(0 1px 1px rgba(0,0,0,.72));
                 }
                 .doorpi-notification-count {
                     position: absolute;
@@ -4176,9 +4181,12 @@
     })();
     
 
-    setInterval(() => {
-        document.getElementById('clock').innerText = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    }, 1000);
+    const refreshClocks = () => {
+        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        document.querySelectorAll('#clock, .doorpi-user-clock').forEach(clock => { clock.innerText = time; });
+    };
+    refreshClocks();
+    setInterval(refreshClocks, 1000);
 
     /* Seção: Ponte com o host */
     // ── GERADOR DE FALLBACKS SVG ──────────────────────────────────────────
@@ -5196,6 +5204,13 @@
             GameLaunchOverlay.focusExecutionLockActions?.();
             return;
         }
+        const userPicker = document.getElementById('doorpiUserPicker');
+        if (userPicker?.style.display !== 'none' &&
+            document.body.classList.contains('user-picker-open') &&
+            typeof userPicker._doorpiFocusInitialCard === 'function') {
+            userPicker._doorpiFocusInitialCard('auto');
+            return;
+        }
         // 1. Prioridade: Se tem um Modal de Adicionar aberto, foca nos botões dele
         if (window.isModalOpen) {
             const btn = document.querySelector('#btnAddWebApp') || document.querySelector('#btnConfirmAdd') || document.querySelector('#btnConfirmAddMedia');
@@ -5274,10 +5289,10 @@
         s.id = 'doorpiOverlayStyles';
         s.textContent = `
 
-        .doorpi-power-row {
+    .doorpi-power-row {
         display: flex; align-items: center; justify-content: center;
-        gap: 6px; flex-wrap: wrap;
-        margin-top: clamp(20px, 3vh, 36px);
+        gap: clamp(14px, 1.4vw, 24px); flex-wrap: wrap;
+        margin-top: 0;
         padding: clamp(8px, 1.2vh, 12px) clamp(12px, 1.5vw, 20px);
         background: rgba(255,255,255,0.03);
         border: 1px solid rgba(255,255,255,0.06);
@@ -5293,7 +5308,7 @@
         color: rgba(255,255,255,0.38); padding: 7px 13px;
         display: flex; align-items: center; gap: 7px;
         cursor: pointer; outline: none; font: inherit;
-        font-size: clamp(0.68rem, 0.8vw, 0.88rem); font-weight: 500;
+        font-size: clamp(0.64rem, 0.74vw, 0.8rem); font-weight: 500;
         letter-spacing: 0.02em;
         transition: all 0.16s cubic-bezier(0.25, 1, 0.5, 1);
     }
@@ -5372,11 +5387,17 @@
         }
 
         .doorpi-user-panel {
+            --doorpi-user-avatar-size: clamp(185px, min(13.2vw, 25vh), 260px);
             width: 100%;
-            display: flex; flex-direction: column; align-items: center; gap: clamp(30px, 4vw, 50px);
+            height: 100%;
+            max-height: none;
+            display: grid; grid-template-rows: 1fr auto; align-items: stretch;
             position: relative;
             z-index: 1;
         }
+        .doorpi-user-main { min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .doorpi-user-footer { display: flex; flex-direction: column; align-items: center; gap: clamp(12px, 1.6vh, 20px); padding-bottom: clamp(4px, .8vh, 14px); }
+        .doorpi-user-clock { position: absolute; top: clamp(2px, .7vh, 12px); right: clamp(2px, .7vw, 14px); color: rgba(255,255,255,.96); font-size: clamp(1.15rem, 1.55vw, 2rem); font-weight: 400; font-variant-numeric: tabular-nums; letter-spacing: .02em; }
         .doorpi-manager-panel {
             width: min(980px, 94vw); max-height: 86vh;
             display: flex; flex-direction: column; gap: 22px;
@@ -5388,10 +5409,10 @@
         }
 
         .doorpi-panel-head { width: 100%; display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; }
-        .doorpi-user-panel .doorpi-panel-head { flex-direction: column; align-items: center; text-align: center; justify-content: center; }
+        .doorpi-user-panel .doorpi-panel-head { flex: 0 0 auto; flex-direction: column; align-items: center; text-align: center; justify-content: center; padding-top: 0; }
     
         .doorpi-panel-title {
-            font-size: clamp(2.4rem, 4.2vw, 5.4rem);
+            font-size: clamp(2.2rem, 3.2vw, 4.4rem);
             font-weight: 200;
             letter-spacing: -0.03em;
             color: #ffffff;
@@ -5402,7 +5423,7 @@
         .doorpi-panel-sub {
             font-size: clamp(0.95rem, 1.1vw, 1.4rem);
             color: rgba(255,255,255,0.55);
-            margin: clamp(10px, 1.2vw, 16px) 0 0;
+            margin: clamp(5px, .7vh, 9px) 0 0;
             line-height: 1.6;
             font-weight: 300;
         }
@@ -5464,29 +5485,32 @@
 
 /* USER CARDS STYLES */
     .doorpi-user-picker-layout {
+        --doorpi-user-gap: clamp(24px, 3vw, 48px);
+        --doorpi-user-edge-margin: clamp(72px, 7vw, 280px);
+        --doorpi-user-carousel-width: calc(100vw - (var(--doorpi-user-edge-margin) * 2));
+        flex: 0 1 auto;
+        min-height: auto;
         display: flex;
-        align-items: center;
         justify-content: center;
-        gap: clamp(24px, 3vw, 48px);
+        align-items: center;
+        margin-top: clamp(18px, 2.4vh, 34px);
         width: 100%;
         max-width: 100vw;
     }
 
     .doorpi-user-scroll-area {
-        /* Largura Exata: 4 cards + 3 espaços + 30px de folga (15px cada lado) */
-        max-width: calc((clamp(170px, 12vw, 220px) * 4) + (clamp(24px, 3vw, 48px) * 3) + 30px);
+        width: var(--doorpi-user-carousel-width);
+        min-width: 0;
         overflow-x: auto;
         overflow-y: hidden;
         scroll-behavior: smooth;
 
-        /* Padding protege a animação (scale). Margin puxa o layout de volta pro lugar. */
-        padding: 30px 15px;
-        margin: -30px -15px;
+        /* Reserva vertical para o leve aumento do item focado sem alterar o centro. */
+        padding: 22px 15px;
+        box-sizing: border-box;
 
-        /* ── MÁGICA DO ALINHAMENTO PERFEITO ── */
         scroll-snap-type: x mandatory;
-        /* Diz ao navegador para descontar o padding de 15px na hora de "travar" o card */
-        scroll-padding-inline: 15px;
+        scroll-padding-inline: 50%;
 
         scrollbar-width: none;
         -ms-overflow-style: none;
@@ -5496,8 +5520,16 @@
     .doorpi-user-track {
         display: flex;
         align-items: center;
-        gap: clamp(24px, 3vw, 48px);
+        gap: var(--doorpi-user-gap);
         width: max-content;
+    }
+
+    .doorpi-user-snap-spacer {
+        flex: 0 0 max(
+            0px,
+            calc((var(--doorpi-user-carousel-width) / 2) - (var(--doorpi-user-avatar-size) / 2) - var(--doorpi-user-gap) - 15px)
+        );
+        height: 1px;
     }
 
     /* Fantasma sutil para garantir que o último elemento trave corretamente sem bater na parede */
@@ -5507,14 +5539,6 @@
         padding-right: 1px;
     }
 
-    .doorpi-user-fixed-add {
-        display: flex;
-        align-items: center;
-        border-left: 2px solid rgba(255, 255, 255, 0.08);
-        padding-left: clamp(24px, 3vw, 48px);
-        z-index: 10;
-    }
-
     .doorpi-user-card {
         background: none;
         border: none;
@@ -5522,18 +5546,19 @@
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: clamp(14px, 1.6vw, 20px);
+        gap: clamp(18px, 1.9vw, 24px);
         cursor: pointer;
         outline: none;
         padding: 0;
-        transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.22s ease;
+        opacity: var(--doorpi-card-opacity, 0.42);
+        transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease;
         position: relative;
         animation: doorpiCardRise 0.3s cubic-bezier(0.16, 1, 0.3, 1) backwards;
         will-change: transform;
         flex-shrink: 0;
 
         /* Força a lista a sempre parar alinhada no início deste card */
-        scroll-snap-align: start;
+        scroll-snap-align: center;
     }
 
     @keyframes doorpiCardRise {
@@ -5543,15 +5568,16 @@
 
     .doorpi-user-card:focus,
     .doorpi-user-card:hover {
+        opacity: 1;
         transform: translateY(-8px) scale(1.06);
     }
 
-    .doorpi-avatar {
-        width: clamp(170px, 12vw, 220px);
-        height: clamp(170px, 12vw, 220px);
+    .doorpi-user-panel .doorpi-avatar {
+        width: var(--doorpi-user-avatar-size);
+        height: var(--doorpi-user-avatar-size);
         border-radius: 50%;
-        background: rgba(255,255,255,0.08);
-        border: 3px solid rgba(255,255,255,0.15);
+        background: transparent;
+        border: 3px solid transparent;
         box-sizing: border-box;
         display: flex;
         align-items: center;
@@ -5559,7 +5585,8 @@
         overflow: hidden;
         color: rgba(255,255,255,0.45);
         font-size: clamp(38px, 5vw, 58px);
-        transition: border-color 0.25s, box-shadow 0.32s, background 0.25s;
+        box-shadow: none;
+        transition: border-color 0.25s;
         position: relative;
         z-index: 2;
     }
@@ -5575,7 +5602,7 @@
     }
 
     .doorpi-user-name {
-        font-size: clamp(1rem, 1.2vw, 1.3rem);
+        font-size: clamp(.92rem, 1.08vw, 1.22rem);
         font-weight: 500;
         text-align: center;
         letter-spacing: 0.02em;
@@ -5587,15 +5614,6 @@
     .doorpi-user-card:focus .doorpi-user-name,
     .doorpi-user-card:hover .doorpi-user-name {
         color: #fff;
-    }
-
-    .doorpi-user-card.is-current {
-        opacity: 0.9;
-    }
-
-    .doorpi-user-card.is-current .doorpi-avatar {
-        border-color: rgba(255,255,255,0.76);
-        box-shadow: 0 0 0 4px rgba(255,255,255,0.055), 0 16px 42px rgba(0,0,0,0.3);
     }
 
     .doorpi-user-card.is-current .doorpi-user-name::after {
@@ -5618,9 +5636,9 @@
     }
 
     .doorpi-user-card.create-card .doorpi-avatar {
-        border-style: dashed;
-        border-color: rgba(255,255,255,0.2);
-        background: rgba(255,255,255,0.03);
+        border-style: solid;
+        border-color: rgb(255 255 255 / 0%);
+        background: rgb(255 255 255 / 9%);
     }
 
     .doorpi-user-card.create-card:focus .doorpi-avatar,
@@ -6210,7 +6228,7 @@ function showUserPicker(users, requireSelection = false) {
                                 bestCard = c;
                             }
                         });
-                        bestCard.focus();
+                        bestCard.focus({ preventScroll: true });
                         // nearest faz rolar apenas o necessário para mostrar o card
                         bestCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
                     }
@@ -6226,12 +6244,12 @@ function showUserPicker(users, requireSelection = false) {
                     if (currentIndex !== -1) {
                         if (e.key === 'ArrowLeft') {
                             const prevIndex = currentIndex > 0 ? currentIndex - 1 : userCards.length - 1;
-                            userCards[prevIndex].focus();
-                            userCards[prevIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+                            userCards[prevIndex].focus({ preventScroll: true });
+                            centerUserCard(userCards[prevIndex], 'smooth');
                         } else {
                             const nextIndex = currentIndex < userCards.length - 1 ? currentIndex + 1 : 0;
-                            userCards[nextIndex].focus();
-                            userCards[nextIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+                            userCards[nextIndex].focus({ preventScroll: true });
+                            centerUserCard(userCards[nextIndex], 'smooth');
                         }
                     }
                 }
@@ -6305,7 +6323,19 @@ function showUserPicker(users, requireSelection = false) {
     const activeSessionUserId = window._doorpiUserSessionReady
         ? String(window._doorpiCurrentUserId || '').toLowerCase()
         : '';
-    const cards = users.map((user, idx) => {
+    const carouselItemCount = users.length + 1;
+    const preferredFocusIndex = Math.max(0, Math.floor((carouselItemCount - 1) / 2));
+    const orderedUsers = [...users];
+    if (activeSessionUserId) {
+        const activeUserIndex = orderedUsers.findIndex(user =>
+            String(user.Id || '').toLowerCase() === activeSessionUserId
+        );
+        if (activeUserIndex >= 0 && activeUserIndex !== preferredFocusIndex) {
+            const [activeUser] = orderedUsers.splice(activeUserIndex, 1);
+            orderedUsers.splice(Math.min(preferredFocusIndex, orderedUsers.length), 0, activeUser);
+        }
+    }
+    const cards = orderedUsers.map((user, idx) => {
         const isCurrent = !!activeSessionUserId && String(user.Id || '').toLowerCase() === activeSessionUserId;
         return `
         <button class="doorpi-user-card${isCurrent ? ' is-current' : ''}" data-user-id="${escapeHtml(user.Id)}" tabindex="0"${isCurrent ? ' aria-current="true"' : ''} style="animation-delay: ${idx * 0.03}s">
@@ -6322,36 +6352,40 @@ function showUserPicker(users, requireSelection = false) {
     const svgShutdown = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>`;
     overlay.innerHTML = `
             <div class="doorpi-user-panel">
-                <div class="doorpi-panel-head">
-                    <h2 class="doorpi-panel-title">${t('whoIsPlaying')}</h2>
-                    <p class="doorpi-panel-sub">${t('welcomeBack')}</p>
-                </div>
-                
-                <div class="doorpi-user-picker-layout">
-                    <div class="doorpi-user-scroll-area">
-                        <div class="doorpi-user-track">
-                            ${cards}
+                <div class="doorpi-user-clock" aria-live="off"></div>
+                <div class="doorpi-user-main">
+                    <div class="doorpi-panel-head">
+                        <h2 class="doorpi-panel-title">${t('whoIsPlaying')}</h2>
+                        <p class="doorpi-panel-sub">${t('welcomeBack')}</p>
+                    </div>
+                    <div class="doorpi-user-picker-layout">
+                        <div class="doorpi-user-scroll-area">
+                            <div class="doorpi-user-track">
+                                <div class="doorpi-user-snap-spacer" aria-hidden="true"></div>
+                                ${cards}
+                                <button class="doorpi-user-card create-card" id="doorpiCreateUserCard" tabindex="0" style="animation-delay: ${createUserDelay}s">
+                                    <div class="doorpi-avatar"><div class="doorpi-create-user-icon">+</div></div>
+                                    <span class="doorpi-user-name">${t('newUser')}</span>
+                                </button>
+                                <div class="doorpi-user-snap-spacer" aria-hidden="true"></div>
+                            </div>
                         </div>
                     </div>
-                    <div class="doorpi-user-fixed-add">
-                        <button class="doorpi-user-card create-card" id="doorpiCreateUserCard" tabindex="0" style="animation-delay: ${createUserDelay}s">
-                            <div class="doorpi-avatar"><div class="doorpi-create-user-icon">+</div></div>
-                            <span class="doorpi-user-name">${t('newUser')}</span>
-                        </button>
-                    </div>
                 </div>
-
-                ${requireSelection ? '' : `<button class="doorpi-manager-btn" id="doorpiCloseUsers" tabindex="0" style="margin-top: 24px; animation: doorpiCardRise 0.5s backwards; animation-delay: ${(createUserDelay + 0.1)}s">${t('btnBackLabel')}</button>`}
-
-                <div class="doorpi-power-row" style="animation: doorpiCardRise 0.5s backwards; animation-delay: ${(createUserDelay + 0.15)}s">
-                    <button class="doorpi-power-btn" id="doorpiExitApp" tabindex="0">${svgExit}${t('powerExit', 'Sair')}</button>
-                    <div class="doorpi-power-sep"></div>
-                    <button class="doorpi-power-btn" id="doorpiSuspend" tabindex="0">${svgSleep}${t('powerSuspend', 'Suspender')}</button>
-                    <button class="doorpi-power-btn" id="doorpiRestart" tabindex="0">${svgRestart}${t('powerRestart', 'Reiniciar')}</button>
-                    <button class="doorpi-power-btn p-danger" id="doorpiShutdown" tabindex="0">${svgShutdown}${t('powerShutdown', 'Desligar')}</button>
+                <div class="doorpi-user-footer">
+                    ${requireSelection ? '' : `<button class="doorpi-manager-btn" id="doorpiCloseUsers" tabindex="0" style="animation: doorpiCardRise 0.5s backwards; animation-delay: ${(createUserDelay + 0.1)}s">${t('btnBackLabel')}</button>`}
+                    <div class="doorpi-power-row" style="animation: doorpiCardRise 0.5s backwards; animation-delay: ${(createUserDelay + 0.15)}s">
+                        <button class="doorpi-power-btn" id="doorpiExitApp" tabindex="0">${svgExit}${t('powerExit', 'Sair')}</button>
+                        <div class="doorpi-power-sep"></div>
+                        <button class="doorpi-power-btn" id="doorpiSuspend" tabindex="0">${svgSleep}${t('powerSuspend', 'Suspender')}</button>
+                        <button class="doorpi-power-btn" id="doorpiRestart" tabindex="0">${svgRestart}${t('powerRestart', 'Reiniciar')}</button>
+                        <button class="doorpi-power-btn p-danger" id="doorpiShutdown" tabindex="0">${svgShutdown}${t('powerShutdown', 'Desligar')}</button>
+                    </div>
                 </div>
             </div>`;
 
+    const pickerClock = overlay.querySelector('.doorpi-user-clock');
+    if (pickerClock) pickerClock.innerText = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     if (typeof applyI18n === 'function') applyI18n();
     overlay.style.display = 'flex';
     window.__doorpiInitialUiReady = true;
@@ -6368,6 +6402,41 @@ function showUserPicker(users, requireSelection = false) {
             overlay.dataset.returnToQuickPanel = 'false';
             window.DoorpiQuickPanel?.openMenu?.();
         }
+    };
+
+    const centerUserCard = (card, behavior = 'smooth') => {
+        const scrollArea = overlay.querySelector('.doorpi-user-scroll-area');
+        if (!card || !scrollArea || !scrollArea.contains(card)) return;
+        const cardRect = card.getBoundingClientRect();
+        const areaRect = scrollArea.getBoundingClientRect();
+        const delta = (cardRect.left + cardRect.width / 2) - (areaRect.left + areaRect.width / 2);
+        if (Math.abs(delta) < 1) return;
+        scrollArea.scrollBy({ left: delta, behavior });
+    };
+
+    const updateUserCarouselState = (focusedCard) => {
+        const carouselCards = Array.from(overlay.querySelectorAll('.doorpi-user-track .doorpi-user-card'));
+        const focusedIndex = carouselCards.indexOf(focusedCard);
+        if (focusedIndex < 0) return;
+        carouselCards.forEach((card, index) => {
+            const distance = Math.abs(index - focusedIndex);
+            const opacity = distance === 0
+                ? 1
+                : Math.max(0.22, 0.7 - ((distance - 1) * 0.2));
+            card.style.setProperty('--doorpi-card-opacity', String(opacity));
+        });
+    };
+
+    overlay._doorpiFocusInitialCard = (behavior = 'auto') => {
+        const carouselCards = Array.from(overlay.querySelectorAll('.doorpi-user-track .doorpi-user-card'));
+        const initialCard = overlay.querySelector('.doorpi-user-card.is-current')
+            || carouselCards[preferredFocusIndex]
+            || carouselCards[0];
+        if (!initialCard) return false;
+        initialCard.focus({ preventScroll: true });
+        updateUserCarouselState(initialCard);
+        centerUserCard(initialCard, behavior);
+        return document.activeElement === initialCard;
     };
 
     overlay.querySelectorAll('[data-user-id]').forEach(btn => {
@@ -6396,11 +6465,17 @@ function showUserPicker(users, requireSelection = false) {
         });
         // Quando a navegação for feita pelo ponteiro (mouse/toque)
         btn.addEventListener('focus', () => {
-            btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+            updateUserCarouselState(btn);
+            centerUserCard(btn, 'smooth');
         });
     });
 
-    overlay.querySelector('#doorpiCreateUserCard')?.addEventListener('click', (event) => {
+    const createUserCard = overlay.querySelector('#doorpiCreateUserCard');
+    createUserCard?.addEventListener('focus', () => {
+        updateUserCarouselState(createUserCard);
+        centerUserCard(createUserCard, 'smooth');
+    });
+    createUserCard?.addEventListener('click', (event) => {
         if (shouldBlockInheritedUserPickerActivation(event)) {
             event.preventDefault();
             event.stopPropagation();
@@ -6423,8 +6498,7 @@ function showUserPicker(users, requireSelection = false) {
     overlay.querySelector('#doorpiShutdown')?.addEventListener('click', () => postToHost({ action: 'shutdownSystem' }));
 
     requestAnimationFrame(() => requestAnimationFrame(() => {
-        const first = overlay.querySelector('.doorpi-user-card.is-current') || overlay.querySelector('.doorpi-user-card');
-        first?.focus();
+        overlay._doorpiFocusInitialCard?.('auto');
         window.resetDoorpiGamepadInputState?.();
         try {
             postToHost({
@@ -11813,7 +11887,8 @@ function renderFolderList(folders) {
 
         function _positionOverlay() {
             if (!_el || !_inputEl || _el.style.display === 'none') return;
-            const rect = _inputEl.getBoundingClientRect();
+            const anchor = _callbacks.anchorElement?.isConnected ? _callbacks.anchorElement : _inputEl;
+            const rect = anchor.getBoundingClientRect();
             const margin = 14;
             const numeric = _mode === 'numeric';
             const width = numeric
@@ -11822,9 +11897,15 @@ function renderFolderList(folders) {
             _el.style.width = `${Math.round(width)}px`;
             const measured = _el.getBoundingClientRect();
             const height = measured.height || 300;
-            const center = Math.max(16 + width / 2, Math.min(window.innerWidth - 16 - width / 2, rect.left + rect.width / 2));
+            const offsetX = Number(_callbacks.offsetX) || 0;
+            const desiredCenter = _callbacks.align === 'start'
+                ? rect.left + width / 2
+                : _callbacks.align === 'end'
+                    ? rect.right - width / 2
+                    : rect.left + rect.width / 2;
+            const center = Math.max(16 + width / 2, Math.min(window.innerWidth - 16 - width / 2, desiredCenter + offsetX));
             const above = rect.top - height - margin;
-            const below = rect.bottom + margin;
+            const below = rect.bottom + margin + (Number(_callbacks.offsetY) || 0);
             const forceBelow = _callbacks.placement === 'below';
             const forceTop = _callbacks.placement === 'top';
             const top = forceTop
@@ -12353,6 +12434,14 @@ function renderFolderList(folders) {
     }
 
     function _focusDoorpiInteractiveTarget() {
+        const userPicker = document.getElementById('doorpiUserPicker');
+        if (userPicker?.style.display !== 'none' && document.body.classList.contains('user-picker-open')) {
+            const active = document.activeElement;
+            if (active && userPicker.contains(active) && active.offsetParent !== null) return true;
+            if (typeof userPicker._doorpiFocusInitialCard === 'function')
+                return userPicker._doorpiFocusInitialCard('auto');
+        }
+
         if (!window.isDoorpiOverlayOpen?.() && window.focusFeaturedCard?.() === true)
             return true;
 
@@ -12582,6 +12671,15 @@ function renderFolderList(folders) {
             else window._startSystemAudio?.(true);
         };
 
+        if (shouldShowTransition && data.mode === 'delete' && !data._delayed) {
+            const minVisibleMs = Number.isFinite(data.minVisibleMs) ? data.minVisibleMs : 900;
+            const elapsed = performance.now() - (window._userSwitchStartedAt || performance.now());
+            if (elapsed < minVisibleMs) {
+                setTimeout(() => _userSwitchFadeIn({ ...data, _delayed: true }), minVisibleMs - elapsed);
+                return;
+            }
+        }
+
         if (shouldShowTransition) {
             window._doorpiSessionTransitionBlockUntil = 0;
             window._userSwitching = false;
@@ -12622,6 +12720,52 @@ function renderFolderList(folders) {
         const elapsed = performance.now() - (window._userSwitchStartedAt || performance.now());
         if (!data._delayed && elapsed < minVisibleMs) {
             setTimeout(() => _userSwitchFadeIn({ ...data, _delayed: true }), minVisibleMs - elapsed);
+            return;
+        }
+
+        const userPicker = document.getElementById('doorpiUserPicker');
+        const returnToRequiredUserPicker =
+            data.mode === 'delete' &&
+            userPicker?.style.display !== 'none' &&
+            userPicker?.dataset.required === 'true';
+        if (returnToRequiredUserPicker) {
+            window._doorpiSessionTransitionBlockUntil = 0;
+            window._userSwitching = false;
+            window._doorpiPointerSuppressUntil = 0;
+            window._doorpiNativeDialogSuppressUntil = 0;
+            window._doorpiGameInputSuppressedUntil = 0;
+            window._doorpiIntroInputBlockUntil = 0;
+            document.body.classList.remove('doorpi-session-transition');
+            userPicker.classList.remove('doorpi-switching-out');
+
+            const wrap = document.querySelector('.main-content-wrapper');
+            if (wrap) {
+                wrap.style.opacity = '0';
+                wrap.style.transform = '';
+                wrap.style.pointerEvents = 'none';
+                wrap.style.removeProperty('transition');
+            }
+
+            const logoutOverlay = document.getElementById('doorpiUserSwitchLogout');
+            if (logoutOverlay) {
+                logoutOverlay.classList.remove('visible');
+                logoutOverlay.style.pointerEvents = 'none';
+                setTimeout(() => {
+                    if (!logoutOverlay.classList.contains('visible')) logoutOverlay.style.display = 'none';
+                }, 300);
+            }
+
+            window._doorpiAllowLibraryRenderDuringSessionTransition = false;
+            window._setDoorpiHomeInteractionBlocked?.(false);
+            window.DoorpiIntro?.resumeUserPickerAmbient?.();
+            resumeTransitionAudio();
+            window.clearDoorpiInputQuarantine?.({ dropPending: true });
+
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                userPicker._doorpiFocusInitialCard?.('auto');
+                window.resetDoorpiGamepadInputState?.();
+                window.updateDoorpiTopClusterVisibility?.();
+            }));
             return;
         }
 

@@ -46,6 +46,8 @@ window.AppStore = (() => {
                     ((raw.totalPlaytimeMinutes ?? raw.TotalPlaytimeMinutes ?? 0) > 0)),
                 isAnimated: raw.isAnimated || false,
                 source: raw.source || raw.Source || '',
+                emulatorId: raw.emulatorId || raw.EmulatorId || '',
+                emulatorDetectedName: raw.emulatorDetectedName || raw.EmulatorDetectedName || '',
                 isAdminLocked: raw.isAdminLocked || raw.IsAdminLocked || false,
                 adminLockReason: raw.adminLockReason || raw.AdminLockReason || '',
             };

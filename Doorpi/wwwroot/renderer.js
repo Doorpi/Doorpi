@@ -440,6 +440,7 @@ const CardRenderer = (() => {
         card.dataset.path = item.path || '';
         card.dataset.launchUrl = item.launchUrl || '';
         card.dataset.launchCommand = item.launchCommand || '';
+        card.dataset.emulatorId = item.emulatorId || '';
         card.dataset.isAnimated = item.isAnimated ? 'true' : 'false';
         if (item.disableGamepadControl != null) {
             card.dataset.disableGamepadControl = item.disableGamepadControl ? 'true' : 'false';
@@ -517,6 +518,7 @@ const CardRenderer = (() => {
         card.dataset.path = item.path || '';
         card.dataset.launchUrl = item.launchUrl || '';
         card.dataset.launchCommand = item.launchCommand || '';
+        card.dataset.emulatorId = item.emulatorId || '';
 
         if (item.channel === 'games') {
             card.dataset.gameId = item.id;
