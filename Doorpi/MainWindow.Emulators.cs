@@ -66,6 +66,7 @@ namespace Doorpi
     {
         private readonly ConcurrentDictionary<string, CancellationTokenSource> _emulatorPreviewRequests = new();
         private int _emulatorReconcileRunning;
+        private int _emulatorReconcilePending;
         private int _emulatorCoverDownloadRunning;
         private long _lastEmulatorReconcileUtcTicks;
         private readonly object _emulatorSuppressionLock = new();
@@ -1757,9 +1758,35 @@ namespace Doorpi
             long now = DateTime.UtcNow.Ticks;
             long last = Interlocked.Read(ref _lastEmulatorReconcileUtcTicks);
             if (!force && last > 0 && now - last < TimeSpan.FromMinutes(2).Ticks) return;
-            if (Interlocked.CompareExchange(ref _emulatorReconcileRunning, 1, 0) != 0) return;
+            if (Interlocked.CompareExchange(ref _emulatorReconcileRunning, 1, 0) != 0)
+            {
+                // Uma checagem solicitada enquanto outra está rodando não pode se
+                // perder: o emulador/explorador pode ainda estar terminando de
+                // gravar a biblioteca no momento da primeira fotografia.
+                Interlocked.Exchange(ref _emulatorReconcilePending, 1);
+                return;
+            }
             Interlocked.Exchange(ref _lastEmulatorReconcileUtcTicks, now);
             _ = Task.Run(ReconcileEmulatorLibrariesAsync);
+        }
+
+        private void ScheduleEmulatorLibraryReconcileAfterExternalMutation(
+            int delayMilliseconds = 1200)
+        {
+            string userAtRequest = currentUserId;
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(Math.Max(0, delayMilliseconds)).ConfigureAwait(false);
+                if (!string.Equals(
+                        currentUserId,
+                        userAtRequest,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                ScheduleEmulatorLibraryReconcile(force: true);
+            });
         }
 
         private async Task ReconcileEmulatorLibrariesAsync()
@@ -1878,6 +1905,8 @@ namespace Doorpi
             finally
             {
                 Interlocked.Exchange(ref _emulatorReconcileRunning, 0);
+                if (Interlocked.Exchange(ref _emulatorReconcilePending, 0) == 1)
+                    ScheduleEmulatorLibraryReconcile(force: true);
             }
         }
 
@@ -1894,7 +1923,7 @@ namespace Doorpi
                     (item.CatalogId.Equals("eden", StringComparison.OrdinalIgnoreCase) &&
                      !item.ArtworkQuery.Equals("Eden emulator", StringComparison.OrdinalIgnoreCase))))
                     _ = Task.Run(() => EnsureEmulatorArtworkAsync(config.Id, userAtStart));
-                ScheduleEmulatorLibraryReconcile();
+                ScheduleEmulatorLibraryReconcile(force: true);
                 return true;
             }
             if (action == "browseEmulatorExecutable")

@@ -523,6 +523,14 @@
         });
     }
 
+    function resumeAmbient() {
+        if (!state.ambient || !state.handoffActive || state.ambientRaf) return;
+        state.ambientBlobs.forEach(blob => {
+            blob.el.style.willChange = 'transform';
+        });
+        state.ambientRaf = requestAnimationFrame(runAmbientPhysics);
+    }
+
     function finishHandoff() {
         if (!state.handoffActive) return;
         state.handoffActive = false;
@@ -674,6 +682,7 @@
         isHandoffActive: () => state.handoffActive,
         startUserPickerAmbient: () => createNativeHandoffAmbient(),
         freezeUserPickerAmbient: freezeAmbient,
+        resumeUserPickerAmbient: resumeAmbient,
         setVolume: postIntroVolume,
         getUserPickerClasses: () => {
             const cfg = state.handoffConfig || {};

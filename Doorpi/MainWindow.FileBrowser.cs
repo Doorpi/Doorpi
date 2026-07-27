@@ -1766,7 +1766,10 @@ namespace Doorpi
                 HideDoorpiFileBrowserOverlay();
             session.Completion.TrySetResult(result);
             if (session.Standalone)
+            {
                 ScheduleWatchedFolderRefresh("fechamento do explorador de arquivos");
+                ScheduleEmulatorLibraryReconcileAfterExternalMutation();
+            }
             if (session.ReturnToBrowserOnClose)
                 RestoreGenericBrowserAfterDoorpiFileExplorerClose();
         }

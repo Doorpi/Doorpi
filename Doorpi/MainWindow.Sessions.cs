@@ -347,6 +347,9 @@ namespace Doorpi
 
         private void ClearExecutableAppSession(ExecutableAppSession? session)
         {
+            bool closedConfiguredEmulator =
+                session != null &&
+                FindConfiguredEmulatorByExecutablePath(session.Url) != null;
             try { session?.WatcherCts?.Cancel(); } catch { }
 
             if (session != null)
@@ -358,6 +361,9 @@ namespace Doorpi
                 if (string.Equals(_activeExecutableAppSessionKey, session.Key, StringComparison.OrdinalIgnoreCase))
                     _activeExecutableAppSessionKey = "";
             }
+
+            if (closedConfiguredEmulator)
+                ScheduleEmulatorLibraryReconcileAfterExternalMutation();
         }
 
         private void ClearExecutableAppSession()

@@ -2989,7 +2989,7 @@ namespace Doorpi
                         if (ShouldLogMediaControllerForegroundReject(900))
                             LogMediaControllerDiagnostic("foreground-rejected", mergedButtonsForLog, 0);
                         ResetMediaControllerTransientState();
-                        Thread.Sleep(25);
+                        Thread.Sleep(8);
                         continue;
                     }
 
@@ -3428,7 +3428,7 @@ namespace Doorpi
                     RequestMediaMouseInputAbort();
                     ResetMediaControllerTransientState();
                     ClearGenericBrowserKeyboardStateForControllerAbort();
-                    Thread.Sleep(25);
+                    Thread.Sleep(8);
                 }
             }
 

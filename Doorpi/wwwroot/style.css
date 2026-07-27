@@ -19,7 +19,7 @@
 
 /* Escala por faixas: preserva 1080p/1440p e melhora a leitura a distância em 4K. */
 html {
-    font-size: 16px;
+    font-size: clamp(15px, 0.84vw, 19px);
 }
 
 :root {
@@ -27,15 +27,15 @@ html {
 }
 
 @media (max-height: 800px) {
-    html { font-size: 14px; }
+    html { font-size: 12px; }
 }
 
 @media (min-width: 3000px) and (min-height: 1600px) {
-    html { font-size: 20px; }
+    html { font-size: 17px; }
 }
 
 @media (min-width: 4600px) and (min-height: 2400px) {
-    html { font-size: 22px; }
+    html { font-size: 19px; }
 }
 
 /* Isso garante que as imagens e fundos sejam "transparentes" ao clique */
@@ -129,16 +129,16 @@ body:not(.nav-menu-active) #heroImage {
     color: rgba(255,255,255,0.35);
 }
 :root {
-    --card-w: clamp(120px, min(10.8vw, 19.2vh), 320px);
-    --card-h: clamp(180px, min(16.2vw, 28.8vh), 490px);
-    --card-featured-w: clamp(360px, min(34vw, 60.5vh), 920px);
-    --card-radius: clamp(6px, min(0.63vw, 1.12vh), 20px);
-    --card-gap: clamp(15px, min(1.78vw, 1.39vh), 30px);
-    --grid-pad-top: clamp(32px, min(4vw, 4.2vh), 43px);
-    --grid-pad-side: clamp(24px, min(3.1vw, 5.5vh), 56px);
-    --grid-pad-bottom: clamp(20px, min(3.03vw, 4.6vh), 120px);
+    --card-w: clamp(142px, min(12.5vw, 22.2vh), 360px);
+    --card-h: clamp(213px, min(18.75vw, 33.3vh), 540px);
+    --card-featured-w: clamp(456px, calc(var(--card-h) * 2.1395348837), 1155px);
+    --card-radius: clamp(8px, min(0.72vw, 1.28vh), 22px);
+    --card-gap: clamp(18px, min(2vw, 1.65vh), 36px);
+    --grid-pad-top: clamp(42px, min(4.8vw, 5vh), 64px);
+    --grid-pad-side: clamp(30px, min(3.6vw, 6.4vh), 72px);
+    --grid-pad-bottom: clamp(28px, min(3.5vw, 5.4vh), 132px);
     --logo-left: clamp(28px, min(2.81vw, 5vh), 88px);
-    --logo-bottom: clamp(335px, min(26vw, 45.9vh), 821px);
+    --logo-bottom: clamp(430px, min(31vw, 55vh), 900px);
     --logo-width: min(28%, 44vh);
     --topbar-pad-v: clamp(16px, min(1.72vw, 3.06vh), 54px);
     --topbar-pad-h: clamp(28px, min(2.81vw, 5vh), 88px);
@@ -153,11 +153,12 @@ body:not(.nav-menu-active) #heroImage {
     --fs-card-title: clamp(0.65rem, min(0.75vw, 1.33vh), 1.25rem);
     --fs-app-item: clamp(0.7rem, min(0.78vw, 1.39vh), 1.35rem);
     --accent: rgba(255,255,255,0.92);
+    --hero-banner-h: min(66vh, 32.3vw);
 }
 
 @media (min-height: 801px) and (max-height: 1100px) {
     :root {
-        --logo-bottom: clamp(425px, 48vh, 530px);
+        --logo-bottom: clamp(545px, 55vh, 620px);
     }
 }
 /* ══════════════════════════════════════════════════════
@@ -279,6 +280,21 @@ body {
     pointer-events: none;
 }
 
+.home-top-shade {
+    position: fixed;
+    inset: 0 0 auto;
+    height: clamp(120px, 19vh, 260px);
+    z-index: 40;
+    pointer-events: none;
+    background: linear-gradient(
+        to bottom,
+        rgba(2, 4, 12, 0.28) 0%,
+        rgba(2, 4, 12, 0.14) 42%,
+        rgba(2, 4, 12, 0.045) 72%,
+        transparent 100%
+    );
+}
+
 #clock {
     font-size: var(--fs-clock);
     font-weight: 300;
@@ -324,7 +340,7 @@ body {
     left: 0;
     right: 0;
     width: 100%;
-    height: 75vh;
+    height: var(--hero-banner-h);
     object-fit: cover;
     object-position: center 25%;
     transition: opacity 0.8s ease-in-out;
@@ -342,7 +358,7 @@ body {
     top: 0;
     left: 0;
     right: 0;
-    height: 75vh;
+    height: var(--hero-banner-h);
     z-index: 100; /* Acima do banner e dos clones */
     pointer-events: none;
     background:
@@ -369,9 +385,10 @@ body {
     position: fixed;
     left: var(--logo-left);
     bottom: var(--logo-bottom);
-    width: var(--logo-width);
-    max-width: clamp(300px, 29.69vw, 570px);
-    max-height: clamp(160px, 15.63vw, 300px);
+    width: auto;
+    height: auto;
+    max-width: min(var(--logo-width), clamp(260px, 24vw, 460px));
+    max-height: clamp(96px, 12vh, 165px);
     object-fit: contain;
     object-position: left bottom;
     z-index: 15;
@@ -4076,7 +4093,9 @@ body.doorpi-session-transition #doorpiUserSwitchLogout.visible {
     font-weight: 540;
     letter-spacing: 0.055em;
     color: rgba(255,255,255,0.96);
-    text-shadow: 0 2px 16px rgba(0,0,0,0.84);
+    text-shadow:
+        0 1px 2px rgba(0,0,0,0.58),
+        0 0 1px rgba(0,0,0,0.42);
 }
 
 #addGameContainer {
