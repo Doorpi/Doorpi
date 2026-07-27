@@ -47,6 +47,7 @@ window.AppStore = (() => {
                 isAnimated: raw.isAnimated || false,
                 source: raw.source || raw.Source || '',
                 emulatorId: raw.emulatorId || raw.EmulatorId || '',
+                emulatorName: raw.emulatorName || raw.EmulatorName || '',
                 emulatorDetectedName: raw.emulatorDetectedName || raw.EmulatorDetectedName || '',
                 isAdminLocked: raw.isAdminLocked || raw.IsAdminLocked || false,
                 adminLockReason: raw.adminLockReason || raw.AdminLockReason || '',
@@ -58,11 +59,11 @@ window.AppStore = (() => {
                 id, name: raw.Name || raw.name || '', url: raw.Id || raw.id || id, channel: 'stores',
                 appType: 'store',
                 staticVertical: raw.GridStaticImage || raw.gridStaticImage || '',
-                staticHorizontal: '',
+                staticHorizontal: raw.GridHorizontalStaticImage || raw.gridHorizontalStaticImage || '',
                 staticHero: raw.HeroStaticImage || raw.heroStaticImage || '',
                 staticLogo: raw.LogoStaticImage || raw.logoStaticImage || '',
                 vertical: raw.GridImage || raw.gridImage || '',
-                horizontal: '',
+                horizontal: raw.GridHorizontalImage || raw.gridHorizontalImage || '',
                 hero: raw.HeroImage || raw.heroImage || '',
                 logo: raw.LogoImage || raw.logoImage || '',
                 disableGamepadControl: raw.DisableGamepadControl ?? raw.disableGamepadControl ?? false,
@@ -276,16 +277,21 @@ window.AppStore = (() => {
             if (!item && !pending) return;
 
             const normalizedPatch = {};
+            const hasOwn = key => Object.prototype.hasOwnProperty.call(patch, key);
+            const firstPresent = (...keys) => {
+                const key = keys.find(hasOwn);
+                return key == null ? undefined : (patch[key] ?? '');
+            };
             if (patch.name || patch.Name) normalizedPatch.name = patch.name || patch.Name;
-            if (patch.staticVertical || patch.GridStaticImage) normalizedPatch.staticVertical = patch.staticVertical || patch.GridStaticImage;
-            if (patch.staticHorizontal || patch.GridHorizontalStaticImage) normalizedPatch.staticHorizontal = patch.staticHorizontal || patch.GridHorizontalStaticImage;
-            if (patch.staticHero || patch.HeroStaticImage) normalizedPatch.staticHero = patch.staticHero || patch.HeroStaticImage;
-            if (patch.staticLogo || patch.LogoStaticImage) normalizedPatch.staticLogo = patch.staticLogo || patch.LogoStaticImage;
-            if (patch.vertical || patch.imageData || patch.GridImage) normalizedPatch.vertical = patch.vertical || patch.imageData || patch.GridImage;
-            if (patch.horizontal || patch.horizontalImage || patch.GridHorizontalImage) normalizedPatch.horizontal = patch.horizontal || patch.horizontalImage || patch.GridHorizontalImage;
-            if (patch.hero || patch.HeroImage) normalizedPatch.hero = patch.hero || patch.HeroImage;
-            if (patch.logo || patch.LogoImage) normalizedPatch.logo = patch.logo || patch.LogoImage;
-            if (patch.iconBase64 || patch.IconBase64) normalizedPatch.iconBase64 = patch.iconBase64 || patch.IconBase64;
+            if (hasOwn('staticVertical') || hasOwn('GridStaticImage')) normalizedPatch.staticVertical = firstPresent('staticVertical', 'GridStaticImage');
+            if (hasOwn('staticHorizontal') || hasOwn('GridHorizontalStaticImage')) normalizedPatch.staticHorizontal = firstPresent('staticHorizontal', 'GridHorizontalStaticImage');
+            if (hasOwn('staticHero') || hasOwn('HeroStaticImage')) normalizedPatch.staticHero = firstPresent('staticHero', 'HeroStaticImage');
+            if (hasOwn('staticLogo') || hasOwn('LogoStaticImage')) normalizedPatch.staticLogo = firstPresent('staticLogo', 'LogoStaticImage');
+            if (hasOwn('vertical') || hasOwn('imageData') || hasOwn('GridImage')) normalizedPatch.vertical = firstPresent('vertical', 'imageData', 'GridImage');
+            if (hasOwn('horizontal') || hasOwn('horizontalImage') || hasOwn('GridHorizontalImage')) normalizedPatch.horizontal = firstPresent('horizontal', 'horizontalImage', 'GridHorizontalImage');
+            if (hasOwn('hero') || hasOwn('HeroImage')) normalizedPatch.hero = firstPresent('hero', 'HeroImage');
+            if (hasOwn('logo') || hasOwn('LogoImage')) normalizedPatch.logo = firstPresent('logo', 'LogoImage');
+            if (hasOwn('iconBase64') || hasOwn('IconBase64')) normalizedPatch.iconBase64 = firstPresent('iconBase64', 'IconBase64');
             if (patch.assetQuery || patch.AssetQuery) normalizedPatch.assetQuery = patch.assetQuery || patch.AssetQuery;
             if (patch.url || patch.Url) normalizedPatch.url = patch.url || patch.Url;
             if (patch.launchCommand || patch.LaunchCommand) normalizedPatch.launchCommand = patch.launchCommand || patch.LaunchCommand;

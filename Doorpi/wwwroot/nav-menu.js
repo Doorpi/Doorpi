@@ -84,6 +84,21 @@ window.isNavMenuOpen = false;
         </span>`;
     }
 
+    function _doorpiTaskSwitcherShortcutHtml() {
+        _ensureDoorpiShortcutStyles();
+        return `<span class="doorpi-shortcut-combo" aria-label="Xbox + Select ou LB + RB + Select">
+            <span class="doorpi-xbox-logo-btn">${_xboxButtonSvg()}</span>
+            <span class="doorpi-shortcut-plus">+</span>
+            <span class="doorpi-keycap">SELECT</span>
+            <span class="doorpi-shortcut-plus">/</span>
+            <span class="doorpi-keycap">LB</span>
+            <span class="doorpi-shortcut-plus">+</span>
+            <span class="doorpi-keycap">RB</span>
+            <span class="doorpi-shortcut-plus">+</span>
+            <span class="doorpi-keycap">SELECT</span>
+        </span>`;
+    }
+
     function _decorateDoorpiReturnShortcut(root) {
         const card = root?.querySelector?.('#navCardGameBar');
         if (!card || card.querySelector('.nav-shortcut-row')) return;
@@ -93,6 +108,11 @@ window.isNavMenuOpen = false;
                 <span>${_t('sysDoorpiReturnShortcut', 'Retornar ao sistema')}</span>
                 ${_doorpiReturnShortcutHtml()}
             </span>
+            <span class="nav-shortcut-row">
+                <span>${_t('sysWindowSwitcherShortcut', 'Alternar entre janelas')}</span>
+                ${_doorpiTaskSwitcherShortcutHtml()}
+            </span>
+            <span class="nav-suggestion-card-text">${_t('sysWindowSwitcherHint', 'Use o direcional para escolher, A para abrir e B para cancelar.')}</span>
         `);
     }
 
@@ -1705,6 +1725,11 @@ window.isNavMenuOpen = false;
                         <span>${_t('sysDoorpiReturnShortcut', 'Retornar ao sistema')}</span>
                         ${_doorpiReturnShortcutHtml()}
                     </span>
+                    <span class="nav-shortcut-row">
+                        <span>${_t('sysWindowSwitcherShortcut', 'Alternar entre janelas')}</span>
+                        ${_doorpiTaskSwitcherShortcutHtml()}
+                    </span>
+                    <span class="nav-suggestion-card-text">${_t('sysWindowSwitcherHint', 'Use o direcional para escolher, A para abrir e B para cancelar.')}</span>
                     <span class="nav-suggestion-card-text">${_t('sysGameBarNoticeText', 'Desative o atalho do botão Xbox para não abrir a overlay durante o uso do Doorpi.')}</span>
                 </button>
             </div>
