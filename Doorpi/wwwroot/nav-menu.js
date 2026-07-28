@@ -2081,12 +2081,20 @@ window.isNavMenuOpen = false;
 
         if (!loadedGamesFromJson && (!_menuData.games || _menuData.games.length === 0)) {
             const gameCards = Array.from(document.querySelectorAll('#gameGrid .card:not(.add-card)'));
-            _menuData.games = gameCards.map(c => ({
-                Name: c.querySelector('.title')?.innerText || '',
-                Path: c.dataset.gameId || '',
-                GridImage: c.dataset.vertical || '',
-                GridStaticImage: c.dataset.staticVertical || ''
-            }));
+            _menuData.games = gameCards.map(c => {
+                let emulatorDiscPaths = [];
+                try {
+                    emulatorDiscPaths = JSON.parse(c.dataset.emulatorDiscPaths || '[]');
+                } catch (_) { }
+                return {
+                    Name: c.querySelector('.title')?.innerText || '',
+                    Path: c.dataset.path || c.dataset.gameId || '',
+                    LaunchUrl: c.dataset.launchUrl || '',
+                    EmulatorDiscPaths: Array.isArray(emulatorDiscPaths) ? emulatorDiscPaths : [],
+                    GridImage: c.dataset.vertical || '',
+                    GridStaticImage: c.dataset.staticVertical || ''
+                };
+            });
         }
 
         if (!loadedMediaFromJson && (!_menuData.media || _menuData.media.length === 0)) {
@@ -3541,9 +3549,39 @@ window.isNavMenuOpen = false;
         if (typeof postToHost === 'function') {
             if (catId === 'games') {
                 const targetPath = item.LaunchUrl || item.Path || '';
-                window.trackGameOpened?.(targetPath);
-                window.suspendDoorpiGameInput?.();
-                postToHost({ action: 'launch', path: targetPath, errorMsg: _t('msgErrorLaunch', 'Erro ao abrir') });
+                const completeLaunch = (discPath = '') => {
+                    window.trackGameOpened?.(targetPath);
+                    window.suspendDoorpiGameInput?.();
+                    postToHost({
+                        action: 'launch',
+                        path: targetPath,
+                        discPath,
+                        errorMsg: _t('msgErrorLaunch', 'Erro ao abrir')
+                    });
+
+                    const tabBtn = document.querySelector('.home-tab[data-tab="games"]')
+                        ?? document.querySelector('.home-tab:not(.active)');
+                    tabBtn?.click();
+                    close();
+                };
+                const emulatorDiscPaths = Array.isArray(item.EmulatorDiscPaths)
+                    ? item.EmulatorDiscPaths.filter(Boolean)
+                    : (Array.isArray(item.emulatorDiscPaths)
+                        ? item.emulatorDiscPaths.filter(Boolean)
+                        : []);
+                const selectorItem = {
+                    ...item,
+                    name: item.Name || item.name || 'Jogo',
+                    emulatorDiscPaths,
+                    staticVertical: item.GridStaticImage || item.staticVertical || '',
+                    vertical: item.GridImage || item.vertical || ''
+                };
+                if (emulatorDiscPaths.length > 1 &&
+                    window.openEmulatorDiscSelector?.(selectorItem, completeLaunch)) {
+                    return;
+                }
+                completeLaunch();
+                return;
             } else if (catId === 'media') {
                 const targetUrl = item.Url || '';
                 const appType = item.Type || 'browser';
@@ -6294,6 +6332,9 @@ window.isNavMenuOpen = false;
         // Modais de sincronizacao ficam acima do nav-menu e recebem a navegacao primeiro.
         // O controlador global trata as setas; nao as consuma neste listener de captura.
         if (window.DoorpiProfileSync?.isOpen?.()) return;
+        // O seletor de discos também fica acima do nav-menu. As direções do
+        // controle chegam como teclas e precisam alcançar a navegação global.
+        if (window.isEmulatorDiscSelectorOpen?.()) return;
         // O popup de conflito possui prioridade no controlador global de navegacao.
         if (window.isSessionConflictPopupOpen?.()) return;
         const executionOverlay = document.getElementById('gameLaunchOverlay');
