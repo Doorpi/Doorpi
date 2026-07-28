@@ -151,6 +151,50 @@ function _doorpiFormatMinutes(value) {
     return `${hours}h ${rest}min`;
 }
 
+function _doorpiRenderFeatureRuntime(card, stage, meta, action) {
+    if (!card || !stage || !meta || !action) return;
+
+    const channel = card.dataset.channel || 'games';
+    const isRunning = card.classList.contains('is-running');
+    const isNew = card.classList.contains('new-game');
+    const isLocked = card.classList.contains('admin-locked');
+    const source = _doorpiHomeSourceLabel(card);
+
+    stage.classList.toggle('is-running', isRunning);
+    action.textContent = isRunning
+        ? (typeof t === 'function' ? t('resumeLabel') : 'Retomar')
+        : (typeof t === 'function'
+            ? t(channel === 'games' ? 'homePlayAction' : 'homeOpenAction')
+            : (channel === 'games' ? 'Jogar' : 'Abrir'));
+
+    meta.replaceChildren();
+    [
+        { value: source, className: 'is-source' },
+        {
+            value: isRunning ? (typeof t === 'function' ? t('runningLabel') : 'Em execução') : '',
+            className: 'is-runtime'
+        },
+        { value: isNew ? (typeof t === 'function' ? t('badgeNew') : 'Novo') : '', className: 'is-new' },
+        { value: isLocked ? 'Bloqueado' : '', className: 'is-locked' }
+    ].filter(entry => entry.value).forEach(entry => {
+        const chip = document.createElement('span');
+        chip.className = entry.className;
+        chip.textContent = entry.value;
+        meta.appendChild(chip);
+    });
+}
+
+window.updateHomeFeatureRuntimeState = function (card) {
+    const stage = document.getElementById('homeFeatureStage');
+    const meta = document.getElementById('homeFeatureMeta');
+    const action = document.getElementById('homeFeatureActionLabel');
+    if (!card || !stage || !meta || !action) return;
+
+    const cardId = card.dataset.id || card.dataset.gameId || card.dataset.appId || '';
+    if (!cardId || stage.dataset.cardId !== cardId) return;
+    _doorpiRenderFeatureRuntime(card, stage, meta, action);
+};
+
 window.updateHomeFeatureStage = function (card, options = {}) {
     if (!card || card.classList.contains('add-card') || card.classList.contains('loading-card')) return;
 
@@ -187,14 +231,8 @@ window.updateHomeFeatureStage = function (card, options = {}) {
     const logoSrc = animateArtwork
         ? (card.dataset.logo || card.dataset.staticLogo || '')
         : (card.dataset.staticLogo || card.dataset.logo || '');
-    const isRunning = card.classList.contains('is-running');
-    const isNew = card.classList.contains('new-game');
-    const isLocked = card.classList.contains('admin-locked');
-    const source = _doorpiHomeSourceLabel(card);
-
     stage.dataset.channel = channel;
     stage.dataset.cardId = card.dataset.id || card.dataset.gameId || card.dataset.appId || '';
-    stage.classList.toggle('is-running', isRunning);
     stage.classList.toggle('has-logo', !!logoSrc);
     stage.classList.toggle('uses-contained-art', !horizontalArt && !!artSrc);
     _doorpiSetFeatureArt(art, artSrc);
@@ -211,18 +249,7 @@ window.updateHomeFeatureStage = function (card, options = {}) {
 
     title.textContent = name;
     eyebrow.textContent = _doorpiHomeChannelLabel(channel);
-    action.textContent = isRunning
-        ? (typeof t === 'function' ? t('resumeLabel') : 'Retomar')
-        : (typeof t === 'function' ? t(channel === 'games' ? 'homePlayAction' : 'homeOpenAction') : (channel === 'games' ? 'Jogar' : 'Abrir'));
-
-    meta.replaceChildren();
-    [source, isRunning ? (typeof t === 'function' ? t('runningLabel') : 'Em execução') : '', isNew ? (typeof t === 'function' ? t('badgeNew') : 'Novo') : '', isLocked ? 'Bloqueado' : '']
-        .filter(Boolean)
-        .forEach(value => {
-            const chip = document.createElement('span');
-            chip.textContent = value;
-            meta.appendChild(chip);
-        });
+    _doorpiRenderFeatureRuntime(card, stage, meta, action);
 
     const totalPlaytime = _doorpiFormatMinutes(card.dataset.totalPlaytimeMinutes);
     const sessionPlaytime = _doorpiFormatMinutes(card.dataset.lastSessionMinutes);
@@ -692,6 +719,7 @@ const CardRenderer = (() => {
         card.dataset.launchCommand = item.launchCommand || '';
         card.dataset.emulatorId = item.emulatorId || '';
         card.dataset.emulatorName = item.emulatorName || '';
+        card.dataset.emulatorDiscPaths = JSON.stringify(item.emulatorDiscPaths || []);
         card.dataset.totalPlaytimeMinutes = String(item.totalPlaytimeMinutes || 0);
         card.dataset.lastSessionMinutes = String(item.lastSessionMinutes || 0);
         card.dataset.isAnimated = item.isAnimated ? 'true' : 'false';
@@ -774,6 +802,7 @@ const CardRenderer = (() => {
         card.dataset.launchCommand = item.launchCommand || '';
         card.dataset.emulatorId = item.emulatorId || '';
         card.dataset.emulatorName = item.emulatorName || '';
+        card.dataset.emulatorDiscPaths = JSON.stringify(item.emulatorDiscPaths || []);
         card.dataset.totalPlaytimeMinutes = String(item.totalPlaytimeMinutes || 0);
         card.dataset.lastSessionMinutes = String(item.lastSessionMinutes || 0);
 

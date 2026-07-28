@@ -1,51 +1,48 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202607272053,
-    "publishedAt":  "2026-07-27T23:54:09.9648740Z",
-    "expiresAt":  "2026-08-10T23:54:09.9648740Z",
+    "manifestVersion":  202607280001,
+    "publishedAt":  "2026-07-28T03:01:47.3795703Z",
+    "expiresAt":  "2026-08-11T03:01:47.3795703Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.3.22",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.3.22/doorpi-0.3.22.doorpiupdate.zip",
-                   "sha256":  "c9a259ce739f3120852c1657a7b8eed87a2b1a6945c1955e5e60226945d0fbce",
-                   "sizeBytes":  133612549,
+                   "version":  "0.3.23",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.3.23/doorpi-0.3.23.doorpiupdate.zip",
+                   "sha256":  "f0fdb2ecf7f52800730d5222c401c95ea2c9a8139f26dba5f87a8b225ce94af7",
+                   "sizeBytes":  133611963,
                    "minUpdaterVersion":  "0.1.0",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
                     "version":  "0.1.0",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.3.22/updater-0.1.0.doorpiupdate.zip",
-                    "sha256":  "9ccef9c3c0643c4c1da9403b6fdd62dbc54c218d2bc70e1e0925ad73e6603915",
-                    "sizeBytes":  69946159,
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.3.23/updater-0.1.0.doorpiupdate.zip",
+                    "sha256":  "7551c6287b986a02bc1d417bfd2312c77291c43c2f8dced01cc18ec4d745b385",
+                    "sizeBytes":  69946096,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.3.22",
-                          "title":  "Doorpi 0.3.22",
+                          "version":  "0.3.23",
+                          "title":  "Doorpi 0.3.23",
                           "items":  [
-                                        "Mudanças visuais.",
-                                        "Novo atalho Xbox + Select/LB + RB + Select para Alt + Tab.",
-                                        "Botão minimizar para o Doorpi mais confiável."
+                                        "Hotfixes visuais na Home.",
+                                        "Corrigido seletor de disco para jogos emulados não abrindo na biblioteca completa."
                                     ],
                           "locales":  {
                                           "pt-BR":  {
-                                                        "title":  "Doorpi 0.3.22",
+                                                        "title":  "Doorpi 0.3.23",
                                                         "items":  [
-                                                                      "Mudanças visuais.",
-                                                                      "Novo atalho Xbox + Select/LB + RB + Select para Alt + Tab.",
-                                                                      "Botão minimizar para o Doorpi mais confiável."
+                                                                      "Hotfixes visuais na Home.",
+                                                                      "Corrigido seletor de disco para jogos emulados não abrindo na biblioteca completa."
                                                                   ]
                                                     },
                                           "en":  {
-                                                     "title":  "Doorpi 0.3.22",
+                                                     "title":  "Doorpi 0.3.23",
                                                      "items":  [
-                                                                   "Visual changes.",
-                                                                   "New Xbox + Select/LB + RB + Select shortcut for Alt + Tab.",
-                                                                   "More reliable minimize button for Doorpi."
+                                                                   "Visual hotfixes on Home.",
+                                                                   "Fixed the disk selector for emulated games not opening in the full library."
                                                                ]
                                                  }
                                       }
@@ -54,6 +51,6 @@
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "LiqIDZsbMIUvJBfFEeEl19NpxBMdJpLerVR0Nd2V8orQP6hX05AbTiZQI3fG4aOM05HOAA4pYv5+YC72ajGWma5FVXF+p+raVyVeTn1SMbY8UJsy9Sv7yuEymxe2Ppjo5N/igogUAirBNKwfqTCWNbG0a+u6F0ho+pXprzlY8s5DR3QcB2d1VcFQSa4ppbCLHQ2/aNpM781km0Bka2YLubk21+BZR5vu8VDKsaTFmsM4TfS0ELXClH/UkeDtnVl80RVorQLMx0c6ExgJABc92UhhFGMlhykT22ReYoO+2FJ3YEwb2s7xuYi//FtyfwXCsq6rubcnmRwj/td4JVPp/+Q3ncUlV9JIFvmiNY7BKaaky4FOI9L5srL9RN3TKtg+M4WymA2X9MKDrzEu77w8jcW91xgjRpDzy8Azb77PJDG1YUgxhFRNrtYMn2acxPhhJaDWPCQ1RHJOfOHRGWKQUfNp8iivZGOtfHJTt6ty66qKP/uXxdL9jtpvuxxm+RuC"
+                      "value":  "DwOFVu/XP2/Q4E5kQ6IUtpUg/mjOz4MIumeagwZ+uh+PchgxCs39F81jxkqHE9siUqYbGbLdeRUma0q2iZXiY/a5ShgwDu+RfqZLh/kkx4E/imZMNgKchEGMKxWhGGmcvEYxAKIsjyud5uW60sv5GzCZtkRU+RRRrGARUTKzo/MBf63JKh+ucxAfXIM8e5jR19lE8l/eraE5qHErzNCK4OJtn8kfgfY3nFVX1oGXgCf3RsLSGujG/D9rVP6F5VB1Fzc3iKxgP5+lH5OGe6kc1+lJcCSYmLCqLsCDJFugmVjYW3xKh86bI6F7hblgMMgFT1V+uc5rm4uH12KPrc8tfrXifPu7CL4N4kviMhrb9mRwZ2RX4dwYD9Gb1IVeOoQv+t+YJLYcmC8kBaUKJLi4Jh6J15wudg+089Q1VVARu882QeQY2EwnC9hiCgylHOD46QBeO5AKAZNsEoyejELY9/gPgmknrUHUfzvqnSIbUGAv7y/uXNywLwhUzFx3cRxC"
                   }
 }

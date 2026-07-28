@@ -1420,26 +1420,52 @@
         card.classList.toggle('is-running', isRunning);
         card.dataset.runtimeStatus = isRunning ? (entry.status || 'running') : '';
 
+        const isHomeCard = !!card.closest?.('.home-library-rail');
         let top = card.querySelector('.runtime-badge-top');
         let bottom = card.querySelector('.runtime-badge-bottom');
+        let homeMark = card.querySelector('.doorpi-home-card-running-mark');
 
         if (isRunning) {
-            if (!top) {
-                top = document.createElement('div');
-                top.className = 'runtime-badge-top';
-                card.appendChild(top);
-            }
-            if (!bottom) {
-                bottom = document.createElement('div');
-                bottom.className = 'runtime-badge-bottom';
-                card.appendChild(bottom);
-            }
+            const runningLabel = typeof t === 'function' ? t('runningLabel') : 'Em execução';
+            if (isHomeCard) {
+                top?.remove();
+                bottom?.remove();
+                if (!homeMark) {
+                    homeMark = document.createElement('div');
+                    homeMark.className = 'doorpi-home-card-running-mark';
+                    homeMark.setAttribute('role', 'img');
+                    homeMark.innerHTML = `
+                        <svg class="doorpi-home-card-running-svg" viewBox="0 0 36 36" aria-hidden="true" focusable="false">
+                            <circle class="doorpi-home-card-running-surface" cx="18" cy="18" r="16.5"></circle>
+                            <path class="doorpi-home-card-running-glyph" d="M14.2 11.9c0-1.06 1.17-1.7 2.06-1.13l9.02 5.85c1 .65 1 2.11 0 2.76l-9.02 5.85c-.89.58-2.06-.06-2.06-1.13V11.9Z"></path>
+                        </svg>`;
+                    card.appendChild(homeMark);
+                }
+                homeMark.setAttribute('aria-label', runningLabel);
+            } else {
+                homeMark?.remove();
+                if (!top) {
+                    top = document.createElement('div');
+                    top.className = 'runtime-badge-top';
+                    card.appendChild(top);
+                }
+                if (!bottom) {
+                    bottom = document.createElement('div');
+                    bottom.className = 'runtime-badge-bottom';
+                    card.appendChild(bottom);
+                }
 
-            top.textContent = typeof t === 'function' ? t('runningLabel') : 'Em execução';
-            bottom.textContent = typeof t === 'function' ? t('resumeLabel') : 'Retomar';
+                top.textContent = runningLabel;
+                bottom.textContent = typeof t === 'function' ? t('resumeLabel') : 'Retomar';
+            }
         } else {
             top?.remove();
             bottom?.remove();
+            homeMark?.remove();
+        }
+
+        if (isHomeCard) {
+            window.updateHomeFeatureRuntimeState?.(card);
         }
     };
 
