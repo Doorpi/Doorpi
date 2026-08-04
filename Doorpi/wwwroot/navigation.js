@@ -1484,7 +1484,12 @@ let _doorpiActionReleaseGate = false;
 let _doorpiActionReleaseGateStartedAt = 0;
 let _doorpiControllerActivationToken = 0;
 let _doorpiControllerActivationActive = false;
-let _doorpiNativeController = { connected: false, buttons: 0, pendingPressed: 0, rightX: 0, rightY: 0 };
+let _doorpiNativeController = {
+    connected: false, buttons: 0, pendingPressed: 0, dpad: 0,
+    leftX: 0, leftY: 0, rightX: 0, rightY: 0
+};
+let _controlsDirectionStartedAt = 0;
+let _controlsDirectionLastMoveAt = 0;
 
 function markDoorpiControllerActivation() {
     const token = ++_doorpiControllerActivationToken;
@@ -1527,6 +1532,8 @@ window.resetDoorpiGamepadInputState = function () {
     seedDoorpiHeldButtonState();
     _moveState = 0;
     _currentDirection = null;
+    _controlsDirectionStartedAt = 0;
+    _controlsDirectionLastMoveAt = 0;
     _sessionConflictHeldDir = null;
     _gameFocusFallbackHeldDir = null;
     _cursorHoldState = { l1: 0, r1: 0, sq: 0 };
@@ -1833,6 +1840,25 @@ function gamepadDirection(gamepad, buttons, threshold = NAV.GAMEPAD.AXIS_THRESHO
     return axisDirection(gamepad, threshold);
 }
 
+function nativeControllerDirection(threshold = NAV.GAMEPAD.AXIS_THRESHOLD) {
+    const dpad = _doorpiNativeController.dpad >>> 0;
+    if ((dpad & 0x0008) !== 0) return 'RIGHT';
+    if ((dpad & 0x0004) !== 0) return 'LEFT';
+    if ((dpad & 0x0002) !== 0) return 'DOWN';
+    if ((dpad & 0x0001) !== 0) return 'UP';
+
+    const x = Number(_doorpiNativeController.leftX || 0);
+    const y = Number(_doorpiNativeController.leftY || 0);
+    if (Math.abs(x) >= Math.abs(y) && Math.abs(x) > threshold)
+        return x > 0 ? 'RIGHT' : 'LEFT';
+    if (Math.abs(y) > threshold)
+        return y > 0 ? 'UP' : 'DOWN';
+    return null;
+}
+
+window.isDoorpiNativeDirectionHeld = direction =>
+    nativeControllerDirection() === String(direction || '').toUpperCase();
+
 function handleArtworkWizardGamepadShortcuts(buttons) {
     if (isVkbOpenForNavigation() || !window._artworkWizardIsOpen?.()) return false;
 
@@ -1893,13 +1919,23 @@ function readAllGamepadInput() {
         };
     }
 
+    const dpad = _doorpiNativeController.dpad >>> 0;
+    buttons[NAV.GAMEPAD.BTN_UP] = { pressed: (dpad & 0x0001) !== 0, justPressed: false };
+    buttons[NAV.GAMEPAD.BTN_DOWN] = { pressed: (dpad & 0x0002) !== 0, justPressed: false };
+    buttons[NAV.GAMEPAD.BTN_LEFT] = { pressed: (dpad & 0x0004) !== 0, justPressed: false };
+    buttons[NAV.GAMEPAD.BTN_RIGHT] = { pressed: (dpad & 0x0008) !== 0, justPressed: false };
+
+    const controlsOpen = window.DoorpiControls?.isOpen?.() === true;
+
     return {
         id: 'Doorpi XInput',
         index: -1,
         buttons,
-        // Directional navigation belongs exclusively to the native C# loop and
-        // arrives as keyboard arrows. Keeping axes/D-pad out prevents double moves.
-        axes: [0, 0, 0, 0],
+        // O editor usa o XInput diretamente; as demais telas continuam usando o
+        // loop direcional nativo para preservar o comportamento já existente.
+        axes: controlsOpen
+            ? [_doorpiNativeController.leftX, -_doorpiNativeController.leftY, 0, 0]
+            : [0, 0, 0, 0],
         connectedGamepads: []
     };
 }
@@ -1915,6 +1951,7 @@ if (window.chrome?.webview) {
         const wasConnected = _doorpiNativeController.connected;
         _doorpiNativeController.connected = !!data.connected;
         _doorpiNativeController.buttons = Number(data.buttons || 0) >>> 0;
+        _doorpiNativeController.dpad = Number(data.dpad || 0) >>> 0;
         // Durante "Aguardando a janela", a sessÃ£o ainda Ã© marcada como mÃ­dia
         // ativa, mas o Doorpi estÃ¡ na frente e precisa receber o A de Retornar.
         // Antes disso o bridge descartava esse pressionamento e sÃ³ o mouse
@@ -1926,13 +1963,16 @@ if (window.chrome?.webview) {
         const isExecutionLock = !!(launchOverlay &&
             launchOverlay.classList.contains('visible') &&
             launchOverlay.classList.contains('execution-lock-visible'));
+        const isControlEditor = window.DoorpiControls?.isOpen?.() === true;
         if (document.hasFocus() && window.isDoorpiFocused &&
-            (!window.isMediaAppActive || isWaitingLaunch || isExecutionLock))
+            (!window.isMediaAppActive || isWaitingLaunch || isExecutionLock || isControlEditor))
             _doorpiNativeController.pendingPressed |= Number(data.pressed || 0) >>> 0;
         else
             _doorpiNativeController.pendingPressed = 0;
         _doorpiNativeController.rightX = Number(data.rightX || 0);
         _doorpiNativeController.rightY = Number(data.rightY || 0);
+        _doorpiNativeController.leftX = Number(data.leftX || 0);
+        _doorpiNativeController.leftY = Number(data.leftY || 0);
         if (window._profilePhotoPickerIsOpen?.())
             window._profilePhotoPickerAdjustZoom?.(_doorpiNativeController.rightY);
         if (window.DoorpiProfileSync?.isOpen?.())
@@ -1940,9 +1980,13 @@ if (window.chrome?.webview) {
         if (!_doorpiNativeController.connected) {
             _doorpiNativeController.buttons = 0;
             _doorpiNativeController.pendingPressed = 0;
+            _doorpiNativeController.dpad = 0;
+            _doorpiNativeController.leftX = 0;
+            _doorpiNativeController.leftY = 0;
             _doorpiNativeController.rightX = 0;
             _doorpiNativeController.rightY = 0;
         }
+        window.releaseHomeTrailerCinemaControllerKeys?.(nativeControllerDirection());
         if (wasConnected !== _doorpiNativeController.connected)
             refreshGamepadPresence();
     });
@@ -1971,6 +2015,40 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
 
         let gamepad = readAllGamepadInput();
         if (!gamepad) return;
+
+        if (window.DoorpiControls?.isOpen?.() && !isVkbOpenForNavigation()) {
+            const { GAMEPAD } = NAV, buttons = gamepad.buttons;
+            if (window.DoorpiControls.isCapturing?.()) {
+                _currentDirection = null;
+                return;
+            }
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_L1], GAMEPAD.BTN_L1))
+                window.DoorpiControls.switchTab('left');
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_R1], GAMEPAD.BTN_R1))
+                window.DoorpiControls.switchTab('right');
+            const direction = gamepadDirection(gamepad, buttons, GAMEPAD.AXIS_THRESHOLD);
+            const now = performance.now();
+            if (direction && direction !== _currentDirection) {
+                _currentDirection = direction;
+                _controlsDirectionStartedAt = now;
+                _controlsDirectionLastMoveAt = now;
+                window.DoorpiControls.navigate(direction);
+            } else if (direction &&
+                       now - _controlsDirectionStartedAt >= NAV.GAMEPAD.INITIAL_DELAY &&
+                       now - _controlsDirectionLastMoveAt >= NAV.GAMEPAD.REPEAT_DELAY) {
+                _controlsDirectionLastMoveAt = now;
+                window.DoorpiControls.navigate(direction);
+            } else if (!direction) {
+                _currentDirection = null;
+                _controlsDirectionStartedAt = 0;
+                _controlsDirectionLastMoveAt = 0;
+            }
+            if (primaryJustPressed(buttons, GAMEPAD))
+                window.DoorpiControls.activate();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL))
+                window.DoorpiControls.back();
+            return;
+        }
 
         if (window._doorpiNativeDialogActive) return;
 
@@ -2276,6 +2354,21 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         }
 
         if (isVkbOpenForNavigation()) {
+            if (dir && dir !== _currentDirection) {
+                _currentDirection = dir;
+                _controlsDirectionStartedAt = now;
+                _controlsDirectionLastMoveAt = now;
+                moveFocus(dir);
+            } else if (dir &&
+                       now - _controlsDirectionStartedAt >= GAMEPAD.INITIAL_DELAY &&
+                       now - _controlsDirectionLastMoveAt >= GAMEPAD.REPEAT_DELAY) {
+                _controlsDirectionLastMoveAt = now;
+                moveFocus(dir);
+            } else if (!dir) {
+                _currentDirection = null;
+                _controlsDirectionStartedAt = 0;
+                _controlsDirectionLastMoveAt = 0;
+            }
             if (primaryJustPressed(buttons, GAMEPAD)) document.activeElement?.click();
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
                 if (window.requestDoorpiBackAction?.()) return;
@@ -2360,7 +2453,8 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             else gamepadStart();
         }
         if (buttonJustPressed(buttons[GAMEPAD.BTN_TRIANGLE], GAMEPAD.BTN_TRIANGLE)) {
-            gamepadTriangle();
+            if (window.toggleHomeTrailerFullscreen?.() !== true)
+                gamepadTriangle();
         }
         if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) {
             if (window.isStoreSessionMenuOpen?.()) {

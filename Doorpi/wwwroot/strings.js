@@ -3,6 +3,8 @@
 // =============================================================================
 const STRINGS = {
     'pt-BR': {
+        controlsSettingsTitle: 'Controles',
+        controlsSettingsDesc: 'Perfis reutilizáveis para apps, web apps e lojas',
         // ---- Adições de media.js ----
         sysMediaFolders: 'Pastas',
         sysMediaDownloadingCovers: 'Baixando capas dos jogos...',
@@ -150,6 +152,9 @@ const STRINGS = {
         homeSourceStore: 'Loja',
         homePlaytimeLabel: 'Tempo de jogo',
         homeLastSessionLabel: 'Última sessão',
+        homeNotPlayedYet: 'Ainda não jogado',
+        homeTrailerEnableFullscreen: 'Ativar tela cheia',
+        homeTrailerDisableFullscreen: 'Desativar tela cheia',
         navRecentGames: 'Jogados Recentemente',
         navNoRecentGames: 'Nenhum jogo recente',
         navMostPlayedGames: 'Mais jogados',
@@ -215,6 +220,7 @@ const STRINGS = {
         soundConfirmVolume: 'Confirmar',
         soundBackVolume: 'Voltar',
         soundIntroVolume: 'Introdução',
+        soundTrailerVolume: 'Trailers',
         quickPower: 'Energia',
         quickPowerExpandedDesc: 'Opções de energia, perfis e sistema.',
         quickPanel: 'Painel rápido',
@@ -983,6 +989,8 @@ const STRINGS = {
     },
 
     'en-US': {
+        controlsSettingsTitle: 'Controls',
+        controlsSettingsDesc: 'Reusable profiles for apps, web apps, and stores',
         btnCancel: 'Cancel',
         btnConfirm: 'Confirm',
         sysGameBarNoticeText: 'Disable the Xbox Game Bar shortcut to prevent the overlay from opening while using Doorpi.',
@@ -1278,6 +1286,9 @@ const STRINGS = {
         homeSourceStore: 'Store',
         homePlaytimeLabel: 'Playtime',
         homeLastSessionLabel: 'Last session',
+        homeNotPlayedYet: 'Not played yet',
+        homeTrailerEnableFullscreen: 'Enable fullscreen',
+        homeTrailerDisableFullscreen: 'Disable fullscreen',
         navRecentGames: 'Recently Played',
         navNoRecentGames: 'No recent games',
         navMostPlayedGames: 'Most played',
@@ -1343,6 +1354,7 @@ const STRINGS = {
         soundConfirmVolume: 'Confirm',
         soundBackVolume: 'Back',
         soundIntroVolume: 'Intro',
+        soundTrailerVolume: 'Trailers',
         quickPower: 'Power',
         quickPowerExpandedDesc: 'Power, profile, and system options.',
         quickPanel: 'Quick panel',

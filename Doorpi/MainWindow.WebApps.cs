@@ -39,6 +39,7 @@ namespace Doorpi
         private const uint MOUSEEVENTF_RIGHTUP = 0x0010;
         private const uint MOUSEEVENTF_WHEEL = 0x0800;
         private const uint MOUSEEVENTF_MOVE = 0x0001;
+        private const uint MOUSEEVENTF_MOVE_NOCOALESCE = 0x2000;
         private const uint MOUSEEVENTF_XDOWN = 0x0080;
         private const uint MOUSEEVENTF_XUP = 0x0100;
         private const uint XBUTTON2 = 0x0002;
@@ -1017,13 +1018,24 @@ namespace Doorpi
             Grid.SetRow(browser, 1);
             shell.Children.Add(browser);
 
-            _webAppLoadingOverlay = BuildWebAppLoadingOverlay(appName, logoImg);
-            Grid.SetRowSpan(_webAppLoadingOverlay, 2);
-            Panel.SetZIndex(_webAppLoadingOverlay, 100);
-            shell.Children.Add(_webAppLoadingOverlay);
-            _webAppLoadingActive = true;
-            _webAppLoadingReleaseStarted = false;
-            _webAppLoadingStartedAtUtc = DateTime.UtcNow;
+            bool isTrailerCapture = _genericBrowserCaptureWebAppUrl &&
+                                    string.Equals(_genericBrowserCaptureTarget, "gameTrailer", StringComparison.OrdinalIgnoreCase);
+            if (!isTrailerCapture)
+            {
+                _webAppLoadingOverlay = BuildWebAppLoadingOverlay(appName, logoImg);
+                Grid.SetRowSpan(_webAppLoadingOverlay, 2);
+                Panel.SetZIndex(_webAppLoadingOverlay, 100);
+                shell.Children.Add(_webAppLoadingOverlay);
+                _webAppLoadingActive = true;
+                _webAppLoadingReleaseStarted = false;
+                _webAppLoadingStartedAtUtc = DateTime.UtcNow;
+            }
+            else
+            {
+                _webAppLoadingOverlay = null;
+                _webAppLoadingActive = false;
+                _webAppLoadingReleaseStarted = false;
+            }
 
             _genericBrowserWidgetsPanel = new Border
             {
@@ -1113,7 +1125,7 @@ namespace Doorpi
             }
             catch { }
             _genericBrowserExtensionPopupView = null;
-            UnhookGenericBrowserExtensionsOutsideClose();
+            DetachGenericBrowserExtensionsOutsideClose();
         }
 
         private bool HandleGenericBrowserExtensionsBack()
@@ -1136,7 +1148,7 @@ namespace Doorpi
             _genericBrowserExtensionOutsideCloseHooked = true;
         }
 
-        private void UnhookGenericBrowserExtensionsOutsideClose()
+        private void DetachGenericBrowserExtensionsOutsideClose()
         {
             if (!_genericBrowserExtensionOutsideCloseHooked) return;
             PreviewMouseDown -= OnGenericBrowserExtensionsOutsideMouseDown;
@@ -2163,6 +2175,22 @@ namespace Doorpi
                    (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
         }
 
+        private static bool IsYouTubeTrailerPageUrl(string value)
+        {
+            if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)) return false;
+            string host = uri.Host.ToLowerInvariant();
+            if (host.Equals("youtu.be", StringComparison.OrdinalIgnoreCase))
+                return uri.AbsolutePath.Trim('/').Length > 0;
+            if (!host.Equals("youtube.com", StringComparison.OrdinalIgnoreCase) &&
+                !host.EndsWith(".youtube.com", StringComparison.OrdinalIgnoreCase))
+                return false;
+            bool isWatch = uri.AbsolutePath.Equals("/watch", StringComparison.OrdinalIgnoreCase) &&
+                           uri.Query.Split('&', StringSplitOptions.RemoveEmptyEntries)
+                               .Any(part => part.TrimStart('?').StartsWith("v=", StringComparison.OrdinalIgnoreCase) &&
+                                            part.TrimStart('?').Length > 2);
+            return isWatch || uri.AbsolutePath.StartsWith("/shorts/", StringComparison.OrdinalIgnoreCase);
+        }
+
         private void BeginGenericBrowserWebAppUrlCapture()
             => BeginGenericBrowserUrlCapture("webApp");
 
@@ -2426,6 +2454,35 @@ namespace Doorpi
 })();") ?? Task.FromResult(""));
                     }
                     catch { }
+                }
+            }));
+        }
+
+        private void DispatchYouTubePlayPauseToRenderer()
+        {
+            _ = Dispatcher.BeginInvoke(new Action(async () =>
+            {
+                try
+                {
+                    var core = _ytWebView?.CoreWebView2;
+                    if (core == null || !_isCurrentSiteYouTube) return;
+
+                    await core.ExecuteScriptAsync(@"
+(() => {
+  const video = document.querySelector('video');
+  if (!video) return false;
+  if (video.paused || video.ended) {
+    const playback = video.play();
+    if (playback && typeof playback.catch === 'function') playback.catch(() => {});
+  } else {
+    video.pause();
+  }
+  return true;
+})();");
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[YouTubeTV] Falha ao alternar reprodução: " + ex.Message);
                 }
             }));
         }
@@ -2933,9 +2990,18 @@ namespace Doorpi
                     else if (dpadDown) { currentNavDirBtn = XI_DPAD_DOWN; currentNavVk = 0x28; }
                     else if (dpadLeft) { currentNavDirBtn = XI_DPAD_LEFT; currentNavVk = 0x25; }
                     else if (dpadRight) { currentNavDirBtn = XI_DPAD_RIGHT; currentNavVk = 0x27; }
-                    if (Math.Abs(input.ThumbLX) > 0.14) totalMlx = input.ThumbLX;
-                    if (Math.Abs(input.ThumbLY) > 0.14) totalMly = input.ThumbLY;
-                    if (Math.Abs(input.ThumbRY) > 0.18) totalScrollY = input.ThumbRY;
+                    bool configuredRuntimeOwnsAnalog = !IsControllerVkbActuallyVisible() &&
+                        ConfiguredControlRuntimeOwnsAnalog(GetActiveControlTargetKey());
+                    if (!configuredRuntimeOwnsAnalog)
+                    {
+                        double configuredMouseDeadZone = GetActiveControlMouseDeadZone(0.14);
+                        if (Math.Sqrt(input.ThumbLX * input.ThumbLX + input.ThumbLY * input.ThumbLY) > configuredMouseDeadZone)
+                        {
+                            totalMlx = input.ThumbLX;
+                            totalMly = input.ThumbLY;
+                        }
+                        if (Math.Abs(input.ThumbRY) > configuredMouseDeadZone) totalScrollY = input.ThumbRY;
+                    }
 
                     ushort mergedButtonsForLog = btn;
                     previousSyntheticReturnDown = syntheticReturnDown;
@@ -3024,6 +3090,8 @@ namespace Doorpi
                         else if (input.ThumbLX > mergedDeadZone) { currentNavDirBtn = XI_DPAD_RIGHT; currentNavVk = 0x27; }
                     }
                     bool vkbInputVisible = IsControllerVkbActuallyVisible();
+                    bool customProfileOwnsDefaultButtons = !vkbInputVisible &&
+                        GetCustomAssignedRuntimeControlProfile(GetActiveControlTargetKey()) != null;
                     if (!isMainYouTube || vkbInputVisible)
                         ReleaseYouTubeHeldKeys();
                     // Controller state now comes exclusively from the native XInput
@@ -3061,9 +3129,9 @@ namespace Doorpi
                             webNavLastDir = 0;
                         }
 
-                        if (anyAPressed) SendMediaVirtualKey(0x0D);
-                        if (anyBPressed) SendMediaVirtualKey(0x1B);
-                        if (anyXPressed) SendMediaVirtualKey(0x58);
+                        if (!customProfileOwnsDefaultButtons && anyAPressed) SendMediaVirtualKey(0x0D);
+                        if (!customProfileOwnsDefaultButtons && anyBPressed) SendMediaVirtualKey(0x1B);
+                        if (!customProfileOwnsDefaultButtons && anyXPressed) SendMediaVirtualKey(0x58);
                         if (anyYPressed) SendMediaVirtualKey(0x59);
                         if (anyStartPressed)
                         {
@@ -3082,7 +3150,7 @@ namespace Doorpi
                         continue;
                     }
 
-                    if (!vkbInputVisible && !useJavaScriptCloseHold)
+                    if (!vkbInputVisible && !useJavaScriptCloseHold && !customProfileOwnsDefaultButtons)
                     {
                         if (anyBPressed)
                         {
@@ -3168,43 +3236,50 @@ namespace Doorpi
                             // Preserve the original YouTube TV controller map while
                             // keeping the browser Gamepad API disabled. Trigger edges
                             // stay physical so R2 never also fires the A/Enter action.
-                            if (anyPhysicalAPressed) SendMediaVirtualKey(0x0D); // Enter
-                            if (anyXPressed) SendMediaVirtualKey(0x6A);         // Numpad *
-                            if (anyLBPressed) SendMediaVirtualKey(0x73);        // F4
-                            if (anyRBPressed) SendMediaVirtualKey(0x74);        // F5
-                            UpdateYouTubeHeldKey(
-                                anyLtHeld,
-                                0x71,
-                                ref youtubeLeftTriggerKeyDown,
-                                ref youtubeLeftTriggerStartMs,
-                                ref youtubeLeftTriggerLastRepeatMs,
-                                nowMs); // F2 / rewind
-                            UpdateYouTubeHeldKey(
-                                anyRtHeld,
-                                0x72,
-                                ref youtubeRightTriggerKeyDown,
-                                ref youtubeRightTriggerStartMs,
-                                ref youtubeRightTriggerLastRepeatMs,
-                                nowMs); // F3 / fast-forward
+                            if (!customProfileOwnsDefaultButtons)
+                            {
+                                if (anyPhysicalAPressed) SendMediaVirtualKey(0x0D); // Enter
+                                if (anyXPressed) DispatchYouTubePlayPauseToRenderer();
+                                if (anyLBPressed) SendMediaVirtualKey(0x73);        // F4 / previous
+                                if (anyRBPressed) SendMediaVirtualKey(0x74);        // F5 / next
+                                UpdateYouTubeHeldKey(
+                                    anyLtHeld,
+                                    0x71,
+                                    ref youtubeLeftTriggerKeyDown,
+                                    ref youtubeLeftTriggerStartMs,
+                                    ref youtubeLeftTriggerLastRepeatMs,
+                                    nowMs); // F2 / rewind
+                                UpdateYouTubeHeldKey(
+                                    anyRtHeld,
+                                    0x72,
+                                    ref youtubeRightTriggerKeyDown,
+                                    ref youtubeRightTriggerStartMs,
+                                    ref youtubeRightTriggerLastRepeatMs,
+                                    nowMs); // F3 / fast-forward
+                            }
+                            else
+                            {
+                                ReleaseYouTubeHeldKeys();
+                            }
                         }
                         else
                         {
-                            if (anyR3Pressed) SendMediaVirtualKey(0xAD);
-                            if (anyYPressed) SendMediaVirtualKey(0x46);
+                            if (!customProfileOwnsDefaultButtons && anyR3Pressed) SendMediaVirtualKey(0xAD);
+                            if (!customProfileOwnsDefaultButtons && anyYPressed) SendMediaVirtualKey(0x46);
 
-                            if (anyXPressed)
+                            if (!customProfileOwnsDefaultButtons && anyXPressed)
                             {
                                 SendMediaMouse(0, 0, MOUSEEVENTF_RIGHTDOWN, 0);
                                 SendMediaMouse(0, 0, MOUSEEVENTF_RIGHTUP, 0);
                             }
 
-                            if (anyLBPressed)
+                            if (!customProfileOwnsDefaultButtons && anyLBPressed)
                             {
                                 SendMediaMouse(0, 0, MOUSEEVENTF_XDOWN, XBUTTON1);
                                 SendMediaMouse(0, 0, MOUSEEVENTF_XUP, XBUTTON1);
                             }
 
-                            if (anyRBPressed)
+                            if (!customProfileOwnsDefaultButtons && anyRBPressed)
                             {
                                 SendMediaMouse(0, 0, MOUSEEVENTF_XDOWN, XBUTTON2);
                                 SendMediaMouse(0, 0, MOUSEEVENTF_XUP, XBUTTON2);
@@ -3215,8 +3290,16 @@ namespace Doorpi
                         {
                             if (isMainYouTube)
                             {
-                                webNavLastDir = currentNavDirBtn;
-                                UpdateYouTubeNavigationHold(currentNavVk, nowMs);
+                                if (!customProfileOwnsDefaultButtons)
+                                {
+                                    webNavLastDir = currentNavDirBtn;
+                                    UpdateYouTubeNavigationHold(currentNavVk, nowMs);
+                                }
+                                else
+                                {
+                                    webNavLastDir = 0;
+                                    UpdateYouTubeNavigationHold(0, nowMs);
+                                }
                             }
                             else if (currentNavDirBtn != webNavLastDir)
                             {
@@ -3246,17 +3329,20 @@ namespace Doorpi
                         if (totalMlx != 0 || totalMly != 0)
                         {
                             speedMult = Math.Min(speedMult + (0.8 * dt), 2.5);
-                            const double SENSE = CONTROLLER_MOUSE_BASE_SPEED * CONTROLLER_MOUSE_SENSITIVITY_SCALE;
+                            double sense = CONTROLLER_MOUSE_BASE_SPEED *
+                                           CONTROLLER_MOUSE_SENSITIVITY_SCALE *
+                                           GetActiveControlMouseSensitivity();
 
-                            double moveX = totalMlx * SENSE * speedMult * dt + mouseRemainderX;
-                            double moveY = totalMly * -SENSE * speedMult * dt + mouseRemainderY;
+                            TryShapeControllerPointerVector(totalMlx, totalMly, 0, out double curvedX, out double curvedY);
+                            double moveX = curvedX * sense * speedMult * dt + mouseRemainderX;
+                            double moveY = curvedY * -sense * speedMult * dt + mouseRemainderY;
                             int dx = (int)moveX;
                             int dy = (int)moveY;
                             mouseRemainderX = moveX - dx;
                             mouseRemainderY = moveY - dy;
 
                             if (dx != 0 || dy != 0)
-                                SendMediaMouse(dx, dy, MOUSEEVENTF_MOVE, 0);
+                                SendMediaMouse(dx, dy, MOUSEEVENTF_MOVE | MOUSEEVENTF_MOVE_NOCOALESCE, 0);
                         }
                         else
                         {
@@ -3265,9 +3351,9 @@ namespace Doorpi
                             mouseRemainderY = 0;
                         }
 
-                        if (Math.Abs(totalScrollY) > 0.18)
+                        if (totalScrollY != 0)
                         {
-                            int scroll = (int)(totalScrollY * 2800 * dt);
+                            int scroll = (int)(totalScrollY * 2800 * GetActiveControlScrollSensitivity() * dt);
                             if (scroll != 0) SendMediaMouse(0, 0, MOUSEEVENTF_WHEEL, (uint)scroll);
                         }
                     }
@@ -3413,21 +3499,24 @@ namespace Doorpi
                     {
                         if (useNativeMouse)
                         {
-                            if (anyAPressed)
+                            if (!customProfileOwnsDefaultButtons && anyAPressed)
                             {
                                 if (_isGenericBrowserMode) MarkGenericBrowserControllerInputIntent();
                                 else MarkCurrentWebViewControllerInputIntent();
                                 SendMediaMouse(0, 0, MOUSEEVENTF_LEFTDOWN, 0);
                                 leftMouseDown = true;
                             }
-                            if (leftMouseDown && !anyAHeld)
+                            if (!customProfileOwnsDefaultButtons && leftMouseDown && !anyAHeld)
                             {
                                 ReleaseMediaLeftMouseIfDown();
                             }
                         }
                     }
 
-                    Thread.Sleep(10);
+                    bool continuousNativeMouseActive = useNativeMouse &&
+                        !vkbInputVisible &&
+                        (totalMlx != 0 || totalMly != 0 || totalScrollY != 0);
+                    Thread.Sleep(continuousNativeMouseActive ? 1 : 10);
                 }
                 catch (Exception ex)
                 {
@@ -6755,6 +6844,8 @@ namespace Doorpi
                 url = "https://www.steamgriddb.com/profile/preferences/api";
 
             bool isUtility = url.Contains("steamgriddb.com") || url.Contains("chromewebstore.google.com");
+            bool isTrailerCapture = isGenericBrowser && _genericBrowserCaptureWebAppUrl &&
+                                    string.Equals(_genericBrowserCaptureTarget, "gameTrailer", StringComparison.OrdinalIgnoreCase);
 
             if (_ytWebView != null)
             {
@@ -6805,7 +6896,7 @@ namespace Doorpi
 
             _currentWebAppUrl = url;
 
-            if (!isUtility) SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg, "app");
+            if (!isUtility && !isTrailerCapture) SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg, "app");
 
             _ytClosing = false;
             _mediaWebViewProcessDegraded = false;
@@ -6821,7 +6912,7 @@ namespace Doorpi
 
             void ReleaseDoorpiLaunchToWebAppWindow()
             {
-                if (doorpiLaunchReleasedToWebApp || isUtility || _webAppWindow == null)
+                if (doorpiLaunchReleasedToWebApp || isUtility || isTrailerCapture || _webAppWindow == null)
                     return;
 
                 doorpiLaunchReleasedToWebApp = true;
@@ -6879,9 +6970,16 @@ namespace Doorpi
                 {
                     Title = string.IsNullOrEmpty(appName) ? "Doorpi Web App" : appName,
                     WindowStyle = WindowStyle.None,
-                    WindowState = WindowState.Maximized,
-                    Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.Black),
-                    ShowInTaskbar = false
+                    WindowState = isTrailerCapture ? WindowState.Normal : WindowState.Maximized,
+                    Width = isTrailerCapture ? Math.Min(1420, SystemParameters.WorkArea.Width * 0.82) : SystemParameters.WorkArea.Width,
+                    Height = isTrailerCapture ? Math.Min(900, SystemParameters.WorkArea.Height * 0.82) : SystemParameters.WorkArea.Height,
+                    MinWidth = isTrailerCapture ? Math.Min(760, SystemParameters.WorkArea.Width * 0.72) : 0,
+                    MinHeight = isTrailerCapture ? Math.Min(500, SystemParameters.WorkArea.Height * 0.72) : 0,
+                    WindowStartupLocation = isTrailerCapture ? WindowStartupLocation.CenterOwner : WindowStartupLocation.Manual,
+                    ResizeMode = isTrailerCapture ? ResizeMode.NoResize : ResizeMode.CanResize,
+                    Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(8, 10, 18)),
+                    ShowInTaskbar = false,
+                    Owner = isTrailerCapture ? this : null
                 };
 
                 if (isGenericBrowser)
@@ -6915,6 +7013,12 @@ namespace Doorpi
                 };
 
                 _webAppWindow.Show();
+                Interlocked.Exchange(
+                    ref _activeWebAppWindowHandleValue,
+                    new System.Windows.Interop.WindowInteropHelper(_webAppWindow).Handle.ToInt64());
+                LogMediaControllerDiagnostic(
+                    "web-window-handle-ready",
+                    extra: $"hwnd=0x{Interlocked.Read(ref _activeWebAppWindowHandleValue):X}");
                 await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
             }
 
@@ -7113,6 +7217,13 @@ namespace Doorpi
                     }
                     UpdateGenericBrowserActiveTab(newUrl, newUrl);
                     Dispatcher.Invoke(UpdateGenericBrowserChrome);
+                    if (_genericBrowserCaptureWebAppUrl &&
+                        string.Equals(_genericBrowserCaptureTarget, "gameTrailer", StringComparison.OrdinalIgnoreCase) &&
+                        IsYouTubeTrailerPageUrl(newUrl))
+                    {
+                        TryCompleteGenericBrowserWebAppUrlCapture(newUrl);
+                        return;
+                    }
                 }
 
                 if (newUrl.Contains("chromewebstore.google.com/detail/"))
@@ -7240,6 +7351,7 @@ namespace Doorpi
                 CloseDoorpiFileBrowser(_doorpiFileBrowserSession, null);
 
             var webAppWindow = _webAppWindow;
+            Interlocked.Exchange(ref _activeWebAppWindowHandleValue, 0);
             _webAppWindow = null;
             try
             {

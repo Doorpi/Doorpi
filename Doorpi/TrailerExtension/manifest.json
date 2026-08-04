@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Doorpi Clean Trailer Player",
+  "description": "Mantém trailers incorporados limpos e sem elementos interativos.",
+  "version": "1.0.5",
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.youtube.com/*",
+        "*://www.youtube-nocookie.com/*"
+      ],
+      "css": [ "player.css" ],
+      "js": [ "player.js" ],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ]
+}

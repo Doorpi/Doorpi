@@ -1220,8 +1220,12 @@ namespace Doorpi
                 "DOORPI_HOME_WEBVIEW_EXTRA_ARGS");
             DoorpiBootDiagnostics.Log("home-webview-args", homeBrowserArgs);
             DoorpiBootDiagnostics.Log("home-webview-runtime", GetAvailableWebView2RuntimeVersion());
+            string homeTrailerExtensionPath = GetBundledHomeTrailerExtensionPath();
             var environmentStartedAt = Stopwatch.StartNew();
-            var options = new CoreWebView2EnvironmentOptions(homeBrowserArgs);
+            var options = new CoreWebView2EnvironmentOptions(homeBrowserArgs)
+            {
+                AreBrowserExtensionsEnabled = true
+            };
             var environment = await CoreWebView2Environment.CreateAsync(null, null, options);
             DoorpiBootDiagnostics.Log("home-webview-environment-created", $"elapsedMs={environmentStartedAt.ElapsedMilliseconds}");
 
@@ -1240,6 +1244,11 @@ namespace Doorpi
                 Volatile.Read(ref _consoleShellIntroSkippable) == 1;
             await webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
                 $"window.__doorpiBootMode = {bootMode}; window.__doorpiUseNativeIntro = false; window.__doorpiNativeIntroComplete = true; window.__doorpiConsoleShellExplorerReady = {(consoleShellExplorerReadyForUi ? "true" : "false")}; window.__doorpiConsoleShellIntroSkippable = {(consoleShellIntroSkippableForUi ? "true" : "false")};");
+            bool homeTrailerExtensionReady = await InstallHomeTrailerExtensionAsync(
+                webView.CoreWebView2,
+                homeTrailerExtensionPath);
+            await webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
+                $"window.__doorpiHomeTrailerExtensionReady = {(homeTrailerExtensionReady ? "true" : "false")};");
             ApplyProductionWebViewSettings(webView.CoreWebView2);
             webView.CoreWebView2.PermissionRequested += OnWebViewPermissionRequested;
             webView.CoreWebView2.ProcessFailed += OnMainWebViewProcessFailed;
@@ -1817,6 +1826,7 @@ namespace Doorpi
             currentUserId = profile.Id;
             currentUserDataFolder = Path.Combine(dataFolder, "users", currentUserId);
             Directory.CreateDirectory(currentUserDataFolder);
+            ResetControlConfigurationForActiveUser();
 
             userFile = Path.Combine(currentUserDataFolder, "user.json");
             gamesFile = Path.Combine(currentUserDataFolder, "games.json");
@@ -2910,6 +2920,10 @@ namespace Doorpi
                     bool anyReturnShortcut = false;
 
                     bool vkbIsOpen = _desktopVkb != null;
+                    bool customProfileOwnsDefaultButtons = !vkbIsOpen &&
+                        GetCustomAssignedRuntimeControlProfile(GetActiveControlTargetKey()) != null;
+                    bool configuredRuntimeOwnsAnalog = !vkbIsOpen &&
+                        ConfiguredControlRuntimeOwnsAnalog(GetActiveControlTargetKey());
                     bool anyVkbUp = false, anyVkbDown = false, anyVkbLeft = false, anyVkbRight = false, anyVkbToggleLayer = false;
 
                     bool anyAPressed = false, anyAReleased = false;
@@ -2985,9 +2999,16 @@ namespace Doorpi
                     }
                     else
                     {
-                        if (Math.Abs(input.ThumbLX) > 0.15) totalMlx = input.ThumbLX;
-                        if (Math.Abs(input.ThumbLY) > 0.15) totalMly = input.ThumbLY;
-                        if (Math.Abs(input.ThumbRY) > 0.20) totalScrollY = input.ThumbRY;
+                        if (!configuredRuntimeOwnsAnalog)
+                        {
+                            double configuredMouseDeadZone = GetActiveControlMouseDeadZone(0.15);
+                            if (Math.Sqrt(input.ThumbLX * input.ThumbLX + input.ThumbLY * input.ThumbLY) > configuredMouseDeadZone)
+                            {
+                                totalMlx = input.ThumbLX;
+                                totalMly = input.ThumbLY;
+                            }
+                            if (Math.Abs(input.ThumbRY) > configuredMouseDeadZone) totalScrollY = input.ThumbRY;
+                        }
                     }
 
                     if (!isActive()) break;
@@ -3053,13 +3074,13 @@ namespace Doorpi
                     }
                     else
                     {
-                        if (Math.Abs(totalScrollY) > 0.20)
+                        if (totalScrollY != 0)
                         {
-                            int scroll = (int)(totalScrollY * 3000 * dt);
+                            int scroll = (int)(totalScrollY * 3000 * GetActiveControlScrollSensitivity() * dt);
                             if (scroll != 0) SendMouse(0, 0, 0x0800, (uint)scroll);
                         }
 
-                        if (anyAPressed)
+                        if (!customProfileOwnsDefaultButtons && anyAPressed)
                         {
                             aWasOnTextField = IsCursorOnTextField();
                             aDragOccurred = false; isClicking = true;
@@ -3084,11 +3105,12 @@ namespace Doorpi
 
                         if (totalMlx != 0 || totalMly != 0)
                         {
-                            const double BASE = CONTROLLER_NATIVE_MOUSE_BASE_SPEED * CONTROLLER_MOUSE_SENSITIVITY_SCALE;
-                            double cx = Math.Sign(totalMlx) * Math.Pow(Math.Abs(totalMlx), 2.2);
-                            double cy = Math.Sign(totalMly) * Math.Pow(Math.Abs(totalMly), 2.2);
-                            double mx = cx * BASE * dt + remainderX;
-                            double my = -cy * BASE * dt + remainderY;
+                            double baseSensitivity = CONTROLLER_NATIVE_MOUSE_BASE_SPEED *
+                                                     CONTROLLER_MOUSE_SENSITIVITY_SCALE *
+                                                     GetActiveControlMouseSensitivity();
+                            TryShapeControllerPointerVector(totalMlx, totalMly, 0, out double curvedX, out double curvedY);
+                            double mx = curvedX * baseSensitivity * dt + remainderX;
+                            double my = -curvedY * baseSensitivity * dt + remainderY;
                             int dx = (int)mx, dy = (int)my;
                             remainderX = mx - dx; remainderY = my - dy;
 
@@ -3100,19 +3122,19 @@ namespace Doorpi
                                     if (Math.Abs(clickAccumX) > 5 || Math.Abs(clickAccumY) > 5)
                                     {
                                         dragBrokeThreshold = true; aDragOccurred = true;
-                                        SendMouse((int)clickAccumX, (int)clickAccumY, 0x0001);
+                                        SendMouse((int)clickAccumX, (int)clickAccumY, MOUSEEVENTF_MOVE | MOUSEEVENTF_MOVE_NOCOALESCE);
                                     }
                                 }
                                 else
                                 {
                                     if (isClicking) aDragOccurred = true;
-                                    SendMouse(dx, dy, 0x0001);
+                                    SendMouse(dx, dy, MOUSEEVENTF_MOVE | MOUSEEVENTF_MOVE_NOCOALESCE);
                                 }
                             }
                         }
                         else { remainderX = 0; remainderY = 0; }
 
-                        if (anyAReleased)
+                        if (!customProfileOwnsDefaultButtons && anyAReleased)
                         {
                             isClicking = false;
                             SendMouse(0, 0, 0x0004);
@@ -3145,15 +3167,15 @@ namespace Doorpi
                             if ((btn & XI_B) == 0)
                                 ignoreNextBRelease = false;
                         }
-                        else
+                        else if (!customProfileOwnsDefaultButtons)
                         {
                             if (anyBPressed) SendMouse(0, 0, 0x0080, 0x0001);
                             if (anyBReleased) SendMouse(0, 0, 0x0100, 0x0001);
                         }
 
                         if (instantPrimaryClick && anyStartPressed) SendVirtualKey(0x0D);
-                        if (anyXPressed) SendMouse(0, 0, 0x0008);
-                        if (anyXReleased) SendMouse(0, 0, 0x0010);
+                        if (!customProfileOwnsDefaultButtons && anyXPressed) SendMouse(0, 0, 0x0008);
+                        if (!customProfileOwnsDefaultButtons && anyXReleased) SendMouse(0, 0, 0x0010);
                         if (anyYPressed)
                         {
                             bool vkbAlreadyExisted = _desktopVkb != null;
@@ -5733,8 +5755,12 @@ namespace Doorpi
                         {
                             // Native Windows windows follow the same mouse convention as
                             // web apps and executable sessions: the left stick moves the cursor.
-                            if (Math.Abs(input.ThumbLX) > 0.15) totalMlx = input.ThumbLX;
-                            if (Math.Abs(input.ThumbLY) > 0.15) totalMly = input.ThumbLY;
+                            double configuredMouseDeadZone = GetActiveControlMouseDeadZone(0.15);
+                            if (Math.Sqrt(input.ThumbLX * input.ThumbLX + input.ThumbLY * input.ThumbLY) > configuredMouseDeadZone)
+                            {
+                                totalMlx = input.ThumbLX;
+                                totalMly = input.ThumbLY;
+                            }
                         }
                     }
 
@@ -5802,11 +5828,12 @@ namespace Doorpi
 
                             if (totalMlx != 0 || totalMly != 0)
                             {
-                                const double BASE_SENSITIVITY = CONTROLLER_NATIVE_MOUSE_BASE_SPEED * CONTROLLER_MOUSE_SENSITIVITY_SCALE;
-                                double curveX = Math.Sign(totalMlx) * Math.Pow(Math.Abs(totalMlx), 2.2);
-                                double curveY = Math.Sign(totalMly) * Math.Pow(Math.Abs(totalMly), 2.2);
-                                double moveX = curveX * BASE_SENSITIVITY * dt + remainderX;
-                                double moveY = -curveY * BASE_SENSITIVITY * dt + remainderY;
+                                double baseSensitivity = CONTROLLER_NATIVE_MOUSE_BASE_SPEED *
+                                                         CONTROLLER_MOUSE_SENSITIVITY_SCALE *
+                                                         GetActiveControlMouseSensitivity();
+                                TryShapeControllerPointerVector(totalMlx, totalMly, 0, out double curvedX, out double curvedY);
+                                double moveX = curvedX * baseSensitivity * dt + remainderX;
+                                double moveY = -curvedY * baseSensitivity * dt + remainderY;
                                 int deltaX = (int)moveX; int deltaY = (int)moveY;
                                 remainderX = moveX - deltaX; remainderY = moveY - deltaY;
 
@@ -5818,13 +5845,13 @@ namespace Doorpi
                                         if (Math.Abs(clickAccumX) > 5 || Math.Abs(clickAccumY) > 5)
                                         {
                                             dragBrokeThreshold = true; aDragOccurred = true;
-                                            SendMouse((int)clickAccumX, (int)clickAccumY, 0x0001);
+                                            SendMouse((int)clickAccumX, (int)clickAccumY, MOUSEEVENTF_MOVE | MOUSEEVENTF_MOVE_NOCOALESCE);
                                         }
                                     }
                                     else
                                     {
                                         if (isClicking) aDragOccurred = true;
-                                        SendMouse(deltaX, deltaY, 0x0001);
+                                        SendMouse(deltaX, deltaY, MOUSEEVENTF_MOVE | MOUSEEVENTF_MOVE_NOCOALESCE);
                                     }
                                 }
                             }
@@ -9368,9 +9395,11 @@ namespace Doorpi
         {
             try
             {
+                IntPtr hwnd = new(Interlocked.Read(ref _activeWebAppWindowHandleValue));
                 return _webAppSession is { WebView: not null } &&
-                       _webAppWindow != null &&
-                       _webAppWindow.WindowState != WindowState.Minimized &&
+                       hwnd != IntPtr.Zero &&
+                       IsWindow(hwnd) &&
+                       !IsIconic(hwnd) &&
                        !string.IsNullOrWhiteSpace(_currentWebAppUrl);
             }
             catch { return false; }
@@ -9391,10 +9420,10 @@ namespace Doorpi
         {
             try
             {
-                if (!HasActiveWebAppWindow() || _webAppWindow == null)
+                if (!HasActiveWebAppWindow())
                     return false;
 
-                var hwnd = new System.Windows.Interop.WindowInteropHelper(_webAppWindow).Handle;
+                IntPtr hwnd = new(Interlocked.Read(ref _activeWebAppWindowHandleValue));
                 return hwnd != IntPtr.Zero && GetForegroundWindow() == hwnd;
             }
             catch { return false; }
@@ -13623,6 +13652,9 @@ namespace Doorpi
                 if (await TryHandleProfileSyncWebMessageAsync(action, root).ConfigureAwait(true))
                     return;
 
+                if (await TryHandleControlConfigurationWebMessageAsync(action, root).ConfigureAwait(true))
+                    return;
+
                 if (await TryHandleDoorpiFileBrowserMessageAsync(action, root).ConfigureAwait(true))
                     return;
 
@@ -14575,6 +14607,7 @@ namespace Doorpi
                                 if (!string.IsNullOrWhiteSpace(game.EmulatorId))
                                     SuppressEmulatorGame(game);
                                 DeleteGameImages(game);
+                                DeleteManagedTrailer(game.TrailerSource);
                                 games.Remove(game);
                                 SaveGames(games);
                                 Debug.WriteLine($"[deleteGame] Jogo Removido: {gameId}");
@@ -15026,6 +15059,25 @@ namespace Doorpi
                         }));
                     }).Task.Unwrap();
                 }
+                else if (action == "browseGameTrailer")
+                {
+                    string dialogTitle = GetStr(root, "dialogTitle", "Selecionar trailer");
+                    string initialPath = GetStr(root, "initialPath");
+                    await Dispatcher.InvokeAsync(async () =>
+                    {
+                        string? selectedFile = await ShowDoorpiFileBrowserAsync(
+                            dialogTitle,
+                            false,
+                            "Vídeos compatíveis (*.mp4;*.webm;*.mov;*.m4v;*.ogv;*.ogg)|*.mp4;*.webm;*.mov;*.m4v;*.ogv;*.ogg|Todos os arquivos (*.*)|*.*",
+                            "gameTrailer",
+                            initialPath);
+                        webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                        {
+                            type = "gameTrailerSelected",
+                            path = selectedFile ?? ""
+                        }));
+                    }).Task.Unwrap();
+                }
                 else if (action == "editGame" && root.TryGetProperty("gameId", out var editIdEl))
                 {
                     string gameId = editIdEl.GetString() ?? "";
@@ -15036,6 +15088,11 @@ namespace Doorpi
                     bool hasNewUrl = root.TryGetProperty("newUrl", out var editUrlEl);
                     string newUrl = hasNewUrl ? (editUrlEl.GetString() ?? "").Trim() : "";
                     bool hasDisableGamepad = root.TryGetProperty("disableGamepadControl", out var dgcEl);
+                    bool hasNewTrailerSource = root.TryGetProperty("newTrailerSource", out var trailerSourceEl);
+                    string newTrailerSource = hasNewTrailerSource ? (trailerSourceEl.GetString() ?? "").Trim() : "";
+                    string newTrailerType = root.TryGetProperty("newTrailerType", out var trailerTypeEl)
+                        ? (trailerTypeEl.GetString() ?? "").Trim().ToLowerInvariant()
+                        : "";
 
                     if (!string.IsNullOrEmpty(gameId))
                     {
@@ -15061,6 +15118,35 @@ namespace Doorpi
                                     : newLaunchCommand;
                                 changed = true;
                                 Debug.WriteLine($"[editGame] Comando atualizado para: {game.Name}");
+                            }
+                            if (hasNewTrailerSource)
+                            {
+                                var savedTrailer = await SaveGameTrailerAsync(
+                                    gameId,
+                                    newTrailerSource,
+                                    newTrailerType,
+                                    game.TrailerSource).ConfigureAwait(true);
+                                if (savedTrailer.Success)
+                                {
+                                    game.TrailerSource = savedTrailer.Source;
+                                    game.TrailerType = savedTrailer.Type;
+                                    changed = true;
+                                    webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                                    {
+                                        type = "gameTrailerUpdated",
+                                        gameId,
+                                        source = savedTrailer.Source,
+                                        trailerType = savedTrailer.Type
+                                    }));
+                                }
+                                else
+                                {
+                                    webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                                    {
+                                        type = "gameTrailerUpdateFailed",
+                                        gameId
+                                    }));
+                                }
                             }
                             if (changed) SaveGames(games);
                         }
@@ -15499,6 +15585,18 @@ namespace Doorpi
                     {
                         BeginGenericBrowserWebAppUrlCapture();
                         await OpenWebViewInlineAsync(DoorpiBrowserHomeUrl, false, "Browser", "", "", true);
+                    });
+                }
+                else if (action == "openTrailerBrowserCapture")
+                {
+                    string searchUrl = GetStr(root, "url", "https://www.youtube.com/");
+                    if (!Uri.TryCreate(searchUrl, UriKind.Absolute, out var parsedSearch) ||
+                        (parsedSearch.Scheme != Uri.UriSchemeHttp && parsedSearch.Scheme != Uri.UriSchemeHttps))
+                        searchUrl = "https://www.youtube.com/";
+                    _ = Dispatcher.InvokeAsync(async () =>
+                    {
+                        BeginGenericBrowserUrlCapture("gameTrailer");
+                        await OpenWebViewInlineAsync(searchUrl, false, "Buscar trailer", "", "", true);
                     });
                 }
                 else if (action == "openImageBrowserCapture")
@@ -16516,6 +16614,91 @@ namespace Doorpi
             {
                 Debug.WriteLine("[Artwork] Copia local falhou: " + ex.Message);
                 return null;
+            }
+        }
+
+        private static readonly HashSet<string> SupportedTrailerExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".mp4", ".webm", ".mov", ".m4v", ".ogv", ".ogg"
+        };
+
+        private void DeleteManagedTrailer(string source)
+        {
+            try
+            {
+                if (!Uri.TryCreate(source, UriKind.Absolute, out var uri) ||
+                    !uri.Host.Equals("data.local", StringComparison.OrdinalIgnoreCase) ||
+                    !uri.AbsolutePath.Contains("/trailers/", StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                string root = Path.GetFullPath(dataFolder).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                string relative = Uri.UnescapeDataString(uri.AbsolutePath.TrimStart('/'))
+                    .Replace('/', Path.DirectorySeparatorChar);
+                string fullPath = Path.GetFullPath(Path.Combine(dataFolder, relative));
+                if (fullPath.StartsWith(root, StringComparison.OrdinalIgnoreCase) && File.Exists(fullPath))
+                    File.Delete(fullPath);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[Trailer] Não foi possível remover o arquivo anterior: " + ex.Message);
+            }
+        }
+
+        private async Task<(bool Success, string Source, string Type)> SaveGameTrailerAsync(
+            string gameId,
+            string requestedSource,
+            string requestedType,
+            string previousSource)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(requestedSource))
+                {
+                    DeleteManagedTrailer(previousSource);
+                    return (true, "", "");
+                }
+
+                if (requestedType.Equals("local", StringComparison.OrdinalIgnoreCase))
+                {
+                    string sourcePath = Path.GetFullPath(requestedSource);
+                    string extension = Path.GetExtension(sourcePath).ToLowerInvariant();
+                    if (!File.Exists(sourcePath) || !SupportedTrailerExtensions.Contains(extension))
+                        return (false, "", "");
+
+                    string trailerFolder = Path.Combine(dataFolder, "users", currentUserId, "trailers");
+                    Directory.CreateDirectory(trailerFolder);
+                    string hash = Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes(gameId)))[..16].ToLowerInvariant();
+                    string destination = Path.Combine(trailerFolder, hash + extension);
+
+                    if (string.Equals(sourcePath, destination, StringComparison.OrdinalIgnoreCase))
+                    {
+                        string existingSource = $"https://data.local/users/{Uri.EscapeDataString(currentUserId)}/trailers/{Uri.EscapeDataString(Path.GetFileName(destination))}";
+                        return (true, existingSource, "local");
+                    }
+
+                    await using (var sourceStream = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    await using (var destinationStream = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None))
+                        await sourceStream.CopyToAsync(destinationStream).ConfigureAwait(false);
+
+                    string savedSource = $"https://data.local/users/{Uri.EscapeDataString(currentUserId)}/trailers/{Uri.EscapeDataString(Path.GetFileName(destination))}";
+                    if (!string.Equals(previousSource, savedSource, StringComparison.OrdinalIgnoreCase))
+                        DeleteManagedTrailer(previousSource);
+                    return (true, savedSource, "local");
+                }
+
+                if (!Uri.TryCreate(requestedSource, UriKind.Absolute, out var remoteUri) ||
+                    (remoteUri.Scheme != Uri.UriSchemeHttp && remoteUri.Scheme != Uri.UriSchemeHttps))
+                    return (false, "", "");
+
+                bool isYoutube = remoteUri.Host.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) ||
+                                 remoteUri.Host.Equals("youtu.be", StringComparison.OrdinalIgnoreCase);
+                DeleteManagedTrailer(previousSource);
+                return (true, remoteUri.AbsoluteUri, isYoutube ? "youtube" : "url");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[Trailer] Falha ao salvar: " + ex.Message);
+                return (false, "", "");
             }
         }
 
@@ -18180,6 +18363,8 @@ namespace Doorpi
                 staticHero = game.HeroStaticImage,
                 logo = game.LogoImage,
                 staticLogo = game.LogoStaticImage,
+                trailerSource = game.TrailerSource,
+                trailerType = game.TrailerType,
                 iconBase64,
                 totalPlaytimeMinutes = game.TotalPlaytimeMinutes,
                 lastSessionMinutes = game.LastSessionMinutes,
@@ -18260,6 +18445,8 @@ namespace Doorpi
                 staticHero = game.HeroStaticImage,
                 logo = game.LogoImage,
                 staticLogo = game.LogoStaticImage,
+                trailerSource = game.TrailerSource,
+                trailerType = game.TrailerType,
                 iconBase64,
                 totalPlaytimeMinutes = game.TotalPlaytimeMinutes,
                 lastSessionMinutes = game.LastSessionMinutes,
@@ -18535,6 +18722,10 @@ namespace Doorpi
                 connected = snapshot.Connected,
                 buttons = snapshot.Buttons & actionMask,
                 pressed = pressedButtons & actionMask,
+                dpad = snapshot.Buttons & 0x000F,
+                controlCaptureSuppressed = IsControlCaptureActive(),
+                leftX = snapshot.ThumbLX,
+                leftY = snapshot.ThumbLY,
                 rightX = snapshot.ThumbRX,
                 rightY = snapshot.ThumbRY
             });
@@ -18564,6 +18755,9 @@ namespace Doorpi
             long lastControllerPostAt = long.MinValue;
             double lastPostedRightX = 0;
             double lastPostedRightY = 0;
+            double lastPostedLeftX = 0;
+            double lastPostedLeftY = 0;
+            ushort lastPostedDpad = ushort.MaxValue;
 
             while (_mainUiGamepadActive)
             {
@@ -18581,16 +18775,24 @@ namespace Doorpi
                         continue;
                     }
                     ushort actionButtons = (ushort)(controllerSnapshot.Buttons & 0xFFF0);
+                    ushort dpadButtons = (ushort)(controllerSnapshot.Buttons & 0x000F);
                     long nowTicks = Environment.TickCount64;
                     bool rightAnalogActive = Math.Abs(controllerSnapshot.ThumbRX) > 0.12 ||
                                              Math.Abs(controllerSnapshot.ThumbRY) > 0.12;
                     bool rightAnalogChanged = Math.Abs(controllerSnapshot.ThumbRX - lastPostedRightX) > 0.04 ||
                                               Math.Abs(controllerSnapshot.ThumbRY - lastPostedRightY) > 0.04;
+                    bool leftAnalogActive = Math.Abs(controllerSnapshot.ThumbLX) > 0.12 ||
+                                            Math.Abs(controllerSnapshot.ThumbLY) > 0.12;
+                    bool leftAnalogChanged = Math.Abs(controllerSnapshot.ThumbLX - lastPostedLeftX) > 0.04 ||
+                                             Math.Abs(controllerSnapshot.ThumbLY - lastPostedLeftY) > 0.04;
                     if (buttonTracker.PressedButtons != 0 ||
                         actionButtons != lastPostedButtons ||
+                        dpadButtons != lastPostedDpad ||
                         controllerSnapshot.Connected != lastPostedConnected ||
                         rightAnalogChanged ||
+                        leftAnalogChanged ||
                         (rightAnalogActive && nowTicks - lastControllerPostAt >= 32) ||
+                        (leftAnalogActive && nowTicks - lastControllerPostAt >= 32) ||
                         lastControllerPostAt == long.MinValue ||
                         nowTicks - lastControllerPostAt >= 250)
                     {
@@ -18599,17 +18801,30 @@ namespace Doorpi
                         lastPostedConnected = controllerSnapshot.Connected;
                         lastPostedRightX = controllerSnapshot.ThumbRX;
                         lastPostedRightY = controllerSnapshot.ThumbRY;
+                        lastPostedLeftX = controllerSnapshot.ThumbLX;
+                        lastPostedLeftY = controllerSnapshot.ThumbLY;
+                        lastPostedDpad = dpadButtons;
                         lastControllerPostAt = nowTicks;
+                    }
+                    if (IsControlCaptureActive())
+                    {
+                        moveState = 0;
+                        currentDir = null;
+                        hadPreviousInput = true;
+                        Thread.Sleep(8);
+                        continue;
                     }
                     bool foregroundOk = IsDoorpiMainWindowForeground() ||
                                             (DateTime.UtcNow.Ticks - Interlocked.Read(ref _focusRestoredAtTicks))
                                             < TimeSpan.FromSeconds(2).Ticks;
+                    bool controlEditorOwnsInput = _controlEditorOpen && foregroundOk;
 
                     // Quando o overlay "Em execucao" esta no Doorpi, este loop e o
                     // unico dono da navegacao direcional. O JS continua responsavel
                     // apenas pelos botoes de acao, evitando dois movimentos por input.
                     bool executionLockOwnsMainUiInput = _executionLockActive && foregroundOk;
-                    bool mainUiOwnsDirectionalNavigation = _mainUiOwnsDirectionalNavigation && foregroundOk;
+                    bool mainUiOwnsDirectionalNavigation =
+                        (_mainUiOwnsDirectionalNavigation || controlEditorOwnsInput) && foregroundOk;
                     bool isLaunchingOrRunning = !executionLockOwnsMainUiInput &&
                         ((_gameSessionActive && !_gameIsMinimized)
                          || _mediaMouseActive
@@ -18618,7 +18833,7 @@ namespace Doorpi
                          || _systemControllerActive
                          || IsMainUiGamepadSuspendedForGame());
 
-                    if (_dialogModeActive ||
+                    if ((_dialogModeActive && !controlEditorOwnsInput) ||
                         !foregroundOk ||
                         (!mainUiOwnsDirectionalNavigation &&
                          (_systemControllerActive || _launcherMouseActive || isLaunchingOrRunning)))
@@ -18636,6 +18851,18 @@ namespace Doorpi
 
                         // O Guide pode ser um pulso curto, especialmente no controle
                         // local enquanto um controle virtual do Parsec ocupa outro slot.
+                        Thread.Sleep(8);
+                        continue;
+                    }
+
+                    // O editor de controles recebe direções diretamente pelo snapshot
+                    // XInput. Isso evita depender de setas sintetizadas pelo Windows,
+                    // que nem sempre alcançam o HWND interno do WebView2.
+                    if (controlEditorOwnsInput)
+                    {
+                        moveState = 0;
+                        currentDir = null;
+                        hadPreviousInput = true;
                         Thread.Sleep(8);
                         continue;
                     }
@@ -18667,7 +18894,8 @@ namespace Doorpi
                     // Abre o painel rapido apenas com o botao Select
                     if (DateTime.UtcNow.Ticks > Interlocked.Read(ref _returnFromExternalModeSuppressUntil))
                     {
-                        if (!buttonTracker.TaskSwitcherShortcutJustPressed &&
+                        if (!controlEditorOwnsInput &&
+                            !buttonTracker.TaskSwitcherShortcutJustPressed &&
                             buttonTracker.AnyPressed(0x0020))
                         {
                             Dispatcher.BeginInvoke(() =>

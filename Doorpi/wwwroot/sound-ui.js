@@ -3,6 +3,7 @@
     const SOUND_ITEMS = [
         { key: 'ambience', group: 'space', labelKey: 'soundAmbienceVolume', fallback: 'Ambience' },
         { key: 'intro', group: 'space', labelKey: 'soundIntroVolume', fallback: 'Introducao' },
+        { key: 'trailer', group: 'space', labelKey: 'soundTrailerVolume', fallback: 'Trailers' },
         { key: 'navigation', group: 'control', labelKey: 'soundNavigationVolume', fallback: 'Navegacao' },
         { key: 'confirm', group: 'control', labelKey: 'soundConfirmVolume', fallback: 'Confirmar' },
         { key: 'back', group: 'control', labelKey: 'soundBackVolume', fallback: 'Voltar' }
@@ -87,7 +88,8 @@
             navigation: 100,
             confirm: 100,
             back: 100,
-            intro: 100
+            intro: 100,
+            trailer: 34
         };
     }
 

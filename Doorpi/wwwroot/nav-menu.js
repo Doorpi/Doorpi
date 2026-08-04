@@ -4020,6 +4020,7 @@ window.isNavMenuOpen = false;
         if (_settingsSubView === 'sound') { _renderSettingsSound(body); return; }
         const svgUser = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
         const svgSys = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`;
+        const svgControls = window.DoorpiControls?.controllerIcon?.('nav-settings-controller-svg') || `<svg viewBox="0 0 24 18" fill="currentColor" fill-opacity=".34" stroke="currentColor" stroke-width="1.4"><path d="M4 5h16c2.3 0 3.8 2.4 3 4.5l-1.5 4a2 2 0 0 1-3.2.8L16 12H8l-2.3 2.3a2 2 0 0 1-3.2-.8l-1.5-4C.2 7.4 1.7 5 4 5Z"/></svg>`;
         const svgExt = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`;
 
         body.innerHTML = `
@@ -4038,6 +4039,13 @@ window.isNavMenuOpen = false;
                     <p>${_t('navSetSystemDesc', 'Ajustes de inicialização do console e acesso à área de trabalho')}</p>
                 </div>
             </button>
+            <button class="nav-settings-card" id="setControls" tabindex="-1">
+                <div class="settings-card-icon">${svgControls}</div>
+                <div class="settings-card-info">
+                    <h3>${_t('controlsSettingsTitle', 'Controles')}</h3>
+                    <p>${_t('controlsSettingsDesc', 'Perfis reutilizáveis para apps, web apps e lojas')}</p>
+                </div>
+            </button>
             <button class="nav-settings-card" id="setExt" tabindex="-1">
                 <div class="settings-card-icon">${svgExt}</div>
                 <div class="settings-card-info">
@@ -4051,6 +4059,7 @@ window.isNavMenuOpen = false;
         _contentItems = [
             body.querySelector('#setAccount'),
             body.querySelector('#setSystem'),
+            body.querySelector('#setControls'),
             body.querySelector('#setExt')
         ].filter(Boolean);
 
@@ -4060,6 +4069,10 @@ window.isNavMenuOpen = false;
 
         body.querySelector('#setSystem')?.addEventListener('click', () => {
             _settingsSubView = 'system'; _systemSubView = null; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
+        });
+
+        body.querySelector('#setControls')?.addEventListener('click', () => {
+            window.DoorpiControls?.open?.();
         });
 
         body.querySelector('#setExt')?.addEventListener('click', () => {

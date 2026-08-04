@@ -1,0 +1,121 @@
+/*
+ * O iframe fica invisível na Home até o vídeo entrar em PLAYING. Mesmo assim,
+ * estes filtros são aplicados no document_start para que nenhum elemento do
+ * player apareça durante a transição ou ao finalizar o trailer.
+ */
+html,
+body,
+#player,
+#movie_player,
+.html5-video-player,
+.html5-video-container {
+    background: transparent !important;
+    background-color: transparent !important;
+}
+
+html,
+body {
+    isolation: isolate !important;
+}
+
+#doorpi-trailer-player-bg {
+    position: fixed !important;
+    z-index: 0 !important;
+    inset: 0 !important;
+    overflow: hidden !important;
+    pointer-events: none !important;
+}
+
+#doorpi-trailer-player-bg canvas {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    opacity: .58 !important;
+    filter: blur(24px) brightness(.62) saturate(.9) !important;
+    transform: scale(1.08) !important;
+}
+
+#player,
+#movie_player,
+.html5-video-player,
+.html5-video-container {
+    position: relative !important;
+    z-index: 1 !important;
+}
+
+.ytp-large-play-button,
+.ytp-large-play-button-red-bg,
+.ytp-cued-thumbnail-overlay button,
+.ytp-play-button,
+.ytp-bezel,
+.ytp-bezel-text-wrapper,
+.ytp-spinner,
+.ytp-spinner-container,
+.ytp-chrome-top,
+.ytp-chrome-bottom,
+.ytp-gradient-top,
+.ytp-gradient-bottom,
+.ytp-title,
+.ytp-title-channel,
+.ytp-title-text,
+.ytp-watermark,
+.ytp-youtube-button,
+.ytp-share-button,
+.ytp-watch-later-button,
+.ytp-impression-link,
+.ytp-paid-content-overlay,
+.ytp-cards-button,
+.ytp-cards-teaser,
+.ytp-show-cards-title,
+.ytp-tooltip,
+.ytp-pause-overlay,
+.ytp-ce-element,
+.ytp-ce-element-show,
+.ytp-ce-covering-overlay,
+.ytp-ce-element-shadow,
+.ytp-ce-expanding-image,
+.ytp-ce-video,
+.ytp-ce-channel,
+.ytp-ce-playlist,
+.ytp-ce-website,
+.ytp-endscreen-content,
+.ytp-endscreen-previous,
+.ytp-endscreen-next,
+.ytp-endscreen-paginate,
+.ytp-suggestion-set,
+.ytp-autonav-endscreen,
+.ytp-autonav-endscreen-upnext-container,
+.ytp-autonav-endscreen-video-info,
+.ytp-videowall-still,
+.html5-endscreen,
+.videowall-endscreen,
+.ytp-error,
+.ytp-offline-slate,
+.ytp-unavailable-message {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+/*
+ * O player novo concentra a interface e parte do estado interno nestes nós.
+ * Removê-los do layout interrompe a inicialização em algumas versões; por isso
+ * eles permanecem no DOM e apenas deixam de ser renderizados.
+ */
+#player-controls,
+#player-control-overlay,
+#player-controls-a11y-toggle,
+.ytPlayerControlsContainerHost,
+.new-controls,
+.player-controls-background-container {
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+.html5-video-player,
+.html5-video-container,
+.html5-main-video {
+    cursor: none !important;
+}

@@ -38,6 +38,8 @@ window.AppStore = (() => {
                 vertical: raw.imageData || raw.GridImage || raw.vertical || '',
                 horizontal: raw.horizontalImage || raw.GridHorizontalImage || raw.horizontal || '',
                 hero: raw.hero || raw.HeroImage || '', logo: raw.logo || raw.LogoImage || '',
+                trailerSource: raw.trailerSource || raw.TrailerSource || '',
+                trailerType: raw.trailerType || raw.TrailerType || '',
                 iconBase64: raw.iconBase64 || raw.IconBase64 || '',
                 totalPlaytimeMinutes: Number(raw.totalPlaytimeMinutes ?? raw.TotalPlaytimeMinutes ?? 0) || 0,
                 lastSessionMinutes: Number(raw.lastSessionMinutes ?? raw.LastSessionMinutes ?? 0) || 0,

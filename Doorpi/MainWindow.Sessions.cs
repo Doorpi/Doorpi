@@ -167,6 +167,10 @@ namespace Doorpi
         private string _activeExecutableAppSessionKey = "";
         private int _executableAppSessionSerial;
         private WebAppSession? _webAppSession;
+        // Cached on the UI thread and consumed by the controller/focus workers.
+        // Never make those workers dereference the WPF Window: DispatcherObject
+        // access throws off-thread and used to silently disable the fast pointer path.
+        private long _activeWebAppWindowHandleValue;
         private DesktopControlSession? _desktopControlSession;
 
         private readonly object _gameLaunchMonitorLock = new();
@@ -371,6 +375,7 @@ namespace Doorpi
 
         private void ClearWebAppSession()
         {
+            Interlocked.Exchange(ref _activeWebAppWindowHandleValue, 0);
             _webAppSession = null;
         }
 

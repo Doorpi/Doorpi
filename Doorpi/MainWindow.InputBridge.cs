@@ -170,6 +170,9 @@ namespace Doorpi
         private bool TrySendElevatedVirtualKey(ushort vk)
             => TrySendElevatedInput($"key|{vk}");
 
+        private bool TrySendElevatedKeyEvent(ushort vk, bool keyUp)
+            => TrySendElevatedInput($"keyevent|{vk}|{(keyUp ? 1 : 0)}");
+
         private bool TrySendElevatedTerminateProcess(int processId)
             => processId > 0 && TrySendElevatedInput($"kill|{processId}");
 

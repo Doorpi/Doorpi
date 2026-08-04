@@ -58,6 +58,8 @@ public static class ProfileSyncSerializer
         public long TotalPlaytimeSeconds { get; init; }
         public CanonicalProfilePhoto ProfilePhoto { get; init; } = new();
         public IReadOnlyList<CloudGameHistoryEntryV1> Games { get; init; } = Array.Empty<CloudGameHistoryEntryV1>();
+        public IReadOnlyList<CloudControlProfileV1> ControlProfiles { get; init; } = Array.Empty<CloudControlProfileV1>();
+        public IReadOnlyList<CloudControlAssignmentV1> ControlAssignments { get; init; } = Array.Empty<CloudControlAssignmentV1>();
 
         public static CanonicalProfileContent From(CloudProfileV1 profile)
             => new()
@@ -73,7 +75,84 @@ public static class ProfileSyncSerializer
                     .Select(NormalizeGame)
                     .OrderBy(game => game.GameKey, StringComparer.Ordinal)
                     .ThenBy(game => game.Name, StringComparer.Ordinal)
+                    .ToList(),
+                ControlProfiles = (profile.ControlProfiles ?? new List<CloudControlProfileV1>())
+                    .Where(item => !string.IsNullOrWhiteSpace(item.Id))
+                    .Select(NormalizeControlProfile)
+                    .OrderBy(item => item.Id, StringComparer.Ordinal)
+                    .ToList(),
+                ControlAssignments = (profile.ControlAssignments ?? new List<CloudControlAssignmentV1>())
+                    .Where(item => !string.IsNullOrWhiteSpace(item.ProfileId))
+                    .Select(NormalizeControlAssignment)
+                    .OrderBy(item => item.TargetFingerprint, StringComparer.Ordinal)
+                    .ThenBy(item => item.ProfileId, StringComparer.Ordinal)
                     .ToList()
+            };
+
+        private static CloudControlProfileV1 NormalizeControlProfile(CloudControlProfileV1 profile)
+            => new()
+            {
+                Id = profile.Id ?? "",
+                Name = profile.Name ?? "",
+                Category = profile.Category ?? "web",
+                TargetKind = string.Equals(profile.Id, "global-default", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(profile.Category, "global", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(profile.TargetKind, "global", StringComparison.OrdinalIgnoreCase)
+                    ? "global"
+                    : string.Equals(profile.Category, "store", StringComparison.OrdinalIgnoreCase) ||
+                      string.Equals(profile.TargetKind, "store", StringComparison.OrdinalIgnoreCase)
+                        ? "store"
+                        : "media",
+                BaseProfileId = profile.BaseProfileId ?? "",
+                Enabled = profile.Enabled,
+                MouseSensitivity = profile.MouseSensitivity,
+                ScrollSensitivity = profile.ScrollSensitivity,
+                MouseDeadZone = profile.MouseDeadZone,
+                HasConfigurablePointerBindings = profile.HasConfigurablePointerBindings,
+                HasSecondaryActivations = profile.HasSecondaryActivations,
+                CreatedAtUtc = profile.CreatedAtUtc.ToUniversalTime(),
+                UpdatedAtUtc = profile.UpdatedAtUtc.ToUniversalTime(),
+                Bindings = (profile.Bindings ?? new List<CloudControlBindingV1>())
+                    .OrderBy(binding => binding.Id, StringComparer.Ordinal)
+                    .Select(binding => new CloudControlBindingV1
+                    {
+                        Id = binding.Id ?? "",
+                        Name = binding.Name ?? "",
+                        Enabled = binding.Enabled,
+                        Trigger = binding.Trigger ?? "press",
+                        LongPressDurationMs = Math.Clamp(binding.LongPressDurationMs, 500, 5000),
+                        ControllerButtons = (binding.ControllerButtons ?? new List<string>())
+                            .OrderBy(button => button, StringComparer.Ordinal).ToList(),
+                        SecondaryTrigger = binding.SecondaryTrigger ?? "press",
+                        SecondaryLongPressDurationMs = Math.Clamp(
+                            binding.SecondaryLongPressDurationMs,
+                            500,
+                            5000),
+                        SecondaryControllerButtons = (binding.SecondaryControllerButtons ?? new List<string>())
+                            .OrderBy(button => button, StringComparer.Ordinal).ToList(),
+                        Action = new CloudControlActionV1
+                        {
+                            Type = binding.Action?.Type ?? "keyboard",
+                            VirtualKeys = binding.Action?.VirtualKeys?.ToList() ?? new List<ushort>(),
+                            MouseButton = binding.Action?.MouseButton ?? "left",
+                            WheelDelta = binding.Action?.WheelDelta ?? 120,
+                            PointerDirection = binding.Action?.PointerDirection ?? "free",
+                            PointerDistance = binding.Action?.PointerDistance ?? 24,
+                            SystemCommand = binding.Action?.SystemCommand ?? ""
+                        }
+                    }).ToList()
+            };
+
+        private static CloudControlAssignmentV1 NormalizeControlAssignment(CloudControlAssignmentV1 assignment)
+            => new()
+            {
+                ProfileId = assignment.ProfileId ?? "",
+                TargetName = assignment.TargetName ?? "",
+                TargetCategory = assignment.TargetCategory ?? "web",
+                TargetFingerprint = assignment.TargetFingerprint ?? "",
+                NativeAppId = assignment.NativeAppId ?? "",
+                ExecutablePath = assignment.ExecutablePath ?? "",
+                UpdatedAtUtc = assignment.UpdatedAtUtc.ToUniversalTime()
             };
 
         private static CanonicalProfilePhoto NormalizePhoto(CloudProfilePhotoV1? photo)

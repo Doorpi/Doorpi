@@ -104,6 +104,14 @@ namespace DoorpiInputBridge
                 return;
             }
 
+            if (parts[0] == "keyevent" && parts.Length >= 3 &&
+                ushort.TryParse(parts[1], out ushort eventVk) &&
+                int.TryParse(parts[2], out int keyUp))
+            {
+                SendVirtualKeyEvent(eventVk, keyUp != 0);
+                return;
+            }
+
             if (parts[0] == "unicode" && parts.Length >= 2)
             {
                 try
@@ -144,6 +152,17 @@ namespace DoorpiInputBridge
             up.U.ki = new KEYBDINPUT { wVk = vk, dwFlags = KEYEVENTF_KEYUP };
 
             SendInputs(new[] { down, up });
+        }
+
+        private static void SendVirtualKeyEvent(ushort vk, bool keyUp)
+        {
+            var input = new INPUT { type = INPUT_KEYBOARD };
+            input.U.ki = new KEYBDINPUT
+            {
+                wVk = vk,
+                dwFlags = keyUp ? KEYEVENTF_KEYUP : 0
+            };
+            SendInputs(new[] { input });
         }
 
         private static void SendUnicodeString(string text)

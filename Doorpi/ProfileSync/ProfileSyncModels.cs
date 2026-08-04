@@ -44,7 +44,9 @@ public enum ProfileDifferenceKind
     GameVerticalArtwork,
     GameHorizontalArtwork,
     GameProfileBannerArtwork,
-    GameSteamGridReference
+    GameSteamGridReference,
+    ControlProfiles,
+    ControlAssignments
 }
 
 public sealed class CloudProfileV1
@@ -60,6 +62,62 @@ public sealed class CloudProfileV1
     public long TotalPlaytimeSeconds { get; set; }
     public CloudProfilePhotoV1 ProfilePhoto { get; set; } = new();
     public List<CloudGameHistoryEntryV1> Games { get; set; } = new();
+    public List<CloudControlProfileV1> ControlProfiles { get; set; } = new();
+    public List<CloudControlAssignmentV1> ControlAssignments { get; set; } = new();
+}
+
+public sealed class CloudControlProfileV1
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Category { get; set; } = "web";
+    public string TargetKind { get; set; } = "";
+    public string BaseProfileId { get; set; } = "";
+    public bool Enabled { get; set; } = true;
+    public double MouseSensitivity { get; set; } = 1;
+    public double ScrollSensitivity { get; set; } = 1;
+    public double MouseDeadZone { get; set; } = 0.14;
+    public bool HasConfigurablePointerBindings { get; set; }
+    public bool HasSecondaryActivations { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; }
+    public DateTimeOffset UpdatedAtUtc { get; set; }
+    public List<CloudControlBindingV1> Bindings { get; set; } = new();
+}
+
+public sealed class CloudControlBindingV1
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public bool Enabled { get; set; } = true;
+    public List<string> ControllerButtons { get; set; } = new();
+    public string Trigger { get; set; } = "press";
+    public int LongPressDurationMs { get; set; } = 1200;
+    public List<string> SecondaryControllerButtons { get; set; } = new();
+    public string SecondaryTrigger { get; set; } = "press";
+    public int SecondaryLongPressDurationMs { get; set; } = 1200;
+    public CloudControlActionV1 Action { get; set; } = new();
+}
+
+public sealed class CloudControlActionV1
+{
+    public string Type { get; set; } = "keyboard";
+    public List<ushort> VirtualKeys { get; set; } = new();
+    public string MouseButton { get; set; } = "left";
+    public int WheelDelta { get; set; } = 120;
+    public string PointerDirection { get; set; } = "free";
+    public int PointerDistance { get; set; } = 24;
+    public string SystemCommand { get; set; } = "";
+}
+
+public sealed class CloudControlAssignmentV1
+{
+    public string ProfileId { get; set; } = "";
+    public string TargetName { get; set; } = "";
+    public string TargetCategory { get; set; } = "web";
+    public string TargetFingerprint { get; set; } = "";
+    public string NativeAppId { get; set; } = "";
+    public string ExecutablePath { get; set; } = "";
+    public DateTimeOffset UpdatedAtUtc { get; set; }
 }
 
 public sealed class CloudProfilePhotoV1
