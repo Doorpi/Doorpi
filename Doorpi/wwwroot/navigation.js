@@ -1840,6 +1840,25 @@ function gamepadDirection(gamepad, buttons, threshold = NAV.GAMEPAD.AXIS_THRESHO
     return axisDirection(gamepad, threshold);
 }
 
+function nativeControllerDirection(threshold = NAV.GAMEPAD.AXIS_THRESHOLD) {
+    const dpad = _doorpiNativeController.dpad >>> 0;
+    if ((dpad & 0x0008) !== 0) return 'RIGHT';
+    if ((dpad & 0x0004) !== 0) return 'LEFT';
+    if ((dpad & 0x0002) !== 0) return 'DOWN';
+    if ((dpad & 0x0001) !== 0) return 'UP';
+
+    const x = Number(_doorpiNativeController.leftX || 0);
+    const y = Number(_doorpiNativeController.leftY || 0);
+    if (Math.abs(x) >= Math.abs(y) && Math.abs(x) > threshold)
+        return x > 0 ? 'RIGHT' : 'LEFT';
+    if (Math.abs(y) > threshold)
+        return y > 0 ? 'UP' : 'DOWN';
+    return null;
+}
+
+window.isDoorpiNativeDirectionHeld = direction =>
+    nativeControllerDirection() === String(direction || '').toUpperCase();
+
 function handleArtworkWizardGamepadShortcuts(buttons) {
     if (isVkbOpenForNavigation() || !window._artworkWizardIsOpen?.()) return false;
 
@@ -1967,6 +1986,7 @@ if (window.chrome?.webview) {
             _doorpiNativeController.rightX = 0;
             _doorpiNativeController.rightY = 0;
         }
+        window.releaseHomeTrailerCinemaControllerKeys?.(nativeControllerDirection());
         if (wasConnected !== _doorpiNativeController.connected)
             refreshGamepadPresence();
     });
@@ -2433,7 +2453,8 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             else gamepadStart();
         }
         if (buttonJustPressed(buttons[GAMEPAD.BTN_TRIANGLE], GAMEPAD.BTN_TRIANGLE)) {
-            gamepadTriangle();
+            if (window.toggleHomeTrailerFullscreen?.() !== true)
+                gamepadTriangle();
         }
         if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) {
             if (window.isStoreSessionMenuOpen?.()) {

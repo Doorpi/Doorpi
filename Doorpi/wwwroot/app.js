@@ -1065,7 +1065,8 @@
             navigation: 100,
             confirm: 100,
             back: 100,
-            intro: 100
+            intro: 100,
+            trailer: 34
         };
 
         function clamp(value) {
@@ -1095,6 +1096,7 @@
                 back: volumes.back / 100
             });
             window.DoorpiIntro?.setVolume?.(volumes.intro / 100);
+            window.setHomeTrailerVolume?.(volumes.trailer);
         }
 
         function setInternalVolume(key, value) {
@@ -4371,6 +4373,24 @@
             if (data.type === 'editLaunchCommandSelected') {
                 window._editLaunchCommandBrowseResult?.(data.path || '');
             }
+            else if (data.type === 'gameTrailerSelected') {
+                window._editTrailerBrowseResult?.(data.path || '');
+            }
+            else if (data.type === 'gameTrailerUpdated') {
+                const gameId = data.gameId || '';
+                const source = data.source || '';
+                const trailerType = data.trailerType || '';
+                document.querySelectorAll('.card').forEach(candidate => {
+                    if ((candidate.dataset.gameId || candidate.dataset.id) !== gameId) return;
+                    candidate.dataset.trailerSource = source;
+                    candidate.dataset.trailerType = trailerType;
+                });
+                window.AppStore?.mutations?.patchItem?.('games', gameId, { trailerSource: source, trailerType });
+                window.stopHomeFeatureTrailer?.();
+            }
+            else if (data.type === 'gameTrailerUpdateFailed') {
+                console.error('[Trailer] Não foi possível salvar o trailer selecionado.');
+            }
             else if (data.type === 'newGame') {
                 const channel = (data.isMedia || data.tab === 'media' || data.appUrl !== undefined || data.appType !== undefined) ? 'media' : 'games';
                 _enqueueNewGameForLibrary(channel, data);
@@ -4947,6 +4967,10 @@
                         window._artworkWizardSetUrl?.(url);
                         return;
                     }
+                    if (data.target === 'gameTrailer') {
+                        window._editTrailerBrowserUrlResult?.(url);
+                        return;
+                    }
                     const input = document.getElementById('webAppUrlInput');
                     if (input) {
                         input.value = url;
@@ -4965,6 +4989,10 @@
                     setTimeout(() => window._artworkWizardFocusUrl?.(), 180);
                     return;
                 }
+                if (data.target === 'gameTrailer') {
+                    setTimeout(() => document.getElementById('editTrailerSearchBtn')?.focus?.(), 180);
+                    return;
+                }
                 setTimeout(() => {
                     const target =
                         document.getElementById('btnWebAppBrowser') ||
@@ -4975,6 +5003,7 @@
             }
             else if (data.type === 'gameLaunching') {
                 window._isExternalAppRunning = true;
+                window.stopHomeFeatureTrailer?.({ resumeAudio: false });
                 window._stopSystemAudio();
                 window.isMediaAppActive = true;
 
@@ -9786,6 +9815,20 @@ function renderFolderList(folders) {
         }
         .edit-artwork-btn::after { content: '›'; color: rgba(255,255,255,.58); font-size: 1.45rem; font-weight: 300; }
         .edit-artwork-btn:focus, .edit-artwork-btn:hover, .edit-artwork-btn.nav-focused-el { border-color: rgba(255,255,255,0.72); background: rgba(255,255,255,0.13); box-shadow: 0 0 0 3px rgba(255,255,255,.12), 0 12px 24px rgba(0,0,0,.22); transform: translateX(3px); }
+        .edit-trailer-summary { min-height: 54px; display: grid; grid-template-columns: 42px minmax(0,1fr); align-items: center; gap: 12px; padding: 8px 12px; border: 1px solid rgba(255,255,255,.09); border-radius: 9px; background: rgba(255,255,255,.035); }
+        .edit-trailer-icon { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 7px; background: rgba(255,255,255,.075); color: rgba(255,255,255,.72); }
+        .edit-trailer-icon svg { width: 23px; height: 23px; }
+        .edit-trailer-summary > span:last-child { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+        .edit-trailer-summary strong { overflow: hidden; color: rgba(255,255,255,.9); font-size: 13px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
+        .edit-trailer-summary small { color: rgba(255,255,255,.38); font-size: 11px; }
+        .edit-trailer-url-row[hidden] { display: none; }
+        .edit-trailer-url-row { margin-top: 4px; }
+        .edit-trailer-actions { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; }
+        .edit-trailer-actions .edit-artwork-btn { min-height: 46px; }
+        .edit-trailer-actions .edit-artwork-btn::after { display: none; }
+        .edit-trailer-actions .edit-artwork-btn.is-primary { grid-column: 1 / -1; justify-content: center; min-height: 52px; background: rgba(255,255,255,.13); border-color: rgba(255,255,255,.24); font-weight: 650; }
+        .edit-trailer-actions .edit-artwork-btn.is-danger { color: rgba(255,175,175,.82); }
+        .edit-trailer-actions .edit-artwork-btn:disabled { opacity: .3; pointer-events: none; }
         .artwork-wizard-overlay { position: fixed; inset: 0; z-index: 10020; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.62); backdrop-filter: blur(18px); }
         .artwork-wizard { width: min(1280px, 96vw); height: min(880px, 92vh); background: rgba(12,12,18,0.99); border: 1px solid rgba(255,255,255,0.11); border-radius: 22px; box-shadow: 0 30px 80px rgba(0,0,0,.82); display: flex; flex-direction: column; overflow: hidden; }
         .artwork-wizard.history-artwork-source-dialog { width: min(920px, 92vw); height: auto; border-radius: 8px; background: #10131d; }
@@ -11328,6 +11371,7 @@ function renderFolderList(folders) {
 
     function openEditGameModal(card) {
         ensureDoorpiOverlayStyles();
+        window.stopHomeFeatureTrailer?.();
 
         const currentName = card.querySelector('.title')?.innerText?.trim() ||
             card.querySelector('.nav-vertical-card-title')?.innerText?.trim() || '';
@@ -11387,6 +11431,10 @@ function renderFolderList(folders) {
             ? (Object.prototype.hasOwnProperty.call(storeAutoAddSettings, storeIdForSettings) ? !!storeAutoAddSettings[storeIdForSettings] : true)
             : false;
         const contextArt = card.dataset.staticVertical || card.dataset.vertical || '';
+        const currentTrailerSource = libraryItem?.trailerSource || card.dataset.trailerSource || '';
+        const currentTrailerType = libraryItem?.trailerType || card.dataset.trailerType || '';
+        let pendingTrailerSource = currentTrailerSource;
+        let pendingTrailerType = currentTrailerType;
 
         const sharedWithNames = (() => {
             try { return JSON.parse(card.dataset.sharedWithUserNames || '[]'); } catch { return []; }
@@ -11430,6 +11478,27 @@ function renderFolderList(folders) {
                 </div>
             </div>
         ` : '';
+
+        const trailerHtml = !isStoreCard && !isMediaCard ? `
+            <div class="edit-modal-field edit-trailer-field">
+                <label class="edit-modal-label">TRAILER</label>
+                <div class="edit-trailer-summary" id="editTrailerSummary">
+                    <span class="edit-trailer-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m10 9 5 3-5 3V9Z" fill="currentColor" stroke="none"/></svg>
+                    </span>
+                    <span><strong id="editTrailerStatus"></strong><small id="editTrailerHint"></small></span>
+                </div>
+                <div class="edit-trailer-url-row" id="editTrailerUrlRow" hidden>
+                    <input class="edit-modal-input" id="editTrailerUrlInput" type="url" autocomplete="off" spellcheck="false" placeholder="https://youtube.com/watch?v=..." tabindex="0" />
+                </div>
+                <div class="edit-artwork-actions edit-trailer-actions">
+                    <button class="edit-artwork-btn is-primary" id="editTrailerSearchBtn" type="button" tabindex="0" data-nav-down="#editTrailerLocalBtn">Selecionar trailer</button>
+                    <button class="edit-artwork-btn" id="editTrailerLocalBtn" type="button" tabindex="0" data-nav-up="#editTrailerSearchBtn" data-nav-right="#editTrailerUrlBtn" data-nav-down="#editCancelBtn">Vídeo local</button>
+                    <button class="edit-artwork-btn" id="editTrailerUrlBtn" type="button" tabindex="0" data-nav-up="#editTrailerSearchBtn" data-nav-left="#editTrailerLocalBtn" data-nav-right="#editTrailerRemoveBtn" data-nav-down="#editCancelBtn">Usar URL</button>
+                    <button class="edit-artwork-btn is-danger" id="editTrailerRemoveBtn" type="button" tabindex="0" data-nav-up="#editTrailerSearchBtn" data-nav-left="#editTrailerUrlBtn" data-nav-down="#editSaveBtn">Remover</button>
+                </div>
+                <span class="edit-modal-input-hint">O trailer começa automaticamente após um breve foco. Arquivos locais funcionam offline.</span>
+            </div>` : '';
 
         const overlay = document.createElement('div');
         overlay.className = 'edit-modal-overlay';
@@ -11476,6 +11545,7 @@ function renderFolderList(folders) {
                             <button class="edit-artwork-btn" id="editArtworkLocalBtn" type="button" tabindex="0">${t('artworkChooseComputer')}</button>
                         </div>
                     </div>
+                    ${trailerHtml}
                     ${mediaExtras}
                     ${isStoreCard ? `
                     <div class="edit-modal-field" style="margin-top: 8px;">
@@ -11491,8 +11561,8 @@ function renderFolderList(folders) {
                     </div>` : ''}
                 </div>
                 <div class="edit-modal-actions">
-                    <button class="modal-btn cancel" id="editCancelBtn">${typeof t === 'function' ? t('editModalCancel', 'Cancelar') : 'Cancelar'}</button>
-                    <button class="modal-btn primary" id="editSaveBtn">${typeof t === 'function' ? t('editModalSave', 'Salvar') : 'Salvar'}</button>
+                    <button class="modal-btn cancel" id="editCancelBtn" data-nav-up="#editTrailerLocalBtn" data-nav-right="#editSaveBtn">${typeof t === 'function' ? t('editModalCancel', 'Cancelar') : 'Cancelar'}</button>
+                    <button class="modal-btn primary" id="editSaveBtn" data-nav-up="#editTrailerRemoveBtn" data-nav-left="#editCancelBtn">${typeof t === 'function' ? t('editModalSave', 'Salvar') : 'Salvar'}</button>
                 </div>  
             </div>
         `;
@@ -11512,6 +11582,8 @@ function renderFolderList(folders) {
         const doClose = () => {
             isEditModalOpen = false;
             window._editLaunchCommandBrowseResult = null;
+            window._editTrailerBrowseResult = null;
+            window._editTrailerBrowserUrlResult = null;
             window._vkbForceClose();
             overlay.style.opacity = '0';
             overlay.style.transition = 'opacity 0.12s';
@@ -11536,6 +11608,92 @@ function renderFolderList(folders) {
 
         overlay.querySelector('#editArtworkLocalBtn')?.addEventListener('click', () => {
             openArtworkWizard(card, 'local', card.dataset.assetQuery || input.value.trim() || currentName);
+        });
+
+        const trailerStatus = overlay.querySelector('#editTrailerStatus');
+        const trailerHint = overlay.querySelector('#editTrailerHint');
+        const trailerUrlRow = overlay.querySelector('#editTrailerUrlRow');
+        const trailerUrlInput = overlay.querySelector('#editTrailerUrlInput');
+        const trailerRemoveBtn = overlay.querySelector('#editTrailerRemoveBtn');
+        const trailerDisplayName = source => {
+            if (!source) return 'Nenhum trailer';
+            if (pendingTrailerType === 'local') {
+                if (source.startsWith('https://data.local/')) return 'Vídeo local';
+                try { return decodeURIComponent(source.split(/[\\/]/).pop() || 'Vídeo local'); }
+                catch { return 'Vídeo local'; }
+            }
+            try { return new URL(source).hostname.replace(/^www\./, ''); }
+            catch { return 'Trailer online'; }
+        };
+        const refreshTrailerSummary = () => {
+            if (!trailerStatus) return;
+            trailerStatus.textContent = trailerDisplayName(pendingTrailerSource);
+            if (trailerHint) trailerHint.textContent = pendingTrailerSource
+                ? (pendingTrailerType === 'local' ? 'Salvo no dispositivo' : 'Requer conexão com a internet')
+                : 'Adicione um vídeo local ou uma URL do YouTube';
+            if (trailerRemoveBtn) trailerRemoveBtn.disabled = !pendingTrailerSource;
+        };
+
+        if (trailerUrlInput && pendingTrailerSource && pendingTrailerType !== 'local') {
+            trailerUrlInput.value = pendingTrailerSource;
+            trailerUrlRow.hidden = false;
+        }
+        refreshTrailerSummary();
+
+        window._editTrailerBrowseResult = path => {
+            if (!path || !document.body.contains(overlay)) return;
+            pendingTrailerSource = path;
+            pendingTrailerType = 'local';
+            if (trailerUrlInput) trailerUrlInput.value = '';
+            if (trailerUrlRow) trailerUrlRow.hidden = true;
+            refreshTrailerSummary();
+            overlay.querySelector('#editTrailerLocalBtn')?.focus({ preventScroll: true });
+        };
+
+        window._editTrailerBrowserUrlResult = url => {
+            if (!url || !document.body.contains(overlay)) return;
+            pendingTrailerSource = url;
+            pendingTrailerType = 'url';
+            if (trailerUrlInput) trailerUrlInput.value = url;
+            if (trailerUrlRow) trailerUrlRow.hidden = false;
+            refreshTrailerSummary();
+            setTimeout(() => overlay.querySelector('#editTrailerSearchBtn')?.focus({ preventScroll: true }), 180);
+        };
+
+        overlay.querySelector('#editTrailerLocalBtn')?.addEventListener('click', () => {
+            postToHost({
+                action: 'browseGameTrailer',
+                dialogTitle: 'Selecionar trailer',
+                initialPath: pendingTrailerType === 'local' && !pendingTrailerSource.startsWith('https://data.local/')
+                    ? pendingTrailerSource
+                    : ''
+            });
+        });
+
+        overlay.querySelector('#editTrailerUrlBtn')?.addEventListener('click', () => {
+            if (!trailerUrlRow || !trailerUrlInput) return;
+            trailerUrlRow.hidden = false;
+            if (pendingTrailerType !== 'local') trailerUrlInput.value = pendingTrailerSource;
+            requestAnimationFrame(() => trailerUrlInput.focus({ preventScroll: true }));
+        });
+
+        trailerUrlInput?.addEventListener('input', () => {
+            pendingTrailerSource = trailerUrlInput.value.trim();
+            pendingTrailerType = pendingTrailerSource ? 'url' : '';
+            refreshTrailerSummary();
+        });
+
+        overlay.querySelector('#editTrailerSearchBtn')?.addEventListener('click', () => {
+            const query = encodeURIComponent(`${input.value.trim() || currentName} trailer oficial`);
+            postToHost({ action: 'openTrailerBrowserCapture', url: `https://www.youtube.com/results?search_query=${query}` });
+        });
+
+        trailerRemoveBtn?.addEventListener('click', () => {
+            pendingTrailerSource = '';
+            pendingTrailerType = '';
+            if (trailerUrlInput) trailerUrlInput.value = '';
+            if (trailerUrlRow) trailerUrlRow.hidden = true;
+            refreshTrailerSummary();
         });
 
         window._editLaunchCommandBrowseResult = (path) => {
@@ -11575,6 +11733,20 @@ function renderFolderList(folders) {
 
             const launchCommandChanged = canEditLaunchCommand && !!newLaunchTarget && newLaunchTarget !== currentLaunchTarget;
             const webUrlChanged = canEditWebUrl && newLaunchTarget !== currentLaunchTarget;
+            if (pendingTrailerType === 'url' && pendingTrailerSource && !/^https?:\/\//i.test(pendingTrailerSource))
+                pendingTrailerSource = `https://${pendingTrailerSource}`;
+            if (pendingTrailerType === 'url' && pendingTrailerSource) {
+                try {
+                    const trailerUrl = new URL(pendingTrailerSource);
+                    if (!['http:', 'https:'].includes(trailerUrl.protocol) || !trailerUrl.hostname) throw new Error('invalid');
+                } catch {
+                    trailerUrlInput?.classList.add('error');
+                    trailerUrlInput?.focus({ preventScroll: true });
+                    return;
+                }
+            }
+            const trailerChanged = !isStoreCard && !isMediaCard &&
+                (pendingTrailerSource !== currentTrailerSource || pendingTrailerType !== currentTrailerType);
 
             const storeAutoAddCheckbox = overlay.querySelector('#editStoreAutoAdd');
             const newStoreAutoAdd = storeAutoAddCheckbox ? storeAutoAddCheckbox.checked : storeAutoAdd;
@@ -11650,12 +11822,16 @@ function renderFolderList(folders) {
                     window._storeAutoAddSettings[storeId] = newStoreAutoAdd;
                     postToHost({ action: 'setStoreAutoAdd', store: storeId, enabled: newStoreAutoAdd });
                 }
-            } else if (nameChanged || launchCommandChanged || webUrlChanged) {
+            } else if (nameChanged || launchCommandChanged || webUrlChanged || trailerChanged) {
                 const gameId = editEntityId;
                 const payload = { action: 'editGame', gameId };
                 if (nameChanged) payload.newName = newName;
                 if (launchCommandChanged) payload.newLaunchCommand = newLaunchTarget;
                 if (webUrlChanged) payload.newUrl = newLaunchTarget;
+                if (trailerChanged) {
+                    payload.newTrailerSource = pendingTrailerSource;
+                    payload.newTrailerType = pendingTrailerType;
+                }
                 postToHost(payload);
 
                 if (launchCommandChanged) {
@@ -11699,7 +11875,7 @@ function renderFolderList(folders) {
             if (window._vkbIsOpen) return;
 
             // 1. Enter no Input -> Abre o teclado virtual
-            if ((e.target.id === 'editNameInput' || e.target.id === 'editLaunchCommandInput') && e.key === 'Enter') {
+            if ((e.target.id === 'editNameInput' || e.target.id === 'editLaunchCommandInput' || e.target.id === 'editTrailerUrlInput') && e.key === 'Enter') {
                 e.preventDefault();
                 window._vkbOpen?.(e.target);
                 return;

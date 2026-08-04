@@ -1220,8 +1220,12 @@ namespace Doorpi
                 "DOORPI_HOME_WEBVIEW_EXTRA_ARGS");
             DoorpiBootDiagnostics.Log("home-webview-args", homeBrowserArgs);
             DoorpiBootDiagnostics.Log("home-webview-runtime", GetAvailableWebView2RuntimeVersion());
+            string homeTrailerExtensionPath = GetBundledHomeTrailerExtensionPath();
             var environmentStartedAt = Stopwatch.StartNew();
-            var options = new CoreWebView2EnvironmentOptions(homeBrowserArgs);
+            var options = new CoreWebView2EnvironmentOptions(homeBrowserArgs)
+            {
+                AreBrowserExtensionsEnabled = true
+            };
             var environment = await CoreWebView2Environment.CreateAsync(null, null, options);
             DoorpiBootDiagnostics.Log("home-webview-environment-created", $"elapsedMs={environmentStartedAt.ElapsedMilliseconds}");
 
@@ -1240,6 +1244,11 @@ namespace Doorpi
                 Volatile.Read(ref _consoleShellIntroSkippable) == 1;
             await webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
                 $"window.__doorpiBootMode = {bootMode}; window.__doorpiUseNativeIntro = false; window.__doorpiNativeIntroComplete = true; window.__doorpiConsoleShellExplorerReady = {(consoleShellExplorerReadyForUi ? "true" : "false")}; window.__doorpiConsoleShellIntroSkippable = {(consoleShellIntroSkippableForUi ? "true" : "false")};");
+            bool homeTrailerExtensionReady = await InstallHomeTrailerExtensionAsync(
+                webView.CoreWebView2,
+                homeTrailerExtensionPath);
+            await webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
+                $"window.__doorpiHomeTrailerExtensionReady = {(homeTrailerExtensionReady ? "true" : "false")};");
             ApplyProductionWebViewSettings(webView.CoreWebView2);
             webView.CoreWebView2.PermissionRequested += OnWebViewPermissionRequested;
             webView.CoreWebView2.ProcessFailed += OnMainWebViewProcessFailed;
@@ -14598,6 +14607,7 @@ namespace Doorpi
                                 if (!string.IsNullOrWhiteSpace(game.EmulatorId))
                                     SuppressEmulatorGame(game);
                                 DeleteGameImages(game);
+                                DeleteManagedTrailer(game.TrailerSource);
                                 games.Remove(game);
                                 SaveGames(games);
                                 Debug.WriteLine($"[deleteGame] Jogo Removido: {gameId}");
@@ -15049,6 +15059,25 @@ namespace Doorpi
                         }));
                     }).Task.Unwrap();
                 }
+                else if (action == "browseGameTrailer")
+                {
+                    string dialogTitle = GetStr(root, "dialogTitle", "Selecionar trailer");
+                    string initialPath = GetStr(root, "initialPath");
+                    await Dispatcher.InvokeAsync(async () =>
+                    {
+                        string? selectedFile = await ShowDoorpiFileBrowserAsync(
+                            dialogTitle,
+                            false,
+                            "Vídeos compatíveis (*.mp4;*.webm;*.mov;*.m4v;*.ogv;*.ogg)|*.mp4;*.webm;*.mov;*.m4v;*.ogv;*.ogg|Todos os arquivos (*.*)|*.*",
+                            "gameTrailer",
+                            initialPath);
+                        webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                        {
+                            type = "gameTrailerSelected",
+                            path = selectedFile ?? ""
+                        }));
+                    }).Task.Unwrap();
+                }
                 else if (action == "editGame" && root.TryGetProperty("gameId", out var editIdEl))
                 {
                     string gameId = editIdEl.GetString() ?? "";
@@ -15059,6 +15088,11 @@ namespace Doorpi
                     bool hasNewUrl = root.TryGetProperty("newUrl", out var editUrlEl);
                     string newUrl = hasNewUrl ? (editUrlEl.GetString() ?? "").Trim() : "";
                     bool hasDisableGamepad = root.TryGetProperty("disableGamepadControl", out var dgcEl);
+                    bool hasNewTrailerSource = root.TryGetProperty("newTrailerSource", out var trailerSourceEl);
+                    string newTrailerSource = hasNewTrailerSource ? (trailerSourceEl.GetString() ?? "").Trim() : "";
+                    string newTrailerType = root.TryGetProperty("newTrailerType", out var trailerTypeEl)
+                        ? (trailerTypeEl.GetString() ?? "").Trim().ToLowerInvariant()
+                        : "";
 
                     if (!string.IsNullOrEmpty(gameId))
                     {
@@ -15084,6 +15118,35 @@ namespace Doorpi
                                     : newLaunchCommand;
                                 changed = true;
                                 Debug.WriteLine($"[editGame] Comando atualizado para: {game.Name}");
+                            }
+                            if (hasNewTrailerSource)
+                            {
+                                var savedTrailer = await SaveGameTrailerAsync(
+                                    gameId,
+                                    newTrailerSource,
+                                    newTrailerType,
+                                    game.TrailerSource).ConfigureAwait(true);
+                                if (savedTrailer.Success)
+                                {
+                                    game.TrailerSource = savedTrailer.Source;
+                                    game.TrailerType = savedTrailer.Type;
+                                    changed = true;
+                                    webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                                    {
+                                        type = "gameTrailerUpdated",
+                                        gameId,
+                                        source = savedTrailer.Source,
+                                        trailerType = savedTrailer.Type
+                                    }));
+                                }
+                                else
+                                {
+                                    webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                                    {
+                                        type = "gameTrailerUpdateFailed",
+                                        gameId
+                                    }));
+                                }
                             }
                             if (changed) SaveGames(games);
                         }
@@ -15522,6 +15585,18 @@ namespace Doorpi
                     {
                         BeginGenericBrowserWebAppUrlCapture();
                         await OpenWebViewInlineAsync(DoorpiBrowserHomeUrl, false, "Browser", "", "", true);
+                    });
+                }
+                else if (action == "openTrailerBrowserCapture")
+                {
+                    string searchUrl = GetStr(root, "url", "https://www.youtube.com/");
+                    if (!Uri.TryCreate(searchUrl, UriKind.Absolute, out var parsedSearch) ||
+                        (parsedSearch.Scheme != Uri.UriSchemeHttp && parsedSearch.Scheme != Uri.UriSchemeHttps))
+                        searchUrl = "https://www.youtube.com/";
+                    _ = Dispatcher.InvokeAsync(async () =>
+                    {
+                        BeginGenericBrowserUrlCapture("gameTrailer");
+                        await OpenWebViewInlineAsync(searchUrl, false, "Buscar trailer", "", "", true);
                     });
                 }
                 else if (action == "openImageBrowserCapture")
@@ -16539,6 +16614,91 @@ namespace Doorpi
             {
                 Debug.WriteLine("[Artwork] Copia local falhou: " + ex.Message);
                 return null;
+            }
+        }
+
+        private static readonly HashSet<string> SupportedTrailerExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".mp4", ".webm", ".mov", ".m4v", ".ogv", ".ogg"
+        };
+
+        private void DeleteManagedTrailer(string source)
+        {
+            try
+            {
+                if (!Uri.TryCreate(source, UriKind.Absolute, out var uri) ||
+                    !uri.Host.Equals("data.local", StringComparison.OrdinalIgnoreCase) ||
+                    !uri.AbsolutePath.Contains("/trailers/", StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                string root = Path.GetFullPath(dataFolder).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                string relative = Uri.UnescapeDataString(uri.AbsolutePath.TrimStart('/'))
+                    .Replace('/', Path.DirectorySeparatorChar);
+                string fullPath = Path.GetFullPath(Path.Combine(dataFolder, relative));
+                if (fullPath.StartsWith(root, StringComparison.OrdinalIgnoreCase) && File.Exists(fullPath))
+                    File.Delete(fullPath);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[Trailer] Não foi possível remover o arquivo anterior: " + ex.Message);
+            }
+        }
+
+        private async Task<(bool Success, string Source, string Type)> SaveGameTrailerAsync(
+            string gameId,
+            string requestedSource,
+            string requestedType,
+            string previousSource)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(requestedSource))
+                {
+                    DeleteManagedTrailer(previousSource);
+                    return (true, "", "");
+                }
+
+                if (requestedType.Equals("local", StringComparison.OrdinalIgnoreCase))
+                {
+                    string sourcePath = Path.GetFullPath(requestedSource);
+                    string extension = Path.GetExtension(sourcePath).ToLowerInvariant();
+                    if (!File.Exists(sourcePath) || !SupportedTrailerExtensions.Contains(extension))
+                        return (false, "", "");
+
+                    string trailerFolder = Path.Combine(dataFolder, "users", currentUserId, "trailers");
+                    Directory.CreateDirectory(trailerFolder);
+                    string hash = Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes(gameId)))[..16].ToLowerInvariant();
+                    string destination = Path.Combine(trailerFolder, hash + extension);
+
+                    if (string.Equals(sourcePath, destination, StringComparison.OrdinalIgnoreCase))
+                    {
+                        string existingSource = $"https://data.local/users/{Uri.EscapeDataString(currentUserId)}/trailers/{Uri.EscapeDataString(Path.GetFileName(destination))}";
+                        return (true, existingSource, "local");
+                    }
+
+                    await using (var sourceStream = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    await using (var destinationStream = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None))
+                        await sourceStream.CopyToAsync(destinationStream).ConfigureAwait(false);
+
+                    string savedSource = $"https://data.local/users/{Uri.EscapeDataString(currentUserId)}/trailers/{Uri.EscapeDataString(Path.GetFileName(destination))}";
+                    if (!string.Equals(previousSource, savedSource, StringComparison.OrdinalIgnoreCase))
+                        DeleteManagedTrailer(previousSource);
+                    return (true, savedSource, "local");
+                }
+
+                if (!Uri.TryCreate(requestedSource, UriKind.Absolute, out var remoteUri) ||
+                    (remoteUri.Scheme != Uri.UriSchemeHttp && remoteUri.Scheme != Uri.UriSchemeHttps))
+                    return (false, "", "");
+
+                bool isYoutube = remoteUri.Host.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) ||
+                                 remoteUri.Host.Equals("youtu.be", StringComparison.OrdinalIgnoreCase);
+                DeleteManagedTrailer(previousSource);
+                return (true, remoteUri.AbsoluteUri, isYoutube ? "youtube" : "url");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[Trailer] Falha ao salvar: " + ex.Message);
+                return (false, "", "");
             }
         }
 
@@ -18203,6 +18363,8 @@ namespace Doorpi
                 staticHero = game.HeroStaticImage,
                 logo = game.LogoImage,
                 staticLogo = game.LogoStaticImage,
+                trailerSource = game.TrailerSource,
+                trailerType = game.TrailerType,
                 iconBase64,
                 totalPlaytimeMinutes = game.TotalPlaytimeMinutes,
                 lastSessionMinutes = game.LastSessionMinutes,
@@ -18283,6 +18445,8 @@ namespace Doorpi
                 staticHero = game.HeroStaticImage,
                 logo = game.LogoImage,
                 staticLogo = game.LogoStaticImage,
+                trailerSource = game.TrailerSource,
+                trailerType = game.TrailerType,
                 iconBase64,
                 totalPlaytimeMinutes = game.TotalPlaytimeMinutes,
                 lastSessionMinutes = game.LastSessionMinutes,

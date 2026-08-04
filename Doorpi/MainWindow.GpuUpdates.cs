@@ -1197,7 +1197,11 @@ namespace Doorpi
                 homeRenderMode,
                 "DOORPI_HOME_WEBVIEW_EXTRA_ARGS");
             DoorpiBootDiagnostics.Log("home-webview-recreate-args", homeBrowserArgs);
-            var options = new Microsoft.Web.WebView2.Core.CoreWebView2EnvironmentOptions(homeBrowserArgs);
+            string homeTrailerExtensionPath = GetBundledHomeTrailerExtensionPath();
+            var options = new Microsoft.Web.WebView2.Core.CoreWebView2EnvironmentOptions(homeBrowserArgs)
+            {
+                AreBrowserExtensionsEnabled = true
+            };
             var environment = await Microsoft.Web.WebView2.Core.CoreWebView2Environment.CreateAsync(null, null, options);
             await webView.EnsureCoreWebView2Async(environment);
             ApplyLayoutScaleToWebView(LoadLayoutScale());
@@ -1210,6 +1214,11 @@ namespace Doorpi
                 Volatile.Read(ref _consoleShellIntroSkippable) == 1;
             await webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
                 $"window.__doorpiBootMode = {bootMode}; window.__doorpiUseNativeIntro = false; window.__doorpiNativeIntroComplete = true; window.__doorpiConsoleShellExplorerReady = {(consoleShellExplorerReadyForUi ? "true" : "false")}; window.__doorpiConsoleShellIntroSkippable = {(consoleShellIntroSkippableForUi ? "true" : "false")};");
+            bool homeTrailerExtensionReady = await InstallHomeTrailerExtensionAsync(
+                webView.CoreWebView2,
+                homeTrailerExtensionPath);
+            await webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
+                $"window.__doorpiHomeTrailerExtensionReady = {(homeTrailerExtensionReady ? "true" : "false")};");
             ApplyProductionWebViewSettings(webView.CoreWebView2);
             webView.CoreWebView2.PermissionRequested += OnWebViewPermissionRequested;
             webView.CoreWebView2.ProcessFailed += OnMainWebViewProcessFailed;

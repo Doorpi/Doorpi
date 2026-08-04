@@ -857,7 +857,13 @@
     }
     function focusItem(item) {
         item?.focus?.({preventScroll:true});
-        item?.scrollIntoView?.({block:'nearest',inline:'nearest'});
+        const detailScroller=item?.closest?.('.cc-detail-panel');
+        if (detailScroller) {
+            const scrollerRect=detailScroller.getBoundingClientRect(),itemRect=item.getBoundingClientRect();
+            const centerOffset=(itemRect.top+itemRect.height/2)-(scrollerRect.top+scrollerRect.height/2);
+            const maxScroll=Math.max(0,detailScroller.scrollHeight-detailScroller.clientHeight);
+            detailScroller.scrollTop=Math.max(0,Math.min(maxScroll,detailScroller.scrollTop+centerOffset));
+        } else item?.scrollIntoView?.({block:'nearest',inline:'nearest'});
     }
     function itemsIn(selector) {
         return state.overlay ? [...state.overlay.querySelectorAll(`${selector} [data-cc-focus]`)].filter(item => !item.disabled && item.offsetParent !== null) : [];
@@ -867,11 +873,18 @@
         const index = Math.max(0, items.indexOf(active));
         return items[Math.max(0, Math.min(items.length - 1, index + delta))];
     }
-    function spatialPopupNavigation(items, active, direction) {
-        if (!items.includes(active)) return items[0];
+    function focusItemsWithin(element) {
+        return element ? [...element.querySelectorAll('[data-cc-focus]')].filter(item => !item.disabled && item.offsetParent !== null) : [];
+    }
+    function spatialDirectionalCandidate(items, active, direction) {
+        if (!items.includes(active)) return null;
         const rect=active.getBoundingClientRect(),cx=rect.left+rect.width/2,cy=rect.top+rect.height/2;let best=null,score=Infinity;
         items.forEach(item=>{if(item===active)return;const next=item.getBoundingClientRect(),dx=next.left+next.width/2-cx,dy=next.top+next.height/2-cy;const valid=direction==='RIGHT'?dx>4:direction==='LEFT'?dx<-4:direction==='DOWN'?dy>4:dy<-4;if(!valid)return;const primary=(direction==='RIGHT'||direction==='LEFT')?Math.abs(dx):Math.abs(dy),cross=(direction==='RIGHT'||direction==='LEFT')?Math.abs(dy):Math.abs(dx),value=primary+cross*.35;if(value<score){score=value;best=item;}});
-        return best || moveWithin(items,active,(direction==='RIGHT'||direction==='DOWN')?1:-1);
+        return best;
+    }
+    function spatialPopupNavigation(items, active, direction) {
+        if (!items.includes(active)) return items[0];
+        return spatialDirectionalCandidate(items,active,direction) || moveWithin(items,active,(direction==='RIGHT'||direction==='DOWN')?1:-1);
     }
     function keyboardPopupNavigation(active, direction) {
         const rows = [...state.popup.element.querySelectorAll('.cc-key-row')]
@@ -1005,13 +1018,37 @@
             else if (direction==='RIGHT') target=detail[0]||active;
             else target=active;
         } else if (detail.includes(active)) {
-            const triggerItems = active.closest('.cc-trigger-grid') ? itemsIn('.cc-trigger-grid') : [];
-            const actionItems = active.closest('.cc-detail-actions') ? itemsIn('.cc-detail-actions') : [];
-            if (direction==='LEFT') target=selectedRow||active;
-            else if (triggerItems.length) target=gridGroupNavigation(triggerItems,active,direction,2)||spatialPopupNavigation(detail,active,direction)||pointer[0]||active;
-            else if (actionItems.length && direction==='RIGHT') target=moveWithin(actionItems,active,1)||active;
-            else if (direction==='DOWN') target=spatialPopupNavigation(detail,active,direction)||footer[0]||active;
-            else target=spatialPopupNavigation(detail,active,direction)||active;
+            const triggerItems = focusItemsWithin(active.closest('.cc-trigger-grid'));
+            const actionItems = focusItemsWithin(active.closest('.cc-detail-actions'));
+            const rangePairItems = focusItemsWithin(active.closest('.cc-pointer'));
+            const spatialTarget = spatialDirectionalCandidate(detail,active,direction);
+            const detailIndex = detail.indexOf(active);
+            const previousDetail = detailIndex>0 ? detail[detailIndex-1] : null;
+            const nextDetail = detailIndex>=0 ? detail[detailIndex+1] : null;
+            const upperTarget = state.mode === 'global' ? activeMode : (context[context.length-1]||activeMode);
+            if (triggerItems.length && direction==='LEFT') {
+                const triggerIndex=triggerItems.indexOf(active);
+                target=triggerIndex%2===1 ? triggerItems[triggerIndex-1] : (selectedRow||active);
+            }
+            else if (triggerItems.length) target=gridGroupNavigation(triggerItems,active,direction,2)||spatialTarget||(direction==='UP'?(previousDetail||upperTarget):direction==='DOWN'?(nextDetail||footer[0]||active):active);
+            else if (actionItems.length && (direction==='LEFT'||direction==='RIGHT')) {
+                const actionIndex=actionItems.indexOf(active);
+                target=direction==='LEFT' ? (actionIndex>0?actionItems[actionIndex-1]:(selectedRow||active)) : (actionItems[actionIndex+1]||active);
+            }
+            else if (rangePairItems.length && (direction==='LEFT'||direction==='RIGHT')) {
+                const rangeIndex=rangePairItems.indexOf(active);
+                target=direction==='LEFT' ? (rangeIndex>0?rangePairItems[rangeIndex-1]:(selectedRow||active)) : (rangePairItems[rangeIndex+1]||active);
+            }
+            else if (direction==='LEFT') target=selectedRow||active;
+            else if (direction==='UP') {
+                target=spatialTarget||previousDetail;
+                if (!target) { active.closest('.cc-detail-panel').scrollTop=0; target=upperTarget||active; }
+            }
+            else if (direction==='DOWN') {
+                target=spatialTarget||nextDetail;
+                if (!target) { const scroller=active.closest('.cc-detail-panel'); scroller.scrollTop=scroller.scrollHeight; target=footer[0]||active; }
+            }
+            else target=spatialTarget||active;
         } else if (pointer.includes(active)) {
             if (direction==='LEFT'||direction==='RIGHT') target=moveWithin(pointer,active,direction==='RIGHT'?1:-1)||active;
             else if (direction==='UP') target=rows[rows.length-1]||headActions[0]||active;

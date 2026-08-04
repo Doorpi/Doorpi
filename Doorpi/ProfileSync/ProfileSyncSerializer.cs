@@ -95,6 +95,14 @@ public static class ProfileSyncSerializer
                 Id = profile.Id ?? "",
                 Name = profile.Name ?? "",
                 Category = profile.Category ?? "web",
+                TargetKind = string.Equals(profile.Id, "global-default", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(profile.Category, "global", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(profile.TargetKind, "global", StringComparison.OrdinalIgnoreCase)
+                    ? "global"
+                    : string.Equals(profile.Category, "store", StringComparison.OrdinalIgnoreCase) ||
+                      string.Equals(profile.TargetKind, "store", StringComparison.OrdinalIgnoreCase)
+                        ? "store"
+                        : "media",
                 BaseProfileId = profile.BaseProfileId ?? "",
                 Enabled = profile.Enabled,
                 MouseSensitivity = profile.MouseSensitivity,

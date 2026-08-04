@@ -1018,13 +1018,24 @@ namespace Doorpi
             Grid.SetRow(browser, 1);
             shell.Children.Add(browser);
 
-            _webAppLoadingOverlay = BuildWebAppLoadingOverlay(appName, logoImg);
-            Grid.SetRowSpan(_webAppLoadingOverlay, 2);
-            Panel.SetZIndex(_webAppLoadingOverlay, 100);
-            shell.Children.Add(_webAppLoadingOverlay);
-            _webAppLoadingActive = true;
-            _webAppLoadingReleaseStarted = false;
-            _webAppLoadingStartedAtUtc = DateTime.UtcNow;
+            bool isTrailerCapture = _genericBrowserCaptureWebAppUrl &&
+                                    string.Equals(_genericBrowserCaptureTarget, "gameTrailer", StringComparison.OrdinalIgnoreCase);
+            if (!isTrailerCapture)
+            {
+                _webAppLoadingOverlay = BuildWebAppLoadingOverlay(appName, logoImg);
+                Grid.SetRowSpan(_webAppLoadingOverlay, 2);
+                Panel.SetZIndex(_webAppLoadingOverlay, 100);
+                shell.Children.Add(_webAppLoadingOverlay);
+                _webAppLoadingActive = true;
+                _webAppLoadingReleaseStarted = false;
+                _webAppLoadingStartedAtUtc = DateTime.UtcNow;
+            }
+            else
+            {
+                _webAppLoadingOverlay = null;
+                _webAppLoadingActive = false;
+                _webAppLoadingReleaseStarted = false;
+            }
 
             _genericBrowserWidgetsPanel = new Border
             {
@@ -1114,7 +1125,7 @@ namespace Doorpi
             }
             catch { }
             _genericBrowserExtensionPopupView = null;
-            UnhookGenericBrowserExtensionsOutsideClose();
+            DetachGenericBrowserExtensionsOutsideClose();
         }
 
         private bool HandleGenericBrowserExtensionsBack()
@@ -1137,7 +1148,7 @@ namespace Doorpi
             _genericBrowserExtensionOutsideCloseHooked = true;
         }
 
-        private void UnhookGenericBrowserExtensionsOutsideClose()
+        private void DetachGenericBrowserExtensionsOutsideClose()
         {
             if (!_genericBrowserExtensionOutsideCloseHooked) return;
             PreviewMouseDown -= OnGenericBrowserExtensionsOutsideMouseDown;
@@ -2162,6 +2173,22 @@ namespace Doorpi
             value = value.Trim();
             return Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
                    (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+        }
+
+        private static bool IsYouTubeTrailerPageUrl(string value)
+        {
+            if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)) return false;
+            string host = uri.Host.ToLowerInvariant();
+            if (host.Equals("youtu.be", StringComparison.OrdinalIgnoreCase))
+                return uri.AbsolutePath.Trim('/').Length > 0;
+            if (!host.Equals("youtube.com", StringComparison.OrdinalIgnoreCase) &&
+                !host.EndsWith(".youtube.com", StringComparison.OrdinalIgnoreCase))
+                return false;
+            bool isWatch = uri.AbsolutePath.Equals("/watch", StringComparison.OrdinalIgnoreCase) &&
+                           uri.Query.Split('&', StringSplitOptions.RemoveEmptyEntries)
+                               .Any(part => part.TrimStart('?').StartsWith("v=", StringComparison.OrdinalIgnoreCase) &&
+                                            part.TrimStart('?').Length > 2);
+            return isWatch || uri.AbsolutePath.StartsWith("/shorts/", StringComparison.OrdinalIgnoreCase);
         }
 
         private void BeginGenericBrowserWebAppUrlCapture()
@@ -6817,6 +6844,8 @@ namespace Doorpi
                 url = "https://www.steamgriddb.com/profile/preferences/api";
 
             bool isUtility = url.Contains("steamgriddb.com") || url.Contains("chromewebstore.google.com");
+            bool isTrailerCapture = isGenericBrowser && _genericBrowserCaptureWebAppUrl &&
+                                    string.Equals(_genericBrowserCaptureTarget, "gameTrailer", StringComparison.OrdinalIgnoreCase);
 
             if (_ytWebView != null)
             {
@@ -6867,7 +6896,7 @@ namespace Doorpi
 
             _currentWebAppUrl = url;
 
-            if (!isUtility) SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg, "app");
+            if (!isUtility && !isTrailerCapture) SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg, "app");
 
             _ytClosing = false;
             _mediaWebViewProcessDegraded = false;
@@ -6883,7 +6912,7 @@ namespace Doorpi
 
             void ReleaseDoorpiLaunchToWebAppWindow()
             {
-                if (doorpiLaunchReleasedToWebApp || isUtility || _webAppWindow == null)
+                if (doorpiLaunchReleasedToWebApp || isUtility || isTrailerCapture || _webAppWindow == null)
                     return;
 
                 doorpiLaunchReleasedToWebApp = true;
@@ -6941,9 +6970,16 @@ namespace Doorpi
                 {
                     Title = string.IsNullOrEmpty(appName) ? "Doorpi Web App" : appName,
                     WindowStyle = WindowStyle.None,
-                    WindowState = WindowState.Maximized,
-                    Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.Black),
-                    ShowInTaskbar = false
+                    WindowState = isTrailerCapture ? WindowState.Normal : WindowState.Maximized,
+                    Width = isTrailerCapture ? Math.Min(1420, SystemParameters.WorkArea.Width * 0.82) : SystemParameters.WorkArea.Width,
+                    Height = isTrailerCapture ? Math.Min(900, SystemParameters.WorkArea.Height * 0.82) : SystemParameters.WorkArea.Height,
+                    MinWidth = isTrailerCapture ? Math.Min(760, SystemParameters.WorkArea.Width * 0.72) : 0,
+                    MinHeight = isTrailerCapture ? Math.Min(500, SystemParameters.WorkArea.Height * 0.72) : 0,
+                    WindowStartupLocation = isTrailerCapture ? WindowStartupLocation.CenterOwner : WindowStartupLocation.Manual,
+                    ResizeMode = isTrailerCapture ? ResizeMode.NoResize : ResizeMode.CanResize,
+                    Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(8, 10, 18)),
+                    ShowInTaskbar = false,
+                    Owner = isTrailerCapture ? this : null
                 };
 
                 if (isGenericBrowser)
@@ -7181,6 +7217,13 @@ namespace Doorpi
                     }
                     UpdateGenericBrowserActiveTab(newUrl, newUrl);
                     Dispatcher.Invoke(UpdateGenericBrowserChrome);
+                    if (_genericBrowserCaptureWebAppUrl &&
+                        string.Equals(_genericBrowserCaptureTarget, "gameTrailer", StringComparison.OrdinalIgnoreCase) &&
+                        IsYouTubeTrailerPageUrl(newUrl))
+                    {
+                        TryCompleteGenericBrowserWebAppUrlCapture(newUrl);
+                        return;
+                    }
                 }
 
                 if (newUrl.Contains("chromewebstore.google.com/detail/"))

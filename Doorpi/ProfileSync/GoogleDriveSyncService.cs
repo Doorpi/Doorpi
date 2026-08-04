@@ -698,8 +698,37 @@ public sealed class GoogleDriveSyncService
         if (profileFile == null) return null;
 
         CloudProfileV1? profile = ProfileSyncSerializer.DeserializeProfile(Encoding.UTF8.GetString(profileFile.Content));
-        if (profile == null || profile.SchemaVersion != 1)
+        if (profile == null ||
+            profile.SchemaVersion < 1 ||
+            profile.SchemaVersion > ProfileSyncSnapshotFactory.CurrentSchemaVersion)
             throw new InvalidDataException("O perfil remoto usa um formato inválido ou incompatível.");
+
+        // Version 1 snapshots have no controller configuration. Explicit nulls
+        // written by intermediate builds are optional empty sections as well.
+        profile.ProfilePhoto ??= new CloudProfilePhotoV1();
+        profile.Games ??= new List<CloudGameHistoryEntryV1>();
+        profile.ControlProfiles ??= new List<CloudControlProfileV1>();
+        profile.ControlAssignments ??= new List<CloudControlAssignmentV1>();
+        foreach (CloudControlProfileV1 controlProfile in profile.ControlProfiles)
+        {
+            controlProfile.TargetKind =
+                string.Equals(controlProfile.Id, "global-default", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(controlProfile.Category, "global", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(controlProfile.TargetKind, "global", StringComparison.OrdinalIgnoreCase)
+                    ? "global"
+                    : string.Equals(controlProfile.Category, "store", StringComparison.OrdinalIgnoreCase) ||
+                      string.Equals(controlProfile.TargetKind, "store", StringComparison.OrdinalIgnoreCase)
+                        ? "store"
+                        : "media";
+            controlProfile.Bindings ??= new List<CloudControlBindingV1>();
+            foreach (CloudControlBindingV1 binding in controlProfile.Bindings)
+            {
+                binding.ControllerButtons ??= new List<string>();
+                binding.SecondaryControllerButtons ??= new List<string>();
+                binding.Action ??= new CloudControlActionV1();
+                binding.Action.VirtualKeys ??= new List<ushort>();
+            }
+        }
 
         RemoteFileContent? photo = profile.ProfilePhoto.HasPhoto
             ? await drive.DownloadFileAsync(RemoteProfilePhotoFileName, cancellationToken).ConfigureAwait(false)
@@ -810,6 +839,7 @@ public sealed class GoogleDriveSyncService
 
     private static ProfileSyncResult Failure(Exception exception)
     {
+        System.Diagnostics.Debug.WriteLine("[ProfileSync] Full failure: " + exception);
         SyncStatus status = Classify(exception);
         return new ProfileSyncResult
         {
@@ -845,6 +875,16 @@ public sealed class GoogleDriveSyncService
 
     private static string FailureMessage(Exception exception, SyncStatus status)
     {
+        if (FindException<InvalidDataException>(exception) is { } invalidData)
+            return Localized(
+                "Os dados de sincroniza\u00e7\u00e3o s\u00e3o incompat\u00edveis: " + invalidData.Message,
+                "The synchronization data is incompatible: " + invalidData.Message);
+
+        if (FindException<System.Text.Json.JsonException>(exception) != null)
+            return Localized(
+                "O perfil salvo no Google Drive cont\u00e9m dados inv\u00e1lidos. Os dados locais foram mantidos.",
+                "The profile stored in Google Drive contains invalid data. Local data was preserved.");
+
         if (FindException<GoogleOAuthCanceledException>(exception) is { } canceled)
             return Localized(canceled.Message, canceled.TimedOut
                 ? "The sign-in session expired. Try again."

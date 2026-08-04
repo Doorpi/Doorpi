@@ -42,6 +42,10 @@
     <None Update="wwwroot\ambience.wav">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="TrailerExtension\**\*.*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
     <None Update="wwwroot\grid-controller.js">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

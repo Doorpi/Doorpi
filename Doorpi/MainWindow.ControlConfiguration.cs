@@ -34,6 +34,8 @@ public partial class MainWindow
     private ControlBindingRoute[] _controlRuntimeRoutes = Array.Empty<ControlBindingRoute>();
     private string _controlRuntimeRoutesKey = "";
     private string _lastRuntimeControlTargetKey = "";
+    private bool _configuredCloseHoldOverlayVisible;
+    private long _configuredCloseHoldOverlayLastUpdateMs;
     private string _controlTargetResolutionIdentity = "";
     private string _controlTargetResolutionKey = "";
     private string _controlTargetResolutionCategory = "";
@@ -365,6 +367,7 @@ public partial class MainWindow
     {
         _controlEditorOpen = false;
         ReleaseConfiguredControlOutputs();
+        XInputButtonTracker.ConfigureSystemShortcutCompatibility(false, false, false, false);
         lock (_controlConfigurationLock)
         {
             _controlConfigurationCache = null;
@@ -537,6 +540,7 @@ public partial class MainWindow
             Volatile.Write(
                 ref _controlRuntimeAssignments,
                 document.Assignments.Select(CloneControlAssignment).ToArray());
+            UpdateSystemShortcutCompatibility(document);
             if (requiresMigration && !string.IsNullOrWhiteSpace(path))
                 SaveControlConfiguration(document, scheduleSync: false);
             return document;
@@ -568,6 +572,7 @@ public partial class MainWindow
             Volatile.Write(
                 ref _controlRuntimeAssignments,
                 document.Assignments.Select(CloneControlAssignment).ToArray());
+            UpdateSystemShortcutCompatibility(document);
         }
         if (scheduleSync)
             ScheduleProfileSync();
@@ -639,6 +644,40 @@ public partial class MainWindow
             "long-press" => "long-press",
             _ => "press"
         };
+
+    private static void UpdateSystemShortcutCompatibility(ControlConfigurationDocument document)
+    {
+        ControlProfile? global = document.Profiles.FirstOrDefault(profile =>
+            profile.Enabled && IsGlobalControlProfile(profile));
+
+        bool HasRoute(string command, string trigger, params string[] expectedButtons)
+        {
+            if (global == null) return false;
+            foreach (ControlBinding binding in global.Bindings.Where(binding =>
+                         binding.Enabled &&
+                         string.Equals(binding.Action?.Type, "system", StringComparison.OrdinalIgnoreCase) &&
+                         string.Equals(binding.Action?.SystemCommand, command, StringComparison.OrdinalIgnoreCase)))
+            {
+                static bool SameChord(IReadOnlyCollection<string> actual, IReadOnlyCollection<string> expected)
+                    => actual.Count == expected.Count &&
+                       expected.All(button => actual.Contains(button, StringComparer.OrdinalIgnoreCase));
+
+                if (string.Equals(binding.Trigger, trigger, StringComparison.OrdinalIgnoreCase) &&
+                    SameChord(binding.ControllerButtons, expectedButtons))
+                    return true;
+                if (string.Equals(binding.SecondaryTrigger, trigger, StringComparison.OrdinalIgnoreCase) &&
+                    SameChord(binding.SecondaryControllerButtons, expectedButtons))
+                    return true;
+            }
+            return false;
+        }
+
+        XInputButtonTracker.ConfigureSystemShortcutCompatibility(
+            HasRoute("doorpi-return", "release", "guide"),
+            HasRoute("doorpi-return", "press", "lb", "rb", "r3"),
+            HasRoute("task-switcher", "press", "guide", "back"),
+            HasRoute("task-switcher", "press", "lb", "rb", "back"));
+    }
 
     private static void MigrateSecondaryControlActivations(ControlProfile profile)
     {
@@ -1826,6 +1865,7 @@ public partial class MainWindow
             profiles);
 
         bool continuousAnalogActive = false;
+        double configuredCloseHoldProgress = 0;
 
         for (int slot = 0; slot < XInputControllerHub.SlotCount; slot++)
         {
@@ -1912,6 +1952,21 @@ public partial class MainWindow
                     TapConfiguredControlAction(binding.Action);
                 }
 
+                if (active &&
+                    route.Trigger == "long-press" &&
+                    !runtime.LongPressFired &&
+                    binding.Action.Type == "system" &&
+                    binding.Action.SystemCommand == "close-web-app")
+                {
+                    int indicatorDelayMs = Math.Min(220, Math.Max(0, route.LongPressDurationMs - 100));
+                    double progress = Math.Clamp(
+                        (now - runtime.PressedAt - indicatorDelayMs) /
+                        (double)Math.Max(1, route.LongPressDurationMs - indicatorDelayMs),
+                        0,
+                        1);
+                    configuredCloseHoldProgress = Math.Max(configuredCloseHoldProgress, progress);
+                }
+
                 if (released && runtime.OutputHeld)
                 {
                     runtime.OutputHeld = false;
@@ -1933,6 +1988,24 @@ public partial class MainWindow
                 }
                 runtime.Active = active;
             }
+        }
+
+        long overlayNow = Environment.TickCount64;
+        if (configuredCloseHoldProgress > 0)
+        {
+            if (!_configuredCloseHoldOverlayVisible ||
+                overlayNow - _configuredCloseHoldOverlayLastUpdateMs >= 24)
+            {
+                _configuredCloseHoldOverlayVisible = true;
+                _configuredCloseHoldOverlayLastUpdateMs = overlayNow;
+                UpdateWebAppCloseHoldOverlay(configuredCloseHoldProgress);
+            }
+        }
+        else if (_configuredCloseHoldOverlayVisible)
+        {
+            _configuredCloseHoldOverlayVisible = false;
+            _configuredCloseHoldOverlayLastUpdateMs = 0;
+            HideWebAppCloseHoldOverlay();
         }
 
         return continuousAnalogActive;
@@ -2249,6 +2322,8 @@ public partial class MainWindow
             }
             else if (action.SystemCommand == "doorpi-return")
             {
+                if (Volatile.Read(ref _nativeTaskSwitcherActive) == 1)
+                    EndNativeTaskSwitcher(cancelSelection: true);
                 QueueGlobalDoorpiReturnVerification();
             }
             else if (action.SystemCommand == "close-web-app")
@@ -2387,6 +2462,12 @@ public partial class MainWindow
             }
         }
         _controlBindingRuntime.Clear();
+        if (_configuredCloseHoldOverlayVisible)
+        {
+            _configuredCloseHoldOverlayVisible = false;
+            _configuredCloseHoldOverlayLastUpdateMs = 0;
+            HideWebAppCloseHoldOverlay();
+        }
     }
 
     private (List<CloudControlProfileV1> Profiles, List<CloudControlAssignmentV1> Assignments)
@@ -2394,8 +2475,7 @@ public partial class MainWindow
     {
         ControlConfigurationDocument document = LoadControlConfiguration();
         List<CloudControlProfileV1> profiles = document.Profiles
-            .Where(profile => !string.Equals(profile.Category, "global", StringComparison.OrdinalIgnoreCase) &&
-                              !profile.Id.StartsWith("builtin-", StringComparison.OrdinalIgnoreCase))
+            .Where(profile => !profile.Id.StartsWith("builtin-", StringComparison.OrdinalIgnoreCase))
             .Select(ToCloudControlProfile)
             .ToList();
         List<CloudControlAssignmentV1> assignments = document.Assignments
@@ -2421,6 +2501,7 @@ public partial class MainWindow
             Id = profile.Id,
             Name = profile.Name,
             Category = profile.Category,
+            TargetKind = IsGlobalControlProfile(profile) ? "global" : profile.TargetKind,
             BaseProfileId = profile.BaseProfileId,
             Enabled = profile.Enabled,
             MouseSensitivity = profile.MouseSensitivity,
@@ -2456,13 +2537,21 @@ public partial class MainWindow
 
     private static ControlProfile FromCloudControlProfile(CloudControlProfileV1 profile)
     {
+        bool isGlobal = string.Equals(profile.TargetKind, "global", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(profile.Category, "global", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(profile.Id, "global-default", StringComparison.OrdinalIgnoreCase);
         var result = new ControlProfile
         {
             Id = profile.Id,
             Name = profile.Name,
             Category = profile.Category,
             BaseProfileId = profile.BaseProfileId,
-            TargetKind = profile.Category == "store" ? "store" : "media",
+            TargetKind = isGlobal
+                ? "global"
+                : string.Equals(profile.TargetKind, "store", StringComparison.OrdinalIgnoreCase) ||
+                  string.Equals(profile.Category, "store", StringComparison.OrdinalIgnoreCase)
+                    ? "store"
+                    : "media",
             Enabled = profile.Enabled,
             MouseSensitivity = profile.MouseSensitivity,
             ScrollSensitivity = profile.ScrollSensitivity,
@@ -2528,8 +2617,10 @@ public partial class MainWindow
                     continue;
                 }
                 ControlProfile incoming = FromCloudControlProfile(cloudProfile);
-                incoming.OwnerUserId = currentUserId;
-                RemoveCopiedGlobalBindings(incoming);
+                bool incomingGlobal = IsGlobalControlProfile(incoming);
+                incoming.OwnerUserId = incomingGlobal ? "" : currentUserId;
+                if (!incomingGlobal)
+                    RemoveCopiedGlobalBindings(incoming);
                 if (IsGeneratedEmptyReusableProfile(incoming))
                     continue;
                 int index = document.Profiles.FindIndex(profile =>

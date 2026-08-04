@@ -71,6 +71,7 @@ public sealed class CloudControlProfileV1
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public string Category { get; set; } = "web";
+    public string TargetKind { get; set; } = "";
     public string BaseProfileId { get; set; } = "";
     public bool Enabled { get; set; } = true;
     public double MouseSensitivity { get; set; } = 1;

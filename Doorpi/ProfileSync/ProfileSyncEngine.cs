@@ -6,6 +6,8 @@ namespace Doorpi.ProfileSync;
 
 public static class ProfileSyncSnapshotFactory
 {
+    public const int CurrentSchemaVersion = 2;
+
     public static CloudProfileV1 Create(
         UserProfile profile,
         IEnumerable<GameHistoryEntry> history,
@@ -27,7 +29,7 @@ public static class ProfileSyncSnapshotFactory
 
         return new CloudProfileV1
         {
-            SchemaVersion = 2,
+            SchemaVersion = CurrentSchemaVersion,
             ProfileId = profile.Id ?? "",
             ProfileName = profile.Name ?? "",
             PinCode = profile.PinCode ?? "",
@@ -279,9 +281,10 @@ public static class ProfileSyncEngine
 
         var conflictPaths = new HashSet<string>(StringComparer.Ordinal);
         CloudProfileV1 merged = CloneProfile(local);
-        merged.SchemaVersion = MergeValue(
-            baseline.SchemaVersion, local.SchemaVersion, remote.SchemaVersion,
-            "schemaVersion", conflictPaths);
+        // Schema is a format capability, not editable user data. Prefer the newest
+        // supported representation and never turn a v1 -> v2 migration into a
+        // profile conflict.
+        merged.SchemaVersion = Math.Max(local.SchemaVersion, remote.SchemaVersion);
         merged.ProfileId = local.ProfileId ?? "";
         merged.ProfileName = MergeValue(
             baseline.ProfileName ?? "", local.ProfileName ?? "", remote.ProfileName ?? "",
@@ -386,8 +389,7 @@ public static class ProfileSyncEngine
         // escolha para edicoes concorrentes que nao podem ser inferidas com seguranca.
         var conflictPaths = new HashSet<string>(StringComparer.Ordinal);
         CloudProfileV1 merged = CloneProfile(local);
-        merged.SchemaVersion = MergeLegacyValue(
-            local.SchemaVersion, remote.SchemaVersion, "schemaVersion", conflictPaths);
+        merged.SchemaVersion = Math.Max(local.SchemaVersion, remote.SchemaVersion);
         merged.ProfileId = local.ProfileId ?? "";
         merged.ProfileName = MergeLegacyValue(
             local.ProfileName ?? "", remote.ProfileName ?? "", "profileName", conflictPaths);
