@@ -40,7 +40,8 @@ namespace Doorpi
             _globalControllerShortcutMonitorThread = new Thread(GlobalControllerShortcutMonitorLoop)
             {
                 IsBackground = true,
-                Name = "DoorpiGlobalControllerShortcuts"
+                Name = "DoorpiGlobalControllerShortcuts",
+                Priority = ThreadPriority.AboveNormal
             };
             _globalControllerShortcutMonitorThread.Start();
         }
@@ -59,19 +60,12 @@ namespace Doorpi
 
             while (_globalControllerShortcutMonitorActive)
             {
+                bool continuousAnalogActive = false;
                 try
                 {
                     var snapshot = XInputControllerHub.Read();
                     buttonTracker.Update(snapshot);
-
-                    if (buttonTracker.TaskSwitcherShortcutJustPressed)
-                    {
-                        if (Volatile.Read(ref _nativeTaskSwitcherActive) == 0)
-                            BeginNativeTaskSwitcher();
-
-                        Thread.Sleep(90);
-                        continue;
-                    }
+                    continuousAnalogActive = ProcessConfiguredControlBindings(snapshot);
 
                     if (Volatile.Read(ref _nativeTaskSwitcherActive) == 1)
                     {
@@ -79,16 +73,17 @@ namespace Doorpi
                         Thread.Sleep(8);
                         continue;
                     }
-
-                    if (buttonTracker.ReturnShortcutJustPressed)
-                        QueueGlobalDoorpiReturnVerification();
                 }
                 catch (Exception ex)
                 {
                     Debug.WriteLine("[GlobalControllerShortcuts] " + ex.Message);
                 }
 
-                Thread.Sleep(8);
+                // Interpolate configured pointer/scroll output at the same cadence
+                // used by Doorpi's native mouse loop. XInput remains cached at its
+                // normal sampling rate, so this smooths output without over-polling
+                // the controller or increasing idle CPU usage.
+                Thread.Sleep(continuousAnalogActive ? 1 : 8);
             }
         }
 

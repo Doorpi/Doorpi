@@ -3,6 +3,8 @@
 // =============================================================================
 const STRINGS = {
     'pt-BR': {
+        controlsSettingsTitle: 'Controles',
+        controlsSettingsDesc: 'Perfis reutilizáveis para apps, web apps e lojas',
         // ---- Adições de media.js ----
         sysMediaFolders: 'Pastas',
         sysMediaDownloadingCovers: 'Baixando capas dos jogos...',
@@ -983,6 +985,8 @@ const STRINGS = {
     },
 
     'en-US': {
+        controlsSettingsTitle: 'Controls',
+        controlsSettingsDesc: 'Reusable profiles for apps, web apps, and stores',
         btnCancel: 'Cancel',
         btnConfirm: 'Confirm',
         sysGameBarNoticeText: 'Disable the Xbox Game Bar shortcut to prevent the overlay from opening while using Doorpi.',

@@ -11378,14 +11378,6 @@ function renderFolderList(folders) {
         const currentLaunchTarget = canEditLaunchTarget
             ? (canEditWebUrl ? defaultLaunchTarget : (libraryItem?.launchCommand || card.dataset.launchCommand || defaultLaunchTarget))
             : '';
-        const storeItemForInput = isStoreCard
-            ? window.AppStore?.queries?.getItem?.('stores', card.dataset.appId || card.dataset.id || card.dataset.appUrl || '')
-            : null;
-        const disableGamepadControl = isStoreCard && storeItemForInput && storeItemForInput.disableGamepadControl != null
-            ? !!storeItemForInput.disableGamepadControl
-            : card.dataset.disableGamepadControl === 'true';
-        if (isStoreCard) card.dataset.disableGamepadControl = disableGamepadControl ? 'true' : 'false';
-        const hasInputModeSetting = isExeApp || isStoreCard;
         const storeIdForSettings = isStoreCard ? (card.dataset.appId || card.dataset.id || card.dataset.appUrl || '') : '';
         if (isStoreCard && typeof postToHost === 'function' && !window._storeAutoAddSettings) {
             postToHost({ action: 'requestStoreAutoAddSettings' });
@@ -11485,18 +11477,6 @@ function renderFolderList(folders) {
                         </div>
                     </div>
                     ${mediaExtras}
-                    ${hasInputModeSetting ? `
-                    <div class="edit-modal-field" style="margin-top: 8px;">
-                        <label class="edit-modal-label">${typeof t === 'function' ? t('editInputModeLabel', 'Entrada do aplicativo') : 'Entrada do aplicativo'}</label>
-                        <label class="edit-toggle-row" tabindex="0">
-                            <span class="edit-toggle-switch">
-                                <input type="checkbox" id="editDisableGamepadControl" tabindex="-1" ${!disableGamepadControl ? 'checked' : ''} />
-                                <span class="edit-toggle-slider"></span>
-                            </span>
-                            <span class="edit-toggle-label">${typeof t === 'function' ? t('editDirectControlLabel', 'Mouse + teclado virtual') : 'Mouse + teclado virtual'}</span>
-                        </label>
-                        <span class="edit-modal-input-hint">${typeof t === 'function' ? t('editDirectControlHint', 'Ative para iniciar com mouse + teclado virtual. Desative para enviar o controle direto à janela.') : 'Ative para iniciar com mouse + teclado virtual. Desative para enviar o controle direto à janela.'}</span>
-                    </div>` : ''}
                     ${isStoreCard ? `
                     <div class="edit-modal-field" style="margin-top: 8px;">
                         <label class="edit-modal-label">${typeof t === 'function' ? t('storeAutoAddTitle', 'BIBLIOTECA') : 'BIBLIOTECA'}</label>
@@ -11596,9 +11576,6 @@ function renderFolderList(folders) {
             const launchCommandChanged = canEditLaunchCommand && !!newLaunchTarget && newLaunchTarget !== currentLaunchTarget;
             const webUrlChanged = canEditWebUrl && newLaunchTarget !== currentLaunchTarget;
 
-            const disableCheckbox = overlay.querySelector('#editDisableGamepadControl');
-            const newDisable = disableCheckbox ? !disableCheckbox.checked : disableGamepadControl;
-            const disableChanged = hasInputModeSetting && newDisable !== disableGamepadControl;
             const storeAutoAddCheckbox = overlay.querySelector('#editStoreAutoAdd');
             const newStoreAutoAdd = storeAutoAddCheckbox ? storeAutoAddCheckbox.checked : storeAutoAdd;
             const storeAutoAddChanged = isStoreCard && newStoreAutoAdd !== storeAutoAdd;
@@ -11668,23 +11645,15 @@ function renderFolderList(folders) {
 
             if (isStoreCard) {
                 const storeId = card.dataset.appId || card.dataset.id || card.dataset.appUrl || '';
-                if (disableChanged) {
-                    card.dataset.disableGamepadControl = String(newDisable);
-                    if (storeId) {
-                        window.AppStore?.mutations?.patchItem?.('stores', storeId, { disableGamepadControl: newDisable });
-                        postToHost({ action: 'setStoreGamepadControl', storeId, disabled: newDisable });
-                    }
-                }
                 if (storeAutoAddChanged && storeId) {
                     window._storeAutoAddSettings = window._storeAutoAddSettings || {};
                     window._storeAutoAddSettings[storeId] = newStoreAutoAdd;
                     postToHost({ action: 'setStoreAutoAdd', store: storeId, enabled: newStoreAutoAdd });
                 }
-            } else if (nameChanged || disableChanged || launchCommandChanged || webUrlChanged) {
+            } else if (nameChanged || launchCommandChanged || webUrlChanged) {
                 const gameId = editEntityId;
                 const payload = { action: 'editGame', gameId };
                 if (nameChanged) payload.newName = newName;
-                if (isExeApp) payload.disableGamepadControl = newDisable;
                 if (launchCommandChanged) payload.newLaunchCommand = newLaunchTarget;
                 if (webUrlChanged) payload.newUrl = newLaunchTarget;
                 postToHost(payload);
@@ -11716,11 +11685,6 @@ function renderFolderList(folders) {
                     window._navMenuDataChanged?.('media');
                 }
 
-                if (disableChanged) {
-                    card.dataset.disableGamepadControl = String(newDisable);
-                    window._mediaGamepadConfig = window._mediaGamepadConfig || {};
-                    window._mediaGamepadConfig[gameId] = newDisable;
-                }
             }
 
             doClose();

@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Text;
+using System.Text.Json;
 
 namespace Doorpi.ProfileSync;
 
@@ -8,7 +10,9 @@ public static class ProfileSyncSnapshotFactory
         UserProfile profile,
         IEnumerable<GameHistoryEntry> history,
         string deviceId,
-        DateTimeOffset updatedAtUtc)
+        DateTimeOffset updatedAtUtc,
+        IEnumerable<CloudControlProfileV1>? controlProfiles = null,
+        IEnumerable<CloudControlAssignmentV1>? controlAssignments = null)
     {
         ArgumentNullException.ThrowIfNull(profile);
         ArgumentNullException.ThrowIfNull(history);
@@ -23,6 +27,7 @@ public static class ProfileSyncSnapshotFactory
 
         return new CloudProfileV1
         {
+            SchemaVersion = 2,
             ProfileId = profile.Id ?? "",
             ProfileName = profile.Name ?? "",
             PinCode = profile.PinCode ?? "",
@@ -32,7 +37,9 @@ public static class ProfileSyncSnapshotFactory
             LastModifiedDeviceId = deviceId ?? "",
             TotalPlaytimeSeconds = SaturatingSum(games.Select(game => game.TotalPlaytimeSeconds)),
             ProfilePhoto = CreatePhoto(profile),
-            Games = games
+            Games = games,
+            ControlProfiles = (controlProfiles ?? Array.Empty<CloudControlProfileV1>()).ToList(),
+            ControlAssignments = (controlAssignments ?? Array.Empty<CloudControlAssignmentV1>()).ToList()
         };
     }
 
@@ -344,6 +351,8 @@ public static class ProfileSyncEngine
         }
 
         merged.Games = mergedGames;
+        merged.ControlProfiles = MergeControlProfiles(local.ControlProfiles, remote.ControlProfiles);
+        merged.ControlAssignments = MergeControlAssignments(local.ControlAssignments, remote.ControlAssignments);
         merged.TotalPlaytimeSeconds = SaturatingSum(mergedGames.Select(game => game.TotalPlaytimeSeconds));
         merged.UpdatedAtUtc = DateTimeOffset.UtcNow;
         merged.LastModifiedDeviceId = local.LastModifiedDeviceId ?? "";
@@ -404,6 +413,8 @@ public static class ProfileSyncEngine
         }
 
         merged.Games = mergedGames;
+        merged.ControlProfiles = MergeControlProfiles(local.ControlProfiles, remote.ControlProfiles);
+        merged.ControlAssignments = MergeControlAssignments(local.ControlAssignments, remote.ControlAssignments);
         merged.TotalPlaytimeSeconds = SaturatingSum(mergedGames.Select(game => game.TotalPlaytimeSeconds));
         merged.UpdatedAtUtc = DateTimeOffset.UtcNow;
         merged.LastModifiedDeviceId = local.LastModifiedDeviceId ?? "";
@@ -749,6 +760,64 @@ public static class ProfileSyncEngine
             CloudFileName = photo.CloudFileName ?? "profile-photo.jpg"
         };
 
+    private static List<CloudControlProfileV1> MergeControlProfiles(
+        IEnumerable<CloudControlProfileV1>? local,
+        IEnumerable<CloudControlProfileV1>? remote)
+        => (local ?? Array.Empty<CloudControlProfileV1>())
+            .Concat(remote ?? Array.Empty<CloudControlProfileV1>())
+            .Where(profile => !string.IsNullOrWhiteSpace(profile.Id))
+            .GroupBy(profile => profile.Id, StringComparer.OrdinalIgnoreCase)
+            .Select(group => CloneJson(group
+                .OrderByDescending(profile => profile.UpdatedAtUtc)
+                .ThenByDescending(profile => ControlProfileFingerprint(profile), StringComparer.Ordinal)
+                .First()))
+            .OrderBy(profile => profile.Id, StringComparer.Ordinal)
+            .ToList();
+
+    private static List<CloudControlAssignmentV1> MergeControlAssignments(
+        IEnumerable<CloudControlAssignmentV1>? local,
+        IEnumerable<CloudControlAssignmentV1>? remote)
+        => (local ?? Array.Empty<CloudControlAssignmentV1>())
+            .Concat(remote ?? Array.Empty<CloudControlAssignmentV1>())
+            .Where(assignment => !string.IsNullOrWhiteSpace(assignment.ProfileId))
+            .GroupBy(ControlAssignmentKey, StringComparer.OrdinalIgnoreCase)
+            .Select(group => CloneJson(group
+                .OrderByDescending(assignment => assignment.UpdatedAtUtc)
+                .ThenByDescending(assignment => assignment.ProfileId, StringComparer.Ordinal)
+                .First()))
+            .OrderBy(ControlAssignmentKey, StringComparer.Ordinal)
+            .ToList();
+
+    private static string ControlAssignmentKey(CloudControlAssignmentV1 assignment)
+    {
+        if (!string.IsNullOrWhiteSpace(assignment.NativeAppId))
+            return "native:" + assignment.NativeAppId.Trim().ToLowerInvariant();
+        if (!string.IsNullOrWhiteSpace(assignment.ExecutablePath))
+            return "exe:" + assignment.ExecutablePath.Trim().ToLowerInvariant();
+        return "local:" + (assignment.TargetFingerprint ?? "").Trim().ToLowerInvariant();
+    }
+
+    private static string ControlProfilesFingerprint(IEnumerable<CloudControlProfileV1>? profiles)
+    {
+        string json = JsonSerializer.Serialize((profiles ?? Array.Empty<CloudControlProfileV1>())
+            .OrderBy(profile => profile.Id, StringComparer.Ordinal));
+        return ProfileSyncSerializer.ComputeBinaryHash(Encoding.UTF8.GetBytes(json));
+    }
+
+    private static string ControlAssignmentsFingerprint(IEnumerable<CloudControlAssignmentV1>? assignments)
+    {
+        string json = JsonSerializer.Serialize((assignments ?? Array.Empty<CloudControlAssignmentV1>())
+            .OrderBy(ControlAssignmentKey, StringComparer.Ordinal));
+        return ProfileSyncSerializer.ComputeBinaryHash(Encoding.UTF8.GetBytes(json));
+    }
+
+    private static string ControlProfileFingerprint(CloudControlProfileV1 profile)
+        => ProfileSyncSerializer.ComputeBinaryHash(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(profile)));
+
+    private static T CloneJson<T>(T value)
+        => JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(value))
+           ?? throw new InvalidOperationException("NÃ£o foi possÃ­vel clonar os controles sincronizados.");
+
     private static long SaturatingSum(IEnumerable<long> values)
     {
         long total = 0;
@@ -799,6 +868,32 @@ public static class ProfileSyncEngine
 
         AddValueDifference(differences, ProfileDifferenceKind.TotalPlaytime, "totalPlaytimeSeconds",
             local.TotalPlaytimeSeconds, remote.TotalPlaytimeSeconds, FormatDuration);
+
+        string localControls = ControlProfilesFingerprint(local.ControlProfiles);
+        string remoteControls = ControlProfilesFingerprint(remote.ControlProfiles);
+        if (!string.Equals(localControls, remoteControls, StringComparison.Ordinal))
+        {
+            differences.Add(new ProfileDifference
+            {
+                Kind = ProfileDifferenceKind.ControlProfiles,
+                Path = "controlProfiles",
+                LocalSummary = $"{local.ControlProfiles?.Count ?? 0} perfil(is)",
+                RemoteSummary = $"{remote.ControlProfiles?.Count ?? 0} perfil(is)"
+            });
+        }
+
+        string localAssignments = ControlAssignmentsFingerprint(local.ControlAssignments);
+        string remoteAssignments = ControlAssignmentsFingerprint(remote.ControlAssignments);
+        if (!string.Equals(localAssignments, remoteAssignments, StringComparison.Ordinal))
+        {
+            differences.Add(new ProfileDifference
+            {
+                Kind = ProfileDifferenceKind.ControlAssignments,
+                Path = "controlAssignments",
+                LocalSummary = $"{local.ControlAssignments?.Count ?? 0} atribuição(ões)",
+                RemoteSummary = $"{remote.ControlAssignments?.Count ?? 0} atribuição(ões)"
+            });
+        }
 
         var localGames = ToGameDictionary(local.Games);
         var remoteGames = ToGameDictionary(remote.Games);

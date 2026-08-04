@@ -1817,6 +1817,7 @@ namespace Doorpi
             currentUserId = profile.Id;
             currentUserDataFolder = Path.Combine(dataFolder, "users", currentUserId);
             Directory.CreateDirectory(currentUserDataFolder);
+            ResetControlConfigurationForActiveUser();
 
             userFile = Path.Combine(currentUserDataFolder, "user.json");
             gamesFile = Path.Combine(currentUserDataFolder, "games.json");
@@ -2910,6 +2911,10 @@ namespace Doorpi
                     bool anyReturnShortcut = false;
 
                     bool vkbIsOpen = _desktopVkb != null;
+                    bool customProfileOwnsDefaultButtons = !vkbIsOpen &&
+                        GetCustomAssignedRuntimeControlProfile(GetActiveControlTargetKey()) != null;
+                    bool configuredRuntimeOwnsAnalog = !vkbIsOpen &&
+                        ConfiguredControlRuntimeOwnsAnalog(GetActiveControlTargetKey());
                     bool anyVkbUp = false, anyVkbDown = false, anyVkbLeft = false, anyVkbRight = false, anyVkbToggleLayer = false;
 
                     bool anyAPressed = false, anyAReleased = false;
@@ -2985,9 +2990,16 @@ namespace Doorpi
                     }
                     else
                     {
-                        if (Math.Abs(input.ThumbLX) > 0.15) totalMlx = input.ThumbLX;
-                        if (Math.Abs(input.ThumbLY) > 0.15) totalMly = input.ThumbLY;
-                        if (Math.Abs(input.ThumbRY) > 0.20) totalScrollY = input.ThumbRY;
+                        if (!configuredRuntimeOwnsAnalog)
+                        {
+                            double configuredMouseDeadZone = GetActiveControlMouseDeadZone(0.15);
+                            if (Math.Sqrt(input.ThumbLX * input.ThumbLX + input.ThumbLY * input.ThumbLY) > configuredMouseDeadZone)
+                            {
+                                totalMlx = input.ThumbLX;
+                                totalMly = input.ThumbLY;
+                            }
+                            if (Math.Abs(input.ThumbRY) > configuredMouseDeadZone) totalScrollY = input.ThumbRY;
+                        }
                     }
 
                     if (!isActive()) break;
@@ -3053,13 +3065,13 @@ namespace Doorpi
                     }
                     else
                     {
-                        if (Math.Abs(totalScrollY) > 0.20)
+                        if (totalScrollY != 0)
                         {
-                            int scroll = (int)(totalScrollY * 3000 * dt);
+                            int scroll = (int)(totalScrollY * 3000 * GetActiveControlScrollSensitivity() * dt);
                             if (scroll != 0) SendMouse(0, 0, 0x0800, (uint)scroll);
                         }
 
-                        if (anyAPressed)
+                        if (!customProfileOwnsDefaultButtons && anyAPressed)
                         {
                             aWasOnTextField = IsCursorOnTextField();
                             aDragOccurred = false; isClicking = true;
@@ -3084,11 +3096,12 @@ namespace Doorpi
 
                         if (totalMlx != 0 || totalMly != 0)
                         {
-                            const double BASE = CONTROLLER_NATIVE_MOUSE_BASE_SPEED * CONTROLLER_MOUSE_SENSITIVITY_SCALE;
-                            double cx = Math.Sign(totalMlx) * Math.Pow(Math.Abs(totalMlx), 2.2);
-                            double cy = Math.Sign(totalMly) * Math.Pow(Math.Abs(totalMly), 2.2);
-                            double mx = cx * BASE * dt + remainderX;
-                            double my = -cy * BASE * dt + remainderY;
+                            double baseSensitivity = CONTROLLER_NATIVE_MOUSE_BASE_SPEED *
+                                                     CONTROLLER_MOUSE_SENSITIVITY_SCALE *
+                                                     GetActiveControlMouseSensitivity();
+                            TryShapeControllerPointerVector(totalMlx, totalMly, 0, out double curvedX, out double curvedY);
+                            double mx = curvedX * baseSensitivity * dt + remainderX;
+                            double my = -curvedY * baseSensitivity * dt + remainderY;
                             int dx = (int)mx, dy = (int)my;
                             remainderX = mx - dx; remainderY = my - dy;
 
@@ -3100,19 +3113,19 @@ namespace Doorpi
                                     if (Math.Abs(clickAccumX) > 5 || Math.Abs(clickAccumY) > 5)
                                     {
                                         dragBrokeThreshold = true; aDragOccurred = true;
-                                        SendMouse((int)clickAccumX, (int)clickAccumY, 0x0001);
+                                        SendMouse((int)clickAccumX, (int)clickAccumY, MOUSEEVENTF_MOVE | MOUSEEVENTF_MOVE_NOCOALESCE);
                                     }
                                 }
                                 else
                                 {
                                     if (isClicking) aDragOccurred = true;
-                                    SendMouse(dx, dy, 0x0001);
+                                    SendMouse(dx, dy, MOUSEEVENTF_MOVE | MOUSEEVENTF_MOVE_NOCOALESCE);
                                 }
                             }
                         }
                         else { remainderX = 0; remainderY = 0; }
 
-                        if (anyAReleased)
+                        if (!customProfileOwnsDefaultButtons && anyAReleased)
                         {
                             isClicking = false;
                             SendMouse(0, 0, 0x0004);
@@ -3145,15 +3158,15 @@ namespace Doorpi
                             if ((btn & XI_B) == 0)
                                 ignoreNextBRelease = false;
                         }
-                        else
+                        else if (!customProfileOwnsDefaultButtons)
                         {
                             if (anyBPressed) SendMouse(0, 0, 0x0080, 0x0001);
                             if (anyBReleased) SendMouse(0, 0, 0x0100, 0x0001);
                         }
 
                         if (instantPrimaryClick && anyStartPressed) SendVirtualKey(0x0D);
-                        if (anyXPressed) SendMouse(0, 0, 0x0008);
-                        if (anyXReleased) SendMouse(0, 0, 0x0010);
+                        if (!customProfileOwnsDefaultButtons && anyXPressed) SendMouse(0, 0, 0x0008);
+                        if (!customProfileOwnsDefaultButtons && anyXReleased) SendMouse(0, 0, 0x0010);
                         if (anyYPressed)
                         {
                             bool vkbAlreadyExisted = _desktopVkb != null;
@@ -5733,8 +5746,12 @@ namespace Doorpi
                         {
                             // Native Windows windows follow the same mouse convention as
                             // web apps and executable sessions: the left stick moves the cursor.
-                            if (Math.Abs(input.ThumbLX) > 0.15) totalMlx = input.ThumbLX;
-                            if (Math.Abs(input.ThumbLY) > 0.15) totalMly = input.ThumbLY;
+                            double configuredMouseDeadZone = GetActiveControlMouseDeadZone(0.15);
+                            if (Math.Sqrt(input.ThumbLX * input.ThumbLX + input.ThumbLY * input.ThumbLY) > configuredMouseDeadZone)
+                            {
+                                totalMlx = input.ThumbLX;
+                                totalMly = input.ThumbLY;
+                            }
                         }
                     }
 
@@ -5802,11 +5819,12 @@ namespace Doorpi
 
                             if (totalMlx != 0 || totalMly != 0)
                             {
-                                const double BASE_SENSITIVITY = CONTROLLER_NATIVE_MOUSE_BASE_SPEED * CONTROLLER_MOUSE_SENSITIVITY_SCALE;
-                                double curveX = Math.Sign(totalMlx) * Math.Pow(Math.Abs(totalMlx), 2.2);
-                                double curveY = Math.Sign(totalMly) * Math.Pow(Math.Abs(totalMly), 2.2);
-                                double moveX = curveX * BASE_SENSITIVITY * dt + remainderX;
-                                double moveY = -curveY * BASE_SENSITIVITY * dt + remainderY;
+                                double baseSensitivity = CONTROLLER_NATIVE_MOUSE_BASE_SPEED *
+                                                         CONTROLLER_MOUSE_SENSITIVITY_SCALE *
+                                                         GetActiveControlMouseSensitivity();
+                                TryShapeControllerPointerVector(totalMlx, totalMly, 0, out double curvedX, out double curvedY);
+                                double moveX = curvedX * baseSensitivity * dt + remainderX;
+                                double moveY = -curvedY * baseSensitivity * dt + remainderY;
                                 int deltaX = (int)moveX; int deltaY = (int)moveY;
                                 remainderX = moveX - deltaX; remainderY = moveY - deltaY;
 
@@ -5818,13 +5836,13 @@ namespace Doorpi
                                         if (Math.Abs(clickAccumX) > 5 || Math.Abs(clickAccumY) > 5)
                                         {
                                             dragBrokeThreshold = true; aDragOccurred = true;
-                                            SendMouse((int)clickAccumX, (int)clickAccumY, 0x0001);
+                                            SendMouse((int)clickAccumX, (int)clickAccumY, MOUSEEVENTF_MOVE | MOUSEEVENTF_MOVE_NOCOALESCE);
                                         }
                                     }
                                     else
                                     {
                                         if (isClicking) aDragOccurred = true;
-                                        SendMouse(deltaX, deltaY, 0x0001);
+                                        SendMouse(deltaX, deltaY, MOUSEEVENTF_MOVE | MOUSEEVENTF_MOVE_NOCOALESCE);
                                     }
                                 }
                             }
@@ -9368,9 +9386,11 @@ namespace Doorpi
         {
             try
             {
+                IntPtr hwnd = new(Interlocked.Read(ref _activeWebAppWindowHandleValue));
                 return _webAppSession is { WebView: not null } &&
-                       _webAppWindow != null &&
-                       _webAppWindow.WindowState != WindowState.Minimized &&
+                       hwnd != IntPtr.Zero &&
+                       IsWindow(hwnd) &&
+                       !IsIconic(hwnd) &&
                        !string.IsNullOrWhiteSpace(_currentWebAppUrl);
             }
             catch { return false; }
@@ -9391,10 +9411,10 @@ namespace Doorpi
         {
             try
             {
-                if (!HasActiveWebAppWindow() || _webAppWindow == null)
+                if (!HasActiveWebAppWindow())
                     return false;
 
-                var hwnd = new System.Windows.Interop.WindowInteropHelper(_webAppWindow).Handle;
+                IntPtr hwnd = new(Interlocked.Read(ref _activeWebAppWindowHandleValue));
                 return hwnd != IntPtr.Zero && GetForegroundWindow() == hwnd;
             }
             catch { return false; }
@@ -13621,6 +13641,9 @@ namespace Doorpi
                 string action = actionElement.GetString() ?? "";
 
                 if (await TryHandleProfileSyncWebMessageAsync(action, root).ConfigureAwait(true))
+                    return;
+
+                if (await TryHandleControlConfigurationWebMessageAsync(action, root).ConfigureAwait(true))
                     return;
 
                 if (await TryHandleDoorpiFileBrowserMessageAsync(action, root).ConfigureAwait(true))
@@ -18535,6 +18558,10 @@ namespace Doorpi
                 connected = snapshot.Connected,
                 buttons = snapshot.Buttons & actionMask,
                 pressed = pressedButtons & actionMask,
+                dpad = snapshot.Buttons & 0x000F,
+                controlCaptureSuppressed = IsControlCaptureActive(),
+                leftX = snapshot.ThumbLX,
+                leftY = snapshot.ThumbLY,
                 rightX = snapshot.ThumbRX,
                 rightY = snapshot.ThumbRY
             });
@@ -18564,6 +18591,9 @@ namespace Doorpi
             long lastControllerPostAt = long.MinValue;
             double lastPostedRightX = 0;
             double lastPostedRightY = 0;
+            double lastPostedLeftX = 0;
+            double lastPostedLeftY = 0;
+            ushort lastPostedDpad = ushort.MaxValue;
 
             while (_mainUiGamepadActive)
             {
@@ -18581,16 +18611,24 @@ namespace Doorpi
                         continue;
                     }
                     ushort actionButtons = (ushort)(controllerSnapshot.Buttons & 0xFFF0);
+                    ushort dpadButtons = (ushort)(controllerSnapshot.Buttons & 0x000F);
                     long nowTicks = Environment.TickCount64;
                     bool rightAnalogActive = Math.Abs(controllerSnapshot.ThumbRX) > 0.12 ||
                                              Math.Abs(controllerSnapshot.ThumbRY) > 0.12;
                     bool rightAnalogChanged = Math.Abs(controllerSnapshot.ThumbRX - lastPostedRightX) > 0.04 ||
                                               Math.Abs(controllerSnapshot.ThumbRY - lastPostedRightY) > 0.04;
+                    bool leftAnalogActive = Math.Abs(controllerSnapshot.ThumbLX) > 0.12 ||
+                                            Math.Abs(controllerSnapshot.ThumbLY) > 0.12;
+                    bool leftAnalogChanged = Math.Abs(controllerSnapshot.ThumbLX - lastPostedLeftX) > 0.04 ||
+                                             Math.Abs(controllerSnapshot.ThumbLY - lastPostedLeftY) > 0.04;
                     if (buttonTracker.PressedButtons != 0 ||
                         actionButtons != lastPostedButtons ||
+                        dpadButtons != lastPostedDpad ||
                         controllerSnapshot.Connected != lastPostedConnected ||
                         rightAnalogChanged ||
+                        leftAnalogChanged ||
                         (rightAnalogActive && nowTicks - lastControllerPostAt >= 32) ||
+                        (leftAnalogActive && nowTicks - lastControllerPostAt >= 32) ||
                         lastControllerPostAt == long.MinValue ||
                         nowTicks - lastControllerPostAt >= 250)
                     {
@@ -18599,17 +18637,30 @@ namespace Doorpi
                         lastPostedConnected = controllerSnapshot.Connected;
                         lastPostedRightX = controllerSnapshot.ThumbRX;
                         lastPostedRightY = controllerSnapshot.ThumbRY;
+                        lastPostedLeftX = controllerSnapshot.ThumbLX;
+                        lastPostedLeftY = controllerSnapshot.ThumbLY;
+                        lastPostedDpad = dpadButtons;
                         lastControllerPostAt = nowTicks;
+                    }
+                    if (IsControlCaptureActive())
+                    {
+                        moveState = 0;
+                        currentDir = null;
+                        hadPreviousInput = true;
+                        Thread.Sleep(8);
+                        continue;
                     }
                     bool foregroundOk = IsDoorpiMainWindowForeground() ||
                                             (DateTime.UtcNow.Ticks - Interlocked.Read(ref _focusRestoredAtTicks))
                                             < TimeSpan.FromSeconds(2).Ticks;
+                    bool controlEditorOwnsInput = _controlEditorOpen && foregroundOk;
 
                     // Quando o overlay "Em execucao" esta no Doorpi, este loop e o
                     // unico dono da navegacao direcional. O JS continua responsavel
                     // apenas pelos botoes de acao, evitando dois movimentos por input.
                     bool executionLockOwnsMainUiInput = _executionLockActive && foregroundOk;
-                    bool mainUiOwnsDirectionalNavigation = _mainUiOwnsDirectionalNavigation && foregroundOk;
+                    bool mainUiOwnsDirectionalNavigation =
+                        (_mainUiOwnsDirectionalNavigation || controlEditorOwnsInput) && foregroundOk;
                     bool isLaunchingOrRunning = !executionLockOwnsMainUiInput &&
                         ((_gameSessionActive && !_gameIsMinimized)
                          || _mediaMouseActive
@@ -18618,7 +18669,7 @@ namespace Doorpi
                          || _systemControllerActive
                          || IsMainUiGamepadSuspendedForGame());
 
-                    if (_dialogModeActive ||
+                    if ((_dialogModeActive && !controlEditorOwnsInput) ||
                         !foregroundOk ||
                         (!mainUiOwnsDirectionalNavigation &&
                          (_systemControllerActive || _launcherMouseActive || isLaunchingOrRunning)))
@@ -18636,6 +18687,18 @@ namespace Doorpi
 
                         // O Guide pode ser um pulso curto, especialmente no controle
                         // local enquanto um controle virtual do Parsec ocupa outro slot.
+                        Thread.Sleep(8);
+                        continue;
+                    }
+
+                    // O editor de controles recebe direções diretamente pelo snapshot
+                    // XInput. Isso evita depender de setas sintetizadas pelo Windows,
+                    // que nem sempre alcançam o HWND interno do WebView2.
+                    if (controlEditorOwnsInput)
+                    {
+                        moveState = 0;
+                        currentDir = null;
+                        hadPreviousInput = true;
                         Thread.Sleep(8);
                         continue;
                     }
@@ -18667,7 +18730,8 @@ namespace Doorpi
                     // Abre o painel rapido apenas com o botao Select
                     if (DateTime.UtcNow.Ticks > Interlocked.Read(ref _returnFromExternalModeSuppressUntil))
                     {
-                        if (!buttonTracker.TaskSwitcherShortcutJustPressed &&
+                        if (!controlEditorOwnsInput &&
+                            !buttonTracker.TaskSwitcherShortcutJustPressed &&
                             buttonTracker.AnyPressed(0x0020))
                         {
                             Dispatcher.BeginInvoke(() =>

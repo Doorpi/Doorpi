@@ -162,11 +162,14 @@ public partial class MainWindow
     {
         UserProfile? profile = FindProfileForSync(profileId);
         if (profile == null) return null;
+        var controls = GetCloudControlConfigurationSnapshot();
         CloudProfileV1 snapshot = ProfileSyncSnapshotFactory.Create(
             profile,
             LoadProfileHistoryForSync(profileId),
             GetProfileSyncDeviceId(),
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            controls.Profiles,
+            controls.Assignments);
         return (snapshot, DecodeProfilePhoto(profile.PhotoBase64));
     }
 
@@ -741,6 +744,8 @@ public partial class MainWindow
                 await Dispatcher.InvokeAsync(LoadCurrentUserIntoUI);
             }
 
+            ApplyCloudControlConfiguration(remote);
+
             PostProfileSyncMessage(new
             {
                 type = "profileSyncDataApplied",
@@ -749,11 +754,14 @@ public partial class MainWindow
 
             ResumeProfileSyncArtworkDownloads(profileId, initialDelayMs: 3500);
 
+            var appliedControls = GetCloudControlConfigurationSnapshot();
             CloudProfileV1 appliedSnapshot = ProfileSyncSnapshotFactory.Create(
                 profile,
                 appliedHistory,
                 GetProfileSyncDeviceId(),
-                DateTimeOffset.UtcNow);
+                DateTimeOffset.UtcNow,
+                appliedControls.Profiles,
+                appliedControls.Assignments);
             await ProfileSyncService.ConfirmRemoteAppliedAsync(profileId, appliedSnapshot, result.RemoteRevision)
                 .ConfigureAwait(false);
         }

@@ -107,6 +107,9 @@
     <None Update="wwwroot\config\controls.js">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="wwwroot\controls.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="wwwroot\engine\core.js">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

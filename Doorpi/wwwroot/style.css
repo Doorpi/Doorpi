@@ -5551,6 +5551,7 @@ body:not(.nav-menu-active) #appBlobBg {
     position: relative;
     isolation: isolate;
     align-self: end;
+    transform: translateY(clamp(-24px, -1.7vh, -12px));
 }
 
 .home-feature-stage.is-changing .home-feature-art-shell {
