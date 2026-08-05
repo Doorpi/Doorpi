@@ -1,48 +1,51 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202608042002,
-    "publishedAt":  "2026-08-04T23:03:30.5888360Z",
-    "expiresAt":  "2026-08-18T23:03:30.5888360Z",
+    "manifestVersion":  202608042104,
+    "publishedAt":  "2026-08-05T00:04:53.1946354Z",
+    "expiresAt":  "2026-08-19T00:04:53.1946354Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.4.23",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.23/doorpi-0.4.23.doorpiupdate.zip",
-                   "sha256":  "cf4aa358d9d8db55c9571f34c6b20c2a8b53d4b6e1f1de4d39c77ee230df63e1",
-                   "sizeBytes":  133713362,
+                   "version":  "0.4.24",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.24/doorpi-0.4.24.doorpiupdate.zip",
+                   "sha256":  "7a4a88e6f6b95856ff4ae6255f2fd470cab42a52b8fe16026265776fa7626058",
+                   "sizeBytes":  133714558,
                    "minUpdaterVersion":  "0.1.0",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
                     "version":  "0.1.0",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.23/updater-0.1.0.doorpiupdate.zip",
-                    "sha256":  "ba743d34da638bfb7820d57ae828945d359cfd7205e0361bba6f6b875feb329c",
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.24/updater-0.1.0.doorpiupdate.zip",
+                    "sha256":  "a0969992fe1100eee5c8125b035b1593723b071f7db3af34ddc225dcc3a235a3",
                     "sizeBytes":  69946106,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.4.23",
-                          "title":  "Doorpi 0.4.23",
+                          "version":  "0.4.24",
+                          "title":  "Doorpi 0.4.24",
                           "items":  [
-                                        "Personalização de controles e criação de perfis para aplicativos.",
-                                        "Possibilidade de adicionar trailers aos jogos."
+                                        "Corrigidos perfis de controles fantasmas sendo criados.",
+                                        "Corrigido mouse habilitado erroneamente na Home.",
+                                        "Corrigido problema de navegação nas configurações de controle."
                                     ],
                           "locales":  {
                                           "pt-BR":  {
-                                                        "title":  "Doorpi 0.4.23",
+                                                        "title":  "Doorpi 0.4.24",
                                                         "items":  [
-                                                                      "Personalização de controles e criação de perfis para aplicativos.",
-                                                                      "Possibilidade de adicionar trailers aos jogos."
+                                                                      "Corrigidos perfis de controles fantasmas sendo criados.",
+                                                                      "Corrigido mouse habilitado erroneamente na Home.",
+                                                                      "Corrigido problema de navegação nas configurações de controle."
                                                                   ]
                                                     },
                                           "en":  {
-                                                     "title":  "Doorpi 0.4.23",
+                                                     "title":  "Doorpi 0.4.24",
                                                      "items":  [
-                                                                   "Controller customization and profile creation for applications.",
-                                                                   "Added support for adding trailers to games."
+                                                                   "Fixed ghost controller profiles being created.",
+                                                                   "Fixed mouse being incorrectly enabled on Home.",
+                                                                   "Fixed navigation issues in controller settings."
                                                                ]
                                                  }
                                       }
@@ -51,6 +54,6 @@
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "Ji3MsuFVt85n+rZCiMWWLP92O17WFPXzcYTdG85eTJWL0H3o3Idw/IidKNJtMouY25H4twzA6IqIznvEqoSfVBP0cMgTrmhA6GqDoYbs1zJii5Su6aNoBSN9jWFZxGA3c49jKHGKHP2re2r4Imw3z5RvPsoZFbUH1VTbE65S/kwo2soIlsj3b77XYZDjlEQX1Y+skeJJgxWpOVPHN2x1OmGV3an2QRQskTYN909jsOgwzqQY8eDrs4y9Ud7o8nWjU3e2gZxZyGAuqpH7OOiHg9Zd8qaQRS1TldX/j15JMK6LlsxfSiow7wgbo1qTs+9rQ7RdH9ZEUFlmlkdgN85fBuDksAzaGe6MPU6IgvQ8jD7u1mhDq9qs3IeRQSeNN6JusY+dAL7095r6OJofLcLAn8zjHyQVdbgMb8CXdcMip+g4XFI3Q9gCLFtT6AJ4j8C3rQgzU5xFrAmDQ8DFshWtB1WdX50sdTDWwru9LaiHZi1BsNBlCLJip+NA1SSAoDeq"
+                      "value":  "HA6uvuHFu5aUlXkEn7PlZlSQYMlksWgXtpeA2+VIduObkW2XlsWeCZO/lgwPw7t9I3pNHwOOxd1+0YzS1cGkCtyjWH2hokEQd2r0vHttI6/E+zZQZFCQjbjK6es7CwOpT/IIIKSbsU4UVIiY4yH2gT9k9mnUsSTCFOVVa71mmZrmfb0CSdg7Uk22olF4sWTEjOA6MXuvDU/Mh/7jpX+9m6uoTKTp7h5FVfI/2lQ1oHF4B+9Vtt8HIO1h6RSXzq9q0NKQogDgUHLKIxBXxsSrRJcQJ9YCDOauBgSzu95P0OJTts9iqzgsuUHkesCWtSnFaOkPcTB+u6Zs86qMq0rHYWRFKdfdgOvJEVick+FLCObUpqWefp3PvlRXuwDv58hydbZirVDXx3+vmseiYltwuryiRmktPlp4mnr3gR7MZBQM53HtXbhcNJWYG8m+DcLnR4piqVX+L/EfdLVjmrnyY8TgxUMVduzr99txNblosuBchLL7MbSAliQiX3PCmaYc"
                   }
 }

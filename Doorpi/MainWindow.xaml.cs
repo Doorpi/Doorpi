@@ -18758,6 +18758,7 @@ namespace Doorpi
             double lastPostedLeftX = 0;
             double lastPostedLeftY = 0;
             ushort lastPostedDpad = ushort.MaxValue;
+            bool controlEditorOwnedInputLastFrame = false;
 
             while (_mainUiGamepadActive)
             {
@@ -18818,6 +18819,13 @@ namespace Doorpi
                                             (DateTime.UtcNow.Ticks - Interlocked.Read(ref _focusRestoredAtTicks))
                                             < TimeSpan.FromSeconds(2).Ticks;
                     bool controlEditorOwnsInput = _controlEditorOpen && foregroundOk;
+                    if (controlEditorOwnsInput != controlEditorOwnedInputLastFrame)
+                    {
+                        moveState = 0;
+                        currentDir = null;
+                        hadPreviousInput = false;
+                        controlEditorOwnedInputLastFrame = controlEditorOwnsInput;
+                    }
 
                     // Quando o overlay "Em execucao" esta no Doorpi, este loop e o
                     // unico dono da navegacao direcional. O JS continua responsavel
@@ -18851,18 +18859,6 @@ namespace Doorpi
 
                         // O Guide pode ser um pulso curto, especialmente no controle
                         // local enquanto um controle virtual do Parsec ocupa outro slot.
-                        Thread.Sleep(8);
-                        continue;
-                    }
-
-                    // O editor de controles recebe direções diretamente pelo snapshot
-                    // XInput. Isso evita depender de setas sintetizadas pelo Windows,
-                    // que nem sempre alcançam o HWND interno do WebView2.
-                    if (controlEditorOwnsInput)
-                    {
-                        moveState = 0;
-                        currentDir = null;
-                        hadPreviousInput = true;
                         Thread.Sleep(8);
                         continue;
                     }

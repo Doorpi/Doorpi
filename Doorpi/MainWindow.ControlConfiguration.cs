@@ -328,39 +328,38 @@ public partial class MainWindow
             Profiles = new List<ControlProfile> { CreateDefaultGlobalControlProfile() }
         };
 
-    private static void AddDefaultPointerBindings(ControlProfile profile)
+    private static bool RemoveLegacyGeneratedPointerBindings(ControlProfile profile)
     {
         profile.Bindings ??= new List<ControlBinding>();
-        if (!profile.Bindings.Any(binding =>
-                string.Equals(binding.Action?.Type, "pointer", StringComparison.OrdinalIgnoreCase)))
+        int removed = profile.Bindings.RemoveAll(binding =>
+            IsLegacyGeneratedPointerBinding(profile.Id, binding));
+        return removed > 0;
+    }
+
+    private static bool IsLegacyGeneratedPointerBinding(string profileId, ControlBinding binding)
+    {
+        ControlAction? action = binding.Action;
+        if (!binding.Enabled ||
+            action == null ||
+            binding.SecondaryControllerButtons.Count != 0 ||
+            !string.Equals(binding.Trigger, "hold", StringComparison.OrdinalIgnoreCase) ||
+            binding.ControllerButtons.Count != 1)
         {
-            profile.Bindings.Insert(0, new ControlBinding
-            {
-                Id = profile.Id + "-pointer",
-                Name = "Mover ponteiro",
-                ControllerButtons = new List<string> { "left-stick" },
-                Trigger = "hold",
-                Action = new ControlAction
-                {
-                    Type = "pointer",
-                    PointerDirection = "free",
-                    PointerDistance = 24
-                }
-            });
+            return false;
         }
-        if (!profile.Bindings.Any(binding =>
-                string.Equals(binding.Action?.Type, "wheel", StringComparison.OrdinalIgnoreCase) &&
-                binding.ControllerButtons.Any(button => button is "left-stick" or "right-stick")))
+
+        if (string.Equals(binding.Id, profileId + "-pointer", StringComparison.OrdinalIgnoreCase))
         {
-            profile.Bindings.Insert(Math.Min(1, profile.Bindings.Count), new ControlBinding
-            {
-                Id = profile.Id + "-scroll",
-                Name = "Rolagem",
-                ControllerButtons = new List<string> { "right-stick" },
-                Trigger = "hold",
-                Action = new ControlAction { Type = "wheel", WheelDelta = 120 }
-            });
+            return string.Equals(binding.ControllerButtons[0], "left-stick", StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(action.Type, "pointer", StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(action.PointerDirection, "free", StringComparison.OrdinalIgnoreCase) &&
+                   action.PointerDistance == 24;
         }
+
+        return string.Equals(binding.Id, profileId + "-scroll", StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(binding.ControllerButtons[0], "right-stick", StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(action.Type, "wheel", StringComparison.OrdinalIgnoreCase) &&
+               action.WheelDelta == 120;
     }
 
     private void ResetControlConfigurationForActiveUser()
@@ -414,10 +413,12 @@ public partial class MainWindow
             }
 
             int loadedSchemaVersion = document.SchemaVersion;
-            bool requiresMigration = loadedSchemaVersion < 7;
+            bool requiresMigration = loadedSchemaVersion < 8;
             document.Profiles ??= new List<ControlProfile>();
             document.Assignments ??= new List<ControlProfileAssignment>();
             if (!document.Profiles.Any(profile =>
+                    string.Equals(profile.Id, "global-default", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(profile.Category, "global", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(profile.TargetKind, "global", StringComparison.OrdinalIgnoreCase)))
             {
                 document.Profiles.Insert(0, CreateDefaultGlobalControlProfile());
@@ -426,6 +427,24 @@ public partial class MainWindow
             foreach (ControlProfile profile in document.Profiles.ToList())
             {
                 NormalizeControlProfile(profile);
+                bool removedLegacyGeneratedPointerBindings =
+                    loadedSchemaVersion < 8 && RemoveLegacyGeneratedPointerBindings(profile);
+                if (removedLegacyGeneratedPointerBindings)
+                {
+                    profile.UpdatedAtUtc = DateTimeOffset.UtcNow;
+                    requiresMigration = true;
+                }
+                if (IsGlobalControlProfile(profile) &&
+                    (!string.Equals(profile.TargetKind, "global", StringComparison.OrdinalIgnoreCase) ||
+                     !string.Equals(profile.Category, "global", StringComparison.OrdinalIgnoreCase)))
+                {
+                    profile.TargetKind = "global";
+                    profile.Category = "global";
+                    profile.TargetId = "";
+                    profile.TargetName = "Global";
+                    profile.OwnerUserId = "";
+                    requiresMigration = true;
+                }
                 if (loadedSchemaVersion < 7 &&
                     string.Equals(profile.BaseProfileId, "builtin-youtube", StringComparison.OrdinalIgnoreCase))
                 {
@@ -468,7 +487,8 @@ public partial class MainWindow
                 {
                     profile.Category = ResolveLegacyControlProfileCategory(profile);
                     RemoveCopiedGlobalBindings(profile);
-                    if (IsLegacyEmptyGeneratedProfile(profile))
+                    if (removedLegacyGeneratedPointerBindings &&
+                        IsLegacyEmptyGeneratedProfile(profile))
                     {
                         document.Profiles.Remove(profile);
                         document.Assignments.RemoveAll(assignment =>
@@ -496,7 +516,8 @@ public partial class MainWindow
                 else if (!string.Equals(profile.TargetKind, "global", StringComparison.OrdinalIgnoreCase))
                 {
                     RemoveCopiedGlobalBindings(profile);
-                    if (IsGeneratedEmptyReusableProfile(profile))
+                    if (removedLegacyGeneratedPointerBindings &&
+                        IsGeneratedEmptyReusableProfile(profile))
                     {
                         document.Profiles.Remove(profile);
                         document.Assignments.RemoveAll(assignment =>
@@ -509,7 +530,6 @@ public partial class MainWindow
                     !string.Equals(profile.Category, "global", StringComparison.OrdinalIgnoreCase) &&
                     !profile.HasConfigurablePointerBindings)
                 {
-                    AddDefaultPointerBindings(profile);
                     profile.HasConfigurablePointerBindings = true;
                     NormalizeControlProfile(profile);
                     requiresMigration = true;
@@ -530,7 +550,7 @@ public partial class MainWindow
                 }
             }
 
-            document.SchemaVersion = 7;
+            document.SchemaVersion = 8;
 
             _controlConfigurationCachePath = path;
             _controlConfigurationCache = document;
@@ -558,7 +578,7 @@ public partial class MainWindow
         lock (_controlConfigurationLock)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            document.SchemaVersion = 7;
+            document.SchemaVersion = 8;
             document.UpdatedAtUtc = DateTimeOffset.UtcNow;
             string json = JsonSerializer.Serialize(document, ControlJsonOptions);
             string temporaryPath = path + ".tmp";
@@ -827,6 +847,7 @@ public partial class MainWindow
         if (action == "controlEditorOpened")
         {
             _controlEditorOpen = true;
+            ReleaseConfiguredControlOutputs();
             return true;
         }
 
@@ -1664,6 +1685,11 @@ public partial class MainWindow
     private bool ProcessConfiguredControlBindings(XInputSnapshot snapshot)
     {
         if (ProcessControlCapture(snapshot))
+            return false;
+        // The editor owns the controller while it is open. Letting an app or a
+        // global pointer binding run here moves the Windows cursor at the same
+        // time as the WebView navigates focus, producing seemingly random jumps.
+        if (_controlEditorOpen)
             return false;
         lock (_controlRuntimeLock)
             return ProcessConfiguredControlBindingsCore(snapshot);
@@ -2583,11 +2609,9 @@ public partial class MainWindow
                 }
             }).ToList()
         };
+        RemoveLegacyGeneratedPointerBindings(result);
         if (!result.HasConfigurablePointerBindings)
-        {
-            AddDefaultPointerBindings(result);
             result.HasConfigurablePointerBindings = true;
-        }
         if (!result.HasSecondaryActivations)
         {
             MigrateSecondaryControlActivations(result);
@@ -2621,8 +2645,6 @@ public partial class MainWindow
                 incoming.OwnerUserId = incomingGlobal ? "" : currentUserId;
                 if (!incomingGlobal)
                     RemoveCopiedGlobalBindings(incoming);
-                if (IsGeneratedEmptyReusableProfile(incoming))
-                    continue;
                 int index = document.Profiles.FindIndex(profile =>
                     string.Equals(profile.Id, incoming.Id, StringComparison.OrdinalIgnoreCase));
                 if (index < 0) document.Profiles.Add(incoming);
