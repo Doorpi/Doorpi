@@ -154,7 +154,8 @@
         overlay: null, targets: [], profiles: [], profileOwners: [], assignments: [], target: null,
         profile: null, draft: null, tab: 'keyboard', dirty: false, popup: null,
         capture: null, captureSuppressed: false, requestedTarget: null, returnFocus: '', savePending: false,
-        mode: 'apps', adjustingRange: null, selectedBindingIndex: -1, lastTarget: null, inputModePending: false
+        mode: 'apps', adjustingRange: null, selectedBindingIndex: -1, lastTarget: null, inputModePending: false,
+        focusRequestGeneration: 0
     };
 
     function lang() {
@@ -842,7 +843,15 @@
     function toast(message) { const el=document.createElement('div'); el.style.cssText='position:fixed;z-index:17000;left:50%;bottom:90px;transform:translateX(-50%);padding:12px 18px;border-radius:10px;background:#eef7ff;color:#14243d;font-weight:800'; el.textContent=message; document.body.appendChild(el); setTimeout(()=>el.remove(),1800); }
 
     function focusables() { return state.overlay ? [...state.overlay.querySelectorAll('[data-cc-focus]')].filter(item => !item.disabled && item.offsetParent !== null) : []; }
-    function focusDefault(selector='') { requestAnimationFrame(() => { const preferred=state.mode === 'global' ? state.overlay?.querySelector('[data-mode="global"]') : state.overlay?.querySelector('[data-app-selector]'); const item=(selector&&state.overlay?.querySelector(selector)) || (state.popup?.element?.querySelector('[data-cc-focus]')) || (preferred?.offsetParent !== null ? preferred : null) || focusables()[0]; item?.focus({preventScroll:true}); }); }
+    function focusDefault(selector='') {
+        const generation=++state.focusRequestGeneration;
+        requestAnimationFrame(() => {
+            if(generation!==state.focusRequestGeneration||!state.overlay)return;
+            const preferred=state.mode === 'global' ? state.overlay.querySelector('[data-mode="global"]') : state.overlay.querySelector('[data-app-selector]');
+            const item=(selector&&state.overlay.querySelector(selector)) || (state.popup?.element?.querySelector('[data-cc-focus]')) || (preferred?.offsetParent !== null ? preferred : null) || focusables()[0];
+            item?.focus({preventScroll:true});
+        });
+    }
     function finishRangeAdjustment() {
         const range = state.adjustingRange; if (!range) return;
         range.classList.remove('adjusting'); const help = range.parentElement?.querySelector('[data-range-help]'); if (help) help.textContent = tx('adjustRange');
@@ -967,6 +976,9 @@
         return null;
     }
     function navigate(direction) {
+        // A queued focusDefault from a render must never overwrite a direction
+        // the user has already chosen on the next animation frame.
+        state.focusRequestGeneration++;
         if (state.capture) return; const items=focusables(); if (!items.length) return; const active=document.activeElement;
         if (state.adjustingRange) {
             if (active !== state.adjustingRange) state.adjustingRange.focus({preventScroll:true});
@@ -1058,7 +1070,11 @@
             if (direction==='LEFT'||direction==='RIGHT') target=moveWithin(footer,active,direction==='RIGHT'?1:-1);
             else if (direction==='UP') target=pointer[pointer.length-1]||detail[detail.length-1]||rows[rows.length-1]||headActions[0]||activeTab;
         }
-        focusItem(target||spatialPopupNavigation(candidates, active, direction)||active);
+        // Every transition in the main editor is defined above. Falling back to
+        // DOM order here turns UP/LEFT into "previous element" and DOWN/RIGHT
+        // into "next element", crossing columns and sections at their edges.
+        // At a boundary, staying put is the only predictable console behavior.
+        focusItem(target||active);
     }
     function activate() {
         if (state.capture) return;

@@ -2026,23 +2026,12 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
                 window.DoorpiControls.switchTab('left');
             if (buttonJustPressed(buttons[GAMEPAD.BTN_R1], GAMEPAD.BTN_R1))
                 window.DoorpiControls.switchTab('right');
-            const direction = gamepadDirection(gamepad, buttons, GAMEPAD.AXIS_THRESHOLD);
-            const now = performance.now();
-            if (direction && direction !== _currentDirection) {
-                _currentDirection = direction;
-                _controlsDirectionStartedAt = now;
-                _controlsDirectionLastMoveAt = now;
-                window.DoorpiControls.navigate(direction);
-            } else if (direction &&
-                       now - _controlsDirectionStartedAt >= NAV.GAMEPAD.INITIAL_DELAY &&
-                       now - _controlsDirectionLastMoveAt >= NAV.GAMEPAD.REPEAT_DELAY) {
-                _controlsDirectionLastMoveAt = now;
-                window.DoorpiControls.navigate(direction);
-            } else if (!direction) {
-                _currentDirection = null;
-                _controlsDirectionStartedAt = 0;
-                _controlsDirectionLastMoveAt = 0;
-            }
+            // Directions are emitted as discrete arrow-key pulses by the same
+            // native C# navigator used everywhere else in Doorpi. This branch owns
+            // only action buttons, avoiding a second analog/D-pad repeat loop.
+            _currentDirection = null;
+            _controlsDirectionStartedAt = 0;
+            _controlsDirectionLastMoveAt = 0;
             if (primaryJustPressed(buttons, GAMEPAD))
                 window.DoorpiControls.activate();
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL))

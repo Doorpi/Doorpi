@@ -4,7 +4,7 @@ namespace Doorpi;
 
 public sealed class ControlConfigurationDocument
 {
-    public int SchemaVersion { get; set; } = 7;
+    public int SchemaVersion { get; set; } = 8;
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
     public List<ControlProfile> Profiles { get; set; } = new();
     public List<ControlProfileAssignment> Assignments { get; set; } = new();

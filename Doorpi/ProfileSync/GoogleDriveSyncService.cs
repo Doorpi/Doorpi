@@ -709,6 +709,7 @@ public sealed class GoogleDriveSyncService
         profile.Games ??= new List<CloudGameHistoryEntryV1>();
         profile.ControlProfiles ??= new List<CloudControlProfileV1>();
         profile.ControlAssignments ??= new List<CloudControlAssignmentV1>();
+        var generatedShellIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (CloudControlProfileV1 controlProfile in profile.ControlProfiles)
         {
             controlProfile.TargetKind =
@@ -728,6 +729,22 @@ public sealed class GoogleDriveSyncService
                 binding.Action ??= new CloudControlActionV1();
                 binding.Action.VirtualKeys ??= new List<ushort>();
             }
+            int removedBindings = controlProfile.Bindings.RemoveAll(binding =>
+                IsLegacyGeneratedPointerBinding(controlProfile.Id, binding));
+            if (removedBindings > 0 &&
+                controlProfile.Bindings.Count == 0 &&
+                controlProfile.BaseProfileId?.StartsWith("builtin-", StringComparison.OrdinalIgnoreCase) == true &&
+                Math.Abs(controlProfile.MouseSensitivity - 1) < 0.001 &&
+                Math.Abs(controlProfile.ScrollSensitivity - 1) < 0.001 &&
+                Math.Abs(controlProfile.MouseDeadZone - 0.14) < 0.001)
+            {
+                generatedShellIds.Add(controlProfile.Id);
+            }
+        }
+        if (generatedShellIds.Count > 0)
+        {
+            profile.ControlProfiles.RemoveAll(item => generatedShellIds.Contains(item.Id));
+            profile.ControlAssignments.RemoveAll(item => generatedShellIds.Contains(item.ProfileId));
         }
 
         RemoteFileContent? photo = profile.ProfilePhoto.HasPhoto
@@ -738,6 +755,32 @@ public sealed class GoogleDriveSyncService
             profileFile.File,
             photo?.Content,
             photo?.File);
+    }
+
+    private static bool IsLegacyGeneratedPointerBinding(
+        string profileId,
+        CloudControlBindingV1 binding)
+    {
+        if (!binding.Enabled ||
+            binding.SecondaryControllerButtons.Count != 0 ||
+            !string.Equals(binding.Trigger, "hold", StringComparison.OrdinalIgnoreCase) ||
+            binding.ControllerButtons.Count != 1)
+        {
+            return false;
+        }
+
+        if (string.Equals(binding.Id, profileId + "-pointer", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Equals(binding.ControllerButtons[0], "left-stick", StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(binding.Action.Type, "pointer", StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(binding.Action.PointerDirection, "free", StringComparison.OrdinalIgnoreCase) &&
+                   binding.Action.PointerDistance == 24;
+        }
+
+        return string.Equals(binding.Id, profileId + "-scroll", StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(binding.ControllerButtons[0], "right-stick", StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(binding.Action.Type, "wheel", StringComparison.OrdinalIgnoreCase) &&
+               binding.Action.WheelDelta == 120;
     }
 
     private static async Task MarkSynchronizedAsync(
