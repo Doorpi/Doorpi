@@ -1,15 +1,15 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202608111747,
-    "publishedAt":  "2026-08-11T20:48:31.7522903Z",
-    "expiresAt":  "2026-08-25T20:48:31.7522903Z",
+    "manifestVersion":  202608112008,
+    "publishedAt":  "2026-08-11T23:09:08.9320742Z",
+    "expiresAt":  "2026-08-25T23:09:08.9320742Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
                    "version":  "0.4.28",
                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.28/doorpi-0.4.28.doorpiupdate.zip",
-                   "sha256":  "85034f312b3035dfd4a224b6a72cfcb0be26a24a05bd904919292971754a0f03",
-                   "sizeBytes":  133835226,
+                   "sha256":  "019810f6a3d73cdd9b7d7139f22060debf52e8154d79202eb4ae5280e216139d",
+                   "sizeBytes":  133857113,
                    "minUpdaterVersion":  "0.1.1",
                    "forceUpdate":  false,
                    "allowRollback":  false
@@ -17,8 +17,8 @@
     "updater":  {
                     "version":  "0.1.1",
                     "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.28/updater-0.1.1.doorpiupdate.zip",
-                    "sha256":  "240abc5d016a9538c2c4802b0d939079d9e29a193f8208960d30d8cbd4324636",
-                    "sizeBytes":  69946499,
+                    "sha256":  "d27d09df676c3a1e8ed4cf1cb0272404b8706f4a377f7358c2cef391175160c4",
+                    "sizeBytes":  69946469,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
@@ -27,19 +27,22 @@
                           "version":  "0.4.28",
                           "title":  "Doorpi 0.4.28",
                           "items":  [
-                                        "Novo perfil agora com informações para streamings e aplicativos."
+                                        "Novo perfil agora com informações para streamings, aplicativos e músicas (compatibilidade confirmada com YouTube, Spotify e YouTube Music).",
+                                        "Otimizações no consumo de memória."
                                     ],
                           "locales":  {
                                           "pt-BR":  {
                                                         "title":  "Doorpi 0.4.28",
                                                         "items":  [
-                                                                      "Novo perfil agora com informações para streamings e aplicativos."
+                                                                      "Novo perfil agora com informações para streamings, aplicativos e músicas (compatibilidade confirmada com YouTube, Spotify e YouTube Music).",
+                                                                      "Otimizações no consumo de memória."
                                                                   ]
                                                     },
                                           "en":  {
                                                      "title":  "Doorpi 0.4.28",
                                                      "items":  [
-                                                                   "New profile now includes information for streaming services and applications."
+                                                                   "New profile now includes information for streaming services, applications, and music (confirmed compatibility with YouTube, Spotify, and YouTube Music).",
+                                                                   "Memory usage optimizations."
                                                                ]
                                                  }
                                       }
@@ -48,6 +51,6 @@
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "D3ZvwVIgMmURSnXY97ZyTTqfGjAmiflJlYuphgWZqT8Il9UpxRD3560EZbK1egvyu+0627fj3tc40TOdikZgQ9ye9J7WRyAxJVLQrvLU8ojLReNMpnOccvj+SR0WMGbfev0vingyZS0yat9eLJrUxfVzJZ/qVbiMvqdToUr8YwTXeRpvcfMRKbcPYnO6LNceb2/BuipECuo1doBMs4LaFGDmyHIuA4QXdyKz2GCr0y/EQaO4Zn54vUFacy7HrzQg1LaWIUcfeQDasConjaDuJWMV7houds+22yDyxqTFFtJfYXLas/1mJ5s75AuCWpCEELwo1RqJL3drR/Dpitw8hIEDS1L7YLheWzq0cG/UeQkWgHQagiGKPnGpitXT+LrtM7tuFtKKRSH44N0g3DnB0v14g3gsgAF0YHo64Oz2gy0J8n5XUzot1xnA7/2ux3dpoZ79Wn79HSUTZ0shdZnjLBCIbvRkCS9fwM5WtPHtNwTwV7B/odg1aZFHGoLSuMb9"
+                      "value":  "h+DkrcVMgQX9YZMkVd6wiBN7Zs6jp1GjhsPK5GQdyBytvOZv99Q20WtWdLb7Q1FE0ShazggSefCJ8rXAeAtUhU5uZKPgM3xi+HvdYo1MXQAUWppv7ImtzMaTNo2ypVYeRZQ9yuHtlRhLqbRNZxmoMh0cT3H/Qg3SkbTWFBULIDtjABf5yvum1rRm/kPml/LQuunb3NqfqlXPom1s/QHOkFENC0L6w3YydavBuHB1TV2vQOM33LsT3aTfBR7c8P7CKJQazhE/rsYHGjuG1E8dZekef1fMyp64An0DdLMtTSQf4b5inTKp2POCQ1ZjGkP2Jwe75qfuEvWlKsUpkh/4MM8fretYGblyvrWVlnxU3nO1T2HC4MlRsL3c4xG2j6tj8PRaK9POazs4kOT0Qydg/UsuhFfPe/jFSvOiYfxs73/nZI4ihkwWnkbvak7rq4MccCZKrdRcloPy7TumEBLW53lDqqcTQgMS/0UioRKax/pHRq6h5rFEZaH0hSLEPHrx"
                   }
 }
