@@ -5,7 +5,6 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
-using System.Windows.Media.Effects;
 using System.Windows.Threading;
 
 namespace Doorpi
@@ -132,11 +131,16 @@ namespace Doorpi
             WireHoldTimer();
 
             WindowStyle = WindowStyle.None;
-            AllowsTransparency = true;
-            Background = new LinearGradientBrush(
-                Color.FromArgb(242, 36, 40, 60),
-                Color.FromArgb(242, 17, 20, 34),
+            // A transparent layered WPF window and its large DropShadowEffect force
+            // expensive software composition on low-end GPUs. Keep the same dark
+            // appearance on an opaque surface so navigation remains responsive.
+            AllowsTransparency = false;
+            var background = new LinearGradientBrush(
+                Color.FromRgb(36, 40, 60),
+                Color.FromRgb(17, 20, 34),
                 135);
+            background.Freeze();
+            Background = background;
             Topmost = true;
             ShowActivated = false;
             Width = 1050;
@@ -144,8 +148,6 @@ namespace Doorpi
             WindowStartupLocation = WindowStartupLocation.Manual;
             Left = (SystemParameters.PrimaryScreenWidth - Width) / 2;
             Top = SystemParameters.PrimaryScreenHeight - Height - 50;
-
-            Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 46, ShadowDepth = 14, Opacity = 0.58 };
 
             BuildUI();
             RefreshVisuals();
@@ -294,6 +296,8 @@ namespace Doorpi
 
         public void MoveSelection(int dr, int dc)
         {
+            int previousRow = _row;
+            int previousCol = _col;
             int newRow = _row;
             int newCol = _col;
 
@@ -326,9 +330,15 @@ namespace Doorpi
                 if (newCol >= rowLen) newCol = 0;
             }
 
+            if (newRow == previousRow && newCol == previousCol)
+                return;
+
             _row = newRow;
             _col = newCol;
-            RefreshVisuals();
+            // Directional navigation only changes two keys. Repainting the entire
+            // keyboard on every repeat caused avoidable WPF layout/render work.
+            RefreshKeyVisual(previousRow, previousCol);
+            RefreshKeyVisual(_row, _col);
         }
 
         public void ToggleShift() { _shifted = !_shifted; RefreshVisuals(); }
@@ -568,8 +578,8 @@ namespace Doorpi
                         Width = def.Width,
                         Margin = new Thickness(4),
                         CornerRadius = new CornerRadius(8),
-                        Background = new SolidColorBrush(Color.FromRgb(50, 54, 72)),
-                        BorderBrush = new SolidColorBrush(Color.FromArgb(38, 255, 255, 255)),
+                        Background = def.IsAction ? BrushKeyAction : BrushKeyNormal,
+                        BorderBrush = BrushKeyBorder,
                         BorderThickness = new Thickness(1),
                         Child = innerGrid
                     };
@@ -590,51 +600,60 @@ namespace Doorpi
         private static readonly SolidColorBrush BrushKeyBorder = new SolidColorBrush(Color.FromArgb(42, 255, 255, 255));
         private static readonly SolidColorBrush BrushKeyFocusBorder = new SolidColorBrush(Color.FromArgb(230, 255, 255, 255));
 
+        private void RefreshKeyVisual(int r, int c)
+        {
+            var keys = CurrentKeys;
+            if (r < 0 || r >= keys.Length || c < 0 || c >= keys[r].Length)
+                return;
+
+            var def = keys[r][c];
+            var border = _uiKeys[r][c];
+            var innerGrid = (Grid)border.Child;
+            var tb = (TextBlock)innerGrid.Children[0];
+            bool focus = r == _row && c == _col;
+            bool isPendingAccentKey = def.Value == _pendingAccent;
+
+            Brush background;
+            Brush foreground;
+            Brush borderBrush;
+            if (focus)
+            {
+                background = isPendingAccentKey ? Brushes.Orange : Brushes.White;
+                foreground = Brushes.Black;
+                borderBrush = BrushKeyFocusBorder;
+            }
+            else
+            {
+                foreground = Brushes.White;
+                borderBrush = BrushKeyBorder;
+                background = isPendingAccentKey
+                    ? BrushAccentPending
+                    : def.IsAction
+                        ? BrushKeyAction
+                        : _layer == VkbLayer.Special ? BrushKeySpecial : BrushKeyNormal;
+            }
+
+            if (!ReferenceEquals(border.Background, background)) border.Background = background;
+            if (!ReferenceEquals(border.BorderBrush, borderBrush)) border.BorderBrush = borderBrush;
+            if (!ReferenceEquals(tb.Foreground, foreground)) tb.Foreground = foreground;
+
+            string desiredText = _layer == VkbLayer.Alpha &&
+                                 !def.IsAction &&
+                                 def.Value.Length == 1 &&
+                                 char.IsLetter(def.Value[0])
+                ? (_shifted ? def.Value.ToUpper() : def.Value.ToLower())
+                : def.Display;
+            if (!string.Equals(tb.Text, desiredText, StringComparison.Ordinal))
+                tb.Text = desiredText;
+        }
+
         private void RefreshVisuals()
         {
             var keys = CurrentKeys;
             for (int r = 0; r < keys.Length; r++)
             {
                 for (int c = 0; c < keys[r].Length; c++)
-                {
-                    var def = keys[r][c];
-                    var border = _uiKeys[r][c];
-
-                    var innerGrid = (Grid)border.Child;
-                    var tb = (TextBlock)innerGrid.Children[0];
-
-                    bool focus = (r == _row && c == _col);
-                    bool isPendingAccentKey = (def.Value == _pendingAccent); // Tecla de acento em modo espera
-
-                    if (focus)
-                    {
-                        // Foco (Realçado Laranja se for acento, ou Branco)
-                        border.Background = isPendingAccentKey ? Brushes.Orange : Brushes.White;
-                        border.BorderBrush = BrushKeyFocusBorder;
-                        tb.Foreground = Brushes.Black;
-                    }
-                    else
-                    {
-                        border.BorderBrush = BrushKeyBorder;
-                        // Sem Foco
-                        if (isPendingAccentKey)
-                        {
-                            // Fica laranja escuro pra indicar que acento está ativo, mesmo se o usuário mover o cursor
-                            border.Background = BrushAccentPending;
-                            tb.Foreground = Brushes.White;
-                        }
-                        else
-                        {
-                            border.Background = def.IsAction ? BrushKeyAction : (_layer == VkbLayer.Special ? BrushKeySpecial : BrushKeyNormal);
-                            tb.Foreground = Brushes.White;
-                        }
-                    }
-
-                    if (_layer == VkbLayer.Alpha && !def.IsAction && def.Value.Length == 1 && char.IsLetter(def.Value[0]))
-                    {
-                        tb.Text = _shifted ? def.Value.ToUpper() : def.Value.ToLower();
-                    }
-                }
+                    RefreshKeyVisual(r, c);
             }
         }
     }

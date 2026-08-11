@@ -1,10 +1,10 @@
 (function () {
     const SOUND_STEP = 2;
     const SOUND_ITEMS = [
-        { key: 'ambience', group: 'space', labelKey: 'soundAmbienceVolume', fallback: 'Ambience' },
-        { key: 'intro', group: 'space', labelKey: 'soundIntroVolume', fallback: 'Introducao' },
+        { key: 'ambience', group: 'space', labelKey: 'soundAmbienceVolume', fallback: 'Ambiência' },
+        { key: 'intro', group: 'space', labelKey: 'soundIntroVolume', fallback: 'Introdução' },
         { key: 'trailer', group: 'space', labelKey: 'soundTrailerVolume', fallback: 'Trailers' },
-        { key: 'navigation', group: 'control', labelKey: 'soundNavigationVolume', fallback: 'Navegacao' },
+        { key: 'navigation', group: 'control', labelKey: 'soundNavigationVolume', fallback: 'Navegação' },
         { key: 'confirm', group: 'control', labelKey: 'soundConfirmVolume', fallback: 'Confirmar' },
         { key: 'back', group: 'control', labelKey: 'soundBackVolume', fallback: 'Voltar' }
     ];
@@ -164,14 +164,27 @@
         </div>`;
     }
 
-    function volumeControl(surface, key, label, value, system, enabled, active) {
-        return `<div class="sound-volume-card sound-volume-${esc(key)} sound-focus ${active ? 'editing' : ''} ${enabled ? '' : 'disabled'}"
+    function volumeIcon(key) {
+        const paths = {
+            master: '<path d="M4 9v6h4l5 4V5L8 9H4Z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/>',
+            ambience: '<path d="M4 15c2.2-4 4.3-4 6.5 0s4.3 4 6.5 0 3-4 3-4"/><path d="M4 9c2.2-4 4.3-4 6.5 0s4.3 4 6.5 0 3-4 3-4"/>',
+            intro: '<path d="M8 5v14l11-7Z"/><path d="M4 5v14"/>',
+            trailer: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m10 9 5 3-5 3Z"/><path d="M7 5v14M17 5v14"/>',
+            navigation: '<path d="M8 8v8M4 12h8"/><circle cx="17" cy="9" r="1"/><circle cx="19" cy="13" r="1"/>',
+            confirm: '<path d="m5 12 4 4L19 6"/>',
+            back: '<path d="m9 7-5 5 5 5"/><path d="M5 12h14"/>'
+        };
+        return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[key] || paths.master}</svg>`;
+    }
+
+    function volumeControl(surface, key, label, value, system, enabled, active, extraClass = '') {
+        return `<div class="sound-volume-card sound-volume-${esc(key)} sound-focus ${esc(extraClass)} ${active ? 'editing' : ''} ${enabled ? '' : 'disabled'}"
                 role="button"
                 data-sound-volume-control="${esc(key)}"
                 tabindex="0"
-                aria-disabled="${enabled ? 'false' : 'true'}">
+            aria-disabled="${enabled ? 'false' : 'true'}">
             <div class="sound-volume-copy">
-                <span>${esc(label)}</span>
+                <span class="sound-volume-label"><i>${volumeIcon(key)}</i><span>${esc(label)}</span></span>
                 <strong data-sound-value="${esc(key)}">${enabled ? `${clampVolume(value)}%` : '--'}</strong>
             </div>
             ${slider(surface, key, label, value, system, enabled, active)}
@@ -193,20 +206,36 @@
         </div>`;
     }
 
-    function soundCluster(surface, title, group, internal, state) {
+    function mixerGroupIcon(group) {
+        if (group === 'space') {
+            return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 15c2.2-4 4.3-4 6.5 0s4.3 4 6.5 0 3-4 3-4"/><path d="M4 9c2.2-4 4.3-4 6.5 0s4.3 4 6.5 0 3-4 3-4"/></svg>';
+        }
+        return window.DoorpiControls?.controllerIcon?.('sound-shared-controller') || '';
+    }
+
+    function soundCluster(surface, title, description, group, internal, state) {
         const items = SOUND_ITEMS.filter(item => item.group === group);
-        return `<div class="sound-system-cluster ${esc(group)}">
-            <div class="sound-system-cluster-title">${esc(title)}</div>
-            <div class="sound-system-cluster-items">
-                ${items.map(item => soundItem(surface, item, internal[item.key], state.expandedSoundKey, state.activeSliderKey)).join('')}
+        return `<section class="sound-mixer-group ${esc(group)}" data-sound-mixer-group="${esc(group)}">
+            <header class="sound-mixer-group-head">
+                <span class="sound-mixer-group-icon">${mixerGroupIcon(group)}</span>
+                <span class="sound-mixer-group-copy"><strong>${esc(title)}</strong><small>${esc(description)}</small></span>
+            </header>
+            <div class="sound-mixer-controls">
+                ${items.map(item => volumeControl(surface, item.key, tr(item.labelKey, item.fallback), internal[item.key], false, true, state.activeSliderKey === item.key, `sound-mixer-volume sound-mixer-${group}`)).join('')}
             </div>
-        </div>`;
+        </section>`;
     }
 
     function systemList(surface, internal, state) {
-        return `<div class="sound-system-list">
-            ${soundCluster(surface, tr('soundSystemAmbientGroup', 'Ambiente'), 'space', internal, state)}
-            ${soundCluster(surface, tr('soundSystemControlGroup', 'Controle'), 'control', internal, state)}
+        return `<div class="sound-mixer">
+            <div class="sound-mixer-heading">
+                <span class="sound-eyebrow">${esc(tr('soundDoorpiVolumes', 'Sons do Doorpi'))}</span>
+                <p>Ajuste separadamente a atmosfera da interface e as respostas às ações do controle.</p>
+            </div>
+            <div class="sound-system-list">
+                ${soundCluster(surface, tr('soundSystemAmbientGroup', 'Ambiente e mídia'), 'Ambiência, abertura e reprodução de trailers', 'space', internal, state)}
+                ${soundCluster(surface, tr('soundSystemControlGroup', 'Resposta do controle'), 'Movimentos, confirmação e retorno', 'control', internal, state)}
+            </div>
         </div>`;
     }
 
@@ -228,20 +257,30 @@
 
     function deviceDrawerHtml(state) {
         const deviceLocked = Date.now() < state.deviceChangingUntil;
-        return `<aside class="sound-drawer">
-            <div class="sound-drawer-head">
-                <span class="sound-eyebrow">${esc(tr('soundOutputDevices', 'Saida de audio'))}</span>
-            </div>
-            <div class="sound-device-scroll" data-sound-device-scroll>
-                ${devices().length
-            ? devices().map(device => deviceDrawerItem(device, deviceLocked, state.devicePendingId)).join('')
-            : `<p class="sound-empty">${esc(tr('soundNoDevices', 'Nenhum dispositivo de saida encontrado.'))}</p>`}
-            </div>
-        </aside>`;
+        return `<div class="sound-device-overlay" data-sound-device-overlay>
+            <button class="sound-device-backdrop" type="button" data-sound-action="close-devices" tabindex="-1" aria-label="${esc(tr('close', 'Fechar'))}"></button>
+            <aside class="sound-drawer" role="dialog" aria-modal="true" aria-label="${esc(tr('soundOutputDevices', 'Saida de audio'))}">
+                <div class="sound-drawer-head">
+                    <div class="sound-drawer-title">
+                        <span class="sound-eyebrow">${esc(tr('soundOutputDevices', 'Saida de audio'))}</span>
+                        <strong>Selecionar dispositivo</strong>
+                        <small>Escolha onde o Windows e o Doorpi devem reproduzir o som.</small>
+                    </div>
+                    <button class="sound-drawer-close sound-focus" type="button" data-sound-action="close-devices" tabindex="0">${esc(tr('close', 'Fechar'))}</button>
+                </div>
+                <div class="sound-device-scroll" data-sound-device-scroll>
+                    ${devices().length
+                ? devices().map(device => deviceDrawerItem(device, deviceLocked, state.devicePendingId)).join('')
+                : `<p class="sound-empty">${esc(tr('soundNoDevices', 'Nenhum dispositivo de saida encontrado.'))}</p>`}
+                </div>
+            </aside>
+        </div>`;
     }
 
     function render(surface) {
         const state = surfaceState(surface);
+        state.systemExpanded = false;
+        state.expandedSoundKey = '';
         const internal = internalVolumes();
         const device = currentDevice();
         const masterKnown = hasSystemVolume();
@@ -257,37 +296,36 @@
         return `<div class="sound-view sound-view-${esc(surface)} ${state.drawerOpen ? 'drawer-open' : ''}">
             <div class="sound-layout">
                 <div class="sound-main">
-                    <section class="sound-panel">
-                        <div class="sound-section-head">
-                            <span class="sound-eyebrow">${esc(tr('soundGeneralVolume', 'Volume geral'))}</span>
-                        </div>
-                        ${volumeControl(surface, 'master', tr('soundSystemVolume', 'Volume do Windows'), master, true, masterKnown, state.activeSliderKey === 'master')}
-                    </section>
-
-                    <section class="sound-panel">
-                        <div class="sound-section-head">
-                            <span class="sound-eyebrow">${esc(tr('soundCurrentDevice', 'Dispositivo atual'))}</span>
-                            ${caption ? `<p>${esc(caption)}</p>` : ''}
-                        </div>
-                        <div class="sound-current-device ${device ? '' : 'empty'}">
-                            <span class="sound-device-icon">${speakerIcon()}</span>
-                            <div class="sound-current-copy">
-                                <strong data-sound-current-device-name>${esc(deviceName)}</strong>
-                                <span data-sound-current-device-volume>${deviceVolume === null ? esc(tr('soundNoDevices', 'Nenhum dispositivo de saida encontrado.')) : `${deviceVolume}%`}</span>
+                    <div class="sound-overview">
+                        <section class="sound-panel sound-master-panel">
+                            <div class="sound-section-head">
+                                <span class="sound-eyebrow">${esc(tr('soundGeneralVolume', 'Volume geral'))}</span>
+                                <p>Controla o volume principal do Windows.</p>
                             </div>
-                        </div>
-                        <button class="sound-inline-action sound-focus" data-sound-action="toggle-devices" tabindex="0" ${devices().length ? '' : 'disabled'}>
-                            <span>${esc(tr('soundChangeDevice', 'Alterar dispositivo'))}</span>
-                            <i>${chevronIcon()}</i>
-                        </button>
-                    </section>
+                            ${volumeControl(surface, 'master', tr('soundSystemVolume', 'Volume do Windows'), master, true, masterKnown, state.activeSliderKey === 'master')}
+                        </section>
 
-                    <section class="sound-panel">
-                        <button class="sound-system-group sound-focus ${state.systemExpanded ? 'expanded' : ''}" data-sound-action="toggle-system-sounds" tabindex="0" aria-expanded="${state.systemExpanded ? 'true' : 'false'}">
-                            <span class="sound-eyebrow">${esc(tr('soundSystemSounds', 'Sons do sistema'))}</span>
-                            <i>${chevronIcon()}</i>
-                        </button>
-                        ${state.systemExpanded ? systemList(surface, internal, state) : ''}
+                        <section class="sound-panel sound-output-panel">
+                            <div class="sound-section-head">
+                                <span class="sound-eyebrow">${esc(tr('soundCurrentDevice', 'Saída de áudio'))}</span>
+                                ${caption ? `<p>${esc(caption)}</p>` : '<p>Dispositivo usado pelo Windows e pelo Doorpi.</p>'}
+                            </div>
+                            <div class="sound-current-device ${device ? '' : 'empty'}">
+                                <span class="sound-device-icon">${speakerIcon()}</span>
+                                <div class="sound-current-copy">
+                                    <strong data-sound-current-device-name>${esc(deviceName)}</strong>
+                                    <span data-sound-current-device-volume>${deviceVolume === null ? esc(tr('soundNoDevices', 'Nenhum dispositivo de saida encontrado.')) : `${deviceVolume}%`}</span>
+                                </div>
+                            </div>
+                            <button class="sound-inline-action sound-focus" data-sound-action="toggle-devices" tabindex="0" ${devices().length ? '' : 'disabled'}>
+                                <span>${esc(tr('soundChangeDevice', 'Alterar dispositivo'))}</span>
+                                <i>${chevronIcon()}</i>
+                            </button>
+                        </section>
+                    </div>
+
+                    <section class="sound-panel sound-mixer-panel">
+                        ${systemList(surface, internal, state)}
                     </section>
                 </div>
 
@@ -344,8 +382,9 @@
     function moveDeviceDrawerFocus(root, direction) {
         const active = document.activeElement;
         if (!root || !active || !root.contains(active) || !active.closest?.('.sound-drawer')) return false;
-        if (direction !== 'UP' && direction !== 'DOWN') return false;
-        const options = Array.from(root.querySelectorAll('.sound-drawer .sound-device-option'))
+        if (direction === 'LEFT' || direction === 'RIGHT') return true;
+        if (direction !== 'UP' && direction !== 'DOWN') return true;
+        const options = Array.from(root.querySelectorAll('.sound-drawer .sound-focus'))
             .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0);
         if (!options.length) return true;
         const current = options.indexOf(active);
@@ -502,6 +541,17 @@
 
     function wireDeviceDrawer(root, surface, onChanged) {
         const state = surfaceState(surface);
+        root.querySelectorAll('[data-sound-action="close-devices"]:not([data-sound-bound])').forEach(button => {
+            button.dataset.soundBound = 'true';
+            button.addEventListener('click', event => {
+                event.preventDefault();
+                event.stopPropagation();
+                state.drawerOpen = false;
+                root.querySelector('.sound-view')?.classList.remove('drawer-open');
+                root.querySelector('[data-sound-device-overlay]')?.remove();
+                requestAnimationFrame(() => root.querySelector('[data-sound-action="toggle-devices"]')?.focus());
+            });
+        });
         root.querySelectorAll('[data-sound-device-option]:not([data-sound-bound])').forEach(button => {
             button.dataset.soundBound = 'true';
             button.addEventListener('click', event => {
@@ -537,13 +587,13 @@
                 const layout = root.querySelector('.sound-layout');
                 view?.classList.toggle('drawer-open', state.drawerOpen);
                 if (state.drawerOpen) {
-                    root.querySelector('.sound-drawer')?.remove();
+                    root.querySelector('[data-sound-device-overlay]')?.remove();
                     layout?.insertAdjacentHTML('beforeend', deviceDrawerHtml(state));
                     wireDeviceDrawer(root, surface, onChanged);
                     requestAnimationFrame(() => root.querySelector('.sound-device-option.active, .sound-device-option')?.focus());
                     return;
                 }
-                root.querySelector('.sound-drawer')?.remove();
+                root.querySelector('[data-sound-device-overlay]')?.remove();
                 button.focus();
             });
         });
@@ -750,6 +800,57 @@
         return best;
     }
 
+    function mixerDirectionalTarget(root, active, direction) {
+        const control = active?.closest?.('[data-sound-volume-control]');
+        const key = control?.dataset?.soundVolumeControl || '';
+        const item = SOUND_ITEMS.find(entry => entry.key === key);
+        if (!control || !item) return { handled: false, target: null };
+
+        const groupItems = SOUND_ITEMS.filter(entry => entry.group === item.group);
+        const position = groupItems.findIndex(entry => entry.key === key);
+        const targetFor = targetKey => root.querySelector(`[data-sound-volume-control="${CSS.escape(targetKey)}"]`);
+
+        if (direction === 'LEFT' || direction === 'RIGHT') {
+            const targetGroup = direction === 'RIGHT' && item.group === 'space'
+                ? 'control'
+                : direction === 'LEFT' && item.group === 'control'
+                    ? 'space'
+                    : '';
+            if (!targetGroup) return { handled: false, target: null };
+            const counterpart = SOUND_ITEMS.filter(entry => entry.group === targetGroup)[position];
+            return { handled: true, target: counterpart ? targetFor(counterpart.key) : null };
+        }
+
+        if (direction === 'UP') {
+            if (position > 0) return { handled: true, target: targetFor(groupItems[position - 1].key) };
+            return {
+                handled: true,
+                target: item.group === 'space'
+                    ? root.querySelector('[data-sound-volume-control="master"]')
+                    : root.querySelector('[data-sound-action="toggle-devices"]')
+            };
+        }
+
+        if (direction === 'DOWN') {
+            if (position < groupItems.length - 1) return { handled: true, target: targetFor(groupItems[position + 1].key) };
+            return { handled: true, target: null };
+        }
+
+        return { handled: false, target: null };
+    }
+
+    function overviewDirectionalTarget(root, active, direction) {
+        const master = active?.closest?.('[data-sound-volume-control="master"]');
+        const deviceAction = active?.closest?.('[data-sound-action="toggle-devices"]');
+        if (direction === 'RIGHT' && master) {
+            return { handled: true, target: root.querySelector('[data-sound-action="toggle-devices"]') };
+        }
+        if (direction === 'LEFT' && deviceAction) {
+            return { handled: true, target: root.querySelector('[data-sound-volume-control="master"]') };
+        }
+        return { handled: false, target: null };
+    }
+
     function adjustFocusedSlider(root, direction) {
         const active = document.activeElement;
         if (!root || !active || !root.contains(active) || !active.dataset?.soundSlider) return false;
@@ -791,7 +892,7 @@
             state.drawerOpen = false;
             if (root) {
                 root.querySelector('.sound-view')?.classList.remove('drawer-open');
-                root.querySelector('.sound-drawer')?.remove();
+                root.querySelector('[data-sound-device-overlay]')?.remove();
                 requestAnimationFrame(() => root.querySelector('[data-sound-action="toggle-devices"]')?.focus());
                 return true;
             }
@@ -833,7 +934,7 @@
         if (!root) return;
         setActiveSliderUi(root, state, '');
         root.querySelector('.sound-view')?.classList.remove('drawer-open');
-        root.querySelector('.sound-drawer')?.remove();
+        root.querySelector('[data-sound-device-overlay]')?.remove();
     }
 
     function handleDirection(surface, direction) {
@@ -842,6 +943,19 @@
         if (!root || !active || !root.contains(active)) return false;
         if (moveDeviceDrawerFocus(root, direction)) return true;
         if (adjustFocusedSlider(root, direction)) return true;
+
+        const overviewMove = overviewDirectionalTarget(root, active, direction);
+        if (overviewMove.handled) {
+            overviewMove.target?.focus();
+            return true;
+        }
+
+        const mixerMove = mixerDirectionalTarget(root, active, direction);
+        if (mixerMove.handled) {
+            if (active.dataset?.soundSlider) setActiveSliderUi(root, surfaceState(surface), '');
+            mixerMove.target?.focus();
+            return true;
+        }
 
         const items = getFocusableItems(root);
         const next = findDirectionalTarget(active, items, direction);
@@ -863,20 +977,28 @@
         const style = document.createElement('style');
         style.id = 'doorpiSoundStyles';
         style.textContent = `
-            .sound-view{width:100%;max-width:min(1220px,100%);display:flex;flex-direction:column;position:relative}
+            .sound-view{width:100%;max-width:min(1420px,100%);display:flex;flex-direction:column;position:relative;container-type:inline-size}
             .sound-view-quick{max-width:100%}
-            .sound-view-settings{max-width:min(1220px,100%)}
-            .sound-view.drawer-open{max-width:min(1220px,100%)}
+            .sound-view-settings{max-width:100%}
+            .sound-view.drawer-open{max-width:min(1420px,100%)}
             .sound-view-quick.drawer-open{max-width:100%}
+            .sound-view-settings.drawer-open{max-width:100%}
             .sound-layout{width:100%;min-width:0;display:grid;grid-template-columns:minmax(0,1fr);gap:18px;align-items:start}
-            .sound-view-quick .sound-layout{grid-template-columns:minmax(360px,1fr) minmax(280px,clamp(320px,34%,480px));gap:clamp(12px,1.2vw,18px)}
-            .sound-view-settings .sound-layout{grid-template-columns:minmax(360px,1fr) minmax(280px,clamp(320px,34%,480px));gap:clamp(12px,1.2vw,18px)}
-            .sound-view.drawer-open .sound-layout{grid-template-columns:minmax(360px,1fr) minmax(280px,clamp(320px,34%,480px));gap:clamp(12px,1.2vw,18px)}
-            .sound-main{min-width:0;display:grid;gap:14px}
+            .sound-view-quick .sound-layout,.sound-view-settings .sound-layout{grid-template-columns:minmax(0,1fr)}
+            .sound-view.drawer-open .sound-layout{grid-template-columns:minmax(0,1fr)}
+            .sound-main{min-width:0;display:grid;gap:16px}
+            .sound-overview{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:14px;align-items:stretch}
             .sound-panel,.sound-drawer{border:1px solid rgba(255,255,255,.09);border-radius:8px;background:linear-gradient(180deg,rgba(255,255,255,.052),rgba(255,255,255,.026));backdrop-filter:blur(14px)}
             .sound-panel{padding:16px;display:grid;gap:12px}
-            .sound-drawer{min-width:0;padding:18px;display:grid;gap:14px;overflow:hidden;max-height:min(76vh,920px)}
-            .sound-view.drawer-open .sound-drawer{position:static;width:auto}
+            .sound-master-panel,.sound-output-panel{align-content:start}
+            .sound-output-panel{grid-template-columns:1fr}
+            .sound-output-panel .sound-section-head{grid-column:1}
+            .sound-output-panel .sound-current-device{min-width:0}
+            .sound-output-panel .sound-inline-action{align-self:stretch;min-width:0;width:100%}
+            .sound-mixer-panel{padding:clamp(18px,2vw,28px)}
+            .sound-device-overlay{position:fixed;inset:0;z-index:1000040;display:grid;place-items:center;padding:clamp(24px,5vh,70px)}
+            .sound-device-backdrop{position:absolute;inset:0;border:0;background:rgba(3,6,13,.72);backdrop-filter:blur(5px);cursor:default}
+            .sound-drawer{position:relative;z-index:1;width:min(680px,calc(100vw - 48px));min-width:0;max-height:min(76vh,820px);padding:clamp(20px,2vw,28px);display:grid;grid-template-rows:auto minmax(0,1fr);gap:18px;overflow:hidden;border-color:rgba(255,255,255,.16);background:linear-gradient(155deg,rgba(28,34,47,.985),rgba(14,18,28,.985));box-shadow:0 32px 90px rgba(0,0,0,.55)}
             .sound-section-head{display:grid;gap:4px}
             .sound-section-head p{margin:0;color:rgba(255,255,255,.5);font-size:.84rem;line-height:1.4}
             .sound-eyebrow{font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.5);font-weight:800}
@@ -898,6 +1020,10 @@
             .sound-volume-card.disabled{opacity:.42;cursor:default}
             .sound-volume-card.editing{border-color:rgba(255,255,255,.075);background:linear-gradient(180deg,rgba(255,255,255,.042),rgba(255,255,255,.026));box-shadow:none}
             .sound-volume-copy{display:flex;align-items:center;justify-content:space-between;gap:16px;color:rgba(255,255,255,.72);font-size:.92rem}
+            .sound-volume-label{min-width:0;display:flex;align-items:center;gap:10px}
+            .sound-volume-label>i{width:24px;height:24px;display:grid;place-items:center;color:rgba(255,255,255,.5);font-style:normal;flex:0 0 auto}
+            .sound-volume-label>i svg{width:20px;height:20px}
+            .sound-volume-label>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
             .sound-volume-copy strong{color:#fff;font-weight:650}
             .sound-slider-shell{position:relative;display:grid;grid-template-columns:26px minmax(0,1fr) 26px;gap:10px;align-items:center;padding:0 2px}
             .sound-slider-shell.disabled{opacity:.42}
@@ -929,18 +1055,33 @@
             .sound-volume-slider::-moz-range-thumb{width:12px;height:22px;border:1px solid rgba(255,255,255,.28);border-radius:6px;background:linear-gradient(180deg,#f5fbff,#9fb3c3);box-shadow:0 1px 5px rgba(0,0,0,.42);opacity:0;transition:opacity .12s ease, box-shadow .15s ease}
             .sound-volume-card.editing .sound-volume-slider::-moz-range-thumb{opacity:1;background:#fff;border-color:#fff;box-shadow:0 0 8px rgba(88,185,255,.6),0 1px 5px rgba(0,0,0,.42)}
 
-            .sound-system-list{display:grid;gap:12px}
-            .sound-system-cluster{display:grid;grid-template-columns:112px minmax(0,1fr);gap:12px;align-items:start}
-            .sound-system-cluster-title{min-height:42px;border-left:2px solid rgba(255,255,255,.22);padding:10px 0 0 10px;color:rgba(255,255,255,.5);font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;font-weight:800}
-            .sound-system-cluster.control .sound-system-cluster-title{border-left-color:rgba(50,94,134,.95)}
-            .sound-system-cluster-items{display:grid;gap:8px}
+            .sound-mixer{display:grid;gap:18px}
+            .sound-mixer-heading{display:grid;gap:5px;padding-bottom:14px;border-bottom:1px solid rgba(255,255,255,.1)}
+            .sound-mixer-heading p{max-width:760px;margin:0;color:rgba(255,255,255,.48);font-size:.82rem;line-height:1.42}
+            .sound-system-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:clamp(18px,2.4vw,38px)}
+            .sound-mixer-group{min-width:0;display:grid;align-content:start;gap:12px}
+            .sound-mixer-group.control{padding-left:clamp(18px,2.2vw,34px);border-left:1px solid rgba(255,255,255,.11)}
+            .sound-mixer-group-head{min-height:48px;display:grid;grid-template-columns:38px minmax(0,1fr);align-items:center;gap:11px}
+            .sound-mixer-group-icon{width:38px;height:38px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.1);border-radius:7px;color:rgba(255,255,255,.64);background:rgba(255,255,255,.035)}
+            .sound-mixer-group-icon svg{width:23px;height:23px}
+            .sound-mixer-group.control .sound-mixer-group-icon svg{width:29px;height:24px}
+            .sound-mixer-group-copy{min-width:0;display:grid;gap:3px}
+            .sound-mixer-group-copy strong{color:rgba(255,255,255,.92);font-size:.96rem;font-weight:600}
+            .sound-mixer-group-copy small{color:rgba(255,255,255,.42);font-size:.72rem;line-height:1.3}
+            .sound-mixer-controls{display:grid;gap:6px}
+            .sound-mixer-volume{min-height:78px;padding:10px 12px;background:rgba(255,255,255,.025);border-color:rgba(255,255,255,.065)}
+            .sound-mixer-volume .sound-slider-shell{grid-template-columns:22px minmax(0,1fr) 22px;gap:7px}
             .sound-system-item{display:grid;gap:8px}
             .sound-system-toggle{min-height:46px;padding:0 13px;border:1px solid rgba(255,255,255,.075);border-radius:8px;background:rgba(255,255,255,.032);display:flex;align-items:center;justify-content:space-between;gap:14px;cursor:pointer;text-align:left}
             .sound-system-meta{display:flex;align-items:center;gap:12px}
             .sound-system-meta strong{font-size:.9rem;color:rgba(255,255,255,.86)}
             .sound-system-item.expanded .sound-system-toggle i{transform:rotate(90deg)}
             .sound-system-slider{padding:0 0 0 0}
-            .sound-drawer-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+            .sound-drawer-head{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;padding-bottom:16px;border-bottom:1px solid rgba(255,255,255,.1)}
+            .sound-drawer-title{min-width:0;display:grid;gap:5px}
+            .sound-drawer-title strong{color:#fff;font-size:clamp(1.15rem,1.5vw,1.45rem);font-weight:480}
+            .sound-drawer-title small{color:rgba(255,255,255,.48);font-size:.78rem;line-height:1.4}
+            .sound-drawer-close{min-height:40px;padding:0 14px;border:1px solid rgba(255,255,255,.12);border-radius:7px;background:rgba(255,255,255,.05);color:#fff;font:inherit;font-size:.78rem;font-weight:620;cursor:pointer;outline:0}
             .sound-device-scroll{display:grid;gap:10px;overflow-y:auto;overflow-x:hidden;min-height:0;padding-right:4px}
             .sound-device-scroll::-webkit-scrollbar{width:8px}
             .sound-device-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.16);border-radius:999px}
@@ -960,26 +1101,35 @@
             .sound-volume-slider.sound-focus.nav-focused-el,.sound-volume-slider.sound-focus:focus{outline:none}
             .sound-volume-slider.sound-focus.nav-focused-el + *, .sound-volume-slider.sound-focus:focus + *{outline:none}
             @media(min-width:3000px) and (min-height:1600px){
-                .sound-view{max-width:1440px}.sound-view.drawer-open{max-width:1440px}
-                .sound-view.drawer-open .sound-layout{grid-template-columns:minmax(0,1fr) minmax(420px,clamp(520px,28%,680px))}
+                .sound-view{max-width:1440px}.sound-view.drawer-open{max-width:1440px}.sound-view-settings,.sound-view-settings.drawer-open{max-width:100%}
+                .sound-view.drawer-open .sound-layout{grid-template-columns:minmax(0,1fr)}
                 .sound-panel,.sound-drawer{padding:24px}
                 .sound-current-device,.sound-device-option{min-height:92px}
                 .sound-inline-action,.sound-system-group,.sound-system-toggle,.sound-volume-slider{min-height:58px}
             }
             @media(max-width:1280px){
-                .sound-view-quick .sound-layout{grid-template-columns:minmax(300px,1fr) minmax(260px,clamp(280px,32%,380px))}
-                .sound-view-settings .sound-layout{grid-template-columns:minmax(300px,1fr) minmax(260px,clamp(280px,32%,380px))}
-                .sound-view.drawer-open .sound-layout{grid-template-columns:minmax(300px,1fr) minmax(260px,clamp(280px,32%,380px))}
+                .sound-view.drawer-open .sound-layout{grid-template-columns:minmax(0,1fr)}
             }
             @media(max-width:1100px){
                 .sound-view-quick .sound-layout{grid-template-columns:1fr}
                 .sound-view-settings .sound-layout{grid-template-columns:1fr}
                 .sound-view.drawer-open .sound-layout{grid-template-columns:1fr}
-                .sound-view.drawer-open .sound-drawer{position:static;width:auto}
-                .sound-drawer{max-height:min(48vh,520px)}
+                .sound-view.drawer-open .sound-drawer{position:relative;width:min(680px,calc(100vw - 40px))}
+                .sound-drawer{max-height:min(78vh,760px)}
                 .sound-volume-master{padding:10px 8px}
-                .sound-system-cluster{grid-template-columns:1fr}
-                .sound-system-cluster-title{min-height:auto;padding:0 0 0 10px}
+                .sound-overview{grid-template-columns:1fr}
+                .sound-output-panel{grid-template-columns:1fr}
+                .sound-output-panel .sound-inline-action{min-width:0}
+                .sound-system-list{grid-template-columns:1fr}
+                .sound-mixer-group.control{padding-left:0;padding-top:16px;border-left:0;border-top:1px solid rgba(255,255,255,.1)}
+            }
+            @container (max-width:1180px){
+                .sound-view.drawer-open .sound-layout{grid-template-columns:1fr}
+                .sound-view.drawer-open .sound-drawer{max-height:min(78vh,760px)}
+            }
+            @container (max-width:880px){
+                .sound-system-list{grid-template-columns:1fr}
+                .sound-mixer-group.control{padding-left:0;padding-top:16px;border-left:0;border-top:1px solid rgba(255,255,255,.1)}
             }
         `;
         document.head.appendChild(style);

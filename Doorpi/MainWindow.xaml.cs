@@ -835,6 +835,9 @@ namespace Doorpi
             }
             else
             {
+                // O ultimo perfil salvo serve apenas para localizar arquivos neste
+                // ponto; ainda nao existe uma sessao interativa escolhida.
+                ClearHomeUi();
                 SendUsersToUI(requireSelection: true);
             }
         }
@@ -1282,8 +1285,6 @@ namespace Doorpi
                 }
 
                 TryReleaseInitialUserGate("navigation-completed");
-                ScheduleEmulatorLibraryReconcile();
-
                 Dispatcher.InvokeAsync(() =>
                 {
                     ReleaseDoorpiTopmost();
@@ -1291,8 +1292,14 @@ namespace Doorpi
                     webView.Focus();
                 });
 
-                BeginStartupUpdateCheck();
-                _ = PrewarmMediaWebViewEnvironmentsAsync();
+                // A tela de perfis ja esta interativa neste ponto. Reconciliação
+                // de bibliotecas, updates e criacao de controladores WebView sao
+                // tarefas da sessao escolhida e nao podem competir com ela.
+                if (_interactiveUserSessionStarted)
+                {
+                    ScheduleEmulatorLibraryReconcile();
+                    BeginStartupUpdateCheck();
+                }
             };
 
             // ConfiguraÃ§Ãµes de ProduÃ§Ã£o
@@ -1570,28 +1577,121 @@ namespace Doorpi
                         users.Add(legacy);
                         SaveUserProfiles(users);
                         currentUserId = legacy.Id;
-                        File.WriteAllText(currentUserFile, legacy.Id);
-                        SetActiveUser(legacy, migrateLegacyFiles: true);
+                        DurableFileStore.WriteAllText(currentUserFile, legacy.Id, keepBackup: true);
+                        SetActiveUser(legacy, migrateLegacyFiles: true, startSessionTasks: false);
                         return;
                     }
                 }
                 catch { }
             }
 
-            currentUserId = File.Exists(currentUserFile) ? File.ReadAllText(currentUserFile).Trim() : "";
+            currentUserId = ReadCurrentUserId();
             var current = users.FirstOrDefault(u => string.Equals(u.Id, currentUserId, StringComparison.OrdinalIgnoreCase))
                           ?? users.OrderByDescending(u => u.LastUsed).FirstOrDefault();
-            if (current != null) SetActiveUser(current, migrateLegacyFiles: false);
-            else SetActiveUser(new UserProfile { Id = "default", Name = "" }, migrateLegacyFiles: false);
+            if (current != null) SetActiveUser(current, migrateLegacyFiles: false, startSessionTasks: false);
+            else SetActiveUser(new UserProfile { Id = "default", Name = "" }, migrateLegacyFiles: false, startSessionTasks: false);
         }
 
         private List<UserProfile> LoadUserProfiles()
         {
-            if (!File.Exists(profilesFile)) return new List<UserProfile>();
+            if (TryLoadUserProfilesFile(profilesFile, out List<UserProfile> users))
+                return users;
+
+            string backupFile = profilesFile + ".bak";
+            if (TryLoadUserProfilesFile(backupFile, out users))
+            {
+                DoorpiBootDiagnostics.Log(
+                    "user-index-recovered",
+                    $"primary={profilesFile}; backup={backupFile}; users={users.Count}");
+                return users;
+            }
+
+            if (File.Exists(profilesFile) || File.Exists(backupFile))
+            {
+                DoorpiBootDiagnostics.Log(
+                    "user-index-unreadable",
+                    $"primaryExists={File.Exists(profilesFile)}; backupExists={File.Exists(backupFile)}");
+            }
+
+            users = RecoverUserProfilesFromDirectories();
+            if (users.Count > 0)
+            {
+                DoorpiBootDiagnostics.Log(
+                    "user-index-rebuilt",
+                    $"users={users.Count}; source=per-user-metadata");
+                return users;
+            }
+            return new List<UserProfile>();
+        }
+
+        private List<UserProfile> RecoverUserProfilesFromDirectories()
+        {
+            string usersDirectory = Path.Combine(dataFolder, "users");
+            if (!Directory.Exists(usersDirectory)) return new List<UserProfile>();
+
+            var recovered = new Dictionary<string, UserProfile>(StringComparer.OrdinalIgnoreCase);
+            foreach (string directory in Directory.EnumerateDirectories(usersDirectory))
+            {
+                string directoryId = Path.GetFileName(directory);
+                UserProfile? profile = TryLoadSingleUserProfile(Path.Combine(directory, "user.json"))
+                    ?? TryLoadSingleUserProfile(Path.Combine(directory, "user.json.bak"));
+                if (profile == null || string.IsNullOrWhiteSpace(profile.Name)) continue;
+
+                profile.Id = string.IsNullOrWhiteSpace(profile.Id) ? directoryId : profile.Id.Trim();
+                if (!string.Equals(profile.Id, directoryId, StringComparison.OrdinalIgnoreCase))
+                {
+                    DoorpiBootDiagnostics.Log(
+                        "user-profile-directory-mismatch",
+                        $"directory={directoryId}; profile={profile.Id}");
+                    continue;
+                }
+
+                if (!recovered.TryGetValue(profile.Id, out UserProfile? existing) ||
+                    profile.LastUsed > existing.LastUsed)
+                {
+                    recovered[profile.Id] = profile;
+                }
+            }
+
+            var users = recovered.Values
+                .OrderBy(user => user.DateCreated == DateTime.MinValue ? DateTime.MaxValue : user.DateCreated)
+                .ThenBy(user => user.Id, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            EnsureOneAdmin(users);
+            return users;
+        }
+
+        private static UserProfile? TryLoadSingleUserProfile(string path)
+        {
+            if (!File.Exists(path)) return null;
             try
             {
-                var users = JsonSerializer.Deserialize<List<UserProfile>>(File.ReadAllText(profilesFile)) ?? new();
-                foreach (var user in users.Where(u => string.IsNullOrWhiteSpace(u.Id)))
+                string json = SafeReadAllText(path);
+                if (string.IsNullOrWhiteSpace(json) || json.IndexOf('\0') >= 0) return null;
+                UserProfile? profile = JsonSerializer.Deserialize<UserProfile>(json);
+                if (profile == null) return null;
+                UnprotectUserProfile(profile);
+                profile.PinCode = NormalizePinCode(profile.PinCode);
+                profile.AdminBlockedStoreIds ??= new List<string>();
+                return profile;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+            {
+                DoorpiBootDiagnostics.Log("user-profile-read-failed", $"path={path}; error={ex.Message}");
+                return null;
+            }
+        }
+
+        private static bool TryLoadUserProfilesFile(string path, out List<UserProfile> users)
+        {
+            users = new List<UserProfile>();
+            if (!File.Exists(path)) return false;
+            try
+            {
+                string json = SafeReadAllText(path);
+                if (string.IsNullOrWhiteSpace(json) || json.IndexOf('\0') >= 0) return false;
+                users = JsonSerializer.Deserialize<List<UserProfile>>(json) ?? new List<UserProfile>();
+                foreach (var user in users.Where(user => string.IsNullOrWhiteSpace(user.Id)))
                     user.Id = MakeUserId(user.Name);
                 foreach (var user in users)
                 {
@@ -1600,9 +1700,33 @@ namespace Doorpi
                     user.AdminBlockedStoreIds ??= new List<string>();
                 }
                 EnsureOneAdmin(users);
-                return users;
+                return true;
             }
-            catch { return new List<UserProfile>(); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+            {
+                DoorpiBootDiagnostics.Log("user-index-read-failed", $"path={path}; error={ex.Message}");
+                users = new List<UserProfile>();
+                return false;
+            }
+        }
+
+        private string ReadCurrentUserId()
+        {
+            foreach (string path in new[] { currentUserFile, currentUserFile + ".bak" })
+            {
+                try
+                {
+                    if (!File.Exists(path)) continue;
+                    string id = SafeReadAllText(path).Trim();
+                    if (!string.IsNullOrWhiteSpace(id) && id.IndexOf('\0') < 0)
+                        return id;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    DoorpiBootDiagnostics.Log("current-user-read-failed", $"path={path}; error={ex.Message}");
+                }
+            }
+            return "";
         }
 
         private static void EnsureOneAdmin(List<UserProfile> users)
@@ -1689,7 +1813,10 @@ namespace Doorpi
         {
             EnsureOneAdmin(users);
             var storageUsers = users.Select(CloneUserProfileForStorage).ToList();
-            File.WriteAllText(profilesFile, JsonSerializer.Serialize(storageUsers, IndentedJsonOptions));
+            DurableFileStore.WriteAllText(
+                profilesFile,
+                JsonSerializer.Serialize(storageUsers, IndentedJsonOptions),
+                keepBackup: true);
         }
 
         private static string MakeUserId(string name)
@@ -1782,8 +1909,10 @@ namespace Doorpi
         private static void WriteUserProfileFile(string path, UserProfile profile)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllText(path, JsonSerializer.Serialize(CloneUserProfileForStorage(profile),
-                IndentedJsonOptions));
+            DurableFileStore.WriteAllText(
+                path,
+                JsonSerializer.Serialize(CloneUserProfileForStorage(profile), IndentedJsonOptions),
+                keepBackup: true);
         }
 
         private static string GetMediaAppKey(MediaAppModel app)
@@ -1820,7 +1949,10 @@ namespace Doorpi
             app.SharedWithUserName = app.SharedWithUserNames.FirstOrDefault() ?? "";
         }
 
-        private void SetActiveUser(UserProfile profile, bool migrateLegacyFiles)
+        private void SetActiveUser(
+            UserProfile profile,
+            bool migrateLegacyFiles,
+            bool startSessionTasks = true)
         {
             if (string.IsNullOrWhiteSpace(profile.Id)) profile.Id = MakeUserId(profile.Name);
             currentUserId = profile.Id;
@@ -1846,17 +1978,20 @@ namespace Doorpi
                 CopyLegacyFile("media.json", mediaFile);
             }
 
-            if (!File.Exists(gamesFile)) File.WriteAllText(gamesFile, "[]");
+            if (!File.Exists(gamesFile)) SafeWriteAllText(gamesFile, "[]");
             InitializeGameHistoryForActiveUser();
-            if (!File.Exists(foldersFile)) File.WriteAllText(foldersFile, "[]");
-            if (!File.Exists(mediaFile)) File.WriteAllText(mediaFile, "[]");
-            if (!File.Exists(storesFile)) File.WriteAllText(storesFile, "[]");
+            if (!File.Exists(foldersFile)) SafeWriteAllText(foldersFile, "[]");
+            if (!File.Exists(mediaFile)) SafeWriteAllText(mediaFile, "[]");
+            if (!File.Exists(storesFile)) SafeWriteAllText(storesFile, "[]");
 
             SaveUserProfile(profile);
-            ScheduleProfileSync(profile.Id, notifyFailure: true, delayMs: 150);
-            ResumeProfileSyncArtworkDownloads(profile.Id);
+            if (startSessionTasks)
+            {
+                ScheduleProfileSync(profile.Id, notifyFailure: true, delayMs: 150);
+                ResumeProfileSyncArtworkDownloads(profile.Id);
+            }
             MirrorCurrentUserDataFiles();
-            File.WriteAllText(currentUserFile, currentUserId);
+            DurableFileStore.WriteAllText(currentUserFile, currentUserId, keepBackup: true);
             WriteUserProfileFile(Path.Combine(dataFolder, "user.json"), profile);
         }
 
@@ -1864,12 +1999,15 @@ namespace Doorpi
         {
             try
             {
-                if (File.Exists(gamesFile)) File.Copy(gamesFile, Path.Combine(dataFolder, "games.json"), true);
-                if (File.Exists(gameHistoryFile)) File.Copy(gameHistoryFile, Path.Combine(dataFolder, "game-history.json"), true);
-                if (File.Exists(foldersFile)) File.Copy(foldersFile, Path.Combine(dataFolder, "folders.json"), true);
+                if (File.Exists(gamesFile))
+                    SafeWriteAllText(Path.Combine(dataFolder, "games.json"), SafeReadAllText(gamesFile));
+                if (File.Exists(gameHistoryFile))
+                    SafeWriteAllText(Path.Combine(dataFolder, "game-history.json"), SafeReadAllText(gameHistoryFile));
+                if (File.Exists(foldersFile))
+                    SafeWriteAllText(Path.Combine(dataFolder, "folders.json"), SafeReadAllText(foldersFile));
                 if (File.Exists(mediaFile))
                 {
-                    File.WriteAllText(Path.Combine(dataFolder, "media.json"),
+                    SafeWriteAllText(Path.Combine(dataFolder, "media.json"),
                         JsonSerializer.Serialize(LoadMediaApps(), IndentedJsonOptions));
                 }
             }
@@ -2328,6 +2466,7 @@ namespace Doorpi
             ScheduleEmulatorLibraryReconcile(force: true);
             var apps = LoadMediaApps();
             if (apps.Count > 0) SendMediaAppsToUI(apps);
+            BeginStartupUpdateCheck();
             _ = Task.Run(InitializeStoreLaunchersAsync);
             ResumePendingPlatformArtworkIfNeeded();
             bool bootstrapStarted = StartLibraryBootstrapIfNeeded();
@@ -2415,6 +2554,15 @@ namespace Doorpi
 
                     SetActiveUser(user, migrateLegacyFiles: false);
                     RestartWatchers();
+
+                    // Criar os controladores WebView durante a transicao evita a
+                    // pausa de ~250 ms que antes acontecia depois que o seletor de
+                    // perfis ja aceitava navegacao.
+                    Task mediaPrewarmTask = shouldShowTransition
+                        ? Dispatcher.InvokeAsync(() =>
+                            PrewarmMediaWebViewEnvironmentsAsync(delayMilliseconds: 0)).Task.Unwrap()
+                        : Task.CompletedTask;
+
                     await SynchronizeNativeAppsAsync(
                         currentUserId,
                         mediaFile,
@@ -2423,6 +2571,7 @@ namespace Doorpi
 
                     await Dispatcher.InvokeAsync(LoadCurrentUserIntoUI);
                     await WaitForConsoleShellReadyForUserTransitionAsync().ConfigureAwait(false);
+                    await mediaPrewarmTask.ConfigureAwait(false);
 
                     PostUserTransitionComplete(
                         transitionMode,
@@ -2914,7 +3063,10 @@ namespace Doorpi
                 {
                     double dt = sw.Elapsed.TotalSeconds;
                     sw.Restart();
-                    if (dt > 0.05) dt = 0.016;
+                    // Preserve elapsed time when a slow launcher stalls this thread.
+                    // Replacing a long frame with 16 ms made the pointer appear to
+                    // freeze exactly while stores were doing their heaviest work.
+                    dt = Math.Clamp(dt, 0, 0.05);
 
                     bool anyMouseShortcut = false;
                     bool anyReturnShortcut = false;
@@ -3122,13 +3274,16 @@ namespace Doorpi
                                     if (Math.Abs(clickAccumX) > 5 || Math.Abs(clickAccumY) > 5)
                                     {
                                         dragBrokeThreshold = true; aDragOccurred = true;
-                                        SendMouse((int)clickAccumX, (int)clickAccumY, MOUSEEVENTF_MOVE | MOUSEEVENTF_MOVE_NOCOALESCE);
+                                    SendMouse((int)clickAccumX, (int)clickAccumY, MOUSEEVENTF_MOVE | MOUSEEVENTF_MOVE_NOCOALESCE);
                                     }
                                 }
                                 else
                                 {
                                     if (isClicking) aDragOccurred = true;
-                                    SendMouse(dx, dy, MOUSEEVENTF_MOVE | MOUSEEVENTF_MOVE_NOCOALESCE);
+                                    uint moveFlags = MOUSEEVENTF_MOVE;
+                                    if (isClicking)
+                                        moveFlags |= MOUSEEVENTF_MOVE_NOCOALESCE;
+                                    SendMouse(dx, dy, moveFlags);
                                 }
                             }
                         }
@@ -3189,7 +3344,10 @@ namespace Doorpi
                 }
                 catch (Exception ex) { Debug.WriteLine($"[SharedGamepadLoop] {ex.Message}"); }
 
-                Thread.Sleep(1);
+                // XInputControllerHub publishes a new snapshot every 8 ms. Running
+                // this loop at 1 ms only reprocessed the same state and competed
+                // with store launchers on slower CPUs.
+                Thread.Sleep(8);
             }
 
             if (isClicking) SendMouse(0, 0, 0x0004);
@@ -3485,7 +3643,7 @@ namespace Doorpi
 
                     if (anyMouseShortcut &&
                         DateTime.UtcNow.Ticks >= Interlocked.Read(ref _storeMouseModeShortcutSuppressUntilTicks) &&
-                        IsForegroundOwnedByActiveStore())
+                        IsStoreControllerContextActive(sessionId))
                     {
                         ToggleStoreMouseModeForSession(sessionId);
                     }
@@ -3523,6 +3681,14 @@ namespace Doorpi
                    !_storePausedByDoorpi &&
                    !IsStoreChildGameBlockingStoreControls() &&
                    _storeSessionId == sessionId;
+        }
+
+        private bool IsStoreControllerContextActive(int sessionId)
+        {
+            // Lojas podem abrir autenticação, checkout ou suporte em outro
+            // processo. A sessão lógica continua dona do controle nessas janelas;
+            // o Doorpi e jogos filhos permanecem fronteiras explícitas.
+            return IsStoreLogicalSessionActive(sessionId) && !IsForegroundDoorpi();
         }
 
         private void EnsureStoreControllerThread(int sessionId)
@@ -3966,6 +4132,13 @@ namespace Doorpi
 
         private void StoreExeControllerLoop(int sessionId)
         {
+            bool StoreCanReceiveMouseInput()
+            {
+                return _storeMouseModeActive &&
+                       !_storeMouseInputTemporarilyDisabled &&
+                       IsStoreControllerContextActive(sessionId);
+            }
+
             SharedGamepadControllerLoop(
                 () => IsStoreLogicalSessionActive(sessionId),
                 () =>
@@ -3987,7 +4160,7 @@ namespace Doorpi
                     Dispatcher.Invoke(MinimizeStoreSessionAndShowMenu);
                 },
                 handleXboxButton: false,
-                shouldAcceptInput: () => _storeMouseModeActive && !_storeMouseInputTemporarilyDisabled
+                shouldAcceptInput: StoreCanReceiveMouseInput
             );
 
         }
@@ -5676,7 +5849,7 @@ namespace Doorpi
                 {
                     double dt = sw.Elapsed.TotalSeconds;
                     sw.Restart();
-                    if (dt > 0.05) dt = 0.016;
+                    dt = Math.Clamp(dt, 0, 0.05);
 
                     bool vkbIsOpen = _desktopVkb != null;
                     if (!_systemControllerActive) break;
@@ -5851,7 +6024,10 @@ namespace Doorpi
                                     else
                                     {
                                         if (isClicking) aDragOccurred = true;
-                                        SendMouse(deltaX, deltaY, MOUSEEVENTF_MOVE | MOUSEEVENTF_MOVE_NOCOALESCE);
+                                        uint moveFlags = MOUSEEVENTF_MOVE;
+                                        if (isClicking)
+                                            moveFlags |= MOUSEEVENTF_MOVE_NOCOALESCE;
+                                        SendMouse(deltaX, deltaY, moveFlags);
                                     }
                                 }
                             }
@@ -6537,14 +6713,26 @@ namespace Doorpi
                 : Path.Combine(dataFolder, "users", userId, "media.json");
             bool canFallbackToRoot = string.Equals(userId, currentUserId, StringComparison.OrdinalIgnoreCase);
             string fallbackFile = Path.Combine(dataFolder, "media.json");
-            if (!File.Exists(file))
+            if (!File.Exists(file) && !File.Exists(file + ".bak"))
             {
-                if (!canFallbackToRoot || !File.Exists(fallbackFile)) return new List<MediaAppModel>();
+                if (!canFallbackToRoot ||
+                    (!File.Exists(fallbackFile) && !File.Exists(fallbackFile + ".bak")))
+                {
+                    return new List<MediaAppModel>();
+                }
                 file = fallbackFile;
             }
             try
             {
-                var apps = JsonSerializer.Deserialize<List<MediaAppModel>>(SafeReadAllText(file)) ?? new List<MediaAppModel>();
+                bool recoveredFromBackup = false;
+                if (!TryDeserializeJsonFile(file, options: null, out List<MediaAppModel>? apps))
+                {
+                    recoveredFromBackup = TryDeserializeJsonFile(
+                        file + ".bak",
+                        options: null,
+                        out apps);
+                }
+                apps ??= new List<MediaAppModel>();
                 foreach (var app in apps.Where(a => string.IsNullOrWhiteSpace(a.OwnerUserId)))
                     app.OwnerUserId = userId;
                 foreach (var app in apps.Where(a => a.ShareMode == "user"))
@@ -6564,10 +6752,12 @@ namespace Doorpi
                     repairedExecutablePath = true;
                 }
 
-                if (repairedExecutablePath)
+                if (repairedExecutablePath || recoveredFromBackup)
                 {
                     try { SafeWriteAllText(file, JsonSerializer.Serialize(apps, IndentedJsonOptions)); } catch { }
                 }
+                if (recoveredFromBackup)
+                    DoorpiBootDiagnostics.Log("media-apps-recovered", $"path={file}");
 
                 if (canFallbackToRoot &&
                     string.Equals(file, fallbackFile, StringComparison.OrdinalIgnoreCase) &&
@@ -6584,10 +6774,27 @@ namespace Doorpi
         {
             for (int i = 0; i < 5; i++)
             {
-                try { File.WriteAllText(path, content); return; }
+                try
+                {
+                    DurableFileStore.WriteAllText(path, content, ShouldKeepRecoveryBackup(path));
+                    return;
+                }
                 catch (IOException) { System.Threading.Thread.Sleep(50); }
             }
-            File.WriteAllText(path, content);
+            DurableFileStore.WriteAllText(path, content, ShouldKeepRecoveryBackup(path));
+        }
+
+        private static bool ShouldKeepRecoveryBackup(string path)
+        {
+            string name = Path.GetFileName(path);
+            return name.Equals("users.json", StringComparison.OrdinalIgnoreCase) ||
+                   name.Equals("user.json", StringComparison.OrdinalIgnoreCase) ||
+                   name.Equals("games.json", StringComparison.OrdinalIgnoreCase) ||
+                   name.Equals("game-history.json", StringComparison.OrdinalIgnoreCase) ||
+                   name.Equals("controls.json", StringComparison.OrdinalIgnoreCase) ||
+                   name.Equals("folders.json", StringComparison.OrdinalIgnoreCase) ||
+                   name.Equals("media.json", StringComparison.OrdinalIgnoreCase) ||
+                   name.Equals("stores.json", StringComparison.OrdinalIgnoreCase);
         }
 
         private static string SafeReadAllText(string path)
@@ -6598,6 +6805,28 @@ namespace Doorpi
                 catch (IOException) { System.Threading.Thread.Sleep(50); }
             }
             return File.ReadAllText(path);
+        }
+
+        private static bool TryDeserializeJsonFile<T>(
+            string path,
+            JsonSerializerOptions? options,
+            out T? value)
+        {
+            value = default;
+            if (!File.Exists(path)) return false;
+            try
+            {
+                string json = SafeReadAllText(path);
+                if (string.IsNullOrWhiteSpace(json) || json.IndexOf('\0') >= 0) return false;
+                value = JsonSerializer.Deserialize<T>(json, options);
+                return value != null;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+            {
+                DoorpiBootDiagnostics.Log("json-state-read-failed", $"path={path}; error={ex.Message}");
+                value = default;
+                return false;
+            }
         }
 
         private static void SafeCopy(string source, string dest)
@@ -6682,6 +6911,66 @@ namespace Doorpi
                     var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(manifestPath));
                     return node?["version"]?.ToString() ?? "";
                 }
+            }
+            catch { }
+            return "";
+        }
+
+        private static string GetExtensionDescription(BrowserExtensionModel ext)
+        {
+            try
+            {
+                string manifestPath = ResolveExtensionManifestPath(ext);
+                if (string.IsNullOrWhiteSpace(manifestPath) || !File.Exists(manifestPath)) return "";
+
+                var manifest = JsonNode.Parse(File.ReadAllText(manifestPath));
+                string description = manifest?["description"]?.ToString() ?? "";
+                if (!description.StartsWith("__MSG_", StringComparison.OrdinalIgnoreCase) || !description.EndsWith("__"))
+                    return description;
+
+                string messageKey = description.Substring(6, description.Length - 8);
+                string localesDirectory = Path.Combine(Path.GetDirectoryName(manifestPath) ?? ext.InstalledPath, "_locales");
+                if (!Directory.Exists(localesDirectory)) return "";
+
+                string defaultLocale = manifest?["default_locale"]?.ToString() ?? "";
+                var localeCandidates = new[] { "pt_BR", "pt", defaultLocale, "en", "en_US" }
+                    .Where(locale => !string.IsNullOrWhiteSpace(locale))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                foreach (string locale in localeCandidates)
+                {
+                    string messagesPath = Path.Combine(localesDirectory, locale, "messages.json");
+                    if (!File.Exists(messagesPath)) continue;
+                    var messages = JsonNode.Parse(File.ReadAllText(messagesPath));
+                    string localized = messages?[messageKey]?["message"]?.ToString() ?? "";
+                    if (!string.IsNullOrWhiteSpace(localized)) return localized;
+                }
+            }
+            catch { }
+            return "";
+        }
+
+        private static string GetExtensionIconDataUrl(BrowserExtensionModel ext)
+        {
+            try
+            {
+                string iconPath = ResolveExtensionIconPath(ext);
+                if (string.IsNullOrWhiteSpace(iconPath) || !File.Exists(iconPath)) return "";
+                var file = new FileInfo(iconPath);
+                if (file.Length <= 0 || file.Length > 2 * 1024 * 1024) return "";
+
+                string mimeType = Path.GetExtension(iconPath).ToLowerInvariant() switch
+                {
+                    ".svg" => "image/svg+xml",
+                    ".jpg" or ".jpeg" => "image/jpeg",
+                    ".webp" => "image/webp",
+                    ".gif" => "image/gif",
+                    ".ico" => "image/x-icon",
+                    ".bmp" => "image/bmp",
+                    _ => "image/png"
+                };
+                return $"data:{mimeType};base64,{Convert.ToBase64String(File.ReadAllBytes(iconPath))}";
             }
             catch { }
             return "";
@@ -6952,7 +7241,9 @@ namespace Doorpi
             var extensions = LoadBrowserExtensions();
             var payload = extensions.Select(e => new {
                 e.Id,
-                e.Name,
+                Name = GetExtensionName(e.InstalledPath),
+                Description = GetExtensionDescription(e),
+                IconDataUrl = GetExtensionIconDataUrl(e),
                 e.SourceUrl,
                 e.InstalledPath,
                 e.DateInstalled,
@@ -7074,7 +7365,11 @@ namespace Doorpi
 
         private void SendMediaAppsToUI(List<MediaAppModel> apps)
         {
+            if (!_interactiveUserSessionStarted) return;
             if (apps.Count == 0) return;
+
+            foreach (MediaAppModel app in apps.Where(app => string.IsNullOrWhiteSpace(app.IconBase64)))
+                app.IconBase64 = ResolveMediaIconBase64(app);
 
             var featured = apps
                 .Where(a => a.LastPlayed > DateTime.MinValue)
@@ -8489,50 +8784,165 @@ namespace Doorpi
             SendRuntimeSessionsToUI();
         }
         // -- Session tracking ------------------------------------------------------
-        private void CommitActiveSession()
+        private void StartActiveSessionClock()
         {
-            if (_sessionStartUtc == DateTime.MinValue || string.IsNullOrEmpty(_activeSessionGameId))
-                return;
-
-            int sessionMinutes = (int)(DateTime.UtcNow - _sessionStartUtc).TotalMinutes;
-            _sessionStartUtc = DateTime.MinValue;
-            string gameId = _activeSessionGameId;
-            string gameName = _activeSessionGameName;
-            _activeSessionGameId = "";
-            _activeSessionGameName = "";
-
-            if (sessionMinutes < 1) return; // ignora sessÃµes abaixo de 1 minuto
-
-            var games = LoadGames();
-            var game = games.FirstOrDefault(g =>
-                string.Equals(g.LaunchUrl, gameId, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(g.Path, gameId, StringComparison.OrdinalIgnoreCase));
-
-            if (game != null)
+            lock (_sessionPlaytimeLock)
             {
-                game.TotalPlaytimeMinutes = SaturatingAddPlaytimeMinutes(game.TotalPlaytimeMinutes, sessionMinutes);
-                game.LastSessionMinutes = sessionMinutes;
-                SaveGames(games);
-                Debug.WriteLine($"[Session] {game.Name}: +{sessionMinutes}min (total: {game.TotalPlaytimeMinutes}min)");
-            }
-            else if (!string.IsNullOrWhiteSpace(gameName))
-            {
-                RecordDeletedGameSession(gameName, sessionMinutes);
-                Debug.WriteLine($"[Session] {gameName}: +{sessionMinutes}min (historico)");
-            }
+                GameWindowSession session = EnsureGameSession();
+                session.StartedUtc = DateTime.UtcNow;
+                session.InitialPlaytimeMinutes = -1;
+                session.LastCheckpointElapsedMinutes = 0;
 
+                _playtimeCheckpointTimer ??= new System.Threading.Timer(
+                    _ => QueueActiveSessionCheckpoint(),
+                    null,
+                    Timeout.InfiniteTimeSpan,
+                    Timeout.InfiniteTimeSpan);
+                _playtimeCheckpointTimer.Change(PlaytimeCheckpointInterval, PlaytimeCheckpointInterval);
+            }
+        }
+
+        private void QueueActiveSessionCheckpoint()
+        {
             try
             {
-                _ = Dispatcher.BeginInvoke(() =>
-                {
-                    try
-                    {
-                        if (webView?.CoreWebView2 != null) LoadGamesIntoUI();
-                    }
-                    catch { }
-                });
+                _ = Dispatcher.BeginInvoke(() => PersistActiveSessionPlaytime(finalize: false));
             }
             catch { }
+        }
+
+        private void StopPlaytimeCheckpointTimer()
+        {
+            lock (_sessionPlaytimeLock)
+            {
+                try
+                {
+                    _playtimeCheckpointTimer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+                }
+                catch (ObjectDisposedException) { }
+            }
+        }
+
+        private void CommitActiveSession()
+            => PersistActiveSessionPlaytime(finalize: true);
+
+        private void PersistActiveSessionPlaytime(bool finalize)
+        {
+            lock (_sessionPlaytimeLock)
+            {
+                GameWindowSession? session = _gameSession;
+                if (session == null ||
+                    session.StartedUtc == DateTime.MinValue ||
+                    string.IsNullOrWhiteSpace(session.ActiveGameId))
+                {
+                    if (finalize) StopPlaytimeCheckpointTimer();
+                    return;
+                }
+
+                int elapsedMinutes = Math.Max(0, (int)(DateTime.UtcNow - session.StartedUtc).TotalMinutes);
+                if (!finalize && elapsedMinutes <= session.LastCheckpointElapsedMinutes)
+                    return;
+
+                string gameId = session.ActiveGameId;
+                string gameName = session.ActiveGameName;
+
+                try
+                {
+                    if (elapsedMinutes >= 1)
+                    {
+                        var games = LoadGames();
+                        var game = games.FirstOrDefault(candidate =>
+                            string.Equals(candidate.LaunchUrl, gameId, StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(candidate.Path, gameId, StringComparison.OrdinalIgnoreCase));
+
+                        if (game != null)
+                        {
+                            if (session.InitialPlaytimeMinutes < 0)
+                                session.InitialPlaytimeMinutes = Math.Max(0, game.TotalPlaytimeMinutes);
+
+                            long desiredTotal = SaturatingAddPlaytimeMinutes(
+                                session.InitialPlaytimeMinutes,
+                                elapsedMinutes);
+                            game.TotalPlaytimeMinutes = Math.Max(game.TotalPlaytimeMinutes, desiredTotal);
+                            game.LastSessionMinutes = elapsedMinutes;
+                            game.LastPlayed = DateTime.Now;
+                            SaveGames(games);
+                            Debug.WriteLine(
+                                $"[Session] {game.Name}: checkpoint {elapsedMinutes}min (total: {game.TotalPlaytimeMinutes}min)");
+                        }
+                        else if (!string.IsNullOrWhiteSpace(gameName))
+                        {
+                            PersistDeletedGameSessionCheckpoint(session, gameName, elapsedMinutes);
+                            Debug.WriteLine($"[Session] {gameName}: checkpoint {elapsedMinutes}min (historico)");
+                        }
+
+                        session.LastCheckpointElapsedMinutes = elapsedMinutes;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    DoorpiBootDiagnostics.Log(
+                        "playtime-checkpoint-failed",
+                        $"game={gameId}; elapsedMinutes={elapsedMinutes}; final={finalize}; error={ex.Message}");
+                    if (!finalize) return;
+                }
+
+                if (finalize)
+                {
+                    StopPlaytimeCheckpointTimer();
+                    session.StartedUtc = DateTime.MinValue;
+                    session.ActiveGameId = "";
+                    session.ActiveGameName = "";
+                    session.InitialPlaytimeMinutes = -1;
+                    session.LastCheckpointElapsedMinutes = 0;
+                }
+            }
+
+            if (finalize)
+            {
+                try
+                {
+                    _ = Dispatcher.BeginInvoke(() =>
+                    {
+                        try
+                        {
+                            if (webView?.CoreWebView2 != null) LoadGamesIntoUI();
+                        }
+                        catch { }
+                    });
+                }
+                catch { }
+            }
+        }
+
+        private void PersistDeletedGameSessionCheckpoint(
+            GameWindowSession session,
+            string gameName,
+            int elapsedMinutes)
+        {
+            var history = LoadGameHistory();
+            string key = NormalizeGameName(gameName);
+            var entry = history.FirstOrDefault(item => NormalizeGameName(item.Name) == key);
+            if (entry == null)
+            {
+                entry = new GameHistoryEntry
+                {
+                    Name = gameName,
+                    FirstPlayed = DateTime.Now
+                };
+                history.Add(entry);
+            }
+
+            if (session.InitialPlaytimeMinutes < 0)
+                session.InitialPlaytimeMinutes = Math.Max(0, entry.TotalPlaytimeMinutes);
+
+            long desiredTotal = SaturatingAddPlaytimeMinutes(
+                session.InitialPlaytimeMinutes,
+                elapsedMinutes);
+            entry.TotalPlaytimeMinutes = Math.Max(entry.TotalPlaytimeMinutes, desiredTotal);
+            entry.LastSessionMinutes = elapsedMinutes;
+            entry.LastPlayed = DateTime.Now;
+            SaveGameHistory(history);
         }
 
 
@@ -10471,7 +10881,7 @@ namespace Doorpi
             _storeChildGameActive = bindToActiveStoreContext;
             _storeChildGameStoreId = bindToActiveStoreContext ? (_activeStoreId ?? "") : "";
             _storeChildGameId = bindToActiveStoreContext ? gameId : "";
-            _sessionStartUtc = DateTime.UtcNow;
+            StartActiveSessionClock();
             DelayGameMinimizeAvailability();
 
             if (bindToActiveStoreContext)
@@ -11286,40 +11696,54 @@ namespace Doorpi
         private List<FolderStats> LoadFoldersData()
         {
             string fallbackFile = Path.Combine(dataFolder, "folders.json");
-            string fileToRead = File.Exists(foldersFile)
-                ? foldersFile
-                : (File.Exists(fallbackFile) ? fallbackFile : foldersFile);
-            if (!File.Exists(fileToRead)) return new List<FolderStats>();
-            try
+            string[] candidates =
             {
-                string json = File.ReadAllText(fileToRead);
+                foldersFile,
+                foldersFile + ".bak",
+                fallbackFile,
+                fallbackFile + ".bak"
+            };
+
+            foreach (string fileToRead in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                if (!File.Exists(fileToRead)) continue;
                 try
                 {
-                    var data = JsonSerializer.Deserialize<List<FolderStats>>(json);
-                    if (data != null && data.Count > 0 && !string.IsNullOrEmpty(data[0].Path))
+                    string json = SafeReadAllText(fileToRead);
+                    if (string.IsNullOrWhiteSpace(json) || json.IndexOf('\0') >= 0) continue;
+                    try
                     {
-                        if (!string.Equals(fileToRead, foldersFile, StringComparison.OrdinalIgnoreCase))
+                        var data = JsonSerializer.Deserialize<List<FolderStats>>(json);
+                        if (data != null && (data.Count == 0 || !string.IsNullOrEmpty(data[0].Path)))
                         {
-                            try { SaveFoldersData(data); } catch { }
+                            if (!string.Equals(fileToRead, foldersFile, StringComparison.OrdinalIgnoreCase))
+                            {
+                                try { SaveFoldersData(data); } catch { }
+                                DoorpiBootDiagnostics.Log("folders-recovered", $"path={fileToRead}");
+                            }
+                            return data;
                         }
-                        return data;
                     }
+                    catch (JsonException) { }
+
+                    var oldPaths = JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>();
+                    var migratedData = oldPaths.Select(path => GetFolderStats(path)).ToList();
+                    SaveFoldersData(migratedData);
+                    return migratedData;
                 }
-                catch { }
-
-                var oldPaths = JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>();
-                var migratedData = oldPaths.Select(path => GetFolderStats(path)).ToList();
-
-                SaveFoldersData(migratedData);
-                return migratedData;
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+                {
+                    DoorpiBootDiagnostics.Log("folders-read-failed", $"path={fileToRead}; error={ex.Message}");
+                }
             }
-            catch { return new List<FolderStats>(); }
+            return new List<FolderStats>();
         }
 
         private void SaveFoldersData(List<FolderStats> folders)
         {
-            File.WriteAllText(foldersFile, JsonSerializer.Serialize(folders, IndentedJsonOptions));
-            File.WriteAllText(Path.Combine(dataFolder, "folders.json"), JsonSerializer.Serialize(folders, IndentedJsonOptions));
+            string json = JsonSerializer.Serialize(folders, IndentedJsonOptions);
+            SafeWriteAllText(foldersFile, json);
+            SafeWriteAllText(Path.Combine(dataFolder, "folders.json"), json);
         }
 
         private List<string> GetWatchedFolderPaths()
@@ -13297,9 +13721,13 @@ namespace Doorpi
                 if (gridTask.Result == null || heroTask.Result == null)
                 {
                     game.GridImage = "";
+                    game.GridStaticImage = "";
                     game.GridHorizontalImage = "";
+                    game.GridHorizontalStaticImage = "";
                     game.HeroImage = "";
+                    game.HeroStaticImage = "";
                     game.LogoImage = "";
+                    game.LogoStaticImage = "";
                     game.IsPendingArtwork = true;
                     game.ArtworkSource = "pending";
                     changed = true;
@@ -13308,16 +13736,26 @@ namespace Doorpi
                 }
 
                 game.GridImage = $"https://data.local/images/grid/{Path.GetFileName(gridTask.Result)}";
-                if (horizontalTask.Result != null) game.GridHorizontalImage = $"https://data.local/images/grid-horizontal/{Path.GetFileName(horizontalTask.Result)}";
+                game.GridStaticImage = "";
+                if (horizontalTask.Result != null)
+                {
+                    game.GridHorizontalImage = $"https://data.local/images/grid-horizontal/{Path.GetFileName(horizontalTask.Result)}";
+                    game.GridHorizontalStaticImage = "";
+                }
                 game.GridSourceUrl = assets.Grid;
                 game.GridHorizontalSourceUrl = assets.Horizontal;
                 game.HeroSourceUrl = assets.Hero;
                 game.HeroImage = $"https://data.local/images/hero/{Path.GetFileName(heroTask.Result)}";
-                if (logoTask.Result != null) game.LogoImage = $"https://data.local/images/logo/{Path.GetFileName(logoTask.Result)}";
+                game.HeroStaticImage = "";
+                if (logoTask.Result != null)
+                {
+                    game.LogoImage = $"https://data.local/images/logo/{Path.GetFileName(logoTask.Result)}";
+                    game.LogoStaticImage = "";
+                }
                 game.ArtworkSource = "steam-cdn-local";
                 changed = true;
                 SaveGames(games);
-                _ = Dispatcher.BeginInvoke(() => LoadGamesIntoUI());
+                _ = Dispatcher.BeginInvoke(() => SendGameUpdateToUI(game));
             }
 
             if (changed) SaveGames(games);
@@ -13338,14 +13776,18 @@ namespace Doorpi
                     if (string.IsNullOrEmpty(gridUrl) || string.IsNullOrEmpty(heroUrl))
                     {
                         game.GridImage = "";
+                        game.GridStaticImage = "";
                         game.GridHorizontalImage = "";
+                        game.GridHorizontalStaticImage = "";
                         game.HeroImage = "";
+                        game.HeroStaticImage = "";
                         game.LogoImage = "";
+                        game.LogoStaticImage = "";
                         game.IsPendingArtwork = false;
                         game.ArtworkSource = "no-art";
                         changed = true;
                         SaveGames(games);
-                        _ = Dispatcher.BeginInvoke(() => LoadGamesIntoUI());
+                        _ = Dispatcher.BeginInvoke(() => SendGameUpdateToUI(game));
                         continue;
                     }
 
@@ -13360,30 +13802,38 @@ namespace Doorpi
                     if (gridTask.Result == null || heroTask.Result == null)
                     {
                         game.GridImage = "";
+                        game.GridStaticImage = "";
                         game.GridHorizontalImage = "";
+                        game.GridHorizontalStaticImage = "";
                         game.HeroImage = "";
+                        game.HeroStaticImage = "";
                         game.LogoImage = "";
+                        game.LogoStaticImage = "";
                         game.IsPendingArtwork = false;
                         game.ArtworkSource = "no-art";
                         changed = true;
                         SaveGames(games);
-                        _ = Dispatcher.BeginInvoke(() => LoadGamesIntoUI());
+                        _ = Dispatcher.BeginInvoke(() => SendGameUpdateToUI(game));
                         continue;
                     }
 
                     game.GridImage = $"https://data.local/images/grid/{Path.GetFileName(gridTask.Result)}";
+                    game.GridStaticImage = "";
                     game.GridHorizontalImage = hTask.Result != null ? $"https://data.local/images/grid-horizontal/{Path.GetFileName(hTask.Result)}" : game.GridImage;
+                    game.GridHorizontalStaticImage = "";
                     game.GridSourceUrl = gridUrl;
                     game.GridHorizontalSourceUrl = !string.IsNullOrWhiteSpace(horizontalUrl) ? horizontalUrl : gridUrl;
                     game.HeroSourceUrl = heroUrl;
                     game.HeroImage = $"https://data.local/images/hero/{Path.GetFileName(heroTask.Result)}";
+                    game.HeroStaticImage = "";
                     game.LogoImage = logoTask.Result != null ? $"https://data.local/images/logo/{Path.GetFileName(logoTask.Result)}" : "";
+                    game.LogoStaticImage = "";
                     game.IsPendingArtwork = false;
                     game.ArtworkSource = "steamgrid-local";
                     changed = true;
 
                     SaveGames(games);
-                    _ = Dispatcher.BeginInvoke(() => LoadGamesIntoUI());
+                    _ = Dispatcher.BeginInvoke(() => SendGameUpdateToUI(game));
                 }
                 catch (Exception ex)
                 {
@@ -14973,8 +15423,20 @@ namespace Doorpi
                             Dispatcher.Invoke(() =>
                             {
                                 if (isStore) SendStoresToUI(LoadStoreLaunchers());
-                                else if (isMedia) SendMediaAppsToUI(LoadMediaApps());
-                                else LoadGamesIntoUI();
+                                else if (isMedia)
+                                {
+                                    var updatedMedia = LoadMediaApps().FirstOrDefault(app =>
+                                        string.Equals(app.Id, gameId, StringComparison.OrdinalIgnoreCase) ||
+                                        string.Equals(app.Url, gameId, StringComparison.OrdinalIgnoreCase));
+                                    if (updatedMedia != null) SendMediaAppUpdateToUI(updatedMedia, gameId);
+                                }
+                                else
+                                {
+                                    var updatedGame = LoadGames().FirstOrDefault(game =>
+                                        string.Equals(game.Path, gameId, StringComparison.OrdinalIgnoreCase) ||
+                                        string.Equals(game.LaunchUrl, gameId, StringComparison.OrdinalIgnoreCase));
+                                    if (updatedGame != null) SendGameUpdateToUI(updatedGame);
+                                }
 
                                 webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
                                 {
@@ -15148,7 +15610,11 @@ namespace Doorpi
                                     }));
                                 }
                             }
-                            if (changed) SaveGames(games);
+                            if (changed)
+                            {
+                                SaveGames(games);
+                                SendGameUpdateToUI(game);
+                            }
                         }
                         else
                         {
@@ -15192,7 +15658,11 @@ namespace Doorpi
                                     changed = true;
                                     Debug.WriteLine($"[editGame] URL atualizada para o Web App: {media.Name}");
                                 }
-                                if (changed) SaveMediaApps(medias);
+                                if (changed)
+                                {
+                                    SaveMediaApps(medias);
+                                    SendMediaAppUpdateToUI(media, gameId);
+                                }
                             }
                         }
                     }
@@ -17771,7 +18241,7 @@ namespace Doorpi
                             if (launchAttempted)
                             {
                                 _pendingLaunchProcess = launched;
-                                _sessionStartUtc = DateTime.UtcNow;
+                                StartActiveSessionClock();
                                 StartGameLaunchMonitor(game, launched, processSnapshot, windowSnapshot);
                                 Dispatcher.Invoke(() =>
                                 {
@@ -18076,14 +18546,26 @@ namespace Doorpi
         {
             lock (_gameHistoryFileLock)
             {
-                if (!File.Exists(gameHistoryFile)) return new List<GameHistoryEntry>();
+                if (!File.Exists(gameHistoryFile) && !File.Exists(gameHistoryFile + ".bak"))
+                    return new List<GameHistoryEntry>();
                 try
                 {
-                    var loaded = JsonSerializer.Deserialize<List<GameHistoryEntry>>(SafeReadAllText(gameHistoryFile)) ?? new();
+                    bool recoveredFromBackup = false;
+                    if (!TryDeserializeJsonFile(
+                            gameHistoryFile,
+                            options: null,
+                            out List<GameHistoryEntry>? loaded))
+                    {
+                        recoveredFromBackup = TryDeserializeJsonFile(
+                            gameHistoryFile + ".bak",
+                            options: null,
+                            out loaded);
+                    }
+                    loaded ??= new List<GameHistoryEntry>();
                     var history = loaded
                         .Where(entry => !string.IsNullOrWhiteSpace(entry.Name) && entry.TotalPlaytimeMinutes >= 1)
                         .ToList();
-                    bool migrated = history.Count != loaded.Count;
+                    bool migrated = recoveredFromBackup || history.Count != loaded.Count;
                     foreach (var entry in history)
                         migrated |= EnsureDedicatedHistoryArtwork(entry);
                     if (migrated)
@@ -18093,6 +18575,8 @@ namespace Doorpi
                         string currentMirror = Path.Combine(dataFolder, "game-history.json");
                         if (!string.Equals(gameHistoryFile, currentMirror, StringComparison.OrdinalIgnoreCase))
                             SafeWriteAllText(currentMirror, json);
+                        if (recoveredFromBackup)
+                            DoorpiBootDiagnostics.Log("game-history-recovered", $"path={gameHistoryFile}");
                     }
                     return history;
                 }
@@ -18265,15 +18749,40 @@ namespace Doorpi
                 string fileToRead = File.Exists(gamesFile)
                     ? gamesFile
                     : (File.Exists(fallbackFile) ? fallbackFile : gamesFile);
-                if (!File.Exists(fileToRead)) return new List<GameModel>();
+                if (!File.Exists(fileToRead) &&
+                    !File.Exists(fileToRead + ".bak") &&
+                    !File.Exists(fallbackFile) &&
+                    !File.Exists(fallbackFile + ".bak"))
+                {
+                    return new List<GameModel>();
+                }
 
-                string json = SafeReadAllText(fileToRead);
-                var games = JsonSerializer.Deserialize<List<GameModel>>(json) ?? new List<GameModel>();
+                bool recoveredFromBackup = false;
+                if (!TryDeserializeJsonFile(fileToRead, options: null, out List<GameModel>? games))
+                {
+                    recoveredFromBackup = TryDeserializeJsonFile(
+                        fileToRead + ".bak",
+                        options: null,
+                        out games);
+                }
+                if (games == null)
+                {
+                    string mirror = Path.Combine(dataFolder, "games.json");
+                    if (!string.Equals(fileToRead, mirror, StringComparison.OrdinalIgnoreCase))
+                    {
+                        recoveredFromBackup = TryDeserializeJsonFile(mirror, options: null, out games) ||
+                                              TryDeserializeJsonFile(mirror + ".bak", options: null, out games);
+                    }
+                }
+                games ??= new List<GameModel>();
                 if (games.Count > 0 &&
-                    !string.Equals(fileToRead, gamesFile, StringComparison.OrdinalIgnoreCase))
+                    (recoveredFromBackup ||
+                     !string.Equals(fileToRead, gamesFile, StringComparison.OrdinalIgnoreCase)))
                 {
                     try { SaveGames(games); } catch { }
                 }
+                if (recoveredFromBackup)
+                    DoorpiBootDiagnostics.Log("games-recovered", $"path={fileToRead}");
                 return games;
             }
         }
@@ -18336,9 +18845,7 @@ namespace Doorpi
             string localGridPath = string.IsNullOrEmpty(game.GridImage) ? "" :
                 Path.Combine(dataFolder,
                     new Uri(game.GridImage).AbsolutePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
-            string iconBase64 = game.IconBase64;
-            if (string.IsNullOrWhiteSpace(iconBase64) && !string.IsNullOrWhiteSpace(game.Path) && File.Exists(game.Path))
-                iconBase64 = GetCachedIcon(game.Path);
+            string iconBase64 = ResolveGameIconBase64(game);
 
             return new
             {
@@ -18381,6 +18888,7 @@ namespace Doorpi
 
         private void LoadGamesIntoUI()
         {
+            if (!_interactiveUserSessionStarted) return;
             var allGames = LoadGames();
             var emulatorNames = LoadEmulatorDisplayNames();
 
@@ -18414,14 +18922,132 @@ namespace Doorpi
                 webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(payload))
             );
         }
+        private void SendGameUpdateToUI(GameModel game)
+        {
+            string gameId = !string.IsNullOrWhiteSpace(game.LaunchUrl) ? game.LaunchUrl : game.Path;
+            if (string.IsNullOrWhiteSpace(gameId)) return;
+
+            var payload = new
+            {
+                type = "gameUpdated",
+                gameId,
+                game = MapGameToAnonObject(game, isFeatured: false, LoadEmulatorDisplayNames())
+            };
+            void PostUpdate() =>
+                webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(payload));
+
+            if (Dispatcher.CheckAccess()) PostUpdate();
+            else Dispatcher.Invoke(PostUpdate);
+        }
+
+        private void SendMediaAppUpdateToUI(MediaAppModel app, string? existingId = null)
+        {
+            string appId = !string.IsNullOrWhiteSpace(existingId)
+                ? existingId
+                : (!string.IsNullOrWhiteSpace(app.Id) ? app.Id : app.Url);
+            if (string.IsNullOrWhiteSpace(appId)) return;
+
+            if (string.IsNullOrWhiteSpace(app.IconBase64))
+                app.IconBase64 = ResolveMediaIconBase64(app);
+
+            void PostUpdate() => webView.CoreWebView2.PostWebMessageAsString(
+                JsonSerializer.Serialize(new
+                {
+                    type = "mediaUpdated",
+                    appId,
+                    app
+                }));
+
+            if (Dispatcher.CheckAccess()) PostUpdate();
+            else Dispatcher.Invoke(PostUpdate);
+        }
+
+        private string ResolveMediaIconBase64(MediaAppModel app)
+        {
+            if (!string.IsNullOrWhiteSpace(app.IconBase64)) return app.IconBase64;
+
+            if (string.Equals(app.Type, "exe", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (string candidate in new[]
+                         {
+                             ResolveMediaExecutablePath(app, app.Url),
+                             LaunchCommand.ExecutablePathOrName(app.LaunchCommand)
+                         })
+                {
+                    string resolved = ResolveCurrentVersionedExecutablePath(candidate);
+                    if (!File.Exists(resolved)) continue;
+                    string icon = GetCachedIcon(resolved);
+                    if (!string.IsNullOrWhiteSpace(icon)) return icon;
+                }
+            }
+
+            try
+            {
+                string mediaKey = NormalizeAutoAddKey(app.Url);
+                if (string.IsNullOrWhiteSpace(mediaKey)) return "";
+
+                AppCacheModel? cache = LoadAppCache();
+                if (cache == null) return "";
+                InstalledApp? match = cache.WindowsApps
+                    .Concat(cache.FolderApps)
+                    .Concat(cache.SteamApps)
+                    .Concat(cache.EpicApps)
+                    .Concat(cache.GogApps)
+                    .Concat(cache.RiotApps)
+                    .Concat(cache.XboxApps)
+                    .FirstOrDefault(candidate =>
+                        !string.IsNullOrWhiteSpace(candidate.IconBase64) &&
+                        AutoAddKeysForApp(candidate).Contains(mediaKey, StringComparer.OrdinalIgnoreCase));
+                return match?.IconBase64 ?? "";
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
+        private string ResolveGameIconBase64(GameModel game)
+        {
+            if (!string.IsNullOrWhiteSpace(game.IconBase64)) return game.IconBase64;
+
+            foreach (string candidate in new[]
+                     {
+                         game.Path,
+                         LaunchCommand.ExecutablePathOrName(game.LaunchCommand)
+                     })
+            {
+                string resolved = ResolveCurrentVersionedExecutablePath(candidate);
+                if (!File.Exists(resolved)) continue;
+                string icon = GetCachedIcon(resolved);
+                if (!string.IsNullOrWhiteSpace(icon)) return icon;
+            }
+
+            try
+            {
+                AppCacheModel? cache = LoadAppCache();
+                if (cache == null) return "";
+                InstalledApp? match = cache.WindowsApps
+                    .Concat(cache.FolderApps)
+                    .Concat(cache.SteamApps)
+                    .Concat(cache.EpicApps)
+                    .Concat(cache.GogApps)
+                    .Concat(cache.RiotApps)
+                    .Concat(cache.XboxApps)
+                    .FirstOrDefault(app =>
+                        !string.IsNullOrWhiteSpace(app.IconBase64) && InstalledAppMatchesGame(app, game));
+                return match?.IconBase64 ?? "";
+            }
+            catch
+            {
+                return "";
+            }
+        }
         private void SendGameToUI(GameModel game, bool isFeatured = false)
         {
             string localGridPath = string.IsNullOrEmpty(game.GridImage) ? "" :
                 Path.Combine(dataFolder,
                     new Uri(game.GridImage).AbsolutePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
-            string iconBase64 = game.IconBase64;
-            if (string.IsNullOrWhiteSpace(iconBase64) && !string.IsNullOrWhiteSpace(game.Path) && File.Exists(game.Path))
-                iconBase64 = GetCachedIcon(game.Path);
+            string iconBase64 = ResolveGameIconBase64(game);
             var emulatorNames = LoadEmulatorDisplayNames();
 
             var data = new
@@ -18940,6 +19566,12 @@ namespace Doorpi
         private void CleanupAndExit()
         {
             if (Interlocked.Exchange(ref _cleanupAndExitStarted, 1) == 1) return;
+
+            // O fechamento normal e o encerramento de sessão do Windows também
+            // preservam a fração já completada desde o último checkpoint periódico.
+            try { CommitActiveSession(); } catch { }
+            try { _playtimeCheckpointTimer?.Dispose(); } catch { }
+            _playtimeCheckpointTimer = null;
 
             DiscordRpcManager.Instance.Dispose();
             DisposeBluetoothManager();

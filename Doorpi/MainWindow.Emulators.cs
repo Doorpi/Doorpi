@@ -1563,19 +1563,26 @@ namespace Doorpi
                 if (!string.IsNullOrWhiteSpace(preview.GridUrl))
                 {
                     existing.GridImage = preview.GridUrl;
+                    existing.GridStaticImage = "";
                     existing.GridSourceUrl = preview.GridUrl;
                 }
                 if (!string.IsNullOrWhiteSpace(preview.HorizontalUrl))
                 {
                     existing.GridHorizontalImage = preview.HorizontalUrl;
+                    existing.GridHorizontalStaticImage = "";
                     existing.GridHorizontalSourceUrl = preview.HorizontalUrl;
                 }
                 if (!string.IsNullOrWhiteSpace(preview.HeroUrl))
                 {
                     existing.HeroImage = preview.HeroUrl;
+                    existing.HeroStaticImage = "";
                     existing.HeroSourceUrl = preview.HeroUrl;
                 }
-                if (!string.IsNullOrWhiteSpace(preview.LogoUrl)) existing.LogoImage = preview.LogoUrl;
+                if (!string.IsNullOrWhiteSpace(preview.LogoUrl))
+                {
+                    existing.LogoImage = preview.LogoUrl;
+                    existing.LogoStaticImage = "";
+                }
                 existing.IsPendingArtwork = true;
                 existing.ArtworkSource = "pending";
                 if (newlyAdded) addedIds.Add(existing.Path);
@@ -1584,8 +1591,6 @@ namespace Doorpi
 
             Dispatcher.Invoke(() =>
             {
-                if (addedIds.Count > 0) ShowPreparingGameSkeletons(Math.Clamp(addedIds.Count, 1, 12));
-                else LoadGamesIntoUI();
                 webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
                 {
                     type = "emulatorConfigurationSaved",
@@ -1594,6 +1599,10 @@ namespace Doorpi
                     total = addedIds.Count,
                     artworkTotal = previewGames.Count
                 }));
+                // Os jogos ja estao persistidos e possuem fallback visual. Publique a
+                // biblioteca agora para que os patches de arte subsequentes encontrem
+                // os cards no AppStore, sem depender de abrir/fechar um jogo.
+                LoadGamesIntoUI();
                 SendEmulatorsToUi();
             });
 
@@ -1645,16 +1654,33 @@ namespace Doorpi
                             var logoTask = DownloadRemoteEmulatorArtworkAsync(logoUrl, logoFolder, safeName + "_logo", "logo");
                             await Task.WhenAll(gridTask, horizontalTask, heroTask, logoTask).ConfigureAwait(false);
 
-                            if (!string.IsNullOrWhiteSpace(gridTask.Result)) game.GridImage = gridTask.Result;
-                            if (!string.IsNullOrWhiteSpace(horizontalTask.Result)) game.GridHorizontalImage = horizontalTask.Result;
-                            if (!string.IsNullOrWhiteSpace(heroTask.Result)) game.HeroImage = heroTask.Result;
-                            if (!string.IsNullOrWhiteSpace(logoTask.Result)) game.LogoImage = logoTask.Result;
+                            if (!string.IsNullOrWhiteSpace(gridTask.Result))
+                            {
+                                game.GridImage = gridTask.Result;
+                                game.GridStaticImage = "";
+                            }
+                            if (!string.IsNullOrWhiteSpace(horizontalTask.Result))
+                            {
+                                game.GridHorizontalImage = horizontalTask.Result;
+                                game.GridHorizontalStaticImage = "";
+                            }
+                            if (!string.IsNullOrWhiteSpace(heroTask.Result))
+                            {
+                                game.HeroImage = heroTask.Result;
+                                game.HeroStaticImage = "";
+                            }
+                            if (!string.IsNullOrWhiteSpace(logoTask.Result))
+                            {
+                                game.LogoImage = logoTask.Result;
+                                game.LogoStaticImage = "";
+                            }
                             game.GridSourceUrl = gridUrl;
                             game.GridHorizontalSourceUrl = horizontalUrl;
                             game.HeroSourceUrl = heroUrl;
                             game.IsPendingArtwork = false;
                             game.ArtworkSource = !string.IsNullOrWhiteSpace(game.GridImage) ? "steamgriddb" : "no-art";
                             SaveGames(currentGames);
+                            SendGameUpdateToUI(game);
                         }
                     }
                     catch (Exception ex)
@@ -1671,6 +1697,7 @@ namespace Doorpi
                                 game.IsPendingArtwork = false;
                                 game.ArtworkSource = string.IsNullOrWhiteSpace(game.GridImage) ? "no-art" : game.ArtworkSource;
                                 SaveGames(currentGames);
+                                SendGameUpdateToUI(game);
                             }
                         }
                         catch { }
@@ -1685,7 +1712,6 @@ namespace Doorpi
                 }
                 if (pending.Count > 0) Dispatcher.Invoke(() =>
                 {
-                    LoadGamesIntoUI();
                     ClearPreparingGameSkeletons();
                 });
             }
@@ -1883,8 +1909,6 @@ namespace Doorpi
                     Dispatcher.Invoke(() =>
                     {
                         if (!string.Equals(currentUserId, userAtStart, StringComparison.OrdinalIgnoreCase)) return;
-                        LoadGamesIntoUI();
-                        if (added.Count > 0) ShowPreparingGameSkeletons(Math.Clamp(added.Count, 1, 12));
                         webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
                         {
                             type = "emulatorLibraryReconciled",
@@ -1893,6 +1917,9 @@ namespace Doorpi
                             removed,
                             updated
                         }));
+                        // Marque os IDs novos antes do render completo e publique os
+                        // cards imediatamente; o download de artes apenas os atualiza.
+                        LoadGamesIntoUI();
                     });
                 }
 

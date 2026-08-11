@@ -1124,6 +1124,8 @@ window.isNavMenuOpen = false;
         _gameLibraryFilters.clear();
         _librarySearch.games = '';
         _librarySearch.media = '';
+        _libraryFocusMemory.games = { key: '', index: 0 };
+        _libraryFocusMemory.media = { key: '', index: 0 };
         const activeCatId = CATS[_catIdx]?.id || 'games';
         _destroyLazyGrid();
 
@@ -1491,9 +1493,15 @@ window.isNavMenuOpen = false;
     }
 
     function _wireSystemItems(body, selectors) {
+        const activeElement = document.activeElement;
         _contentItems = selectors
             .flatMap(selector => Array.from(body.querySelectorAll(selector)))
             .filter(el => el && el.offsetParent !== null);
+
+        const activeIndex = _contentItems.indexOf(activeElement);
+        _contentIdx = activeIndex >= 0
+            ? activeIndex
+            : Math.max(0, Math.min(_contentIdx, Math.max(0, _contentItems.length - 1)));
 
         _contentItems.forEach((el, idx) => {
             el.onmouseenter = () => {
@@ -1501,6 +1509,55 @@ window.isNavMenuOpen = false;
                 _contentIdx = idx;
                 _updateContentFocus();
             };
+        });
+    }
+
+    function _returnFromSystemDetail() {
+        _systemSubView = null;
+        if (_settingsReturnToRoot) {
+            _settingsReturnToRoot = false;
+            _settingsSubView = null;
+        }
+        _contentIdx = 0;
+        _renderContent('settings');
+        _updateContentFocus();
+    }
+
+    function _settingsDirectoryMarkup(backId, title, entries) {
+        const rows = entries.map(entry => `
+            <button class="nav-settings-directory-item" id="${entry.id}" tabindex="-1">
+                <span class="settings-card-icon">${entry.icon}</span>
+                <span class="nav-settings-directory-copy"><strong>${entry.title}</strong><small>${entry.description}</small></span>
+                <span class="nav-settings-directory-chevron" aria-hidden="true">›</span>
+            </button>`).join('');
+        const first = entries[0] || {};
+        return `
+            <div class="nav-settings-subheader">
+                <button class="nav-back-btn" id="${backId}" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
+                <h2>${title}</h2>
+            </div>
+            <div class="nav-settings-directory">
+                <div class="nav-settings-directory-list">${rows}</div>
+                <aside class="nav-settings-directory-preview" aria-live="polite">
+                    <span class="settings-card-icon">${first.icon || ''}</span>
+                    <h3>${first.title || ''}</h3><p>${first.description || ''}</p>
+                    <div class="nav-settings-home-action"><kbd>A</kbd><span>Abrir configuração</span></div>
+                </aside>
+            </div>`;
+    }
+
+    function _wireSettingsDirectory(body, entries) {
+        const preview = body.querySelector('.nav-settings-directory-preview');
+        const show = entry => {
+            if (!preview || !entry) return;
+            preview.querySelector('.settings-card-icon').innerHTML = entry.icon;
+            preview.querySelector('h3').textContent = entry.title;
+            preview.querySelector('p').textContent = entry.description;
+        };
+        entries.forEach(entry => {
+            const button = body.querySelector(`#${entry.id}`);
+            button?.addEventListener('focus', () => show(entry));
+            button?.addEventListener('mouseenter', () => show(entry));
         });
     }
 
@@ -1514,46 +1571,19 @@ window.isNavMenuOpen = false;
         const svgDevices = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5.2" width="9.4" height="13.6" rx="2.1"/><circle cx="7.7" cy="14.1" r="2.15"/><circle cx="7.7" cy="9.1" r=".72" fill="currentColor" stroke="none"/><path d="M16.5 6.2v11.6l3.6-3.6-3.6-2.2 3.6-2.2-3.6-3.6Z"/></svg>`;
         const svgVideo = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>`;
 
-        body.innerHTML = `
-        <div class="nav-settings-subheader">
-            <button class="nav-back-btn" id="setBackSystemHub" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
-            <h2>${_t('navSetSystem', 'Sistema')}</h2>
-        </div>
-        <div class="nav-settings-grid nav-system-settings-grid">
-            <button class="nav-settings-card" id="setSystemStartup" tabindex="-1">
-                <div class="settings-card-icon">${svgPower}</div>
-                <div class="settings-card-info">
-                    <h3>Inicialização</h3>
-                    <p>Comportamento de boot, modo console e atalhos para ajustes essenciais.</p>
-                </div>
-            </button>
-            <button class="nav-settings-card" id="setSystemUpdates" tabindex="-1">
-                <div class="settings-card-icon">${svgUpdate}</div>
-                <div class="settings-card-info">
-                    <h3>Atualizações</h3>
-                    <p>Doorpi, Updater e Windows Update reunidos em uma área dedicada.</p>
-                </div>
-            </button>
-            <button class="nav-settings-card" id="setSystemDevices" tabindex="-1">
-                <div class="settings-card-icon">${svgDevices}</div>
-                <div class="settings-card-info">
-                    <h3>${_t('navSetDevices', 'Dispositivos')}</h3>
-                    <p>${_t('navSetDevicesDesc', 'Bluetooth, som e acessórios conectados')}</p>
-                </div>
-            </button>
-            <button class="nav-settings-card" id="setSystemVideo" tabindex="-1">
-                <div class="settings-card-icon">${svgVideo}</div>
-                <div class="settings-card-info">
-                    <h3>${_t('navSetVideo', 'Vídeo')}</h3>
-                    <p>${_t('navSetVideoDesc', 'Ajuste a escala visual do Doorpi')}</p>
-                </div>
-            </button>
-            </div>
-        </div>`;
+        const entries = [
+            { id:'setSystemStartup', icon:svgPower, title:'Inicialização', description:'Comportamento de boot, modo console e atalhos para ajustes essenciais.' },
+            { id:'setSystemUpdates', icon:svgUpdate, title:'Atualizações', description:'Doorpi, Updater e Windows Update reunidos em uma área dedicada.' },
+            { id:'setSystemDevices', icon:svgDevices, title:_t('navSetDevices', 'Dispositivos'), description:_t('navSetDevicesDesc', 'Bluetooth, som e acessórios conectados') },
+            { id:'setSystemVideo', icon:svgVideo, title:_t('navSetVideo', 'Vídeo'), description:_t('navSetVideoDesc', 'Ajuste a escala visual do Doorpi') }
+        ];
+        body.innerHTML = _settingsDirectoryMarkup('setBackSystemHub', _t('navSetSystem', 'Sistema'), entries);
+        _wireSettingsDirectory(body, entries);
 
         _wireSystemItems(body, ['#setBackSystemHub', '#setSystemStartup', '#setSystemUpdates', '#setSystemDevices', '#setSystemVideo']);
 
         body.querySelector('#setBackSystemHub')?.addEventListener('click', () => {
+            _settingsReturnToRoot = false;
             _settingsSubView = null;
             _systemSubView = null;
             _contentIdx = 0;
@@ -1593,24 +1623,39 @@ window.isNavMenuOpen = false;
             const s = document.createElement('style');
             s.id = 'nav-system-video-styles';
             s.textContent = `
-                .nav-video-panel { max-width: 980px; display: grid; gap: 18px; }
-                .nav-video-preview { position:relative; height:min(34vh,320px); overflow:hidden; border-radius:16px; border:1px solid rgba(255,255,255,.12); background:linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(0deg,rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(180deg,rgba(8,10,22,.92),rgba(3,4,12,.96)); background-size:34px 34px,34px 34px,auto; }
-                .nav-video-guide { position:absolute; left:50%; top:50%; width:min(88%,620px); height:72%; transform:translate(-50%,-50%); border:1px solid rgba(255,255,255,.28); border-radius:14px; pointer-events:none; box-shadow:inset 0 0 0 1px rgba(120,190,255,.13),0 0 42px rgba(90,145,255,.08); }
-                .nav-video-guide::before,.nav-video-guide::after { content:''; position:absolute; inset:10px; border-radius:10px; border:1px dashed rgba(120,190,255,.24); }
-                .nav-video-guide::after { inset:auto 14px 14px; height:2px; border:0; background:linear-gradient(90deg,transparent,rgba(120,190,255,.48),transparent); }
-                .nav-video-guide.is-calibrated { border-color:rgba(118,220,158,.72); box-shadow:inset 0 0 0 1px rgba(118,220,158,.18),0 0 42px rgba(90,205,145,.10); }
-                .nav-video-reference,.nav-video-stage { position:absolute; left:50%; top:50%; width:min(52%,280px); transform-origin:center center; }
-                .nav-video-reference { transform:translate(-50%,-50%) scale(var(--nav-video-reference-inverse-scale,1)); opacity:.78; }
-                .nav-video-stage { transform:translate(-50%,-50%) scale(var(--nav-video-target-inverse-scale,1)); opacity:.96; transition:transform .12s ease; }
-                .nav-video-size-sample { width:100%; aspect-ratio:16/7; box-sizing:border-box; border-radius:10px; }
-                .nav-video-reference .nav-video-size-sample { border:1px dashed rgba(210,230,255,.62); background:rgba(120,180,255,.04); }
-                .nav-video-stage .nav-video-size-sample { border:1px solid rgba(150,205,255,.76); background:rgba(120,180,255,.30); box-shadow:0 12px 28px rgba(0,0,0,.30); }
-                .nav-video-stage.is-too-small .nav-video-size-sample { border-color:rgba(125,190,255,.85); }
-                .nav-video-stage.is-too-large .nav-video-size-sample { border-color:rgba(255,190,120,.82); }
-                .nav-video-controls { display:grid; gap:12px; padding:18px; border-radius:14px; border:1px solid rgba(255,255,255,.10); background:rgba(255,255,255,.055); }
-                .nav-video-value { color:rgba(255,255,255,.78); font-size:1rem; font-weight:750; }
-                .nav-video-range { width:100%; accent-color:#78beff; outline:none; }
-                .nav-video-range.nav-focused-el { filter:drop-shadow(0 0 12px rgba(120,190,255,.48)); }
+                .nav-video-panel { width:100%; min-height:clamp(440px,51vh,560px); display:grid; grid-template-columns:minmax(520px,1.15fr) minmax(360px,.85fr); gap:clamp(22px,2.4vw,42px); align-items:stretch; }
+                .nav-video-controls { min-width:0; display:grid; align-content:center; gap:clamp(14px,1.65vh,23px); padding:clamp(20px,2.25vw,36px); border:1px solid rgba(255,255,255,.1); border-radius:10px; background:linear-gradient(145deg,rgba(255,255,255,.06),rgba(255,255,255,.018) 76%); }
+                .nav-video-intro { display:grid; gap:10px; padding-left:18px; border-left:3px solid rgba(255,255,255,.68); }
+                .nav-video-kicker { color:rgba(255,255,255,.42); font-size:.7rem; font-weight:720; letter-spacing:.13em; text-transform:uppercase; }
+                .nav-video-value { color:#fff; font-size:clamp(2rem,2.75vw,3.65rem); font-weight:300; line-height:1; }
+                .nav-video-description { max-width:760px;margin:0;color:rgba(255,255,255,.57);font-size:clamp(.82rem,.9vw,1rem);line-height:1.48; }
+                .nav-video-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); border-top:1px solid rgba(255,255,255,.1); border-bottom:1px solid rgba(255,255,255,.1); }
+                .nav-video-metric { min-width:0; padding:clamp(10px,1.15vh,15px) 10px; display:grid; gap:4px; border-right:1px solid rgba(255,255,255,.08); }
+                .nav-video-metric:first-child{padding-left:0}.nav-video-metric:last-child{border-right:0}
+                .nav-video-metric small { color:rgba(255,255,255,.4); font-size:.7rem; }
+                .nav-video-metric strong { color:rgba(255,255,255,.86); font-size:clamp(.82rem,.9vw,1rem); font-weight:590; white-space:nowrap; }
+                .nav-video-adjustment{display:grid;gap:11px}.nav-video-adjustment-title{color:rgba(255,255,255,.72);font-size:.76rem;font-weight:650}
+                .nav-video-presets { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:5px; }
+                .nav-video-preset { min-height:58px; padding:9px 12px; display:grid; gap:3px; align-content:center; border:1px solid rgba(255,255,255,.09); border-radius:7px; background:rgba(255,255,255,.035); color:#fff; font:inherit; text-align:left; outline:0; cursor:pointer; }
+                .nav-video-preset strong { font-size:.88rem; font-weight:600; }
+                .nav-video-preset small { color:rgba(255,255,255,.44); font-size:.72rem; }
+                .nav-video-preset.active { background:rgba(255,255,255,.095); border-color:rgba(255,255,255,.22); }
+                .nav-video-preset.nav-focused-el { background:rgba(255,255,255,.15); border-color:#fff; box-shadow:0 0 0 2px rgba(255,255,255,.12),0 12px 24px rgba(0,0,0,.25); }
+                .nav-video-range-wrap { display:grid; gap:7px; padding:3px 8px 0; }
+                .nav-video-range-labels { display:flex; justify-content:space-between; color:rgba(255,255,255,.38); font-size:.66rem; }
+                .nav-video-range { width:100%; accent-color:#fff; outline:none; }
+                .nav-video-range.nav-focused-el { outline:1px solid rgba(255,255,255,.72); outline-offset:7px; border-radius:2px; }
+                .nav-video-recommendation { padding-left:12px; border-left:2px solid rgba(255,255,255,.5); color:rgba(255,255,255,.5); font-size:.76rem; line-height:1.42; }
+                .nav-video-guidance{min-width:0;display:flex;flex-direction:column;justify-content:space-between;padding:clamp(20px,2.25vw,36px);border-left:1px solid rgba(255,255,255,.14);background:linear-gradient(90deg,rgba(255,255,255,.035),transparent 86%)}
+                .nav-video-guidance h3{margin:7px 0 9px;color:#fff;font-size:clamp(1.35rem,1.75vw,2.25rem);font-weight:340;line-height:1.08}.nav-video-guidance p{max-width:620px;margin:0;color:rgba(255,255,255,.55);font-size:clamp(.8rem,.86vw,.95rem);line-height:1.48}
+                .nav-video-guide{position:relative;width:100%;aspect-ratio:16/6;margin-top:clamp(15px,2vh,25px);overflow:hidden;border:1px solid rgba(255,255,255,.2);border-radius:10px;background:linear-gradient(90deg,rgba(255,255,255,.027) 1px,transparent 1px),linear-gradient(0deg,rgba(255,255,255,.027) 1px,transparent 1px),rgba(0,0,0,.12);background-size:28px 28px,28px 28px,auto;transition:border-color .18s ease,box-shadow .18s ease}
+                .nav-video-guide::before{content:'';position:absolute;inset:12%;border:1px dashed rgba(255,255,255,.22);border-radius:6px}.nav-video-guide::after{content:'';position:absolute;left:50%;top:14%;bottom:14%;border-left:1px solid rgba(255,255,255,.1)}
+                .nav-video-guide-status{position:absolute;z-index:1;inset:0;display:flex;align-items:center;justify-content:center;gap:12px;padding:18px;text-align:center;background:radial-gradient(circle,rgba(8,12,24,.82),rgba(8,12,24,.28) 52%,transparent 72%)}
+                .nav-video-guide-check{width:32px;height:32px;display:grid;place-items:center;flex:0 0 auto;border:1px solid rgba(255,255,255,.25);border-radius:50%;color:rgba(255,255,255,.58);font-weight:800}.nav-video-guide-copy{display:grid;gap:3px;text-align:left}.nav-video-guide-copy strong{color:rgba(255,255,255,.86);font-size:clamp(.78rem,.86vw,.96rem);font-weight:620}.nav-video-guide-copy span{color:rgba(255,255,255,.4);font-size:clamp(.65rem,.7vw,.76rem)}
+                .nav-video-guide.is-calibrated{border-color:rgba(112,218,156,.72);box-shadow:inset 0 0 0 1px rgba(112,218,156,.12),0 0 34px rgba(71,183,119,.1)}.nav-video-guide.is-calibrated .nav-video-guide-check{color:#baf2d0;border-color:rgba(112,218,156,.72);background:rgba(75,165,113,.16)}.nav-video-guide.is-calibrated .nav-video-guide-copy strong{color:#c5f1d6}
+                .nav-video-facts{display:grid;margin-top:clamp(17px,2.2vh,28px);border-top:1px solid rgba(255,255,255,.1)}.nav-video-fact{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:18px;padding:11px 0;border-bottom:1px solid rgba(255,255,255,.08)}.nav-video-fact span{color:rgba(255,255,255,.48);font-size:.75rem}.nav-video-fact strong{color:rgba(255,255,255,.84);font-size:.79rem;font-weight:600}
+                .nav-video-live-note{display:flex;align-items:center;gap:9px;margin-top:18px;color:rgba(255,255,255,.62);font-size:.75rem}.nav-video-live-note::before{content:'✓';width:23px;height:23px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.25);border-radius:50%;color:#fff}
+                @media(max-width:1050px){.nav-video-panel{grid-template-columns:1fr}.nav-video-guidance{border-left:0;border-top:1px solid rgba(255,255,255,.13)} }
             `;
             document.head.appendChild(s);
         }
@@ -1622,56 +1667,98 @@ window.isNavMenuOpen = false;
         const clampScale = raw => Math.max(minScale, Math.min(maxScale, Number(raw) || 1));
         const dpiScale = Math.max(0.5, Number(window.DoorpiDisplayMetrics?.dpiScale) || 1);
         const referenceScale = clampScale(1 / dpiScale);
-        const relativeScale = scale / referenceScale;
-        const isCalibrated = Math.abs(scale - referenceScale) <= 0.026;
+        const compactScale = clampScale(referenceScale * .9);
+        const enlargedScale = clampScale(referenceScale * 1.15);
+        const refPct = Math.round(referenceScale * 100);
+        const compactPct = Math.round(compactScale * 100);
+        const enlargedPct = Math.round(enlargedScale * 100);
+        const viewportLabel = `${Math.round(window.innerWidth)} × ${Math.round(window.innerHeight)}`;
         body.innerHTML = `
         <div class="nav-settings-subheader">
             <button class="nav-back-btn" id="setBackSystemVideo" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
-            <h2>${_t('navSetVideo', 'Vídeo')}</h2>
+            <h2>Tela e interface</h2>
         </div>
         <div class="nav-video-panel">
-            <p class="dq-sub" style="max-width:820px;margin:0;color:rgba(255,255,255,.55);">${_t('videoLayoutDesc', 'Ajuste a escala visual do Doorpi.')}</p>
-            <div class="nav-video-preview" aria-hidden="true">
-                <div class="nav-video-guide ${isCalibrated ? 'is-calibrated' : ''}" id="navVideoGuide"></div>
-                <div class="nav-video-reference" id="navVideoReference" style="--nav-video-reference-inverse-scale:${(1 / scale).toFixed(4)}">
-                    <div class="nav-video-size-sample"></div>
+            <section class="nav-video-controls">
+                <div class="nav-video-intro">
+                    <span class="nav-video-kicker">Tamanho da interface</span>
+                    <div class="nav-video-value" id="navVideoScaleValue">${pct}%</div>
+                    <p class="nav-video-description">A escala altera cartões, textos, espaçamentos e alvos de foco em todo o Doorpi.</p>
                 </div>
-                <div class="nav-video-stage ${relativeScale < 0.974 ? 'is-too-small' : (relativeScale > 1.026 ? 'is-too-large' : '')}" id="navVideoPreviewStage" style="--nav-video-target-inverse-scale:${(1 / referenceScale).toFixed(4)}">
-                    <div class="nav-video-size-sample"></div>
+                <div class="nav-video-metrics">
+                    <span class="nav-video-metric"><small>Área do Doorpi</small><strong>${viewportLabel}</strong></span>
+                    <span class="nav-video-metric"><small>Escala do Windows</small><strong>${Math.round(dpiScale * 100)}%</strong></span>
+                    <span class="nav-video-metric"><small>Base recomendada</small><strong>${refPct}%</strong></span>
                 </div>
-            </div>
-            <div class="nav-video-controls">
-                <div class="nav-video-value" id="navVideoScaleValue">${_t('setupLayoutScaleValue', `Escala da interface: ${pct}%`, pct)}</div>
-                <input class="nav-video-range" id="navVideoScale" type="range" min="25" max="180" step="5" value="${pct}" tabindex="-1">
-            </div>
+                <div class="nav-video-adjustment">
+                    <span class="nav-video-adjustment-title">Escolha um perfil ou faça o ajuste fino</span>
+                    <div class="nav-video-presets">
+                        <button class="nav-video-preset" id="navVideoPresetCompact" data-video-scale="${compactPct}" tabindex="-1"><strong>Compacta</strong><small>${compactPct}% · mais conteúdo</small></button>
+                        <button class="nav-video-preset" id="navVideoPresetRecommended" data-video-scale="${refPct}" tabindex="-1"><strong>Recomendada</strong><small>${refPct}% · equilibrada</small></button>
+                        <button class="nav-video-preset" id="navVideoPresetEnlarged" data-video-scale="${enlargedPct}" tabindex="-1"><strong>Ampliada</strong><small>${enlargedPct}% · leitura distante</small></button>
+                    </div>
+                    <div class="nav-video-range-wrap">
+                        <div class="nav-video-range-labels"><span>Menor</span><span>Ajuste fino</span><span>Maior</span></div>
+                        <input class="nav-video-range" id="navVideoScale" type="range" min="25" max="180" step="5" value="${pct}" tabindex="-1">
+                    </div>
+                    <div class="nav-video-recommendation" id="navVideoRecommendation">A recomendação considera a escala configurada no Windows.</div>
+                </div>
+            </section>
+            <aside class="nav-video-guidance">
+                <div>
+                    <span class="nav-video-kicker">Escolha com confiança</span>
+                    <h3>Legibilidade ou espaço útil</h3>
+                    <p>Em uma TV vista à distância, prefira alvos maiores. Em um monitor próximo, uma escala compacta mostra mais conteúdo sem alterar a resolução do Windows.</p>
+                    <div class="nav-video-guide" id="navVideoGuide" aria-hidden="true">
+                        <div class="nav-video-guide-status">
+                            <span class="nav-video-guide-check">✓</span>
+                            <span class="nav-video-guide-copy"><strong id="navVideoGuideTitle">Ajuste de referência</strong><span id="navVideoGuideText">Base recomendada: ${refPct}%</span></span>
+                        </div>
+                    </div>
+                    <div class="nav-video-facts">
+                        <span class="nav-video-fact"><span>Perfil equilibrado</span><strong>${refPct}%</strong></span>
+                        <span class="nav-video-fact"><span>Mais conteúdo</span><strong>${compactPct}%</strong></span>
+                        <span class="nav-video-fact"><span>Leitura à distância</span><strong>${enlargedPct}%</strong></span>
+                    </div>
+                </div>
+                <div class="nav-video-live-note">A alteração é aplicada diretamente à interface.</div>
+            </aside>
         </div>`;
 
         const sync = raw => {
             const next = window.DoorpiLayoutScale?.save?.(Number(raw) / 100) || 1;
             const nextPct = Math.round(next * 100);
             const value = body.querySelector('#navVideoScaleValue');
-            const stage = body.querySelector('#navVideoPreviewStage');
-            const reference = body.querySelector('#navVideoReference');
+            if (value) value.textContent = `${nextPct}%`;
+            body.querySelectorAll('[data-video-scale]').forEach(button => button.classList.toggle('active', Math.abs(Number(button.dataset.videoScale) - nextPct) <= 2));
+            const recommendation = body.querySelector('#navVideoRecommendation');
+            const calibrated = Math.abs(next - referenceScale) <= .026;
+            if (recommendation) recommendation.textContent = calibrated
+                ? 'Escala equilibrada para a configuração atual do Windows.'
+                : next < referenceScale
+                    ? 'Mais conteúdo visível, com textos e alvos de foco menores.'
+                    : 'Textos e alvos maiores para uso em TV ou maior distância.';
             const guide = body.querySelector('#navVideoGuide');
-            const nextRelativeScale = next / referenceScale;
-            if (value) value.textContent = _t('setupLayoutScaleValue', `Escala da interface: ${nextPct}%`, nextPct);
-            if (stage) {
-                stage.style.setProperty('--nav-video-target-inverse-scale', (1 / referenceScale).toFixed(4));
-                stage.classList.toggle('is-too-small', nextRelativeScale < 0.974);
-                stage.classList.toggle('is-too-large', nextRelativeScale > 1.026);
-            }
-            if (reference) reference.style.setProperty('--nav-video-reference-inverse-scale', (1 / next).toFixed(4));
-            guide?.classList.toggle('is-calibrated', Math.abs(next - referenceScale) <= 0.026);
+            const guideTitle = body.querySelector('#navVideoGuideTitle');
+            const guideText = body.querySelector('#navVideoGuideText');
+            guide?.classList.toggle('is-calibrated', calibrated);
+            if (guideTitle) guideTitle.textContent = calibrated ? 'Escala recomendada' : 'Ajuste de referência';
+            if (guideText) guideText.textContent = calibrated ? 'Proporção equilibrada para esta tela' : `Base recomendada: ${refPct}%`;
         };
 
-        _wireSystemItems(body, ['#setBackSystemVideo', '#navVideoScale']);
+        _wireSystemItems(body, ['#setBackSystemVideo', '#navVideoPresetCompact', '#navVideoPresetRecommended', '#navVideoPresetEnlarged', '#navVideoScale']);
         body.querySelector('#setBackSystemVideo')?.addEventListener('click', () => {
-            _systemSubView = null;
-            _contentIdx = 0;
-            _renderContent('settings');
-            _updateContentFocus();
+            _returnFromSystemDetail();
         });
         body.querySelector('#navVideoScale')?.addEventListener('input', e => sync(e.currentTarget.value));
+        body.querySelectorAll('[data-video-scale]').forEach(button => button.addEventListener('click', () => {
+            const range = body.querySelector('#navVideoScale');
+            if (range) range.value = button.dataset.videoScale;
+            sync(button.dataset.videoScale);
+            _contentIdx = Math.max(0, _contentItems.indexOf(button));
+            _updateContentFocus();
+        }));
+        sync(pct);
     }
 
     function _renderSettingsSystemStartupV2(body) {
@@ -1759,10 +1846,7 @@ window.isNavMenuOpen = false;
         window._updateBootModeUI();
 
         body.querySelector('#setBackSystemStartup')?.addEventListener('click', () => {
-            _systemSubView = null;
-            _contentIdx = 0;
-            _renderContent('settings');
-            _updateContentFocus();
+            _returnFromSystemDetail();
         });
         body.querySelectorAll('.nav-radio-btn').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -1795,22 +1879,53 @@ window.isNavMenuOpen = false;
             const s = document.createElement('style');
             s.id = 'nav-system-update-tabs-styles';
             s.textContent = `
-                .nav-system-tabs { max-width: 900px; display: flex; gap: 8px; margin: 0 0 16px; }
-                .nav-system-tab { min-height: 42px; min-width: 150px; padding: 0 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.035); color: rgba(255,255,255,.74); font: inherit; outline: none; cursor: pointer; }
-                .nav-system-tab.active { background: rgba(120,190,255,.10); border-color: rgba(120,190,255,.36); color: #fff; }
-                .nav-system-tab.nav-focused-el { background: rgba(255,255,255,.15); border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,.18), 0 8px 20px rgba(0,0,0,.30); }
-                .nav-gpu-guidance { display:grid; gap:7px; margin:0 0 18px; padding-left:14px; border-left:2px solid rgba(125,203,255,.48); }
+                .nav-updates-shell { width:min(100%,1480px); display:grid; gap:18px; }
+                .nav-system-tabs { width:100%; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:0; margin:0; border-bottom:1px solid rgba(255,255,255,.1); }
+                .nav-system-tab { min-height:64px; padding:10px 18px 12px; border:0; border-bottom:2px solid transparent; background:transparent; color:rgba(255,255,255,.48); font:inherit; text-align:left; outline:none; cursor:pointer; display:grid; gap:3px; }
+                .nav-system-tab strong { color:inherit; font-size:.94rem; font-weight:620; }
+                .nav-system-tab small { color:rgba(255,255,255,.34); font-size:.69rem; font-weight:520; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+                .nav-system-tab.active { border-bottom-color:#fff; color:#fff; background:linear-gradient(180deg,rgba(255,255,255,.045),transparent); }
+                .nav-system-tab.active small { color:rgba(255,255,255,.58); }
+                .nav-system-tab.nav-focused-el { color:#fff; border-bottom-color:#fff; background:rgba(255,255,255,.075); }
+                .nav-update-view { display:grid; grid-template-columns:minmax(0,1fr); gap:14px; min-width:0; }
+                .nav-update-view[hidden] { display:none !important; }
+                .nav-update-panel { margin:0; padding:clamp(22px,2.5vw,38px); border:1px solid rgba(255,255,255,.1); border-radius:9px; background:linear-gradient(105deg,rgba(255,255,255,.06),rgba(255,255,255,.018) 76%); }
+                .nav-update-overview { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:start; gap:28px; }
+                .nav-update-heading { min-width:0; padding-left:17px; border-left:3px solid rgba(255,255,255,.58); }
+                .nav-update-state { display:block; margin-bottom:7px; color:rgba(255,255,255,.48); font-size:.68rem; font-weight:760; letter-spacing:.13em; text-transform:uppercase; }
+                .nav-update-state[data-state="error"] { color:#e7a0a0; }
+                .nav-update-heading h3 { margin:0 0 6px; color:#fff; font-size:clamp(1.25rem,1.5vw,1.75rem); font-weight:430; }
+                .nav-update-heading p { margin:0; max-width:720px; color:rgba(255,255,255,.55); font-size:.87rem; line-height:1.45; }
+                .nav-update-meta { display:grid; justify-items:end; gap:5px; padding-top:23px; color:rgba(255,255,255,.48); font-size:.78rem; white-space:nowrap; }
+                .nav-update-list { display:grid; gap:7px; margin:18px 0 0; padding-top:12px; border-top:1px solid rgba(255,255,255,.08); color:rgba(255,255,255,.62); font-size:.84rem; line-height:1.4; }
+                .nav-update-actions { display:grid; grid-template-columns:repeat(2,minmax(260px,1fr)); gap:8px; width:100%; margin:0; }
+                .nav-update-actions .nav-suggestion-card { min-height:68px; padding:12px 16px; display:grid; grid-template-columns:minmax(150px,.7fr) minmax(0,1.3fr) 18px; align-items:center; gap:18px; border-radius:7px; background:rgba(255,255,255,.035); }
+                .nav-update-actions .nav-suggestion-card::after { content:'›'; justify-self:end; color:rgba(255,255,255,.28); font-size:1.25rem; transition:transform .16s,color .16s; }
+                .nav-update-actions .nav-suggestion-card.nav-focused-el::after { color:#fff; transform:translateX(2px); }
+                .nav-update-actions .nav-suggestion-card-btn { width:auto; min-width:0; padding:0; border:0; border-radius:0; background:transparent; box-shadow:none; color:rgba(255,255,255,.9); font-size:.86rem; font-weight:630; align-self:center; }
+                .nav-update-actions .nav-suggestion-card.nav-focused-el .nav-suggestion-card-btn { border:0; background:transparent; box-shadow:none; }
+                .nav-update-actions .nav-suggestion-card-text { color:rgba(255,255,255,.46); font-size:.76rem; line-height:1.35; }
+                .nav-update-actions .nav-update-primary { background:rgba(255,255,255,.88); color:#0a0d16; }
+                .nav-update-actions .nav-update-primary .nav-suggestion-card-btn { color:#0a0d16; }
+                .nav-update-actions .nav-update-primary .nav-suggestion-card-text { color:rgba(10,13,22,.62); }
+                .nav-update-actions .nav-update-primary::after { color:rgba(10,13,22,.48); }
+                .nav-update-actions .nav-update-primary.nav-focused-el { background:#fff !important; border-color:#fff !important; box-shadow:0 15px 32px rgba(0,0,0,.28) !important; }
+                .nav-update-actions .nav-update-primary.nav-focused-el::after { color:#0a0d16; }
+                .nav-update-actions .nav-gpu-app-card { min-height:210px; border-radius:8px; background:rgba(255,255,255,.032); }
+                .nav-update-actions .nav-gpu-app-art { background:linear-gradient(180deg,rgba(255,255,255,.09),rgba(255,255,255,.025)); box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 16px 26px rgba(0,0,0,.15); }
+                #gpuUpdateActionsGrid { grid-template-columns:minmax(0,1fr); }
+                .nav-gpu-guidance,.nav-windows-guidance { display:grid; gap:7px; margin:0 0 18px; padding-left:14px; border-left:2px solid rgba(255,255,255,.38); }
                 .nav-gpu-guidance p { margin:0; color:rgba(255,255,255,.56); font-size:.84rem; line-height:1.42; }
                 .nav-gpu-guidance strong { color:rgba(255,255,255,.84); font-weight:650; }
-                .nav-release-notes { max-height:min(42vh, 430px); margin:16px 0 0; padding:0 14px 0 0; overflow-y:auto; border-top:1px solid rgba(255,255,255,.10); outline:none; scroll-behavior:smooth; }
-                .nav-release-notes.nav-focused-el { border-top-color:rgba(125,203,255,.82); box-shadow:0 -2px 0 rgba(125,203,255,.18); }
-                .nav-release-notes.is-scroll-active { border-top-color:#7dcbff; box-shadow:0 -2px 0 rgba(125,203,255,.48); }
-                .nav-release-notes-head { position:sticky; top:0; z-index:1; display:flex; align-items:center; min-height:42px; background:rgba(18,25,42,.96); color:rgba(255,255,255,.86); font-size:.78rem; font-weight:750; letter-spacing:.09em; }
+                .nav-release-notes { max-height:min(34vh,350px); margin:0; padding:0 18px 2px; overflow-y:auto; border:1px solid rgba(255,255,255,.08); border-radius:7px; background:rgba(4,7,15,.16); outline:none; scroll-behavior:smooth; }
+                .nav-release-notes.nav-focused-el,.nav-release-notes.is-scroll-active { border-color:rgba(255,255,255,.62); box-shadow:inset 0 0 0 1px rgba(255,255,255,.08); }
+                .nav-release-notes-head { position:sticky; top:0; z-index:1; display:flex; align-items:center; justify-content:space-between; min-height:48px; background:linear-gradient(180deg,rgba(23,28,42,.99),rgba(19,23,35,.96)); color:rgba(255,255,255,.78); font-size:.72rem; font-weight:740; letter-spacing:.1em; text-transform:uppercase; }
                 .nav-release-entry { padding:14px 0 16px; border-top:1px solid rgba(255,255,255,.07); }
                 .nav-release-entry:first-of-type { border-top:0; }
                 .nav-release-entry-title { color:#fff; font-size:1rem; font-weight:650; line-height:1.3; }
-                .nav-release-entry-version { margin-left:8px; color:#7dcbff; font-size:.78rem; font-weight:700; }
+                .nav-release-entry-version { margin-left:8px; color:rgba(255,255,255,.46); font-size:.78rem; font-weight:650; }
                 .nav-release-entry ul { display:grid; gap:8px; margin:10px 0 0; padding:0 0 0 20px; color:rgba(255,255,255,.66); font-size:.9rem; line-height:1.48; }
+                @media(max-width:1050px){ .nav-update-actions{grid-template-columns:1fr}.nav-update-overview{grid-template-columns:1fr}.nav-update-meta{justify-items:start;padding:0 0 0 20px} }
             `;
             document.head.appendChild(s);
         }
@@ -1821,62 +1936,65 @@ window.isNavMenuOpen = false;
             <h2>${_t('updatesTitle', 'Atualizações')}</h2>
         </div>
 
-        <div style="max-width: 900px;">
+        <div class="nav-updates-shell">
             <div class="nav-system-tabs">
-                <button class="nav-system-tab ${doorpiActive ? 'active' : ''}" id="updatesTabDoorpi" data-updates-tab="doorpi" tabindex="-1">Doorpi</button>
-                <button class="nav-system-tab ${windowsActive ? 'active' : ''}" id="updatesTabWindows" data-updates-tab="windows" tabindex="-1">Windows</button>
-                <button class="nav-system-tab ${gpuActive ? 'active' : ''}" id="updatesTabGpu" data-updates-tab="gpu" tabindex="-1">${_t('videoCardTitle', 'Placa de vídeo')}</button>
+                <button class="nav-system-tab ${doorpiActive ? 'active' : ''}" id="updatesTabDoorpi" data-updates-tab="doorpi" tabindex="-1"><strong>Doorpi</strong><small id="updatesTabDoorpiState">Sistema e componentes</small></button>
+                <button class="nav-system-tab ${windowsActive ? 'active' : ''}" id="updatesTabWindows" data-updates-tab="windows" tabindex="-1"><strong>Windows</strong><small id="updatesTabWindowsState">Sistema operacional</small></button>
+                <button class="nav-system-tab ${gpuActive ? 'active' : ''}" id="updatesTabGpu" data-updates-tab="gpu" tabindex="-1"><strong>${_t('videoCardTitle', 'Placa de vídeo')}</strong><small id="updatesTabGpuState">Drivers e atualizadores</small></button>
             </div>
 
-            <div class="nav-update-panel" id="systemUpdatePanel" style="display:${doorpiActive ? 'block' : 'none'};margin:0 0 18px;padding:16px 18px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.035);border-radius:10px;">
-                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:18px;">
-                    <div style="min-width:0;">
-                        <div id="systemUpdateBadge" style="display:inline-flex;margin-bottom:8px;padding:3px 8px;border-radius:999px;background:rgba(125,203,255,.14);color:#7dcbff;font-size:.68rem;font-weight:800;letter-spacing:.12em;">${_t('sysUpdateBadgeUpdated', 'ATUALIZADO')}</div>
-                        <h3 id="systemUpdateTitle" style="font-size:1.1rem;font-weight:600;color:#fff;margin:0 0 5px;">Doorpi</h3>
-                        <p id="systemUpdateSub" style="margin:0;color:rgba(255,255,255,.56);line-height:1.35;">${_t('sysUpdateIdle', 'Atualizações ainda não verificadas.')}</p>
+            <section class="nav-update-view" data-update-panel="doorpi" ${doorpiActive ? '' : 'hidden'}>
+            <div class="nav-update-panel" id="systemUpdatePanel">
+                <div class="nav-update-overview">
+                    <div class="nav-update-heading">
+                        <span class="nav-update-state" id="systemUpdateBadge">${_t('sysUpdateBadgeUpdated', 'ATUALIZADO')}</span>
+                        <h3 id="systemUpdateTitle">Doorpi</h3>
+                        <p id="systemUpdateSub">${_t('sysUpdateIdle', 'Atualizações ainda não verificadas.')}</p>
                     </div>
-                    <div id="systemUpdateVersions" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;color:rgba(255,255,255,.62);font-size:.84rem;white-space:nowrap;"></div>
+                    <div class="nav-update-meta" id="systemUpdateVersions"></div>
                 </div>
-                <ul id="systemUpdateChangelog" style="margin:12px 0 0;padding-left:18px;color:rgba(255,255,255,.48);font-size:.86rem;line-height:1.45;"></ul>
             </div>
 
-            <div class="nav-suggestions-grid" id="navUpdateActionsGrid" style="display:${doorpiActive ? 'flex' : 'none'};flex-direction:column;margin-bottom:18px;">
+            <div class="nav-suggestions-grid nav-update-actions" id="navUpdateActionsGrid">
                 <button class="nav-suggestion-card visible" id="navCardCheckUpdates" tabindex="-1">
                     <div class="nav-suggestion-card-btn">${_t('checkDoorpi', 'Verificar Doorpi')}</div>
                     <span class="nav-suggestion-card-text">${_t('checkDoorpiDesc', 'Consulta atualizações do Doorpi, Updater e changelog.')}</span>
                 </button>
-                <button class="nav-suggestion-card" id="navCardStartUpdate" tabindex="-1" style="display:none;">
+                <button class="nav-suggestion-card nav-update-primary" id="navCardStartUpdate" tabindex="-1" style="display:none;">
                     <div class="nav-suggestion-card-btn">${_t('updateDoorpi', 'Atualizar Doorpi')}</div>
                     <span class="nav-suggestion-card-text">${_t('updateDoorpiDesc', 'Baixa o pacote validado, atualiza componentes e reinicia o Doorpi se necessário.')}</span>
                 </button>
             </div>
+            <section class="nav-release-notes" id="systemUpdateChangelog" role="region" aria-label="Notas da versão"></section>
+            </section>
 
-            <div class="nav-update-panel" id="windowsUpdatePanel" style="display:${windowsActive ? 'block' : 'none'};margin:0 0 18px;padding:16px 18px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.035);border-radius:10px;">
-                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:18px;">
-                    <div style="min-width:0;">
-                        <div id="windowsUpdateBadge" style="display:inline-flex;margin-bottom:8px;padding:3px 8px;border-radius:999px;background:rgba(125,203,255,.14);color:#7dcbff;font-size:.68rem;font-weight:800;letter-spacing:.12em;">WINDOWS</div>
-                        <h3 id="windowsUpdateTitle" style="font-size:1.1rem;font-weight:600;color:#fff;margin:0 0 5px;">Windows Update</h3>
-                        <p id="windowsUpdateSub" style="margin:0;color:rgba(255,255,255,.56);line-height:1.35;">${_t('windowsUpdateIdle', 'Atualizações do Windows ainda não verificadas.')}</p>
+            <section class="nav-update-view" data-update-panel="windows" ${windowsActive ? '' : 'hidden'}>
+            <div class="nav-update-panel" id="windowsUpdatePanel">
+                <div class="nav-update-overview">
+                    <div class="nav-update-heading">
+                        <span class="nav-update-state" id="windowsUpdateBadge">WINDOWS</span>
+                        <h3 id="windowsUpdateTitle">Windows Update</h3>
+                        <p id="windowsUpdateSub">${_t('windowsUpdateIdle', 'Atualizações do Windows ainda não verificadas.')}</p>
                     </div>
-                    <div id="windowsUpdateMeta" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;color:rgba(255,255,255,.62);font-size:.84rem;white-space:nowrap;"></div>
+                    <div class="nav-update-meta" id="windowsUpdateMeta"></div>
                 </div>
-                <div id="windowsUpdateList" style="display:grid;gap:7px;margin:12px 0 0;color:rgba(255,255,255,.62);font-size:.86rem;line-height:1.35;"></div>
+                <div class="nav-update-list" id="windowsUpdateList"></div>
             </div>
 
-            <div style="display:${windowsActive ? 'grid' : 'none'};gap:7px;margin:0 0 18px;padding-left:14px;border-left:2px solid rgba(125,203,255,.48);">
+            <div class="nav-windows-guidance">
                 <p style="margin:0;color:rgba(255,255,255,.56);font-size:.84rem;line-height:1.42;"><strong style="color:rgba(255,255,255,.84);font-weight:650;">${_t('windowsUpdateAdminNoticeTitle', 'Permiss\u00e3o administrativa necess\u00e1ria.')}</strong> ${_t('windowsUpdateAdminNoticeText', 'O Windows solicitar\u00e1 autoriza\u00e7\u00e3o antes de baixar e instalar os pacotes selecionados.')}</p>
             </div>
 
-            <div class="nav-suggestions-grid" id="windowsUpdateActionsGrid" style="display:${windowsActive ? 'flex' : 'none'};flex-direction:column;margin-bottom:18px;">
+            <div class="nav-suggestions-grid nav-update-actions" id="windowsUpdateActionsGrid">
                 <button class="nav-suggestion-card visible" id="navCardCheckWindowsUpdates" tabindex="-1">
                     <div class="nav-suggestion-card-btn">${_t('checkWindows', 'Verificar Windows')}</div>
                     <span class="nav-suggestion-card-text">${_t('checkWindowsDesc', 'Consulta o Windows Update e lista os pacotes encontrados.')}</span>
                 </button>
-                <button class="nav-suggestion-card" id="navCardStartWindowsUpdate" tabindex="-1" style="display:none;">
+                <button class="nav-suggestion-card nav-update-primary" id="navCardStartWindowsUpdate" tabindex="-1" style="display:none;">
                     <div class="nav-suggestion-card-btn">${_t('windowsUpdateInstall', 'Baixar e instalar')}</div>
                     <span class="nav-suggestion-card-text">${_t('windowsUpdateInstallDesc', 'Usa a API do Windows Update para baixar e instalar em segundo plano.')}</span>
                 </button>
-                <button class="nav-suggestion-card" id="navCardRestartWindows" tabindex="-1" style="display:none;">
+                <button class="nav-suggestion-card nav-update-primary" id="navCardRestartWindows" tabindex="-1" style="display:none;">
                     <div class="nav-suggestion-card-btn">${_t('restartNow', 'Reiniciar agora')}</div>
                     <span class="nav-suggestion-card-text">${_t('windowsRestartDesc', 'Reinicia o computador para concluir atualizações pendentes.')}</span>
                 </button>
@@ -1885,25 +2003,28 @@ window.isNavMenuOpen = false;
                     <span class="nav-suggestion-card-text">${_t('windowsOpenNativeDesc', 'Abre a tela nativa do Windows com mouse e teclado pelo controle.')}</span>
                 </button>
             </div>
+            </section>
 
-            <div class="nav-update-panel" id="gpuUpdatePanel" style="display:${gpuActive ? 'block' : 'none'};margin:0 0 18px;padding:16px 18px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.035);border-radius:10px;">
-                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:18px;">
-                    <div style="min-width:0;">
-                        <div id="gpuUpdateBadge" style="display:inline-flex;margin-bottom:8px;padding:3px 8px;border-radius:999px;background:rgba(125,203,255,.14);color:#7dcbff;font-size:.68rem;font-weight:800;letter-spacing:.12em;">GPU</div>
-                        <h3 id="gpuUpdateTitle" style="font-size:1.1rem;font-weight:600;color:#fff;margin:0 0 5px;">Placa de vídeo</h3>
-                        <p id="gpuUpdateSub" style="margin:0;color:rgba(255,255,255,.56);line-height:1.35;">Dados de placa de vídeo ainda não carregados.</p>
+            <section class="nav-update-view" data-update-panel="gpu" ${gpuActive ? '' : 'hidden'}>
+            <div class="nav-update-panel" id="gpuUpdatePanel">
+                <div class="nav-update-overview">
+                    <div class="nav-update-heading">
+                        <span class="nav-update-state" id="gpuUpdateBadge">GPU</span>
+                        <h3 id="gpuUpdateTitle">Placa de vídeo</h3>
+                        <p id="gpuUpdateSub">Dados de placa de vídeo ainda não carregados.</p>
                     </div>
-                    <div id="gpuUpdateMeta" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;color:rgba(255,255,255,.62);font-size:.84rem;white-space:nowrap;"></div>
+                    <div class="nav-update-meta" id="gpuUpdateMeta"></div>
                 </div>
-                <div id="gpuAdapterList" style="display:grid;gap:7px;margin:12px 0 0;color:rgba(255,255,255,.62);font-size:.86rem;line-height:1.35;"></div>
+                <div class="nav-update-list" id="gpuAdapterList"></div>
             </div>
 
-            <div class="nav-gpu-guidance" style="display:${gpuActive ? 'grid' : 'none'};">
+            <div class="nav-gpu-guidance">
                 <p><strong>${_t('gpuUpdaterAdminNoticeTitle', 'Permiss\u00e3o tempor\u00e1ria.')}</strong> ${_t('gpuUpdaterAdminNoticeText', 'Se o Windows pedir permiss\u00e3o, autorize o assistente do Doorpi para controlar instaladores elevados.')}</p>
                 <p><strong>${_t('gpuUpdaterSessionNoticeTitle', 'Durante a atualiza\u00e7\u00e3o.')}</strong> ${_t('gpuUpdaterSessionNoticeText', 'N\u00e3o feche nem minimize o atualizador. Ao final, o Doorpi ser\u00e1 reiniciado para restaurar o renderizador.')}</p>
             </div>
 
-            <div class="nav-suggestions-grid" id="gpuUpdateActionsGrid" style="display:${gpuActive ? 'flex' : 'none'};flex-direction:column;margin-bottom:18px;"></div>
+            <div class="nav-suggestions-grid nav-update-actions" id="gpuUpdateActionsGrid"></div>
+            </section>
         </div>`;
 
         const refreshItems = () => _wireSystemItems(body, [
@@ -1911,7 +2032,6 @@ window.isNavMenuOpen = false;
             '#updatesTabDoorpi',
             '#updatesTabWindows',
             '#updatesTabGpu',
-            '#systemUpdateChangelog',
             '#navCardCheckUpdates',
             '#navCardStartUpdate',
             '#navCardCheckWindowsUpdates',
@@ -1931,16 +2051,7 @@ window.isNavMenuOpen = false;
         if (typeof postToHost === 'function') postToHost({ action: 'requestGpuUpdateStatus' });
 
         body.querySelector('#setBackSystemUpdates')?.addEventListener('click', () => {
-            _systemSubView = null;
-            _contentIdx = 0;
-            _renderContent('settings');
-            _updateContentFocus();
-        });
-        body.querySelector('#systemUpdateChangelog')?.addEventListener('click', event => {
-            const notes = event.currentTarget;
-            _releaseNotesScrollActive = true;
-            notes.classList.add('is-scroll-active');
-            notes.focus({ preventScroll: true });
+            _returnFromSystemDetail();
         });
         body.querySelectorAll('[data-updates-tab]').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -2255,12 +2366,25 @@ window.isNavMenuOpen = false;
     let _topbarFocus = true;
     let _contentIdx = 0;
     let _contentItems = [];
+    const _libraryFocusMemory = {
+        games: { key: '', index: 0 },
+        media: { key: '', index: 0 }
+    };
+    let _libraryHoldDirection = '';
+    let _libraryHoldStartedAt = 0;
+    let _libraryHoldSawNativeInput = false;
+    let _libraryRapidNavigation = false;
+    let _libraryHoldRaf = 0;
+    let _libraryRapidScrollPane = null;
+    let _libraryRapidScrollTarget = 0;
+    let _libraryRapidScrollRaf = 0;
     let _overlay = null;
     let _bgRaf = null;
     let _lastFocus = null;
     let _settingsSubView = null;
     let _profileSubView = null;
     let _systemSubView = null;
+    let _settingsReturnToRoot = false;
     let _systemUpdatesSubView = 'doorpi';
     let _releaseNotesScrollActive = false;
     let _sharingFocusAppId = '';
@@ -2330,6 +2454,8 @@ window.isNavMenuOpen = false;
 }
 #navPaneGames::-webkit-scrollbar,
 #navPaneMedia::-webkit-scrollbar { display: none; }
+#navPaneGames.nav-rapid-navigation,
+#navPaneMedia.nav-rapid-navigation { scroll-behavior: auto !important; }
 
 /* Biblioteca estilo console: ações compactas e painéis ocultos por padrão. */
 .nav-library-pane { padding-left: clamp(116px, 7.2vw, 154px) !important; }
@@ -2675,10 +2801,12 @@ window.isNavMenuOpen = false;
     flex: 1; display: flex; flex-direction: column;
     padding: clamp(10px, 2vh, 40px) clamp(20px, 3vw, 60px);
     overflow: hidden;
+    position: relative;
     min-width: 0;
     min-height: 0;
 }
 .nav-content-header {
+    position: relative; z-index: 1;
     margin-bottom: clamp(20px, 3vh, 32px); flex-shrink: 0; text-align: left;
     animation: fadeInTop 0.4s cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
 }
@@ -2962,6 +3090,275 @@ window.isNavMenuOpen = false;
 .nav-settings-card.nav-focused-el { transform: translateY(-4px) scale(1.03); background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.4); box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
 .nav-settings-card.nav-focused-el .settings-card-icon { color: #fff; }
 
+/* Hub principal de configurações: navegação vertical de console + contexto. */
+.nav-content-body.settings-home-active {
+    overflow: hidden;
+    padding-top: 0;
+    padding-bottom: clamp(18px, 2.4vh, 36px);
+    padding-left: 0;
+    padding-right: 0;
+}
+.nav-settings-home {
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(390px, .72fr) minmax(560px, 1.28fr);
+    gap: clamp(30px, 3.4vw, 64px);
+    margin: 0;
+    animation: fadeInTop .32s cubic-bezier(.2,.9,.3,1);
+}
+
+/* Diretórios internos: a mesma hierarquia do hub, ancorada à margem do sistema. */
+.nav-settings-directory {
+    width: min(100%, 1480px);
+    min-height: min(520px, 65vh);
+    display: grid;
+    grid-template-columns: minmax(390px, .88fr) minmax(390px, 1.12fr);
+    gap: clamp(32px, 4vw, 72px);
+    align-items: stretch;
+    animation: fadeInTop .3s cubic-bezier(.2,.9,.3,1);
+}
+.nav-settings-directory-list { display: grid; align-content: start; gap: 4px; }
+.nav-settings-directory-item {
+    width: 100%; min-height: clamp(72px, 8vh, 94px);
+    display: grid; grid-template-columns: clamp(38px, 3vw, 50px) minmax(0,1fr) 18px;
+    align-items: center; gap: clamp(14px, 1.3vw, 20px);
+    padding: clamp(11px, 1.2vh, 16px) clamp(15px, 1.35vw, 22px);
+    border: 1px solid transparent; border-radius: 8px; outline: 0;
+    background: transparent; color: #fff; font: inherit; text-align: left; cursor: pointer;
+    transition: background .16s ease, border-color .16s ease, transform .16s ease, box-shadow .16s ease;
+}
+.nav-settings-directory-item .settings-card-icon {
+    width: clamp(34px, 2.8vw, 46px); height: clamp(34px, 2.8vw, 46px);
+    display: grid; place-items: center; color: rgba(255,255,255,.56);
+}
+.nav-settings-directory-item .settings-card-icon svg { width: 72%; height: 72%; }
+.nav-settings-directory-copy { min-width: 0; display: grid; gap: 4px; }
+.nav-settings-directory-copy strong { color: rgba(255,255,255,.92); font-size: clamp(.98rem,1.08vw,1.24rem); font-weight: 540; }
+.nav-settings-directory-copy small { color: rgba(255,255,255,.45); font-size: clamp(.72rem,.77vw,.88rem); line-height: 1.35; }
+.nav-settings-directory-chevron { color: rgba(255,255,255,.28); font-size: 1.35rem; }
+#navMenuOverlay .nav-settings-directory-item.nav-focused-el {
+    background: rgba(255,255,255,.115) !important; border-color: rgba(255,255,255,.76) !important;
+    box-shadow: 0 0 0 2px rgba(255,255,255,.11), 0 14px 34px rgba(0,0,0,.27) !important;
+    transform: translateX(7px);
+}
+.nav-settings-directory-item.nav-focused-el .settings-card-icon,
+.nav-settings-directory-item.nav-focused-el .nav-settings-directory-chevron { color: #fff; }
+.nav-settings-directory-preview {
+    min-width: 0; padding: clamp(28px,3vw,50px); border-left: 1px solid rgba(255,255,255,.14);
+    background: linear-gradient(90deg, rgba(255,255,255,.035), transparent 78%);
+    display: grid; align-content: center;
+}
+.nav-settings-directory-preview .settings-card-icon { width: clamp(64px,5vw,86px); height: clamp(64px,5vw,86px); color: rgba(255,255,255,.8); }
+.nav-settings-directory-preview h3 { margin: 24px 0 10px; color:#fff; font-size: clamp(1.65rem,2.2vw,3rem); font-weight: 340; letter-spacing: -.02em; }
+.nav-settings-directory-preview p { max-width: 660px; margin:0; color:rgba(255,255,255,.57); font-size:clamp(.86rem,.95vw,1.08rem); line-height:1.55; }
+.nav-settings-directory-preview .nav-settings-home-action { margin-top: clamp(32px,4vh,58px); }
+.nav-settings-home-nav {
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 2px 8px 34px 3px;
+    scrollbar-width: none;
+}
+.nav-settings-home-nav::-webkit-scrollbar { display: none; }
+.nav-settings-home-group + .nav-settings-home-group { margin-top: clamp(14px, 1.7vh, 24px); }
+.nav-settings-home-group-title {
+    display: block;
+    margin: 0 0 clamp(5px, .7vh, 9px);
+    padding: 0 clamp(15px, 1.1vw, 20px);
+    color: rgba(255,255,255,.39);
+    font-size: clamp(.66rem, .68vw, .78rem);
+    font-weight: 700;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+}
+.nav-settings-home-list { display: grid; gap: 3px; }
+.nav-settings-home-item {
+    width: 100%;
+    min-height: clamp(66px, 7.2vh, 88px);
+    display: grid;
+    grid-template-columns: clamp(38px, 3vw, 50px) minmax(0, 1fr) 18px;
+    align-items: center;
+    gap: clamp(13px, 1.25vw, 20px);
+    padding: clamp(10px, 1.1vh, 15px) clamp(15px, 1.35vw, 22px);
+    box-sizing: border-box;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    outline: 0;
+    background: transparent;
+    color: #fff;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background .16s ease, border-color .16s ease, transform .16s ease, box-shadow .16s ease;
+}
+.nav-settings-home-icon {
+    width: clamp(34px, 2.8vw, 46px);
+    height: clamp(34px, 2.8vw, 46px);
+    display: grid;
+    place-items: center;
+    color: rgba(255,255,255,.58);
+    transition: color .16s ease, transform .16s ease;
+}
+.nav-settings-home-icon svg { width: 70%; height: 70%; display: block; }
+.nav-settings-home-copy { min-width: 0; display: grid; gap: 3px; }
+.nav-settings-home-copy strong {
+    overflow: hidden;
+    color: rgba(255,255,255,.91);
+    font-size: clamp(.96rem, 1.08vw, 1.25rem);
+    font-weight: 530;
+    line-height: 1.15;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.nav-settings-home-copy small {
+    overflow: hidden;
+    color: rgba(255,255,255,.43);
+    font-size: clamp(.71rem, .76vw, .88rem);
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.nav-settings-home-chevron {
+    color: rgba(255,255,255,.27);
+    font-size: 1.35rem;
+    font-weight: 300;
+    transform: translateX(-3px);
+    transition: color .16s ease, transform .16s ease;
+}
+#navMenuOverlay .nav-settings-home-item.nav-focused-el {
+    background: rgba(255,255,255,.115) !important;
+    border-color: rgba(255,255,255,.76) !important;
+    box-shadow: 0 0 0 2px rgba(255,255,255,.12), 0 14px 34px rgba(0,0,0,.28) !important;
+    transform: translateX(7px);
+}
+.nav-settings-home-item.nav-focused-el .nav-settings-home-icon { color: #fff; transform: scale(1.04); }
+.nav-settings-home-item.nav-focused-el .nav-settings-home-copy strong { color: #fff; }
+.nav-settings-home-item.nav-focused-el .nav-settings-home-copy small { color: rgba(255,255,255,.67); }
+.nav-settings-home-item.nav-focused-el .nav-settings-home-chevron { color: #fff; transform: translateX(1px); }
+
+.nav-settings-home-preview {
+    position: relative; z-index: 1;
+    min-width: 0;
+    min-height: 0;
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    overflow: hidden;
+    padding: clamp(30px, 3.3vw, 56px);
+    box-sizing: border-box;
+    border: 1px solid rgba(255,255,255,.09);
+    border-radius: clamp(14px, 1.1vw, 20px);
+    background: linear-gradient(145deg, rgba(255,255,255,.065), rgba(255,255,255,.018) 72%);
+    box-shadow: 0 26px 72px rgba(0,0,0,.2);
+}
+.nav-settings-home-preview::before {
+    content: none;
+}
+.nav-settings-home-preview-main { position: relative; z-index: 1; display: grid; align-content: start; }
+.nav-settings-home-preview-icon {
+    width: clamp(64px, 5.5vw, 92px);
+    height: clamp(64px, 5.5vw, 92px);
+    display: grid;
+    place-items: center;
+    margin-bottom: clamp(25px, 3vh, 42px);
+    color: rgba(255,255,255,.84);
+}
+.nav-settings-home-preview-icon svg { width: 72%; height: 72%; display: block; }
+.nav-settings-home-kicker {
+    color: rgba(255,255,255,.43);
+    font-size: clamp(.68rem, .72vw, .82rem);
+    font-weight: 720;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+}
+.nav-settings-home-preview h3 {
+    margin: 9px 0 0;
+    color: #fff;
+    font-size: clamp(1.65rem, 2.45vw, 3.35rem);
+    font-weight: 330;
+    line-height: 1.04;
+    letter-spacing: -.025em;
+}
+.nav-settings-home-preview p {
+    max-width: 720px;
+    margin: clamp(13px, 1.5vh, 21px) 0 0;
+    color: rgba(255,255,255,.58);
+    font-size: clamp(.86rem, .96vw, 1.12rem);
+    line-height: 1.55;
+}
+.nav-settings-home-scope {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 clamp(16px, 1.4vw, 26px);
+    margin-top: clamp(24px, 3.2vh, 46px);
+    border-top: 1px solid rgba(255,255,255,.09);
+}
+.nav-settings-home-scope span {
+    min-width: 0;
+    padding: clamp(12px, 1.35vh, 18px) 0;
+    border-bottom: 1px solid rgba(255,255,255,.07);
+    color: rgba(255,255,255,.69);
+    font-size: clamp(.75rem, .82vw, .96rem);
+    line-height: 1.25;
+}
+.nav-settings-home-action {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-top: clamp(24px, 2.8vh, 42px);
+    color: rgba(255,255,255,.62);
+    font-size: clamp(.76rem, .82vw, .94rem);
+    font-weight: 560;
+}
+.nav-settings-home-action kbd {
+    width: 27px;
+    height: 27px;
+    display: inline-grid;
+    place-items: center;
+    box-sizing: border-box;
+    border: 1px solid rgba(255,255,255,.43);
+    border-radius: 50%;
+    color: #fff;
+    background: rgba(255,255,255,.08);
+    font: inherit;
+    font-size: .72rem;
+    font-weight: 760;
+}
+
+@media (max-width: 1180px) {
+    .nav-settings-home { grid-template-columns: minmax(350px, .92fr) minmax(340px, 1.08fr); gap: 28px; }
+    .nav-settings-home-preview { padding: clamp(24px, 2.7vw, 38px); }
+}
+@media (max-width: 900px) {
+    .nav-content-body.settings-home-active { overflow-y: auto; }
+    .nav-settings-home { height: auto; grid-template-columns: 1fr; }
+    .nav-settings-home-preview { display: none; }
+    .nav-settings-home-nav { overflow: visible; }
+    .nav-settings-directory { grid-template-columns:1fr; min-height:0; }
+    .nav-settings-directory-preview { display:none; }
+}
+@media (max-height: 780px) {
+    .nav-settings-home { gap: 28px; }
+    .nav-settings-home-group + .nav-settings-home-group { margin-top: 9px; }
+    .nav-settings-home-group-title { margin-bottom: 3px; font-size: .6rem; }
+    .nav-settings-home-list { gap: 1px; }
+    .nav-settings-home-item { min-height: 54px; padding-block: 7px; }
+    .nav-settings-home-icon { width: 31px; height: 31px; }
+    .nav-settings-home-copy strong { font-size: .88rem; }
+    .nav-settings-home-copy small { font-size: .67rem; }
+    .nav-settings-home-preview-icon { margin-bottom: 18px; }
+    .nav-settings-home-scope { margin-top: 20px; }
+    .nav-settings-home-scope span { padding-block: 9px; }
+    .nav-settings-home-action { padding-top: 18px; }
+}
+
 .nav-settings-subheader { display: flex; align-items: center; gap: 24px; margin-bottom: 30px; animation: fadeInTop 0.3s ease; }
 .nav-back-btn { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 30px; padding: 10px 24px; color: #fff; font-family: inherit; font-size: 1rem; cursor: pointer; outline: none; transition: all 0.2s; font-weight: 500; }
 .nav-back-btn.nav-focused-el { background: #fff; color: #000; transform: scale(1.05); }
@@ -3072,13 +3469,13 @@ window.isNavMenuOpen = false;
     height: clamp(30px, 3.4vh, 36px) !important;
 }
 
-.nav-profile-dashboard { display: flex; align-items: flex-start; gap: clamp(30px, 4vw, 60px); animation: fadeInTop 0.3s ease; max-width: 1000px; }
-.nav-profile-avatar-sec { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.nav-profile-dashboard { display: grid; grid-template-columns: minmax(250px,.62fr) minmax(520px,1.38fr); align-items: stretch; gap: clamp(28px, 3.6vw, 64px); animation: fadeInTop 0.3s ease; width:min(100%,1420px); max-width:none; }
+.nav-profile-avatar-sec { min-height:460px; display:flex; flex-direction:column; align-items:flex-start; justify-content:center; gap:16px; padding:clamp(26px,3vw,46px); border-left:3px solid rgba(255,255,255,.62); background:linear-gradient(90deg,rgba(255,255,255,.055),transparent); box-sizing:border-box; }
 .nav-profile-photo { width: clamp(120px, 14vw, 180px); height: clamp(120px, 14vw, 180px); border-radius: 50%; background: rgba(255,255,255,0.05); border: 3px solid rgba(255,255,255,0.1); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 3.5rem; color: rgba(255,255,255,0.3); cursor: pointer; outline: none; transition: all 0.2s; padding: 0; }
 .nav-profile-photo img { width: 100%; height: 100%; object-fit: cover; }
 .nav-profile-photo.nav-focused-el { border-color: #fff; box-shadow: 0 0 20px rgba(255,255,255,0.2), 0 10px 40px rgba(0,0,0,0.8); transform: scale(1.05); }
 
-.nav-profile-fields { flex: 1; display: flex; flex-direction: column; gap: clamp(16px, 2vh, 24px); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); padding: clamp(24px, 3vw, 40px); border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+.nav-profile-fields { min-width:0; display:flex; flex-direction:column; gap:clamp(12px,1.35vh,18px); background:transparent; border:0; padding:0; border-radius:0; box-shadow:none; }
 .nav-profile-field { display: flex; flex-direction: column; gap: 8px; }
 .nav-profile-field-label { font-size: clamp(0.75rem, 0.85vw, 0.95rem); color: rgba(255,255,255,0.4); font-weight: 500; }
 .nav-profile-field-input { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: clamp(14px, 1.8vh, 18px) clamp(16px, 1.6vw, 20px); color: #fff; font-size: clamp(1rem, 1.1vw, 1.2rem); font-family: inherit; outline: none; width: 100%; box-sizing: border-box; cursor: pointer; transition: all 0.2s; }
@@ -3379,6 +3776,247 @@ window.isNavMenuOpen = false;
         flex-direction: column;
     }
 }
+
+/* Escala editorial do hub de Configurações para TV e monitor. */
+.nav-settings-home {
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    max-height: none;
+    align-self: stretch;
+    position: relative;
+    isolation: isolate;
+    grid-template-columns: minmax(430px, .86fr) minmax(420px, 1.14fr);
+    gap: clamp(34px, 4.2vw, 78px);
+    margin: 0;
+}
+
+#navMenuOverlay.settings-ambient-active .nav-layout::before {
+    content: '';
+    position: absolute;
+    z-index: 0;
+    pointer-events: none;
+    inset: -10%;
+    background:
+        radial-gradient(ellipse 39% 68% at 21% 55%,
+            rgba(59, 126, 205, .135) 0%,
+            rgba(55, 103, 190, .078) 34%,
+            rgba(75, 76, 172, .032) 61%,
+            transparent 100%),
+        radial-gradient(ellipse 25% 38% at 31% 71%,
+            rgba(57, 113, 178, .036) 0%,
+            transparent 100%);
+    opacity: .82;
+    transform: translate3d(0, 0, 0) scale(1);
+    animation: navSettingsRailAmbient 18s ease-in-out infinite alternate;
+    will-change: transform, opacity;
+}
+
+#navMenuOverlay.settings-ambient-active .nav-topbar,
+#navMenuOverlay.settings-ambient-active .nav-content {
+    position: relative;
+    z-index: 1;
+}
+
+@keyframes navSettingsRailAmbient {
+    from { transform: translate3d(-1.5%, -1.2%, 0) scale(.985); opacity: .74; }
+    to { transform: translate3d(2.2%, 1.3%, 0) scale(1.025); opacity: .9; }
+}
+
+.nav-settings-home-nav {
+    position: relative;
+    z-index: 1;
+    padding: 3px 12px clamp(34px, 4vh, 56px) 4px;
+}
+
+.nav-settings-home-group + .nav-settings-home-group {
+    margin-top: clamp(20px, 2.4vh, 34px);
+}
+
+.nav-settings-home-group-title {
+    margin-bottom: clamp(8px, 1vh, 13px);
+    padding-inline: clamp(18px, 1.35vw, 26px);
+    font-size: clamp(.74rem, .78vw, .9rem);
+}
+
+.nav-settings-home-list {
+    gap: clamp(3px, .45vh, 7px);
+}
+
+.nav-settings-home-item {
+    min-height: clamp(84px, 8.6vh, 112px);
+    grid-template-columns: clamp(46px, 3.4vw, 60px) minmax(0, 1fr) 18px;
+    gap: clamp(17px, 1.55vw, 26px);
+    padding: clamp(13px, 1.45vh, 20px) clamp(20px, 1.7vw, 30px);
+    border-radius: clamp(8px, .65vw, 12px);
+}
+
+.nav-settings-home-icon {
+    width: clamp(42px, 3.3vw, 58px);
+    height: clamp(42px, 3.3vw, 58px);
+}
+
+.nav-settings-home-copy {
+    gap: clamp(4px, .45vh, 7px);
+}
+
+.nav-settings-home-copy strong {
+    font-size: clamp(1.08rem, 1.25vw, 1.55rem);
+}
+
+.nav-settings-home-copy small {
+    color: rgba(255,255,255,.52);
+    font-size: clamp(.79rem, .87vw, 1.02rem);
+}
+
+.nav-settings-home-chevron {
+    font-size: clamp(1.3rem, 1.4vw, 1.62rem);
+    justify-self: end;
+    margin-left: 0;
+}
+
+#navMenuOverlay .nav-settings-home-item.nav-focused-el {
+    transform: translateX(clamp(7px, .55vw, 11px));
+    box-shadow: 0 0 0 2px rgba(255,255,255,.13), 0 18px 44px rgba(0,0,0,.3), -16px 0 52px rgba(64,119,194,.11) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #navMenuOverlay.settings-ambient-active .nav-layout::before { animation: none; }
+}
+
+.nav-settings-directory {
+    width: 100%;
+    max-width: none;
+    grid-template-columns: minmax(420px, .76fr) minmax(560px, 1.24fr);
+    gap: clamp(30px, 3.25vw, 62px);
+}
+
+.nav-settings-home-preview,
+.nav-settings-directory-preview {
+    padding: clamp(40px, 4vw, 76px);
+}
+
+.nav-settings-home-preview-icon {
+    width: clamp(78px, 6.2vw, 112px);
+    height: clamp(78px, 6.2vw, 112px);
+    margin-bottom: clamp(30px, 3.6vh, 52px);
+}
+
+.nav-settings-home-kicker {
+    font-size: clamp(.76rem, .82vw, .96rem);
+}
+
+.nav-settings-home-preview h3 {
+    font-size: clamp(2.15rem, 3vw, 4.1rem);
+}
+
+.nav-settings-home-preview p {
+    max-width: 860px;
+    margin-top: clamp(16px, 1.8vh, 26px);
+    font-size: clamp(.98rem, 1.12vw, 1.3rem);
+    line-height: 1.58;
+}
+
+.nav-settings-home-scope {
+    gap: 0 clamp(22px, 1.8vw, 34px);
+    margin-top: clamp(32px, 4vh, 58px);
+}
+
+.nav-settings-home-scope span {
+    padding-block: clamp(15px, 1.7vh, 23px);
+    font-size: clamp(.84rem, .94vw, 1.1rem);
+}
+
+.nav-settings-home-action {
+    gap: 13px;
+    padding-top: clamp(30px, 3.5vh, 52px);
+    font-size: clamp(.84rem, .94vw, 1.08rem);
+}
+
+.nav-settings-home-action kbd {
+    width: clamp(29px, 2vw, 36px);
+    height: clamp(29px, 2vw, 36px);
+    font-size: clamp(.72rem, .78vw, .9rem);
+}
+
+/* Perfil em escala de console: ocupa a área útil sem reduzir as capas. */
+.nav-profile-showcase {
+    max-width: none;
+    gap: clamp(12px, 1.5vh, 24px);
+}
+
+.nav-profile-cover {
+    height: clamp(300px, 38%, 500px);
+}
+
+.nav-profile-avatar-large {
+    width: clamp(84px, 13vh, 132px);
+    height: clamp(84px, 13vh, 132px);
+}
+
+.nav-profile-name {
+    font-size: clamp(1.9rem, 3vw, 4.2rem);
+}
+
+.nav-profile-cover-game-title {
+    font-size: clamp(1.45rem, 1.95vw, 2.55rem);
+}
+
+.nav-profile-cover-game-meta {
+    font-size: clamp(.84rem, .94vw, 1.1rem);
+}
+
+.nav-profile-stats-row {
+    min-height: clamp(94px, 10vh, 128px);
+}
+
+.nav-profile-stat-icon {
+    width: clamp(42px, 3.15vw, 58px);
+    height: clamp(42px, 3.15vw, 58px);
+}
+
+.nav-profile-stat-copy .stat-value {
+    font-size: clamp(1.4rem, 1.85vw, 2.3rem);
+}
+
+.nav-profile-last-name {
+    font-size: clamp(1.02rem, 1.24vw, 1.48rem);
+}
+
+.nav-profile-section-head .nav-profile-section-title {
+    font-size: clamp(1.3rem, 1.5vw, 1.8rem);
+}
+
+.nav-profile-recent-grid {
+    gap: clamp(14px, 1.15vw, 24px);
+    padding: 10px 6px clamp(22px, 3vh, 44px);
+}
+
+@media (max-width: 1180px) {
+    .nav-settings-home,
+    .nav-settings-directory {
+        grid-template-columns: minmax(350px, .9fr) minmax(380px, 1.1fr);
+        gap: 28px;
+    }
+}
+
+@media (max-width: 900px) {
+    .nav-settings-home,
+    .nav-settings-directory {
+        grid-template-columns: 1fr;
+    }
+
+    .nav-settings-home {
+        width: 100%;
+        height: auto;
+        max-height: none;
+    }
+
+    .nav-settings-home-preview,
+    .nav-settings-directory-preview {
+        display: none;
+    }
+}
         `;
         document.head.appendChild(s);
     })();
@@ -3441,6 +4079,8 @@ window.isNavMenuOpen = false;
         } else {
             _settingsSubView = null;
             _profileSubView = null;
+            _systemSubView = null;
+            _settingsReturnToRoot = false;
         }
 
         document.querySelectorAll('.nav-cat-item').forEach((el, i) => {
@@ -3602,7 +4242,9 @@ window.isNavMenuOpen = false;
     function _renderContent(id) {
         const body = document.getElementById('navContentBody');
         if (!body) return;
+        _overlay?.classList.toggle('settings-ambient-active', id === 'settings');
         body.classList.toggle('profile-showcase-active', id === 'profile' && _profileSubView !== 'history');
+        body.classList.toggle('settings-home-active', id === 'settings' && !_settingsSubView);
 
         switch (id) {
             case 'games':
@@ -3800,14 +4442,23 @@ window.isNavMenuOpen = false;
         const grid = body.querySelector('#profileRecentGrid');
 
         const idealCardWidth = Math.max(
-            150,
-            Math.min(230, window.innerWidth * .115, window.innerHeight * .19)
+            190,
+            Math.min(310, window.innerWidth * .15, window.innerHeight * .27)
         );
-        const gridGap = Math.max(12, Math.min(22, window.innerWidth * .01));
-        const availableGridWidth = Math.max(0, grid.clientWidth - 16);
+        const gridGap = Math.max(14, Math.min(24, window.innerWidth * .0115));
+        const gridStyle = getComputedStyle(grid);
+        const horizontalInsets = (parseFloat(gridStyle.paddingLeft) || 0) + (parseFloat(gridStyle.paddingRight) || 0);
+        const verticalInsets = (parseFloat(gridStyle.paddingTop) || 0) + (parseFloat(gridStyle.paddingBottom) || 0);
+        const availableGridWidth = Math.max(0, grid.clientWidth - horizontalInsets);
+        const availableGridHeight = Math.max(0, grid.clientHeight - verticalInsets);
+        const safeBottom = Math.max(14, Math.min(34, window.innerHeight * .022));
+        const maxCardWidthByHeight = Math.max(150, (availableGridHeight - safeBottom) * (2 / 3));
+        const widthDrivenSlots = Math.floor((availableGridWidth + gridGap) / (idealCardWidth + gridGap));
+        const heightDrivenSlots = Math.ceil((availableGridWidth + gridGap) / (maxCardWidthByHeight + gridGap));
         const visibleSlots = Math.max(
             2,
-            Math.floor((availableGridWidth + gridGap) / (idealCardWidth + gridGap))
+            widthDrivenSlots,
+            heightDrivenSlots
         );
         const showcaseGames = playedGames.slice(0, visibleSlots);
         grid.style.gridTemplateColumns = `repeat(${visibleSlots}, minmax(0, 1fr))`;
@@ -4008,7 +4659,7 @@ window.isNavMenuOpen = false;
     }
 
     // ── Novo Hub de Configurações ─────────────────────────────────────────────
-    function _renderSettings(body) {
+    function _renderSettingsLegacy(body) {
         if (_settingsSubView === 'accountHub') { _renderSettingsAccountHub(body); return; }
         if (_settingsSubView === 'account') { _renderSettingsAccount(body); return; }
         if (_settingsSubView === 'extensions') { _renderSettingsExtensions(body); return; }
@@ -4086,6 +4737,169 @@ window.isNavMenuOpen = false;
         });
     }
 
+    function _renderSettings(body) {
+        body.classList.toggle('settings-home-active', !_settingsSubView);
+        if (_settingsSubView) {
+            _renderSettingsLegacy(body);
+            return;
+        }
+
+        const svgUser = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
+        const svgControls = window.DoorpiControls?.controllerIcon?.('nav-settings-controller-svg') || `<svg viewBox="0 0 24 18" fill="currentColor" fill-opacity=".34" stroke="currentColor" stroke-width="1.4"><path d="M4 5h16c2.3 0 3.8 2.4 3 4.5l-1.5 4a2 2 0 0 1-3.2.8L16 12H8l-2.3 2.3a2 2 0 0 1-3.2-.8l-1.5-4C.2 7.4 1.7 5 4 5Z"/></svg>`;
+        const svgDevices = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5.2" width="9.4" height="13.6" rx="2.1"/><circle cx="7.7" cy="14.1" r="2.15"/><circle cx="7.7" cy="9.1" r=".72" fill="currentColor" stroke="none"/><path d="M16.5 6.2v11.6l3.6-3.6-3.6-2.2 3.6-2.2-3.6-3.6Z"/></svg>`;
+        const svgPower = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>`;
+        const svgVideo = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>`;
+        const svgUpdate = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v6h-6"/></svg>`;
+        const svgExt = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`;
+
+        const entries = [
+            {
+                id: 'setAccount', group: 'Conta', icon: svgUser,
+                title: _t('navSetAccount', 'Conta e perfis'),
+                short: 'Usuários, dados pessoais e contas dos apps',
+                description: 'Gerencie quem usa o Doorpi, os dados de cada perfil e como as contas dos aplicativos são compartilhadas.',
+                scope: ['Perfil e avatar', 'Sincronização', 'Usuários locais', 'Contas dos apps'],
+                action: 'account'
+            },
+            {
+                id: 'setControls', group: 'Experiência', icon: svgControls,
+                title: _t('controlsSettingsTitle', 'Controles'),
+                short: 'Comandos globais e perfis por aplicativo',
+                description: 'Personalize comandos, atalhos e comportamento do ponteiro para cada jogo, aplicativo ou serviço web.',
+                scope: ['Perfis de controle', 'Atalhos globais', 'Mouse e teclado', 'Comandos primários'],
+                action: 'controls'
+            },
+            {
+                id: 'setDevices', group: 'Experiência', icon: svgDevices,
+                title: 'Dispositivos e som',
+                short: 'Bluetooth, áudio e acessórios conectados',
+                description: 'Conecte acessórios e escolha como o Doorpi e o Windows reproduzem áudio na sua configuração.',
+                scope: ['Bluetooth', 'Saída de áudio', 'Volume do sistema', 'Sons do Doorpi'],
+                action: 'devices'
+            },
+            {
+                id: 'setVideo', group: 'Experiência', icon: svgVideo,
+                title: 'Tela e interface',
+                short: 'Escala visual para TV ou monitor',
+                description: 'Ajuste a escala da interface para preservar legibilidade e espaço útil em diferentes telas e distâncias.',
+                scope: ['Escala da interface', 'Área segura', 'Legibilidade', 'Pré-visualização'],
+                action: 'video'
+            },
+            {
+                id: 'setStartup', group: 'Sistema', icon: svgPower,
+                title: 'Inicialização',
+                short: 'Boot, modo console e área de trabalho',
+                description: 'Defina como o Doorpi inicia com o Windows e quais caminhos ficam disponíveis ao entrar no sistema.',
+                scope: ['Início automático', 'Modo console', 'Game Bar', 'Área de trabalho'],
+                action: 'startup'
+            },
+            {
+                id: 'setUpdates', group: 'Sistema', icon: svgUpdate,
+                title: 'Atualizações',
+                short: 'Doorpi, Windows e drivers gráficos',
+                description: 'Consulte versões e mantenha o Doorpi, o Windows e os componentes gráficos atualizados em um só lugar.',
+                scope: ['Doorpi e Updater', 'Windows Update', 'Drivers de vídeo', 'Notas da versão'],
+                action: 'updates'
+            },
+            {
+                id: 'setExt', group: 'Sistema', icon: svgExt,
+                title: _t('navSetExt', 'Extensões'),
+                short: 'Recursos adicionais e integrações',
+                description: 'Adicione integrações ao navegador e gerencie recursos opcionais instalados no Doorpi.',
+                scope: ['Extensões instaladas', 'Loja de extensões', 'Instalação por link', 'Gerenciamento'],
+                action: 'extensions'
+            }
+        ];
+
+        const groupMarkup = ['Conta', 'Experiência', 'Sistema'].map(group => `
+            <section class="nav-settings-home-group" aria-label="${group}">
+                <span class="nav-settings-home-group-title">${group}</span>
+                <div class="nav-settings-home-list">
+                    ${entries.filter(entry => entry.group === group).map(entry => `
+                        <button class="nav-settings-home-item" id="${entry.id}" data-settings-action="${entry.action}" tabindex="-1">
+                            <span class="nav-settings-home-icon">${entry.icon}</span>
+                            <span class="nav-settings-home-copy">
+                                <strong>${entry.title}</strong>
+                                <small>${entry.short}</small>
+                            </span>
+                            <span class="nav-settings-home-chevron" aria-hidden="true">›</span>
+                        </button>`).join('')}
+                </div>
+            </section>`).join('');
+
+        body.innerHTML = `
+            <div class="nav-settings-home">
+                <nav class="nav-settings-home-nav" aria-label="Categorias de configurações">${groupMarkup}</nav>
+                <aside class="nav-settings-home-preview" id="navSettingsHomePreview" aria-live="polite"></aside>
+            </div>`;
+
+        const preview = body.querySelector('#navSettingsHomePreview');
+        const renderPreview = entry => {
+            if (!preview || !entry) return;
+            preview.innerHTML = `
+                <div class="nav-settings-home-preview-main">
+                    <div class="nav-settings-home-preview-icon">${entry.icon}</div>
+                    <span class="nav-settings-home-kicker">${entry.group}</span>
+                    <h3>${entry.title}</h3>
+                    <p>${entry.description}</p>
+                    <div class="nav-settings-home-scope">
+                        ${entry.scope.map(item => `<span>${item}</span>`).join('')}
+                    </div>
+                </div>
+                <div class="nav-settings-home-action"><kbd>A</kbd><span>Abrir configuração</span></div>`;
+        };
+
+        _contentItems = entries.map(entry => body.querySelector(`#${entry.id}`)).filter(Boolean);
+        renderPreview(entries[Math.max(0, Math.min(entries.length - 1, _contentIdx))]);
+
+        const openSystemDetail = detail => {
+            _settingsReturnToRoot = true;
+            _settingsSubView = 'system';
+            _systemSubView = detail;
+            if (detail === 'updates') _systemUpdatesSubView = 'doorpi';
+            _contentIdx = 0;
+            _renderContent('settings');
+            _updateContentFocus();
+        };
+
+        _contentItems.forEach((button, index) => {
+            const entry = entries[index];
+            button.addEventListener('focus', () => renderPreview(entry));
+            button.addEventListener('mouseenter', () => {
+                _topbarFocus = false;
+                _contentIdx = index;
+                renderPreview(entry);
+                _updateContentFocus();
+            });
+            button.addEventListener('click', () => {
+                switch (entry.action) {
+                    case 'account':
+                        _settingsReturnToRoot = false;
+                        _settingsSubView = 'accountHub';
+                        _contentIdx = 0;
+                        _renderContent('settings');
+                        _updateContentFocus();
+                        break;
+                    case 'controls':
+                        window.DoorpiControls?.open?.();
+                        break;
+                    case 'devices':
+                        _settingsReturnToRoot = true;
+                        _settingsSubView = 'devicesHub';
+                        _systemSubView = null;
+                        _contentIdx = 0;
+                        _renderContent('settings');
+                        _updateContentFocus();
+                        break;
+                    case 'video': openSystemDetail('video'); break;
+                    case 'startup': openSystemDetail('startup'); break;
+                    case 'updates': openSystemDetail('updates'); break;
+                    case 'extensions': window.openExtensionsManager?.(); break;
+                }
+            });
+        });
+    }
+
     function _updateAutoStartUI() {
         const toggle = document.getElementById('autoStartToggle');
         const desc = document.getElementById('autoStartDesc');
@@ -4108,6 +4922,21 @@ window.isNavMenuOpen = false;
         const isChecking = status.status === 'checking';
         const isError = status.status === 'error';
         const isNotConfigured = status.status === 'not-configured';
+        const tabState = document.getElementById('updatesTabDoorpiState');
+
+        if (tabState) {
+            tabState.textContent = status.forceUpdate
+                ? 'Atualização obrigatória'
+                : isChecking
+                    ? 'Verificando agora'
+                    : hasUpdate
+                        ? 'Atualização disponível'
+                        : isError
+                            ? 'Falha na verificação'
+                            : isNotConfigured
+                                ? 'Configuração necessária'
+                                : 'Sistema atualizado';
+        }
 
         if (badge) {
             badge.textContent = status.forceUpdate
@@ -4167,39 +4996,38 @@ window.isNavMenuOpen = false;
             startBtn.classList.toggle('visible', hasUpdate);
             startBtn.style.display = hasUpdate ? '' : 'none';
         }
+
+        if (window._updateBootModeUI && document.getElementById('systemUpdatePanel')) {
+            window._updateBootModeUI();
+        }
     }
 
     function _renderSettingsDevicesHub(body) {
         const svgBluetooth = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v20l6-6-6-4 6-4-6-6Z"/><path d="M6.5 6.5 12 12l-5.5 5.5"/></svg>`;
         const svgSound = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4Z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg>`;
-        body.innerHTML = `
-            <div class="nav-settings-subheader">
-                <button class="nav-back-btn" id="setBackConnectivity" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
-                <h2>${_t('navSetDevices', 'Dispositivos')}</h2>
-            </div>
-            <div class="nav-settings-grid nav-connectivity-grid">
-                <button class="nav-settings-card" id="setBluetooth" tabindex="-1">
-                    <div class="settings-card-icon">${svgBluetooth}</div>
-                    <div class="settings-card-info">
-                        <h3>Bluetooth</h3>
-                        <p>${_t('bluetoothSettingsDesc', 'Parear e gerenciar controles, áudio, teclados e outros dispositivos')}</p>
-                    </div>
-                </button>
-                <button class="nav-settings-card" id="setSound" tabindex="-1">
-                    <div class="settings-card-icon">${svgSound}</div>
-                    <div class="settings-card-info">
-                        <h3>${_t('soundTitle', 'Som')}</h3>
-                        <p>${_t('soundSettingsDesc', 'Saída de áudio, volume do Windows e sons do Doorpi')}</p>
-                    </div>
-                </button>
-            </div>`;
+        const entries = [
+            { id:'setBluetooth', icon:svgBluetooth, title:'Bluetooth', description:_t('bluetoothSettingsDesc', 'Parear e gerenciar controles, áudio, teclados e outros dispositivos') },
+            { id:'setSound', icon:svgSound, title:_t('soundTitle', 'Som'), description:_t('soundSettingsDesc', 'Saída de áudio, volume do Windows e sons do Doorpi') }
+        ];
+        body.innerHTML = _settingsDirectoryMarkup('setBackConnectivity', _t('navSetDevices', 'Dispositivos'), entries);
+        _wireSettingsDirectory(body, entries);
 
         _contentItems = [body.querySelector('#setBackConnectivity'), body.querySelector('#setBluetooth'), body.querySelector('#setSound')].filter(Boolean);
         _contentItems.forEach((el, idx) => el.addEventListener('mouseenter', () => {
             _topbarFocus = false; _contentIdx = idx; _updateContentFocus();
         }));
         body.querySelector('#setBackConnectivity')?.addEventListener('click', () => {
-            _settingsSubView = 'system'; _systemSubView = null; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
+            if (_settingsReturnToRoot) {
+                _settingsReturnToRoot = false;
+                _settingsSubView = null;
+                _systemSubView = null;
+            } else {
+                _settingsSubView = 'system';
+                _systemSubView = null;
+            }
+            _contentIdx = 0;
+            _renderContent('settings');
+            _updateContentFocus();
         });
         body.querySelector('#setBluetooth')?.addEventListener('click', () => {
             _settingsSubView = 'bluetooth'; _contentIdx = 0; _renderContent('settings'); _updateContentFocus();
@@ -4372,7 +5200,7 @@ window.isNavMenuOpen = false;
                 <button class="nav-back-btn" id="setBackSound" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
                 <h2>${_t('soundTitle', 'Som')}</h2>
             </div>
-            <div id="navSoundHost" style="max-width:1500px;"></div>`;
+            <div id="navSoundHost" style="width:100%;"></div>`;
         _refreshSettingsSound(body);
         postToHost?.({ action: 'requestSoundStatus' });
         body.querySelector('#setBackSound')?.addEventListener('click', () => {
@@ -4460,7 +5288,7 @@ window.isNavMenuOpen = false;
                         <span style="flex:0 0 auto;color:${state.color};font-size:.8rem;">${_esc(detail)}</span>
                     </div>
                     <div style="height:4px;overflow:hidden;border-radius:2px;background:rgba(255,255,255,.10);">
-                        <div style="height:100%;width:${percent}%;background:#7dcbff;transition:width .18s linear;"></div>
+                        <div style="height:100%;width:${percent}%;background:rgba(255,255,255,.72);transition:width .18s linear;"></div>
                     </div>
                 </div>`;
         }).join('');
@@ -4480,6 +5308,19 @@ window.isNavMenuOpen = false;
 
         const active = ['checking', 'downloading', 'installing'].includes(status.status);
         const hasUpdates = updates.length > 0;
+        const tabState = document.getElementById('updatesTabWindowsState');
+
+        if (tabState) {
+            tabState.textContent = status.rebootRequired
+                ? 'Reinício pendente'
+                : active
+                    ? 'Atualização em andamento'
+                    : hasUpdates
+                        ? `${updates.length} atualização(ões)`
+                        : status.status === 'error'
+                            ? 'Falha na verificação'
+                            : 'Windows atualizado';
+        }
 
         if (badge) {
             badge.textContent = status.rebootRequired
@@ -4576,6 +5417,17 @@ window.isNavMenuOpen = false;
         const meta = document.getElementById('gpuUpdateMeta');
         const list = document.getElementById('gpuAdapterList');
         const actions = document.getElementById('gpuUpdateActionsGrid');
+        const tabState = document.getElementById('updatesTabGpuState');
+
+        if (tabState) {
+            tabState.textContent = status.status === 'error'
+                ? 'Falha na detecção'
+                : !adapters.length
+                    ? 'Nenhuma GPU detectada'
+                    : !updaters.length
+                        ? 'Atualizador não configurado'
+                        : `${updaters.length} atualizador(es)`;
+        }
 
         if (badge) {
             badge.textContent = status.status === 'error'
@@ -4585,6 +5437,7 @@ window.isNavMenuOpen = false;
                     : !updaters.length
                         ? 'SEM APP'
                         : 'DETECTADO';
+            badge.dataset.state = status.status || 'idle';
         }
 
         if (title) title.textContent = 'Placa de vídeo';
@@ -4655,27 +5508,12 @@ window.isNavMenuOpen = false;
         const svgProfile = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
         const svgShare = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 10.6l6.8-4.2M8.6 13.4l6.8 4.2"/></svg>`;
 
-        body.innerHTML = `
-            <div class="nav-settings-subheader">
-                <button class="nav-back-btn" id="setBackAccountHub" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
-                <h2>${_t('navSetAccount', 'Conta e Perfil')}</h2>
-            </div>
-            <div class="nav-settings-grid">
-                <button class="nav-settings-card" id="setProfileData" tabindex="-1">
-                    <div class="settings-card-icon">${svgProfile}</div>
-                    <div class="settings-card-info">
-                        <h3>${_t('navAccountProfileData', 'Dados do perfil')}</h3>
-                        <p>${_t('navAccountProfileDataDesc', 'Alterar avatar, nome e API Key')}</p>
-                    </div>
-                </button>
-                <button class="nav-settings-card" id="setAccountSharing" tabindex="-1">
-                    <div class="settings-card-icon">${svgShare}</div>
-                    <div class="settings-card-info">
-                        <h3>${_t('navSetSharing', 'Contas dos apps')}</h3>
-                        <p>${_t('navSetSharingDesc', 'Dividir contas web por usuário, grupo ou todos')}</p>
-                    </div>
-                </button>
-            </div>`;
+        const entries = [
+            { id:'setProfileData', icon:svgProfile, title:_t('navAccountProfileData', 'Dados do perfil'), description:_t('navAccountProfileDataDesc', 'Avatar, nome, segurança e sincronização da sua conta') },
+            { id:'setAccountSharing', icon:svgShare, title:_t('navSetSharing', 'Contas dos apps'), description:_t('navSetSharingDesc', 'Defina com clareza quem pode usar cada conta conectada') }
+        ];
+        body.innerHTML = _settingsDirectoryMarkup('setBackAccountHub', _t('navSetAccount', 'Conta e Perfil'), entries);
+        _wireSettingsDirectory(body, entries);
 
         _contentItems = [
             body.querySelector('#setBackAccountHub'),
@@ -4717,17 +5555,32 @@ window.isNavMenuOpen = false;
             s.id = 'nav-account-styles';
             s.textContent = `
                 .nav-api-row { display: flex; gap: 10px; width: 100%; }
-                .nav-icon-btn { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 0 clamp(10px, 1.2vw, 16px); color: rgba(255,255,255,0.8); cursor: pointer; outline: none; transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.1s, border-color 0.1s, color 0.1s, box-shadow 0.15s; display: flex; align-items: center; justify-content: center; font-family: inherit; font-size: 0.9rem; font-weight: 500; }
+                .nav-icon-btn { min-height:48px; background: rgba(255,255,255,0.045); border: 1px solid rgba(255,255,255,0.11); border-radius: 7px; padding: 0 clamp(12px, 1.2vw, 18px); color: rgba(255,255,255,0.8); cursor: pointer; outline: none; transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.1s, border-color 0.1s, color 0.1s, box-shadow 0.15s; display: flex; align-items: center; justify-content: center; gap:9px; font-family: inherit; font-size: 0.9rem; font-weight: 560; }
                 .nav-icon-btn.nav-focused-el { border-color: #fff; background: rgba(255,255,255,0.15); color: #fff; transform: scale(1.06); box-shadow: 0 8px 20px rgba(0,0,0,0.4); z-index: 10; position: relative;}
-                .nav-btn-danger { color: #ff6b6b; border-color: rgba(255,107,107,0.3); width: 100%; padding: 14px; font-size: 1rem; }
+                .nav-btn-danger { color: #e99a9a; border-color: rgba(255,107,107,0.24); width: 100%; padding: 14px; margin-top:0; font-size: 1rem; justify-content:flex-start; }
                 .nav-btn-danger.nav-focused-el { background: rgba(255,107,107,0.15); border-color: #ff6b6b; color: #fff; }
-                .nav-profile-sync { margin:14px 0 6px; display:flex; align-items:center; gap:14px; min-height:54px; }
+                .nav-account-identity-kicker { color:rgba(255,255,255,.42); font-size:.72rem; font-weight:720; letter-spacing:.14em; text-transform:uppercase; }
+                .nav-account-identity-name { color:#fff; font-size:clamp(1.45rem,2vw,2.5rem); font-weight:360; line-height:1.05; }
+                .nav-account-identity-help { max-width:270px; color:rgba(255,255,255,.5); font-size:.84rem; line-height:1.5; }
+                .nav-account-section-label { margin-top:4px; padding:0 2px 8px; border-bottom:1px solid rgba(255,255,255,.09); color:rgba(255,255,255,.42); font-size:.7rem; font-weight:720; letter-spacing:.13em; text-transform:uppercase; }
+                .nav-profile-sync { margin:2px 0 0; display:flex; align-items:center; justify-content:space-between; gap:14px; min-height:62px; padding:10px 0 14px; border-bottom:1px solid rgba(255,255,255,.08); }
                 .nav-profile-sync-status { color:rgba(255,255,255,.52); font-size:.86rem; }
                 .nav-profile-sync-status.connected { color:#83d7a0; }
                 .nav-profile-sync-actions { display:flex; gap:10px; }
-                .nav-profile-sync-actions .nav-icon-btn { width:52px; height:52px; min-width:52px; padding:0; border-radius:50%; flex:none; }
+                .nav-profile-sync-actions .nav-icon-btn { min-width:0; min-height:46px; height:46px; padding:0 15px; border-radius:7px; flex:none; }
                 .nav-profile-sync-actions .profile-sync-google { width:21px; height:21px; }
                 .nav-profile-sync-actions svg:not(.profile-sync-google) { width:20px; height:20px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+                .nav-account-route { width:100%; min-height:60px; justify-content:space-between; padding:0 17px; font-size:1rem; }
+                .nav-account-route-copy { display:grid; gap:3px; text-align:left; }
+                .nav-account-route-copy strong { font-size:.98rem; font-weight:590; color:#fff; }
+                .nav-account-route-copy small { font-size:.78rem; font-weight:400; color:rgba(255,255,255,.46); }
+                .nav-account-route-chevron { color:rgba(255,255,255,.38); font-size:1.25rem; }
+                .nav-profile-avatar-sec .nav-profile-photo { width:clamp(112px,10vw,164px); height:clamp(112px,10vw,164px); }
+                .nav-profile-fields { padding:0; }
+                @media (max-width: 940px) {
+                    .nav-profile-dashboard { grid-template-columns:1fr; }
+                    .nav-profile-avatar-sec { min-height:230px; }
+                }
             `;
             document.head.appendChild(s);
         }
@@ -4800,10 +5653,13 @@ window.isNavMenuOpen = false;
                     <button class="nav-profile-photo" id="navProfilePhoto" tabindex="-1">
                         ${photo ? `<img src="${window._doorpiUserPhotoSrc?.(photo) || `data:image/png;base64,${photo}`}" />` : '◉'}
                     </button>
-                    <span style="color:rgba(255,255,255,0.4); font-size: 0.85rem;">${_t('navAvatarChange', 'Alterar Avatar')}</span>
+                    <span class="nav-account-identity-kicker">${_t('navAvatarChange', 'Alterar avatar')}</span>
+                    <strong class="nav-account-identity-name">${_esc(pendingName || _t('navSetAccount', 'Perfil'))}</strong>
+                    <span class="nav-account-identity-help">Sua identidade no Doorpi, preferências de segurança e sincronização ficam reunidas aqui.</span>
                 </div>
                 
                 <div class="nav-profile-fields">
+                    <span class="nav-account-section-label">Identidade e acesso</span>
                     <div class="nav-profile-field">
                         <span class="nav-profile-field-label">${_t('navProfileNameLabel', 'Nome de Usuário')}</span>
                         <input class="nav-profile-field-input" id="navProfName" readonly value="${pendingName}" tabindex="-1" />
@@ -4823,21 +5679,23 @@ window.isNavMenuOpen = false;
                         </div>
                     </div>
                     
-                    <div style="display:flex; justify-content:flex-start; align-items:center; margin-bottom: 4px;">
+                    <div style="display:flex; justify-content:flex-start; align-items:center; min-height:18px;">
                         <span id="navSaveStatus" style="color:#6ee696; font-size:0.95rem; font-weight:500; opacity:0; transition:opacity 0.3s;">${_t('toastChangesSaved', '✓ Alterações Salvas')}</span>
                     </div>
 
+                    <span class="nav-account-section-label">Conta na nuvem</span>
                     <div class="nav-profile-sync">
-                        <div class="nav-profile-sync-actions">
-                            <button class="nav-icon-btn" id="navProfileSyncConnect" tabindex="-1" title="${_t('profileSyncLoginGoogle', 'Entrar com Google')}" aria-label="${_t('profileSyncLoginGoogle', 'Entrar com Google')}">${window.DoorpiProfileSync?.googleIcon || 'G'}</button>
-                            <button class="nav-icon-btn" id="navProfileSyncNow" tabindex="-1" title="${_t('profileSyncNow', 'Sincronizar agora')}" aria-label="${_t('profileSyncNow', 'Sincronizar agora')}">${window.DoorpiProfileSync?.googleIcon || 'G'}</button>
-                            <button class="nav-icon-btn" id="navProfileSyncDisconnect" tabindex="-1" title="${_t('profileSyncDisconnect', 'Desconectar')}" aria-label="${_t('profileSyncDisconnect', 'Desconectar')}"><svg viewBox="0 0 24 24"><path d="M9 15l6-6"/><path d="M7.2 11.2 5.4 13a4 4 0 0 0 5.6 5.6l1.8-1.8"/><path d="m16.8 12.8 1.8-1.8A4 4 0 0 0 13 5.4l-1.8 1.8"/><path d="M4 4l16 16"/></svg></button>
-                        </div>
                         <span class="nav-profile-sync-status" id="navProfileSyncStatus"></span>
+                        <div class="nav-profile-sync-actions">
+                            <button class="nav-icon-btn" id="navProfileSyncConnect" tabindex="-1" title="${_t('profileSyncLoginGoogle', 'Entrar com Google')}" aria-label="${_t('profileSyncLoginGoogle', 'Entrar com Google')}">${window.DoorpiProfileSync?.googleIcon || 'G'}<span>${_t('profileSyncLoginGoogle', 'Entrar com Google')}</span></button>
+                            <button class="nav-icon-btn" id="navProfileSyncNow" tabindex="-1" title="${_t('profileSyncNow', 'Sincronizar agora')}" aria-label="${_t('profileSyncNow', 'Sincronizar agora')}">${window.DoorpiProfileSync?.googleIcon || 'G'}<span>${_t('profileSyncNow', 'Sincronizar agora')}</span></button>
+                            <button class="nav-icon-btn" id="navProfileSyncDisconnect" tabindex="-1" title="${_t('profileSyncDisconnect', 'Desconectar')}" aria-label="${_t('profileSyncDisconnect', 'Desconectar')}"><svg viewBox="0 0 24 24"><path d="M9 15l6-6"/><path d="M7.2 11.2 5.4 13a4 4 0 0 0 5.6 5.6l1.8-1.8"/><path d="m16.8 12.8 1.8-1.8A4 4 0 0 0 13 5.4l-1.8 1.8"/><path d="M4 4l16 16"/></svg><span>${_t('profileSyncDisconnect', 'Desconectar')}</span></button>
+                        </div>
                     </div>
 
-                    <button class="nav-icon-btn" id="navAccountSharing" tabindex="-1" style="width:100%; padding:14px; font-size:1rem;">${_t('navSetSharing', 'Contas dos apps')}</button>
-                    <button class="nav-icon-btn nav-btn-danger" id="navDeleteUser" tabindex="-1" style="margin-top:12px;">${_t('btnDeleteProfile', 'Excluir Perfil')}</button>
+                    <span class="nav-account-section-label">Acesso e manutenção</span>
+                    <button class="nav-icon-btn nav-account-route" id="navAccountSharing" tabindex="-1"><span class="nav-account-route-copy"><strong>${_t('navSetSharing', 'Contas dos apps')}</strong><small>Escolha quem pode usar cada conta conectada.</small></span><span class="nav-account-route-chevron">›</span></button>
+                    <button class="nav-icon-btn nav-btn-danger" id="navDeleteUser" tabindex="-1"><span>Excluir perfil</span></button>
                 </div>
             </div>`;
 
@@ -5023,6 +5881,8 @@ window.isNavMenuOpen = false;
                     _saveProfileNow({ name: pendingName });
                     const topBtnName = document.querySelector('#btnTopProfile .top-profile-name');
                     if (topBtnName) topBtnName.textContent = pendingName;
+                    const identityName = body.querySelector('.nav-account-identity-name');
+                    if (identityName) identityName.textContent = pendingName;
                     _showSavedFeedback();
                 },
                 onCancel: () => {
@@ -5200,12 +6060,12 @@ window.isNavMenuOpen = false;
             if (app.IsSharedFromOtherUser || app.isSharedFromOtherUser)
                 return app.SharedFromUserName || app.sharedFromName || _t('sharedFromOther', 'Compartilhado');
             const mode = app.ShareMode || app.shareMode || 'private';
-            if (mode === 'all') return _t('shareModeAll', 'Publico');
+            if (mode === 'all') return _t('shareModeAll', 'Todos os usuários');
             if (mode === 'user') {
                 const names = app.SharedWithUserNames || app.sharedWithUserNames || [];
-                return names.length ? names.join(', ') : _t('shareModeUser', 'Usuarios');
+                return names.length ? names.join(', ') : _t('shareModeUser', 'Usuários escolhidos');
             }
-            return _t('shareModePrivate', 'Separado');
+            return _t('shareModePrivate', 'Somente eu');
         };
 
         const userAvatar = (u) => (u.PhotoBase64 || u.photoBase64)
@@ -5288,10 +6148,11 @@ window.isNavMenuOpen = false;
                 <h3 class="nav-sharing-title">${_esc(appName)}</h3>
                 <p class="nav-sharing-sub">${_esc(currentText)}</p>
                 ${locked ? '' : `
+                    <p class="nav-sharing-question">Quem pode usar esta conta?</p>
                     <div class="nav-sharing-modes">
-                        <button class="nav-sharing-mode ${draftMode === 'private' ? 'active' : ''}" data-mode="private" tabindex="-1">${_t('shareModePrivate', 'Separado por usuário')}</button>
-                        <button class="nav-sharing-mode ${draftMode === 'user' ? 'active' : ''}" data-mode="user" tabindex="-1">${_t('shareModeUser', 'Usuarios especificos')}</button>
-                        <button class="nav-sharing-mode ${draftMode === 'all' ? 'active' : ''}" data-mode="all" tabindex="-1">${_t('shareModeAll', 'Publico')}</button>
+                        <button class="nav-sharing-mode ${draftMode === 'private' ? 'active' : ''}" data-mode="private" tabindex="-1"><span class="nav-sharing-mode-copy"><strong>Somente eu</strong><small>Cada perfil conecta e usa a própria conta.</small></span><span class="nav-sharing-mode-state">${draftMode === 'private' ? 'Selecionado' : 'Selecionar'}</span></button>
+                        <button class="nav-sharing-mode ${draftMode === 'user' ? 'active' : ''}" data-mode="user" tabindex="-1"><span class="nav-sharing-mode-copy"><strong>Usuários escolhidos</strong><small>Libere esta conta apenas para os perfis que você indicar.</small></span><span class="nav-sharing-mode-state">${draftMode === 'user' ? 'Selecionado' : 'Selecionar'}</span></button>
+                        <button class="nav-sharing-mode ${draftMode === 'all' ? 'active' : ''}" data-mode="all" tabindex="-1"><span class="nav-sharing-mode-copy"><strong>Todos neste Doorpi</strong><small>Perfis atuais e futuros poderão usar a mesma conta.</small></span><span class="nav-sharing-mode-state">${draftMode === 'all' ? 'Selecionado' : 'Selecionar'}</span></button>
                     </div>
                     <div class="nav-sharing-users" style="${draftMode === 'user' ? '' : 'display:none;'}">
                         ${shareUsers.map(u => {
@@ -5304,8 +6165,10 @@ window.isNavMenuOpen = false;
                             </button>`;
                         }).join('')}
                     </div>
-                    <button class="nav-sharing-save" id="navSharingSave" tabindex="-1" ${draftMode === 'user' && draftUsers.size === 0 ? 'disabled' : ''}>${_t('editModalSave', 'Salvar')}</button>
-                    <div class="nav-sharing-note" id="navSharingNote"></div>
+                    <div class="nav-sharing-savebar">
+                        <div class="nav-sharing-note" id="navSharingNote">As alterações só são aplicadas ao salvar.</div>
+                        <button class="nav-sharing-save" id="navSharingSave" tabindex="-1" ${draftMode === 'user' && draftUsers.size === 0 ? 'disabled' : ''}>Salvar acesso</button>
+                    </div>
                 `}
             `;
 
@@ -5349,7 +6212,7 @@ window.isNavMenuOpen = false;
                     note.textContent = _t('navSharingSaved', 'Compartilhamento salvo.');
                     clearTimeout(note._clearTimer);
                     note._clearTimer = setTimeout(() => {
-                        if (document.contains(note)) note.textContent = '';
+                        if (document.contains(note)) note.textContent = 'As alterações só são aplicadas ao salvar.';
                     }, 2200);
                 }
                 const saveBtn = panel.querySelector('#navSharingSave');
@@ -5444,35 +6307,45 @@ window.isNavMenuOpen = false;
             const s = document.createElement('style');
             s.id = 'nav-sharing-v2-styles';
             s.textContent = `
-                .nav-sharing-layout { display: grid; grid-template-columns: minmax(220px, 0.9fr) minmax(360px, 1.4fr); gap: 18px; align-items: start; max-width: 1180px; animation: fadeInTop 0.3s ease; }
-                .nav-sharing-apps, .nav-sharing-panel { background: rgba(255,255,255,0.035); border: 1px solid rgba(255,255,255,0.09); border-radius: 10px; padding: 14px; }
-                .nav-sharing-apps { display: flex; flex-direction: column; gap: 8px; max-height: 58vh; overflow: auto; }
-                .nav-sharing-app { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 52px; padding: 0 12px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #fff; font: inherit; text-align: left; outline: none; cursor: pointer; }
-                .nav-sharing-app.active { background: rgba(120,190,255,0.08); border-color: rgba(120,190,255,0.22); }
+                .nav-sharing-layout { display:grid; grid-template-columns:minmax(330px,.72fr) minmax(520px,1.28fr); gap:clamp(28px,3.5vw,58px); align-items:stretch; width:min(100%,1480px); animation:fadeInTop .3s ease; }
+                .nav-sharing-apps { display:flex; flex-direction:column; gap:3px; max-height:62vh; overflow:auto; padding:3px 8px 24px 2px; scrollbar-width:none; }
+                .nav-sharing-apps::-webkit-scrollbar { display:none; }
+                .nav-sharing-app { display:grid; grid-template-columns:minmax(0,1fr) auto 16px; align-items:center; gap:12px; min-height:62px; padding:8px 14px; border-radius:7px; border:1px solid transparent; background:transparent; color:#fff; font:inherit; text-align:left; outline:none; cursor:pointer; }
+                .nav-sharing-app::after { content:'›'; color:rgba(255,255,255,.25); font-size:1.2rem; }
+                .nav-sharing-app.active { background:rgba(255,255,255,.07); border-color:rgba(255,255,255,.15); }
                 .nav-sharing-app.nav-focused-el { background: rgba(255,255,255,0.14); border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,0.22), 0 10px 24px rgba(0,0,0,0.35); }
                 .nav-sharing-app small { color: rgba(255,255,255,0.45); white-space: nowrap; }
-                .nav-sharing-panel { min-height: 360px; display: flex; flex-direction: column; gap: 16px; }
-                .nav-sharing-title { margin: 0; color: #fff; font-size: 1.35rem; font-weight: 500; }
-                .nav-sharing-sub { margin: -6px 0 0; color: rgba(255,255,255,0.55); line-height: 1.45; }
-                .nav-sharing-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-                .nav-sharing-mode, .nav-sharing-save { min-height: 48px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.05); color: #fff; font: inherit; outline: none; cursor: pointer; }
-                .nav-sharing-mode.active { border-color: rgba(120,190,255,0.55); background: rgba(120,190,255,0.12); }
+                .nav-sharing-panel { min-height:440px; max-height:62vh; overflow:auto; display:flex; flex-direction:column; gap:14px; padding:clamp(22px,2.5vw,38px); border-left:1px solid rgba(255,255,255,.14); background:linear-gradient(90deg,rgba(255,255,255,.035),transparent 82%); scrollbar-width:none; }
+                .nav-sharing-panel::-webkit-scrollbar { display:none; }
+                .nav-sharing-title { margin:0; color:#fff; font-size:clamp(1.45rem,1.8vw,2.25rem); font-weight:390; }
+                .nav-sharing-sub { margin:-5px 0 4px; color:rgba(255,255,255,.53); line-height:1.45; }
+                .nav-sharing-question { margin:8px 0 0; color:rgba(255,255,255,.78); font-size:.76rem; font-weight:720; letter-spacing:.12em; text-transform:uppercase; }
+                .nav-sharing-modes { display:grid; grid-template-columns:1fr; gap:3px; }
+                .nav-sharing-mode { min-height:64px; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:16px; padding:10px 15px; border-radius:7px; border:1px solid transparent; background:transparent; color:#fff; font:inherit; text-align:left; outline:none; cursor:pointer; }
+                .nav-sharing-mode-copy { display:grid; gap:3px; }
+                .nav-sharing-mode-copy strong { color:rgba(255,255,255,.93); font-size:.96rem; font-weight:590; }
+                .nav-sharing-mode-copy small { color:rgba(255,255,255,.45); font-size:.78rem; line-height:1.3; }
+                .nav-sharing-mode-state { min-width:74px; color:rgba(255,255,255,.36); font-size:.72rem; font-weight:650; text-align:right; }
+                .nav-sharing-mode.active { border-color:rgba(255,255,255,.2); background:rgba(255,255,255,.075); }
+                .nav-sharing-mode.active .nav-sharing-mode-state { color:#fff; }
                 .nav-sharing-mode.nav-focused-el { border-color: #fff; background: rgba(255,255,255,0.16); box-shadow: 0 0 0 2px rgba(255,255,255,0.2), 0 8px 20px rgba(0,0,0,0.32); }
-                .nav-sharing-users { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; }
-                .nav-sharing-user { min-height: 112px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04); color: #fff; font: inherit; outline: none; cursor: pointer; position: relative; }
-                .nav-sharing-user.selected { border-color: rgba(120,190,255,0.52); background: rgba(120,190,255,0.10); }
+                .nav-sharing-users { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; padding-top:4px; }
+                .nav-sharing-user { min-height:58px; display:grid; grid-template-columns:40px minmax(0,1fr) auto; align-items:center; gap:10px; padding:8px 12px; border-radius:7px; border:1px solid rgba(255,255,255,.09); background:rgba(255,255,255,.025); color:#fff; font:inherit; text-align:left; outline:none; cursor:pointer; }
+                .nav-sharing-user::after { content:'Adicionar'; color:rgba(255,255,255,.36); font-size:.68rem; font-weight:650; }
+                .nav-sharing-user.selected { border-color:rgba(255,255,255,.22); background:rgba(255,255,255,.08); }
+                .nav-sharing-user.selected::after { content:'Incluído'; color:#fff; }
                 .nav-sharing-user.nav-focused-el { border-color: #fff; background: rgba(255,255,255,0.14); box-shadow: 0 0 0 2px rgba(255,255,255,0.2), 0 10px 24px rgba(0,0,0,0.35); }
-                .nav-sharing-user.selected::after { content: 'OK'; position: absolute; top: 8px; right: 8px; font-size: 0.62rem; color: #111; background: #fff; border-radius: 999px; padding: 2px 6px; font-weight: 800; }
-                .nav-sharing-avatar { width: 44px; height: 44px; border-radius: 50%; overflow: hidden; background: rgba(255,255,255,0.10); display:flex; align-items:center; justify-content:center; color: rgba(255,255,255,0.65); }
+                .nav-sharing-avatar { width:38px; height:38px; border-radius:50%; overflow:hidden; background:rgba(255,255,255,.10); display:flex; align-items:center; justify-content:center; color:rgba(255,255,255,.65); }
                 .nav-sharing-avatar img { width: 100%; height: 100%; object-fit: cover; }
-                .nav-sharing-save { align-self: flex-start; padding: 0 22px; font-weight: 700; background: #fff; color: #080812; border-color: transparent; }
+                .nav-sharing-savebar { margin-top:auto; padding-top:16px; border-top:1px solid rgba(255,255,255,.1); display:flex; align-items:center; justify-content:space-between; gap:18px; }
+                .nav-sharing-save { min-height:48px; min-width:180px; padding:0 22px; border-radius:7px; border:1px solid transparent; font:inherit; font-weight:700; background:#fff; color:#080812; outline:none; cursor:pointer; order:2; }
                 .nav-sharing-save.nav-focused-el { background: #101018; color: #fff; border-color: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,0.26), 0 10px 26px rgba(0,0,0,0.45); transform: scale(1.04); }
                 .nav-sharing-save[disabled] { opacity: .45; pointer-events: none; }
-                .nav-sharing-note { min-height: 22px; color: rgba(130,210,255,0.95); font-size: 0.92rem; }
-                .nav-sharing-tabs { max-width: 1180px; display: flex; gap: 8px; margin: 0 0 14px; }
-                .nav-sharing-tab { min-height: 42px; min-width: 150px; padding: 0 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.035); color: rgba(255,255,255,.74); font: inherit; outline: none; cursor: pointer; }
-                .nav-sharing-tab.active { background: rgba(120,190,255,.10); border-color: rgba(120,190,255,.36); color: #fff; }
-                .nav-sharing-tab.nav-focused-el { background: rgba(255,255,255,.15); border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,.18), 0 8px 20px rgba(0,0,0,.30); }
+                .nav-sharing-note { min-height:22px; color:rgba(255,255,255,.62); font-size:.86rem; }
+                .nav-sharing-tabs { width:min(100%,1480px); display:flex; gap:26px; margin:0 0 18px; border-bottom:1px solid rgba(255,255,255,.09); }
+                .nav-sharing-tab { min-height:44px; padding:0 2px; border:0; border-bottom:2px solid transparent; background:transparent; color:rgba(255,255,255,.52); font:inherit; font-weight:560; outline:none; cursor:pointer; }
+                .nav-sharing-tab.active { border-bottom-color:#fff; color:#fff; }
+                .nav-sharing-tab.nav-focused-el { color:#fff; text-shadow:0 0 18px rgba(255,255,255,.4); }
                 .nav-sharing-panel-actions { display: flex; flex-direction: column; gap: 10px; }
                 .nav-sharing-toggle { min-height: 56px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: center; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.045); color: #fff; font: inherit; text-align: left; outline: none; cursor: pointer; }
                 .nav-sharing-toggle.active { border-color: rgba(120,190,255,.46); background: rgba(120,190,255,.10); }
@@ -5820,35 +6693,79 @@ window.isNavMenuOpen = false;
             const s = document.createElement('style');
             s.id = 'nav-ext-styles';
             s.textContent = `
-                .nav-ext-status { font-size: 0.9rem; color: rgba(255,255,255,0.5); margin: 16px 0 8px; min-height: 20px; }
-                .nav-ext-status.error { color: #ff6b6b; }
-                .nav-ext-list { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
-                .nav-ext-row {
-                    display: flex; justify-content: space-between; align-items: center; gap: 14px;
-                    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); 
-                    border-radius: 12px; padding: 14px 18px; color: #fff;
-                }
-                .nav-ext-info { display: flex; flex-direction: column; gap: 4px; }
-                .nav-ext-info strong { font-size: 1rem; font-weight: 500; display:flex; align-items:center; gap:8px;}
-                .nav-ext-info span { font-size: 0.85rem; color: rgba(255,255,255,0.4); }
-                .nav-ext-actions { display: flex; gap: 8px; }
-                
-                .nav-ext-btn {
-                    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;
-                    padding: 8px 12px; color: #fff; font-family: inherit; font-size: 0.85rem; cursor: pointer; outline: none; transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.1s, box-shadow 0.15s;
-                }
-                .nav-ext-btn.primary { background: #fff; color: #000; font-weight: 600; border-color: transparent;}
-                .nav-ext-btn.danger { color: #ff6b6b; background: rgba(255,107,107,0.1); border-color: rgba(255,107,107,0.2); }
-                
-                .nav-ext-btn.nav-focused-el { transform: scale(1.06); box-shadow: 0 5px 15px rgba(0,0,0,0.3); border-color: #fff; background: rgba(255,255,255,0.15); color: #fff;}
-                .nav-ext-btn.primary.nav-focused-el { background: #fff; color: #000; box-shadow: 0 0 15px rgba(255,255,255,0.4); }
-                .nav-ext-btn.danger.nav-focused-el { background: #ff6b6b; color: #fff; border-color: #ff6b6b; }
+                .nav-ext-hub { width:100%; min-height:calc(100% - 62px); display:grid; grid-template-rows:auto minmax(260px,1fr); gap:clamp(20px,2.3vh,32px); animation:fadeInTop .3s ease; box-sizing:border-box; }
+                .nav-ext-entry-stage{min-width:0}.nav-ext-entry-grid { display:grid; grid-template-columns:minmax(520px,1fr) minmax(260px,.28fr); gap:clamp(12px,1.2vw,18px); align-items:stretch; }
+                .nav-ext-entry-stage.is-inline-open .nav-ext-entry-grid{display:none}
+                .nav-ext-store-card { min-width:0; min-height:clamp(126px,13.5vh,158px); padding:clamp(18px,1.7vw,28px); display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:clamp(16px,1.35vw,24px); color:#fff; text-align:left; font:inherit; border:1px solid rgba(255,255,255,.12); border-radius:10px; background:linear-gradient(135deg,rgba(255,255,255,.085),rgba(255,255,255,.025) 72%); outline:0; cursor:pointer; transition:transform .18s ease,border-color .18s ease,background .18s ease,box-shadow .18s ease; }
+                .nav-ext-store-symbol { width:clamp(56px,4.2vw,72px); height:clamp(56px,4.2vw,72px); display:grid; place-items:center; color:rgba(255,255,255,.9); border:1px solid rgba(255,255,255,.16); border-radius:14px; background:rgba(255,255,255,.055); }
+                .nav-ext-store-symbol svg { width:67%; height:67%; fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; }
+                .nav-ext-store-copy { min-width:0; display:grid; gap:5px; }
+                .nav-ext-kicker { color:rgba(255,255,255,.43); font-size:clamp(.65rem,.72vw,.78rem); font-weight:750; letter-spacing:.14em; text-transform:uppercase; }
+                .nav-ext-store-copy h3 { margin:0; color:#fff; font-size:clamp(1.3rem,1.5vw,2rem); line-height:1.05; font-weight:380; letter-spacing:-.02em; }
+                .nav-ext-store-copy p { max-width:650px; margin:0; color:rgba(255,255,255,.56); font-size:clamp(.82rem,.92vw,1.02rem); line-height:1.48; }
+                .nav-ext-chevron { color:rgba(255,255,255,.6); font-size:clamp(1.8rem,2.3vw,3rem); font-weight:250; }
+                .nav-ext-store-card.nav-focused-el { transform:translateY(-2px); border-color:#fff; background:linear-gradient(135deg,rgba(255,255,255,.16),rgba(255,255,255,.05) 76%); box-shadow:0 0 0 2px rgba(255,255,255,.13),0 24px 56px rgba(0,0,0,.28); }
 
-                .nav-icon-btn.nav-btn-primary { background: #fff; color: #000; font-weight: 600; border-color: transparent; }
-                .nav-icon-btn.nav-btn-primary.nav-focused-el { 
-                    background: #e0e0e0; color: #000; border-color: #fff; 
-                    box-shadow: 0 0 0 4px rgba(255,255,255,0.3), 0 8px 20px rgba(0,0,0,0.5); 
-                }
+                .nav-ext-manual-card { min-width:0; min-height:clamp(126px,13.5vh,158px); padding:clamp(18px,1.55vw,26px); display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:15px; color:#fff; text-align:left; font:inherit; border:1px solid rgba(255,255,255,.09); border-radius:10px; background:rgba(255,255,255,.025); outline:0; cursor:pointer; transition:transform .18s ease,border-color .18s ease,background .18s ease,box-shadow .18s ease; }
+                .nav-ext-manual-symbol { width:45px;height:45px;display:grid;place-items:center;color:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.1);border-radius:11px;background:rgba(255,255,255,.035) }.nav-ext-manual-symbol svg{width:25px;height:25px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+                .nav-ext-manual-copy{min-width:0;display:grid;gap:4px}.nav-ext-manual-copy strong{font-size:clamp(.9rem,.98vw,1.08rem);font-weight:580}.nav-ext-manual-copy span{color:rgba(255,255,255,.42);font-size:clamp(.66rem,.7vw,.76rem);line-height:1.35}
+                .nav-ext-manual-card.nav-focused-el{transform:translateY(-2px);border-color:#fff;background:rgba(255,255,255,.11);box-shadow:0 0 0 2px rgba(255,255,255,.12),0 18px 38px rgba(0,0,0,.24)}
+
+                .nav-ext-link-panel { min-width:0; min-height:clamp(165px,18vh,215px); padding:clamp(20px,1.9vw,32px); display:flex; flex-direction:column; justify-content:center; gap:clamp(12px,1.35vh,18px); border-left:2px solid rgba(255,255,255,.52); background:linear-gradient(90deg,rgba(255,255,255,.052),transparent 88%); box-sizing:border-box; }
+                .nav-ext-link-heading { display:flex; align-items:center; gap:15px; }
+                .nav-ext-link-icon { width:42px; height:42px; flex:0 0 auto; display:grid; place-items:center; color:rgba(255,255,255,.74); }
+                .nav-ext-link-icon svg { width:100%; height:100%; fill:none; stroke:currentColor; stroke-width:1.45; stroke-linecap:round; stroke-linejoin:round; }
+                .nav-ext-link-copy { display:grid; gap:4px; min-width:0; }
+                .nav-ext-link-copy strong { color:#fff; font-size:clamp(1rem,1.18vw,1.35rem); font-weight:570; }
+                .nav-ext-link-copy span { color:rgba(255,255,255,.44); font-size:clamp(.72rem,.78vw,.86rem); line-height:1.4; }
+                .nav-ext-url { width:100%; min-height:clamp(48px,5.4vh,62px); padding:0 18px; box-sizing:border-box; color:#fff; background:rgba(0,0,0,.2); border:1px solid rgba(255,255,255,.12); border-radius:8px; font:inherit; font-size:clamp(.82rem,.9vw,1rem); outline:0; text-overflow:ellipsis; }
+                .nav-ext-url::placeholder { color:rgba(255,255,255,.32); }
+                .nav-ext-url.nav-focused-el { border-color:#fff; background:rgba(255,255,255,.07); box-shadow:0 0 0 2px rgba(255,255,255,.12); }
+                .nav-ext-link-actions { display:grid; grid-template-columns:minmax(100px,.62fr) minmax(150px,1fr); gap:9px; }
+                .nav-ext-action { min-height:clamp(42px,4.7vh,54px); padding:0 16px; border:1px solid rgba(255,255,255,.13); border-radius:8px; background:rgba(255,255,255,.045); color:#fff; font:inherit; font-size:clamp(.78rem,.84vw,.94rem); font-weight:570; outline:0; cursor:pointer; }
+                .nav-ext-action.primary { color:#090b12; background:#fff; border-color:#fff; font-weight:720; }
+                .nav-ext-action.nav-focused-el { border-color:#fff; background:rgba(255,255,255,.16); box-shadow:0 0 0 2px rgba(255,255,255,.13),0 12px 26px rgba(0,0,0,.28); transform:translateY(-1px); }
+                .nav-ext-action.primary.nav-focused-el { color:#090b12; background:#fff; box-shadow:0 0 0 3px rgba(255,255,255,.22),0 14px 28px rgba(0,0,0,.3); }
+
+                .nav-ext-library { min-height:0; display:flex; flex-direction:column; gap:13px; }
+                .nav-ext-library-heading { display:flex; align-items:flex-end; justify-content:space-between; gap:24px; padding-bottom:11px; border-bottom:1px solid rgba(255,255,255,.1); }
+                .nav-ext-library-title { display:grid; gap:3px; }
+                .nav-ext-library-title h3 { margin:0; color:#fff; font-size:clamp(1.1rem,1.35vw,1.55rem); font-weight:430; }
+                .nav-ext-status { min-height:18px; margin:0; color:rgba(255,255,255,.44); font-size:clamp(.7rem,.76vw,.84rem); line-height:1.35; }
+                .nav-ext-status.error { color:#f1a5a5; }
+                .nav-ext-count { color:rgba(255,255,255,.42); font-size:clamp(.7rem,.76vw,.84rem); white-space:nowrap; }
+                .nav-ext-list { min-height:0; display:grid; grid-template-columns:repeat(auto-fit,minmax(360px,1fr)); gap:clamp(12px,1.15vw,18px); align-content:start; overflow:auto; scrollbar-width:none; padding:3px 4px 22px; }
+                .nav-ext-list::-webkit-scrollbar { display:none; }
+                .nav-ext-card { min-width:0; min-height:clamp(138px,16vh,190px); padding:clamp(18px,1.65vw,28px); display:flex; flex-direction:column; justify-content:space-between; gap:20px; border:1px solid rgba(255,255,255,.09); border-radius:10px; background:linear-gradient(145deg,rgba(255,255,255,.052),rgba(255,255,255,.018)); box-sizing:border-box; }
+                .nav-ext-card-main { min-width:0; display:grid; grid-template-columns:auto minmax(0,1fr); gap:clamp(16px,1.4vw,24px); align-items:center; }
+                .nav-ext-icon { width:clamp(56px,4.6vw,78px); height:clamp(56px,4.6vw,78px); display:grid; place-items:center; flex:0 0 auto; border-radius:14px; background:rgba(255,255,255,.065); border:1px solid rgba(255,255,255,.1); overflow:hidden; }
+                .nav-ext-icon img { width:76%; height:76%; object-fit:contain; }
+                .nav-ext-icon svg { width:52%; height:52%; fill:none; stroke:rgba(255,255,255,.72); stroke-width:1.45; stroke-linecap:round; stroke-linejoin:round; }
+                .nav-ext-info { min-width:0; display:grid; gap:5px; }
+                .nav-ext-info strong { color:#fff; font-size:clamp(.95rem,1.06vw,1.2rem); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+                .nav-ext-info p { min-height:2.65em; margin:0; color:rgba(255,255,255,.45); font-size:clamp(.7rem,.76vw,.84rem); line-height:1.34; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+                .nav-ext-meta { display:flex; align-items:center; flex-wrap:wrap; gap:8px 12px; color:rgba(255,255,255,.42); font-size:clamp(.66rem,.72vw,.8rem); }
+                .nav-ext-update-label { padding:4px 8px; color:#f0d89e; border:1px solid rgba(240,216,158,.26); border-radius:4px; background:rgba(240,216,158,.07); font-weight:650; }
+                .nav-ext-card-footer { display:flex; align-items:center; justify-content:flex-end; gap:8px; padding-top:13px; border-top:1px solid rgba(255,255,255,.075); }
+                .nav-ext-btn { min-height:37px; padding:0 14px; border:1px solid rgba(255,255,255,.12); border-radius:7px; background:rgba(255,255,255,.045); color:rgba(255,255,255,.82); font:inherit; font-size:clamp(.7rem,.76vw,.84rem); font-weight:600; outline:0; cursor:pointer; }
+                .nav-ext-btn.primary { color:#080a10; background:#fff; border-color:#fff; }
+                .nav-ext-btn.danger { color:#eeb1b1; border-color:rgba(238,177,177,.2); background:transparent; }
+                .nav-ext-btn.nav-focused-el { color:#fff; border-color:#fff; background:rgba(255,255,255,.15); box-shadow:0 0 0 2px rgba(255,255,255,.12),0 10px 24px rgba(0,0,0,.26); transform:translateY(-1px); }
+                .nav-ext-btn.primary.nav-focused-el { color:#080a10; background:#fff; }
+                .nav-ext-btn.danger.nav-focused-el { color:#fff; background:rgba(176,70,70,.34); border-color:rgba(255,205,205,.8); }
+                .nav-ext-empty { grid-column:1/-1; min-height:170px; display:grid; place-items:center; text-align:center; color:rgba(255,255,255,.4); border:1px dashed rgba(255,255,255,.12); border-radius:10px; background:rgba(255,255,255,.018); }
+                .nav-ext-empty div { display:grid; gap:5px; }.nav-ext-empty strong{color:rgba(255,255,255,.72);font-size:1rem}.nav-ext-empty span{font-size:.8rem}
+
+                .nav-ext-dialog{display:none;width:100%;min-height:clamp(126px,13.5vh,166px);box-sizing:border-box}.nav-ext-dialog.visible{display:block}
+                .nav-ext-dialog-panel{width:100%;min-height:inherit;padding:clamp(18px,1.7vw,28px);display:grid;grid-template-columns:minmax(240px,.38fr) minmax(0,1fr);gap:clamp(22px,2.2vw,38px);align-items:center;border:1px solid rgba(255,255,255,.13);border-radius:10px;background:linear-gradient(135deg,rgba(255,255,255,.09),rgba(255,255,255,.025) 74%);box-sizing:border-box}
+                .nav-ext-dialog-head{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:start}.nav-ext-dialog-title{display:grid;gap:5px}.nav-ext-dialog-title h3{margin:0;color:#fff;font-size:clamp(1.15rem,1.45vw,1.8rem);font-weight:420}.nav-ext-dialog-title p{margin:0;color:rgba(255,255,255,.48);font-size:.78rem;line-height:1.42}.nav-ext-dialog-close{min-width:90px;min-height:39px;padding:0 13px;border:1px solid rgba(255,255,255,.13);border-radius:7px;background:rgba(255,255,255,.045);color:#fff;font:inherit;font-size:.75rem;outline:0;cursor:pointer}
+                .nav-ext-dialog-entry{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center}.nav-ext-dialog-entry-actions{display:grid;grid-template-columns:120px 135px;gap:8px}.nav-ext-dialog-hint{grid-column:1/-1;color:rgba(255,255,255,.4);font-size:.69rem;line-height:1.35}
+                .nav-ext-candidate{display:none;grid-column:1/-1;grid-template-columns:clamp(76px,6.5vw,104px) minmax(0,1fr);gap:clamp(18px,1.7vw,28px);align-items:center}.nav-ext-dialog.has-candidate .nav-ext-dialog-head,.nav-ext-dialog.has-candidate .nav-ext-dialog-entry{display:none}.nav-ext-dialog.has-candidate .nav-ext-candidate{display:grid}
+                .nav-ext-candidate-art{width:clamp(76px,6.5vw,104px);aspect-ratio:1;display:grid;place-items:center;overflow:hidden;border:1px solid rgba(255,255,255,.13);border-radius:18px;background:rgba(255,255,255,.055)}.nav-ext-candidate-art img{width:82%;height:82%;object-fit:contain}.nav-ext-candidate-art svg{width:46px;height:46px;fill:none;stroke:rgba(255,255,255,.65);stroke-width:1.45;stroke-linecap:round;stroke-linejoin:round}
+                .nav-ext-candidate-copy{min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:24px;row-gap:5px;align-items:center}.nav-ext-candidate-copy>.nav-ext-kicker,.nav-ext-candidate-copy>h4,.nav-ext-candidate-copy>p,.nav-ext-candidate-copy>.nav-ext-candidate-source{grid-column:1}.nav-ext-candidate-copy h4{margin:0;color:#fff;font-size:clamp(1.15rem,1.42vw,1.65rem);font-weight:570;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.nav-ext-candidate-copy p{margin:0;color:rgba(255,255,255,.5);font-size:.78rem;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.nav-ext-candidate-source{color:rgba(255,255,255,.34);font-size:.66rem}.nav-ext-candidate-actions{grid-column:2;grid-row:1/5;display:flex;gap:8px;align-self:center}.nav-ext-candidate-actions .nav-ext-action{min-width:132px}
+                .nav-ext-dialog :is(.nav-ext-dialog-close,.nav-ext-url,.nav-ext-action).nav-focused-el{border-color:#fff;box-shadow:0 0 0 2px rgba(255,255,255,.13),0 12px 28px rgba(0,0,0,.3)}
+                @media(max-width:1100px){.nav-ext-entry-grid{grid-template-columns:minmax(0,1fr) minmax(240px,.38fr)}.nav-ext-list{grid-template-columns:1fr}}
+                @media(max-height:800px){.nav-ext-hub{gap:14px}.nav-ext-store-card,.nav-ext-manual-card,.nav-ext-dialog{min-height:108px}.nav-ext-store-card,.nav-ext-manual-card,.nav-ext-dialog-panel{padding:14px 19px}.nav-ext-store-symbol{width:52px;height:52px}.nav-ext-card{min-height:125px;padding:15px 18px;gap:13px}.nav-ext-icon{width:48px;height:48px}.nav-ext-card-footer{padding-top:9px}}
             `;
             document.head.appendChild(s);
         }
@@ -5856,32 +6773,81 @@ window.isNavMenuOpen = false;
         body.innerHTML = `
             <div class="nav-settings-subheader">
                 <button class="nav-back-btn" id="setBackExt" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
-                <h2>${_t('extManagerTitle', 'Gerenciador de Extensões')}</h2>
+                <h2>${_t('extManagerTitle', 'Extensões')}</h2>
             </div>
-            
-            <div class="nav-profile-dashboard" style="flex-direction: column; gap: 10px;">
-                <p style="color: rgba(255,255,255,0.5); font-size: 0.95rem; margin: 0 0 10px;">${_t('extManagerSubtitle', 'Adicione ou gerencie recursos adicionais do sistema.')}</p>
-                
-                <div class="nav-profile-fields" style="width: 100%; padding: 24px;">
-                    <div class="nav-api-row">
-                        <input class="nav-profile-field-input" id="navExtUrlInput" readonly placeholder="${_t('extManagerInputPlaceholder', 'Cole o link da extensão aqui...')}" tabindex="-1" style="flex:1;" />
-                        <button class="nav-icon-btn" id="navExtPasteBtn" tabindex="-1">${_t('btnPaste', 'Colar')}</button>
-                        <button class="nav-icon-btn" id="navExtStoreBtn" tabindex="-1">${_t('btnStore', 'Loja')}</button>
-                        <button class="nav-icon-btn nav-btn-primary" id="navExtInstallBtn" tabindex="-1">${_t('btnInstall', 'Instalar')}</button>
+            <main class="nav-ext-hub">
+                <div class="nav-ext-entry-stage" id="navExtEntryStage">
+                    <div class="nav-ext-entry-grid">
+                        <button class="nav-ext-store-card" id="navExtStoreBtn" tabindex="-1">
+                            <span class="nav-ext-store-symbol" aria-hidden="true">
+                                <svg viewBox="0 0 64 64">
+                                    <path d="M13 25h38l-3.8-11H16.8L13 25Z"/>
+                                    <path d="M16 25v27h32V25M24 52V39h16v13"/>
+                                    <path d="M20 25v3.5a4 4 0 0 0 8 0V25m0 0v3.5a4 4 0 0 0 8 0V25m0 0v3.5a4 4 0 0 0 8 0V25"/>
+                                    <path d="M24 14c.7-4 3.3-6 8-6s7.3 2 8 6"/>
+                                </svg>
+                            </span>
+                            <span class="nav-ext-store-copy">
+                                <span class="nav-ext-kicker">Catálogo</span>
+                                <h3>Explorar loja</h3>
+                                <p>Encontre recursos compatíveis e envie a instalação diretamente para o Doorpi.</p>
+                            </span>
+                            <span class="nav-ext-chevron" aria-hidden="true">›</span>
+                        </button>
+
+                        <button class="nav-ext-manual-card" id="navExtManualBtn" tabindex="-1">
+                            <span class="nav-ext-manual-symbol" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M19.5 29.5 28.8 20a6.5 6.5 0 0 1 9.2 9.2l-7.1 7.1a6.5 6.5 0 0 1-9.2 0"/><path d="m28.5 18.5-9.3 9.5a6.5 6.5 0 0 1-9.2-9.2l7.1-7.1a6.5 6.5 0 0 1 9.2 0"/></svg></span>
+                            <span class="nav-ext-manual-copy"><span class="nav-ext-kicker">Outra origem</span><strong>Instalar por link</strong><span>Opção manual para links compatíveis.</span></span>
+                        </button>
                     </div>
-                    
-                    <div class="nav-ext-status" id="navExtensionStatus">${_t('loadingExtensions', 'Carregando extensões...')}</div>
-                    
-                    <div class="nav-ext-list" id="navExtensionsList"></div>
+
+                    <section class="nav-ext-dialog" id="navExtDialog" aria-hidden="true" aria-labelledby="navExtDialogTitle">
+                        <div class="nav-ext-dialog-panel">
+                            <header class="nav-ext-dialog-head">
+                                <span class="nav-ext-dialog-title"><span class="nav-ext-kicker">Instalação manual</span><h3 id="navExtDialogTitle">Adicionar extensão</h3><p id="navExtDialogDescription">Cole um link compatível da Chrome Web Store.</p></span>
+                                <button class="nav-ext-dialog-close" id="navExtDialogClose" tabindex="-1">Cancelar</button>
+                            </header>
+                            <div class="nav-ext-dialog-entry">
+                                <input class="nav-ext-url" id="navExtUrlInput" readonly placeholder="${_t('extManagerInputPlaceholder', 'Cole o link da extensão aqui...')}" tabindex="-1" />
+                                <div class="nav-ext-dialog-entry-actions">
+                                    <button class="nav-ext-action" id="navExtPasteBtn" tabindex="-1">${_t('btnPaste', 'Colar link')}</button>
+                                    <button class="nav-ext-action primary" id="navExtReviewBtn" tabindex="-1">Continuar</button>
+                                </div>
+                                <span class="nav-ext-dialog-hint">O Doorpi valida o endereço antes de iniciar a instalação.</span>
+                            </div>
+                            <div class="nav-ext-candidate">
+                                <div class="nav-ext-candidate-art" id="navExtCandidateArt"></div>
+                                <div class="nav-ext-candidate-copy">
+                                    <span class="nav-ext-kicker">Pronta para instalar</span>
+                                    <h4 id="navExtCandidateName">Extensão selecionada</h4>
+                                    <p id="navExtCandidateDescription">Confirme para adicionar este recurso ao navegador do Doorpi.</p>
+                                    <span class="nav-ext-candidate-source" id="navExtCandidateSource"></span>
+                                    <div class="nav-ext-candidate-actions">
+                                        <button class="nav-ext-action" id="navExtCandidateBack" tabindex="-1">Cancelar</button>
+                                        <button class="nav-ext-action primary" id="navExtInstallBtn" tabindex="-1">${_t('btnInstall', 'Instalar extensão')}</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
                 </div>
-            </div>`;
+
+                <section class="nav-ext-library">
+                    <header class="nav-ext-library-heading">
+                        <span class="nav-ext-library-title">
+                            <h3>Instaladas</h3>
+                            <span class="nav-ext-status" id="navExtensionStatus">${_t('loadingExtensions', 'Carregando extensões...')}</span>
+                        </span>
+                        <span class="nav-ext-count" id="navExtensionCount"></span>
+                    </header>
+                    <div class="nav-ext-list" id="navExtensionsList"></div>
+                </section>
+            </main>`;
 
         _contentItems = [
             body.querySelector('#setBackExt'),
-            body.querySelector('#navExtUrlInput'),
-            body.querySelector('#navExtPasteBtn'),
             body.querySelector('#navExtStoreBtn'),
-            body.querySelector('#navExtInstallBtn')
+            body.querySelector('#navExtManualBtn')
         ].filter(Boolean);
 
         body.querySelector('#setBackExt')?.addEventListener('click', () => {
@@ -5894,13 +6860,144 @@ window.isNavMenuOpen = false;
             });
         });
 
+        const dialog = body.querySelector('#navExtDialog');
+        const entryStage = body.querySelector('#navExtEntryStage');
+        const urlInput = body.querySelector('#navExtUrlInput');
+        const dialogDescription = body.querySelector('#navExtDialogDescription');
+        let extensionCandidate = null;
+        let extensionReturnIndex = 2;
+        const candidateFallbackIcon = `
+            <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M18 9h8v6.2a4.8 4.8 0 1 0 6 0V9h7v10h-5.2a4.8 4.8 0 1 0 0 6H39v14H25v-5.2a4.8 4.8 0 1 0-6 0V39H9V25h5.2a4.8 4.8 0 1 0 0-6H9V9h9Z"/></svg>`;
+
+        const bindExtensionHover = items => items.forEach((element, index) => {
+            if (!element || element.dataset.navExtHoverBound === 'true') return;
+            element.dataset.navExtHoverBound = 'true';
+            element.addEventListener('mouseenter', () => {
+                _topbarFocus = false;
+                const currentIndex = _contentItems.indexOf(element);
+                _contentIdx = currentIndex >= 0 ? currentIndex : index;
+                _updateContentFocus();
+            });
+        });
+
+        const extensionBaseItems = () => [
+            body.querySelector('#setBackExt'),
+            body.querySelector('#navExtStoreBtn'),
+            body.querySelector('#navExtManualBtn'),
+            ...body.querySelectorAll('#navExtensionsList .nav-ext-btn')
+        ].filter(Boolean);
+
+        const setExtensionItems = (items, preferred = 0) => {
+            _contentItems = items.filter(Boolean);
+            _contentIdx = Math.max(0, Math.min(preferred, _contentItems.length - 1));
+            bindExtensionHover(_contentItems);
+            _updateContentFocus();
+        };
+
+        const showExtensionEntry = (focusInput = true, message = '') => {
+            extensionCandidate = null;
+            dialog?.classList.remove('has-candidate');
+            if (dialogDescription) dialogDescription.textContent = message || 'Cole um link compatível da Chrome Web Store.';
+            setExtensionItems([
+                body.querySelector('#navExtDialogClose'),
+                urlInput,
+                body.querySelector('#navExtPasteBtn'),
+                body.querySelector('#navExtReviewBtn')
+            ], focusInput ? 1 : 0);
+        };
+
+        const openExtensionDialog = () => {
+            if (!dialog) return;
+            extensionReturnIndex = 2;
+            entryStage?.classList.add('is-inline-open');
+            dialog.classList.add('visible');
+            dialog.setAttribute('aria-hidden', 'false');
+            showExtensionEntry(true);
+        };
+
+        const closeExtensionDialog = () => {
+            if (!dialog) return;
+            entryStage?.classList.remove('is-inline-open');
+            dialog.classList.remove('visible', 'has-candidate');
+            dialog.setAttribute('aria-hidden', 'true');
+            extensionCandidate = null;
+            setExtensionItems(extensionBaseItems(), extensionReturnIndex);
+        };
+
+        const showExtensionCandidate = data => {
+            const url = String(data?.url || urlInput?.value || '').trim();
+            const extensionId = url.match(/[a-p]{32}/i)?.[0] || '';
+            if (!url || !extensionId) {
+                if (!dialog?.classList.contains('visible')) openExtensionDialog();
+                showExtensionEntry(true, 'Esse endereço não corresponde a uma extensão válida da Chrome Web Store.');
+                return false;
+            }
+
+            const rawName = String(data?.name || '').trim();
+            const genericName = !rawName || /^chrome web store(?:\s*[-|].*)?$/i.test(rawName) ||
+                /^(extensões|extensions)$/i.test(rawName);
+            const pathParts = (() => {
+                try { return new URL(url).pathname.split('/').filter(Boolean); }
+                catch { return []; }
+            })();
+            const idIndex = pathParts.findIndex(part => part.toLocaleLowerCase() === extensionId.toLocaleLowerCase());
+            const slugName = idIndex > 0
+                ? decodeURIComponent(pathParts[idIndex - 1]).replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim()
+                : '';
+            const resolvedName = genericName
+                ? (slugName.replace(/\b\p{L}/gu, letter => letter.toLocaleUpperCase()) || 'Extensão selecionada')
+                : rawName;
+
+            extensionCandidate = {
+                url,
+                name: resolvedName,
+                description: String(data?.description || 'Confirme para adicionar este recurso ao navegador do Doorpi.').trim(),
+                imageUrl: String(data?.imageUrl || '').trim()
+            };
+            extensionReturnIndex = data?.name || data?.imageUrl ? 1 : 2;
+            if (urlInput) urlInput.value = url;
+            if (!dialog?.classList.contains('visible')) {
+                entryStage?.classList.add('is-inline-open');
+                dialog?.classList.add('visible');
+                dialog?.setAttribute('aria-hidden', 'false');
+            }
+            dialog?.classList.add('has-candidate');
+            const art = body.querySelector('#navExtCandidateArt');
+            const safeImage = /^(https?:\/\/|data:image\/)/i.test(extensionCandidate.imageUrl) ? extensionCandidate.imageUrl : '';
+            if (art) {
+                art.innerHTML = safeImage ? `<img src="${_esc(safeImage)}" alt="" />` : candidateFallbackIcon;
+                art.querySelector('img')?.addEventListener('error', () => { art.innerHTML = candidateFallbackIcon; }, { once: true });
+            }
+            const name = body.querySelector('#navExtCandidateName');
+            const description = body.querySelector('#navExtCandidateDescription');
+            const source = body.querySelector('#navExtCandidateSource');
+            if (name) name.textContent = extensionCandidate.name;
+            if (description) description.textContent = extensionCandidate.description;
+            if (source) source.textContent = `Chrome Web Store · ${extensionId}`;
+            setExtensionItems([
+                body.querySelector('#navExtCandidateBack'),
+                body.querySelector('#navExtInstallBtn')
+            ], 1);
+            return true;
+        };
+
+        window._showNavExtensionInstallCandidate = showExtensionCandidate;
+        window._closeNavExtensionInline = () => {
+            if (!dialog?.classList.contains('visible')) return false;
+            closeExtensionDialog();
+            return true;
+        };
+
+        body.querySelector('#navExtManualBtn')?.addEventListener('click', openExtensionDialog);
+        body.querySelector('#navExtDialogClose')?.addEventListener('click', closeExtensionDialog);
+        body.querySelector('#navExtCandidateBack')?.addEventListener('click', closeExtensionDialog);
         body.querySelector('#navExtPasteBtn')?.addEventListener('click', () => {
             window._isPastingExtensionUrl = true;
             if (typeof postToHost === 'function') postToHost({ action: 'readClipboard' });
         });
+        body.querySelector('#navExtReviewBtn')?.addEventListener('click', () => showExtensionCandidate({ url: urlInput?.value }));
 
         body.querySelector('#navExtStoreBtn')?.addEventListener('click', () => {
-            window._isPastingExtensionUrl = true;
             if (typeof postToHost === 'function') {
                 postToHost({
                     action: 'openExtensionStore',
@@ -5914,7 +7011,6 @@ window.isNavMenuOpen = false;
             }
         });
 
-        const urlInput = body.querySelector('#navExtUrlInput');
         urlInput?.addEventListener('click', event => {
             urlInput.removeAttribute('readonly');
             if (!window._doorpiShouldOpenVkbFromEvent?.(event)) return;
@@ -5922,6 +7018,7 @@ window.isNavMenuOpen = false;
                 onOk: () => {
                     urlInput.setAttribute('readonly', '');
                     window._vkbForceClose?.();
+                    requestAnimationFrame(() => showExtensionCandidate({ url: urlInput.value }));
                 },
                 onCancel: () => {
                     urlInput.setAttribute('readonly', '');
@@ -5931,64 +7028,79 @@ window.isNavMenuOpen = false;
         });
 
         body.querySelector('#navExtInstallBtn')?.addEventListener('click', () => {
-            const url = urlInput?.value.trim();
+            const url = extensionCandidate?.url || urlInput?.value.trim();
             const status = document.getElementById('navExtensionStatus');
             if (!url) {
                 if (status) { status.textContent = _t('extPasteLinkError', 'Insira um link válido.'); status.className = 'nav-ext-status error'; }
                 return;
             }
             if (status) { status.textContent = _t('extInstallingStatus', 'Instalando...'); status.className = 'nav-ext-status'; }
+            closeExtensionDialog();
             if (typeof postToHost === 'function') postToHost({ action: 'installExtension', url, successMsg: _t('extInstallSuccess', 'Extensão Instalada') });
         });
 
         window._renderNavExtensionsList = function (extensions, statusClass, message, updates) {
             const listEl = document.getElementById('navExtensionsList');
             const statusEl = document.getElementById('navExtensionStatus');
+            const countEl = document.getElementById('navExtensionCount');
             if (!listEl) return;
+            extensions = Array.isArray(extensions) ? extensions : [];
+            updates = updates || {};
 
             if (statusEl) {
-                statusEl.textContent = message || (extensions.length ? _t('extInstalledCount', `${extensions.length} extensão(ões) instalada(s)`, extensions.length) : _t('extNoneInstalled', 'Nenhuma extensão instalada.'));
+                statusEl.textContent = message || (extensions.length
+                    ? 'Recursos adicionais disponíveis no navegador do Doorpi.'
+                    : _t('extNoneInstalled', 'Nenhuma extensão instalada.'));
                 statusEl.className = `nav-ext-status ${statusClass || ''}`.trim();
             }
+            if (countEl) countEl.textContent = extensions.length === 1 ? '1 extensão' : `${extensions.length} extensões`;
 
-            listEl.innerHTML = extensions.map(ext => {
+            const fallbackIcon = `
+                <svg viewBox="0 0 48 48" aria-hidden="true">
+                    <path d="M18 9h8v6.2a4.8 4.8 0 1 0 6 0V9h7v10h-5.2a4.8 4.8 0 1 0 0 6H39v14H25v-5.2a4.8 4.8 0 1 0-6 0V39H9V25h5.2a4.8 4.8 0 1 0 0-6H9V9h9Z"/>
+                </svg>`;
+
+            listEl.innerHTML = extensions.length ? extensions.map(ext => {
                 const updateVersion = updates[ext.Id];
                 const hasUpdate = !!updateVersion;
+                const id = _esc(ext.Id || '');
+                const name = _esc(ext.Name || _t('extUnknown', 'Extensão'));
+                const version = _esc(ext.Version || '—');
+                const description = _esc(ext.Description || 'Recurso adicional instalado no navegador do Doorpi.');
+                const iconData = String(ext.IconDataUrl || '');
+                const icon = /^data:image\/[a-z0-9.+-]+;base64,/i.test(iconData)
+                    ? `<img src="${_esc(iconData)}" alt="" />`
+                    : fallbackIcon;
 
                 return `
-                <div class="nav-ext-row">
-                    <div class="nav-ext-info">
-                        <strong>
-                            ${(ext.Name || _t('extUnknown', 'Desconhecida')).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[ch]))}
-                            ${hasUpdate ? '<span style="width:8px;height:8px;background:#ff4444;border-radius:50%;box-shadow: 0 0 6px #ff4444;"></span>' : ''}
-                        </strong>
-                        <span>
-                            ${_t('extInstalled', 'Instalada')} (v${(ext.Version || '?.?.?').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[ch]))})
-                            ${hasUpdate ? ` ➔ <strong style="color:#ff6e6e">v${updateVersion}</strong>` : ''}
-                        </span>
+                <article class="nav-ext-card">
+                    <div class="nav-ext-card-main">
+                        <span class="nav-ext-icon">${icon}</span>
+                        <div class="nav-ext-info">
+                            <strong>${name}</strong>
+                            <p>${description}</p>
+                            <div class="nav-ext-meta">
+                                <span>${_t('extInstalled', 'Instalada')} · v${version}</span>
+                                ${hasUpdate ? `<span class="nav-ext-update-label">Atualização v${_esc(updateVersion)}</span>` : ''}
+                            </div>
+                        </div>
                     </div>
-                    <div class="nav-ext-actions">
+                    <div class="nav-ext-card-footer">
                         ${hasUpdate ? `
-                        <button class="nav-ext-btn primary" data-action="update" data-id="${ext.Id.replace(/"/g, '&quot;')}" tabindex="-1" title="${_t('btnUpdate', 'Atualizar')}">
+                        <button class="nav-ext-btn primary" data-action="update" data-id="${id}" tabindex="-1" title="${_t('btnUpdate', 'Atualizar')}">
                             ${_t('btnUpdate', 'Atualizar')}
                         </button>` : ''}
-                        <button class="nav-ext-btn danger" data-action="delete" data-id="${ext.Id.replace(/"/g, '&quot;')}" tabindex="-1" title="${_t('btnRemove', 'Remover')}">
+                        <button class="nav-ext-btn danger" data-action="delete" data-id="${id}" tabindex="-1" title="${_t('btnRemove', 'Remover')}">
                             ${_t('btnRemove', 'Remover')}
                         </button>
                     </div>
+                </article>`;
+            }).join('') : `
+                <div class="nav-ext-empty">
+                    <div><strong>Sua biblioteca está vazia</strong><span>Abra a loja ou instale uma extensão por link.</span></div>
                 </div>`;
-            }).join('');
-
-            _contentItems = [
-                document.getElementById('setBackExt'),
-                document.getElementById('navExtUrlInput'),
-                document.getElementById('navExtPasteBtn'),
-                document.getElementById('navExtStoreBtn'),
-                document.getElementById('navExtInstallBtn')
-            ];
 
             listEl.querySelectorAll('.nav-ext-btn').forEach(btn => {
-                _contentItems.push(btn);
                 btn.addEventListener('click', () => {
                     const action = btn.dataset.action;
                     const id = btn.dataset.id;
@@ -5997,29 +7109,164 @@ window.isNavMenuOpen = false;
                 });
             });
 
-            _contentItems.forEach((el, idx) => {
-                el?.addEventListener('mouseenter', () => {
-                    _topbarFocus = false;
-                    _contentIdx = idx;
-                    _updateContentFocus();
-                });
-            });
+            _contentItems = extensionBaseItems();
+            bindExtensionHover(_contentItems);
 
+            _contentIdx = Math.min(_contentIdx, Math.max(0, _contentItems.length - 1));
             _updateContentFocus();
         };
 
         if (typeof postToHost === 'function') postToHost({ action: 'requestExtensions' });
 
-        _contentItems.forEach((el, idx) => {
-            el.addEventListener('mouseenter', () => {
-                _topbarFocus = false;
-                _contentIdx = idx;
-                _updateContentFocus();
-            });
-        });
+        bindExtensionHover(_contentItems);
     }
 
     // ── Foco ──────────────────────────────────────────────────────────────────
+    function _libraryCardKey(card) {
+        return card?.dataset?.gameId || card?.dataset?.appId || card?.dataset?.path || '';
+    }
+
+    function _rememberLibraryCard(catId, card, cardIdx) {
+        const memory = _libraryFocusMemory[catId];
+        if (!memory || !card?.classList?.contains('nav-vertical-card')) return;
+        memory.key = _libraryCardKey(card);
+        memory.index = Math.max(0, Number(cardIdx) || 0);
+    }
+
+    function _rememberedLibraryContentIndex(catId, actionCount, cards) {
+        const memory = _libraryFocusMemory[catId];
+        if (!memory || !cards?.length) return actionCount;
+        let cardIdx = memory.key
+            ? cards.findIndex(card => _libraryCardKey(card) === memory.key)
+            : -1;
+        if (cardIdx < 0) cardIdx = Math.min(memory.index, cards.length - 1);
+        return actionCount + Math.max(0, cardIdx);
+    }
+
+    function _activeLibraryCard() {
+        if (_topbarFocus || !_isLazyCat()) return null;
+        const card = _contentItems[_contentIdx];
+        return card?.classList?.contains('nav-vertical-card') ? card : null;
+    }
+
+    function _stopRapidLibraryScrollAnimation() {
+        if (_libraryRapidScrollRaf) cancelAnimationFrame(_libraryRapidScrollRaf);
+        _libraryRapidScrollRaf = 0;
+        _libraryRapidScrollPane = null;
+        _libraryRapidScrollTarget = 0;
+    }
+
+    function _animateRapidLibraryScroll(pane, targetTop) {
+        if (!pane) return;
+        const maxTop = Math.max(0, pane.scrollHeight - pane.clientHeight);
+        const nextTarget = Math.max(0, Math.min(maxTop, targetTop));
+
+        if (_libraryRapidScrollPane !== pane) {
+            _stopRapidLibraryScrollAnimation();
+            _libraryRapidScrollPane = pane;
+        }
+        _libraryRapidScrollTarget = nextTarget;
+        if (_libraryRapidScrollRaf) return;
+
+        const step = () => {
+            const activePane = _libraryRapidScrollPane;
+            if (!activePane || !_libraryRapidNavigation) {
+                _stopRapidLibraryScrollAnimation();
+                return;
+            }
+
+            const distance = _libraryRapidScrollTarget - activePane.scrollTop;
+            if (Math.abs(distance) <= 0.7) {
+                activePane.scrollTop = _libraryRapidScrollTarget;
+                _libraryRapidScrollRaf = 0;
+                return;
+            }
+
+            // Um único movimento segue o alvo mais recente. O fator alto mantém
+            // resposta imediata sem os saltos do scroll instantâneo.
+            activePane.scrollTop += distance * 0.38;
+            _libraryRapidScrollRaf = requestAnimationFrame(step);
+        };
+
+        _libraryRapidScrollRaf = requestAnimationFrame(step);
+    }
+
+    function _cancelLibraryScrollAnimation() {
+        const pane = _libraryPane(CATS[_catIdx]?.id);
+        if (!pane) return;
+        _stopRapidLibraryScrollAnimation();
+        pane.classList.add('nav-rapid-navigation');
+        pane.scrollTo({ top: pane.scrollTop, behavior: 'auto' });
+    }
+
+    function _settleLibraryScroll() {
+        const card = _activeLibraryCard();
+        const pane = card?.closest?.('#navPaneGames, #navPaneMedia');
+        if (!card || !pane) return;
+        const paneRect = pane.getBoundingClientRect();
+        const cardRect = card.getBoundingClientRect();
+        const centeredTop = pane.scrollTop + (cardRect.top - paneRect.top)
+            - ((paneRect.height - cardRect.height) / 2);
+        const maxTop = Math.max(0, pane.scrollHeight - pane.clientHeight);
+        pane.scrollTo({ top: Math.max(0, Math.min(maxTop, centeredTop)), behavior: 'smooth' });
+    }
+
+    function _stopLibraryDirectionHold({ settle = true } = {}) {
+        if (_libraryHoldRaf) cancelAnimationFrame(_libraryHoldRaf);
+        _libraryHoldRaf = 0;
+        const wasRapid = _libraryRapidNavigation;
+        _libraryHoldDirection = '';
+        _libraryHoldStartedAt = 0;
+        _libraryHoldSawNativeInput = false;
+        _libraryRapidNavigation = false;
+        _stopRapidLibraryScrollAnimation();
+        document.querySelectorAll('.nav-library-pane.nav-rapid-navigation')
+            .forEach(pane => pane.classList.remove('nav-rapid-navigation'));
+        if (settle && wasRapid) requestAnimationFrame(_settleLibraryScroll);
+    }
+
+    function _trackLibraryDirectionHold(key) {
+        const direction = {
+            ArrowUp: 'UP', ArrowDown: 'DOWN', ArrowLeft: 'LEFT', ArrowRight: 'RIGHT'
+        }[key];
+        if (!direction || !_isLazyCat()) return;
+        if (_libraryHoldDirection === direction && _libraryHoldRaf) return;
+
+        _stopLibraryDirectionHold({ settle: false });
+        _libraryHoldDirection = direction;
+        _libraryHoldStartedAt = performance.now();
+
+        const poll = () => {
+            if (!window.isNavMenuOpen || !_isLazyCat() || _libraryHoldDirection !== direction) {
+                _stopLibraryDirectionHold();
+                return;
+            }
+
+            const elapsed = performance.now() - _libraryHoldStartedAt;
+            const held = window.isDoorpiNativeDirectionHeld?.(direction) === true;
+            if (held) _libraryHoldSawNativeInput = true;
+
+            if (held) {
+                if (!_libraryRapidNavigation && elapsed >= 120) {
+                    _libraryRapidNavigation = true;
+                    _cancelLibraryScrollAnimation();
+                }
+                _libraryHoldRaf = requestAnimationFrame(poll);
+                return;
+            }
+
+            // O snapshot nativo pode chegar alguns frames depois do primeiro
+            // evento de teclado sintetizado pelo controle.
+            if (!_libraryHoldSawNativeInput && elapsed < 110) {
+                _libraryHoldRaf = requestAnimationFrame(poll);
+                return;
+            }
+            _stopLibraryDirectionHold();
+        };
+
+        _libraryHoldRaf = requestAnimationFrame(poll);
+    }
+
     function _setTopbarFocus(val) {
         _topbarFocus = val;
         _updateTopbarFocusVisual();
@@ -6030,6 +7277,29 @@ window.isNavMenuOpen = false;
         document.querySelectorAll('.nav-cat-item').forEach((el, i) => {
             el.classList.toggle('nav-focused', _topbarFocus && i === _catIdx);
         });
+    }
+
+    function _revealInsideScrollContainer(element, container, edge = 12) {
+        if (!element || !container) return;
+
+        const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+        if (maxScroll <= 1) {
+            // Evita preservar um deslocamento residual criado pelo navegador quando
+            // todo o conteudo ja cabe no painel.
+            if (container.scrollTop !== 0) container.scrollTop = 0;
+            return;
+        }
+
+        const itemRect = element.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+        let delta = 0;
+        if (itemRect.top < containerRect.top + edge)
+            delta = itemRect.top - containerRect.top - edge;
+        else if (itemRect.bottom > containerRect.bottom - edge)
+            delta = itemRect.bottom - containerRect.bottom + edge;
+
+        if (Math.abs(delta) > 0.5)
+            container.scrollBy({ top: delta, behavior: 'smooth' });
     }
 
     function _updateContentFocus() {
@@ -6090,12 +7360,14 @@ window.isNavMenuOpen = false;
                 const cols = _gridCols();
                 const container = card.closest('#navPaneGames, #navPaneMedia');
                 const cardIdx = _lg._cards.indexOf(card);
+                _rememberLibraryCard(CATS[_catIdx]?.id, card, cardIdx);
 
     
                 if (cardIdx >= 0 && cardIdx < cols && container) {
                    
                     if (container.scrollTop > 4) {
-                        container.scrollTo({ top: 0, behavior: 'smooth' });
+                        if (_libraryRapidNavigation) _animateRapidLibraryScroll(container, 0);
+                        else container.scrollTo({ top: 0, behavior: 'smooth' });
                     }
                 } else {
                     
@@ -6104,11 +7376,13 @@ window.isNavMenuOpen = false;
                     const PADDING = 10; 
 
                     if (paneRect && cardRect.bottom > paneRect.bottom - PADDING) {
-                        
-                        container.scrollBy({ top: cardRect.bottom - paneRect.bottom + PADDING, behavior: 'smooth' });
+                        const delta = cardRect.bottom - paneRect.bottom + PADDING;
+                        if (_libraryRapidNavigation) _animateRapidLibraryScroll(container, container.scrollTop + delta);
+                        else container.scrollBy({ top: delta, behavior: 'smooth' });
                     } else if (paneRect && cardRect.top < paneRect.top + PADDING) {
-                        
-                        container.scrollBy({ top: cardRect.top - paneRect.top - PADDING, behavior: 'smooth' });
+                        const delta = cardRect.top - paneRect.top - PADDING;
+                        if (_libraryRapidNavigation) _animateRapidLibraryScroll(container, container.scrollTop + delta);
+                        else container.scrollBy({ top: delta, behavior: 'smooth' });
                     }
                 }
 
@@ -6132,13 +7406,36 @@ window.isNavMenuOpen = false;
             if (focused && typeof focused.focus === 'function' && document.activeElement !== focused) {
                 focused.focus({ preventScroll: true });
                 const isProfileShowcase = CATS[_catIdx]?.id === 'profile' && _profileSubView !== 'history';
-                if (!isProfileShowcase) focused.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                const isExtensionsView = CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'extensions';
+                const isSettingsHome = CATS[_catIdx]?.id === 'settings' && !_settingsSubView;
+                if (isSettingsHome) {
+                    // O hub possui seu proprio painel de rolagem. Nao use
+                    // scrollIntoView aqui: ele tenta centralizar o item e acaba
+                    // deslocando a pagina mesmo quando a opcao ja esta visivel.
+                    _revealInsideScrollContainer(focused, focused.closest?.('.nav-settings-home-nav'));
+                } else if (isExtensionsView) {
+                    const list = focused.closest?.('.nav-ext-list');
+                    if (list) {
+                        const itemRect = focused.getBoundingClientRect();
+                        const listRect = list.getBoundingClientRect();
+                        const edge = 10;
+                        if (itemRect.bottom > listRect.bottom - edge) {
+                            list.scrollBy({ top: itemRect.bottom - listRect.bottom + edge, behavior: 'smooth' });
+                        } else if (itemRect.top < listRect.top + edge) {
+                            list.scrollBy({ top: itemRect.top - listRect.top - edge, behavior: 'smooth' });
+                        }
+                    }
+                } else if (!isProfileShowcase) {
+                    focused.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                }
             }
         }
     }
 
-    function _gridCols() {
-        const grid = document.querySelector('.nav-big-grid, .nav-settings-grid, .nav-profile-recent-grid');
+    function _gridCols(referenceGrid = null) {
+        const grid = referenceGrid
+            || (_isLazyCat() ? _currentLazyGrid()?._grid : null)
+            || document.querySelector('.nav-big-grid, .nav-settings-grid, .nav-profile-recent-grid');
         if (!grid) return 1;
         return Math.max(1, getComputedStyle(grid).gridTemplateColumns.split(' ').length);
     }
@@ -6181,7 +7478,7 @@ window.isNavMenuOpen = false;
 
     function _releaseNavMenuInput(lifecycleToken) {
         if (lifecycleToken !== _navMenuLifecycleToken || _navMenuPhase !== 'closing') return;
-        if (!window.isNavMenuOpen) return;
+        if (!window.isNavMenuOpen) return false;
 
         window.isNavMenuOpen = false;
 
@@ -6251,6 +7548,7 @@ window.isNavMenuOpen = false;
 
     function close() {
         if (!window.isNavMenuOpen || _navMenuPhase === 'closing') return;
+        _stopLibraryDirectionHold({ settle: false });
         if (_settingsSubView === 'bluetooth' && _bluetoothUpdateStatus?.discovering)
             postToHost?.({ action: 'stopBluetoothDiscovery' });
         if (_settingsSubView === 'sound') window.DoorpiSoundUI?.closeDrawer?.('settings');
@@ -6330,6 +7628,9 @@ window.isNavMenuOpen = false;
     window._navMenuHandleKey = function (key) {
         if (window._vkbIsOpen) return false;
         if (_navMenuPhase === 'closing') return false;
+        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
+            _trackLibraryDirectionHold(key);
+        }
         if ((key === 'Escape' || key === 'Backspace') && _libraryInteractionMode === 'filters' &&
             _closeLibraryFilters()) return true;
         if ((key === 'Escape' || key === 'Backspace') && window._navMenuExitReleaseNotesScroll?.()) return true;
@@ -6357,7 +7658,7 @@ window.isNavMenuOpen = false;
         if (window.isDoorpiSessionTransitionActive?.()) {
             e.preventDefault();
             e.stopImmediatePropagation();
-            return;
+            return true;
         }
 
         if (window.isDesktopWarningOpen) {
@@ -6426,6 +7727,7 @@ window.isNavMenuOpen = false;
             }
             if (e.key === 'Escape' || e.key === 'Backspace') {
                 if (window._navMenuExitReleaseNotesScroll?.()) return;
+                if (window._closeNavExtensionInline?.()) return;
                 if (window.requestDoorpiBackAction?.()) return;
                 return;
             }
@@ -6449,8 +7751,10 @@ window.isNavMenuOpen = false;
                     if (_isLazyCat()) {
                         const catId = CATS[_catIdx]?.id;
                         const actionCount = _libraryActionItems(catId).length;
-                        const cardCount = _libraryGrid(catId)?._cards?.length || 0;
-                        _contentIdx = cardCount ? actionCount : 0;
+                        const cards = _libraryGrid(catId)?._cards || [];
+                        _contentIdx = cards.length
+                            ? _rememberedLibraryContentIndex(catId, actionCount, cards)
+                            : 0;
                     } else {
                         _contentIdx = 0;
                     }
@@ -6534,7 +7838,7 @@ window.isNavMenuOpen = false;
             return true;
         }
 
-        const cols = _gridCols();
+        const cols = _gridCols(current?.closest?.('.nav-big-grid'));
         const cardIdx = Math.max(0, _contentIdx - actionCount);
         if (key === 'ArrowLeft') {
             if (cardIdx % cols === 0) _contentIdx = 0;
@@ -6548,7 +7852,12 @@ window.isNavMenuOpen = false;
             }
             else _contentIdx -= cols;
         } else if (key === 'ArrowDown') {
-            if (cardIdx + cols < cards.length) _contentIdx += cols;
+            const nextRowStart = (Math.floor(cardIdx / cols) + 1) * cols;
+            if (nextRowStart < cards.length) {
+                const exactBelow = cardIdx + cols;
+                const nextCardIdx = exactBelow < cards.length ? exactBelow : nextRowStart;
+                _contentIdx = actionCount + nextCardIdx;
+            }
         } else if (key === ' ' || key === 'Square') {
             window._navMenuTriggerCtxMenu();
             return true;
@@ -6587,6 +7896,23 @@ window.isNavMenuOpen = false;
                 notes?.click();
                 return true;
             }
+        }
+
+        if (CATS[_catIdx]?.id === 'settings' &&
+            !_settingsSubView &&
+            ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
+            if (key === 'ArrowUp') {
+                if (_contentIdx <= 0) {
+                    _setTopbarFocus(true);
+                    return true;
+                }
+                _contentIdx--;
+                _updateContentFocus();
+            } else if (key === 'ArrowDown' && _contentIdx < total - 1) {
+                _contentIdx++;
+                _updateContentFocus();
+            }
+            return true;
         }
 
         if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'bluetooth' &&
@@ -6660,6 +7986,22 @@ window.isNavMenuOpen = false;
                 return true;
             }
         }
+        if (CATS[_catIdx]?.id === 'settings' && document.querySelector('.nav-settings-directory')) {
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
+                if (_contentIdx === 0) {
+                    if (key === 'ArrowUp' || key === 'ArrowLeft') _setTopbarFocus(true);
+                    else if (key === 'ArrowDown' || key === 'ArrowRight') _contentIdx = Math.min(1, total - 1);
+                } else if (key === 'ArrowUp') {
+                    _contentIdx = Math.max(0, _contentIdx - 1);
+                } else if (key === 'ArrowDown') {
+                    _contentIdx = Math.min(total - 1, _contentIdx + 1);
+                } else if (key === 'ArrowLeft') {
+                    _contentIdx = 0;
+                }
+                _updateContentFocus();
+                return;
+            }
+        }
         if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'accountHub') {
             const map = {
                 0: { ArrowUp: 'top', ArrowDown: 1, ArrowRight: 1 },
@@ -6681,87 +8023,142 @@ window.isNavMenuOpen = false;
 
         if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'sharing') {
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
-                const tabCount = document.querySelectorAll('.nav-sharing-tab').length;
-                const listCount = document.querySelectorAll('.nav-sharing-app').length;
-                const tabsStart = 1;
-                const listStart = tabsStart + tabCount;
-                const rightStart = listStart + listCount;
-                const rightCount = Math.max(0, total - rightStart);
-                const activeList = Array.from(document.querySelectorAll('.nav-sharing-app')).findIndex(el => el.classList.contains('active'));
-                const activeListIdx = activeList >= 0 ? listStart + activeList : listStart;
+                const current = _contentItems[_contentIdx];
+                const tabs = Array.from(document.querySelectorAll('.nav-sharing-tab'));
+                const apps = Array.from(document.querySelectorAll('.nav-sharing-app'));
+                const modes = Array.from(document.querySelectorAll('.nav-sharing-mode'));
+                const users = Array.from(document.querySelectorAll('.nav-sharing-user')).filter(el => el.offsetParent !== null);
+                const toggles = Array.from(document.querySelectorAll('.nav-sharing-toggle')).filter(el => el.offsetParent !== null);
+                const save = document.querySelector('#navSharingSave:not([disabled])');
+                const activeTab = tabs.find(el => el.classList.contains('active')) || tabs[0];
+                const activeApp = apps.find(el => el.classList.contains('active')) || apps[0];
+                const moveTo = element => {
+                    const idx = element ? _contentItems.indexOf(element) : -1;
+                    if (idx >= 0) _contentIdx = idx;
+                };
 
-                if (_contentIdx === 0) {
-                    if (key === 'ArrowDown' || key === 'ArrowRight') _contentIdx = tabCount ? tabsStart : (listCount ? listStart : rightStart);
-                    else if (key === 'ArrowUp') _setTopbarFocus(true);
-                    _updateContentFocus();
-                    return;
+                if (current?.id === 'setBackSharing') {
+                    if (key === 'ArrowUp' || key === 'ArrowLeft') _setTopbarFocus(true);
+                    else moveTo(activeTab || activeApp || modes[0] || toggles[0]);
+                } else if (current?.classList.contains('nav-sharing-tab')) {
+                    const idx = tabs.indexOf(current);
+                    if (key === 'ArrowLeft') moveTo(tabs[Math.max(0, idx - 1)]);
+                    else if (key === 'ArrowRight') moveTo(tabs[Math.min(tabs.length - 1, idx + 1)]);
+                    else if (key === 'ArrowUp') moveTo(document.querySelector('#setBackSharing'));
+                    else if (key === 'ArrowDown') moveTo(activeApp || modes[0] || toggles[0]);
+                } else if (current?.classList.contains('nav-sharing-app')) {
+                    const idx = apps.indexOf(current);
+                    if (key === 'ArrowUp') moveTo(idx > 0 ? apps[idx - 1] : activeTab);
+                    else if (key === 'ArrowDown') moveTo(apps[Math.min(apps.length - 1, idx + 1)]);
+                    else if (key === 'ArrowLeft') moveTo(document.querySelector('#setBackSharing'));
+                    else if (key === 'ArrowRight') moveTo(modes[0] || toggles[0] || save);
+                } else if (current?.classList.contains('nav-sharing-mode')) {
+                    const idx = modes.indexOf(current);
+                    if (key === 'ArrowUp') moveTo(idx > 0 ? modes[idx - 1] : activeTab);
+                    else if (key === 'ArrowDown') moveTo(idx < modes.length - 1 ? modes[idx + 1] : (users[0] || save));
+                    else if (key === 'ArrowLeft') moveTo(activeApp);
+                } else if (current?.classList.contains('nav-sharing-user')) {
+                    const idx = users.indexOf(current);
+                    if (key === 'ArrowLeft') moveTo(idx % 2 ? users[idx - 1] : activeApp);
+                    else if (key === 'ArrowRight' && idx % 2 === 0) moveTo(users[idx + 1] || current);
+                    else if (key === 'ArrowUp') moveTo(idx >= 2 ? users[idx - 2] : modes[modes.length - 1]);
+                    else if (key === 'ArrowDown') moveTo(users[idx + 2] || save || current);
+                } else if (current?.classList.contains('nav-sharing-toggle')) {
+                    const idx = toggles.indexOf(current);
+                    if (key === 'ArrowUp') moveTo(idx > 0 ? toggles[idx - 1] : activeTab);
+                    else if (key === 'ArrowDown') moveTo(toggles[Math.min(toggles.length - 1, idx + 1)]);
+                    else if (key === 'ArrowLeft') moveTo(activeApp);
+                } else if (current === save) {
+                    if (key === 'ArrowUp') moveTo(users[users.length - 1] || modes[modes.length - 1]);
+                    else if (key === 'ArrowLeft') moveTo(activeApp);
                 }
-
-                if (_contentIdx >= tabsStart && _contentIdx < listStart) {
-                    if (key === 'ArrowLeft') _contentIdx = Math.max(tabsStart, _contentIdx - 1);
-                    else if (key === 'ArrowRight') _contentIdx = Math.min(listStart - 1, _contentIdx + 1);
-                    else if (key === 'ArrowUp') _contentIdx = 0;
-                    else if (key === 'ArrowDown') _contentIdx = listCount ? listStart : (rightCount ? rightStart : _contentIdx);
-                    _updateContentFocus();
-                    return;
-                }
-
-                if (_contentIdx >= listStart && _contentIdx < rightStart) {
-                    if (key === 'ArrowUp') _contentIdx = _contentIdx === listStart ? (tabCount ? tabsStart : 0) : _contentIdx - 1;
-                    else if (key === 'ArrowDown') _contentIdx = _contentIdx < rightStart - 1 ? _contentIdx + 1 : _contentIdx;
-                    else if (key === 'ArrowRight' && rightStart < total) _contentIdx = rightStart;
-                    else if (key === 'ArrowLeft') _setTopbarFocus(true);
-                    _updateContentFocus();
-                    return;
-                }
-
-                if (_contentIdx >= rightStart) {
-                    if (key === 'ArrowLeft') _contentIdx = listCount ? activeListIdx : (tabCount ? tabsStart : 0);
-                    else if (key === 'ArrowUp') _contentIdx = _contentIdx === rightStart ? (tabCount ? tabsStart : 0) : _contentIdx - 1;
-                    else if (key === 'ArrowDown') _contentIdx = Math.min(total - 1, _contentIdx + 1);
-                    else if (key === 'ArrowRight') _contentIdx = Math.min(total - 1, _contentIdx + 1);
-                    _updateContentFocus();
-                    return;
-                }
+                _updateContentFocus();
+                return;
             }
         }
 
         if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'extensions') {
+            const extensionDialog = document.getElementById('navExtDialog');
+            const extensionDialogOpen = extensionDialog?.classList.contains('visible');
+            if (extensionDialogOpen && (key === 'Escape' || key === 'Backspace')) {
+                document.getElementById('navExtDialogClose')?.click();
+                return true;
+            }
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
-                if (_contentIdx <= 4) {
-                    const topMap = {
-                        0: { ArrowDown: 1, ArrowRight: 1 },
-                        1: { ArrowUp: 0, ArrowDown: 5, ArrowRight: 2 },
-                        2: { ArrowUp: 0, ArrowDown: 5, ArrowLeft: 1, ArrowRight: 3 },
-                        3: { ArrowUp: 0, ArrowDown: 5, ArrowLeft: 2, ArrowRight: 4 },
-                        4: { ArrowUp: 0, ArrowDown: 5, ArrowLeft: 3 }
-                    };
-                    if (topMap[_contentIdx] && topMap[_contentIdx][key] !== undefined) {
-                        let next = topMap[_contentIdx][key];
-                        if (next >= _contentItems.length) next = _contentItems.length - 1; 
-                        _contentIdx = next;
-                        _updateContentFocus();
-                    } else if (key === 'ArrowUp' && _contentIdx === 0) { 
-                        _setTopbarFocus(true);
-                    }
-                }
-                else {
-                    if (key === 'ArrowUp') {
-                        _contentIdx--;
-                        if (_contentIdx < 4) _contentIdx = 1; 
-                    }
-                    else if (key === 'ArrowDown') {
-                        if (_contentIdx < _contentItems.length - 1) _contentIdx++;
-                    }
-                    else if (key === 'ArrowLeft') {
-                        if (_contentIdx > 4) _contentIdx--;
-                    }
-                    else if (key === 'ArrowRight') {
-                        if (_contentIdx < _contentItems.length - 1) _contentIdx++;
-                    }
+                const current = _contentItems[_contentIdx];
+                const moveToExtensionElement = targetOrSelector => {
+                    const target = typeof targetOrSelector === 'string'
+                        ? document.querySelector(targetOrSelector)
+                        : targetOrSelector;
+                    const index = target ? _contentItems.indexOf(target) : -1;
+                    if (index < 0) return false;
+                    _contentIdx = index;
                     _updateContentFocus();
+                    return true;
+                };
+
+                if (extensionDialogOpen) {
+                    const dialogNavigation = extensionDialog.classList.contains('has-candidate') ? {
+                        navExtCandidateBack: { ArrowRight: '#navExtInstallBtn' },
+                        navExtInstallBtn: { ArrowLeft: '#navExtCandidateBack' }
+                    } : {
+                        navExtDialogClose: { ArrowRight: '#navExtUrlInput', ArrowDown: '#navExtUrlInput' },
+                        navExtUrlInput: { ArrowLeft: '#navExtDialogClose', ArrowUp: '#navExtDialogClose', ArrowDown: '#navExtPasteBtn', ArrowRight: '#navExtPasteBtn' },
+                        navExtPasteBtn: { ArrowLeft: '#navExtUrlInput', ArrowUp: '#navExtUrlInput', ArrowRight: '#navExtReviewBtn' },
+                        navExtReviewBtn: { ArrowUp: '#navExtUrlInput', ArrowLeft: '#navExtPasteBtn' }
+                    };
+                    const target = dialogNavigation[current?.id]?.[key];
+                    if (target) moveToExtensionElement(target);
+                    return true;
                 }
-                return;
+
+                const back = document.getElementById('setBackExt');
+                const store = document.getElementById('navExtStoreBtn');
+                const manual = document.getElementById('navExtManualBtn');
+                const list = document.getElementById('navExtensionsList');
+                const cards = Array.from(list?.querySelectorAll('.nav-ext-card') || []);
+                const card = current?.closest?.('.nav-ext-card');
+
+                if (current === back) {
+                    if (key === 'ArrowUp' || key === 'ArrowLeft') _setTopbarFocus(true);
+                    else moveToExtensionElement(store);
+                    return true;
+                }
+                if (current === store || current === manual) {
+                    if (key === 'ArrowUp') moveToExtensionElement(back);
+                    else if (key === 'ArrowLeft') moveToExtensionElement(current === manual ? store : back);
+                    else if (key === 'ArrowRight' && current === store) moveToExtensionElement(manual);
+                    else if (key === 'ArrowDown' && cards.length) {
+                        const targetCard = current === manual && cards.length > 1 ? cards[1] : cards[0];
+                        moveToExtensionElement(targetCard.querySelector('.nav-ext-btn'));
+                    }
+                    return true;
+                }
+
+                if (card) {
+                    const cardIndex = cards.indexOf(card);
+                    const actions = Array.from(card.querySelectorAll('.nav-ext-btn'));
+                    const actionIndex = Math.max(0, actions.indexOf(current));
+                    const columns = Math.max(1, String(getComputedStyle(list).gridTemplateColumns || '').split(' ').filter(Boolean).length);
+                    const moveToCard = targetIndex => {
+                        if (targetIndex < 0 || targetIndex >= cards.length) return false;
+                        const targetActions = Array.from(cards[targetIndex].querySelectorAll('.nav-ext-btn'));
+                        return moveToExtensionElement(targetActions[Math.min(actionIndex, targetActions.length - 1)] || targetActions[0]);
+                    };
+
+                    if (key === 'ArrowRight') {
+                        if (!moveToExtensionElement(actions[actionIndex + 1])) moveToCard(cardIndex + 1);
+                    } else if (key === 'ArrowLeft') {
+                        if (!moveToExtensionElement(actions[actionIndex - 1])) moveToCard(cardIndex - 1);
+                    } else if (key === 'ArrowDown') {
+                        moveToCard(cardIndex + columns);
+                    } else if (key === 'ArrowUp') {
+                        if (!moveToCard(cardIndex - columns)) {
+                            moveToExtensionElement(cardIndex % columns === 0 ? store : manual);
+                        }
+                    }
+                }
+                return true;
             }
         }
 
@@ -6794,6 +8191,26 @@ window.isNavMenuOpen = false;
 
                 if (_systemSubView === 'video') {
                     const activeItem = _contentItems[_contentIdx];
+                    const presets = Array.from(document.querySelectorAll('.nav-video-preset'));
+                    const range = document.getElementById('navVideoScale');
+                    const back = document.getElementById('setBackSystemVideo');
+                    const moveTo = element => {
+                        const idx = _contentItems.indexOf(element);
+                        if (idx >= 0) { _contentIdx = idx; _updateContentFocus(); }
+                    };
+                    if (activeItem === back) {
+                        if (key === 'ArrowDown' || key === 'ArrowRight') moveTo(presets[0] || range);
+                        else if (key === 'ArrowUp' || key === 'ArrowLeft') _setTopbarFocus(true);
+                        return;
+                    }
+                    if (activeItem?.classList.contains('nav-video-preset')) {
+                        const idx = presets.indexOf(activeItem);
+                        if (key === 'ArrowLeft') moveTo(presets[Math.max(0, idx - 1)]);
+                        else if (key === 'ArrowRight') moveTo(presets[Math.min(presets.length - 1, idx + 1)]);
+                        else if (key === 'ArrowUp') moveTo(back);
+                        else if (key === 'ArrowDown') moveTo(range);
+                        return;
+                    }
                     if (activeItem?.id === 'navVideoScale' && (key === 'ArrowLeft' || key === 'ArrowRight')) {
                         const delta = key === 'ArrowRight' ? 5 : -5;
                         const min = Number(activeItem.min || 25);
@@ -6804,6 +8221,11 @@ window.isNavMenuOpen = false;
                         _updateContentFocus();
                         return;
                     }
+                    if (activeItem === range && key === 'ArrowUp') {
+                        moveTo(presets[1] || presets[0] || back);
+                        return;
+                    }
+                    if (activeItem === range && key === 'ArrowDown') return;
                 }
 
                 if (_systemSubView === 'updates') {
@@ -6816,6 +8238,11 @@ window.isNavMenuOpen = false;
                     const firstActionIdx = _contentItems.findIndex(el =>
                         el?.classList?.contains('nav-suggestion-card') ||
                         el?.classList?.contains('nav-gpu-app-card'));
+                    const releaseNotesIdx = _contentItems.findIndex(el => el?.id === 'systemUpdateChangelog');
+                    const actionIndices = _contentItems
+                        .map((el, idx) => el?.classList?.contains('nav-suggestion-card') ? idx : -1)
+                        .filter(idx => idx >= 0);
+                    const actionPosition = actionIndices.indexOf(_contentIdx);
                     const onTabs = _contentIdx === tabDoorpiIdx || _contentIdx === tabWindowsIdx || _contentIdx === tabGpuIdx;
                     const gpuCardIndices = _contentItems
                         .map((el, idx) => el?.classList?.contains('nav-gpu-app-card') ? idx : -1)
@@ -6834,6 +8261,26 @@ window.isNavMenuOpen = false;
                         return;
                     }
 
+                    if (actionPosition >= 0) {
+                        if (key === 'ArrowLeft' && actionPosition % 2 === 1) _contentIdx = actionIndices[actionPosition - 1];
+                        else if (key === 'ArrowRight' && actionPosition % 2 === 0 && actionIndices[actionPosition + 1] !== undefined) _contentIdx = actionIndices[actionPosition + 1];
+                        else if (key === 'ArrowUp') _contentIdx = actionPosition >= 2
+                            ? actionIndices[actionPosition - 2]
+                            : activeTabIdx;
+                        else if (key === 'ArrowDown') {
+                            if (actionIndices[actionPosition + 2] !== undefined) _contentIdx = actionIndices[actionPosition + 2];
+                            else if (releaseNotesIdx >= 0 && _systemUpdatesSubView === 'doorpi') _contentIdx = releaseNotesIdx;
+                        }
+                        _updateContentFocus();
+                        return;
+                    }
+
+                    if (_contentIdx === releaseNotesIdx) {
+                        if (key === 'ArrowUp') _contentIdx = actionIndices[actionIndices.length - 1] ?? activeTabIdx;
+                        _updateContentFocus();
+                        return;
+                    }
+
                     if (key === 'ArrowUp') {
                         if (_contentIdx <= 0) {
                             _setTopbarFocus(true);
@@ -6845,6 +8292,7 @@ window.isNavMenuOpen = false;
                     } else if (key === 'ArrowDown') {
                         if (_contentIdx === 0) _contentIdx = activeTabIdx;
                         else if (onTabs && firstActionIdx !== -1) _contentIdx = firstActionIdx;
+                        else if (onTabs && releaseNotesIdx >= 0 && _systemUpdatesSubView === 'doorpi') _contentIdx = releaseNotesIdx;
                         else if (_contentIdx < total - 1) _contentIdx++;
                     } else if (key === 'ArrowLeft') {
                         if (_contentIdx === tabGpuIdx) _contentIdx = tabWindowsIdx;
@@ -6985,9 +8433,19 @@ window.isNavMenuOpen = false;
                         window.DoorpiSoundUI?.closeDrawer?.('settings');
                         _settingsSubView = 'devicesHub';
                     } else if (_settingsSubView === 'devicesHub' || _settingsSubView === 'connectivityHub') {
-                        _settingsSubView = 'system';
-                        _systemSubView = null;
+                        if (_settingsReturnToRoot) {
+                            _settingsReturnToRoot = false;
+                            _settingsSubView = null;
+                            _systemSubView = null;
+                        } else {
+                            _settingsSubView = 'system';
+                            _systemSubView = null;
+                        }
                     } else if (_settingsSubView === 'system' && _systemSubView) {
+                        if (_settingsReturnToRoot) {
+                            _settingsReturnToRoot = false;
+                            _settingsSubView = null;
+                        }
                         _systemSubView = null;
                     } else {
                         _settingsSubView = (_settingsSubView === 'account' || _settingsSubView === 'sharing') ? 'accountHub' : null;
@@ -7161,27 +8619,21 @@ window.isNavMenuOpen = false;
                     }
                 }
 
-                if (data.type === 'showSetup') {
-                    const open = () => {
-                        window.DoorpiIntro?.finishHandoff?.();
-                        if (window.isNavMenuOpen) close();
-                        if (typeof openSetup === 'function') openSetup();
-                    };
-                    if (window.DoorpiIntro?.isRunning?.()) window.DoorpiIntro.runAfterIntro(open);
-                    else open();
-                }
+                // showSetup é uma transição global e é tratada exclusivamente
+                // por app.js. Mantê-la aqui abria o setup duas vezes e encerrava
+                // o handoff da intro antes do conteúdo estar visível.
             } catch { }
         });
     }
 
     // ── Context Menu no Nav ───────────────────────────────────────────────────
     window._navMenuTriggerCtxMenu = function () {
-        if (!window.isNavMenuOpen) return;
+        if (!window.isNavMenuOpen) return false;
         const catId = CATS[_catIdx]?.id;
         const focusedProfileItem = _contentItems[_contentIdx];
-        if (catId === 'profile' && focusedProfileItem?.dataset?.historyGameName) {
+        if (catId === 'profile' && !_topbarFocus && focusedProfileItem?.dataset?.historyGameName) {
             _openHistoryContextMenu(focusedProfileItem);
-            return;
+            return true;
         }
         const allowGpuUpdaterContext =
             catId === 'settings' &&
@@ -7189,22 +8641,23 @@ window.isNavMenuOpen = false;
             _systemSubView === 'updates' &&
             _systemUpdatesSubView === 'gpu';
         const allowBluetoothContext = catId === 'settings' && _settingsSubView === 'bluetooth';
-        if (catId !== 'games' && catId !== 'media' && !allowGpuUpdaterContext && !allowBluetoothContext) return;
+        const isLibrary = catId === 'games' || catId === 'media';
+        if (!isLibrary && !allowGpuUpdaterContext && !allowBluetoothContext) return false;
 
         // Ao usar Virtual Rendering, a referencia O(1) correta no DOM é essa:
-        let focused = null;
-        if (_isLazyCat()) {
-            focused = _contentItems[_contentIdx];
-        } else {
-            focused = _contentItems[_contentIdx];
-        }
-        
-        if (!focused) return;
-        if (allowGpuUpdaterContext && focused.dataset?.gpuUpdaterCard !== 'true') return;
-        if (allowBluetoothContext && focused.dataset?.bluetoothDeviceCard !== 'true') return;
+        const focused = _contentItems[_contentIdx];
+        if (!focused || _topbarFocus) return false;
+
+        // Pesquisa, filtros e demais acoes da biblioteca compartilham a aba com
+        // os cards, mas nao representam jogos/aplicativos. Validar aqui tambem
+        // cobre o X disparado diretamente pelo polling do controle.
+        if (isLibrary && !focused.classList?.contains('nav-vertical-card')) return false;
+        if (allowGpuUpdaterContext && focused.dataset?.gpuUpdaterCard !== 'true') return false;
+        if (allowBluetoothContext && focused.dataset?.bluetoothDeviceCard !== 'true') return false;
 
         const r = focused.getBoundingClientRect();
         window._ctxMenuOpen?.(focused, r.right + 2, r.top);
+        return true;
     };
 
     // ── Expose ────────────────────────────────────────────────────────────────
@@ -7213,6 +8666,8 @@ window.isNavMenuOpen = false;
     window._navMenuOpenSettings = async function () {
         _catIdx = 2;
         _settingsSubView = null;
+        _systemSubView = null;
+        _settingsReturnToRoot = false;
         if (!window.isNavMenuOpen) {
             await open(2);
             requestAnimationFrame(() => _setTopbarFocus(false));
@@ -7270,6 +8725,7 @@ window.isNavMenuOpen = false;
     window._navMenuOpenExtensions = function () {
         _catIdx = 2; // Categoria de Configurações
         _settingsSubView = 'extensions';
+        _settingsReturnToRoot = false;
         document.querySelectorAll('.nav-cat-item').forEach((el, i) => el.classList.toggle('active', i === _catIdx));
         _updateTopbarFocusVisual();
         _contentIdx = 0;
@@ -7286,6 +8742,7 @@ window.isNavMenuOpen = false;
     };
 
     window._navMenuOpenAccountSharing = async function (appId = '') {
+        _settingsReturnToRoot = false;
         if (!window.isNavMenuOpen) {
             _catIdx = 2;
             _settingsSubView = 'sharing';

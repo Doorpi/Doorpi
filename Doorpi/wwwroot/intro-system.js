@@ -38,7 +38,9 @@
         consoleIntroSkippable: window.__doorpiConsoleShellIntroSkippable === true,
         consoleExplorerReady: window.__doorpiConsoleShellExplorerReady === true,
         systemPrepOverlay: null,
-        finishDispatched: false
+        finishDispatched: false,
+        pendingInitialDestination: '',
+        skipRequested: false
     };
 
     async function fetchIntroConfig() {
@@ -196,6 +198,7 @@
     }
 
     function isInitialUiReadyForSkip() {
+        if (state.pendingInitialDestination) return true;
         if (window.__doorpiInitialUiReady === true) return true;
         if (window._doorpiUserSessionReady === true) return true;
         if (isElementReady(document.getElementById('doorpiUserPicker'))) return true;
@@ -458,7 +461,14 @@
 
     function skipIntro() {
         if (!state.started || state.completed) return false;
-        if (!isInitialUiReadyForSkip()) return false;
+        if (!isInitialUiReadyForSkip()) {
+            // O Start pode chegar antes de o host informar se o destino inicial
+            // é o seletor de usuário ou o setup. Memorize a intenção e conclua o
+            // salto assim que essa tela estiver preparada.
+            state.skipRequested = true;
+            return true;
+        }
+        state.skipRequested = false;
         if (isNativeIntroMode()) {
             try {
                 window.chrome?.webview?.postMessage(JSON.stringify({ action: 'nativeIntroSkip' }));
@@ -538,7 +548,12 @@
         clearHandoffAssets();
 
         revealMainSystemUI();
-        try { window._startBlobBg?.(); } catch { }
+        try {
+            const bgBlur = document.getElementById('bgBlur');
+            const heroReady = !!(bgBlur?.src && bgBlur.style.opacity !== '0');
+            if (heroReady) window._stopBlobBg?.();
+            else window._startBlobBg?.();
+        } catch { }
 
         if (state.ambientRaf) cancelAnimationFrame(state.ambientRaf);
         state.ambientRaf = 0;
@@ -680,7 +695,11 @@
         isRunning: () => state.started && !state.completed,
         isComplete: () => state.completed,
         isHandoffActive: () => state.handoffActive,
-        startUserPickerAmbient: () => createNativeHandoffAmbient(),
+        startUserPickerAmbient: () => {
+            state.pendingInitialDestination = 'user-picker';
+            createNativeHandoffAmbient();
+            if (state.skipRequested) requestAnimationFrame(skipIntro);
+        },
         freezeUserPickerAmbient: freezeAmbient,
         resumeUserPickerAmbient: resumeAmbient,
         setVolume: postIntroVolume,
@@ -702,6 +721,12 @@
                 transparent ? 'doorpi-intro-handoff' : '',
                 ...classListFrom(setup.className || setup.class || cfg.setupClass || userPicker.className || userPicker.class || cfg.userPickerClass)
             ].filter(Boolean);
+        },
+        prepareSetupHandoff: () => {
+            state.pendingInitialDestination = 'setup';
+            createNativeHandoffAmbient();
+            if (state.skipRequested) requestAnimationFrame(skipIntro);
+            return true;
         },
         canSkip: () => state.started && !state.completed && isInitialUiReadyForSkip(),
         shouldDeferUserPicker: () => false

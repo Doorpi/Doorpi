@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.IO;
-using System.Text;
 
 namespace Doorpi.ProfileSync;
 
@@ -31,9 +30,12 @@ public sealed class ProfileSyncLocalStore
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!File.Exists(_statePath)) return new ProfileSyncState();
-            string json = await File.ReadAllTextAsync(_statePath, cancellationToken).ConfigureAwait(false);
-            return ProfileSyncSerializer.DeserializeState(json) ?? new ProfileSyncState();
+            return await ReadWithBackupAsync(
+                       _statePath,
+                       ProfileSyncSerializer.DeserializeState,
+                       cancellationToken)
+                   .ConfigureAwait(false)
+                   ?? new ProfileSyncState();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
         {
@@ -66,9 +68,11 @@ public sealed class ProfileSyncLocalStore
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!File.Exists(_baseSnapshotPath)) return null;
-            string json = await File.ReadAllTextAsync(_baseSnapshotPath, cancellationToken).ConfigureAwait(false);
-            return ProfileSyncSerializer.DeserializeProfile(json);
+            return await ReadWithBackupAsync(
+                       _baseSnapshotPath,
+                       ProfileSyncSerializer.DeserializeProfile,
+                       cancellationToken)
+                   .ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
         {
@@ -109,7 +113,13 @@ public sealed class ProfileSyncLocalStore
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var candidates = new List<string> { _baseSnapshotPath, _pendingRemotePath };
+            var candidates = new List<string>
+            {
+                _baseSnapshotPath,
+                _baseSnapshotPath + ".bak",
+                _pendingRemotePath,
+                _pendingRemotePath + ".bak"
+            };
             if (Directory.Exists(_backupsDirectory))
             {
                 candidates.AddRange(Directory.EnumerateDirectories(_backupsDirectory)
@@ -162,9 +172,11 @@ public sealed class ProfileSyncLocalStore
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!File.Exists(_pendingRemotePath)) return null;
-            string json = await File.ReadAllTextAsync(_pendingRemotePath, cancellationToken).ConfigureAwait(false);
-            return ProfileSyncSerializer.DeserializeProfile(json);
+            return await ReadWithBackupAsync(
+                       _pendingRemotePath,
+                       ProfileSyncSerializer.DeserializeProfile,
+                       cancellationToken)
+                   .ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
         {
@@ -276,22 +288,36 @@ public sealed class ProfileSyncLocalStore
         string content,
         CancellationToken cancellationToken)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        string temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-        try
+        await DurableFileStore.WriteAllTextAsync(
+                path,
+                content,
+                keepBackup: true,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private static async Task<T?> ReadWithBackupAsync<T>(
+        string path,
+        Func<string, T?> deserialize,
+        CancellationToken cancellationToken)
+        where T : class
+    {
+        foreach (string candidate in new[] { path, path + ".bak" })
         {
-            await File.WriteAllTextAsync(temporaryPath, content, new UTF8Encoding(false), cancellationToken)
-                .ConfigureAwait(false);
-            File.Move(temporaryPath, path, overwrite: true);
-        }
-        finally
-        {
+            if (!File.Exists(candidate)) continue;
             try
             {
-                if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+                string json = await File.ReadAllTextAsync(candidate, cancellationToken).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(json) || json.IndexOf('\0') >= 0) continue;
+                T? value = deserialize(json);
+                if (value != null) return value;
             }
-            catch { }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+            {
+                Debug.WriteLine($"[ProfileSync] Falha ao ler {candidate}: {ex.Message}");
+            }
         }
+        return null;
     }
 
     private static string SanitizePathPart(string value)

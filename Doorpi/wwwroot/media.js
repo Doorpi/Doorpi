@@ -248,6 +248,23 @@ let _currentHomeTab = 'games';
         opacity: 0.92;
         filter: drop-shadow(0 18px 34px rgba(0,0,0,0.42));
     }
+    .media-card-fallback-name {
+        position: relative;
+        z-index: 1;
+        display: block;
+        width: min(78%, 34rem);
+        overflow: hidden;
+        color: rgba(244,247,255,0.94);
+        font-size: clamp(0.9rem, 1.75vw, 2.25rem);
+        font-weight: 650;
+        line-height: 1.08;
+        letter-spacing: 0.01em;
+        text-align: center;
+        text-overflow: ellipsis;
+        text-transform: none;
+        white-space: nowrap;
+        filter: drop-shadow(0 10px 24px rgba(0,0,0,0.45));
+    }
     .media-card-fallback-blur.generic,
     .media-card-fallback-icon.generic {
         display: flex;

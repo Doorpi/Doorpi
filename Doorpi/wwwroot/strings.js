@@ -896,6 +896,9 @@ const STRINGS = {
 
         // ---- Launch Overlay ----
         launchOpening: 'Iniciando',
+        launchKindGame: 'JOGO',
+        launchKindApp: 'APLICATIVO',
+        launchKindStore: 'LOJA',
         launchWaiting: 'Aguardando a janela do jogo...',
         launchWaitingGame: 'Aguardando a janela do jogo...',
         launchWaitingStore: 'Aguardando janela da loja...',
@@ -1072,6 +1075,9 @@ const STRINGS = {
         ctxCloseRunning: 'Close',
         // ---- Launch Overlay ----
         launchOpening: 'Starting',
+        launchKindGame: 'GAME',
+        launchKindApp: 'APPLICATION',
+        launchKindStore: 'STORE',
         launchWaiting: 'Waiting for the game window...',
         launchWaitingGame: 'Waiting for the game window...',
         launchWaitingStore: 'Waiting for the store window...',

@@ -1201,7 +1201,7 @@ namespace Doorpi
             _activeSessionGameName = candidate.Game.Name;
             _gameSessionParentKind = "store";
             _forceDoorpiReturnOnGameClose = false;
-            _sessionStartUtc = DateTime.UtcNow;
+            StartActiveSessionClock();
             DelayGameMinimizeAvailability();
 
             DiscordRpcManager.Instance.UpdateState("game", candidate.Game.Name);
@@ -1273,7 +1273,7 @@ namespace Doorpi
             _activeSessionGameName = candidate.Game.Name;
             _gameSessionParentKind = "store";
             _forceDoorpiReturnOnGameClose = false;
-            _sessionStartUtc = DateTime.UtcNow;
+            StartActiveSessionClock();
 
             DiscordRpcManager.Instance.UpdateState("game", candidate.Game.Name);
             SendGameLaunchStatus("gameLaunchDone");

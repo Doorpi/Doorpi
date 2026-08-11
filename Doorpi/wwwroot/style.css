@@ -546,8 +546,9 @@ body {
     background: rgba(8, 9, 15, 0.96);
     border: 1px solid rgba(255,255,255,0.13);
     border-radius: clamp(14px, 1.1vw, 20px);
-    box-shadow: 0 28px 90px rgba(0,0,0,0.72), 0 0 0 1px rgba(255,255,255,0.04) inset;
-    backdrop-filter: blur(22px) saturate(1.25);
+    box-shadow: 0 18px 42px rgba(0,0,0,0.46), 0 0 0 1px rgba(255,255,255,0.04) inset;
+    contain: layout paint style;
+    isolation: isolate;
     opacity: 0;
     transform: translate(-50%, 10px) scale(0.985);
     transition: opacity 0.16s ease, transform 0.16s ease;
@@ -650,7 +651,8 @@ body {
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: background 0.07s, transform 0.07s, border-color 0.07s, color 0.07s, box-shadow 0.07s;
+    contain: layout paint style;
+    transition: background-color 0.05s, border-color 0.05s, color 0.05s;
     outline: none;
     min-width: 0;
     box-sizing: border-box;
@@ -666,15 +668,14 @@ body {
         color: #080810;
         border-color: transparent;
         border-bottom-color: rgba(0,0,0,0.25);
-        transform: scale(1.06) translateY(-2px);
-        box-shadow: 0 8px 24px rgba(0,0,0,0.55), 0 0 0 2px rgba(255,255,255,0.35);
+        outline: 2px solid rgba(255,255,255,0.72);
+        outline-offset: 1px;
         z-index: 1;
         position: relative;
     }
 
     .vkb-key:active {
-        transform: scale(0.96) translateY(0);
-        box-shadow: none;
+        background: rgba(255,255,255,0.82);
     }
 
 .vkb-key-label {
@@ -735,7 +736,7 @@ body {
             background: rgb(50,110,255);
             color: #fff;
             border-color: transparent;
-            box-shadow: 0 8px 28px rgba(50,110,255,0.55), 0 0 0 2px rgba(50,110,255,0.4);
+            outline-color: rgba(115,165,255,0.9);
         }
 
     .vkb-key[data-key="BKSP"] {
@@ -3388,6 +3389,392 @@ body.doorpi-session-transition #doorpiUserSwitchLogout.visible {
 .error-block {
     display: none;
 }
+
+/* A Home somente existe visualmente depois que um perfil foi escolhido.
+   O seletor e o setup ficam fora destes elementos e continuam interativos. */
+body.doorpi-session-locked .top-bar,
+body.doorpi-session-locked .home-top-shade,
+body.doorpi-session-locked .capaJogo,
+body.doorpi-session-locked .grid-bg {
+    opacity: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+    transition: none !important;
+}
+
+/* ══════════════════════════════════════════════════════
+   APRESENTAÇÃO DE ABERTURA
+   Uma única linguagem para jogos, apps e web apps.
+   ══════════════════════════════════════════════════════ */
+#gameLaunchOverlay {
+    isolation: isolate;
+    align-items: stretch;
+    justify-content: flex-start;
+    overflow: hidden;
+    background: #202938;
+    color: #f7f8fb;
+    font-family: 'Outfit', 'Segoe UI', system-ui, sans-serif;
+    transition: opacity 0.28s ease;
+}
+
+#gameLaunchOverlay .overlay-bg-solid,
+#gameLaunchOverlay .overlay-bg {
+    z-index: 0;
+    pointer-events: none;
+}
+
+#gameLaunchOverlay .overlay-bg-solid {
+    background:
+        radial-gradient(ellipse at 82% 22%, rgba(120, 143, 176, 0.5) 0%, transparent 45%),
+        linear-gradient(125deg, #283547 0%, #202938 44%, #171e2b 100%);
+}
+
+#gameLaunchOverlay .overlay-bg {
+    inset: -2%;
+    background-position: 64% center;
+    filter: saturate(0.92) contrast(1.03);
+    opacity: 0.88;
+    transform: scale(1.025);
+    transition: background-image 0.38s ease, opacity 0.38s ease, transform 0.7s cubic-bezier(.22, 1, .36, 1);
+}
+
+#gameLaunchOverlay::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    background:
+        linear-gradient(90deg,
+            rgba(26, 34, 47, 0.98) 0%,
+            rgba(27, 35, 48, 0.93) 29%,
+            rgba(23, 30, 42, 0.68) 52%,
+            rgba(17, 22, 32, 0.22) 79%,
+            rgba(13, 17, 25, 0.12) 100%),
+        linear-gradient(0deg, rgba(11, 15, 23, 0.48) 0%, transparent 31%, rgba(10, 13, 20, 0.12) 100%);
+}
+
+#gameLaunchOverlay.visible .overlay-bg {
+    transform: scale(1);
+}
+
+.launch-shell {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    height: 100%;
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: clamp(38px, 4.6vw, 88px) clamp(44px, 6vw, 116px);
+}
+
+.launch-brand {
+    position: absolute;
+    top: clamp(38px, 4.6vw, 88px);
+    left: clamp(44px, 6vw, 116px);
+    display: flex;
+    align-items: center;
+    gap: clamp(10px, 0.9vw, 18px);
+    width: max-content;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: clamp(0.72rem, 0.74vw, 1rem);
+    font-weight: 650;
+    letter-spacing: 0.16em;
+    line-height: 1;
+}
+
+.launch-brand-rule {
+    width: 1px;
+    height: 1.15em;
+    background: rgba(255, 255, 255, 0.38);
+}
+
+.launch-brand-context {
+    color: rgba(255, 255, 255, 0.54);
+    font-weight: 500;
+    letter-spacing: 0.13em;
+}
+
+#gameLaunchOverlay .overlay-card {
+    position: relative;
+    z-index: 2;
+    display: grid;
+    grid-template-columns: clamp(190px, 15.2vw, 300px) minmax(320px, 660px);
+    grid-template-rows: auto auto;
+    align-items: center;
+    justify-content: start;
+    column-gap: clamp(34px, 3.4vw, 68px);
+    row-gap: clamp(16px, 1.5vw, 28px);
+    width: min(78vw, 1320px);
+    max-width: none;
+    margin: auto 0;
+    padding: 0;
+    transform: translateX(-28px);
+    opacity: 0;
+    transition: transform 0.62s cubic-bezier(.22, 1, .36, 1), opacity 0.32s ease;
+}
+
+#gameLaunchOverlay.visible .overlay-card {
+    transform: translateX(0);
+    opacity: 1;
+}
+
+#gameLaunchOverlay .game-art {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    width: clamp(190px, 15.2vw, 300px);
+    height: auto;
+    aspect-ratio: 2 / 3;
+    border-radius: clamp(12px, 1vw, 20px);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    background: rgba(255, 255, 255, 0.09);
+    box-shadow: 0 28px 70px rgba(4, 8, 15, 0.42), 0 2px 8px rgba(4, 8, 15, 0.24);
+    color: rgba(255, 255, 255, 0.62);
+    transform: translateY(16px) scale(0.975);
+    opacity: 0;
+    transition: transform 0.62s 0.08s cubic-bezier(.22, 1, .36, 1), opacity 0.34s 0.06s ease;
+}
+
+#gameLaunchOverlay.visible .game-art {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+}
+
+#gameLaunchOverlay .game-art img {
+    object-fit: cover;
+}
+
+#gameLaunchOverlay.store-install-lock .game-art,
+#gameLaunchOverlay.gpu-updater-lock .game-art {
+    width: clamp(172px, 13vw, 256px);
+    height: auto;
+    aspect-ratio: 1;
+    border-radius: clamp(18px, 1.4vw, 28px);
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.24);
+    box-shadow: 0 28px 70px rgba(4, 8, 15, 0.38);
+}
+
+#gameLaunchOverlay.store-install-lock .game-art img,
+#gameLaunchOverlay.gpu-updater-lock .game-art img {
+    object-fit: contain;
+    padding: 16%;
+}
+
+#gameLaunchOverlay .game-art-placeholder {
+    width: 34%;
+    height: auto;
+    opacity: 0.52;
+}
+
+.launch-copy {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+#gameLaunchOverlay .game-name {
+    order: 2;
+    max-width: 100%;
+    margin-top: clamp(12px, 1.3vw, 24px);
+    color: #fff;
+    font-size: clamp(2.15rem, 3.7vw, 5.2rem);
+    font-weight: 330;
+    line-height: 1.02;
+    letter-spacing: -0.035em;
+    text-align: left;
+    text-wrap: balance;
+    text-shadow: 0 3px 22px rgba(5, 9, 17, 0.28);
+}
+
+#gameLaunchOverlay .status-row {
+    order: 1;
+    min-height: 0;
+    width: min(100%, 360px);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: clamp(9px, 0.7vw, 13px);
+}
+
+#gameLaunchOverlay .status-text {
+    color: rgba(255, 255, 255, 0.72);
+    font-size: clamp(0.74rem, 0.75vw, 1rem);
+    font-weight: 620;
+    letter-spacing: 0.15em;
+    line-height: 1;
+    text-transform: uppercase;
+}
+
+.launch-progress {
+    position: relative;
+    display: block;
+    width: clamp(150px, 13vw, 250px);
+    height: 2px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.22);
+}
+
+.launch-progress > span {
+    position: absolute;
+    inset: 0;
+    width: 52%;
+    background: rgba(255, 255, 255, 0.94);
+    transform: translateX(-115%);
+    animation: launchProgressSweep 1.45s cubic-bezier(.55, .05, .45, .95) infinite;
+}
+
+@keyframes launchProgressSweep {
+    0% { transform: translateX(-115%); }
+    58%, 100% { transform: translateX(210%); }
+}
+
+#gameLaunchOverlay .status-running {
+    color: rgba(255, 255, 255, 0.72);
+}
+
+#gameLaunchOverlay .error-block {
+    order: 3;
+    width: min(100%, 620px);
+    margin-top: clamp(22px, 2vw, 36px);
+    display: none;
+    grid-template-columns: auto 1fr;
+    align-items: start;
+    column-gap: clamp(12px, 1vw, 18px);
+    row-gap: clamp(18px, 1.4vw, 26px);
+    text-align: left;
+}
+
+#gameLaunchOverlay.state-error .error-block {
+    display: grid;
+}
+
+#gameLaunchOverlay .error-icon {
+    grid-column: 1;
+    width: clamp(34px, 2.4vw, 46px);
+    height: clamp(34px, 2.4vw, 46px);
+    border-radius: 9px;
+    border: 1px solid rgba(255, 144, 151, 0.58);
+    background: rgba(126, 36, 45, 0.34);
+    color: #ffb2b7;
+    font-size: clamp(0.9rem, 1vw, 1.15rem);
+}
+
+#gameLaunchOverlay .error-copy {
+    grid-column: 2;
+    min-width: 0;
+}
+
+#gameLaunchOverlay .error-title {
+    color: rgba(255, 255, 255, 0.96);
+    font-size: clamp(1rem, 1.15vw, 1.45rem);
+    font-weight: 620;
+    line-height: 1.2;
+}
+
+#gameLaunchOverlay .error-sub {
+    max-width: 520px;
+    margin-top: 5px;
+    color: rgba(255, 255, 255, 0.58);
+    font-size: clamp(0.82rem, 0.86vw, 1.08rem);
+    line-height: 1.45;
+}
+
+#gameLaunchOverlay .dismiss-btn {
+    grid-column: 2;
+    justify-self: start;
+    margin: 0;
+    min-width: 126px;
+    padding: 11px 20px;
+    border-radius: 9px;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    background: rgba(255, 255, 255, 0.11);
+    color: rgba(255, 255, 255, 0.9);
+    font-family: inherit;
+    font-weight: 620;
+}
+
+#gameLaunchOverlay .dismiss-btn:hover,
+#gameLaunchOverlay .dismiss-btn:focus {
+    border-color: #fff;
+    background: #fff;
+    color: #16202e;
+    box-shadow: 0 10px 28px rgba(4, 8, 15, 0.28);
+    transform: translateY(-2px);
+}
+
+.launch-actions {
+    order: 4;
+    display: flex;
+    align-items: center;
+    min-height: 0;
+}
+
+#gameLaunchOverlay.execution-lock-visible #executionLockActions {
+    grid-column: 2;
+    grid-row: 2;
+    justify-content: flex-start;
+    margin: 0;
+}
+
+#gameLaunchOverlay.execution-lock-visible #executionLockSessionPair {
+    order: 3;
+    justify-content: flex-start;
+    margin-top: clamp(18px, 1.5vw, 28px);
+}
+
+#gameLaunchOverlay.state-error .game-name {
+    color: rgba(255, 255, 255, 0.76);
+}
+
+@media (max-height: 760px) {
+    .launch-shell {
+        padding-top: 30px;
+        padding-bottom: 30px;
+    }
+
+    .launch-brand {
+        top: 30px;
+    }
+
+    #gameLaunchOverlay .overlay-card {
+        grid-template-columns: clamp(150px, 14vw, 220px) minmax(280px, 600px);
+    }
+
+    #gameLaunchOverlay .game-art {
+        width: clamp(150px, 14vw, 220px);
+    }
+}
+
+@media (max-aspect-ratio: 4 / 3) {
+    #gameLaunchOverlay::before {
+        background: linear-gradient(90deg, rgba(24, 32, 44, 0.96) 0%, rgba(22, 29, 41, 0.78) 70%, rgba(17, 22, 32, 0.62) 100%);
+    }
+
+    #gameLaunchOverlay .overlay-card {
+        width: 100%;
+        grid-template-columns: clamp(160px, 24vw, 260px) minmax(0, 1fr);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #gameLaunchOverlay,
+    #gameLaunchOverlay .overlay-bg,
+    #gameLaunchOverlay .overlay-card,
+    #gameLaunchOverlay .game-art {
+        transition-duration: 0.01ms !important;
+    }
+
+    .launch-progress > span {
+        width: 68%;
+        transform: translateX(0);
+        animation: none;
+    }
+}
 /* ══════════════════════════════════════════════════
    HOME TABS BAR — informação presente, não decoração
    ══════════════════════════════════════════════════ */
@@ -4660,9 +5047,9 @@ body.doorpi-session-transition #doorpiUserSwitchLogout.visible {
         radial-gradient(ellipse at 78% 0%, rgba(112,146,235,0.10), transparent 42%),
         linear-gradient(135deg, rgba(36,40,60,0.96), rgba(17,20,34,0.94)) !important;
     border-color: rgba(255,255,255,0.17) !important;
-    box-shadow: 0 26px 84px rgba(0,0,0,0.52), inset 0 1px 0 rgba(255,255,255,0.10) !important;
-    backdrop-filter: blur(24px) saturate(1.18) !important;
-    -webkit-backdrop-filter: blur(24px) saturate(1.18) !important;
+    box-shadow: 0 18px 42px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.10) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
 }
 
 .vkb-preview-text {
@@ -4681,7 +5068,9 @@ body.doorpi-session-transition #doorpiUserSwitchLogout.visible {
     background: rgba(255,255,255,0.88) !important;
     color: #080a14 !important;
     border-color: rgba(255,255,255,0.94) !important;
-    box-shadow: 0 12px 28px rgba(0,0,0,0.34), 0 0 0 3px rgba(255,255,255,0.16) !important;
+    box-shadow: none !important;
+    outline: 2px solid rgba(255,255,255,0.72) !important;
+    outline-offset: 1px;
 }
 
 .vkb-key[data-key="ENTER"],
@@ -4695,7 +5084,8 @@ body.doorpi-session-transition #doorpiUserSwitchLogout.visible {
 .vkb-key[data-key="ok"]:focus {
     background: rgba(255,255,255,0.92) !important;
     color: #080a14 !important;
-    box-shadow: 0 12px 28px rgba(0,0,0,0.34), 0 0 0 3px rgba(255,255,255,0.18) !important;
+    box-shadow: none !important;
+    outline-color: rgba(255,255,255,0.82) !important;
 }
 
 .nav-vertical-card.active,
@@ -6422,5 +6812,116 @@ body.home-trailer-playing .home-feature-stage .home-feature-art-shell {
 
     .home-controls-bar {
         display: none;
+    }
+}
+
+/* Home de console: mais espaço para contexto e uma prateleira mais densa. */
+.main-content-wrapper {
+    --card-w: clamp(126px, min(9.6vw, 17.8vh), 252px);
+    padding-top: clamp(72px, 8vh, 108px);
+    gap: clamp(7px, .9vh, 14px);
+}
+
+.home-feature-stage {
+    height: min(45vh, 620px);
+    gap: clamp(30px, 4vw, 76px);
+}
+
+.home-feature-copy {
+    width: min(100%, 760px);
+    gap: clamp(9px, 1.05vh, 16px);
+}
+
+#gameLogo {
+    max-width: min(31vw, 500px);
+    max-height: min(16vh, 168px);
+}
+
+.home-feature-title {
+    max-width: 18ch;
+    font-size: clamp(1.7rem, 2.55vw, 3.65rem);
+    line-height: 1.04;
+}
+
+.home-feature-stage.has-logo .home-feature-title {
+    font-size: clamp(1.02rem, 1.28vw, 1.55rem);
+}
+
+.home-feature-meta,
+.home-feature-description {
+    font-size: clamp(.84rem, .92vw, 1.08rem);
+}
+
+.home-feature-playtime strong {
+    font-size: clamp(1.38rem, 1.75vw, 2.2rem);
+}
+
+.home-feature-primary {
+    font-size: clamp(.9rem, .98vw, 1.16rem);
+}
+
+.home-library-toolbar {
+    min-height: clamp(40px, 4.8vh, 58px);
+}
+
+.main-content-wrapper .home-tab,
+.home-library-count {
+    font-size: clamp(.82rem, .92vw, 1.08rem);
+}
+
+body.home-trailer-playing .home-feature-copy {
+    width: clamp(420px, 30vw, 620px);
+    max-width: min(64vw, 620px);
+    padding: clamp(18px, 1.45vw, 26px);
+    gap: clamp(8px, .8vh, 13px);
+}
+
+body.home-trailer-playing .home-feature-copy #gameLogo {
+    max-width: min(20vw, 300px);
+    max-height: min(11vh, 110px);
+}
+
+body.home-trailer-playing .home-feature-copy .home-feature-title,
+body.home-trailer-playing .home-feature-stage.has-logo .home-feature-copy .home-feature-title {
+    font-size: clamp(1rem, 1.25vw, 1.48rem);
+}
+
+body.home-trailer-playing .home-feature-copy .home-feature-meta,
+body.home-trailer-playing .home-feature-copy .home-feature-playtime-label,
+body.home-trailer-playing .home-feature-copy .home-feature-playtime small {
+    font-size: clamp(.7rem, .72vw, .86rem);
+}
+
+body.home-trailer-playing .home-feature-copy .home-feature-playtime strong {
+    font-size: clamp(1.22rem, 1.5vw, 1.8rem);
+}
+
+body.home-trailer-playing .home-feature-copy .home-feature-primary {
+    font-size: clamp(.82rem, .88vw, 1rem);
+}
+
+@media (max-height: 900px), (max-width: 1500px) {
+    .main-content-wrapper {
+        --card-w: clamp(116px, min(9vw, 16.7vh), 190px);
+        padding-top: clamp(62px, 7.5vh, 78px);
+    }
+
+    .home-feature-stage {
+        height: min(40vh, 400px);
+        gap: clamp(22px, 3vw, 46px);
+    }
+
+    .home-feature-copy {
+        width: min(100%, 650px);
+    }
+}
+
+@media (max-height: 720px) {
+    .main-content-wrapper {
+        --card-w: clamp(102px, min(8.45vw, 15.6vh), 152px);
+    }
+
+    .home-feature-stage {
+        height: min(31vh, 230px);
     }
 }

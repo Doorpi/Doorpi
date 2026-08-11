@@ -1078,6 +1078,9 @@ function openSetup(isAddingUser = false) {
     document.body.classList.add('setup-active');
     window.updateDoorpiQuickMenuAvailability?.();
     const c = document.getElementById('setupContainer');
+    // O setup inicial e uma etapa obrigatoria: voltar pode navegar dentro dele,
+    // mas nunca deve revelar a Home antes de existir um usuario valido.
+    c.dataset.required = isAddingUser ? 'false' : 'true';
     if (c.dataset.introSetupClasses) {
         c.classList.remove(...c.dataset.introSetupClasses.split(/\s+/).filter(Boolean));
     }
@@ -1102,9 +1105,13 @@ function openSetup(isAddingUser = false) {
     });
 }
 
-function closeSetup() {
-    isSetupOpen = false;
+function closeSetup(options = {}) {
     const c = document.getElementById('setupContainer');
+    const force = options === true || options?.force === true;
+    const skipHomeFocus = options?.skipHomeFocus === true;
+    if (!force && c?.dataset.required === 'true') return false;
+
+    isSetupOpen = false;
     c.style.display = 'none';
     c.classList.remove('visible');
     if (c.dataset.introSetupClasses) {
@@ -1112,18 +1119,33 @@ function closeSetup() {
         delete c.dataset.introSetupClasses;
     }
     _stopSetupBg(); // Para a animação do Setup ao fechar para poupar recursos
-    window.focusFeaturedCard?.();
+    if (!skipHomeFocus) window.focusFeaturedCard?.();
     window.isSetupOpen = false;
     document.body.classList.remove('setup-active');
     window.updateDoorpiQuickMenuAvailability?.();
+    return true;
 }
 
 function setupBack() {
     if (_setupPhase === 'registration') {
         _setupReturnToAuth();
-        return;
+        return true;
     }
-    closeSetup();
+    if (_isAddingUserMode) {
+        return _returnFromAddUserToPicker();
+    }
+    const c = document.getElementById('setupContainer');
+    if (c?.dataset.required === 'true') return true;
+    return closeSetup();
+}
+
+function _returnFromAddUserToPicker() {
+    if (window._doorpiSetupReturningToUserPicker === true) return true;
+    // Mantem o setup opaco ate o seletor estar pronto. Fecha-lo antes da
+    // resposta do host exporia e focaria a Home por um frame.
+    window._doorpiSetupReturningToUserPicker = true;
+    postToHost({ action: 'requestUsers' });
+    return true;
 }
 
 function getSetupItems() {
@@ -1251,7 +1273,7 @@ function _validateAndFinish() {
         document.body.classList.add('doorpi-session-transition');
     }
 
-    closeSetup();
+    closeSetup({ force: true });
 
     setTimeout(() => {
         postToHost({
@@ -1394,10 +1416,11 @@ function _bindSetupEvents() {
     });
 
     document.getElementById('btnSetupCancel')?.addEventListener('click', () => {
-        closeSetup();
         if (_isAddingUserMode) {
-            postToHost({ action: 'requestUsers' });
+            _returnFromAddUserToPicker();
+            return;
         }
+        closeSetup();
     });
 
     document.getElementById('btnSetupBackAuth')?.addEventListener('click', _setupReturnToAuth);

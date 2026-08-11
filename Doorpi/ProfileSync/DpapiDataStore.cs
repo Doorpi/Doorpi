@@ -51,6 +51,7 @@ internal sealed class DpapiDataStore : IDataStore
         {
             string path = GetEncryptedPath(key);
             if (File.Exists(path)) File.Delete(path);
+            if (File.Exists(path + ".bak")) File.Delete(path + ".bak");
             await _legacyStore.DeleteAsync<T>(key).ConfigureAwait(false);
         }
         finally
@@ -67,8 +68,24 @@ internal sealed class DpapiDataStore : IDataStore
         try
         {
             string encryptedPath = GetEncryptedPath(key);
-            if (File.Exists(encryptedPath))
-                return await ReadEncryptedAsync<T>(encryptedPath).ConfigureAwait(false);
+            string encryptedBackupPath = encryptedPath + ".bak";
+            if (File.Exists(encryptedPath) || File.Exists(encryptedBackupPath))
+            {
+                try
+                {
+                    string candidate = File.Exists(encryptedPath) ? encryptedPath : encryptedBackupPath;
+                    return await ReadEncryptedAsync<T>(candidate).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is IOException or
+                                                CryptographicException or
+                                                FormatException or
+                                                Newtonsoft.Json.JsonException)
+                {
+                    if (File.Exists(encryptedPath) && File.Exists(encryptedBackupPath))
+                        return await ReadEncryptedAsync<T>(encryptedBackupPath).ConfigureAwait(false);
+                    throw;
+                }
+            }
 
             T? legacyValue = await _legacyStore.GetAsync<T>(key).ConfigureAwait(false);
             if (legacyValue == null) return default;
@@ -89,6 +106,8 @@ internal sealed class DpapiDataStore : IDataStore
         try
         {
             foreach (string path in Directory.EnumerateFiles(_directory, "*.dpapi"))
+                File.Delete(path);
+            foreach (string path in Directory.EnumerateFiles(_directory, "*.dpapi.bak"))
                 File.Delete(path);
             await _legacyStore.ClearAsync().ConfigureAwait(false);
         }
@@ -116,8 +135,35 @@ internal sealed class DpapiDataStore : IDataStore
         string temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            await File.WriteAllBytesAsync(temporaryPath, encrypted).ConfigureAwait(false);
-            File.Move(temporaryPath, path, overwrite: true);
+            await using (var stream = new FileStream(
+                             temporaryPath,
+                             FileMode.CreateNew,
+                             FileAccess.Write,
+                             FileShare.None,
+                             64 * 1024,
+                             FileOptions.Asynchronous | FileOptions.WriteThrough))
+            {
+                await stream.WriteAsync(encrypted).ConfigureAwait(false);
+                await stream.FlushAsync().ConfigureAwait(false);
+                stream.Flush(flushToDisk: true);
+            }
+
+            if (File.Exists(path))
+            {
+                try
+                {
+                    File.Replace(temporaryPath, path, path + ".bak", ignoreMetadataErrors: true);
+                }
+                catch (PlatformNotSupportedException)
+                {
+                    File.Move(temporaryPath, path, overwrite: true);
+                }
+            }
+            else
+            {
+                File.Move(temporaryPath, path);
+                File.Copy(path, path + ".bak", overwrite: true);
+            }
         }
         finally
         {

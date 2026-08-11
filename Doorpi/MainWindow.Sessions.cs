@@ -27,6 +27,8 @@ namespace Doorpi
             public string ActiveGameName = "";
             public string ParentKind = "";
             public DateTime StartedUtc = DateTime.MinValue;
+            public long InitialPlaytimeMinutes = -1;
+            public int LastCheckpointElapsedMinutes;
             public CancellationTokenSource? LaunchMonitorCts;
             public bool FocusFallbackPromptVisible;
             public DateTime LastFocusFallbackPromptUtc = DateTime.MinValue;
@@ -174,6 +176,9 @@ namespace Doorpi
         private DesktopControlSession? _desktopControlSession;
 
         private readonly object _gameLaunchMonitorLock = new();
+        private readonly object _sessionPlaytimeLock = new();
+        private System.Threading.Timer? _playtimeCheckpointTimer;
+        private static readonly TimeSpan PlaytimeCheckpointInterval = TimeSpan.FromMinutes(5);
 
         private bool _executionLockActive;
         private string _executionLockKind = "";
@@ -342,6 +347,7 @@ namespace Doorpi
 
         private void ClearGameWindowSession()
         {
+            StopPlaytimeCheckpointTimer();
             StopGameLaunchStoreMouseMode();
             ResetSteamAccountSelectionInputState();
             ResetGameMinimizeGrace();

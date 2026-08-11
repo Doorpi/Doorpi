@@ -741,7 +741,20 @@ public partial class MainWindow
             {
                 SaveUserProfile(profile);
                 SaveGameHistory(appliedHistory);
-                await Dispatcher.InvokeAsync(LoadCurrentUserIntoUI);
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    if (!_interactiveUserSessionStarted)
+                    {
+                        LoadCurrentUserIntoUI();
+                        return;
+                    }
+
+                    // A sincronização pode concluir enquanto o usuário navega pela
+                    // Home. Atualize somente os dados do perfil; limpar e reconstruir
+                    // as grades aqui derrubava o foco após qualquer edição local.
+                    webView.CoreWebView2.PostWebMessageAsString(
+                        JsonSerializer.Serialize(BuildCurrentUserPayload(profile)));
+                });
             }
 
             ApplyCloudControlConfiguration(remote);

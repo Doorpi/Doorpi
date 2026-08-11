@@ -727,7 +727,12 @@
     }
     function markDirty() { state.dirty = true; state.draft.updatedAtUtc = new Date().toISOString(); renderFooter(); }
     function setTab(tab) { if (!['keyboard','mouse'].includes(tab) || state.mode === 'global' || (isYouTubeProfile() && tab === 'mouse')) return; finishRangeAdjustment(); state.tab = tab; state.selectedBindingIndex = -1; normalizeSelectedBinding(); renderTabs(); renderContent(); focusDefault(); }
-    function switchTab(direction) { if (!state.popup && !state.adjustingRange) setTab(direction === 'left' ? 'keyboard' : 'mouse'); }
+    function switchTab(direction) {
+        if (state.popup || state.adjustingRange) return;
+        const previousTab = state.tab;
+        setTab(direction === 'left' ? 'keyboard' : 'mouse');
+        if (state.tab !== previousTab) window.DoorpiUiSound?.play('move');
+    }
 
     function openPicker(kind) {
         if (kind === 'profiles' && state.target && !mouseKeyboardEnabled()) return;
@@ -874,6 +879,11 @@
             detailScroller.scrollTop=Math.max(0,Math.min(maxScroll,detailScroller.scrollTop+centerOffset));
         } else item?.scrollIntoView?.({block:'nearest',inline:'nearest'});
     }
+    function focusItemWithSound(item, previous = document.activeElement) {
+        focusItem(item);
+        if (item && document.activeElement === item && item !== previous)
+            window.DoorpiUiSound?.play('move');
+    }
     function itemsIn(selector) {
         return state.overlay ? [...state.overlay.querySelectorAll(`${selector} [data-cc-focus]`)].filter(item => !item.disabled && item.offsetParent !== null) : [];
     }
@@ -982,14 +992,14 @@
         if (state.capture) return; const items=focusables(); if (!items.length) return; const active=document.activeElement;
         if (state.adjustingRange) {
             if (active !== state.adjustingRange) state.adjustingRange.focus({preventScroll:true});
-            if (direction==='LEFT'||direction==='RIGHT') { const range=state.adjustingRange,step=Number(range.step)||1; range.value=String(Math.max(Number(range.min),Math.min(Number(range.max),Number(range.value)+(direction==='RIGHT'?step:-step)))); range.dispatchEvent(new Event('input',{bubbles:true})); }
+            if (direction==='LEFT'||direction==='RIGHT') { const range=state.adjustingRange,step=Number(range.step)||1,previous=range.value; range.value=String(Math.max(Number(range.min),Math.min(Number(range.max),Number(range.value)+(direction==='RIGHT'?step:-step)))); range.dispatchEvent(new Event('input',{bubbles:true})); if(range.value!==previous)window.DoorpiUiSound?.play('move'); }
             return;
         }
         const candidates = state.popup ? itemsIn('.cc-shade') : items;
-        if (!candidates.includes(active)) { focusItem(candidates[0]); return; }
+        if (!candidates.includes(active)) { focusItemWithSound(candidates[0], active); return; }
         if (state.popup) {
             const keyboardTarget = state.popup.kind === 'keyboard' ? keyboardPopupNavigation(active, direction) : null;
-            focusItem(keyboardTarget || spatialPopupNavigation(candidates, active, direction) || active); return;
+            focusItemWithSound(keyboardTarget || spatialPopupNavigation(candidates, active, direction) || active, active); return;
         }
 
         const modes=itemsIn('.cc-mode-switch'),top=itemsIn('.cc-top'),topActions=top.filter(item=>!modes.includes(item)),context=itemsIn('.cc-context'),inputMode=itemsIn('.cc-input-mode'),tabs=itemsIn('.cc-tabs'),headActions=itemsIn('.cc-command-panel .cc-section-head'),rows=itemsIn('.cc-list'),detail=itemsIn('.cc-detail-panel'),pointer=itemsIn('.cc-pointer-panel'),footer=itemsIn('.cc-footer');
@@ -1074,7 +1084,7 @@
         // DOM order here turns UP/LEFT into "previous element" and DOWN/RIGHT
         // into "next element", crossing columns and sections at their edges.
         // At a boundary, staying put is the only predictable console behavior.
-        focusItem(target||active);
+        focusItemWithSound(target||active, active);
     }
     function activate() {
         if (state.capture) return;
