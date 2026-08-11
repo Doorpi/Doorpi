@@ -40,6 +40,11 @@ function Reset-Directory([string]$path) {
     New-Item -ItemType Directory -Path $path | Out-Null
 }
 
+function Write-Utf8NoBom([string]$path, [string]$content) {
+    $encoding = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($path, $content, $encoding)
+}
+
 function Write-PackageManifest([string]$folder, [string]$component, [string]$version, [string]$entryPoint) {
     $manifest = [ordered]@{
         component = $component
@@ -49,7 +54,7 @@ function Write-PackageManifest([string]$folder, [string]$component, [string]$ver
         createdAt = (Get-Date).ToUniversalTime().ToString("O")
     }
 
-    $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $folder "package-manifest.json") -Encoding UTF8
+    Write-Utf8NoBom (Join-Path $folder "package-manifest.json") (($manifest | ConvertTo-Json -Depth 5) + "`n")
 }
 
 function New-UpdatePackageFromFolder([string]$folder, [string]$packagePath) {
@@ -322,7 +327,7 @@ if ($null -ne $signingKey) {
 }
 
 $manifestPath = Join-Path $releaseRoot "manifest-beta.json"
-$draftManifest | ConvertTo-Json -Depth 10 | Set-Content -Path $manifestPath -Encoding UTF8
+Write-Utf8NoBom $manifestPath (($draftManifest | ConvertTo-Json -Depth 10) + "`n")
 
 Write-Host ""
 Write-Host "Release gerado em: $releaseRoot"
