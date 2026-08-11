@@ -1,51 +1,54 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202608042104,
-    "publishedAt":  "2026-08-05T00:04:53.1946354Z",
-    "expiresAt":  "2026-08-19T00:04:53.1946354Z",
+    "manifestVersion":  202608110041,
+    "publishedAt":  "2026-08-11T03:42:49.4086964Z",
+    "expiresAt":  "2026-08-25T03:42:49.4086964Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.4.24",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.24/doorpi-0.4.24.doorpiupdate.zip",
-                   "sha256":  "7a4a88e6f6b95856ff4ae6255f2fd470cab42a52b8fe16026265776fa7626058",
-                   "sizeBytes":  133714558,
+                   "version":  "0.4.25",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.25/doorpi-0.4.25.doorpiupdate.zip",
+                   "sha256":  "320bebe5ced133ef434683b852d196ea36741fe112dbdcef0938261b2e952664",
+                   "sizeBytes":  133765166,
                    "minUpdaterVersion":  "0.1.0",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
                     "version":  "0.1.0",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.24/updater-0.1.0.doorpiupdate.zip",
-                    "sha256":  "a0969992fe1100eee5c8125b035b1593723b071f7db3af34ddc225dcc3a235a3",
-                    "sizeBytes":  69946106,
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.25/updater-0.1.0.doorpiupdate.zip",
+                    "sha256":  "ccafe34b69905faa96854d04f2a381d61e97ecacc3602121d24976121bd20116",
+                    "sizeBytes":  69946127,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.4.24",
-                          "title":  "Doorpi 0.4.24",
+                          "version":  "0.4.25",
+                          "title":  "Doorpi 0.4.25",
                           "items":  [
-                                        "Corrigidos perfis de controles fantasmas sendo criados.",
-                                        "Corrigido mouse habilitado erroneamente na Home.",
-                                        "Corrigido problema de navegação nas configurações de controle."
+                                        "Melhorias visuais gerais.",
+                                        "Otimizações nos controles de mouse e teclado nos aplicativos.",
+                                        "Gravação de horas dos jogos resiliente a crashs e travamentos.",
+                                        "Melhorias no consumo de recursos do Doorpi, reduzido em sessões de gameplay."
                                     ],
                           "locales":  {
                                           "pt-BR":  {
-                                                        "title":  "Doorpi 0.4.24",
+                                                        "title":  "Doorpi 0.4.25",
                                                         "items":  [
-                                                                      "Corrigidos perfis de controles fantasmas sendo criados.",
-                                                                      "Corrigido mouse habilitado erroneamente na Home.",
-                                                                      "Corrigido problema de navegação nas configurações de controle."
+                                                                      "Melhorias visuais gerais.",
+                                                                      "Otimizações nos controles de mouse e teclado nos aplicativos.",
+                                                                      "Gravação de horas dos jogos resiliente a crashs e travamentos.",
+                                                                      "Melhorias no consumo de recursos do Doorpi, reduzido em sessões de gameplay."
                                                                   ]
                                                     },
                                           "en":  {
-                                                     "title":  "Doorpi 0.4.24",
+                                                     "title":  "Doorpi 0.4.25",
                                                      "items":  [
-                                                                   "Fixed ghost controller profiles being created.",
-                                                                   "Fixed mouse being incorrectly enabled on Home.",
-                                                                   "Fixed navigation issues in controller settings."
+                                                                   "General visual improvements.",
+                                                                   "Optimizations for mouse and keyboard controls in applications.",
+                                                                   "Game playtime tracking is more resilient to crashes and freezes.",
+                                                                   "Improved Doorpi resource usage, reduced during gameplay sessions."
                                                                ]
                                                  }
                                       }
@@ -54,6 +57,6 @@
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "HA6uvuHFu5aUlXkEn7PlZlSQYMlksWgXtpeA2+VIduObkW2XlsWeCZO/lgwPw7t9I3pNHwOOxd1+0YzS1cGkCtyjWH2hokEQd2r0vHttI6/E+zZQZFCQjbjK6es7CwOpT/IIIKSbsU4UVIiY4yH2gT9k9mnUsSTCFOVVa71mmZrmfb0CSdg7Uk22olF4sWTEjOA6MXuvDU/Mh/7jpX+9m6uoTKTp7h5FVfI/2lQ1oHF4B+9Vtt8HIO1h6RSXzq9q0NKQogDgUHLKIxBXxsSrRJcQJ9YCDOauBgSzu95P0OJTts9iqzgsuUHkesCWtSnFaOkPcTB+u6Zs86qMq0rHYWRFKdfdgOvJEVick+FLCObUpqWefp3PvlRXuwDv58hydbZirVDXx3+vmseiYltwuryiRmktPlp4mnr3gR7MZBQM53HtXbhcNJWYG8m+DcLnR4piqVX+L/EfdLVjmrnyY8TgxUMVduzr99txNblosuBchLL7MbSAliQiX3PCmaYc"
+                      "value":  "lDTdrxr85cR4V4kHtZQW8Sp+f6OIbhXF6AsSWTFbiEIZnKVMm+ElDXQ1LNzhhqTMc0PbE4K/MfMyRxrJN3bgvvRfG6TjYdQzhphS8AfZJldeHMmFeIPTlqO2V8n01DKuxlAhGLG7oVUTaqgl2RWo7UYvXXoAsJd/QJsuF3oHqG5jgYPb7vkNaNrQKo96rIbDJxurNlUMzovZDWcMl2RYLAGPd3JwYayiS7M1bAV7N/kqY0MpPuxgZnnE+aG2StBu0DGD21d/PzsRdDONGOuLBmTWAMU/kxvyiNNmL0RYa9ZDWFve91YHx2lnT5qWokuwSz33n6apIep2wddpRF91xHVYtdzdRlYglZdwyeAAJJ3obMN5Nv97Z/BiV3Hitp2QZ80sFHrNuUvQ9BDTcxLilawavwIMP1sk3ANgQv5qqDvTDc22SSE4FEY+UdJ3WVXqc89VqyMNEJp0DbOOH0TqrO0GA1hzHbTjI1gIoKCzHSHsuX56UtzzzCk/66vzn9w4"
                   }
 }
