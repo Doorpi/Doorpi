@@ -14,10 +14,10 @@ public static class PackageVerifier
     public static async Task VerifySha256Async(string filePath, string expectedSha256, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(expectedSha256))
-            throw new InvalidDataException("O pacote nao informa SHA-256 esperado.");
+            throw new InvalidDataException("O pacote não informa o SHA-256 esperado.");
 
         string actual = await ComputeSha256Async(filePath, cancellationToken).ConfigureAwait(false);
         if (!string.Equals(actual, expectedSha256.Trim(), StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException($"SHA-256 invalido. Esperado {expectedSha256}, recebido {actual}.");
+            throw new InvalidDataException($"SHA-256 inválido. Esperado {expectedSha256}, recebido {actual}.");
     }
 }

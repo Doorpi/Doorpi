@@ -1337,6 +1337,11 @@ namespace Doorpi
                     if (healthy)
                     {
                         Interlocked.Exchange(ref _homeWebViewHealthy, 1);
+                        // O health check do binario pertence ao bootstrap, nao a uma
+                        // sessao de usuario. Esperar BeginStartupUpdateCheck fazia o
+                        // Updater dar rollback enquanto o seletor de perfis estava
+                        // perfeitamente funcional.
+                        CompletePendingDoorpiHealthCheck();
                         await Dispatcher.InvokeAsync(() =>
                         {
                             TryCompleteNativeBootIntroHandoff();

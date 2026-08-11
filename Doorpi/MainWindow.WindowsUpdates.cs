@@ -30,7 +30,7 @@ namespace Doorpi
             if (!File.Exists(helperPath))
             {
                 return Failure("helper", unchecked((int)0x80070002),
-                    "Helper administrativo do Windows Update nao encontrado.");
+                    "Auxiliar administrativo do Windows Update não encontrado.");
             }
 
             string pipeName = "DoorpiWindowsUpdate-" + Guid.NewGuid().ToString("N");
@@ -47,7 +47,7 @@ namespace Doorpi
                 progress?.Report(new WindowsUpdateStatus
                 {
                     Status = "downloading",
-                    Message = "Aguardando autorizacao administrativa do Windows...",
+                    Message = "Aguardando autorização administrativa do Windows...",
                     LastCheckedAt = DateTimeOffset.UtcNow,
                     RebootRequired = WindowsUpdates.IsRebootRequired(),
                     Updates = updates.ToList(),
@@ -68,7 +68,7 @@ namespace Doorpi
                 });
                 if (process == null)
                     return Failure("helper", unchecked((int)0x80004005),
-                        "Nao foi possivel iniciar o helper administrativo.");
+                        "Não foi possível iniciar o auxiliar administrativo.");
 
                 using var connectTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
                 await pipe.WaitForConnectionAsync(connectTimeout.Token).ConfigureAwait(false);
@@ -119,10 +119,10 @@ namespace Doorpi
                         {
                             Status = helperStatus == "installing" ? "installing" : "downloading",
                             Message = helperStatus == "installing"
-                                ? "Instalando atualizacoes do Windows..."
+                                ? "Instalando atualizações do Windows..."
                                 : helperStatus == "preparing"
-                                    ? "Preparando instalacao com privilegios administrativos..."
-                                    : "Baixando atualizacoes do Windows...",
+                                    ? "Preparando instalação com privilégios administrativos..."
+                                    : "Baixando atualizações do Windows...",
                             LastCheckedAt = DateTimeOffset.UtcNow,
                             RebootRequired = WindowsUpdates.IsRebootRequired(),
                             Updates = updates.ToList(),
@@ -140,19 +140,19 @@ namespace Doorpi
                                    line,
                                    WindowsUpdateHelperJsonOptions)
                                ?? Failure("helper", unchecked((int)0x80004005),
-                                   "Resposta invalida do helper administrativo.");
+                                   "Resposta inválida do auxiliar administrativo.");
                     }
                 }
             }
             catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
             {
                 return Failure("cancelled", ex.HResult,
-                    "O usuario cancelou a solicitacao de privilegios administrativos.");
+                    "O usuário cancelou a solicitação de privilégios administrativos.");
             }
             catch (OperationCanceledException)
             {
                 return Failure("helper", unchecked((int)0x800705B4),
-                    "O helper administrativo nao respondeu a tempo.");
+                    "O auxiliar administrativo não respondeu a tempo.");
             }
             catch (Exception ex)
             {

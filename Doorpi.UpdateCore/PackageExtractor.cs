@@ -17,7 +17,7 @@ public static class PackageExtractor
         string expectedVersion)
     {
         if (!File.Exists(zipPath))
-            throw new FileNotFoundException("Pacote de update nao encontrado.", zipPath);
+            throw new FileNotFoundException("Pacote de atualização não encontrado.", zipPath);
 
         ResetDirectory(stagingFolder);
         ZipFile.ExtractToDirectory(zipPath, stagingFolder, overwriteFiles: true);
@@ -27,17 +27,17 @@ public static class PackageExtractor
             throw new InvalidDataException("Pacote sem package-manifest.json.");
 
         var manifest = JsonSerializer.Deserialize<PackageManifest>(File.ReadAllText(manifestPath), JsonOptions)
-            ?? throw new InvalidDataException("package-manifest.json invalido.");
+            ?? throw new InvalidDataException("package-manifest.json inválido.");
 
         if (!string.Equals(manifest.Component, expectedComponent, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException($"Componente invalido no pacote. Esperado {expectedComponent}, recebido {manifest.Component}.");
+            throw new InvalidDataException($"Componente inválido no pacote. Esperado {expectedComponent}, recebido {manifest.Component}.");
 
         if (!string.Equals(manifest.Version, expectedVersion, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException($"Versao invalida no pacote. Esperada {expectedVersion}, recebida {manifest.Version}.");
+            throw new InvalidDataException($"Versão inválida no pacote. Esperada {expectedVersion}, recebida {manifest.Version}.");
 
         if (!string.IsNullOrWhiteSpace(manifest.EntryPoint)
             && !File.Exists(Path.Combine(stagingFolder, manifest.EntryPoint)))
-            throw new InvalidDataException($"Entrada do pacote nao encontrada: {manifest.EntryPoint}.");
+            throw new InvalidDataException($"Entrada do pacote não encontrada: {manifest.EntryPoint}.");
 
         return manifest;
     }
