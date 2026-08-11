@@ -6,7 +6,7 @@ namespace Doorpi.ProfileSync;
 
 public static class ProfileSyncSnapshotFactory
 {
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 4;
 
     public static CloudProfileV1 Create(
         UserProfile profile,
@@ -14,7 +14,8 @@ public static class ProfileSyncSnapshotFactory
         string deviceId,
         DateTimeOffset updatedAtUtc,
         IEnumerable<CloudControlProfileV1>? controlProfiles = null,
-        IEnumerable<CloudControlAssignmentV1>? controlAssignments = null)
+        IEnumerable<CloudControlAssignmentV1>? controlAssignments = null,
+        IEnumerable<MediaActivityHistoryEntry>? mediaHistory = null)
     {
         ArgumentNullException.ThrowIfNull(profile);
         ArgumentNullException.ThrowIfNull(history);
@@ -26,6 +27,15 @@ public static class ProfileSyncSnapshotFactory
             .Select(group => CreateGame(group.Key, group))
             .OrderBy(game => game.GameKey, StringComparer.Ordinal)
             .ToList();
+        List<CloudMediaHistoryEntryV1> media = (mediaHistory ?? Array.Empty<MediaActivityHistoryEntry>())
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.AppId) &&
+                            !string.IsNullOrWhiteSpace(entry.ContentTitle) &&
+                            entry.TotalPlaybackSeconds > 0)
+            .GroupBy(entry => NormalizeMediaKey(entry.AppId, entry.ContentTitle, entry.CreatorName), StringComparer.Ordinal)
+            .Where(group => !string.IsNullOrWhiteSpace(group.Key))
+            .Select(group => CreateMedia(group.Key, group))
+            .OrderBy(entry => entry.MediaKey, StringComparer.Ordinal)
+            .ToList();
 
         return new CloudProfileV1
         {
@@ -34,12 +44,15 @@ public static class ProfileSyncSnapshotFactory
             ProfileName = profile.Name ?? "",
             PinCode = profile.PinCode ?? "",
             SteamGridApiKey = profile.SteamGridApiKey ?? "",
+            ApplicationHistoryEnabled = profile.ApplicationHistoryEnabled,
             CreatedAtUtc = ToUtc(profile.DateCreated),
             UpdatedAtUtc = updatedAtUtc.ToUniversalTime(),
             LastModifiedDeviceId = deviceId ?? "",
             TotalPlaytimeSeconds = SaturatingSum(games.Select(game => game.TotalPlaytimeSeconds)),
+            TotalMediaPlaybackSeconds = SaturatingSum(media.Select(entry => entry.TotalPlaybackSeconds)),
             ProfilePhoto = CreatePhoto(profile),
             Games = games,
+            MediaHistory = media,
             ControlProfiles = (controlProfiles ?? Array.Empty<CloudControlProfileV1>()).ToList(),
             ControlAssignments = (controlAssignments ?? Array.Empty<CloudControlAssignmentV1>()).ToList()
         };
@@ -49,6 +62,21 @@ public static class ProfileSyncSnapshotFactory
     {
         if (string.IsNullOrWhiteSpace(name)) return "";
         return new string(name.Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant();
+    }
+
+    public static string NormalizeMediaKey(string appId, string title, string? creator)
+    {
+        static string Part(string value) => new(value
+            .Normalize(NormalizationForm.FormKC)
+            .Where(char.IsLetterOrDigit)
+            .Select(char.ToLowerInvariant)
+            .ToArray());
+        string app = Part(appId ?? "");
+        string content = Part(title ?? "");
+        string author = Part(creator ?? "");
+        return string.IsNullOrWhiteSpace(app) || string.IsNullOrWhiteSpace(content)
+            ? ""
+            : $"{app}:{content}:{author}";
     }
 
     private static CloudGameHistoryEntryV1 CreateGame(
@@ -83,6 +111,61 @@ public static class ProfileSyncSnapshotFactory
             HistoryHorizontalImageUrl = FirstNotBlank(ordered.Select(entry => entry.HistoryHorizontalImageUrl)),
             ProfileBannerImageUrl = FirstNotBlank(ordered.Select(entry => entry.ProfileBannerImageUrl)),
             SteamGridGameId = ordered.Select(entry => entry.SteamGridGameId).FirstOrDefault(id => id > 0)
+        };
+    }
+
+    private static CloudMediaHistoryEntryV1 CreateMedia(
+        string key,
+        IEnumerable<MediaActivityHistoryEntry> entries)
+    {
+        List<MediaActivityHistoryEntry> ordered = entries
+            .OrderByDescending(entry => entry.LastPlayed)
+            .ThenBy(entry => entry.ContentTitle, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        MediaActivityHistoryEntry latest = ordered[0];
+        DateTime firstPlayed = ordered
+            .Where(entry => entry.FirstPlayed > DateTime.MinValue)
+            .Select(entry => entry.FirstPlayed)
+            .DefaultIfEmpty(DateTime.MinValue)
+            .Min();
+        DateTime lastPlayed = ordered
+            .Select(entry => entry.LastPlayed)
+            .DefaultIfEmpty(DateTime.MinValue)
+            .Max();
+        long sessionCount = SaturatingSum(ordered.Select(entry => (long)Math.Max(0, entry.SessionCount)));
+        MediaActivityHistoryEntry? artworkEntry = ordered.FirstOrDefault(entry =>
+            !string.IsNullOrWhiteSpace(entry.ArtworkRemoteUrl));
+        DateTime metadataCaptured = ordered
+            .Where(entry => entry.MetadataCapturedUtc.HasValue)
+            .Select(entry => entry.MetadataCapturedUtc!.Value)
+            .DefaultIfEmpty(DateTime.MinValue)
+            .Max();
+        return new CloudMediaHistoryEntryV1
+        {
+            MediaKey = key,
+            AppId = latest.AppId ?? "",
+            AppName = latest.AppName ?? "",
+            Category = latest.Category ?? "",
+            ContentTitle = latest.ContentTitle ?? "",
+            CreatorName = latest.CreatorName ?? "",
+            AlbumTitle = FirstNotBlank(ordered.Select(entry => entry.AlbumTitle)),
+            SeriesTitle = FirstNotBlank(ordered.Select(entry => entry.SeriesTitle)),
+            SeasonTitle = FirstNotBlank(ordered.Select(entry => entry.SeasonTitle)),
+            EpisodeNumber = FirstNotBlank(ordered.Select(entry => entry.EpisodeNumber)),
+            ContentType = FirstNotBlank(ordered.Select(entry => entry.ContentType)),
+            PageUrl = FirstNotBlank(ordered.Select(entry => entry.PageUrl)),
+            TitleSource = FirstNotBlank(ordered.Select(entry => entry.TitleSource)),
+            MediaSessionAvailable = ordered.Any(entry => entry.MediaSessionAvailable),
+            ArtworkRemoteUrl = artworkEntry?.ArtworkRemoteUrl ?? "",
+            ArtworkSource = artworkEntry?.ArtworkSource ?? "",
+            MetadataCapturedUtc = ToUtc(metadataCaptured),
+            TotalPlaybackSeconds = SaturatingSum(ordered.Select(entry => entry.TotalPlaybackSeconds)),
+            LastSessionSeconds = Math.Max(0, latest.LastSessionSeconds),
+            SessionCount = (int)Math.Min(int.MaxValue, sessionCount),
+            LastPositionSeconds = Math.Max(0, latest.LastPositionSeconds),
+            DurationSeconds = Math.Max(0, latest.DurationSeconds),
+            FirstPlayedUtc = ToUtc(firstPlayed),
+            LastPlayedUtc = ToUtc(lastPlayed)
         };
     }
 
@@ -295,6 +378,11 @@ public static class ProfileSyncEngine
         merged.SteamGridApiKey = MergeValue(
             baseline.SteamGridApiKey ?? "", local.SteamGridApiKey ?? "", remote.SteamGridApiKey ?? "",
             "steamGridApiKey", conflictPaths);
+        merged.ApplicationHistoryEnabled = MergeValue(
+            baseline.ApplicationHistoryEnabled,
+            local.ApplicationHistoryEnabled,
+            remote.ApplicationHistoryEnabled,
+            "applicationHistoryEnabled", conflictPaths);
         merged.CreatedAtUtc = MergeValue(
             baseline.CreatedAtUtc?.ToUniversalTime(),
             local.CreatedAtUtc?.ToUniversalTime(),
@@ -354,9 +442,15 @@ public static class ProfileSyncEngine
         }
 
         merged.Games = mergedGames;
+        merged.MediaHistory = MergeMediaHistoryThreeWay(
+            baseline.MediaHistory,
+            local.MediaHistory,
+            remote.MediaHistory,
+            conflictPaths);
         merged.ControlProfiles = MergeControlProfiles(local.ControlProfiles, remote.ControlProfiles);
         merged.ControlAssignments = MergeControlAssignments(local.ControlAssignments, remote.ControlAssignments);
         merged.TotalPlaytimeSeconds = SaturatingSum(mergedGames.Select(game => game.TotalPlaytimeSeconds));
+        merged.TotalMediaPlaybackSeconds = SaturatingSum(merged.MediaHistory.Select(entry => entry.TotalPlaybackSeconds));
         merged.UpdatedAtUtc = DateTimeOffset.UtcNow;
         merged.LastModifiedDeviceId = local.LastModifiedDeviceId ?? "";
 
@@ -397,6 +491,10 @@ public static class ProfileSyncEngine
             local.PinCode ?? "", remote.PinCode ?? "", "pinCode", conflictPaths);
         merged.SteamGridApiKey = MergeLegacyValue(
             local.SteamGridApiKey ?? "", remote.SteamGridApiKey ?? "", "steamGridApiKey", conflictPaths);
+        merged.ApplicationHistoryEnabled = MergeLegacyValue(
+            local.ApplicationHistoryEnabled,
+            remote.SchemaVersion >= 3 ? remote.ApplicationHistoryEnabled : local.ApplicationHistoryEnabled,
+            "applicationHistoryEnabled", conflictPaths);
         merged.CreatedAtUtc = Earliest(local.CreatedAtUtc, remote.CreatedAtUtc);
         merged.ProfilePhoto = MergeLegacyPhoto(local.ProfilePhoto, remote.ProfilePhoto, conflictPaths);
 
@@ -415,9 +513,11 @@ public static class ProfileSyncEngine
         }
 
         merged.Games = mergedGames;
+        merged.MediaHistory = MergeMediaHistoryLegacy(local.MediaHistory, remote.MediaHistory, conflictPaths);
         merged.ControlProfiles = MergeControlProfiles(local.ControlProfiles, remote.ControlProfiles);
         merged.ControlAssignments = MergeControlAssignments(local.ControlAssignments, remote.ControlAssignments);
         merged.TotalPlaytimeSeconds = SaturatingSum(mergedGames.Select(game => game.TotalPlaytimeSeconds));
+        merged.TotalMediaPlaybackSeconds = SaturatingSum(merged.MediaHistory.Select(entry => entry.TotalPlaybackSeconds));
         merged.UpdatedAtUtc = DateTimeOffset.UtcNow;
         merged.LastModifiedDeviceId = local.LastModifiedDeviceId ?? "";
 
@@ -450,7 +550,17 @@ public static class ProfileSyncEngine
                 ProfileDifferenceKind.GamePlaytime or
                 ProfileDifferenceKind.GameLastSession or
                 ProfileDifferenceKind.GameFirstPlayed or
-                ProfileDifferenceKind.GameLastPlayed)))
+                ProfileDifferenceKind.GameLastPlayed or
+                ProfileDifferenceKind.TotalMediaPlayback or
+                ProfileDifferenceKind.MediaAdded or
+                ProfileDifferenceKind.MediaRemoved or
+                ProfileDifferenceKind.MediaPlayback or
+                ProfileDifferenceKind.MediaLastSession or
+                ProfileDifferenceKind.MediaSessionCount or
+                ProfileDifferenceKind.MediaFirstPlayed or
+                ProfileDifferenceKind.MediaLastPlayed or
+                ProfileDifferenceKind.MediaMetadata or
+                ProfileDifferenceKind.MediaArtwork)))
             return false;
 
         Dictionary<string, CloudGameHistoryEntryV1> localGames = ToGameDictionary(local.Games);
@@ -489,6 +599,26 @@ public static class ProfileSyncEngine
                 localDominates = false;
                 remoteDominates = false;
             }
+        }
+
+        Dictionary<string, CloudMediaHistoryEntryV1> localMedia = ToMediaDictionary(local.MediaHistory);
+        Dictionary<string, CloudMediaHistoryEntryV1> remoteMedia = ToMediaDictionary(remote.MediaHistory);
+        foreach (string key in localMedia.Keys.Union(remoteMedia.Keys, StringComparer.Ordinal))
+        {
+            bool hasLocal = localMedia.TryGetValue(key, out CloudMediaHistoryEntryV1? localEntry);
+            bool hasRemote = remoteMedia.TryGetValue(key, out CloudMediaHistoryEntryV1? remoteEntry);
+            if (!hasRemote) { remoteDominates = false; continue; }
+            if (!hasLocal) { localDominates = false; continue; }
+            if (localEntry!.TotalPlaybackSeconds < remoteEntry!.TotalPlaybackSeconds) localDominates = false;
+            if (remoteEntry.TotalPlaybackSeconds < localEntry.TotalPlaybackSeconds) remoteDominates = false;
+            if (localEntry.SessionCount < remoteEntry.SessionCount) localDominates = false;
+            if (remoteEntry.SessionCount < localEntry.SessionCount) remoteDominates = false;
+            int lastPlayedOrder = CompareNullableDate(localEntry.LastPlayedUtc, remoteEntry.LastPlayedUtc);
+            if (lastPlayedOrder < 0) localDominates = false;
+            if (lastPlayedOrder > 0) remoteDominates = false;
+            int firstPlayedOrder = CompareNullableDate(localEntry.FirstPlayedUtc, remoteEntry.FirstPlayedUtc);
+            if (firstPlayedOrder > 0) localDominates = false;
+            if (firstPlayedOrder < 0) remoteDominates = false;
         }
 
         if (localDominates == remoteDominates) return false;
@@ -586,6 +716,153 @@ public static class ProfileSyncEngine
                 prefix + "steamGridGameId", conflictPaths)
         };
     }
+
+    private static List<CloudMediaHistoryEntryV1> MergeMediaHistoryThreeWay(
+        IEnumerable<CloudMediaHistoryEntryV1>? baseline,
+        IEnumerable<CloudMediaHistoryEntryV1>? local,
+        IEnumerable<CloudMediaHistoryEntryV1>? remote,
+        HashSet<string> conflictPaths)
+    {
+        Dictionary<string, CloudMediaHistoryEntryV1> baseEntries = ToMediaDictionary(baseline);
+        Dictionary<string, CloudMediaHistoryEntryV1> localEntries = ToMediaDictionary(local);
+        Dictionary<string, CloudMediaHistoryEntryV1> remoteEntries = ToMediaDictionary(remote);
+        var merged = new List<CloudMediaHistoryEntryV1>();
+        foreach (string key in baseEntries.Keys
+                     .Union(localEntries.Keys, StringComparer.Ordinal)
+                     .Union(remoteEntries.Keys, StringComparer.Ordinal)
+                     .OrderBy(value => value, StringComparer.Ordinal))
+        {
+            baseEntries.TryGetValue(key, out CloudMediaHistoryEntryV1? baseEntry);
+            localEntries.TryGetValue(key, out CloudMediaHistoryEntryV1? localEntry);
+            remoteEntries.TryGetValue(key, out CloudMediaHistoryEntryV1? remoteEntry);
+            if (baseEntry == null)
+            {
+                if (localEntry == null && remoteEntry == null) continue;
+                if (localEntry == null) merged.Add(CloneMedia(remoteEntry!));
+                else if (remoteEntry == null) merged.Add(CloneMedia(localEntry));
+                else merged.Add(MergeMedia(key, new CloudMediaHistoryEntryV1 { MediaKey = key }, localEntry, remoteEntry));
+                continue;
+            }
+            if (localEntry == null && remoteEntry == null) continue;
+            if (localEntry == null)
+            {
+                if (!MediaContentEquals(baseEntry, remoteEntry!)) conflictPaths.Add($"mediaHistory.{key}");
+                continue;
+            }
+            if (remoteEntry == null)
+            {
+                if (!MediaContentEquals(baseEntry, localEntry)) conflictPaths.Add($"mediaHistory.{key}");
+                merged.Add(CloneMedia(localEntry));
+                continue;
+            }
+            merged.Add(MergeMedia(key, baseEntry, localEntry, remoteEntry));
+        }
+        return merged;
+    }
+
+    private static List<CloudMediaHistoryEntryV1> MergeMediaHistoryLegacy(
+        IEnumerable<CloudMediaHistoryEntryV1>? local,
+        IEnumerable<CloudMediaHistoryEntryV1>? remote,
+        HashSet<string> conflictPaths)
+    {
+        Dictionary<string, CloudMediaHistoryEntryV1> localEntries = ToMediaDictionary(local);
+        Dictionary<string, CloudMediaHistoryEntryV1> remoteEntries = ToMediaDictionary(remote);
+        var merged = new List<CloudMediaHistoryEntryV1>();
+        foreach (string key in localEntries.Keys.Union(remoteEntries.Keys, StringComparer.Ordinal).OrderBy(value => value, StringComparer.Ordinal))
+        {
+            localEntries.TryGetValue(key, out CloudMediaHistoryEntryV1? localEntry);
+            remoteEntries.TryGetValue(key, out CloudMediaHistoryEntryV1? remoteEntry);
+            if (localEntry == null) merged.Add(CloneMedia(remoteEntry!));
+            else if (remoteEntry == null) merged.Add(CloneMedia(localEntry));
+            else merged.Add(MergeLegacyMedia(key, localEntry, remoteEntry));
+        }
+        return merged;
+    }
+
+    private static CloudMediaHistoryEntryV1 MergeMedia(
+        string key,
+        CloudMediaHistoryEntryV1 baseline,
+        CloudMediaHistoryEntryV1 local,
+        CloudMediaHistoryEntryV1 remote)
+    {
+        int latestSide = CompareNullableDate(local.LastPlayedUtc, remote.LastPlayedUtc);
+        CloudMediaHistoryEntryV1 latest = latestSide < 0 ? remote : local;
+        return new CloudMediaHistoryEntryV1
+        {
+            MediaKey = key,
+            AppId = FirstNotBlank(latest.AppId, local.AppId, remote.AppId),
+            AppName = FirstNotBlank(latest.AppName, local.AppName, remote.AppName),
+            Category = FirstNotBlank(latest.Category, local.Category, remote.Category),
+            ContentTitle = FirstNotBlank(latest.ContentTitle, local.ContentTitle, remote.ContentTitle),
+            CreatorName = FirstNotBlank(latest.CreatorName, local.CreatorName, remote.CreatorName),
+            AlbumTitle = FirstNotBlank(latest.AlbumTitle, local.AlbumTitle, remote.AlbumTitle),
+            SeriesTitle = FirstNotBlank(latest.SeriesTitle, local.SeriesTitle, remote.SeriesTitle),
+            SeasonTitle = FirstNotBlank(latest.SeasonTitle, local.SeasonTitle, remote.SeasonTitle),
+            EpisodeNumber = FirstNotBlank(latest.EpisodeNumber, local.EpisodeNumber, remote.EpisodeNumber),
+            ContentType = FirstNotBlank(latest.ContentType, local.ContentType, remote.ContentType),
+            PageUrl = FirstNotBlank(latest.PageUrl, local.PageUrl, remote.PageUrl),
+            TitleSource = FirstNotBlank(latest.TitleSource, local.TitleSource, remote.TitleSource),
+            MediaSessionAvailable = baseline.MediaSessionAvailable || local.MediaSessionAvailable || remote.MediaSessionAvailable,
+            ArtworkRemoteUrl = FirstNotBlank(latest.ArtworkRemoteUrl, local.ArtworkRemoteUrl, remote.ArtworkRemoteUrl),
+            ArtworkSource = FirstNotBlank(latest.ArtworkSource, local.ArtworkSource, remote.ArtworkSource),
+            MetadataCapturedUtc = Latest(baseline.MetadataCapturedUtc, Latest(local.MetadataCapturedUtc, remote.MetadataCapturedUtc)),
+            TotalPlaybackSeconds = MergeAccumulatedPlaytime(
+                baseline.TotalPlaybackSeconds,
+                local.TotalPlaybackSeconds,
+                remote.TotalPlaybackSeconds),
+            LastSessionSeconds = Math.Max(0, latest.LastSessionSeconds),
+            SessionCount = MergeAccumulatedCount(baseline.SessionCount, local.SessionCount, remote.SessionCount),
+            LastPositionSeconds = Math.Max(0, latest.LastPositionSeconds),
+            DurationSeconds = Math.Max(0, latest.DurationSeconds),
+            FirstPlayedUtc = Earliest(baseline.FirstPlayedUtc, Earliest(local.FirstPlayedUtc, remote.FirstPlayedUtc)),
+            LastPlayedUtc = Latest(baseline.LastPlayedUtc, Latest(local.LastPlayedUtc, remote.LastPlayedUtc))
+        };
+    }
+
+    private static CloudMediaHistoryEntryV1 MergeLegacyMedia(
+        string key,
+        CloudMediaHistoryEntryV1 local,
+        CloudMediaHistoryEntryV1 remote)
+    {
+        int latestSide = CompareNullableDate(local.LastPlayedUtc, remote.LastPlayedUtc);
+        CloudMediaHistoryEntryV1 latest = latestSide < 0 ? remote : local;
+        return new CloudMediaHistoryEntryV1
+        {
+            MediaKey = key,
+            AppId = FirstNotBlank(latest.AppId, local.AppId, remote.AppId),
+            AppName = FirstNotBlank(latest.AppName, local.AppName, remote.AppName),
+            Category = FirstNotBlank(latest.Category, local.Category, remote.Category),
+            ContentTitle = FirstNotBlank(latest.ContentTitle, local.ContentTitle, remote.ContentTitle),
+            CreatorName = FirstNotBlank(latest.CreatorName, local.CreatorName, remote.CreatorName),
+            AlbumTitle = FirstNotBlank(latest.AlbumTitle, local.AlbumTitle, remote.AlbumTitle),
+            SeriesTitle = FirstNotBlank(latest.SeriesTitle, local.SeriesTitle, remote.SeriesTitle),
+            SeasonTitle = FirstNotBlank(latest.SeasonTitle, local.SeasonTitle, remote.SeasonTitle),
+            EpisodeNumber = FirstNotBlank(latest.EpisodeNumber, local.EpisodeNumber, remote.EpisodeNumber),
+            ContentType = FirstNotBlank(latest.ContentType, local.ContentType, remote.ContentType),
+            PageUrl = FirstNotBlank(latest.PageUrl, local.PageUrl, remote.PageUrl),
+            TitleSource = FirstNotBlank(latest.TitleSource, local.TitleSource, remote.TitleSource),
+            MediaSessionAvailable = local.MediaSessionAvailable || remote.MediaSessionAvailable,
+            ArtworkRemoteUrl = FirstNotBlank(latest.ArtworkRemoteUrl, local.ArtworkRemoteUrl, remote.ArtworkRemoteUrl),
+            ArtworkSource = FirstNotBlank(latest.ArtworkSource, local.ArtworkSource, remote.ArtworkSource),
+            MetadataCapturedUtc = Latest(local.MetadataCapturedUtc, remote.MetadataCapturedUtc),
+            TotalPlaybackSeconds = Math.Max(Math.Max(0, local.TotalPlaybackSeconds), Math.Max(0, remote.TotalPlaybackSeconds)),
+            LastSessionSeconds = Math.Max(0, latest.LastSessionSeconds),
+            SessionCount = Math.Max(Math.Max(0, local.SessionCount), Math.Max(0, remote.SessionCount)),
+            LastPositionSeconds = Math.Max(0, latest.LastPositionSeconds),
+            DurationSeconds = Math.Max(0, latest.DurationSeconds),
+            FirstPlayedUtc = Earliest(local.FirstPlayedUtc, remote.FirstPlayedUtc),
+            LastPlayedUtc = Latest(local.LastPlayedUtc, remote.LastPlayedUtc)
+        };
+    }
+
+    private static int MergeAccumulatedCount(int baseline, int local, int remote)
+    {
+        long merged = MergeAccumulatedPlaytime(baseline, local, remote);
+        return (int)Math.Min(int.MaxValue, merged);
+    }
+
+    private static string FirstNotBlank(params string?[] values)
+        => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "";
 
     private static long MergeAccumulatedPlaytime(long baseline, long local, long remote)
     {
@@ -734,6 +1011,35 @@ public static class ProfileSyncEngine
             SteamGridGameId = game.SteamGridGameId
         };
 
+    private static CloudMediaHistoryEntryV1 CloneMedia(CloudMediaHistoryEntryV1 entry)
+        => new()
+        {
+            MediaKey = entry.MediaKey ?? "",
+            AppId = entry.AppId ?? "",
+            AppName = entry.AppName ?? "",
+            Category = entry.Category ?? "",
+            ContentTitle = entry.ContentTitle ?? "",
+            CreatorName = entry.CreatorName ?? "",
+            AlbumTitle = entry.AlbumTitle ?? "",
+            SeriesTitle = entry.SeriesTitle ?? "",
+            SeasonTitle = entry.SeasonTitle ?? "",
+            EpisodeNumber = entry.EpisodeNumber ?? "",
+            ContentType = entry.ContentType ?? "",
+            PageUrl = entry.PageUrl ?? "",
+            TitleSource = entry.TitleSource ?? "",
+            MediaSessionAvailable = entry.MediaSessionAvailable,
+            ArtworkRemoteUrl = entry.ArtworkRemoteUrl ?? "",
+            ArtworkSource = entry.ArtworkSource ?? "",
+            MetadataCapturedUtc = entry.MetadataCapturedUtc?.ToUniversalTime(),
+            TotalPlaybackSeconds = Math.Max(0, entry.TotalPlaybackSeconds),
+            LastSessionSeconds = Math.Max(0, entry.LastSessionSeconds),
+            SessionCount = Math.Max(0, entry.SessionCount),
+            LastPositionSeconds = Math.Max(0, entry.LastPositionSeconds),
+            DurationSeconds = Math.Max(0, entry.DurationSeconds),
+            FirstPlayedUtc = entry.FirstPlayedUtc?.ToUniversalTime(),
+            LastPlayedUtc = entry.LastPlayedUtc?.ToUniversalTime()
+        };
+
     private static bool GameContentEquals(
         CloudGameHistoryEntryV1 left,
         CloudGameHistoryEntryV1 right)
@@ -747,6 +1053,34 @@ public static class ProfileSyncEngine
            string.Equals(left.HistoryHorizontalImageUrl ?? "", right.HistoryHorizontalImageUrl ?? "", StringComparison.Ordinal) &&
            string.Equals(left.ProfileBannerImageUrl ?? "", right.ProfileBannerImageUrl ?? "", StringComparison.Ordinal) &&
            left.SteamGridGameId == right.SteamGridGameId;
+
+    private static bool MediaContentEquals(
+        CloudMediaHistoryEntryV1 left,
+        CloudMediaHistoryEntryV1 right)
+        => string.Equals(left.MediaKey ?? "", right.MediaKey ?? "", StringComparison.Ordinal) &&
+           string.Equals(left.AppId ?? "", right.AppId ?? "", StringComparison.Ordinal) &&
+           string.Equals(left.AppName ?? "", right.AppName ?? "", StringComparison.Ordinal) &&
+           string.Equals(left.Category ?? "", right.Category ?? "", StringComparison.Ordinal) &&
+           string.Equals(left.ContentTitle ?? "", right.ContentTitle ?? "", StringComparison.Ordinal) &&
+           string.Equals(left.CreatorName ?? "", right.CreatorName ?? "", StringComparison.Ordinal) &&
+           string.Equals(left.AlbumTitle ?? "", right.AlbumTitle ?? "", StringComparison.Ordinal) &&
+           string.Equals(left.SeriesTitle ?? "", right.SeriesTitle ?? "", StringComparison.Ordinal) &&
+           string.Equals(left.SeasonTitle ?? "", right.SeasonTitle ?? "", StringComparison.Ordinal) &&
+           string.Equals(left.EpisodeNumber ?? "", right.EpisodeNumber ?? "", StringComparison.Ordinal) &&
+           string.Equals(left.ContentType ?? "", right.ContentType ?? "", StringComparison.Ordinal) &&
+           string.Equals(left.PageUrl ?? "", right.PageUrl ?? "", StringComparison.Ordinal) &&
+           string.Equals(left.TitleSource ?? "", right.TitleSource ?? "", StringComparison.Ordinal) &&
+           left.MediaSessionAvailable == right.MediaSessionAvailable &&
+           string.Equals(left.ArtworkRemoteUrl ?? "", right.ArtworkRemoteUrl ?? "", StringComparison.Ordinal) &&
+           string.Equals(left.ArtworkSource ?? "", right.ArtworkSource ?? "", StringComparison.Ordinal) &&
+           NormalizeDate(left.MetadataCapturedUtc) == NormalizeDate(right.MetadataCapturedUtc) &&
+           left.TotalPlaybackSeconds == right.TotalPlaybackSeconds &&
+           left.LastSessionSeconds == right.LastSessionSeconds &&
+           left.SessionCount == right.SessionCount &&
+           left.LastPositionSeconds.Equals(right.LastPositionSeconds) &&
+           left.DurationSeconds.Equals(right.DurationSeconds) &&
+           NormalizeDate(left.FirstPlayedUtc) == NormalizeDate(right.FirstPlayedUtc) &&
+           NormalizeDate(left.LastPlayedUtc) == NormalizeDate(right.LastPlayedUtc);
 
     private static CloudProfilePhotoV1 ClonePhoto(CloudProfilePhotoV1 photo)
         => new()
@@ -852,6 +1186,8 @@ public static class ProfileSyncEngine
             local.PinCode, remote.PinCode);
         AddSensitiveDifference(differences, ProfileDifferenceKind.SteamGridApiKey, "steamGridApiKey",
             local.SteamGridApiKey, remote.SteamGridApiKey);
+        AddValueDifference(differences, ProfileDifferenceKind.ApplicationHistoryEnabled, "applicationHistoryEnabled",
+            local.ApplicationHistoryEnabled, remote.ApplicationHistoryEnabled);
         AddValueDifference(differences, ProfileDifferenceKind.CreatedAt, "createdAtUtc",
             local.CreatedAtUtc, remote.CreatedAtUtc, FormatDate);
 
@@ -870,6 +1206,8 @@ public static class ProfileSyncEngine
 
         AddValueDifference(differences, ProfileDifferenceKind.TotalPlaytime, "totalPlaytimeSeconds",
             local.TotalPlaytimeSeconds, remote.TotalPlaytimeSeconds, FormatDuration);
+        AddValueDifference(differences, ProfileDifferenceKind.TotalMediaPlayback, "totalMediaPlaybackSeconds",
+            local.TotalMediaPlaybackSeconds, remote.TotalMediaPlaybackSeconds, FormatDuration);
 
         string localControls = ControlProfilesFingerprint(local.ControlProfiles);
         string remoteControls = ControlProfilesFingerprint(remote.ControlProfiles);
@@ -919,6 +1257,27 @@ public static class ProfileSyncEngine
             CompareGame(differences, key, localGame!, remoteGame!);
         }
 
+        var localMedia = ToMediaDictionary(local.MediaHistory);
+        var remoteMedia = ToMediaDictionary(remote.MediaHistory);
+        foreach (string key in localMedia.Keys.Union(remoteMedia.Keys, StringComparer.Ordinal).OrderBy(key => key, StringComparer.Ordinal))
+        {
+            bool hasLocal = localMedia.TryGetValue(key, out CloudMediaHistoryEntryV1? localEntry);
+            bool hasRemote = remoteMedia.TryGetValue(key, out CloudMediaHistoryEntryV1? remoteEntry);
+            if (!hasRemote)
+            {
+                differences.Add(MediaDifference(ProfileDifferenceKind.MediaAdded, key, localEntry?.ContentTitle,
+                    localEntry?.ContentTitle ?? "", "Ausente"));
+                continue;
+            }
+            if (!hasLocal)
+            {
+                differences.Add(MediaDifference(ProfileDifferenceKind.MediaRemoved, key, remoteEntry?.ContentTitle,
+                    "Ausente", remoteEntry?.ContentTitle ?? ""));
+                continue;
+            }
+            CompareMedia(differences, key, localEntry!, remoteEntry!);
+        }
+
         return new ProfileSyncComparison
         {
             LocalContentHash = ProfileSyncSerializer.ComputeContentHash(local),
@@ -954,11 +1313,56 @@ public static class ProfileSyncEngine
             local.SteamGridGameId, remote.SteamGridGameId, FormatArtworkReference);
     }
 
+    private static void CompareMedia(
+        List<ProfileDifference> differences,
+        string key,
+        CloudMediaHistoryEntryV1 local,
+        CloudMediaHistoryEntryV1 remote)
+    {
+        string title = !string.IsNullOrWhiteSpace(local.ContentTitle) ? local.ContentTitle : remote.ContentTitle;
+        AddMediaValueDifference(differences, ProfileDifferenceKind.MediaPlayback, key, title, "totalPlaybackSeconds",
+            local.TotalPlaybackSeconds, remote.TotalPlaybackSeconds, FormatDuration);
+        AddMediaValueDifference(differences, ProfileDifferenceKind.MediaLastSession, key, title, "lastSessionSeconds",
+            local.LastSessionSeconds, remote.LastSessionSeconds, FormatDuration);
+        AddMediaValueDifference(differences, ProfileDifferenceKind.MediaSessionCount, key, title, "sessionCount",
+            local.SessionCount, remote.SessionCount);
+        AddMediaValueDifference(differences, ProfileDifferenceKind.MediaFirstPlayed, key, title, "firstPlayedUtc",
+            local.FirstPlayedUtc, remote.FirstPlayedUtc, FormatDate);
+        AddMediaValueDifference(differences, ProfileDifferenceKind.MediaLastPlayed, key, title, "lastPlayedUtc",
+            local.LastPlayedUtc, remote.LastPlayedUtc, FormatDate);
+        AddMediaValueDifference(differences, ProfileDifferenceKind.MediaMetadata, key, title, "metadata",
+            MediaMetadataFingerprint(local), MediaMetadataFingerprint(remote));
+        AddMediaValueDifference(differences, ProfileDifferenceKind.MediaArtwork, key, title, "artworkRemoteUrl",
+            local.ArtworkRemoteUrl ?? "", remote.ArtworkRemoteUrl ?? "", FormatArtwork);
+    }
+
+    private static string MediaMetadataFingerprint(CloudMediaHistoryEntryV1 entry)
+        => string.Join(" | ", new[]
+        {
+            entry.AlbumTitle ?? "",
+            entry.SeriesTitle ?? "",
+            entry.SeasonTitle ?? "",
+            entry.EpisodeNumber ?? "",
+            entry.ContentType ?? "",
+            entry.PageUrl ?? "",
+            entry.TitleSource ?? "",
+            entry.MediaSessionAvailable ? "media-session" : "fallback",
+            entry.ArtworkSource ?? "",
+            FormatDate(entry.MetadataCapturedUtc)
+        });
+
     private static Dictionary<string, CloudGameHistoryEntryV1> ToGameDictionary(
         IEnumerable<CloudGameHistoryEntryV1>? games)
         => (games ?? Array.Empty<CloudGameHistoryEntryV1>())
             .Where(game => !string.IsNullOrWhiteSpace(game.GameKey) && game.TotalPlaytimeSeconds >= 60)
             .GroupBy(game => game.GameKey, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+
+    private static Dictionary<string, CloudMediaHistoryEntryV1> ToMediaDictionary(
+        IEnumerable<CloudMediaHistoryEntryV1>? entries)
+        => (entries ?? Array.Empty<CloudMediaHistoryEntryV1>())
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.MediaKey) && entry.TotalPlaybackSeconds > 0)
+            .GroupBy(entry => entry.MediaKey, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
 
     private static string PhotoFingerprint(CloudProfilePhotoV1? photo)
@@ -1054,6 +1458,39 @@ public static class ProfileSyncEngine
             Path = path ?? $"games.{gameKey}",
             GameKey = gameKey,
             GameName = gameName ?? "",
+            LocalSummary = local,
+            RemoteSummary = remote
+        };
+
+    private static void AddMediaValueDifference<T>(
+        List<ProfileDifference> differences,
+        ProfileDifferenceKind kind,
+        string mediaKey,
+        string title,
+        string field,
+        T local,
+        T remote,
+        Func<T, string>? formatter = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(local, remote)) return;
+        formatter ??= value => value?.ToString() ?? "";
+        differences.Add(MediaDifference(kind, mediaKey, title,
+            formatter(local), formatter(remote), $"mediaHistory.{mediaKey}.{field}"));
+    }
+
+    private static ProfileDifference MediaDifference(
+        ProfileDifferenceKind kind,
+        string mediaKey,
+        string? title,
+        string local,
+        string remote,
+        string? path = null)
+        => new()
+        {
+            Kind = kind,
+            Path = path ?? $"mediaHistory.{mediaKey}",
+            GameKey = mediaKey,
+            GameName = title ?? "",
             LocalSummary = local,
             RemoteSummary = remote
         };

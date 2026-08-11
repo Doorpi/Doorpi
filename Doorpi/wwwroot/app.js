@@ -10504,6 +10504,42 @@ function renderFolderList(folders) {
         background: rgba(255,255,255,0.09);
         box-shadow: 0 0 0 2px rgba(255,255,255,0.15);
     }
+    .edit-category-options {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 9px;
+    }
+    .edit-category-option {
+        min-height: 68px;
+        padding: 11px 13px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: flex-start;
+        gap: 4px;
+        border: 1px solid rgba(255,255,255,.10);
+        border-radius: 9px;
+        background: rgba(255,255,255,.035);
+        color: #fff;
+        font: inherit;
+        text-align: left;
+        outline: none;
+        cursor: pointer;
+        transition: background .14s ease, border-color .14s ease, box-shadow .14s ease;
+    }
+    .edit-category-option strong { font-size: 13px; font-weight: 650; }
+    .edit-category-option small { color: rgba(255,255,255,.43); font-size: 11px; line-height: 1.3; }
+    .edit-category-option[data-media-history-category="disabled"] { grid-column: 1 / -1; }
+    .edit-category-option.active {
+        border-color: rgba(115,174,255,.62);
+        background: rgba(78,132,218,.15);
+    }
+    .edit-category-option:focus,
+    .edit-category-option:hover {
+        border-color: rgba(255,255,255,.78);
+        background: rgba(255,255,255,.12);
+        box-shadow: 0 0 0 3px rgba(255,255,255,.11), 0 10px 22px rgba(0,0,0,.22);
+    }
         `;
         document.head.appendChild(s);
     })();
@@ -11642,6 +11678,8 @@ function renderFolderList(folders) {
         const isWebApp = isMediaCard && ['browser', 'webview'].includes(normalizedAppType);
         const libraryChannel = isMediaCard ? 'media' : 'games';
         const libraryItemId = isMediaCard ? (card.dataset.appId || gameId || '') : (card.dataset.id || gameId || '');
+        const canConfigureMediaHistory = isWebApp && !isSharedFromOther &&
+            String(libraryItemId || '').toLowerCase() !== 'doorpi-browser';
         const libraryItem = !isStoreCard
             ? window.AppStore?.queries?.getItem?.(libraryChannel, libraryItemId)
             : null;
@@ -11667,6 +11705,12 @@ function renderFolderList(folders) {
         const currentTrailerType = libraryItem?.trailerType || card.dataset.trailerType || '';
         let pendingTrailerSource = currentTrailerSource;
         let pendingTrailerType = currentTrailerType;
+        const validMediaHistoryCategories = new Set(['auto', 'music', 'video-live', 'film-series', 'disabled']);
+        const storedMediaHistoryCategory = libraryItem?.mediaHistoryCategory || card.dataset.mediaHistoryCategory || 'auto';
+        const currentMediaHistoryCategory = validMediaHistoryCategories.has(storedMediaHistoryCategory)
+            ? storedMediaHistoryCategory
+            : 'auto';
+        let pendingMediaHistoryCategory = currentMediaHistoryCategory;
 
         const sharedWithNames = (() => {
             try { return JSON.parse(card.dataset.sharedWithUserNames || '[]'); } catch { return []; }
@@ -11770,11 +11814,37 @@ function renderFolderList(folders) {
                             </button>`}
                         </div>
                     </div>` : ''}
+                    ${canConfigureMediaHistory ? `
+                    <div class="edit-modal-field">
+                        <label class="edit-modal-label">${typeof t === 'function' ? t('mediaHistoryCategoryLabel', 'CATEGORIA') : 'CATEGORIA'}</label>
+                        <div class="edit-category-options" role="radiogroup" aria-label="${typeof t === 'function' ? t('mediaHistoryCategoryLabel', 'Categoria') : 'Categoria'}">
+                            <button class="edit-category-option ${pendingMediaHistoryCategory === 'auto' ? 'active' : ''}" id="editCategoryAutoBtn" type="button" role="radio" aria-checked="${pendingMediaHistoryCategory === 'auto'}" data-media-history-category="auto" data-nav-right="#editCategoryMusicBtn" data-nav-down="#editCategoryVideoLiveBtn" tabindex="0">
+                                <strong>${typeof t === 'function' ? t('mediaHistoryCategoryAuto', 'Automático') : 'Automático'}</strong>
+                                <small>${typeof t === 'function' ? t('mediaHistoryCategoryAutoHint', 'Usa os metadados fornecidos pelo site.') : 'Usa os metadados fornecidos pelo site.'}</small>
+                            </button>
+                            <button class="edit-category-option ${pendingMediaHistoryCategory === 'music' ? 'active' : ''}" id="editCategoryMusicBtn" type="button" role="radio" aria-checked="${pendingMediaHistoryCategory === 'music'}" data-media-history-category="music" data-nav-left="#editCategoryAutoBtn" data-nav-down="#editCategoryFilmSeriesBtn" tabindex="0">
+                                <strong>${typeof t === 'function' ? t('mediaHistoryCategoryMusic', 'Música') : 'Música'}</strong>
+                                <small>${typeof t === 'function' ? t('mediaHistoryCategoryMusicHint', 'Faixas, artistas e álbuns.') : 'Faixas, artistas e álbuns.'}</small>
+                            </button>
+                            <button class="edit-category-option ${pendingMediaHistoryCategory === 'video-live' ? 'active' : ''}" id="editCategoryVideoLiveBtn" type="button" role="radio" aria-checked="${pendingMediaHistoryCategory === 'video-live'}" data-media-history-category="video-live" data-nav-up="#editCategoryAutoBtn" data-nav-right="#editCategoryFilmSeriesBtn" data-nav-down="#editCategoryDisabledBtn" tabindex="0">
+                                <strong>${typeof t === 'function' ? t('mediaHistoryCategoryVideoLive', 'Vídeos / Live') : 'Vídeos / Live'}</strong>
+                                <small>${typeof t === 'function' ? t('mediaHistoryCategoryVideoLiveHint', 'Canais, criadores e transmissões.') : 'Canais, criadores e transmissões.'}</small>
+                            </button>
+                            <button class="edit-category-option ${pendingMediaHistoryCategory === 'film-series' ? 'active' : ''}" id="editCategoryFilmSeriesBtn" type="button" role="radio" aria-checked="${pendingMediaHistoryCategory === 'film-series'}" data-media-history-category="film-series" data-nav-up="#editCategoryMusicBtn" data-nav-left="#editCategoryVideoLiveBtn" data-nav-down="#editCategoryDisabledBtn" tabindex="0">
+                                <strong>${typeof t === 'function' ? t('mediaHistoryCategoryFilmSeries', 'Filmes e séries') : 'Filmes e séries'}</strong>
+                                <small>${typeof t === 'function' ? t('mediaHistoryCategoryFilmSeriesHint', 'Filmes, séries e episódios.') : 'Filmes, séries e episódios.'}</small>
+                            </button>
+                            <button class="edit-category-option ${pendingMediaHistoryCategory === 'disabled' ? 'active' : ''}" id="editCategoryDisabledBtn" type="button" role="radio" aria-checked="${pendingMediaHistoryCategory === 'disabled'}" data-media-history-category="disabled" data-nav-up="#editCategoryFilmSeriesBtn" data-nav-down="#editArtworkLocalBtn" tabindex="0">
+                                <strong>${typeof t === 'function' ? t('mediaHistoryCategoryDisabled', 'Desativar histórico') : 'Desativar histórico'}</strong>
+                                <small>${typeof t === 'function' ? t('mediaHistoryCategoryDisabledHint', 'Não registra novas atividades deste app.') : 'Não registra novas atividades deste app.'}</small>
+                            </button>
+                        </div>
+                    </div>` : ''}
                     <div class="edit-modal-field">
                         <label class="edit-modal-label">${t('artworkWizardTitle')}</label>
                         <div class="edit-artwork-actions">
-                            <button class="edit-artwork-btn" id="editArtworkSteamGridBtn" type="button" tabindex="0">SteamGrid</button>
-                            <button class="edit-artwork-btn" id="editArtworkLocalBtn" type="button" tabindex="0">${t('artworkChooseComputer')}</button>
+                            <button class="edit-artwork-btn" id="editArtworkSteamGridBtn" type="button" data-nav-up="${canConfigureMediaHistory ? '#editCategoryDisabledBtn' : ''}" tabindex="0">SteamGrid</button>
+                            <button class="edit-artwork-btn" id="editArtworkLocalBtn" type="button" data-nav-up="${canConfigureMediaHistory ? '#editCategoryDisabledBtn' : ''}" tabindex="0">${t('artworkChooseComputer')}</button>
                         </div>
                     </div>
                     ${trailerHtml}
@@ -11870,6 +11940,21 @@ function renderFolderList(folders) {
             trailerUrlInput.value = pendingTrailerSource;
             trailerUrlRow.hidden = false;
         }
+
+        const refreshMediaHistoryCategory = () => {
+            overlay.querySelectorAll('[data-media-history-category]').forEach(button => {
+                const active = button.dataset.mediaHistoryCategory === pendingMediaHistoryCategory;
+                button.classList.toggle('active', active);
+                button.setAttribute('aria-checked', String(active));
+            });
+        };
+        overlay.querySelectorAll('[data-media-history-category]').forEach(button => {
+            button.addEventListener('click', () => {
+                pendingMediaHistoryCategory = button.dataset.mediaHistoryCategory || 'auto';
+                refreshMediaHistoryCategory();
+                button.focus({ preventScroll: true });
+            });
+        });
         refreshTrailerSummary();
 
         window._editTrailerBrowseResult = path => {
@@ -11979,6 +12064,8 @@ function renderFolderList(folders) {
             }
             const trailerChanged = !isStoreCard && !isMediaCard &&
                 (pendingTrailerSource !== currentTrailerSource || pendingTrailerType !== currentTrailerType);
+            const mediaHistoryCategoryChanged = canConfigureMediaHistory &&
+                pendingMediaHistoryCategory !== currentMediaHistoryCategory;
 
             const storeAutoAddCheckbox = overlay.querySelector('#editStoreAutoAdd');
             const newStoreAutoAdd = storeAutoAddCheckbox ? storeAutoAddCheckbox.checked : storeAutoAdd;
@@ -12054,17 +12141,28 @@ function renderFolderList(folders) {
                     window._storeAutoAddSettings[storeId] = newStoreAutoAdd;
                     postToHost({ action: 'setStoreAutoAdd', store: storeId, enabled: newStoreAutoAdd });
                 }
-            } else if (nameChanged || launchCommandChanged || webUrlChanged || trailerChanged) {
+            } else if (nameChanged || launchCommandChanged || webUrlChanged || trailerChanged || mediaHistoryCategoryChanged) {
                 const gameId = editEntityId;
                 const payload = { action: 'editGame', gameId };
                 if (nameChanged) payload.newName = newName;
                 if (launchCommandChanged) payload.newLaunchCommand = newLaunchTarget;
                 if (webUrlChanged) payload.newUrl = newLaunchTarget;
+                if (mediaHistoryCategoryChanged) payload.mediaHistoryCategory = pendingMediaHistoryCategory;
                 if (trailerChanged) {
                     payload.newTrailerSource = pendingTrailerSource;
                     payload.newTrailerType = pendingTrailerType;
                 }
                 postToHost(payload);
+
+                if (mediaHistoryCategoryChanged) {
+                    document.querySelectorAll('.card, .nav-vertical-card').forEach(candidate => {
+                        if (candidate.dataset.appId === gameId)
+                            candidate.dataset.mediaHistoryCategory = pendingMediaHistoryCategory;
+                    });
+                    window.AppStore?.mutations?.patchItem?.('media', gameId, {
+                        mediaHistoryCategory: pendingMediaHistoryCategory
+                    });
+                }
 
                 if (launchCommandChanged) {
                     document.querySelectorAll('.card, .nav-vertical-card').forEach(candidate => {

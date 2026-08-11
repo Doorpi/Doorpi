@@ -32,8 +32,10 @@ public enum ProfileDifferenceKind
     PinCode,
     SteamGridApiKey,
     ProfilePhoto,
+    ApplicationHistoryEnabled,
     CreatedAt,
     TotalPlaytime,
+    TotalMediaPlayback,
     GameAdded,
     GameRemoved,
     GameName,
@@ -45,6 +47,15 @@ public enum ProfileDifferenceKind
     GameHorizontalArtwork,
     GameProfileBannerArtwork,
     GameSteamGridReference,
+    MediaAdded,
+    MediaRemoved,
+    MediaPlayback,
+    MediaLastSession,
+    MediaSessionCount,
+    MediaFirstPlayed,
+    MediaLastPlayed,
+    MediaMetadata,
+    MediaArtwork,
     ControlProfiles,
     ControlAssignments
 }
@@ -56,12 +67,15 @@ public sealed class CloudProfileV1
     public string ProfileName { get; set; } = "";
     public string PinCode { get; set; } = "";
     public string SteamGridApiKey { get; set; } = "";
+    public bool ApplicationHistoryEnabled { get; set; } = true;
     public DateTimeOffset? CreatedAtUtc { get; set; }
     public DateTimeOffset UpdatedAtUtc { get; set; }
     public string LastModifiedDeviceId { get; set; } = "";
     public long TotalPlaytimeSeconds { get; set; }
+    public long TotalMediaPlaybackSeconds { get; set; }
     public CloudProfilePhotoV1 ProfilePhoto { get; set; } = new();
     public List<CloudGameHistoryEntryV1> Games { get; set; } = new();
+    public List<CloudMediaHistoryEntryV1> MediaHistory { get; set; } = new();
     public List<CloudControlProfileV1> ControlProfiles { get; set; } = new();
     public List<CloudControlAssignmentV1> ControlAssignments { get; set; } = new();
 }
@@ -145,6 +159,34 @@ public sealed class CloudGameHistoryEntryV1
     public string HistoryHorizontalImageUrl { get; set; } = "";
     public string ProfileBannerImageUrl { get; set; } = "";
     public int SteamGridGameId { get; set; }
+}
+
+public sealed class CloudMediaHistoryEntryV1
+{
+    public string MediaKey { get; set; } = "";
+    public string AppId { get; set; } = "";
+    public string AppName { get; set; } = "";
+    public string Category { get; set; } = "";
+    public string ContentTitle { get; set; } = "";
+    public string CreatorName { get; set; } = "";
+    public string AlbumTitle { get; set; } = "";
+    public string SeriesTitle { get; set; } = "";
+    public string SeasonTitle { get; set; } = "";
+    public string EpisodeNumber { get; set; } = "";
+    public string ContentType { get; set; } = "";
+    public string PageUrl { get; set; } = "";
+    public string TitleSource { get; set; } = "";
+    public bool MediaSessionAvailable { get; set; }
+    public string ArtworkRemoteUrl { get; set; } = "";
+    public string ArtworkSource { get; set; } = "";
+    public DateTimeOffset? MetadataCapturedUtc { get; set; }
+    public long TotalPlaybackSeconds { get; set; }
+    public long LastSessionSeconds { get; set; }
+    public int SessionCount { get; set; }
+    public double LastPositionSeconds { get; set; }
+    public double DurationSeconds { get; set; }
+    public DateTimeOffset? FirstPlayedUtc { get; set; }
+    public DateTimeOffset? LastPlayedUtc { get; set; }
 }
 
 public sealed class ProfileSyncState

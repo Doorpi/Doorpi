@@ -5,7 +5,7 @@ window.isNavMenuOpen = false;
 (function () {
 
     // ── Dados Locais ──────────────────────────────────────────────────────────
-    let _menuData = { user: {}, games: [], history: [], media: [], emulators: [] };
+    let _menuData = { user: {}, games: [], history: [], mediaHistory: [], media: [], emulators: [] };
     let _menuDataUserId = '';
     let _menuReloadToken = 0;
     let _profileSyncUi = { status: 'Disconnected', connected: false, busy: false, message: '' };
@@ -1119,6 +1119,7 @@ window.isNavMenuOpen = false;
 
         _menuData.games = [];
         _menuData.history = [];
+        _menuData.mediaHistory = [];
         _menuData.media = [];
         _menuData.emulators = [];
         _gameLibraryFilters.clear();
@@ -2131,10 +2132,11 @@ window.isNavMenuOpen = false;
         let loadedMediaFromJson = false;
         try {
             const ts = new Date().getTime();
-            const [uRes, gRes, hRes, mRes, eRes] = await Promise.allSettled([
+            const [uRes, gRes, hRes, mhRes, mRes, eRes] = await Promise.allSettled([
                 fetch(`https://data.local/user.json?t=${ts}`),
                 fetch(`https://data.local/games.json?t=${ts}`),
                 fetch(`https://data.local/game-history.json?t=${ts}`),
+                fetch(`https://data.local/media-history.json?t=${ts}`),
                 fetch(`https://data.local/media.json?t=${ts}`),
                 fetch(`https://data.local/emulators.json?t=${ts}`)
             ]);
@@ -2161,6 +2163,10 @@ window.isNavMenuOpen = false;
             if (hRes.status === 'fulfilled' && hRes.value.ok) {
                 const history = await hRes.value.json();
                 _menuData.history = Array.isArray(history) ? history : [];
+            }
+            if (mhRes.status === 'fulfilled' && mhRes.value.ok) {
+                const mediaHistory = await mhRes.value.json();
+                _menuData.mediaHistory = Array.isArray(mediaHistory) ? mediaHistory : [];
             }
             if (mRes.status === 'fulfilled' && mRes.value.ok) {
                 _menuData.media = await mRes.value.json();
@@ -2383,6 +2389,16 @@ window.isNavMenuOpen = false;
     let _lastFocus = null;
     let _settingsSubView = null;
     let _profileSubView = null;
+    let _profileTabTransitionDirection = 'forward';
+    let _profileOverviewHeroIndex = 0;
+    let _profileOverviewCarouselTimer = 0;
+    let _profileOverviewAdvance = null;
+    let _profileOverviewCarouselPaused = false;
+    let _profileOverviewStoredKind = '';
+    try {
+        _profileOverviewCarouselPaused = localStorage.getItem('doorpi.profile.hero.paused') === '1';
+        _profileOverviewStoredKind = localStorage.getItem('doorpi.profile.hero.kind') || '';
+    } catch (_) {}
     let _systemSubView = null;
     let _settingsReturnToRoot = false;
     let _systemUpdatesSubView = 'doorpi';
@@ -4110,22 +4126,6 @@ window.isNavMenuOpen = false;
 
         _contentIdx = 0;
         _renderContent(cat.id);
-
-        if (cat.id === 'profile') {
-            Promise.all([
-                fetch(`https://data.local/games.json?t=${new Date().getTime()}`).then(r => r.json()),
-                fetch(`https://data.local/game-history.json?t=${new Date().getTime()}`).then(r => r.json())
-            ])
-                .then(([games, history]) => {
-                    if (Array.isArray(games))
-                        _menuData.games = games.filter(g => !(g.IsPendingArtwork || g.isPendingArtwork) && !_isArtworkPending(g, 'games'));
-                    if (Array.isArray(history)) _menuData.history = history;
-                    if (CATS[_catIdx]?.id === 'profile') {
-                        _renderContent('profile');
-                        _updateContentFocus();
-                    }
-                }).catch(() => { });
-        }
     }
 
     function _subtitle(id) {
@@ -4239,9 +4239,64 @@ window.isNavMenuOpen = false;
     }
 
     // ── Renderização Central ──────────────────────────────────────────────────
+    function _clearProfileOverviewCarousel() {
+        if (!_profileOverviewCarouselTimer) return;
+        clearTimeout(_profileOverviewCarouselTimer);
+        _profileOverviewCarouselTimer = 0;
+    }
+
+    function _persistProfileOverviewCarousel(kind = '') {
+        try {
+            localStorage.setItem('doorpi.profile.hero.paused', _profileOverviewCarouselPaused ? '1' : '0');
+            if (kind) localStorage.setItem('doorpi.profile.hero.kind', kind);
+        } catch (_) {}
+    }
+
+    function _renderProfileWithTransition(direction = 'forward', focusIndex = _contentIdx) {
+        _profileTabTransitionDirection = direction;
+        const hadTopbarFocus = _topbarFocus;
+        const update = () => {
+            _renderContent('profile');
+            _contentIdx = Math.max(0, Math.min(_contentItems.length - 1, focusIndex));
+            if (!hadTopbarFocus) {
+                _setTopbarFocus(false);
+                _updateContentFocus();
+            }
+        };
+        const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+        if (!reduceMotion && typeof document.startViewTransition === 'function') {
+            document.documentElement.dataset.profileTransition = direction;
+            try {
+                const transition = document.startViewTransition(update);
+                transition.finished.finally(() => {
+                    delete document.documentElement.dataset.profileTransition;
+                });
+                return;
+            } catch (_) {
+                delete document.documentElement.dataset.profileTransition;
+            }
+        }
+        update();
+    }
+
+    function _scheduleProfileOverviewCarousel(highlightCount) {
+        _clearProfileOverviewCarousel();
+        if (highlightCount < 2 || _profileSubView || _profileOverviewCarouselPaused ||
+            window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) return;
+        _profileOverviewCarouselTimer = setTimeout(() => {
+            _profileOverviewCarouselTimer = 0;
+            if (!window.isNavMenuOpen || CATS[_catIdx]?.id !== 'profile' || _profileSubView || document.hidden) return;
+            _profileOverviewAdvance?.(1, true);
+        }, 8000);
+    }
+
     function _renderContent(id) {
         const body = document.getElementById('navContentBody');
         if (!body) return;
+        if (id !== 'profile' || _profileSubView) {
+            _clearProfileOverviewCarousel();
+            _profileOverviewAdvance = null;
+        }
         _overlay?.classList.toggle('settings-ambient-active', id === 'settings');
         body.classList.toggle('profile-showcase-active', id === 'profile' && _profileSubView !== 'history');
         body.classList.toggle('settings-home-active', id === 'settings' && !_settingsSubView);
@@ -4270,7 +4325,674 @@ window.isNavMenuOpen = false;
     }
 
     // ── Vitrine de Perfil ─────────────────────────────────────────────────────
+    function _ensureUnifiedProfileStyles() {
+        if (document.getElementById('doorpiUnifiedProfileStyles')) return;
+        const style = document.createElement('style');
+        style.id = 'doorpiUnifiedProfileStyles';
+        style.textContent = `
+            .nav-unified-profile { --profile-accent:110,156,255; width:100%; height:100%; min-height:0; display:grid; grid-template-rows:auto auto minmax(0,1fr) auto; gap:clamp(10px,1.4vh,20px); color:#fff; }
+            .nav-unified-identity { view-transition-name:doorpi-profile-identity; min-height:clamp(68px,8vh,96px); display:flex; align-items:center; gap:clamp(14px,1.3vw,22px); padding:0 2px; }
+            .nav-unified-avatar { width:clamp(58px,7vh,82px); height:clamp(58px,7vh,82px); border-radius:50%; overflow:hidden; display:grid; place-items:center; flex:none; background:rgba(255,255,255,.055); border:2px solid rgba(255,255,255,.17); box-shadow:0 14px 36px rgba(0,0,0,.26); color:rgba(255,255,255,.34); font-size:1.8rem; }
+            .nav-unified-avatar img { width:100%; height:100%; object-fit:cover; }
+            .nav-unified-name { min-width:0; display:grid; }
+            .nav-unified-name h2 { margin:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:clamp(1.55rem,2.25vw,3rem); font-weight:390; letter-spacing:-.028em; }
+            .nav-unified-edit { margin-left:auto; min-height:42px; padding:0 19px; border-radius:999px; border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.055); color:#fff; font:inherit; font-size:.86rem; font-weight:600; outline:none; transition:.16s ease; }
+            .nav-unified-edit.nav-focused-el { color:#08101d; background:#fff; border-color:#fff; transform:scale(1.04); }
+            .nav-unified-tabs { view-transition-name:doorpi-profile-tabs; display:flex; align-items:center; gap:4px; min-height:46px; border-bottom:1px solid rgba(255,255,255,.09); }
+            .nav-unified-tab { position:relative; min-height:40px; margin-bottom:5px; padding:0 clamp(12px,1.25vw,22px); border:1px solid transparent; border-radius:8px; background:transparent; color:rgba(255,255,255,.48); font:inherit; font-size:clamp(.76rem,.83vw,.96rem); font-weight:590; outline:none; transition:color .16s ease,border-color .16s ease; }
+            .nav-unified-tab::after { content:""; position:absolute; left:14px; right:14px; bottom:-1px; height:2px; border-radius:2px; background:rgb(var(--profile-accent)); opacity:0; transform:scaleX(.3); transition:.18s ease; }
+            .nav-unified-tab.is-active { color:#fff; }
+            .nav-unified-tab.is-active::after { opacity:1; transform:scaleX(1); }
+            .nav-unified-tab.nav-focused-el { color:#fff; border-color:rgba(255,255,255,.92); }
+            .nav-unified-main { min-height:0; display:grid; grid-template-columns:minmax(0,1.58fr) minmax(330px,.72fr); gap:clamp(12px,1.2vw,22px); }
+            .nav-unified-profile.is-entering-forward .nav-unified-main,.nav-unified-profile.is-entering-forward .nav-unified-stats { animation:navProfileEnterForward .3s cubic-bezier(.22,.72,.2,1) both; }
+            .nav-unified-profile.is-entering-back .nav-unified-main,.nav-unified-profile.is-entering-back .nav-unified-stats { animation:navProfileEnterBack .3s cubic-bezier(.22,.72,.2,1) both; }
+            html[data-profile-transition] .nav-unified-profile .nav-unified-main,html[data-profile-transition] .nav-unified-profile .nav-unified-stats { animation:none !important; }
+            .nav-unified-profile .nav-unified-stats { animation-delay:35ms !important; }
+            @keyframes navProfileEnterForward { from { opacity:.35; transform:translateX(10px); } to { opacity:1; transform:none; } }
+            @keyframes navProfileEnterBack { from { opacity:.35; transform:translateX(-10px); } to { opacity:1; transform:none; } }
+            ::view-transition-group(doorpi-profile-identity),::view-transition-group(doorpi-profile-tabs){ animation-duration:.28s; animation-timing-function:ease; }
+            ::view-transition-group(doorpi-profile-hero),::view-transition-group(doorpi-profile-recent),::view-transition-group(doorpi-profile-stats){ animation-duration:.42s; animation-timing-function:cubic-bezier(.22,.72,.2,1); }
+            ::view-transition-old(doorpi-profile-hero),::view-transition-old(doorpi-profile-recent),::view-transition-old(doorpi-profile-stats){ animation:navProfileSnapshotOut .2s ease both; }
+            ::view-transition-new(doorpi-profile-hero),::view-transition-new(doorpi-profile-recent),::view-transition-new(doorpi-profile-stats){ animation:navProfileSnapshotIn .4s cubic-bezier(.22,.72,.2,1) both; }
+            html[data-profile-transition="back"]::view-transition-new(doorpi-profile-hero),html[data-profile-transition="back"]::view-transition-new(doorpi-profile-recent),html[data-profile-transition="back"]::view-transition-new(doorpi-profile-stats){ animation-name:navProfileSnapshotInBack; }
+            @keyframes navProfileSnapshotOut { to { opacity:0; transform:scale(.995); } }
+            @keyframes navProfileSnapshotIn { from { opacity:0; transform:translateX(12px); } }
+            @keyframes navProfileSnapshotInBack { from { opacity:0; transform:translateX(-12px); } }
+            .nav-unified-hero { --hero-fade-duration:1600ms; view-transition-name:doorpi-profile-hero; position:relative; min-height:0; overflow:hidden; border-radius:clamp(14px,1vw,20px); background:radial-gradient(circle at 82% 18%,rgba(var(--profile-accent),.2),transparent 45%),linear-gradient(145deg,rgba(255,255,255,.075),rgba(255,255,255,.018)); border:1px solid rgba(255,255,255,.1); box-shadow:0 24px 64px rgba(0,0,0,.28); outline:none; transition:border-color .18s ease,box-shadow .18s ease,transform .18s ease; }
+            .nav-unified-hero.is-carousel { cursor:pointer; }
+            .nav-unified-hero.nav-focused-el { border-color:rgba(255,255,255,.72); box-shadow:0 26px 72px rgba(0,0,0,.34),0 0 0 2px rgba(var(--profile-accent),.18); transform:scale(1.004); }
+            .nav-unified-hero>img { position:absolute; z-index:1; inset:0; width:100%; height:100%; object-fit:cover; opacity:.72; filter:saturate(.94) contrast(1.02); transition:opacity var(--hero-fade-duration) cubic-bezier(.25,.65,.25,1); }
+            .nav-unified-hero>img.is-next-art { opacity:0; }
+            .nav-unified-hero>img.is-next-art.is-visible { opacity:.72; }
+            .nav-unified-hero>img.is-leaving-art { opacity:0; }
+            .nav-unified-art-fallback { position:absolute; z-index:0; inset:0; display:grid; place-items:center; padding:12px; box-sizing:border-box; color:rgba(255,255,255,.38); font-size:clamp(.62rem,.72vw,.82rem); font-weight:650; letter-spacing:.08em; text-align:center; text-transform:uppercase; }
+            .nav-unified-art-fallback span { display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+            .nav-unified-hero>.nav-unified-art-fallback { justify-items:end; align-items:start; padding:clamp(22px,2.2vw,38px); color:rgba(255,255,255,.18); font-size:clamp(.72rem,.9vw,1rem); }
+            .nav-unified-hero::after { content:""; position:absolute; z-index:1; inset:0; background:linear-gradient(90deg,rgba(5,8,16,.94) 0%,rgba(5,8,16,.74) 38%,rgba(5,8,16,.16) 76%),linear-gradient(0deg,rgba(3,5,11,.6),transparent 62%); }
+            .nav-unified-hero-copy { position:relative; z-index:2; width:min(70%,700px); height:100%; min-height:inherit; box-sizing:border-box; padding:clamp(24px,3vw,54px); display:flex; flex-direction:column; justify-content:flex-end; align-items:flex-start; }
+            .nav-unified-kicker { margin-bottom:9px; color:rgba(255,255,255,.54); font-size:clamp(.66rem,.72vw,.82rem); font-weight:720; letter-spacing:.15em; text-transform:uppercase; }
+            .nav-unified-hero h3 { max-width:100%; margin:0; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; font-size:clamp(1.55rem,2.45vw,3.5rem); font-weight:470; line-height:1.04; letter-spacing:-.032em; text-shadow:0 10px 30px rgba(0,0,0,.5); }
+            .nav-unified-hero.is-empty h3 { max-width:520px; font-size:clamp(1.4rem,2.05vw,2.8rem); line-height:1.08; }
+            .nav-unified-hero-meta { margin-top:13px; color:rgba(255,255,255,.68); font-size:clamp(.76rem,.85vw,.98rem); font-weight:550; }
+            .nav-unified-hero-pager { position:absolute; z-index:3; right:clamp(18px,1.8vw,30px); bottom:clamp(17px,1.7vw,28px); display:flex; align-items:center; gap:7px; }
+            .nav-unified-hero-pager i { width:6px; height:6px; border-radius:999px; background:rgba(255,255,255,.32); box-shadow:0 2px 8px rgba(0,0,0,.32); transition:width .25s ease,background .25s ease; }
+            .nav-unified-hero-pager i.is-active { width:22px; background:rgba(255,255,255,.9); }
+            .nav-unified-hero-state { width:10px; height:10px; margin-right:2px; opacity:.66; }
+            .nav-unified-hero-state svg { width:100%; height:100%; display:none; fill:currentColor; }
+            .nav-unified-hero-state:not(.is-paused) .icon-pause,.nav-unified-hero-state.is-paused .icon-play { display:block; }
+            .nav-unified-recent { view-transition-name:doorpi-profile-recent; min-height:0; display:flex; flex-direction:column; padding:clamp(15px,1.4vw,24px); border-radius:clamp(14px,1vw,20px); background:rgba(255,255,255,.035); border:1px solid rgba(255,255,255,.085); overflow:hidden; outline:none; transition:border-color .18s ease,box-shadow .18s ease; }
+            .nav-unified-recent.nav-focused-el { border-color:rgba(255,255,255,.68); box-shadow:0 0 0 2px rgba(var(--profile-accent),.14); }
+            .nav-unified-section-head { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:31px; margin-bottom:8px; }
+            .nav-unified-section-head strong { font-size:clamp(.82rem,.95vw,1.08rem); font-weight:610; }
+            .nav-unified-journey { min-height:31px; padding:0 11px; border-radius:6px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.04); color:rgba(255,255,255,.66); font:inherit; font-size:.72rem; outline:none; }
+            .nav-unified-journey.nav-focused-el { background:#fff; color:#08101d; border-color:#fff; }
+            .nav-unified-list { min-height:0; display:flex; flex-direction:column; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:none; }
+            .nav-unified-list::-webkit-scrollbar { display:none; }
+            .nav-unified-row { flex:0 0 auto; min-height:clamp(52px,6.15vh,72px); display:grid; grid-template-columns:clamp(68px,5.6vw,98px) minmax(0,1fr) auto; align-items:center; gap:clamp(10px,.9vw,16px); border-top:1px solid rgba(255,255,255,.075); transition:background .16s ease; }
+            .nav-unified-row:first-child { border-top:0; }
+            .nav-unified-recent.nav-focused-el .nav-unified-row.is-current { background:rgba(255,255,255,.075); }
+            .nav-unified-row-art { position:relative; width:100%; aspect-ratio:16/9; border-radius:6px; overflow:hidden; display:grid; place-items:center; background:rgba(0,0,0,.28); }
+            .nav-unified-row-art img { position:relative; z-index:1; width:100%; height:100%; object-fit:cover; }
+            .nav-unified-row-copy { min-width:0; display:grid; gap:3px; }
+            .nav-unified-row-copy strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:clamp(.74rem,.82vw,.94rem); font-weight:580; }
+            .nav-unified-row-copy small,.nav-unified-row-time small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:rgba(255,255,255,.4); font-size:clamp(.62rem,.66vw,.74rem); }
+            .nav-unified-row-time { display:grid; gap:3px; text-align:right; font-variant-numeric:tabular-nums; }
+            .nav-unified-row-time strong { color:rgba(255,255,255,.78); font-size:clamp(.68rem,.75vw,.86rem); font-weight:570; }
+            .nav-unified-empty { flex:1; display:grid; place-items:center; padding:24px; text-align:center; color:rgba(255,255,255,.34); font-size:.84rem; line-height:1.5; }
+            .nav-unified-stats { view-transition-name:doorpi-profile-stats; min-height:clamp(72px,8.6vh,104px); display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); border-radius:clamp(12px,.9vw,17px); border:1px solid rgba(255,255,255,.085); background:linear-gradient(100deg,rgba(255,255,255,.045),rgba(255,255,255,.018)); }
+            .nav-unified-stat { position:relative; min-width:0; padding:clamp(11px,1.2vw,20px) clamp(18px,1.7vw,31px); display:flex; flex-direction:column; justify-content:center; gap:5px; }
+            .nav-unified-stat+.nav-unified-stat::before { content:""; position:absolute; left:0; top:20%; bottom:20%; width:1px; background:linear-gradient(transparent,rgba(255,255,255,.14),transparent); }
+            .nav-unified-stat small { color:rgba(255,255,255,.42); font-size:clamp(.62rem,.67vw,.76rem); font-weight:650; letter-spacing:.1em; text-transform:uppercase; }
+            .nav-unified-stat strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:clamp(1.1rem,1.55vw,2rem); font-weight:380; }
+            .nav-unified-stat.is-compact strong { font-size:clamp(.88rem,1.08vw,1.36rem); font-weight:470; }
+            @media(max-width:1100px){.nav-unified-main{grid-template-columns:minmax(0,1.3fr) minmax(280px,.8fr)}.nav-unified-hero-copy{width:78%}}
+            @media(max-height:760px){.nav-unified-profile{gap:8px}.nav-unified-identity{min-height:56px}.nav-unified-avatar{width:52px;height:52px}.nav-unified-tabs,.nav-unified-tab{min-height:38px}.nav-unified-recent{padding:12px}.nav-unified-row{min-height:47px}.nav-unified-stats{min-height:64px}}
+            @media(prefers-reduced-motion:reduce){.nav-unified-profile.is-entering-forward .nav-unified-main,.nav-unified-profile.is-entering-forward .nav-unified-stats,.nav-unified-profile.is-entering-back .nav-unified-main,.nav-unified-profile.is-entering-back .nav-unified-stats{animation:none}.nav-unified-hero,.nav-unified-hero-pager i{transition:none}}
+        `;
+        document.head.appendChild(style);
+    }
+
     function _renderProfile(body) {
+        _ensureUnifiedProfileStyles();
+        const prof = _menuData.user || {};
+        const games = _menuData.games || [];
+        const gameHistory = (_menuData.history || []).filter(item => item?.Name && Number(item.TotalPlaytimeMinutes) >= 1);
+        const mediaHistory = (_menuData.mediaHistory || []).filter(item => item?.ContentTitle && Number(item.TotalPlaybackSeconds) >= 1);
+        const mediaApps = _menuData.media || [];
+        const tab = ['gaming', 'film-series', 'streaming', 'music'].includes(_profileSubView) ? _profileSubView : 'overview';
+        const trackingEnabled = prof.ApplicationHistoryEnabled !== false && prof.applicationHistoryEnabled !== false;
+        const name = prof.Name || 'Doorpi';
+        const photo = prof.PhotoBase64 || '';
+
+        const fmtSeconds = value => {
+            const total = Math.max(0, Math.round(Number(value) || 0));
+            if (total < 60) return total ? '< 1 min' : '--';
+            const hours = Math.floor(total / 3600);
+            const minutes = Math.floor((total % 3600) / 60);
+            if (!hours) return `${minutes} min`;
+            return minutes ? `${hours}h ${minutes}min` : `${hours}h`;
+        };
+        const relDate = value => {
+            const time = new Date(value || 0).getTime();
+            if (!Number.isFinite(time) || time <= 0) return '';
+            const days = Math.max(0, Math.floor((Date.now() - time) / 86400000));
+            if (days === 0) return _t('today', 'hoje');
+            if (days === 1) return _t('yesterday', 'ontem');
+            if (days < 7) return `há ${days} dias`;
+            return new Date(time).toLocaleDateString();
+        };
+        const isToday = value => {
+            const date = new Date(value || 0);
+            if (!Number.isFinite(date.getTime()) || date.getTime() <= 0) return false;
+            const now = new Date();
+            return date.getFullYear() === now.getFullYear() &&
+                date.getMonth() === now.getMonth() &&
+                date.getDate() === now.getDate();
+        };
+        const appFor = id => mediaApps.find(app => String(app.Id || app.id || '').toLowerCase() === String(id || '').toLowerCase()) || {};
+        const appName = id => appFor(id).Name || mediaHistory.find(item => item.AppId === id)?.AppName || id || 'Doorpi';
+        const appArt = app => app.HeroStaticImage || app.HeroImage || app.GridHorizontalStaticImage || app.GridHorizontalImage || app.GridStaticImage || app.GridImage || '';
+        const appThumb = app => app.GridHorizontalStaticImage || app.GridHorizontalImage || app.HeroStaticImage || app.HeroImage || app.GridStaticImage || app.GridImage || '';
+        const gameArt = item => item?.ProfileBannerLocalImage || item?.ProfileBannerImageUrl || item?.HistoryHorizontalLocalImage || item?.GridHorizontalStaticImage || item?.GridHorizontalImage || item?.HistoryHorizontalImageUrl || item?.GridStaticImage || item?.GridImage || '';
+        const mediaArtChain = item => [...new Set([
+            item?.ArtworkLocalUrl,
+            item?.ArtworkRemoteUrl,
+            appThumb(appFor(item?.AppId))
+        ].filter(Boolean))];
+        const isEpisode = item => String(item?.Category || '').toLowerCase() !== 'music' &&
+            (String(item?.ContentType || '').toLowerCase() === 'episode' ||
+             !!(item?.SeriesTitle && item.SeriesTitle !== item.ContentTitle));
+        const mediaPrimaryTitle = item => isEpisode(item)
+            ? (item?.SeriesTitle || item?.ContentTitle || appName(item?.AppId))
+            : (item?.ContentTitle || item?.SeriesTitle || appName(item?.AppId));
+        const mediaSecondaryTitle = item => {
+            if (!isEpisode(item)) return '';
+            if (item?.ContentTitle && item.ContentTitle !== mediaPrimaryTitle(item)) return item.ContentTitle;
+            const episode = item?.EpisodeNumber ? `${_t('navEpisodeShort','Ep.')} ${item.EpisodeNumber}` : '';
+            return [item?.SeasonTitle, episode].filter(Boolean).join(' · ');
+        };
+        const isLiveActivity = item => String(item?.Category || '').toLowerCase() === 'live' ||
+            ['twitch', 'kick'].includes(String(item?.AppId || '').toLowerCase());
+        const mediaActivityLabel = item => {
+            if (!item) return '';
+            if (String(item.Category || '').toLowerCase() === 'music') {
+                return [item.ContentTitle, item.CreatorName, appName(item.AppId)].filter(Boolean).join(' · ');
+            }
+            if (isLiveActivity(item)) {
+                const creator = String(item.CreatorName || '').trim();
+                return creator
+                    ? `${_t('navWatchedCreator','Assistiu')} ${creator} · ${appName(item.AppId)}`
+                    : appName(item.AppId);
+            }
+            return [mediaPrimaryTitle(item), mediaSecondaryTitle(item), appName(item.AppId)]
+                .filter(Boolean)
+                .join(' · ');
+        };
+        const filmHighlightMeta = group => {
+            if (!group) return '';
+            const lastEpisode = isEpisode(group.latest) ? mediaSecondaryTitle(group.latest) : '';
+            const watched = `${fmtSeconds(group.seconds)} ${_t('navProfileTotalSuffix','no total')}`;
+            return lastEpisode
+                ? `${_t('navLastEpisode','Último episódio')}: ${lastEpisode} · ${watched}`
+                : watched;
+        };
+        const artImage = (chain, lazy = false, fallbackLabel = '') => {
+            const candidates = Array.isArray(chain) ? chain.filter(Boolean) : [];
+            const fallback = `<span class="nav-unified-art-fallback"><span>${_esc(fallbackLabel || 'Doorpi')}</span></span>`;
+            if (!candidates.length) return fallback;
+            const fallbacks = encodeURIComponent(JSON.stringify(candidates.slice(1)));
+            return `${fallback}<img src="${_esc(candidates[0])}" data-art-fallbacks="${_esc(fallbacks)}"${lazy ? ' loading="lazy" decoding="async"' : ''} alt="" />`;
+        };
+        const gameMinutes = gameHistory.reduce((sum, item) => sum + (Number(item.TotalPlaytimeMinutes) || 0), 0);
+        const mediaSeconds = mediaHistory.reduce((sum, item) => sum + (Number(item.TotalPlaybackSeconds) || 0), 0);
+        const films = mediaHistory.filter(item => item.Category === 'film-series');
+        const streams = mediaHistory.filter(item => item.Category === 'live' || item.Category === 'video');
+        const music = mediaHistory.filter(item => item.Category === 'music');
+        const groupPlatforms = entries => [...entries.reduce((map, item) => {
+            const key = item.AppId || 'unknown';
+            const current = map.get(key) || { id:key, seconds:0, entries:[] };
+            current.seconds += Number(item.TotalPlaybackSeconds) || 0;
+            current.entries.push(item);
+            map.set(key, current);
+            return map;
+        }, new Map()).values()].sort((a,b) => b.seconds - a.seconds);
+        const groupFilmTitles = entries => [...entries.reduce((map, item) => {
+            const title = mediaPrimaryTitle(item);
+            const key = `${String(item.AppId || '').toLowerCase()}\u001f${title.toLocaleLowerCase()}`;
+            const current = map.get(key) || { title, seconds:0, entries:[], latest:null };
+            current.seconds += Number(item.TotalPlaybackSeconds) || 0;
+            current.entries.push(item);
+            if (!current.latest || new Date(item.LastPlayed || 0) > new Date(current.latest.LastPlayed || 0)) current.latest = item;
+            map.set(key, current);
+            return map;
+        }, new Map()).values()].sort((a,b) => b.seconds - a.seconds);
+        const mostPlayedGame = [...gameHistory].sort((a,b) => Number(b.TotalPlaytimeMinutes) - Number(a.TotalPlaytimeMinutes))[0];
+        const latestGame = [...gameHistory].sort((a,b) => new Date(b.LastPlayed || 0) - new Date(a.LastPlayed || 0))[0];
+        const latestMedia = [...mediaHistory].sort((a,b) => new Date(b.LastPlayed || 0) - new Date(a.LastPlayed || 0))[0];
+        const filmPlatform = groupPlatforms(films)[0];
+        const streamPlatform = groupPlatforms(streams)[0];
+
+        const gameHighlight = mostPlayedGame ? {
+            kind:'gaming',
+            kicker:_t('navGamingHighlight','Destaque em jogos'),
+            title:mostPlayedGame.Name,
+            meta:`${fmtSeconds(Number(mostPlayedGame.TotalPlaytimeMinutes) * 60)} ${_t('navProfileTotalSuffix','no total')}`,
+            art:gameArt(mostPlayedGame),
+            artChain:[gameArt(mostPlayedGame)].filter(Boolean),
+            appId:''
+        } : null;
+        const topFilm = groupFilmTitles(filmPlatform?.entries || [])[0];
+        const filmHighlight = topFilm?.latest ? (() => {
+            const chain = mediaArtChain(topFilm.latest);
+            return {
+                kind:'film-series',
+                kicker:`${_t('navMostWatched','Mais assistido')} · ${appName(filmPlatform.id)}`,
+                title:topFilm.title,
+                meta:filmHighlightMeta(topFilm),
+                art:chain[0] || appArt(appFor(filmPlatform.id)),
+                artChain:chain,
+                appId:filmPlatform.id
+            };
+        })() : null;
+        const streamPlatformEntries = streamPlatform?.entries || [];
+        const streamCreatorGroups = [...streamPlatformEntries.reduce((map,item) => {
+            const label = (item.CreatorName || item.ContentTitle || '').trim();
+            if (label) map.set(label, (map.get(label) || 0) + Number(item.TotalPlaybackSeconds || 0));
+            return map;
+        }, new Map()).entries()].sort((a,b) => b[1] - a[1]);
+        const favoriteCreator = streamCreatorGroups[0];
+        const favoriteCreatorEntry = favoriteCreator ? streamPlatformEntries
+            .filter(item => (item.CreatorName || item.ContentTitle || '').trim() === favoriteCreator[0])
+            .sort((a,b) => {
+                const aHasContentArt = !!(a.ArtworkLocalUrl || a.ArtworkRemoteUrl);
+                const bHasContentArt = !!(b.ArtworkLocalUrl || b.ArtworkRemoteUrl);
+                if (aHasContentArt !== bHasContentArt) return bHasContentArt - aHasContentArt;
+                return new Date(b.LastPlayed || 0) - new Date(a.LastPlayed || 0);
+            })[0] : null;
+        const streamHighlight = streamPlatform && favoriteCreator ? (() => {
+            const chain = mediaArtChain(favoriteCreatorEntry);
+            return {
+                kind:'streaming',
+                kicker:`${_t('navMostWatched','Mais assistido')} · ${appName(streamPlatform.id)}`,
+                title:favoriteCreator[0],
+                meta:`${fmtSeconds(favoriteCreator[1])} ${_t('navProfileTotalSuffix','no total')}`,
+                art:chain[0] || appArt(appFor(streamPlatform.id)),
+                artChain:chain,
+                appId:streamPlatform.id
+            };
+        })() : null;
+        const musicArtistGroups = [...music.reduce((map,item) => {
+            const label = (item.CreatorName || item.ContentTitle || '').trim();
+            if (label) map.set(label, (map.get(label) || 0) + Number(item.TotalPlaybackSeconds || 0));
+            return map;
+        }, new Map()).entries()].sort((a,b) => b[1] - a[1]);
+        const topMusicArtist = musicArtistGroups[0];
+        const topMusicEntry = topMusicArtist ? music
+            .filter(item => (item.CreatorName || item.ContentTitle || '').trim() === topMusicArtist[0])
+            .sort((a,b) => new Date(b.LastPlayed || 0) - new Date(a.LastPlayed || 0))[0] : null;
+        const musicHighlight = topMusicArtist && topMusicEntry ? (() => {
+            const chain = mediaArtChain(topMusicEntry);
+            return {
+                kind:'music',
+                kicker:`${_t('navMostListened','Mais ouvido')} · ${appName(topMusicEntry.AppId)}`,
+                title:topMusicArtist[0],
+                meta:`${fmtSeconds(topMusicArtist[1])} ${_t('navProfileTotalSuffix','no total')}`,
+                art:chain[0] || appArt(appFor(topMusicEntry.AppId)),
+                artChain:chain,
+                appId:topMusicEntry.AppId
+            };
+        })() : null;
+        const overviewHighlights = [gameHighlight, filmHighlight, streamHighlight, musicHighlight].filter(Boolean);
+
+        let hero = {
+            kicker:_t('navProfileEmptyKicker','Seu perfil'),
+            title:_t('navProfileEmptyTitle','Nenhuma atividade registrada'),
+            meta:_t('navProfileEmptyHint','Jogue ou assista para começar'),
+            art:'', appId:'', isEmpty:true
+        };
+        let rows = [];
+        let stats = [];
+        let sectionTitle = _t('navTodayActivity', 'Atividade de hoje');
+        const gameRows = gameHistory.map(item => ({ title:item.Name, sub:_t('navGames','Jogos'), seconds:Number(item.TotalPlaytimeMinutes) * 60, recentSeconds:Number(item.LastSessionMinutes) * 60, date:item.LastPlayed, artChain:[gameArt(item)].filter(Boolean), platform:_t('navGames','Jogos') }));
+        const mediaRows = entries => entries.map(item => ({
+            title:mediaPrimaryTitle(item),
+            sub:item.Category === 'music'
+                ? [item.CreatorName, item.AlbumTitle, appName(item.AppId)].filter(Boolean).join(' · ')
+                : isEpisode(item)
+                ? [mediaSecondaryTitle(item), appName(item.AppId)].filter(Boolean).join(' · ')
+                : [item.CreatorName, appName(item.AppId)].filter(Boolean).join(' · '),
+            seconds:Number(item.TotalPlaybackSeconds),
+            recentSeconds:Number(item.LastSessionSeconds),
+            date:item.LastPlayed,
+            artChain:mediaArtChain(item),
+            platform:appName(item.AppId),
+            source:item
+        }));
+        const filmRows = groupFilmTitles(films).map(group => ({
+            title:group.title,
+            sub:[isEpisode(group.latest) ? mediaSecondaryTitle(group.latest) : '', appName(group.latest?.AppId)].filter(Boolean).join(' · '),
+            seconds:group.seconds,
+            date:group.latest?.LastPlayed,
+            artChain:mediaArtChain(group.latest),
+            platform:appName(group.latest?.AppId)
+        }));
+        const streamRows = [...streams.reduce((map, item) => {
+            const title = String(item.CreatorName || item.ContentTitle || appName(item.AppId)).trim();
+            const key = `${String(item.AppId || '').toLowerCase()}\u001f${title.toLocaleLowerCase()}`;
+            const current = map.get(key) || { title, sub:appName(item.AppId), seconds:0, date:item.LastPlayed, latest:item, platform:appName(item.AppId) };
+            current.seconds += Number(item.TotalPlaybackSeconds) || 0;
+            if (new Date(item.LastPlayed || 0) > new Date(current.date || 0)) {
+                current.date = item.LastPlayed;
+                current.latest = item;
+            }
+            map.set(key, current);
+            return map;
+        }, new Map()).values()].map(item => ({ ...item, artChain:mediaArtChain(item.latest) }));
+        const musicRows = mediaRows(music);
+
+        if (tab === 'gaming') {
+            if (gameHighlight) hero = { ...gameHighlight, kicker:_t('navStatMostPlayed','Mais jogado') };
+            rows = gameRows.sort((a,b) => b.seconds - a.seconds);
+            sectionTitle = _t('navMostPlayedGames', 'Mais jogados');
+            stats = [
+                [_t('navStatGames','Jogos na biblioteca'), String(games.length)],
+                [_t('navStatTime','Tempo jogado'), fmtSeconds(gameMinutes * 60)],
+                [_t('navLastPlayed','Último jogado'), latestGame?.Name || '--', true]
+            ];
+        } else if (tab === 'film-series') {
+            if (filmHighlight) hero = filmHighlight;
+            rows = filmRows.sort((a,b) => b.seconds - a.seconds);
+            sectionTitle = _t('navMostWatchedTitles', 'Mais assistidos');
+            stats = [
+                [_t('navWatchTime','Tempo assistido'), fmtSeconds(films.reduce((s,i) => s + Number(i.TotalPlaybackSeconds || 0), 0))],
+                [_t('navTitlesWatched','Séries/filmes assistidos'), String(groupFilmTitles(films).length)],
+                [_t('navFavoritePlatform','Plataforma principal'), filmPlatform ? appName(filmPlatform.id) : '--', true]
+            ];
+        } else if (tab === 'streaming') {
+            if (streamHighlight) hero = streamHighlight;
+            rows = streamRows.sort((a,b) => b.seconds - a.seconds);
+            sectionTitle = _t('navMostWatchedCreators', 'Mais assistidos');
+            stats = [
+                [_t('navWatchTime','Tempo assistido'), fmtSeconds(streams.reduce((s,i) => s + Number(i.TotalPlaybackSeconds || 0), 0))],
+                [_t('navCreatorsWatched','Criadores acompanhados'), String(new Set(streams.map(i => i.CreatorName).filter(Boolean)).size)],
+                [_t('navFavoritePlatform','Plataforma principal'), streamPlatform ? appName(streamPlatform.id) : '--', true]
+            ];
+        } else if (tab === 'music') {
+            if (musicHighlight) hero = musicHighlight;
+            rows = musicRows.sort((a,b) => b.seconds - a.seconds);
+            sectionTitle = _t('navMostListenedTracks', 'Mais ouvidos');
+            stats = [
+                [_t('navListeningTime','Tempo ouvido'), fmtSeconds(music.reduce((s,i) => s + Number(i.TotalPlaybackSeconds || 0), 0))],
+                [_t('navTracksListened','Faixas ouvidas'), String(new Set(music.map(i => `${i.ContentTitle}\u001f${i.CreatorName}`)).size)],
+                [_t('navMostListenedArtist','Artista mais ouvido'), topMusicArtist?.[0] || '--', true]
+            ];
+        } else {
+            if (overviewHighlights.length) {
+                if (_profileOverviewCarouselPaused && _profileOverviewStoredKind) {
+                    const storedIndex = overviewHighlights.findIndex(item => item.kind === _profileOverviewStoredKind);
+                    if (storedIndex >= 0) _profileOverviewHeroIndex = storedIndex;
+                }
+                _profileOverviewHeroIndex %= overviewHighlights.length;
+                hero = overviewHighlights[_profileOverviewHeroIndex];
+            }
+            rows = [...gameRows, ...mediaRows(mediaHistory)]
+                .filter(item => isToday(item.date))
+                .map(item => ({ ...item, seconds:item.recentSeconds || item.seconds }))
+                .sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0));
+            const latestGameToday = isToday(latestGame?.LastPlayed) ? latestGame : null;
+            const latestMediaToday = isToday(latestMedia?.LastPlayed) ? latestMedia : null;
+            const latestIsMedia = new Date(latestMediaToday?.LastPlayed || 0) > new Date(latestGameToday?.LastPlayed || 0);
+            stats = [
+                [_t('navGamingTime','Tempo em jogos'), fmtSeconds(gameMinutes * 60)],
+                [_t('navWatchTime','Tempo assistido'), fmtSeconds(mediaSeconds)],
+                [_t('navLastActivity','Última atividade'), (latestIsMedia ? mediaActivityLabel(latestMediaToday) : latestGameToday?.Name) || '--', true]
+            ];
+        }
+
+        const accentByApp = { youtube:'255,68,68', netflix:'229,9,20', twitch:'145,70,255', kick:'83,252,24', disneyplus:'63,117,255', primevideo:'0,168,225', appletv:'235,235,240', max:'116,63,255', crunchyroll:'244,117,33' };
+        const accentForHero = item => accentByApp[item?.appId] || (item?.kind === 'music' || tab === 'music' ? '52,211,120' : item?.kind === 'gaming' || tab === 'gaming' ? '92,154,255' : '110,156,255');
+        const accent = accentForHero(hero);
+        const tabs = [
+            ['overview', _t('navProfileOverview','Visão geral')],
+            ['gaming', _t('navGames','Jogos')],
+            ['film-series', _t('navFilmsSeries','Filmes e séries')],
+            ['streaming', _t('navStreamingVideos','Ao vivo e vídeos')],
+            ['music', _t('navMusic','Música')]
+        ];
+        const rowHtml = rows.map((item, index) => `
+            <div class="nav-unified-row${index === 0 ? ' is-current' : ''}" data-profile-recent-index="${index}" role="option" aria-selected="${index === 0 ? 'true' : 'false'}">
+                <span class="nav-unified-row-art">${artImage(item.artChain, true, item.platform)}</span>
+                <span class="nav-unified-row-copy"><strong>${_esc(item.title)}</strong><small>${_esc(item.sub || '')}</small></span>
+                <span class="nav-unified-row-time"><strong>${fmtSeconds(item.seconds)}</strong><small>${relDate(item.date)}</small></span>
+            </div>`).join('');
+        const heroCarouselEnabled = tab === 'overview' && overviewHighlights.length > 1;
+        const heroPager = heroCarouselEnabled
+            ? `<span class="nav-unified-hero-pager" aria-hidden="true"><b class="nav-unified-hero-state${_profileOverviewCarouselPaused ? ' is-paused' : ''}"><svg class="icon-play" viewBox="0 0 12 12"><path d="M2.4 1.4 10 6l-7.6 4.6z"/></svg><svg class="icon-pause" viewBox="0 0 12 12"><path d="M2.2 1.5h2.6v9H2.2zm5 0h2.6v9H7.2z"/></svg></b>${overviewHighlights.map((_, index) => `<i class="${index === _profileOverviewHeroIndex ? 'is-active' : ''}"></i>`).join('')}</span>`
+            : '';
+        const profileEntryClass = document.documentElement.dataset.profileTransition
+            ? ''
+            : ` is-entering-${_profileTabTransitionDirection}`;
+
+        body.innerHTML = `
+            <div class="nav-unified-profile${profileEntryClass}" style="--profile-accent:${accent}">
+                <header class="nav-unified-identity">
+                    <div class="nav-unified-avatar">${photo ? `<img src="${window._doorpiUserPhotoSrc?.(photo) || `data:image/png;base64,${photo}`}" alt="" />` : '◎'}</div>
+                    <div class="nav-unified-name"><h2>${_esc(name)}</h2></div>
+                    <button class="nav-unified-edit" id="btnEditProfileHub" tabindex="-1">${_t('navEditProfileBtn','Editar perfil')}</button>
+                </header>
+                <nav class="nav-unified-tabs" aria-label="${_t('navProfileSections','Seções do perfil')}">${tabs.map(([id,label]) => `<button class="nav-unified-tab${tab === id ? ' is-active' : ''}" data-profile-tab="${id}" tabindex="-1">${label}</button>`).join('')}</nav>
+                <div class="nav-unified-main">
+                    <section class="nav-unified-hero${hero.isEmpty ? ' is-empty' : ''}${heroCarouselEnabled ? ' is-carousel' : ''}"${heroCarouselEnabled ? ` id="btnProfileHero" role="button" aria-label="${_esc(_profileOverviewCarouselPaused ? _t('navPlayHighlights','Retomar troca automática') : _t('navPauseHighlights','Pausar troca automática'))}" tabindex="-1"` : ''}>${artImage(hero.artChain?.length ? hero.artChain : [hero.art].filter(Boolean), false, hero.appId ? appName(hero.appId) : _t('navGames','Jogos'))}<div class="nav-unified-hero-copy"><span class="nav-unified-kicker">${_esc(hero.kicker)}</span><h3>${_esc(hero.title)}</h3><span class="nav-unified-hero-meta">${_esc(hero.meta)}</span></div>${heroPager}</section>
+                    <aside class="nav-unified-recent"${rows.length ? ` id="btnProfileRecent" role="listbox" aria-label="${_esc(sectionTitle)}" tabindex="-1"` : ''}><div class="nav-unified-section-head"><strong>${sectionTitle}</strong>${tab === 'gaming' && gameHistory.length ? `<button class="nav-unified-journey" id="btnGameHistory" tabindex="-1">${_t('navGameHistoryBtn','Ver jornada')}</button>` : ''}</div><div class="nav-unified-list">${rowHtml || `<div class="nav-unified-empty">${tab === 'overview' && trackingEnabled ? _t('navNoActivityToday','Nenhuma atividade hoje.') : trackingEnabled || tab === 'gaming' ? _t('navNoCategoryActivity','Nenhuma atividade nesta categoria ainda.') : _t('navHistoryPausedHint','A coleta está pausada nas configurações do perfil.')}</div>`}</div></aside>
+                </div>
+                <footer class="nav-unified-stats">${stats.map(([label,value,compact]) => `<div class="nav-unified-stat${compact ? ' is-compact' : ''}"><small>${label}</small><strong>${_esc(value)}</strong></div>`).join('')}</footer>
+            </div>`;
+
+        const bindArtFallback = image => {
+            let fallbacks = [];
+            try { fallbacks = JSON.parse(decodeURIComponent(image.dataset.artFallbacks || '[]')); } catch (_) {}
+            image.addEventListener('error', () => {
+                const next = fallbacks.shift();
+                if (next) image.src = next;
+                else image.remove();
+            });
+        };
+        body.querySelectorAll('img[data-art-fallbacks]').forEach(bindArtFallback);
+
+        _contentItems = [...body.querySelectorAll('.nav-unified-tab')];
+        const heroButton = body.querySelector('#btnProfileHero');
+        const recent = body.querySelector('#btnProfileRecent');
+        const edit = body.querySelector('#btnEditProfileHub');
+        const journey = body.querySelector('#btnGameHistory');
+        if (heroButton) _contentItems.push(heroButton);
+        if (recent) _contentItems.push(recent);
+        if (edit) _contentItems.push(edit);
+        if (journey) _contentItems.push(journey);
+        if (recent) {
+            const recentRows = [...recent.querySelectorAll('.nav-unified-row')];
+            const recentList = recent.querySelector('.nav-unified-list');
+            let recentIndex = 0;
+            const selectRecent = (index, smooth = true) => {
+                const next = Math.max(0, Math.min(recentRows.length - 1, index));
+                const changed = next !== recentIndex;
+                recentIndex = next;
+                recentRows.forEach((row, rowIndex) => {
+                    const selected = rowIndex === recentIndex;
+                    row.classList.toggle('is-current', selected);
+                    row.setAttribute('aria-selected', selected ? 'true' : 'false');
+                });
+                const row = recentRows[recentIndex];
+                if (row && recentList) {
+                    const rowRect = row.getBoundingClientRect();
+                    const listRect = recentList.getBoundingClientRect();
+                    if (rowRect.bottom > listRect.bottom)
+                        recentList.scrollBy({ top: rowRect.bottom - listRect.bottom, behavior: smooth ? 'smooth' : 'auto' });
+                    else if (rowRect.top < listRect.top)
+                        recentList.scrollBy({ top: rowRect.top - listRect.top, behavior: smooth ? 'smooth' : 'auto' });
+                }
+                return changed;
+            };
+            recent._profileRecentStep = direction => selectRecent(recentIndex + direction);
+            recent._profileRecentAtStart = () => recentIndex <= 0;
+        }
+        if (heroButton) {
+            let requestedHeroIndex = _profileOverviewHeroIndex;
+            let highlightRequestToken = 0;
+            let cancelActiveTransition = () => {};
+            const resolveLoadedArt = sources => new Promise(resolve => {
+                const candidates = [...new Set((sources || []).filter(Boolean))];
+                const tryCandidate = index => {
+                    if (index >= candidates.length) {
+                        resolve('');
+                        return;
+                    }
+                    const source = candidates[index];
+                    const probe = new Image();
+                    let active = true;
+                    const timeout = setTimeout(() => {
+                        if (!active) return;
+                        active = false;
+                        tryCandidate(index + 1);
+                    }, 4000);
+                    probe.onload = async () => {
+                        if (!active) return;
+                        active = false;
+                        clearTimeout(timeout);
+                        try { await probe.decode?.(); } catch (_) {}
+                        resolve(source);
+                    };
+                    probe.onerror = () => {
+                        if (!active) return;
+                        active = false;
+                        clearTimeout(timeout);
+                        tryCandidate(index + 1);
+                    };
+                    probe.src = source;
+                };
+                tryCandidate(0);
+            });
+            const applyHighlightPresentation = (next, index) => {
+                const profile = heroButton.closest('.nav-unified-profile');
+                heroButton.classList.toggle('is-empty', !!next.isEmpty);
+                heroButton.querySelector('.nav-unified-kicker').textContent = next.kicker || '';
+                heroButton.querySelector('h3').textContent = next.title || '';
+                heroButton.querySelector('.nav-unified-hero-meta').textContent = next.meta || '';
+                const fallbackLabel = heroButton.querySelector('.nav-unified-art-fallback span');
+                if (fallbackLabel) fallbackLabel.textContent = next.appId ? appName(next.appId) : _t('navGames','Jogos');
+                profile?.style.setProperty('--profile-accent', accentForHero(next));
+                heroButton.querySelectorAll('.nav-unified-hero-pager i').forEach((dot, dotIndex) => {
+                    dot.classList.toggle('is-active', dotIndex === index);
+                });
+            };
+            const commitHighlightArt = (loadedSource, durationMs, token, automatic) => new Promise(resolve => {
+                if (!heroButton.isConnected || token !== highlightRequestToken) {
+                    resolve(false);
+                    return;
+                }
+                const oldImages = [...heroButton.children].filter(element => element.tagName === 'IMG');
+                if (!automatic) {
+                    oldImages.forEach(image => image.remove());
+                    if (loadedSource) {
+                        const image = document.createElement('img');
+                        image.src = loadedSource;
+                        image.alt = '';
+                        heroButton.insertBefore(image, heroButton.firstChild);
+                    }
+                    heroButton.style.setProperty('--hero-fade-duration', '1600ms');
+                    resolve(true);
+                    return;
+                }
+
+                let nextImage = null;
+                heroButton.style.setProperty('--hero-fade-duration', `${durationMs}ms`);
+                if (loadedSource) {
+                    nextImage = document.createElement('img');
+                    nextImage.src = loadedSource;
+                    nextImage.alt = '';
+                    nextImage.className = 'is-next-art';
+                    heroButton.insertBefore(nextImage, heroButton.firstChild);
+                }
+
+                let cleaned = false;
+                const finish = () => {
+                    if (cleaned) return;
+                    cleaned = true;
+                    oldImages.forEach(image => image.remove());
+                    nextImage?.classList.remove('is-next-art', 'is-visible');
+                    if (cancelActiveTransition === cancel) cancelActiveTransition = () => {};
+                    resolve(token === highlightRequestToken);
+                };
+                const cancel = () => {
+                    if (cleaned) return;
+                    cleaned = true;
+                    nextImage?.remove();
+                    oldImages.forEach(image => {
+                        image.style.transition = 'none';
+                        image.classList.remove('is-leaving-art');
+                        requestAnimationFrame(() => image.style.removeProperty('transition'));
+                    });
+                    if (cancelActiveTransition === cancel) cancelActiveTransition = () => {};
+                    resolve(false);
+                };
+                cancelActiveTransition = cancel;
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    if (token !== highlightRequestToken) {
+                        cancel();
+                        return;
+                    }
+                    oldImages.forEach(image => image.classList.add('is-leaving-art'));
+                    nextImage?.classList.add('is-visible');
+                    if (durationMs === 0) finish();
+                }));
+                nextImage?.addEventListener('transitionend', event => {
+                    if (event.propertyName === 'opacity') {
+                        if (token === highlightRequestToken) finish();
+                        else cancel();
+                    }
+                }, { once:true });
+                setTimeout(() => token === highlightRequestToken ? finish() : cancel(), durationMs + 280);
+            });
+            const applyHighlight = (step, automatic = false) => {
+                _clearProfileOverviewCarousel();
+                if (!automatic) cancelActiveTransition();
+                requestedHeroIndex = (requestedHeroIndex + step + overviewHighlights.length) % overviewHighlights.length;
+                _profileOverviewHeroIndex = requestedHeroIndex;
+                const next = overviewHighlights[requestedHeroIndex];
+                applyHighlightPresentation(next, requestedHeroIndex);
+                const chain = next.artChain?.length ? next.artChain : [next.art].filter(Boolean);
+                const token = ++highlightRequestToken;
+                resolveLoadedArt(chain).then(async loadedSource => {
+                    if (token !== highlightRequestToken || !heroButton.isConnected) return;
+                    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+                    const completed = await commitHighlightArt(loadedSource, reduceMotion ? 0 : 1600, token, automatic);
+                    if (completed && token === highlightRequestToken && heroButton.isConnected)
+                        _scheduleProfileOverviewCarousel(overviewHighlights.length);
+                });
+
+                if (_profileOverviewCarouselPaused && !automatic) {
+                    _profileOverviewStoredKind = next.kind || '';
+                    _persistProfileOverviewCarousel(_profileOverviewStoredKind);
+                }
+            };
+            const toggleCarousel = () => {
+                _profileOverviewCarouselPaused = !_profileOverviewCarouselPaused;
+                const current = overviewHighlights[requestedHeroIndex];
+                if (_profileOverviewCarouselPaused) _profileOverviewStoredKind = current?.kind || '';
+                _persistProfileOverviewCarousel(_profileOverviewStoredKind);
+                heroButton.querySelector('.nav-unified-hero-state')?.classList.toggle('is-paused', _profileOverviewCarouselPaused);
+                heroButton.setAttribute('aria-label', _profileOverviewCarouselPaused
+                    ? _t('navPlayHighlights','Retomar troca automática')
+                    : _t('navPauseHighlights','Pausar troca automática'));
+                _scheduleProfileOverviewCarousel(overviewHighlights.length);
+            };
+            heroButton._profileHeroStep = applyHighlight;
+            heroButton.addEventListener('click', toggleCarousel);
+            _profileOverviewAdvance = applyHighlight;
+        } else {
+            _profileOverviewAdvance = null;
+        }
+        body.querySelectorAll('.nav-unified-tab').forEach(button => button.addEventListener('click', () => {
+            const currentTabIndex = tabs.findIndex(([id]) => id === tab);
+            const nextTabIndex = tabs.findIndex(([id]) => id === button.dataset.profileTab);
+            const direction = nextTabIndex < currentTabIndex ? 'back' : 'forward';
+            _profileSubView = button.dataset.profileTab === 'overview' ? null : button.dataset.profileTab;
+            _contentIdx = nextTabIndex;
+            _renderProfileWithTransition(direction, nextTabIndex);
+        }));
+        edit?.addEventListener('click', () => {
+            _catIdx = CATS.findIndex(cat => cat.id === 'settings');
+            _settingsSubView = 'accountHub';
+            document.querySelectorAll('.nav-cat-item').forEach((el, i) => el.classList.toggle('active', i === _catIdx));
+            _updateTopbarFocusVisual();
+            _contentIdx = 0;
+            const headerWrap = document.getElementById('navHeaderWrap');
+            if (headerWrap) headerWrap.style.display = 'block';
+            document.getElementById('navContentTitle').textContent = CATS[_catIdx].label;
+            document.getElementById('navContentSub').textContent = _subtitle('settings');
+            _renderContent('settings');
+            _setTopbarFocus(false);
+        });
+        journey?.addEventListener('click', () => {
+            _profileSubView = 'history';
+            _contentIdx = 0;
+            _renderContent('profile');
+            _setTopbarFocus(false);
+        });
+        if (tab === 'overview') {
+            overviewHighlights.forEach((item, index) => {
+                if (index === _profileOverviewHeroIndex) return;
+                const source = item.artChain?.[0] || item.art;
+                if (source) {
+                    const preload = new Image();
+                    preload.src = source;
+                }
+            });
+        }
+        _scheduleProfileOverviewCarousel(tab === 'overview' ? overviewHighlights.length : 0);
+    }
+
+    function _renderLegacyProfile(body) {
         const prof = _menuData.user || {};
         const name = prof.Name || '—';
         const photo = prof.PhotoBase64 || '';
@@ -5575,6 +6297,15 @@ window.isNavMenuOpen = false;
                 .nav-account-route-copy strong { font-size:.98rem; font-weight:590; color:#fff; }
                 .nav-account-route-copy small { font-size:.78rem; font-weight:400; color:rgba(255,255,255,.46); }
                 .nav-account-route-chevron { color:rgba(255,255,255,.38); font-size:1.25rem; }
+                .nav-account-toggle { width:100%; min-height:70px; display:flex; align-items:center; justify-content:space-between; gap:20px; padding:10px 17px; border:1px solid rgba(255,255,255,.08); border-radius:10px; background:rgba(255,255,255,.025); color:#fff; font:inherit; outline:none; text-align:left; }
+                .nav-account-toggle.nav-focused-el { border-color:rgba(255,255,255,.72); background:rgba(255,255,255,.09); }
+                .nav-account-toggle-copy { min-width:0; display:grid; gap:4px; }
+                .nav-account-toggle-copy strong { font-size:.98rem; font-weight:590; }
+                .nav-account-toggle-copy small { color:rgba(255,255,255,.46); font-size:.78rem; font-weight:400; line-height:1.35; }
+                .nav-account-switch { width:46px; height:25px; flex:none; position:relative; border-radius:999px; background:rgba(255,255,255,.16); transition:.18s ease; }
+                .nav-account-switch::after { content:""; position:absolute; top:3px; left:3px; width:19px; height:19px; border-radius:50%; background:#fff; box-shadow:0 2px 8px rgba(0,0,0,.28); transition:.18s ease; }
+                .nav-account-toggle[aria-pressed="true"] .nav-account-switch { background:#5f9dff; }
+                .nav-account-toggle[aria-pressed="true"] .nav-account-switch::after { transform:translateX(21px); }
                 .nav-profile-avatar-sec .nav-profile-photo { width:clamp(112px,10vw,164px); height:clamp(112px,10vw,164px); }
                 .nav-profile-fields { padding:0; }
                 @media (max-width: 940px) {
@@ -5590,6 +6321,7 @@ window.isNavMenuOpen = false;
         let pendingPin = '';
         let apiConfigured = !!(_menuData.user.HasSteamGridApiKey || _menuData.user.hasSteamGridApiKey);
         let pinConfigured = !!(_menuData.user.HasPin || _menuData.user.hasPin);
+        let applicationHistoryEnabled = _menuData.user.ApplicationHistoryEnabled !== false && _menuData.user.applicationHistoryEnabled !== false;
         const photo = _menuData.user.PhotoBase64 || '';
 
         const maskApi = () => apiConfigured
@@ -5604,19 +6336,23 @@ window.isNavMenuOpen = false;
             if (Object.prototype.hasOwnProperty.call(patch, 'name')) pendingName = patch.name;
             const hasApiPatch = Object.prototype.hasOwnProperty.call(patch, 'apiKey');
             const hasPinPatch = Object.prototype.hasOwnProperty.call(patch, 'pin');
+            const hasHistoryPatch = Object.prototype.hasOwnProperty.call(patch, 'applicationHistoryEnabled');
             if (hasApiPatch) { pendingApi = patch.apiKey; apiConfigured = !!pendingApi; }
             if (hasPinPatch) { pendingPin = patch.pin; pinConfigured = !!pendingPin; }
+            if (hasHistoryPatch) applicationHistoryEnabled = patch.applicationHistoryEnabled !== false;
             _menuData.user.Name = pendingName;
             _menuData.user.SteamGridApiKey = '';
             _menuData.user.PinCode = '';
             _menuData.user.HasSteamGridApiKey = apiConfigured;
             _menuData.user.HasPin = pinConfigured;
+            _menuData.user.ApplicationHistoryEnabled = applicationHistoryEnabled;
             if (window._doorpiProfile) {
                 window._doorpiProfile.Name = pendingName;
                 window._doorpiProfile.SteamGridApiKey = '';
                 window._doorpiProfile.PinCode = '';
                 window._doorpiProfile.HasSteamGridApiKey = apiConfigured;
                 window._doorpiProfile.HasPin = pinConfigured;
+                window._doorpiProfile.ApplicationHistoryEnabled = applicationHistoryEnabled;
             }
             if (typeof postToHost === 'function') {
                 const message = {
@@ -5627,6 +6363,7 @@ window.isNavMenuOpen = false;
                 };
                 if (hasApiPatch) message.apiKey = pendingApi;
                 if (hasPinPatch) message.pin = pendingPin;
+                if (hasHistoryPatch) message.applicationHistoryEnabled = applicationHistoryEnabled;
                 postToHost(message);
             }
         };
@@ -5693,7 +6430,13 @@ window.isNavMenuOpen = false;
                         </div>
                     </div>
 
-                    <span class="nav-account-section-label">Acesso e manutenção</span>
+                    <span class="nav-account-section-label">${_t('navPrivacyActivity','Privacidade e atividade')}</span>
+                    <button class="nav-account-toggle" id="navApplicationHistory" aria-pressed="${applicationHistoryEnabled}" tabindex="-1">
+                        <span class="nav-account-toggle-copy"><strong>${_t('navApplicationHistory','Histórico de aplicativos')}</strong><small>${_t('navApplicationHistoryHint','Registra apenas mídias realmente reproduzidas nos aplicativos nativos deste perfil.')}</small></span>
+                        <span class="nav-account-switch" aria-hidden="true"></span>
+                    </button>
+
+                    <span class="nav-account-section-label">${_t('navAccessMaintenance','Acesso e manutenção')}</span>
                     <button class="nav-icon-btn nav-account-route" id="navAccountSharing" tabindex="-1"><span class="nav-account-route-copy"><strong>${_t('navSetSharing', 'Contas dos apps')}</strong><small>Escolha quem pode usar cada conta conectada.</small></span><span class="nav-account-route-chevron">›</span></button>
                     <button class="nav-icon-btn nav-btn-danger" id="navDeleteUser" tabindex="-1"><span>Excluir perfil</span></button>
                 </div>
@@ -5710,6 +6453,7 @@ window.isNavMenuOpen = false;
             body.querySelector('#navProfileSyncConnect'),
             body.querySelector('#navProfileSyncNow'),
             body.querySelector('#navProfileSyncDisconnect'),
+            body.querySelector('#navApplicationHistory'),
             body.querySelector('#navAccountSharing'),
             body.querySelector('#navDeleteUser')
         ].filter(Boolean);
@@ -5730,6 +6474,7 @@ window.isNavMenuOpen = false;
         const apiInput = body.querySelector('#navProfApi');
         const pasteBtn = body.querySelector('#navApiPaste');
         const linkBtn = body.querySelector('#navApiLink');
+        const applicationHistoryBtn = body.querySelector('#navApplicationHistory');
         const sharingBtn = body.querySelector('#navAccountSharing');
         const deleteBtn = body.querySelector('#navDeleteUser');
 
@@ -5758,6 +6503,7 @@ window.isNavMenuOpen = false;
                 body.querySelector('#navProfApi'), body.querySelector('#navApiPaste'),
                 body.querySelector('#navApiLink'), body.querySelector('#navProfileSyncConnect'),
                 body.querySelector('#navProfileSyncNow'), body.querySelector('#navProfileSyncDisconnect'),
+                body.querySelector('#navApplicationHistory'),
                 body.querySelector('#navAccountSharing'), body.querySelector('#navDeleteUser')
             ].filter(item => item && item.offsetWidth > 0 && item.offsetHeight > 0);
             _contentIdx = Math.min(_contentIdx, Math.max(0, _contentItems.length - 1));
@@ -5782,6 +6528,13 @@ window.isNavMenuOpen = false;
                 refreshSyncUi();
                 postToHost?.({ action: 'profileSyncDisconnect', deleteCloud });
             });
+        });
+
+        applicationHistoryBtn?.addEventListener('click', () => {
+            applicationHistoryEnabled = !applicationHistoryEnabled;
+            applicationHistoryBtn.setAttribute('aria-pressed', String(applicationHistoryEnabled));
+            _saveProfileNow({ applicationHistoryEnabled });
+            _showSavedFeedback();
         });
 
         const _showSavedFeedback = () => {
@@ -7548,6 +8301,7 @@ window.isNavMenuOpen = false;
 
     function close() {
         if (!window.isNavMenuOpen || _navMenuPhase === 'closing') return;
+        _clearProfileOverviewCarousel();
         _stopLibraryDirectionHold({ settle: false });
         if (_settingsSubView === 'bluetooth' && _bluetoothUpdateStatus?.discovering)
             postToHost?.({ action: 'stopBluetoothDiscovery' });
@@ -7755,6 +8509,9 @@ window.isNavMenuOpen = false;
                         _contentIdx = cards.length
                             ? _rememberedLibraryContentIndex(catId, actionCount, cards)
                             : 0;
+                    } else if (CATS[_catIdx]?.id === 'profile' && _profileSubView !== 'history') {
+                        const editIndex = _contentItems.findIndex(item => item?.id === 'btnEditProfileHub');
+                        _contentIdx = editIndex >= 0 ? editIndex : 0;
                     } else {
                         _contentIdx = 0;
                     }
@@ -7956,6 +8713,78 @@ window.isNavMenuOpen = false;
 
         if (_isLazyCat()) return _navLibraryContent(key);
 
+        if (CATS[_catIdx]?.id === 'profile' && _profileSubView !== 'history') {
+            const active = _contentItems[_contentIdx];
+            const heroIndex = _contentItems.findIndex(item => item?.id === 'btnProfileHero');
+            const recentIndex = _contentItems.findIndex(item => item?.id === 'btnProfileRecent');
+            const journeyIndex = _contentItems.findIndex(item => item?.id === 'btnGameHistory');
+            const editIndex = _contentItems.findIndex(item => item?.id === 'btnEditProfileHub');
+            const activeTabIndex = _contentItems.findIndex(item => item?.classList?.contains('nav-unified-tab') && item.classList.contains('is-active'));
+            const onTab = active?.classList?.contains('nav-unified-tab');
+
+            if (key === 'ArrowUp') {
+                if (active?.id === 'btnProfileRecent') {
+                    if (!active._profileRecentAtStart?.()) {
+                        active._profileRecentStep?.(-1);
+                    } else {
+                        _contentIdx = journeyIndex >= 0
+                            ? journeyIndex
+                            : heroIndex >= 0
+                                ? heroIndex
+                                : (activeTabIndex >= 0 ? activeTabIndex : 0);
+                        _updateContentFocus();
+                    }
+                } else if (active?.id === 'btnGameHistory') {
+                    _contentIdx = activeTabIndex >= 0 ? activeTabIndex : 0;
+                    _updateContentFocus();
+                } else if (active?.id === 'btnProfileHero') {
+                    _contentIdx = activeTabIndex >= 0 ? activeTabIndex : 0;
+                    _updateContentFocus();
+                } else if (onTab && editIndex >= 0) {
+                    _contentIdx = editIndex;
+                    _updateContentFocus();
+                } else {
+                    _setTopbarFocus(true);
+                }
+                return true;
+            }
+            if (key === 'ArrowDown') {
+                if (active?.id === 'btnEditProfileHub') {
+                    _contentIdx = activeTabIndex >= 0 ? activeTabIndex : 0;
+                    _updateContentFocus();
+                } else if (onTab && (journeyIndex >= 0 || heroIndex >= 0 || recentIndex >= 0)) {
+                    _contentIdx = journeyIndex >= 0 ? journeyIndex : (heroIndex >= 0 ? heroIndex : recentIndex);
+                    _updateContentFocus();
+                } else if (active?.id === 'btnGameHistory' && recentIndex >= 0) {
+                    _contentIdx = recentIndex;
+                    _updateContentFocus();
+                } else if (active?.id === 'btnProfileHero' && recentIndex >= 0) {
+                    _contentIdx = recentIndex;
+                    _updateContentFocus();
+                } else if (active?.id === 'btnProfileRecent') {
+                    active._profileRecentStep?.(1);
+                }
+                return true;
+            }
+            if (active?.id === 'btnProfileRecent' && (key === 'ArrowLeft' || key === 'ArrowRight')) {
+                if (key === 'ArrowLeft') {
+                    _contentIdx = journeyIndex >= 0
+                        ? journeyIndex
+                        : heroIndex >= 0
+                            ? heroIndex
+                            : (activeTabIndex >= 0 ? activeTabIndex : 0);
+                    _updateContentFocus();
+                }
+                return true;
+            }
+            if (active?.id === 'btnGameHistory' && (key === 'ArrowLeft' || key === 'ArrowRight')) return true;
+            if (active?.id === 'btnProfileHero' && (key === 'ArrowLeft' || key === 'ArrowRight')) {
+                active._profileHeroStep?.(key === 'ArrowLeft' ? -1 : 1);
+                return true;
+            }
+            if (active?.id === 'btnEditProfileHub' && (key === 'ArrowLeft' || key === 'ArrowRight')) return true;
+        }
+
         // Navegação Complexa nos menus de Settings da Conta
         if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'account') {
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
@@ -7970,10 +8799,11 @@ window.isNavMenuOpen = false;
                     navProfApi: { ArrowUp: 'navProfPin', ArrowDown: syncPrimaryId, ArrowRight: 'navApiPaste', ArrowLeft: 'navProfilePhoto' },
                     navApiPaste: { ArrowUp: 'navProfPin', ArrowDown: syncPrimaryId, ArrowLeft: 'navProfApi', ArrowRight: 'navApiLink' },
                     navApiLink: { ArrowUp: 'navProfPin', ArrowDown: syncPrimaryId, ArrowLeft: 'navApiPaste' },
-                    navProfileSyncConnect: { ArrowUp: 'navProfApi', ArrowDown: 'navAccountSharing' },
-                    navProfileSyncNow: { ArrowUp: 'navProfApi', ArrowDown: 'navAccountSharing', ArrowRight: 'navProfileSyncDisconnect' },
-                    navProfileSyncDisconnect: { ArrowUp: 'navApiPaste', ArrowDown: 'navAccountSharing', ArrowLeft: 'navProfileSyncNow' },
-                    navAccountSharing: { ArrowUp: syncPrimaryId, ArrowDown: 'navDeleteUser' },
+                    navProfileSyncConnect: { ArrowUp: 'navProfApi', ArrowDown: 'navApplicationHistory' },
+                    navProfileSyncNow: { ArrowUp: 'navProfApi', ArrowDown: 'navApplicationHistory', ArrowRight: 'navProfileSyncDisconnect' },
+                    navProfileSyncDisconnect: { ArrowUp: 'navApiPaste', ArrowDown: 'navApplicationHistory', ArrowLeft: 'navProfileSyncNow' },
+                    navApplicationHistory: { ArrowUp: syncPrimaryId, ArrowDown: 'navAccountSharing' },
+                    navAccountSharing: { ArrowUp: 'navApplicationHistory', ArrowDown: 'navDeleteUser' },
                     navDeleteUser: { ArrowUp: 'navAccountSharing' }
                 };
                 const nextId = routes[activeId]?.[key];
