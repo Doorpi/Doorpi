@@ -13013,15 +13013,14 @@ function renderFolderList(folders) {
 
     async function _waitForDoorpiHomeReady() {
         const started = performance.now();
-        await _afterFrames(2);
+        await _afterFrames(1);
 
-        // A transição deve cobrir todo o preparo da Home. O limite é apenas uma
-        // salvaguarda para não deixar a conta presa caso uma atualização falhe.
-        while (performance.now() - started < 4000) {
+        // Libera assim que a aba ativa possui uma superfície utilizável. Downloads,
+        // esqueletos de outras abas e renders em segundo plano não bloqueiam a entrada.
+        while (performance.now() - started < 1000) {
             const grid = _getActiveHomeGrid();
             const hasRenderableCard = !!grid?.querySelector('.card:not(.loading-card)');
-            const hasLoadingCards = !!document.querySelector('.card.loading-card');
-            const hasPendingRender = !!_pendingRenderGamesPayload || !!_pendingRenderGamesTimer;
+            const hasActiveLoadingCards = !!grid?.querySelector('.card.loading-card');
             const hasNavigableTarget = typeof getNavigableItems === 'function' &&
                 getNavigableItems().some(el =>
                     el &&
@@ -13031,21 +13030,21 @@ function renderFolderList(folders) {
                     el.getAttribute('aria-disabled') !== 'true');
             const isHomeStillLoading = !!window.isSystemLoading || !!window.isGlobalLoading;
 
-            if (!isHomeStillLoading && !hasLoadingCards && !hasPendingRender &&
-                (hasRenderableCard || hasNavigableTarget)) break;
-            await _delay(60);
+            if (!isHomeStillLoading &&
+                (hasRenderableCard || (!hasActiveLoadingCards && hasNavigableTarget))) break;
+            await _delay(40);
         }
 
-        // Prepara o primeiro hero ainda atrás da tela "Entrando". Assim, quando
-        // ela desaparecer, a Home já possui card, banner e fundo decodificados.
+        // Inicia o primeiro hero atrás da tela "Entrando", com uma espera curta:
+        // artes ainda em download continuam sendo substituídas depois do fade.
         _focusDoorpiInteractiveTarget();
-        await _delay(100);
+        await _afterFrames(1);
         await Promise.all([
-            _waitImageReady(document.getElementById('bgBlur')),
-            _waitImageReady(document.getElementById('heroImage')),
-            _waitImageReady(document.getElementById('gridBgImg'))
+            _waitImageReady(document.getElementById('bgBlur'), 200),
+            _waitImageReady(document.getElementById('heroImage'), 200),
+            _waitImageReady(document.getElementById('gridBgImg'), 200)
         ]);
-        await _afterFrames(2);
+        await _afterFrames(1);
     }
 
     function _focusDoorpiInteractiveTarget() {

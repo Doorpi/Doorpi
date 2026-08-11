@@ -2562,14 +2562,6 @@ namespace Doorpi
                     SetActiveUser(user, migrateLegacyFiles: false);
                     RestartWatchers();
 
-                    // Criar os controladores WebView durante a transicao evita a
-                    // pausa de ~250 ms que antes acontecia depois que o seletor de
-                    // perfis ja aceitava navegacao.
-                    Task mediaPrewarmTask = shouldShowTransition
-                        ? Dispatcher.InvokeAsync(() =>
-                            PrewarmMediaWebViewEnvironmentsAsync(delayMilliseconds: 0)).Task.Unwrap()
-                        : Task.CompletedTask;
-
                     await SynchronizeNativeAppsAsync(
                         currentUserId,
                         mediaFile,
@@ -2578,7 +2570,6 @@ namespace Doorpi
 
                     await Dispatcher.InvokeAsync(LoadCurrentUserIntoUI);
                     await WaitForConsoleShellReadyForUserTransitionAsync().ConfigureAwait(false);
-                    await mediaPrewarmTask.ConfigureAwait(false);
 
                     PostUserTransitionComplete(
                         transitionMode,

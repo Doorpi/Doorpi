@@ -3830,13 +3830,13 @@ window.isNavMenuOpen = false;
 }
 
 .nav-settings-home-group + .nav-settings-home-group {
-    margin-top: clamp(20px, 2.4vh, 34px);
+    margin-top: clamp(19px, 2.25vh, 32px);
 }
 
 .nav-settings-home-group-title {
-    margin-bottom: clamp(8px, 1vh, 13px);
-    padding-inline: clamp(18px, 1.35vw, 26px);
-    font-size: clamp(.74rem, .78vw, .9rem);
+    margin-bottom: clamp(7px, .95vh, 12px);
+    padding-inline: clamp(17px, 1.28vw, 25px);
+    font-size: clamp(.71rem, .75vw, .86rem);
 }
 
 .nav-settings-home-list {
@@ -3844,16 +3844,16 @@ window.isNavMenuOpen = false;
 }
 
 .nav-settings-home-item {
-    min-height: clamp(84px, 8.6vh, 112px);
-    grid-template-columns: clamp(46px, 3.4vw, 60px) minmax(0, 1fr) 18px;
-    gap: clamp(17px, 1.55vw, 26px);
-    padding: clamp(13px, 1.45vh, 20px) clamp(20px, 1.7vw, 30px);
+    min-height: clamp(80px, 8.2vh, 106px);
+    grid-template-columns: clamp(44px, 3.2vw, 57px) minmax(0, 1fr) 18px;
+    gap: clamp(16px, 1.48vw, 24px);
+    padding: clamp(12px, 1.38vh, 19px) clamp(19px, 1.62vw, 28px);
     border-radius: clamp(8px, .65vw, 12px);
 }
 
 .nav-settings-home-icon {
-    width: clamp(42px, 3.3vw, 58px);
-    height: clamp(42px, 3.3vw, 58px);
+    width: clamp(40px, 3.15vw, 55px);
+    height: clamp(40px, 3.15vw, 55px);
 }
 
 .nav-settings-home-copy {
@@ -3861,12 +3861,12 @@ window.isNavMenuOpen = false;
 }
 
 .nav-settings-home-copy strong {
-    font-size: clamp(1.08rem, 1.25vw, 1.55rem);
+    font-size: clamp(1.03rem, 1.19vw, 1.47rem);
 }
 
 .nav-settings-home-copy small {
     color: rgba(255,255,255,.52);
-    font-size: clamp(.79rem, .87vw, 1.02rem);
+    font-size: clamp(.76rem, .83vw, .97rem);
 }
 
 .nav-settings-home-chevron {
@@ -3888,55 +3888,55 @@ window.isNavMenuOpen = false;
     width: 100%;
     max-width: none;
     grid-template-columns: minmax(420px, .76fr) minmax(560px, 1.24fr);
-    gap: clamp(30px, 3.25vw, 62px);
+    gap: clamp(28px, 3.1vw, 59px);
 }
 
 .nav-settings-home-preview,
 .nav-settings-directory-preview {
-    padding: clamp(40px, 4vw, 76px);
+    padding: clamp(38px, 3.8vw, 72px);
 }
 
 .nav-settings-home-preview-icon {
-    width: clamp(78px, 6.2vw, 112px);
-    height: clamp(78px, 6.2vw, 112px);
-    margin-bottom: clamp(30px, 3.6vh, 52px);
+    width: clamp(74px, 5.9vw, 106px);
+    height: clamp(74px, 5.9vw, 106px);
+    margin-bottom: clamp(28px, 3.4vh, 49px);
 }
 
 .nav-settings-home-kicker {
-    font-size: clamp(.76rem, .82vw, .96rem);
+    font-size: clamp(.73rem, .78vw, .91rem);
 }
 
 .nav-settings-home-preview h3 {
-    font-size: clamp(2.15rem, 3vw, 4.1rem);
+    font-size: clamp(2.04rem, 2.85vw, 3.9rem);
 }
 
 .nav-settings-home-preview p {
     max-width: 860px;
-    margin-top: clamp(16px, 1.8vh, 26px);
-    font-size: clamp(.98rem, 1.12vw, 1.3rem);
+    margin-top: clamp(15px, 1.7vh, 25px);
+    font-size: clamp(.94rem, 1.07vw, 1.24rem);
     line-height: 1.58;
 }
 
 .nav-settings-home-scope {
-    gap: 0 clamp(22px, 1.8vw, 34px);
-    margin-top: clamp(32px, 4vh, 58px);
+    gap: 0 clamp(21px, 1.7vw, 32px);
+    margin-top: clamp(30px, 3.8vh, 55px);
 }
 
 .nav-settings-home-scope span {
-    padding-block: clamp(15px, 1.7vh, 23px);
-    font-size: clamp(.84rem, .94vw, 1.1rem);
+    padding-block: clamp(14px, 1.62vh, 22px);
+    font-size: clamp(.8rem, .9vw, 1.05rem);
 }
 
 .nav-settings-home-action {
-    gap: 13px;
-    padding-top: clamp(30px, 3.5vh, 52px);
-    font-size: clamp(.84rem, .94vw, 1.08rem);
+    gap: 12px;
+    padding-top: clamp(28px, 3.3vh, 49px);
+    font-size: clamp(.8rem, .9vw, 1.03rem);
 }
 
 .nav-settings-home-action kbd {
-    width: clamp(29px, 2vw, 36px);
-    height: clamp(29px, 2vw, 36px);
-    font-size: clamp(.72rem, .78vw, .9rem);
+    width: clamp(28px, 1.9vw, 34px);
+    height: clamp(28px, 1.9vw, 34px);
+    font-size: clamp(.69rem, .74vw, .86rem);
 }
 
 /* Perfil em escala de console: ocupa a área útil sem reduzir as capas. */

@@ -6817,13 +6817,13 @@ body.home-trailer-playing .home-feature-stage .home-feature-art-shell {
 
 /* Home de console: mais espaço para contexto e uma prateleira mais densa. */
 .main-content-wrapper {
-    --card-w: clamp(126px, min(9.6vw, 17.8vh), 252px);
+    --card-w: clamp(132px, min(10.2vw, 18.9vh), 268px);
     padding-top: clamp(72px, 8vh, 108px);
     gap: clamp(7px, .9vh, 14px);
 }
 
 .home-feature-stage {
-    height: min(45vh, 620px);
+    height: min(38vh, 540px);
     gap: clamp(30px, 4vw, 76px);
 }
 
@@ -6902,12 +6902,12 @@ body.home-trailer-playing .home-feature-copy .home-feature-primary {
 
 @media (max-height: 900px), (max-width: 1500px) {
     .main-content-wrapper {
-        --card-w: clamp(116px, min(9vw, 16.7vh), 190px);
+        --card-w: clamp(121px, min(9.55vw, 17.65vh), 202px);
         padding-top: clamp(62px, 7.5vh, 78px);
     }
 
     .home-feature-stage {
-        height: min(40vh, 400px);
+        height: min(34vh, 340px);
         gap: clamp(22px, 3vw, 46px);
     }
 
@@ -6918,10 +6918,10 @@ body.home-trailer-playing .home-feature-copy .home-feature-primary {
 
 @media (max-height: 720px) {
     .main-content-wrapper {
-        --card-w: clamp(102px, min(8.45vw, 15.6vh), 152px);
+        --card-w: clamp(107px, min(8.95vw, 16.45vh), 161px);
     }
 
     .home-feature-stage {
-        height: min(31vh, 230px);
+        height: min(28vh, 205px);
     }
 }
