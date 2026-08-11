@@ -512,6 +512,7 @@ namespace Doorpi
             };
             this.Activated += (s, e) =>
             {
+                ResumeGameplayBackgroundMode();
                 if (DateTime.UtcNow.Ticks < Interlocked.Read(ref _returnFromExternalModeSuppressUntil))
                     return;
 
@@ -2451,6 +2452,7 @@ namespace Doorpi
         private void LoadCurrentUserIntoUI()
         {
             _interactiveUserSessionStarted = true;
+            RecoverInterruptedGameplaySession();
             ArmMainUiGamepadStartupGrace(RequiresConsoleShellStartupGate() ? 8000 : 2000);
             StartHomeWebViewHealthWatch("user-session-loaded", RequiresConsoleShellStartupGate() ? 5000 : 2500);
             ClearHomeUi();
@@ -7521,6 +7523,7 @@ namespace Doorpi
 
         private void SendRuntimeSessionsToUI()
         {
+            if (DeferHomeUiRefreshWhileGameplay()) return;
             try
             {
                 var running = new List<object>();
@@ -7885,6 +7888,7 @@ namespace Doorpi
 
         public void ForceFocus()
         {
+            ResumeGameplayBackgroundMode();
             // Se o jogo foi minimizado pelo usuÃ¡rio (Xbox button) e ainda estÃ¡ vivo,
             // preserva a sessÃ£o â€” fechar um webapp nÃ£o deve destruir o contexto do jogo.
             bool hasLockedGameProcess = !string.IsNullOrWhiteSpace(_lockedGameProcessName);
@@ -7961,8 +7965,7 @@ namespace Doorpi
         }
         private void FocusDoorpiKeepSession(bool forceAboveHungGame = false)
         {
-          
-            try { webView?.CoreWebView2?.GetType().GetMethod("Resume", Type.EmptyTypes)?.Invoke(webView.CoreWebView2, null); } catch { }
+            ResumeGameplayBackgroundMode();
             RestoreMainUiControllerOwnership();
 
             SendGameLaunchStatus("gameLaunchDone");
@@ -8032,6 +8035,8 @@ namespace Doorpi
         {
             if (!CanMinimizeCurrentGameSession())
                 return;
+
+            ResumeGameplayBackgroundMode();
 
             Debug.WriteLine("\n=======================================================");
             Debug.WriteLine("[DEBUG MINIMIZE] INICIANDO MINIMIZAÃ‡ÃƒO DA SESSÃƒO");
@@ -8526,6 +8531,7 @@ namespace Doorpi
                 var alreadyProcessed = new HashSet<IntPtr>();
                 int missingChecks = 0;
                 var startedUtc = DateTime.UtcNow;
+                var stableMonitorEligibleUtc = DateTime.MaxValue;
                 string lockedProcessName = "";
                 var context = new GameLaunchMonitorContext
                 {
@@ -8554,6 +8560,21 @@ namespace Doorpi
                         }
 
                         await Task.Delay(500, token).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    // Once the confirmed gameplay window has remained stable long
+                    // enough, checking that one HWND is substantially cheaper than
+                    // enumerating and scoring every top-level window three times a
+                    // second. If it disappears, the full discovery path below runs
+                    // again and can adopt a replacement window/process.
+                    if (doorpiHidden &&
+                        DateTime.UtcNow >= stableMonitorEligibleUtc &&
+                        _currentGameHwnd != IntPtr.Zero &&
+                        IsWindow(_currentGameHwnd))
+                    {
+                        missingChecks = 0;
+                        await Task.Delay(1000, token).ConfigureAwait(false);
                         continue;
                     }
 
@@ -8590,7 +8611,9 @@ namespace Doorpi
                             if (token.IsCancellationRequested || _launchCancelled) return;
 
                             doorpiHidden = true;
+                            stableMonitorEligibleUtc = DateTime.UtcNow.AddSeconds(10);
                             _gameIsRunningAndDoorpiHidden = true;
+                            ConfirmActiveSessionClock();
 
                             SendDoorpiToBackground();
                             Dispatcher.Invoke(() =>
@@ -8784,31 +8807,32 @@ namespace Doorpi
             SendRuntimeSessionsToUI();
         }
         // -- Session tracking ------------------------------------------------------
-        private void StartActiveSessionClock()
+        private void StartActiveSessionClock(bool confirmed = false)
         {
             lock (_sessionPlaytimeLock)
             {
                 GameWindowSession session = EnsureGameSession();
-                session.StartedUtc = DateTime.UtcNow;
+                session.StartedUtc = DateTime.MinValue;
                 session.InitialPlaytimeMinutes = -1;
                 session.LastCheckpointElapsedMinutes = 0;
-
-                _playtimeCheckpointTimer ??= new System.Threading.Timer(
-                    _ => QueueActiveSessionCheckpoint(),
-                    null,
-                    Timeout.InfiniteTimeSpan,
-                    Timeout.InfiniteTimeSpan);
-                _playtimeCheckpointTimer.Change(PlaytimeCheckpointInterval, PlaytimeCheckpointInterval);
+                session.LastCheckpointElapsedSeconds = 0;
+                session.PlaytimeSessionId = "";
+                try
+                {
+                    _playtimeCheckpointTimer?.Change(
+                        Timeout.InfiniteTimeSpan,
+                        Timeout.InfiniteTimeSpan);
+                }
+                catch (ObjectDisposedException) { }
             }
+
+            if (confirmed)
+                ConfirmActiveSessionClock();
         }
 
         private void QueueActiveSessionCheckpoint()
         {
-            try
-            {
-                _ = Dispatcher.BeginInvoke(() => PersistActiveSessionPlaytime(finalize: false));
-            }
-            catch { }
+            PersistActiveSessionJournal();
         }
 
         private void StopPlaytimeCheckpointTimer()
@@ -8828,91 +8852,10 @@ namespace Doorpi
 
         private void PersistActiveSessionPlaytime(bool finalize)
         {
-            lock (_sessionPlaytimeLock)
-            {
-                GameWindowSession? session = _gameSession;
-                if (session == null ||
-                    session.StartedUtc == DateTime.MinValue ||
-                    string.IsNullOrWhiteSpace(session.ActiveGameId))
-                {
-                    if (finalize) StopPlaytimeCheckpointTimer();
-                    return;
-                }
-
-                int elapsedMinutes = Math.Max(0, (int)(DateTime.UtcNow - session.StartedUtc).TotalMinutes);
-                if (!finalize && elapsedMinutes <= session.LastCheckpointElapsedMinutes)
-                    return;
-
-                string gameId = session.ActiveGameId;
-                string gameName = session.ActiveGameName;
-
-                try
-                {
-                    if (elapsedMinutes >= 1)
-                    {
-                        var games = LoadGames();
-                        var game = games.FirstOrDefault(candidate =>
-                            string.Equals(candidate.LaunchUrl, gameId, StringComparison.OrdinalIgnoreCase) ||
-                            string.Equals(candidate.Path, gameId, StringComparison.OrdinalIgnoreCase));
-
-                        if (game != null)
-                        {
-                            if (session.InitialPlaytimeMinutes < 0)
-                                session.InitialPlaytimeMinutes = Math.Max(0, game.TotalPlaytimeMinutes);
-
-                            long desiredTotal = SaturatingAddPlaytimeMinutes(
-                                session.InitialPlaytimeMinutes,
-                                elapsedMinutes);
-                            game.TotalPlaytimeMinutes = Math.Max(game.TotalPlaytimeMinutes, desiredTotal);
-                            game.LastSessionMinutes = elapsedMinutes;
-                            game.LastPlayed = DateTime.Now;
-                            SaveGames(games);
-                            Debug.WriteLine(
-                                $"[Session] {game.Name}: checkpoint {elapsedMinutes}min (total: {game.TotalPlaytimeMinutes}min)");
-                        }
-                        else if (!string.IsNullOrWhiteSpace(gameName))
-                        {
-                            PersistDeletedGameSessionCheckpoint(session, gameName, elapsedMinutes);
-                            Debug.WriteLine($"[Session] {gameName}: checkpoint {elapsedMinutes}min (historico)");
-                        }
-
-                        session.LastCheckpointElapsedMinutes = elapsedMinutes;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    DoorpiBootDiagnostics.Log(
-                        "playtime-checkpoint-failed",
-                        $"game={gameId}; elapsedMinutes={elapsedMinutes}; final={finalize}; error={ex.Message}");
-                    if (!finalize) return;
-                }
-
-                if (finalize)
-                {
-                    StopPlaytimeCheckpointTimer();
-                    session.StartedUtc = DateTime.MinValue;
-                    session.ActiveGameId = "";
-                    session.ActiveGameName = "";
-                    session.InitialPlaytimeMinutes = -1;
-                    session.LastCheckpointElapsedMinutes = 0;
-                }
-            }
-
             if (finalize)
-            {
-                try
-                {
-                    _ = Dispatcher.BeginInvoke(() =>
-                    {
-                        try
-                        {
-                            if (webView?.CoreWebView2 != null) LoadGamesIntoUI();
-                        }
-                        catch { }
-                    });
-                }
-                catch { }
-            }
+                FinalizeActiveSessionPlaytime();
+            else
+                PersistActiveSessionJournal();
         }
 
         private void PersistDeletedGameSessionCheckpoint(
@@ -8949,6 +8892,12 @@ namespace Doorpi
 
         private void SendGameLaunchStatus(string type, string gameName = "", string heroImage = "", string gridImage = "", string reason = "")
         {
+            if (IsGameplayBackgroundMode)
+            {
+                Interlocked.Exchange(ref _homeUiRefreshPendingAfterGameplay, 1);
+                return;
+            }
+
             if (type == "gameLaunching")
             {
                 _launchAnimationStartedUtc = DateTime.UtcNow;
@@ -10725,6 +10674,7 @@ namespace Doorpi
 
                 SetWindowPos(_mainWindowHandle, HWND_NOTOPMOST, 0, 0, 0, 0,
                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                ScheduleGameplayBackgroundMode();
             });
         }
         private static int SafeProcessId(Process? process)
@@ -10881,7 +10831,7 @@ namespace Doorpi
             _storeChildGameActive = bindToActiveStoreContext;
             _storeChildGameStoreId = bindToActiveStoreContext ? (_activeStoreId ?? "") : "";
             _storeChildGameId = bindToActiveStoreContext ? gameId : "";
-            StartActiveSessionClock();
+            StartActiveSessionClock(confirmed: true);
             DelayGameMinimizeAvailability();
 
             if (bindToActiveStoreContext)
@@ -11178,6 +11128,7 @@ namespace Doorpi
             SwitchToThisWindow(hwnd, true);
             SetForegroundWindow(hwnd);
             BringWindowToTop(hwnd);
+            ScheduleGameplayBackgroundMode();
         }
 
         private void FocusExternalWindow(IntPtr hWnd)
@@ -19399,6 +19350,17 @@ namespace Doorpi
                         moveState = 0;
                         currentDir = null;
                         Thread.Sleep(8);
+                        continue;
+                    }
+
+                    if (IsGameplayBackgroundMode)
+                    {
+                        moveState = 0;
+                        currentDir = null;
+                        hadPreviousInput = true;
+                        if (buttonTracker.ReturnShortcutJustPressed)
+                            Dispatcher.Invoke(MinimizeCurrentGameAndRestoreDoorpi);
+                        Thread.Sleep(16);
                         continue;
                     }
                     ushort actionButtons = (ushort)(controllerSnapshot.Buttons & 0xFFF0);

@@ -72,6 +72,15 @@ namespace Doorpi
                         Thread.Sleep(8);
                         continue;
                     }
+
+                    // During gameplay the native main loop owns the one shortcut
+                    // that must remain responsive. Avoid resolving profiles and
+                    // processing pointer bindings while the Home UI is asleep.
+                    if (IsGameplayBackgroundMode)
+                    {
+                        Thread.Sleep(16);
+                        continue;
+                    }
                     ProcessConfiguredControlBindings(snapshot);
 
                     if (Volatile.Read(ref _nativeTaskSwitcherActive) == 1)
