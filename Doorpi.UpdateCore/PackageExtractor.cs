@@ -26,7 +26,11 @@ public static class PackageExtractor
         if (!File.Exists(manifestPath))
             throw new InvalidDataException("Pacote sem package-manifest.json.");
 
-        var manifest = JsonSerializer.Deserialize<PackageManifest>(File.ReadAllText(manifestPath), JsonOptions)
+        string manifestJson = File.ReadAllText(manifestPath);
+        if (!string.IsNullOrEmpty(manifestJson) && manifestJson[0] == '\uFEFF')
+            manifestJson = manifestJson[1..];
+
+        var manifest = JsonSerializer.Deserialize<PackageManifest>(manifestJson, JsonOptions)
             ?? throw new InvalidDataException("package-manifest.json inválido.");
 
         if (!string.Equals(manifest.Component, expectedComponent, StringComparison.OrdinalIgnoreCase))
