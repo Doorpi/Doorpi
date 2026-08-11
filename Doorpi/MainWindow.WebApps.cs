@@ -2526,7 +2526,8 @@ namespace Doorpi
 
         private void DispatchYouTubeBackToRenderer()
         {
-            _ = Dispatcher.BeginInvoke(new Action(async () =>
+            LogMediaControllerDiagnostic("youtube-back-request");
+            _ = Dispatcher.InvokeAsync(async () =>
             {
                 try
                 {
@@ -2546,11 +2547,12 @@ namespace Doorpi
 
                     await core.CallDevToolsProtocolMethodAsync(
                         "Input.dispatchKeyEvent",
-                        KeyPayload("rawKeyDown"));
+                        KeyPayload("keyDown"));
                     await Task.Delay(20);
                     await core.CallDevToolsProtocolMethodAsync(
                         "Input.dispatchKeyEvent",
                         KeyPayload("keyUp"));
+                    LogMediaControllerDiagnostic("youtube-back-dispatched");
                 }
                 catch (Exception ex)
                 {
@@ -2567,7 +2569,7 @@ namespace Doorpi
                     }
                     catch { }
                 }
-            }));
+            }, System.Windows.Threading.DispatcherPriority.Input);
         }
 
         private void DispatchYouTubePlayPauseToRenderer()
@@ -3196,6 +3198,8 @@ namespace Doorpi
                     bool customProfileOwnsDefaultButtons = !trailerBrowserCaptureActive &&
                         !vkbInputVisible &&
                         GetCustomAssignedRuntimeControlProfile(GetActiveControlTargetKey()) != null;
+                    bool nativeYouTubeBackGesture = isMainYouTube &&
+                        CustomYouTubeProfileUsesNativeBackGesture(GetActiveControlTargetKey());
                     if (!isMainYouTube || vkbInputVisible)
                         ReleaseYouTubeHeldKeys();
                     // Controller state now comes exclusively from the native XInput
@@ -3270,12 +3274,12 @@ namespace Doorpi
                     if (!trailerBrowserCaptureActive &&
                         !vkbInputVisible &&
                         !useJavaScriptCloseHold &&
-                        !customProfileOwnsDefaultButtons)
+                        (!customProfileOwnsDefaultButtons || nativeYouTubeBackGesture))
                     {
                         if (anyBPressed)
                         {
                             bVkbCloseVersionAtPress = Volatile.Read(ref _webJsVkbCloseVersion);
-                            if (!_isGenericBrowserMode)
+                            if (!_isGenericBrowserMode && !isMainYouTube)
                                 SendVkbCommand("close", useActiveWebViewFallback: true);
                             bHoldActive = true;
                             bCloseFired = false;
@@ -7298,6 +7302,10 @@ namespace Doorpi
             if (isGenericBrowser)
                 _genericBrowserEnvironment = env;
             await EnsureWebViewWithProfileAsync(_ytWebView, env, profile.ProfileName);
+            await RestoreRetainedMediaSessionCookiesAsync(
+                _ytWebView.CoreWebView2,
+                profile.ProfileName,
+                url);
             MarkMediaWebViewEnvironmentWarmed(isYouTube);
             LogWebViewDiagnostic(
                 $"profile-open name={profile.ProfileName} owner={profile.OwnerUserId} app={profile.AppKey} kind={profile.EnvironmentKind}");
@@ -7435,13 +7443,33 @@ namespace Doorpi
 
             _ytWebView.CoreWebView2.NavigationCompleted += async (s, e) =>
             {
-                QueueWebViewProcessPriorityNormalization(_ytWebView.CoreWebView2, "navigation-completed", defaultProcessPriority);
+                if (s is not CoreWebView2 navigationCore) return;
+                QueueWebViewProcessPriorityNormalization(navigationCore, "navigation-completed", defaultProcessPriority);
                 LogWebViewSiteDiagnostic(
-                    $"navigation-completed success={e.IsSuccess} status={e.HttpStatusCode} error={e.WebErrorStatus} source={TruncateForLog(_ytWebView.CoreWebView2.Source ?? "")}");
+                    $"navigation-completed success={e.IsSuccess} status={e.HttpStatusCode} error={e.WebErrorStatus} source={TruncateForLog(navigationCore.Source ?? "")}");
+
+                // O Spotify mantém parte da autenticação em cookies de sessão. O Chromium
+                // não os reabre depois que o processo do Doorpi termina, portanto atualizamos
+                // nosso cofre DPAPI logo depois dos redirects de login, sem depender do usuário
+                // fechar o web app manualmente.
+                if (e.IsSuccess && ShouldRetainMediaSessionCookies(navigationCore.Source))
+                {
+                    string sessionProfileName = profile.ProfileName;
+                    string sessionSource = navigationCore.Source ?? "";
+                    _ = CaptureRetainedMediaSessionCookiesAsync(
+                        navigationCore,
+                        sessionProfileName,
+                        sessionSource,
+                        force: true);
+                    _ = CaptureRetainedMediaSessionCookiesAfterDelayAsync(
+                        navigationCore,
+                        sessionProfileName,
+                        sessionSource);
+                }
 
                 if (isGenericBrowser)
                 {
-                    string currentSource = _ytWebView.CoreWebView2.Source ?? _genericBrowserActiveTab.Url;
+                    string currentSource = navigationCore.Source ?? _genericBrowserActiveTab.Url;
                     UpdateGenericBrowserActiveTab(
                         currentSource,
                         currentSource,
@@ -7528,16 +7556,22 @@ namespace Doorpi
     let publicMetadata = { key: '', title: '', image: '', sourceUrl: '' };
     let publicMetadataRequest = null;
     const networkMetadata = { title: '', seriesTitle: '', artwork: [], sourceUrl: '', matchedBy: '' };
+    const youtubeCategoryByVideoId = new Map();
+    const youtubeCategoryRequests = new Map();
 
     function clean(value, maxLength) {
         const text = String(value || '').replace(/\s+/g, ' ').trim();
         return text.length > maxLength ? text.slice(0, maxLength).trim() : text;
     }
 
-    function activeVideo() {
-        return Array.from(document.querySelectorAll('video'))
-            .filter(video => !video.paused && !video.ended && video.readyState >= 2)
-            .sort((a, b) => (b.clientWidth * b.clientHeight) - (a.clientWidth * a.clientHeight))[0] || null;
+    function activeMedia() {
+        return Array.from(document.querySelectorAll('video, audio'))
+            .filter(media => !media.paused && !media.ended && media.readyState >= 2)
+            .sort((a, b) => {
+                const aVideoArea = a.tagName === 'VIDEO' ? a.clientWidth * a.clientHeight : 0;
+                const bVideoArea = b.tagName === 'VIDEO' ? b.clientWidth * b.clientHeight : 0;
+                return bVideoArea - aVideoArea;
+            })[0] || null;
     }
 
     function fallbackCreator() {
@@ -7570,8 +7604,177 @@ namespace Doorpi
             /(?:images?|artwork|thumbnail|thumb|poster|boxart)[\/.?=_-]/i.test(url);
     }
 
+    function rememberYouTubePlayerCategories(payload) {
+        const host = location.hostname.toLowerCase();
+        if (!(host === 'youtube.com' || host.endsWith('.youtube.com')) ||
+            !payload || typeof payload !== 'object') return;
+
+        let visited = 0;
+        function visit(node, depth) {
+            if (!node || typeof node !== 'object' || depth > 8 || visited++ > 5000) return;
+            if (Array.isArray(node)) {
+                node.slice(0, 200).forEach(item => visit(item, depth + 1));
+                return;
+            }
+
+            const videoDetails = node.videoDetails;
+            const microformatRoot = node.microformat;
+            const microformat = microformatRoot &&
+                (microformatRoot.playerMicroformatRenderer || microformatRoot.microformatDataRenderer);
+            const videoId = clean(
+                (videoDetails && videoDetails.videoId) || (microformat && microformat.externalVideoId),
+                40);
+            const category = clean(
+                (microformat && (microformat.categoryId || microformat.category)) ||
+                (videoDetails && videoDetails.categoryId),
+                80);
+            const musicVideoType = clean(
+                (videoDetails && videoDetails.musicVideoType) || node.musicVideoType,
+                100);
+            if (/^[\w-]{11}$/.test(videoId) && category) {
+                rememberYouTubeCategory(videoId, category);
+            }
+            if (/^[\w-]{11}$/.test(videoId) &&
+                /^MUSIC_VIDEO_TYPE_(?!UNKNOWN$)[A-Z0-9_]+$/i.test(musicVideoType))
+            {
+                rememberYouTubeCategory(videoId, 'music-video-type:' + musicVideoType);
+            }
+
+            for (const value of Object.values(node)) {
+                if (value && typeof value === 'object') visit(value, depth + 1);
+            }
+        }
+        visit(payload, 0);
+    }
+
+    function rememberYouTubeCategory(videoId, category) {
+        videoId = clean(videoId, 40);
+        category = clean(category, 80);
+        if (!/^[\w-]{11}$/.test(videoId) || !category) return false;
+        youtubeCategoryByVideoId.delete(videoId);
+        youtubeCategoryByVideoId.set(videoId, category);
+        while (youtubeCategoryByVideoId.size > 24)
+            youtubeCategoryByVideoId.delete(youtubeCategoryByVideoId.keys().next().value);
+        return true;
+    }
+
+    function jsonObjectAfterMarker(text, marker) {
+        const markerIndex = text.indexOf(marker);
+        if (markerIndex < 0) return '';
+        const start = text.indexOf('{', markerIndex + marker.length);
+        if (start < 0) return '';
+
+        let depth = 0;
+        let inString = false;
+        let escaped = false;
+        for (let index = start; index < text.length; index++) {
+            const character = text[index];
+            if (inString) {
+                if (escaped) escaped = false;
+                else if (character === '\\') escaped = true;
+                else if (character === '"') inString = false;
+                continue;
+            }
+            if (character === '"') {
+                inString = true;
+                continue;
+            }
+            if (character === '{') depth++;
+            else if (character === '}' && --depth === 0) return text.slice(start, index + 1);
+        }
+        return '';
+    }
+
+    function rememberYouTubeCategoryFromWatchHtml(videoId, html) {
+        if (!html || html.length > 6000000) return false;
+        let found = false;
+
+        try {
+            const page = new DOMParser().parseFromString(html, 'text/html');
+            const domVideoId = clean(page.querySelector('meta[itemprop="videoId"]')?.content, 40);
+            const genre = clean(
+                page.querySelector('meta[itemprop="genre"]')?.content ||
+                page.querySelector('meta[name="genre"]')?.content,
+                80);
+            if (domVideoId === videoId && genre)
+                found = rememberYouTubeCategory(videoId, genre) || found;
+        } catch (_) {}
+
+        const markers = [
+            'var ytInitialPlayerResponse =',
+            'ytInitialPlayerResponse =',
+            '"ytInitialPlayerResponse":'
+        ];
+        for (const marker of markers) {
+            const raw = jsonObjectAfterMarker(html, marker);
+            if (!raw) continue;
+            try {
+                const response = JSON.parse(raw);
+                rememberYouTubePlayerCategories(response);
+                const microformat = response.microformat &&
+                    (response.microformat.playerMicroformatRenderer || response.microformat.microformatDataRenderer);
+                const responseVideoId = clean(
+                    (response.videoDetails && response.videoDetails.videoId) ||
+                    (microformat && microformat.externalVideoId),
+                    40);
+                const category = clean(
+                    (microformat && (microformat.categoryId || microformat.category)) ||
+                    (response.videoDetails && response.videoDetails.categoryId),
+                    80);
+                const musicVideoType = clean(
+                    response.videoDetails && response.videoDetails.musicVideoType,
+                    100);
+                if (responseVideoId === videoId && category)
+                    found = rememberYouTubeCategory(videoId, category) || found;
+                if (responseVideoId === videoId &&
+                    /^MUSIC_VIDEO_TYPE_(?!UNKNOWN$)[A-Z0-9_]+$/i.test(musicVideoType))
+                {
+                    found = rememberYouTubeCategory(
+                        videoId,
+                        'music-video-type:' + musicVideoType) || found;
+                }
+                if (found || youtubeCategoryByVideoId.has(videoId)) return true;
+            } catch (_) {}
+        }
+        return found || youtubeCategoryByVideoId.has(videoId);
+    }
+
+    function requestYouTubeWatchCategory(videoId) {
+        if (!/^[\w-]{11}$/.test(videoId) || youtubeCategoryByVideoId.has(videoId)) return;
+        const previous = youtubeCategoryRequests.get(videoId);
+        const now = Date.now();
+        if (previous && (previous.pending || now - previous.at < 30000)) return;
+
+        const state = { pending: true, at: now };
+        youtubeCategoryRequests.set(videoId, state);
+        while (youtubeCategoryRequests.size > 24)
+            youtubeCategoryRequests.delete(youtubeCategoryRequests.keys().next().value);
+        networkMetadata.matchedBy = 'youtube-category:requesting';
+        const watchUrl = '/watch?v=' + encodeURIComponent(videoId) +
+            '&app=desktop&hl=en&bpctr=9999999999&has_verified=1';
+        fetch(watchUrl, { credentials: 'same-origin', cache: 'no-store' })
+            .then(response => {
+                const type = response.headers.get('content-type') || '';
+                if (!response.ok || !/(?:text\/html|application\/xhtml)/i.test(type)) return '';
+                return response.text();
+            })
+            .then(html => {
+                const found = !!html && rememberYouTubeCategoryFromWatchHtml(videoId, html);
+                if (!found && !youtubeCategoryByVideoId.has(videoId))
+                    networkMetadata.matchedBy = 'youtube-category:not-found';
+            })
+            .catch(() => {
+                networkMetadata.matchedBy = 'youtube-category:request-failed';
+            })
+            .finally(() => {
+                state.pending = false;
+                state.at = Date.now();
+            });
+    }
+
     function inspectNetworkMetadata(payload, responseUrl) {
         if (!payload || typeof payload !== 'object') return;
+        rememberYouTubePlayerCategories(payload);
         const pathParts = location.pathname.split('/').filter(Boolean);
         const targetId = clean(pathParts[pathParts.length - 1], 120).toLowerCase();
         const pageTitle = clean(document.title, 180)
@@ -7698,7 +7901,7 @@ namespace Doorpi
     installNetworkMetadataObserver();
 
     function readJsonLd() {
-        const result = { artwork: [], seriesTitle: '', seasonTitle: '', episodeNumber: '', contentType: '' };
+        const result = { artwork: [], seriesTitle: '', seasonTitle: '', episodeNumber: '', contentType: '', genre: '', videoId: '' };
         const seenArtwork = new Set();
         let visited = 0;
 
@@ -7729,6 +7932,28 @@ namespace Doorpi
             const rawType = Array.isArray(node['@type']) ? node['@type'][0] : node['@type'];
             const type = clean(rawType, 60);
             if (!result.contentType && type) result.contentType = type;
+            if (!result.genre && node.genre) {
+                const rawGenre = Array.isArray(node.genre) ? node.genre[0] : node.genre;
+                result.genre = clean(
+                    rawGenre && typeof rawGenre === 'object' ? (rawGenre.name || rawGenre.value) : rawGenre,
+                    80);
+            }
+            if (!result.videoId) {
+                const identifier = typeof node.identifier === 'string'
+                    ? node.identifier
+                    : node.identifier && (node.identifier.value || node.identifier.name);
+                const cleanIdentifier = clean(identifier, 40);
+                if (/^[\w-]{11}$/.test(cleanIdentifier)) result.videoId = cleanIdentifier;
+                for (const rawUrl of [node.url, node.embedUrl, node.contentUrl]) {
+                    if (result.videoId || typeof rawUrl !== 'string') continue;
+                    try {
+                        const parsed = new URL(rawUrl, location.href);
+                        const pathMatch = parsed.pathname.match(/^\/(?:embed|shorts)\/([\w-]{11})/);
+                        const candidate = parsed.searchParams.get('v') || (pathMatch && pathMatch[1]) || '';
+                        if (/^[\w-]{11}$/.test(candidate)) result.videoId = candidate;
+                    } catch (_) {}
+                }
+            }
             addArtwork(node.image);
             addArtwork(node.thumbnailUrl);
             addArtwork(node.thumbnail);
@@ -7755,6 +7980,91 @@ namespace Doorpi
         return result;
     }
 
+    function currentYouTubeVideoId(metadata) {
+        const shortMatch = location.pathname.match(/^\/shorts\/([\w-]{11})/);
+        const hashMatch = location.hash.match(/[?&]v=([\w-]{11})(?:[&#]|$)/);
+        const fromLocation = new URL(location.href).searchParams.get('v') ||
+            (shortMatch && shortMatch[1]) || (hashMatch && hashMatch[1]) || '';
+        if (/^[\w-]{11}$/.test(fromLocation)) return fromLocation;
+
+        for (const item of Array.from((metadata && metadata.artwork) || [])) {
+            try {
+                const artworkUrl = new URL(String(item && item.src || ''), location.href);
+                if (!artworkUrl.hostname.endsWith('ytimg.com')) continue;
+                const artworkMatch = artworkUrl.pathname.match(/\/vi(?:_webp)?\/([\w-]{11})\//);
+                if (artworkMatch) return artworkMatch[1];
+            } catch (_) {}
+        }
+        return '';
+    }
+
+    function isYouTubeMusicVideo(jsonLd, metadata) {
+        const host = location.hostname.toLowerCase();
+        const isYouTubeHost = host === 'youtube.com' || host === 'www.youtube.com' || host === 'm.youtube.com';
+        const isNormalVideoPage = location.pathname === '/watch' || location.pathname.startsWith('/shorts/');
+        const isTvVideoPage = location.pathname === '/tv' &&
+            (/^#\/watch\?/i.test(location.hash) || /[?&#]v=/i.test(location.hash));
+        if (!isYouTubeHost || (!isNormalVideoPage && !isTvVideoPage)) return false;
+
+        const currentVideoId = currentYouTubeVideoId(metadata);
+        if (!/^[\w-]{11}$/.test(currentVideoId)) return false;
+
+        const candidates = [];
+        const addCandidate = value => {
+            const candidate = clean(value, 80);
+            if (candidate) candidates.push(candidate);
+        };
+        const readPlayerResponse = value => {
+            if (!value) return;
+            let response = value;
+            if (typeof response === 'string') {
+                try { response = JSON.parse(response); } catch (_) { return; }
+            }
+            if (!response || typeof response !== 'object') return;
+            const microformat = response.microformat &&
+                (response.microformat.playerMicroformatRenderer || response.microformat.microformatDataRenderer);
+            const responseVideoId = clean(
+                (response.videoDetails && response.videoDetails.videoId) ||
+                (microformat && microformat.externalVideoId),
+                40);
+            if (responseVideoId !== currentVideoId) return;
+            addCandidate(microformat && microformat.category);
+            addCandidate(microformat && microformat.categoryId);
+            addCandidate(response.videoDetails && response.videoDetails.categoryId);
+            const musicVideoType = clean(
+                response.videoDetails && response.videoDetails.musicVideoType,
+                100);
+            if (/^MUSIC_VIDEO_TYPE_(?!UNKNOWN$)[A-Z0-9_]+$/i.test(musicVideoType))
+                addCandidate('music-video-type:' + musicVideoType);
+        };
+
+        try { readPlayerResponse(window.ytInitialPlayerResponse); } catch (_) {}
+        try { readPlayerResponse(window.ytplayer?.config?.args?.raw_player_response); } catch (_) {}
+        addCandidate(youtubeCategoryByVideoId.get(currentVideoId));
+        const domVideoId = clean(document.querySelector('meta[itemprop="videoId"]')?.content, 40);
+        if (domVideoId === currentVideoId) {
+            addCandidate(document.querySelector('meta[itemprop="genre"]')?.content);
+            addCandidate(document.querySelector('meta[name="genre"]')?.content);
+        }
+        if (jsonLd && jsonLd.videoId === currentVideoId) addCandidate(jsonLd.genre);
+        if (!youtubeCategoryByVideoId.has(currentVideoId)) requestYouTubeWatchCategory(currentVideoId);
+        else addCandidate(youtubeCategoryByVideoId.get(currentVideoId));
+
+        const musicCategories = new Set([
+            'music', 'musica', 'musique', 'musik', 'muziek', 'muzyka', 'muzica', 'musikk',
+            'muzik', 'μουσικη', 'музыка', '음악', '音楽', '音乐', '音樂', 'संगीत'
+        ]);
+        const isMusic = candidates.some(value => {
+            const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+            return normalized === '10' ||
+                musicCategories.has(normalized) ||
+                /^music-video-type:music_video_type_(?!unknown$)[a-z0-9_]+$/.test(normalized);
+        });
+        const knownCategory = clean(youtubeCategoryByVideoId.get(currentVideoId), 80);
+        if (knownCategory) networkMetadata.matchedBy = 'youtube-category:' + knownCategory;
+        return isMusic;
+    }
+
     function domTitle() {
         const selectors = [
             '[data-uia="video-title"]',
@@ -7775,6 +8085,49 @@ namespace Doorpi
                 if (value.length >= 2 && !ignored.has(value.toLowerCase()) && !/^temporada\s+\d+$/i.test(value)) return value;
             }
         }
+        return '';
+    }
+
+    function domMusicMetadata() {
+        const result = { title: '', artist: '', album: '' };
+        const firstText = selectors => {
+            for (const selector of selectors) {
+                const node = document.querySelector(selector);
+                const value = clean(node && (node.getAttribute?.('aria-label') || node.textContent), 180);
+                if (value) return value;
+            }
+            return '';
+        };
+        result.title = firstText([
+            '[data-testid="nowplaying-track-link"]',
+            '[data-testid="context-item-link"]',
+            'ytmusic-player-bar .title',
+            'ytmusic-player-bar yt-formatted-string.title'
+        ]);
+        result.artist = firstText([
+            '[data-testid="context-item-info-artist"]',
+            '[data-testid="now-playing-widget"] [data-encore-id="textLink"]',
+            'ytmusic-player-bar .byline',
+            'ytmusic-player-bar yt-formatted-string.byline'
+        ]);
+        result.album = firstText([
+            '[data-testid="context-item-info-album"]',
+            'ytmusic-player-bar .album'
+        ]);
+        return result;
+    }
+
+    function domMusicPlaybackState() {
+        const button = document.querySelector(
+            '[data-testid="control-button-playpause"], ytmusic-player-bar #play-pause-button');
+        if (!button) return '';
+        const label = clean(
+            button.getAttribute?.('aria-label') ||
+            button.getAttribute?.('title') ||
+            button.querySelector?.('[aria-label]')?.getAttribute('aria-label'),
+            80).toLowerCase();
+        if (/pause|pausar|暂停|一時停止/.test(label)) return 'playing';
+        if (/play|reproduzir|tocar|播放|再生/.test(label)) return 'paused';
         return '';
     }
 
@@ -7803,15 +8156,21 @@ namespace Doorpi
     }
 
     function snapshot(forcedState) {
-        const video = activeVideo();
+        const media = activeMedia();
+        const video = media && media.tagName === 'VIDEO' ? media : null;
         const metadata = navigator.mediaSession && navigator.mediaSession.metadata;
-        const state = forcedState || (video ? 'playing' : 'paused');
-        const duration = video && Number.isFinite(video.duration) ? video.duration : 0;
+        const mediaSessionState = navigator.mediaSession && navigator.mediaSession.playbackState;
+        const musicHost = location.hostname === 'open.spotify.com' || location.hostname === 'music.youtube.com';
+        const musicPlaybackState = musicHost ? domMusicPlaybackState() : '';
+        const state = forcedState ||
+            (media || mediaSessionState === 'playing' || musicPlaybackState === 'playing' ? 'playing' : 'paused');
+        const duration = media && Number.isFinite(media.duration) ? media.duration : 0;
         const isLiveVideo = !!video && !Number.isFinite(video.duration);
         const reliableDocumentFallback = !!video && !video.muted && (duration >= 60 || isLiveVideo);
         const ogTitle = clean(document.querySelector('meta[property="og:title"]')?.content, 180);
         const jsonLd = readJsonLd();
         const mediaTitle = clean(metadata && metadata.title, 180);
+        const musicDom = musicHost ? domMusicMetadata() : { title: '', artist: '', album: '' };
         refreshPublicMetadata();
         const playerTitle = domTitle();
         const documentTitle = clean(document.title, 180);
@@ -7826,9 +8185,12 @@ namespace Doorpi
         const networkTitle = isHumanTitle(networkTitleRaw) ? networkTitleRaw : '';
         const publicTitle = publicMetadata.title;
         const disneyDocumentTitle = location.hostname.endsWith('disneyplus.com') && isHumanTitle(documentTitle) ? documentTitle : '';
-        const title = mediaTitle || playerTitle || disneyDocumentTitle || networkTitle || publicTitle || (reliableDocumentFallback ? (ogTitle || documentTitle) : '');
-        const artist = clean(metadata && metadata.artist, 140);
-        const album = clean(metadata && metadata.album, 180);
+        const title = mediaTitle || musicDom.title || playerTitle || disneyDocumentTitle || networkTitle || publicTitle || (reliableDocumentFallback ? (ogTitle || documentTitle) : '');
+        const artist = clean((metadata && metadata.artist) || musicDom.artist, 140);
+        const album = clean((metadata && metadata.album) || musicDom.album, 180);
+        const youtubeMusicVideo = isYouTubeMusicVideo(jsonLd, metadata);
+        const isMusic = musicHost || youtubeMusicVideo ||
+            (!!media && media.tagName === 'AUDIO' && !!metadata && !!mediaTitle && !!artist);
         const creator = artist || fallbackCreator();
         const artwork = [];
         const seenArtwork = new Set();
@@ -7894,10 +8256,10 @@ namespace Doorpi
             title,
             creator,
             album,
-            seriesTitle: jsonLd.seriesTitle || album,
+            seriesTitle: isMusic ? '' : jsonLd.seriesTitle,
             seasonTitle: jsonLd.seasonTitle,
             episodeNumber: jsonLd.episodeNumber,
-            contentType: jsonLd.contentType,
+            contentType: isMusic ? 'music' : jsonLd.contentType,
             pageUrl: location.href,
             titleSource: mediaTitle ? 'media-session' : playerTitle ? 'player-dom' : networkTitle ? 'network-metadata' : publicTitle ? 'public-page' : ogTitle ? 'open-graph' : 'document-title',
             networkMetadataMatchedBy: networkMetadata.matchedBy,
@@ -7909,7 +8271,7 @@ namespace Doorpi
                 catch (_) { return 'invalid'; }
             }))].join(','),
             artwork,
-            position: video && Number.isFinite(video.currentTime) ? video.currentTime : 0,
+            position: media && Number.isFinite(media.currentTime) ? media.currentTime : 0,
             duration
         });
 
@@ -8068,6 +8430,10 @@ namespace Doorpi
             ClosePopupWindowAndDispose();
 
             var coreWebView = ytWebView.CoreWebView2;
+            Task sessionCookieCapture = CaptureRetainedMediaSessionCookiesAsync(
+                coreWebView,
+                _activeMediaWebViewProfileName,
+                _currentWebAppUrl ?? "");
             LogWebViewProcessSnapshot("close-start", coreWebView);
 
             if (!_mediaWebViewProcessDegraded)
@@ -8077,7 +8443,7 @@ namespace Doorpi
                     if (coreWebView != null)
                     {
                         _ = coreWebView.ExecuteScriptAsync(
-                            "try{document.querySelectorAll('video').forEach(v=>v.pause());}catch(e){}");
+                            "try{document.querySelectorAll('video,audio').forEach(v=>v.pause());}catch(e){}");
                     }
                 }
                 catch { }
@@ -8147,10 +8513,7 @@ namespace Doorpi
             _ytWebView = null;
             _activeMediaWebViewProfileName = "";
             _activeMediaWebViewEnvironment = null;
-            _ = Dispatcher.BeginInvoke(() =>
-            {
-                try { ytWebView.Dispose(); } catch { }
-            }, System.Windows.Threading.DispatcherPriority.Background);
+            _ = DisposeMediaWebViewAfterSessionCaptureAsync(ytWebView, sessionCookieCapture);
             _genericBrowserShell = null;
             _genericBrowserToolbarRow = null;
             _genericBrowserToolbar = null;
@@ -8379,6 +8742,16 @@ namespace Doorpi
                             NetworkMetadataMatchedBy = networkMetadataMatchedBy,
                             Artwork = artwork
                         });
+                    if (string.Equals(state, "playing", StringComparison.OrdinalIgnoreCase) &&
+                        ShouldRetainMediaSessionCookies(source) && sender is CoreWebView2 senderCore)
+                    {
+                        // Também renova o cofre durante o uso. A rotina possui throttle interno,
+                        // então os heartbeats do player não causam escrita contínua em disco.
+                        _ = CaptureRetainedMediaSessionCookiesAsync(
+                            senderCore,
+                            _activeMediaWebViewProfileName,
+                            source);
+                    }
                     if (string.Equals(state, "playing", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(title))
                         DiscordRpcManager.Instance.UpdateState("media", source, title, creator);
                 }

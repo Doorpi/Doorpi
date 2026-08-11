@@ -156,7 +156,7 @@ namespace Doorpi
     {
         public string AppId { get; init; } = "";
         public string AppName { get; init; } = "";
-        public string Category { get; init; } = "";
+        public string Category { get; set; } = "";
         public string ContentTitle { get; init; } = "";
         public string CreatorName { get; init; } = "";
         public string AlbumTitle { get; set; } = "";
@@ -185,7 +185,11 @@ namespace Doorpi
     {
         private const double MediaHistoryMinimumSessionSeconds = 30;
         private const double MediaHistoryCheckpointSeconds = 30;
-        private const long MediaArtworkMaximumBytes = 8L * 1024L * 1024L;
+        private const long MediaArtworkMaximumBytes = 3L * 1024L * 1024L;
+        private const long MediaArtworkCacheMaximumBytes = 128L * 1024L * 1024L;
+        private const int MediaArtworkVisualItemsPerCategory = 20;
+        private const int MediaHistoryTransientRetentionDays = 90;
+        private const int MediaHistoryTransientMaximumItemsPerCategory = 200;
         private static readonly ConcurrentDictionary<string, byte> _mediaArtworkDownloads = new(StringComparer.Ordinal);
         private static readonly ConcurrentDictionary<string, NativeMediaResolvedMetadata> _nativeMediaResolvedMetadata =
             new(StringComparer.OrdinalIgnoreCase);
@@ -203,6 +207,7 @@ namespace Doorpi
         private static string NormalizeMediaHistoryCategory(string? value)
             => (value ?? "").Trim().ToLowerInvariant() switch
             {
+                "music" => "music",
                 "video-live" => "video-live",
                 "film-series" => "film-series",
                 "disabled" => "disabled",
@@ -212,6 +217,7 @@ namespace Doorpi
         private static string MediaCategoryForApp(MediaAppModel app, MediaMetadataSnapshot metadata)
         {
             string preference = NormalizeMediaHistoryCategory(app.MediaHistoryCategory);
+            if (preference == "music") return "music";
             if (preference == "film-series") return "film-series";
             if (preference == "video-live")
                 return metadata.IsLive || string.Equals(app.Id, "twitch", StringComparison.OrdinalIgnoreCase) ||
@@ -220,12 +226,19 @@ namespace Doorpi
                     : "video";
 
             string appId = (app.Id ?? "").Trim().ToLowerInvariant();
+            string contentType = (metadata.ContentType ?? "").Trim();
+            if (IsMusicMediaApp(app)) return "music";
             if (metadata.IsLive || appId is "twitch" or "kick") return "live";
+            if (contentType.Equals("music", StringComparison.OrdinalIgnoreCase) ||
+                contentType.Equals("music-track", StringComparison.OrdinalIgnoreCase) ||
+                contentType.Equals("musicrecording", StringComparison.OrdinalIgnoreCase))
+            {
+                return "music";
+            }
             if (appId == "youtube") return "video";
             if (appId is "netflix" or "disneyplus" or "primevideo" or "appletv" or "max" or "crunchyroll")
                 return "film-series";
 
-            string contentType = (metadata.ContentType ?? "").Trim();
             if (!string.IsNullOrWhiteSpace(metadata.SeriesTitle) ||
                 contentType.Contains("episode", StringComparison.OrdinalIgnoreCase) ||
                 contentType.Contains("series", StringComparison.OrdinalIgnoreCase) ||
@@ -237,6 +250,15 @@ namespace Doorpi
             }
 
             return "video";
+        }
+
+        private static bool IsMusicMediaApp(MediaAppModel app)
+        {
+            string appId = (app.Id ?? "").Trim().ToLowerInvariant();
+            if (appId is "spotify" or "youtubemusic" or "youtube-music") return true;
+            if (!Uri.TryCreate(app.Url, UriKind.Absolute, out Uri? uri)) return false;
+            return uri.Host.Equals("open.spotify.com", StringComparison.OrdinalIgnoreCase) ||
+                   uri.Host.Equals("music.youtube.com", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool IsTmdbMediaArtwork(MediaArtworkCandidate? artwork)
@@ -396,7 +418,13 @@ namespace Doorpi
                         selectedArtwork,
                         selectedArtwork == null ? "no-artwork" : "received");
                 }
-                if (!playing || string.IsNullOrWhiteSpace(normalizedTitle))
+                if (string.IsNullOrWhiteSpace(normalizedTitle))
+                {
+                    // Players complexos podem emitir amostras de frames internos sem metadados.
+                    // Essas amostras não devem encerrar a sessão válida do frame principal.
+                    return;
+                }
+                if (!playing)
                 {
                     FinalizeMediaHistorySessionLocked(saveEligibleActivity: true);
                     return;
@@ -431,16 +459,24 @@ namespace Doorpi
                     FinalizeMediaHistorySessionLocked(saveEligibleActivity: true);
                     RestoreExistingMediaArtworkLocked(next);
                     _activeMediaHistorySession = next;
+                    if (next.Category == "music")
+                        LogWebViewDiagnostic($"media-history-session-start app={next.AppId} category=music");
                 }
                 else
                 {
                     var active = _activeMediaHistorySession;
+                    int previousDiagnosticBucket = (int)(active.AccumulatedSeconds / 10);
                     double elapsed = Math.Clamp((now - active.LastSampleUtc).TotalSeconds, 0, 10);
                     active.AccumulatedSeconds += elapsed;
                     active.LastSampleUtc = now;
                     active.PositionSeconds = Math.Max(0, position);
                     active.DurationSeconds = Math.Max(0, duration);
                     ApplyMetadataToActiveSession(active, next);
+
+                    int currentDiagnosticBucket = (int)(active.AccumulatedSeconds / 10);
+                    if (active.Category == "music" && currentDiagnosticBucket > previousDiagnosticBucket)
+                        LogWebViewDiagnostic(
+                            $"media-history-session-progress app={active.AppId} category=music seconds={Math.Floor(active.AccumulatedSeconds)}");
 
                     if (active.AccumulatedSeconds >= MediaHistoryMinimumSessionSeconds &&
                         active.AccumulatedSeconds - active.PersistedSeconds >= MediaHistoryCheckpointSeconds)
@@ -607,6 +643,15 @@ namespace Doorpi
 
         private void ApplyMetadataToActiveSession(ActiveMediaHistorySession active, ActiveMediaHistorySession incoming)
         {
+            // YouTube TV may expose its official category only after the first
+            // playback sample. Promote the still-active session once category
+            // 10/Music has been confirmed instead of keeping the initial video
+            // classification for the rest of the session.
+            if (active.Category == "video" && incoming.Category == "music")
+            {
+                active.Category = "music";
+                LogWebViewDiagnostic($"media-history-session-reclassified app={active.AppId} category=music");
+            }
             active.AlbumTitle = FirstNotBlank(incoming.AlbumTitle, active.AlbumTitle);
             active.SeriesTitle = FirstNotBlank(incoming.SeriesTitle, active.SeriesTitle);
             active.SeasonTitle = FirstNotBlank(incoming.SeasonTitle, active.SeasonTitle);
@@ -638,6 +683,184 @@ namespace Doorpi
             string root = Path.GetFullPath(dataFolder).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
             string path = Path.GetFullPath(Path.Combine(root, relative));
             return path.StartsWith(root, StringComparison.OrdinalIgnoreCase) && File.Exists(path);
+        }
+
+        private string? ResolveMediaArtworkLocalPath(string? localUrl)
+        {
+            if (string.IsNullOrWhiteSpace(localUrl) ||
+                !localUrl.StartsWith("https://data.local/", StringComparison.OrdinalIgnoreCase)) return null;
+            try
+            {
+                string relative = Uri.UnescapeDataString(localUrl["https://data.local/".Length..])
+                    .Replace('/', Path.DirectorySeparatorChar);
+                string root = Path.GetFullPath(dataFolder).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                string path = Path.GetFullPath(Path.Combine(root, relative));
+                return path.StartsWith(root, StringComparison.OrdinalIgnoreCase) ? path : null;
+            }
+            catch { return null; }
+        }
+
+        private static string MediaHistoryStorageCategory(MediaActivityHistoryEntry entry)
+            => (entry.Category ?? "").Trim().ToLowerInvariant() switch
+            {
+                "film-series" => "film-series",
+                "music" => "music",
+                _ => "streaming"
+            };
+
+        private static string MediaHistoryEntryStorageKey(MediaActivityHistoryEntry entry)
+            => string.Join('\u001f', entry.AppId, entry.ContentTitle, NormalizeTrackedMediaCreator(entry.CreatorName))
+                .ToUpperInvariant();
+
+        private static bool MediaHistoryPlayedToday(MediaActivityHistoryEntry entry)
+        {
+            if (entry.LastPlayed <= DateTime.MinValue) return false;
+            DateTime local = entry.LastPlayed.Kind == DateTimeKind.Utc
+                ? entry.LastPlayed.ToLocalTime()
+                : entry.LastPlayed;
+            return local.Date == DateTime.Now.Date;
+        }
+
+        private static List<MediaActivityHistoryEntry> SelectMediaArtworkCacheEntries(
+            IEnumerable<MediaActivityHistoryEntry> history)
+        {
+            var selected = new List<MediaActivityHistoryEntry>();
+            foreach (IGrouping<string, MediaActivityHistoryEntry> category in history
+                         .Where(entry => !string.IsNullOrWhiteSpace(entry.ArtworkRemoteUrl) ||
+                                         !string.IsNullOrWhiteSpace(entry.ArtworkLocalUrl))
+                         .GroupBy(MediaHistoryStorageCategory, StringComparer.OrdinalIgnoreCase))
+            {
+                var orderedByConsumption = category
+                    .OrderByDescending(entry => Math.Max(0, entry.TotalPlaybackSeconds))
+                    .ThenByDescending(entry => entry.LastPlayed)
+                    .ToList();
+                var ordered = orderedByConsumption.Take(1)
+                    .Concat(category.Where(MediaHistoryPlayedToday).OrderByDescending(entry => entry.LastPlayed))
+                    .Concat(orderedByConsumption)
+                    .GroupBy(MediaHistoryEntryStorageKey, StringComparer.Ordinal)
+                    .Select(group => group.First())
+                    .Take(MediaArtworkVisualItemsPerCategory);
+                selected.AddRange(ordered);
+            }
+            return selected;
+        }
+
+        private static bool ApplyMediaHistoryRetention(List<MediaActivityHistoryEntry> history)
+        {
+            DateTime cutoff = DateTime.UtcNow.AddDays(-MediaHistoryTransientRetentionDays);
+            var keep = history
+                .Where(entry => MediaHistoryStorageCategory(entry) == "film-series")
+                .Select(MediaHistoryEntryStorageKey)
+                .ToHashSet(StringComparer.Ordinal);
+
+            foreach (IGrouping<string, MediaActivityHistoryEntry> category in history
+                         .Where(entry => MediaHistoryStorageCategory(entry) != "film-series")
+                         .GroupBy(MediaHistoryStorageCategory, StringComparer.OrdinalIgnoreCase))
+            {
+                var highlights = category
+                    .OrderByDescending(entry => Math.Max(0, entry.TotalPlaybackSeconds))
+                    .ThenByDescending(entry => entry.LastPlayed)
+                    .Take(MediaArtworkVisualItemsPerCategory);
+                var recent = category
+                    .Where(entry => entry.LastPlayed >= cutoff)
+                    .OrderByDescending(entry => entry.LastPlayed);
+                foreach (MediaActivityHistoryEntry entry in highlights
+                             .Concat(recent)
+                             .GroupBy(MediaHistoryEntryStorageKey, StringComparer.Ordinal)
+                             .Select(group => group.First())
+                             .Take(MediaHistoryTransientMaximumItemsPerCategory))
+                {
+                    keep.Add(MediaHistoryEntryStorageKey(entry));
+                }
+            }
+
+            return history.RemoveAll(entry => !keep.Contains(MediaHistoryEntryStorageKey(entry))) > 0;
+        }
+
+        private bool OptimizeMediaArtworkCacheLocked(string profileId, List<MediaActivityHistoryEntry> history)
+        {
+            bool changed = ApplyMediaHistoryRetention(history);
+            List<MediaActivityHistoryEntry> cacheEntries = SelectMediaArtworkCacheEntries(history);
+            var desiredKeys = cacheEntries.Select(MediaHistoryEntryStorageKey).ToHashSet(StringComparer.Ordinal);
+
+            foreach (MediaActivityHistoryEntry entry in history)
+            {
+                if (string.IsNullOrWhiteSpace(entry.ArtworkLocalUrl)) continue;
+                if (!desiredKeys.Contains(MediaHistoryEntryStorageKey(entry)) ||
+                    !MediaArtworkLocalFileExists(entry.ArtworkLocalUrl))
+                {
+                    entry.ArtworkLocalUrl = "";
+                    changed = true;
+                }
+            }
+
+            long retainedBytes = 0;
+            var retainedUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (MediaActivityHistoryEntry entry in cacheEntries)
+            {
+                string localUrl = entry.ArtworkLocalUrl ?? "";
+                string? path = ResolveMediaArtworkLocalPath(localUrl);
+                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) continue;
+                if (retainedUrls.Contains(localUrl)) continue;
+
+                long length;
+                try { length = new FileInfo(path).Length; }
+                catch { length = MediaArtworkCacheMaximumBytes + 1; }
+                if (length > MediaArtworkMaximumBytes || retainedBytes + length > MediaArtworkCacheMaximumBytes)
+                {
+                    foreach (MediaActivityHistoryEntry shared in history.Where(item =>
+                                 string.Equals(item.ArtworkLocalUrl, localUrl, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        shared.ArtworkLocalUrl = "";
+                        changed = true;
+                    }
+                    continue;
+                }
+
+                retainedBytes += length;
+                retainedUrls.Add(localUrl);
+            }
+
+            string artworkFolder = Path.Combine(ResolveMediaProfileFolder(profileId), "media-artwork");
+            if (Directory.Exists(artworkFolder))
+            {
+                DateTime orphanCutoff = DateTime.UtcNow.AddMinutes(-10);
+                foreach (string file in Directory.EnumerateFiles(artworkFolder))
+                {
+                    if (Path.GetFileName(file).Contains(".download-", StringComparison.OrdinalIgnoreCase)) continue;
+                    string relative = Path.GetRelativePath(dataFolder, file).Replace(Path.DirectorySeparatorChar, '/');
+                    string localUrl = "https://data.local/" +
+                        Uri.EscapeDataString(relative).Replace("%2F", "/", StringComparison.OrdinalIgnoreCase);
+                    if (retainedUrls.Contains(localUrl)) continue;
+                    try
+                    {
+                        if (File.GetLastWriteTimeUtc(file) <= orphanCutoff) File.Delete(file);
+                    }
+                    catch { }
+                }
+            }
+            return changed;
+        }
+
+        private void OptimizeMediaHistoryStorage(string profileId)
+        {
+            lock (_mediaHistoryFileLock)
+            {
+                string path = Path.Combine(ResolveMediaProfileFolder(profileId), "media-history.json");
+                List<MediaActivityHistoryEntry> history;
+                try
+                {
+                    history = File.Exists(path)
+                        ? JsonSerializer.Deserialize<List<MediaActivityHistoryEntry>>(SafeReadAllText(path)) ?? new()
+                        : new();
+                }
+                catch { return; }
+                if (!OptimizeMediaArtworkCacheLocked(profileId, history)) return;
+                string json = JsonSerializer.Serialize(history.OrderByDescending(item => item.LastPlayed), IndentedJsonOptions);
+                SafeWriteAllText(path, json);
+                if (string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase))
+                    SafeWriteAllText(Path.Combine(dataFolder, "media-history.json"), json);
+            }
         }
 
         private void QueueMediaArtworkCapture(MediaArtworkCaptureRequest request)
@@ -1641,6 +1864,7 @@ namespace Doorpi
                 changed = true;
             }
             if (!changed) return;
+            OptimizeMediaArtworkCacheLocked(request.ProfileId, history);
             string json = JsonSerializer.Serialize(history, IndentedJsonOptions);
             SafeWriteAllText(historyPath, json);
             if (string.Equals(currentUserId, request.ProfileId, StringComparison.OrdinalIgnoreCase))
@@ -1671,6 +1895,7 @@ namespace Doorpi
                     var history = JsonSerializer.Deserialize<List<MediaActivityHistoryEntry>>(SafeReadAllText(candidate));
                     if (history == null) continue;
                     bool sanitized = SanitizeMediaHistoryEntries(history);
+                    sanitized |= OptimizeMediaArtworkCacheLocked(currentUserId, history);
                     if (sanitized || !string.Equals(candidate, mediaHistoryFile, StringComparison.OrdinalIgnoreCase))
                     {
                         string cleanJson = JsonSerializer.Serialize(history, IndentedJsonOptions);
@@ -1692,7 +1917,9 @@ namespace Doorpi
                 {
                     if (!File.Exists(mediaHistoryFile)) return;
                     var history = JsonSerializer.Deserialize<List<MediaActivityHistoryEntry>>(SafeReadAllText(mediaHistoryFile)) ?? new();
-                    if (!SanitizeMediaHistoryEntries(history)) return;
+                    bool changed = SanitizeMediaHistoryEntries(history);
+                    changed |= OptimizeMediaArtworkCacheLocked(currentUserId, history);
+                    if (!changed) return;
                     string json = JsonSerializer.Serialize(history, IndentedJsonOptions);
                     SafeWriteAllText(mediaHistoryFile, json);
                     SafeWriteAllText(Path.Combine(dataFolder, "media-history.json"), json);
@@ -1722,6 +1949,7 @@ namespace Doorpi
                 {
                     string category = preference switch
                     {
+                        "music" => "music",
                         "film-series" => "film-series",
                         "video-live" => string.Equals(entry.Category, "live", StringComparison.OrdinalIgnoreCase)
                             ? "live"
@@ -1869,13 +2097,16 @@ namespace Doorpi
             if (isFinal) entry.LastSessionSeconds = (long)Math.Floor(active.AccumulatedSeconds);
 
             active.PersistedSeconds += Math.Max(0, delta);
+            OptimizeMediaArtworkCacheLocked(currentUserId, history);
             string json = JsonSerializer.Serialize(history
                 .OrderByDescending(item => item.LastPlayed)
-                .Take(500)
                 .ToList(), IndentedJsonOptions);
             SafeWriteAllText(mediaHistoryFile, json);
             string mirror = Path.Combine(dataFolder, "media-history.json");
             if (!string.Equals(mediaHistoryFile, mirror, StringComparison.OrdinalIgnoreCase)) SafeWriteAllText(mirror, json);
+            if (active.Category == "music")
+                LogWebViewDiagnostic(
+                    $"media-history-session-saved app={active.AppId} category=music seconds={Math.Floor(active.AccumulatedSeconds)} final={isFinal}");
             ScheduleProfileSync(currentUserId, delayMs: 1800);
         }
     }

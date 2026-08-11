@@ -10529,6 +10529,7 @@ function renderFolderList(folders) {
     }
     .edit-category-option strong { font-size: 13px; font-weight: 650; }
     .edit-category-option small { color: rgba(255,255,255,.43); font-size: 11px; line-height: 1.3; }
+    .edit-category-option[data-media-history-category="disabled"] { grid-column: 1 / -1; }
     .edit-category-option.active {
         border-color: rgba(115,174,255,.62);
         background: rgba(78,132,218,.15);
@@ -11704,7 +11705,7 @@ function renderFolderList(folders) {
         const currentTrailerType = libraryItem?.trailerType || card.dataset.trailerType || '';
         let pendingTrailerSource = currentTrailerSource;
         let pendingTrailerType = currentTrailerType;
-        const validMediaHistoryCategories = new Set(['auto', 'video-live', 'film-series', 'disabled']);
+        const validMediaHistoryCategories = new Set(['auto', 'music', 'video-live', 'film-series', 'disabled']);
         const storedMediaHistoryCategory = libraryItem?.mediaHistoryCategory || card.dataset.mediaHistoryCategory || 'auto';
         const currentMediaHistoryCategory = validMediaHistoryCategories.has(storedMediaHistoryCategory)
             ? storedMediaHistoryCategory
@@ -11817,19 +11818,23 @@ function renderFolderList(folders) {
                     <div class="edit-modal-field">
                         <label class="edit-modal-label">${typeof t === 'function' ? t('mediaHistoryCategoryLabel', 'CATEGORIA') : 'CATEGORIA'}</label>
                         <div class="edit-category-options" role="radiogroup" aria-label="${typeof t === 'function' ? t('mediaHistoryCategoryLabel', 'Categoria') : 'Categoria'}">
-                            <button class="edit-category-option ${pendingMediaHistoryCategory === 'auto' ? 'active' : ''}" id="editCategoryAutoBtn" type="button" role="radio" aria-checked="${pendingMediaHistoryCategory === 'auto'}" data-media-history-category="auto" data-nav-right="#editCategoryVideoLiveBtn" data-nav-down="#editCategoryFilmSeriesBtn" tabindex="0">
+                            <button class="edit-category-option ${pendingMediaHistoryCategory === 'auto' ? 'active' : ''}" id="editCategoryAutoBtn" type="button" role="radio" aria-checked="${pendingMediaHistoryCategory === 'auto'}" data-media-history-category="auto" data-nav-right="#editCategoryMusicBtn" data-nav-down="#editCategoryVideoLiveBtn" tabindex="0">
                                 <strong>${typeof t === 'function' ? t('mediaHistoryCategoryAuto', 'Automático') : 'Automático'}</strong>
                                 <small>${typeof t === 'function' ? t('mediaHistoryCategoryAutoHint', 'Usa os metadados fornecidos pelo site.') : 'Usa os metadados fornecidos pelo site.'}</small>
                             </button>
-                            <button class="edit-category-option ${pendingMediaHistoryCategory === 'video-live' ? 'active' : ''}" id="editCategoryVideoLiveBtn" type="button" role="radio" aria-checked="${pendingMediaHistoryCategory === 'video-live'}" data-media-history-category="video-live" data-nav-left="#editCategoryAutoBtn" data-nav-down="#editCategoryDisabledBtn" tabindex="0">
+                            <button class="edit-category-option ${pendingMediaHistoryCategory === 'music' ? 'active' : ''}" id="editCategoryMusicBtn" type="button" role="radio" aria-checked="${pendingMediaHistoryCategory === 'music'}" data-media-history-category="music" data-nav-left="#editCategoryAutoBtn" data-nav-down="#editCategoryFilmSeriesBtn" tabindex="0">
+                                <strong>${typeof t === 'function' ? t('mediaHistoryCategoryMusic', 'Música') : 'Música'}</strong>
+                                <small>${typeof t === 'function' ? t('mediaHistoryCategoryMusicHint', 'Faixas, artistas e álbuns.') : 'Faixas, artistas e álbuns.'}</small>
+                            </button>
+                            <button class="edit-category-option ${pendingMediaHistoryCategory === 'video-live' ? 'active' : ''}" id="editCategoryVideoLiveBtn" type="button" role="radio" aria-checked="${pendingMediaHistoryCategory === 'video-live'}" data-media-history-category="video-live" data-nav-up="#editCategoryAutoBtn" data-nav-right="#editCategoryFilmSeriesBtn" data-nav-down="#editCategoryDisabledBtn" tabindex="0">
                                 <strong>${typeof t === 'function' ? t('mediaHistoryCategoryVideoLive', 'Vídeos / Live') : 'Vídeos / Live'}</strong>
                                 <small>${typeof t === 'function' ? t('mediaHistoryCategoryVideoLiveHint', 'Canais, criadores e transmissões.') : 'Canais, criadores e transmissões.'}</small>
                             </button>
-                            <button class="edit-category-option ${pendingMediaHistoryCategory === 'film-series' ? 'active' : ''}" id="editCategoryFilmSeriesBtn" type="button" role="radio" aria-checked="${pendingMediaHistoryCategory === 'film-series'}" data-media-history-category="film-series" data-nav-up="#editCategoryAutoBtn" data-nav-right="#editCategoryDisabledBtn" data-nav-down="#editArtworkSteamGridBtn" tabindex="0">
+                            <button class="edit-category-option ${pendingMediaHistoryCategory === 'film-series' ? 'active' : ''}" id="editCategoryFilmSeriesBtn" type="button" role="radio" aria-checked="${pendingMediaHistoryCategory === 'film-series'}" data-media-history-category="film-series" data-nav-up="#editCategoryMusicBtn" data-nav-left="#editCategoryVideoLiveBtn" data-nav-down="#editCategoryDisabledBtn" tabindex="0">
                                 <strong>${typeof t === 'function' ? t('mediaHistoryCategoryFilmSeries', 'Filmes e séries') : 'Filmes e séries'}</strong>
                                 <small>${typeof t === 'function' ? t('mediaHistoryCategoryFilmSeriesHint', 'Filmes, séries e episódios.') : 'Filmes, séries e episódios.'}</small>
                             </button>
-                            <button class="edit-category-option ${pendingMediaHistoryCategory === 'disabled' ? 'active' : ''}" id="editCategoryDisabledBtn" type="button" role="radio" aria-checked="${pendingMediaHistoryCategory === 'disabled'}" data-media-history-category="disabled" data-nav-up="#editCategoryVideoLiveBtn" data-nav-left="#editCategoryFilmSeriesBtn" data-nav-down="#editArtworkLocalBtn" tabindex="0">
+                            <button class="edit-category-option ${pendingMediaHistoryCategory === 'disabled' ? 'active' : ''}" id="editCategoryDisabledBtn" type="button" role="radio" aria-checked="${pendingMediaHistoryCategory === 'disabled'}" data-media-history-category="disabled" data-nav-up="#editCategoryFilmSeriesBtn" data-nav-down="#editArtworkLocalBtn" tabindex="0">
                                 <strong>${typeof t === 'function' ? t('mediaHistoryCategoryDisabled', 'Desativar histórico') : 'Desativar histórico'}</strong>
                                 <small>${typeof t === 'function' ? t('mediaHistoryCategoryDisabledHint', 'Não registra novas atividades deste app.') : 'Não registra novas atividades deste app.'}</small>
                             </button>
@@ -11838,7 +11843,7 @@ function renderFolderList(folders) {
                     <div class="edit-modal-field">
                         <label class="edit-modal-label">${t('artworkWizardTitle')}</label>
                         <div class="edit-artwork-actions">
-                            <button class="edit-artwork-btn" id="editArtworkSteamGridBtn" type="button" data-nav-up="${canConfigureMediaHistory ? '#editCategoryFilmSeriesBtn' : ''}" tabindex="0">SteamGrid</button>
+                            <button class="edit-artwork-btn" id="editArtworkSteamGridBtn" type="button" data-nav-up="${canConfigureMediaHistory ? '#editCategoryDisabledBtn' : ''}" tabindex="0">SteamGrid</button>
                             <button class="edit-artwork-btn" id="editArtworkLocalBtn" type="button" data-nav-up="${canConfigureMediaHistory ? '#editCategoryDisabledBtn' : ''}" tabindex="0">${t('artworkChooseComputer')}</button>
                         </div>
                     </div>

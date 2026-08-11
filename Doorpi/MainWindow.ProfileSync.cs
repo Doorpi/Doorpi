@@ -9,6 +9,8 @@ namespace Doorpi;
 
 public partial class MainWindow
 {
+    private const int ProfileGameArtworkVisualItems = 20;
+    private const long ProfileGameArtworkCacheMaximumBytes = 256L * 1024L * 1024L;
     private readonly object _profileSyncServiceLock = new();
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _profileSyncDebounces =
         new(StringComparer.OrdinalIgnoreCase);
@@ -89,6 +91,121 @@ public partial class MainWindow
         => LoadUserProfiles().FirstOrDefault(user =>
             string.Equals(user.Id, profileId, StringComparison.OrdinalIgnoreCase));
 
+    private static List<GameHistoryEntry> SelectProfileGameArtworkCacheEntries(IEnumerable<GameHistoryEntry> history)
+    {
+        List<GameHistoryEntry> entries = history.Where(entry => !string.IsNullOrWhiteSpace(entry.Name)).ToList();
+        GameHistoryEntry? latest = entries.OrderByDescending(entry => entry.LastPlayed).FirstOrDefault();
+        return (latest == null ? Enumerable.Empty<GameHistoryEntry>() : new[] { latest })
+            .Concat(entries.OrderByDescending(entry => Math.Max(0, entry.TotalPlaytimeMinutes))
+                .ThenByDescending(entry => entry.LastPlayed))
+            .GroupBy(entry => ProfileSyncSnapshotFactory.NormalizeGameKey(entry.Name), StringComparer.Ordinal)
+            .Select(group => group.First())
+            .Take(ProfileGameArtworkVisualItems)
+            .ToList();
+    }
+
+    private static bool IsCloudProfileArtworkUrl(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) ||
+            !value.StartsWith("https://data.local/images/history-", StringComparison.OrdinalIgnoreCase)) return false;
+        try { return Path.GetFileName(new Uri(value).AbsolutePath).StartsWith("cloud_", StringComparison.OrdinalIgnoreCase); }
+        catch { return false; }
+    }
+
+    private string? ResolveCloudProfileArtworkPath(string? value)
+    {
+        if (!IsCloudProfileArtworkUrl(value)) return null;
+        try
+        {
+            const string prefix = "https://data.local/images/";
+            string relative = Uri.UnescapeDataString(value![prefix.Length..]).Replace('/', Path.DirectorySeparatorChar);
+            string root = Path.GetFullPath(Path.Combine(dataFolder, "images")) + Path.DirectorySeparatorChar;
+            string path = Path.GetFullPath(Path.Combine(root, relative));
+            return path.StartsWith(root, StringComparison.OrdinalIgnoreCase) ? path : null;
+        }
+        catch { return null; }
+    }
+
+    private bool OptimizeProfileGameArtworkCacheLocked(string profileId, List<GameHistoryEntry> history)
+    {
+        bool changed = false;
+        var evictedUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var desired = SelectProfileGameArtworkCacheEntries(history)
+            .Select(entry => ProfileSyncSnapshotFactory.NormalizeGameKey(entry.Name))
+            .ToHashSet(StringComparer.Ordinal);
+
+        foreach (GameHistoryEntry entry in history)
+        {
+            if (desired.Contains(ProfileSyncSnapshotFactory.NormalizeGameKey(entry.Name))) continue;
+            if (IsCloudProfileArtworkUrl(entry.ShowcaseVerticalLocalImage))
+            {
+                evictedUrls.Add(entry.ShowcaseVerticalLocalImage);
+                entry.ShowcaseVerticalLocalImage = "";
+                changed = true;
+            }
+            if (IsCloudProfileArtworkUrl(entry.HistoryHorizontalLocalImage))
+            {
+                evictedUrls.Add(entry.HistoryHorizontalLocalImage);
+                entry.HistoryHorizontalLocalImage = "";
+                changed = true;
+            }
+            if (IsCloudProfileArtworkUrl(entry.ProfileBannerLocalImage))
+            {
+                evictedUrls.Add(entry.ProfileBannerLocalImage);
+                entry.ProfileBannerLocalImage = "";
+                changed = true;
+            }
+        }
+
+        long retainedBytes = 0;
+        var retainedUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (GameHistoryEntry entry in SelectProfileGameArtworkCacheEntries(history))
+        {
+            foreach (string localUrl in new[]
+                     {
+                         entry.ProfileBannerLocalImage,
+                         entry.HistoryHorizontalLocalImage,
+                         entry.ShowcaseVerticalLocalImage
+                     })
+            {
+                string? path = ResolveCloudProfileArtworkPath(localUrl);
+                if (path == null || !File.Exists(path) || !retainedUrls.Add(localUrl)) continue;
+                long length;
+                try { length = new FileInfo(path).Length; }
+                catch { length = ProfileGameArtworkCacheMaximumBytes + 1; }
+                if (retainedBytes + length <= ProfileGameArtworkCacheMaximumBytes)
+                {
+                    retainedBytes += length;
+                    continue;
+                }
+
+                if (string.Equals(entry.ShowcaseVerticalLocalImage, localUrl, StringComparison.OrdinalIgnoreCase))
+                    entry.ShowcaseVerticalLocalImage = "";
+                if (string.Equals(entry.HistoryHorizontalLocalImage, localUrl, StringComparison.OrdinalIgnoreCase))
+                    entry.HistoryHorizontalLocalImage = "";
+                if (string.Equals(entry.ProfileBannerLocalImage, localUrl, StringComparison.OrdinalIgnoreCase))
+                    entry.ProfileBannerLocalImage = "";
+                evictedUrls.Add(localUrl);
+                retainedUrls.Remove(localUrl);
+                changed = true;
+            }
+        }
+
+        DateTime orphanCutoff = DateTime.UtcNow.AddMinutes(-10);
+        foreach (string localUrl in evictedUrls)
+        {
+            if (retainedUrls.Contains(localUrl)) continue;
+            string? file = ResolveCloudProfileArtworkPath(localUrl);
+            if (file == null || !File.Exists(file)) continue;
+            try
+            {
+                if (File.GetLastWriteTimeUtc(file) <= orphanCutoff) File.Delete(file);
+            }
+            catch { }
+        }
+        return changed;
+    }
+
     private List<GameHistoryEntry> LoadProfileHistoryForSync(string profileId)
     {
         string path = Path.Combine(dataFolder, "users", profileId, "game-history.json");
@@ -142,6 +259,7 @@ public partial class MainWindow
                         changed = true;
                     }
                 }
+                changed |= OptimizeProfileGameArtworkCacheLocked(profileId, history);
                 if (changed)
                 {
                     string json = JsonSerializer.Serialize(history, IndentedJsonOptions);
@@ -763,6 +881,8 @@ public partial class MainWindow
             ResetLibraryPlaytimeForDeletedHistory(profileId, removedHistoryKeys);
 
             string historyPath = Path.Combine(dataFolder, "users", profileId, "game-history.json");
+            lock (_gameHistoryFileLock)
+                OptimizeProfileGameArtworkCacheLocked(profileId, appliedHistory);
             SafeWriteAllText(historyPath, JsonSerializer.Serialize(appliedHistory, IndentedJsonOptions));
 
             Dictionary<string, MediaActivityHistoryEntry> previousMediaByKey = LoadProfileMediaHistoryForSync(profileId)
@@ -827,6 +947,7 @@ public partial class MainWindow
             string mediaHistoryPath = Path.Combine(dataFolder, "users", profileId, "media-history.json");
             lock (_mediaHistoryFileLock)
             {
+                OptimizeMediaArtworkCacheLocked(profileId, appliedMediaHistory);
                 string mediaJson = JsonSerializer.Serialize(appliedMediaHistory, IndentedJsonOptions);
                 SafeWriteAllText(mediaHistoryPath, mediaJson);
                 if (string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase))
@@ -928,7 +1049,7 @@ public partial class MainWindow
                         lastPlayed.HistoryHorizontalImageUrl, lastPlayed.HistoryHorizontalLocalImage).ConfigureAwait(false);
                 }
 
-                foreach (GameHistoryEntry entry in history)
+                foreach (GameHistoryEntry entry in SelectProfileGameArtworkCacheEntries(history))
                 {
                     await ResolveMissingProfileArtworkUrlsAsync(profileId, entry).ConfigureAwait(false);
                     await DownloadProfileHistoryArtworkAsync(profileId, entry.Name, "vertical",
@@ -940,21 +1061,21 @@ public partial class MainWindow
                     await Task.Delay(180).ConfigureAwait(false);
                 }
 
+                OptimizeMediaHistoryStorage(profileId);
                 List<MediaActivityHistoryEntry> mediaHistory = LoadProfileMediaHistoryForSync(profileId);
-                foreach (MediaActivityHistoryEntry entry in mediaHistory
-                             .OrderByDescending(item => Math.Max(0, item.TotalPlaybackSeconds))
-                             .ThenByDescending(item => item.LastPlayed))
+                foreach (MediaActivityHistoryEntry entry in SelectMediaArtworkCacheEntries(mediaHistory))
                 {
                     await DownloadProfileMediaArtworkAsync(profileId, entry).ConfigureAwait(false);
                     await Task.Delay(180).ConfigureAwait(false);
                 }
+                OptimizeMediaHistoryStorage(profileId);
 
                 // One delayed retry handles transient network failures in the same
                 // session. Missing local files remain pending and are retried again
                 // whenever this profile is opened in a future session.
                 await Task.Delay(5000).ConfigureAwait(false);
                 history = LoadProfileHistoryForSync(profileId);
-                foreach (GameHistoryEntry entry in history)
+                foreach (GameHistoryEntry entry in SelectProfileGameArtworkCacheEntries(history))
                 {
                     await ResolveMissingProfileArtworkUrlsAsync(profileId, entry).ConfigureAwait(false);
                     await DownloadProfileHistoryArtworkAsync(profileId, entry.Name, "vertical",
@@ -966,13 +1087,12 @@ public partial class MainWindow
                     await Task.Delay(180).ConfigureAwait(false);
                 }
                 mediaHistory = LoadProfileMediaHistoryForSync(profileId);
-                foreach (MediaActivityHistoryEntry entry in mediaHistory
-                             .OrderByDescending(item => Math.Max(0, item.TotalPlaybackSeconds))
-                             .ThenByDescending(item => item.LastPlayed))
+                foreach (MediaActivityHistoryEntry entry in SelectMediaArtworkCacheEntries(mediaHistory))
                 {
                     await DownloadProfileMediaArtworkAsync(profileId, entry).ConfigureAwait(false);
                     await Task.Delay(180).ConfigureAwait(false);
                 }
+                OptimizeMediaHistoryStorage(profileId);
             }
             catch (Exception ex)
             {
@@ -1115,6 +1235,7 @@ public partial class MainWindow
             if (category == "vertical") target.ShowcaseVerticalLocalImage = savedUrl;
             else if (category == "banner") target.ProfileBannerLocalImage = savedUrl;
             else target.HistoryHorizontalLocalImage = savedUrl;
+            OptimizeProfileGameArtworkCacheLocked(profileId, latest);
             string json = JsonSerializer.Serialize(latest, IndentedJsonOptions);
             SafeWriteAllText(historyPath, json);
             if (string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase))
@@ -1201,6 +1322,7 @@ public partial class MainWindow
             }
 
             target.ArtworkLocalUrl = savedUrl;
+            OptimizeMediaArtworkCacheLocked(profileId, latest);
             string json = JsonSerializer.Serialize(latest, IndentedJsonOptions);
             SafeWriteAllText(historyPath, json);
             if (string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase))

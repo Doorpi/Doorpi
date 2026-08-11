@@ -4362,11 +4362,14 @@ window.isNavMenuOpen = false;
             .nav-unified-hero { --hero-fade-duration:1600ms; view-transition-name:doorpi-profile-hero; position:relative; min-height:0; overflow:hidden; border-radius:clamp(14px,1vw,20px); background:radial-gradient(circle at 82% 18%,rgba(var(--profile-accent),.2),transparent 45%),linear-gradient(145deg,rgba(255,255,255,.075),rgba(255,255,255,.018)); border:1px solid rgba(255,255,255,.1); box-shadow:0 24px 64px rgba(0,0,0,.28); outline:none; transition:border-color .18s ease,box-shadow .18s ease,transform .18s ease; }
             .nav-unified-hero.is-carousel { cursor:pointer; }
             .nav-unified-hero.nav-focused-el { border-color:rgba(255,255,255,.72); box-shadow:0 26px 72px rgba(0,0,0,.34),0 0 0 2px rgba(var(--profile-accent),.18); transform:scale(1.004); }
-            .nav-unified-hero>img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:.72; filter:saturate(.94) contrast(1.02); transition:opacity var(--hero-fade-duration) cubic-bezier(.25,.65,.25,1); }
+            .nav-unified-hero>img { position:absolute; z-index:1; inset:0; width:100%; height:100%; object-fit:cover; opacity:.72; filter:saturate(.94) contrast(1.02); transition:opacity var(--hero-fade-duration) cubic-bezier(.25,.65,.25,1); }
             .nav-unified-hero>img.is-next-art { opacity:0; }
             .nav-unified-hero>img.is-next-art.is-visible { opacity:.72; }
             .nav-unified-hero>img.is-leaving-art { opacity:0; }
-            .nav-unified-hero::after { content:""; position:absolute; inset:0; background:linear-gradient(90deg,rgba(5,8,16,.94) 0%,rgba(5,8,16,.74) 38%,rgba(5,8,16,.16) 76%),linear-gradient(0deg,rgba(3,5,11,.6),transparent 62%); }
+            .nav-unified-art-fallback { position:absolute; z-index:0; inset:0; display:grid; place-items:center; padding:12px; box-sizing:border-box; color:rgba(255,255,255,.38); font-size:clamp(.62rem,.72vw,.82rem); font-weight:650; letter-spacing:.08em; text-align:center; text-transform:uppercase; }
+            .nav-unified-art-fallback span { display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+            .nav-unified-hero>.nav-unified-art-fallback { justify-items:end; align-items:start; padding:clamp(22px,2.2vw,38px); color:rgba(255,255,255,.18); font-size:clamp(.72rem,.9vw,1rem); }
+            .nav-unified-hero::after { content:""; position:absolute; z-index:1; inset:0; background:linear-gradient(90deg,rgba(5,8,16,.94) 0%,rgba(5,8,16,.74) 38%,rgba(5,8,16,.16) 76%),linear-gradient(0deg,rgba(3,5,11,.6),transparent 62%); }
             .nav-unified-hero-copy { position:relative; z-index:2; width:min(70%,700px); height:100%; min-height:inherit; box-sizing:border-box; padding:clamp(24px,3vw,54px); display:flex; flex-direction:column; justify-content:flex-end; align-items:flex-start; }
             .nav-unified-kicker { margin-bottom:9px; color:rgba(255,255,255,.54); font-size:clamp(.66rem,.72vw,.82rem); font-weight:720; letter-spacing:.15em; text-transform:uppercase; }
             .nav-unified-hero h3 { max-width:100%; margin:0; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; font-size:clamp(1.55rem,2.45vw,3.5rem); font-weight:470; line-height:1.04; letter-spacing:-.032em; text-shadow:0 10px 30px rgba(0,0,0,.5); }
@@ -4378,16 +4381,19 @@ window.isNavMenuOpen = false;
             .nav-unified-hero-state { width:10px; height:10px; margin-right:2px; opacity:.66; }
             .nav-unified-hero-state svg { width:100%; height:100%; display:none; fill:currentColor; }
             .nav-unified-hero-state:not(.is-paused) .icon-pause,.nav-unified-hero-state.is-paused .icon-play { display:block; }
-            .nav-unified-recent { view-transition-name:doorpi-profile-recent; min-height:0; display:flex; flex-direction:column; padding:clamp(15px,1.4vw,24px); border-radius:clamp(14px,1vw,20px); background:rgba(255,255,255,.035); border:1px solid rgba(255,255,255,.085); overflow:hidden; }
+            .nav-unified-recent { view-transition-name:doorpi-profile-recent; min-height:0; display:flex; flex-direction:column; padding:clamp(15px,1.4vw,24px); border-radius:clamp(14px,1vw,20px); background:rgba(255,255,255,.035); border:1px solid rgba(255,255,255,.085); overflow:hidden; outline:none; transition:border-color .18s ease,box-shadow .18s ease; }
+            .nav-unified-recent.nav-focused-el { border-color:rgba(255,255,255,.68); box-shadow:0 0 0 2px rgba(var(--profile-accent),.14); }
             .nav-unified-section-head { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:31px; margin-bottom:8px; }
             .nav-unified-section-head strong { font-size:clamp(.82rem,.95vw,1.08rem); font-weight:610; }
             .nav-unified-journey { min-height:31px; padding:0 11px; border-radius:6px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.04); color:rgba(255,255,255,.66); font:inherit; font-size:.72rem; outline:none; }
             .nav-unified-journey.nav-focused-el { background:#fff; color:#08101d; border-color:#fff; }
-            .nav-unified-list { min-height:0; display:flex; flex-direction:column; overflow:hidden; }
-            .nav-unified-row { min-height:clamp(52px,6.15vh,72px); display:grid; grid-template-columns:clamp(68px,5.6vw,98px) minmax(0,1fr) auto; align-items:center; gap:clamp(10px,.9vw,16px); border-top:1px solid rgba(255,255,255,.075); }
+            .nav-unified-list { min-height:0; display:flex; flex-direction:column; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:none; }
+            .nav-unified-list::-webkit-scrollbar { display:none; }
+            .nav-unified-row { flex:0 0 auto; min-height:clamp(52px,6.15vh,72px); display:grid; grid-template-columns:clamp(68px,5.6vw,98px) minmax(0,1fr) auto; align-items:center; gap:clamp(10px,.9vw,16px); border-top:1px solid rgba(255,255,255,.075); transition:background .16s ease; }
             .nav-unified-row:first-child { border-top:0; }
-            .nav-unified-row-art { width:100%; aspect-ratio:16/9; border-radius:6px; overflow:hidden; display:grid; place-items:center; background:rgba(0,0,0,.28); }
-            .nav-unified-row-art img { width:100%; height:100%; object-fit:cover; }
+            .nav-unified-recent.nav-focused-el .nav-unified-row.is-current { background:rgba(255,255,255,.075); }
+            .nav-unified-row-art { position:relative; width:100%; aspect-ratio:16/9; border-radius:6px; overflow:hidden; display:grid; place-items:center; background:rgba(0,0,0,.28); }
+            .nav-unified-row-art img { position:relative; z-index:1; width:100%; height:100%; object-fit:cover; }
             .nav-unified-row-copy { min-width:0; display:grid; gap:3px; }
             .nav-unified-row-copy strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:clamp(.74rem,.82vw,.94rem); font-weight:580; }
             .nav-unified-row-copy small,.nav-unified-row-time small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:rgba(255,255,255,.4); font-size:clamp(.62rem,.66vw,.74rem); }
@@ -4414,7 +4420,7 @@ window.isNavMenuOpen = false;
         const gameHistory = (_menuData.history || []).filter(item => item?.Name && Number(item.TotalPlaytimeMinutes) >= 1);
         const mediaHistory = (_menuData.mediaHistory || []).filter(item => item?.ContentTitle && Number(item.TotalPlaybackSeconds) >= 1);
         const mediaApps = _menuData.media || [];
-        const tab = ['gaming', 'film-series', 'streaming'].includes(_profileSubView) ? _profileSubView : 'overview';
+        const tab = ['gaming', 'film-series', 'streaming', 'music'].includes(_profileSubView) ? _profileSubView : 'overview';
         const trackingEnabled = prof.ApplicationHistoryEnabled !== false && prof.applicationHistoryEnabled !== false;
         const name = prof.Name || 'Doorpi';
         const photo = prof.PhotoBase64 || '';
@@ -4436,6 +4442,14 @@ window.isNavMenuOpen = false;
             if (days < 7) return `há ${days} dias`;
             return new Date(time).toLocaleDateString();
         };
+        const isToday = value => {
+            const date = new Date(value || 0);
+            if (!Number.isFinite(date.getTime()) || date.getTime() <= 0) return false;
+            const now = new Date();
+            return date.getFullYear() === now.getFullYear() &&
+                date.getMonth() === now.getMonth() &&
+                date.getDate() === now.getDate();
+        };
         const appFor = id => mediaApps.find(app => String(app.Id || app.id || '').toLowerCase() === String(id || '').toLowerCase()) || {};
         const appName = id => appFor(id).Name || mediaHistory.find(item => item.AppId === id)?.AppName || id || 'Doorpi';
         const appArt = app => app.HeroStaticImage || app.HeroImage || app.GridHorizontalStaticImage || app.GridHorizontalImage || app.GridStaticImage || app.GridImage || '';
@@ -4446,8 +4460,9 @@ window.isNavMenuOpen = false;
             item?.ArtworkRemoteUrl,
             appThumb(appFor(item?.AppId))
         ].filter(Boolean))];
-        const isEpisode = item => String(item?.ContentType || '').toLowerCase() === 'episode' ||
-            !!(item?.SeriesTitle && item.SeriesTitle !== item.ContentTitle);
+        const isEpisode = item => String(item?.Category || '').toLowerCase() !== 'music' &&
+            (String(item?.ContentType || '').toLowerCase() === 'episode' ||
+             !!(item?.SeriesTitle && item.SeriesTitle !== item.ContentTitle));
         const mediaPrimaryTitle = item => isEpisode(item)
             ? (item?.SeriesTitle || item?.ContentTitle || appName(item?.AppId))
             : (item?.ContentTitle || item?.SeriesTitle || appName(item?.AppId));
@@ -4461,6 +4476,9 @@ window.isNavMenuOpen = false;
             ['twitch', 'kick'].includes(String(item?.AppId || '').toLowerCase());
         const mediaActivityLabel = item => {
             if (!item) return '';
+            if (String(item.Category || '').toLowerCase() === 'music') {
+                return [item.ContentTitle, item.CreatorName, appName(item.AppId)].filter(Boolean).join(' · ');
+            }
             if (isLiveActivity(item)) {
                 const creator = String(item.CreatorName || '').trim();
                 return creator
@@ -4479,16 +4497,18 @@ window.isNavMenuOpen = false;
                 ? `${_t('navLastEpisode','Último episódio')}: ${lastEpisode} · ${watched}`
                 : watched;
         };
-        const artImage = chain => {
+        const artImage = (chain, lazy = false, fallbackLabel = '') => {
             const candidates = Array.isArray(chain) ? chain.filter(Boolean) : [];
-            if (!candidates.length) return '';
+            const fallback = `<span class="nav-unified-art-fallback"><span>${_esc(fallbackLabel || 'Doorpi')}</span></span>`;
+            if (!candidates.length) return fallback;
             const fallbacks = encodeURIComponent(JSON.stringify(candidates.slice(1)));
-            return `<img src="${_esc(candidates[0])}" data-art-fallbacks="${_esc(fallbacks)}" alt="" />`;
+            return `${fallback}<img src="${_esc(candidates[0])}" data-art-fallbacks="${_esc(fallbacks)}"${lazy ? ' loading="lazy" decoding="async"' : ''} alt="" />`;
         };
         const gameMinutes = gameHistory.reduce((sum, item) => sum + (Number(item.TotalPlaytimeMinutes) || 0), 0);
         const mediaSeconds = mediaHistory.reduce((sum, item) => sum + (Number(item.TotalPlaybackSeconds) || 0), 0);
         const films = mediaHistory.filter(item => item.Category === 'film-series');
         const streams = mediaHistory.filter(item => item.Category === 'live' || item.Category === 'video');
+        const music = mediaHistory.filter(item => item.Category === 'music');
         const groupPlatforms = entries => [...entries.reduce((map, item) => {
             const key = item.AppId || 'unknown';
             const current = map.get(key) || { id:key, seconds:0, entries:[] };
@@ -4562,7 +4582,28 @@ window.isNavMenuOpen = false;
                 appId:streamPlatform.id
             };
         })() : null;
-        const overviewHighlights = [gameHighlight, filmHighlight, streamHighlight].filter(Boolean);
+        const musicArtistGroups = [...music.reduce((map,item) => {
+            const label = (item.CreatorName || item.ContentTitle || '').trim();
+            if (label) map.set(label, (map.get(label) || 0) + Number(item.TotalPlaybackSeconds || 0));
+            return map;
+        }, new Map()).entries()].sort((a,b) => b[1] - a[1]);
+        const topMusicArtist = musicArtistGroups[0];
+        const topMusicEntry = topMusicArtist ? music
+            .filter(item => (item.CreatorName || item.ContentTitle || '').trim() === topMusicArtist[0])
+            .sort((a,b) => new Date(b.LastPlayed || 0) - new Date(a.LastPlayed || 0))[0] : null;
+        const musicHighlight = topMusicArtist && topMusicEntry ? (() => {
+            const chain = mediaArtChain(topMusicEntry);
+            return {
+                kind:'music',
+                kicker:`${_t('navMostListened','Mais ouvido')} · ${appName(topMusicEntry.AppId)}`,
+                title:topMusicArtist[0],
+                meta:`${fmtSeconds(topMusicArtist[1])} ${_t('navProfileTotalSuffix','no total')}`,
+                art:chain[0] || appArt(appFor(topMusicEntry.AppId)),
+                artChain:chain,
+                appId:topMusicEntry.AppId
+            };
+        })() : null;
+        const overviewHighlights = [gameHighlight, filmHighlight, streamHighlight, musicHighlight].filter(Boolean);
 
         let hero = {
             kicker:_t('navProfileEmptyKicker','Seu perfil'),
@@ -4572,17 +4613,43 @@ window.isNavMenuOpen = false;
         };
         let rows = [];
         let stats = [];
-        let sectionTitle = _t('navRecentActivity', 'Atividade recente');
-        const gameRows = gameHistory.map(item => ({ title:item.Name, sub:_t('navGames','Jogos'), seconds:Number(item.TotalPlaytimeMinutes) * 60, date:item.LastPlayed, artChain:[gameArt(item)].filter(Boolean) }));
+        let sectionTitle = _t('navTodayActivity', 'Atividade de hoje');
+        const gameRows = gameHistory.map(item => ({ title:item.Name, sub:_t('navGames','Jogos'), seconds:Number(item.TotalPlaytimeMinutes) * 60, recentSeconds:Number(item.LastSessionMinutes) * 60, date:item.LastPlayed, artChain:[gameArt(item)].filter(Boolean), platform:_t('navGames','Jogos') }));
         const mediaRows = entries => entries.map(item => ({
             title:mediaPrimaryTitle(item),
-            sub:isEpisode(item)
+            sub:item.Category === 'music'
+                ? [item.CreatorName, item.AlbumTitle, appName(item.AppId)].filter(Boolean).join(' · ')
+                : isEpisode(item)
                 ? [mediaSecondaryTitle(item), appName(item.AppId)].filter(Boolean).join(' · ')
                 : [item.CreatorName, appName(item.AppId)].filter(Boolean).join(' · '),
             seconds:Number(item.TotalPlaybackSeconds),
+            recentSeconds:Number(item.LastSessionSeconds),
             date:item.LastPlayed,
-            artChain:mediaArtChain(item)
+            artChain:mediaArtChain(item),
+            platform:appName(item.AppId),
+            source:item
         }));
+        const filmRows = groupFilmTitles(films).map(group => ({
+            title:group.title,
+            sub:[isEpisode(group.latest) ? mediaSecondaryTitle(group.latest) : '', appName(group.latest?.AppId)].filter(Boolean).join(' · '),
+            seconds:group.seconds,
+            date:group.latest?.LastPlayed,
+            artChain:mediaArtChain(group.latest),
+            platform:appName(group.latest?.AppId)
+        }));
+        const streamRows = [...streams.reduce((map, item) => {
+            const title = String(item.CreatorName || item.ContentTitle || appName(item.AppId)).trim();
+            const key = `${String(item.AppId || '').toLowerCase()}\u001f${title.toLocaleLowerCase()}`;
+            const current = map.get(key) || { title, sub:appName(item.AppId), seconds:0, date:item.LastPlayed, latest:item, platform:appName(item.AppId) };
+            current.seconds += Number(item.TotalPlaybackSeconds) || 0;
+            if (new Date(item.LastPlayed || 0) > new Date(current.date || 0)) {
+                current.date = item.LastPlayed;
+                current.latest = item;
+            }
+            map.set(key, current);
+            return map;
+        }, new Map()).values()].map(item => ({ ...item, artChain:mediaArtChain(item.latest) }));
+        const musicRows = mediaRows(music);
 
         if (tab === 'gaming') {
             if (gameHighlight) hero = { ...gameHighlight, kicker:_t('navStatMostPlayed','Mais jogado') };
@@ -4595,7 +4662,8 @@ window.isNavMenuOpen = false;
             ];
         } else if (tab === 'film-series') {
             if (filmHighlight) hero = filmHighlight;
-            rows = mediaRows(films).sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0));
+            rows = filmRows.sort((a,b) => b.seconds - a.seconds);
+            sectionTitle = _t('navMostWatchedTitles', 'Mais assistidos');
             stats = [
                 [_t('navWatchTime','Tempo assistido'), fmtSeconds(films.reduce((s,i) => s + Number(i.TotalPlaybackSeconds || 0), 0))],
                 [_t('navTitlesWatched','Séries/filmes assistidos'), String(groupFilmTitles(films).length)],
@@ -4603,11 +4671,21 @@ window.isNavMenuOpen = false;
             ];
         } else if (tab === 'streaming') {
             if (streamHighlight) hero = streamHighlight;
-            rows = mediaRows(streams).sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0));
+            rows = streamRows.sort((a,b) => b.seconds - a.seconds);
+            sectionTitle = _t('navMostWatchedCreators', 'Mais assistidos');
             stats = [
                 [_t('navWatchTime','Tempo assistido'), fmtSeconds(streams.reduce((s,i) => s + Number(i.TotalPlaybackSeconds || 0), 0))],
                 [_t('navCreatorsWatched','Criadores acompanhados'), String(new Set(streams.map(i => i.CreatorName).filter(Boolean)).size)],
                 [_t('navFavoritePlatform','Plataforma principal'), streamPlatform ? appName(streamPlatform.id) : '--', true]
+            ];
+        } else if (tab === 'music') {
+            if (musicHighlight) hero = musicHighlight;
+            rows = musicRows.sort((a,b) => b.seconds - a.seconds);
+            sectionTitle = _t('navMostListenedTracks', 'Mais ouvidos');
+            stats = [
+                [_t('navListeningTime','Tempo ouvido'), fmtSeconds(music.reduce((s,i) => s + Number(i.TotalPlaybackSeconds || 0), 0))],
+                [_t('navTracksListened','Faixas ouvidas'), String(new Set(music.map(i => `${i.ContentTitle}\u001f${i.CreatorName}`)).size)],
+                [_t('navMostListenedArtist','Artista mais ouvido'), topMusicArtist?.[0] || '--', true]
             ];
         } else {
             if (overviewHighlights.length) {
@@ -4618,27 +4696,33 @@ window.isNavMenuOpen = false;
                 _profileOverviewHeroIndex %= overviewHighlights.length;
                 hero = overviewHighlights[_profileOverviewHeroIndex];
             }
-            rows = [...gameRows, ...mediaRows(mediaHistory)].sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0));
-            const latestIsMedia = new Date(latestMedia?.LastPlayed || 0) > new Date(latestGame?.LastPlayed || 0);
+            rows = [...gameRows, ...mediaRows(mediaHistory)]
+                .filter(item => isToday(item.date))
+                .map(item => ({ ...item, seconds:item.recentSeconds || item.seconds }))
+                .sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0));
+            const latestGameToday = isToday(latestGame?.LastPlayed) ? latestGame : null;
+            const latestMediaToday = isToday(latestMedia?.LastPlayed) ? latestMedia : null;
+            const latestIsMedia = new Date(latestMediaToday?.LastPlayed || 0) > new Date(latestGameToday?.LastPlayed || 0);
             stats = [
                 [_t('navGamingTime','Tempo em jogos'), fmtSeconds(gameMinutes * 60)],
                 [_t('navWatchTime','Tempo assistido'), fmtSeconds(mediaSeconds)],
-                [_t('navLastActivity','Última atividade'), (latestIsMedia ? mediaActivityLabel(latestMedia) : latestGame?.Name) || '--', true]
+                [_t('navLastActivity','Última atividade'), (latestIsMedia ? mediaActivityLabel(latestMediaToday) : latestGameToday?.Name) || '--', true]
             ];
         }
 
         const accentByApp = { youtube:'255,68,68', netflix:'229,9,20', twitch:'145,70,255', kick:'83,252,24', disneyplus:'63,117,255', primevideo:'0,168,225', appletv:'235,235,240', max:'116,63,255', crunchyroll:'244,117,33' };
-        const accentForHero = item => accentByApp[item?.appId] || (item?.kind === 'gaming' || tab === 'gaming' ? '92,154,255' : '110,156,255');
+        const accentForHero = item => accentByApp[item?.appId] || (item?.kind === 'music' || tab === 'music' ? '52,211,120' : item?.kind === 'gaming' || tab === 'gaming' ? '92,154,255' : '110,156,255');
         const accent = accentForHero(hero);
         const tabs = [
             ['overview', _t('navProfileOverview','Visão geral')],
             ['gaming', _t('navGames','Jogos')],
             ['film-series', _t('navFilmsSeries','Filmes e séries')],
-            ['streaming', _t('navStreamingVideos','Ao vivo e vídeos')]
+            ['streaming', _t('navStreamingVideos','Ao vivo e vídeos')],
+            ['music', _t('navMusic','Música')]
         ];
-        const rowHtml = rows.slice(0, 5).map(item => `
-            <div class="nav-unified-row">
-                <span class="nav-unified-row-art">${artImage(item.artChain)}</span>
+        const rowHtml = rows.map((item, index) => `
+            <div class="nav-unified-row${index === 0 ? ' is-current' : ''}" data-profile-recent-index="${index}" role="option" aria-selected="${index === 0 ? 'true' : 'false'}">
+                <span class="nav-unified-row-art">${artImage(item.artChain, true, item.platform)}</span>
                 <span class="nav-unified-row-copy"><strong>${_esc(item.title)}</strong><small>${_esc(item.sub || '')}</small></span>
                 <span class="nav-unified-row-time"><strong>${fmtSeconds(item.seconds)}</strong><small>${relDate(item.date)}</small></span>
             </div>`).join('');
@@ -4659,8 +4743,8 @@ window.isNavMenuOpen = false;
                 </header>
                 <nav class="nav-unified-tabs" aria-label="${_t('navProfileSections','Seções do perfil')}">${tabs.map(([id,label]) => `<button class="nav-unified-tab${tab === id ? ' is-active' : ''}" data-profile-tab="${id}" tabindex="-1">${label}</button>`).join('')}</nav>
                 <div class="nav-unified-main">
-                    <section class="nav-unified-hero${hero.isEmpty ? ' is-empty' : ''}${heroCarouselEnabled ? ' is-carousel' : ''}"${heroCarouselEnabled ? ` id="btnProfileHero" role="button" aria-label="${_esc(_profileOverviewCarouselPaused ? _t('navPlayHighlights','Retomar troca automática') : _t('navPauseHighlights','Pausar troca automática'))}" tabindex="-1"` : ''}>${artImage(hero.artChain?.length ? hero.artChain : [hero.art].filter(Boolean))}<div class="nav-unified-hero-copy"><span class="nav-unified-kicker">${_esc(hero.kicker)}</span><h3>${_esc(hero.title)}</h3><span class="nav-unified-hero-meta">${_esc(hero.meta)}</span></div>${heroPager}</section>
-                    <aside class="nav-unified-recent"><div class="nav-unified-section-head"><strong>${sectionTitle}</strong>${tab === 'gaming' && gameHistory.length ? `<button class="nav-unified-journey" id="btnGameHistory" tabindex="-1">${_t('navGameHistoryBtn','Ver jornada')}</button>` : ''}</div><div class="nav-unified-list">${rowHtml || `<div class="nav-unified-empty">${trackingEnabled || tab === 'gaming' ? _t('navNoCategoryActivity','Nenhuma atividade nesta categoria ainda.') : _t('navHistoryPausedHint','A coleta está pausada nas configurações do perfil.')}</div>`}</div></aside>
+                    <section class="nav-unified-hero${hero.isEmpty ? ' is-empty' : ''}${heroCarouselEnabled ? ' is-carousel' : ''}"${heroCarouselEnabled ? ` id="btnProfileHero" role="button" aria-label="${_esc(_profileOverviewCarouselPaused ? _t('navPlayHighlights','Retomar troca automática') : _t('navPauseHighlights','Pausar troca automática'))}" tabindex="-1"` : ''}>${artImage(hero.artChain?.length ? hero.artChain : [hero.art].filter(Boolean), false, hero.appId ? appName(hero.appId) : _t('navGames','Jogos'))}<div class="nav-unified-hero-copy"><span class="nav-unified-kicker">${_esc(hero.kicker)}</span><h3>${_esc(hero.title)}</h3><span class="nav-unified-hero-meta">${_esc(hero.meta)}</span></div>${heroPager}</section>
+                    <aside class="nav-unified-recent"${rows.length ? ` id="btnProfileRecent" role="listbox" aria-label="${_esc(sectionTitle)}" tabindex="-1"` : ''}><div class="nav-unified-section-head"><strong>${sectionTitle}</strong>${tab === 'gaming' && gameHistory.length ? `<button class="nav-unified-journey" id="btnGameHistory" tabindex="-1">${_t('navGameHistoryBtn','Ver jornada')}</button>` : ''}</div><div class="nav-unified-list">${rowHtml || `<div class="nav-unified-empty">${tab === 'overview' && trackingEnabled ? _t('navNoActivityToday','Nenhuma atividade hoje.') : trackingEnabled || tab === 'gaming' ? _t('navNoCategoryActivity','Nenhuma atividade nesta categoria ainda.') : _t('navHistoryPausedHint','A coleta está pausada nas configurações do perfil.')}</div>`}</div></aside>
                 </div>
                 <footer class="nav-unified-stats">${stats.map(([label,value,compact]) => `<div class="nav-unified-stat${compact ? ' is-compact' : ''}"><small>${label}</small><strong>${_esc(value)}</strong></div>`).join('')}</footer>
             </div>`;
@@ -4678,11 +4762,40 @@ window.isNavMenuOpen = false;
 
         _contentItems = [...body.querySelectorAll('.nav-unified-tab')];
         const heroButton = body.querySelector('#btnProfileHero');
+        const recent = body.querySelector('#btnProfileRecent');
         const edit = body.querySelector('#btnEditProfileHub');
         const journey = body.querySelector('#btnGameHistory');
         if (heroButton) _contentItems.push(heroButton);
+        if (recent) _contentItems.push(recent);
         if (edit) _contentItems.push(edit);
         if (journey) _contentItems.push(journey);
+        if (recent) {
+            const recentRows = [...recent.querySelectorAll('.nav-unified-row')];
+            const recentList = recent.querySelector('.nav-unified-list');
+            let recentIndex = 0;
+            const selectRecent = (index, smooth = true) => {
+                const next = Math.max(0, Math.min(recentRows.length - 1, index));
+                const changed = next !== recentIndex;
+                recentIndex = next;
+                recentRows.forEach((row, rowIndex) => {
+                    const selected = rowIndex === recentIndex;
+                    row.classList.toggle('is-current', selected);
+                    row.setAttribute('aria-selected', selected ? 'true' : 'false');
+                });
+                const row = recentRows[recentIndex];
+                if (row && recentList) {
+                    const rowRect = row.getBoundingClientRect();
+                    const listRect = recentList.getBoundingClientRect();
+                    if (rowRect.bottom > listRect.bottom)
+                        recentList.scrollBy({ top: rowRect.bottom - listRect.bottom, behavior: smooth ? 'smooth' : 'auto' });
+                    else if (rowRect.top < listRect.top)
+                        recentList.scrollBy({ top: rowRect.top - listRect.top, behavior: smooth ? 'smooth' : 'auto' });
+                }
+                return changed;
+            };
+            recent._profileRecentStep = direction => selectRecent(recentIndex + direction);
+            recent._profileRecentAtStart = () => recentIndex <= 0;
+        }
         if (heroButton) {
             let requestedHeroIndex = _profileOverviewHeroIndex;
             let highlightRequestToken = 0;
@@ -4725,6 +4838,8 @@ window.isNavMenuOpen = false;
                 heroButton.querySelector('.nav-unified-kicker').textContent = next.kicker || '';
                 heroButton.querySelector('h3').textContent = next.title || '';
                 heroButton.querySelector('.nav-unified-hero-meta').textContent = next.meta || '';
+                const fallbackLabel = heroButton.querySelector('.nav-unified-art-fallback span');
+                if (fallbackLabel) fallbackLabel.textContent = next.appId ? appName(next.appId) : _t('navGames','Jogos');
                 profile?.style.setProperty('--profile-accent', accentForHero(next));
                 heroButton.querySelectorAll('.nav-unified-hero-pager i').forEach((dot, dotIndex) => {
                     dot.classList.toggle('is-active', dotIndex === index);
@@ -8601,12 +8716,28 @@ window.isNavMenuOpen = false;
         if (CATS[_catIdx]?.id === 'profile' && _profileSubView !== 'history') {
             const active = _contentItems[_contentIdx];
             const heroIndex = _contentItems.findIndex(item => item?.id === 'btnProfileHero');
+            const recentIndex = _contentItems.findIndex(item => item?.id === 'btnProfileRecent');
+            const journeyIndex = _contentItems.findIndex(item => item?.id === 'btnGameHistory');
             const editIndex = _contentItems.findIndex(item => item?.id === 'btnEditProfileHub');
             const activeTabIndex = _contentItems.findIndex(item => item?.classList?.contains('nav-unified-tab') && item.classList.contains('is-active'));
             const onTab = active?.classList?.contains('nav-unified-tab');
 
             if (key === 'ArrowUp') {
-                if (active?.id === 'btnProfileHero') {
+                if (active?.id === 'btnProfileRecent') {
+                    if (!active._profileRecentAtStart?.()) {
+                        active._profileRecentStep?.(-1);
+                    } else {
+                        _contentIdx = journeyIndex >= 0
+                            ? journeyIndex
+                            : heroIndex >= 0
+                                ? heroIndex
+                                : (activeTabIndex >= 0 ? activeTabIndex : 0);
+                        _updateContentFocus();
+                    }
+                } else if (active?.id === 'btnGameHistory') {
+                    _contentIdx = activeTabIndex >= 0 ? activeTabIndex : 0;
+                    _updateContentFocus();
+                } else if (active?.id === 'btnProfileHero') {
                     _contentIdx = activeTabIndex >= 0 ? activeTabIndex : 0;
                     _updateContentFocus();
                 } else if (onTab && editIndex >= 0) {
@@ -8621,12 +8752,32 @@ window.isNavMenuOpen = false;
                 if (active?.id === 'btnEditProfileHub') {
                     _contentIdx = activeTabIndex >= 0 ? activeTabIndex : 0;
                     _updateContentFocus();
-                } else if (onTab && heroIndex >= 0) {
-                    _contentIdx = heroIndex;
+                } else if (onTab && (journeyIndex >= 0 || heroIndex >= 0 || recentIndex >= 0)) {
+                    _contentIdx = journeyIndex >= 0 ? journeyIndex : (heroIndex >= 0 ? heroIndex : recentIndex);
+                    _updateContentFocus();
+                } else if (active?.id === 'btnGameHistory' && recentIndex >= 0) {
+                    _contentIdx = recentIndex;
+                    _updateContentFocus();
+                } else if (active?.id === 'btnProfileHero' && recentIndex >= 0) {
+                    _contentIdx = recentIndex;
+                    _updateContentFocus();
+                } else if (active?.id === 'btnProfileRecent') {
+                    active._profileRecentStep?.(1);
+                }
+                return true;
+            }
+            if (active?.id === 'btnProfileRecent' && (key === 'ArrowLeft' || key === 'ArrowRight')) {
+                if (key === 'ArrowLeft') {
+                    _contentIdx = journeyIndex >= 0
+                        ? journeyIndex
+                        : heroIndex >= 0
+                            ? heroIndex
+                            : (activeTabIndex >= 0 ? activeTabIndex : 0);
                     _updateContentFocus();
                 }
                 return true;
             }
+            if (active?.id === 'btnGameHistory' && (key === 'ArrowLeft' || key === 'ArrowRight')) return true;
             if (active?.id === 'btnProfileHero' && (key === 'ArrowLeft' || key === 'ArrowRight')) {
                 active._profileHeroStep?.(key === 'ArrowLeft' ? -1 : 1);
                 return true;

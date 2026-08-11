@@ -1,48 +1,45 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202608110248,
-    "publishedAt":  "2026-08-11T05:49:28.0543097Z",
-    "expiresAt":  "2026-08-25T05:49:28.0543097Z",
+    "manifestVersion":  202608111747,
+    "publishedAt":  "2026-08-11T20:48:31.7522903Z",
+    "expiresAt":  "2026-08-25T20:48:31.7522903Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.4.27",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.27/doorpi-0.4.27.doorpiupdate.zip",
-                   "sha256":  "37313d210dfe17c82b20c2d74fac090813cc94d5a22000858ca02d707c5ab687",
-                   "sizeBytes":  133765859,
+                   "version":  "0.4.28",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.28/doorpi-0.4.28.doorpiupdate.zip",
+                   "sha256":  "85034f312b3035dfd4a224b6a72cfcb0be26a24a05bd904919292971754a0f03",
+                   "sizeBytes":  133835226,
                    "minUpdaterVersion":  "0.1.1",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
                     "version":  "0.1.1",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.27/updater-0.1.1.doorpiupdate.zip",
-                    "sha256":  "d005a3e16e12d977a43bf9c0b614343bb1368c5ea73f021ae07124933f4734c4",
-                    "sizeBytes":  69946483,
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.28/updater-0.1.1.doorpiupdate.zip",
+                    "sha256":  "240abc5d016a9538c2c4802b0d939079d9e29a193f8208960d30d8cbd4324636",
+                    "sizeBytes":  69946499,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.4.27",
-                          "title":  "Doorpi 0.4.27",
+                          "version":  "0.4.28",
+                          "title":  "Doorpi 0.4.28",
                           "items":  [
-                                        "Melhoria na proporção visual.",
-                                        "Carregamento do perfil melhorado."
+                                        "Novo perfil agora com informações para streamings e aplicativos."
                                     ],
                           "locales":  {
                                           "pt-BR":  {
-                                                        "title":  "Doorpi 0.4.27",
+                                                        "title":  "Doorpi 0.4.28",
                                                         "items":  [
-                                                                      "Melhoria na proporção visual.",
-                                                                      "Carregamento do perfil melhorado."
+                                                                      "Novo perfil agora com informações para streamings e aplicativos."
                                                                   ]
                                                     },
                                           "en":  {
-                                                     "title":  "Doorpi 0.4.27",
+                                                     "title":  "Doorpi 0.4.28",
                                                      "items":  [
-                                                                   "Improved visual proportions.",
-                                                                   "Improved profile loading."
+                                                                   "New profile now includes information for streaming services and applications."
                                                                ]
                                                  }
                                       }
@@ -51,6 +48,6 @@
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "l2F7ZaBwpAKymeKXSRTk4BDuwX5BnF14YYBdNyc/+0FhQ0PvV3xUY8CSssNlpQgdt33g5AvI8hPUGyfmz8TKbizOp+2fRd5IGNum2kIqXUlkfPnZTXT9ry93UVgwtmR6yMDC1FUQbxByhTXuiGS0oNuxoNIT19hK4M9HGlWM4WZRlTeA4hk6HeFoqwiEwQ6Wn0PCoR1W5hjPHZSbIuZh/7obXNYOLzvBIHENN7PAxr3L2PuHd8Lpst4xVsbSy/xbORFJ5J8fsQRMEz1yvVoicPa1DX5ybTq1rfdc8Y8Le8mer5p4ZUVR5rS+gczRNqkj89d5RhqcLVvI+++a54bBHc1G5Y8+2u/VqRCZDPvzyl7xf7yOjDqwfUqu3mqWUQvRbUHQHXG1v75dqbiAVkM94Ib0UeQxsQ9WIYEtN81Ri4Z8CyPr0vE0eAM5bgqlQ9ifCf89Tg5/svwdxpOr/xKL01leTRNqT/Sh4bje3PWAo/HJNwjrcyuW6mKxOZaaHwBp"
+                      "value":  "D3ZvwVIgMmURSnXY97ZyTTqfGjAmiflJlYuphgWZqT8Il9UpxRD3560EZbK1egvyu+0627fj3tc40TOdikZgQ9ye9J7WRyAxJVLQrvLU8ojLReNMpnOccvj+SR0WMGbfev0vingyZS0yat9eLJrUxfVzJZ/qVbiMvqdToUr8YwTXeRpvcfMRKbcPYnO6LNceb2/BuipECuo1doBMs4LaFGDmyHIuA4QXdyKz2GCr0y/EQaO4Zn54vUFacy7HrzQg1LaWIUcfeQDasConjaDuJWMV7houds+22yDyxqTFFtJfYXLas/1mJ5s75AuCWpCEELwo1RqJL3drR/Dpitw8hIEDS1L7YLheWzq0cG/UeQkWgHQagiGKPnGpitXT+LrtM7tuFtKKRSH44N0g3DnB0v14g3gsgAF0YHo64Oz2gy0J8n5XUzot1xnA7/2ux3dpoZ79Wn79HSUTZ0shdZnjLBCIbvRkCS9fwM5WtPHtNwTwV7B/odg1aZFHGoLSuMb9"
                   }
 }

@@ -1631,6 +1631,41 @@ public partial class MainWindow
             profile.Enabled && string.Equals(profile.Id, assignment.ProfileId, StringComparison.OrdinalIgnoreCase));
     }
 
+    private bool CustomYouTubeProfileUsesNativeBackGesture(string targetKey)
+    {
+        ControlProfile? profile = GetCustomAssignedRuntimeControlProfile(targetKey);
+        if (profile == null ||
+            !string.Equals(profile.BaseProfileId, "builtin-youtube", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        bool hasBack = profile.Bindings.Any(binding =>
+            binding.Enabled && IsYouTubeBackEscapeBinding(binding));
+        bool hasClose = profile.Bindings.Any(binding =>
+            binding.Enabled && IsYouTubeBackCloseBinding(binding));
+        return hasBack && hasClose;
+    }
+
+    private static bool IsYouTubeBackEscapeBinding(ControlBinding binding)
+        => binding.Action.Type == "keyboard" &&
+           binding.Action.VirtualKeys.Count == 1 &&
+           binding.Action.VirtualKeys[0] == 0x1B &&
+           HasSingleButtonRoute(binding, "b", "press");
+
+    private static bool IsYouTubeBackCloseBinding(ControlBinding binding)
+        => binding.Action.Type == "system" &&
+           binding.Action.SystemCommand == "close-web-app" &&
+           HasSingleButtonRoute(binding, "b", "long-press");
+
+    private static bool HasSingleButtonRoute(ControlBinding binding, string button, string trigger)
+        => (binding.ControllerButtons.Count == 1 &&
+            string.Equals(binding.ControllerButtons[0], button, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(binding.Trigger, trigger, StringComparison.OrdinalIgnoreCase)) ||
+           (binding.SecondaryControllerButtons.Count == 1 &&
+            string.Equals(binding.SecondaryControllerButtons[0], button, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(binding.SecondaryTrigger, trigger, StringComparison.OrdinalIgnoreCase));
+
     private bool IsMouseKeyboardRuntimeEnabled(string targetKey)
     {
         if (targetKey.StartsWith("store:", StringComparison.OrdinalIgnoreCase))
@@ -2132,13 +2167,18 @@ public partial class MainWindow
             string.Equals(profile.TargetKind, "global", StringComparison.OrdinalIgnoreCase));
         bool builtInAppProfile = appProfile != null &&
             (appProfile.IsBuiltIn || appProfile.Id.StartsWith("builtin-", StringComparison.OrdinalIgnoreCase));
+        bool nativeYouTubeBackGesture = appProfile != null &&
+            targetKey.Equals("media:youtube", StringComparison.OrdinalIgnoreCase) &&
+            CustomYouTubeProfileUsesNativeBackGesture(targetKey);
 
         var bindings = new List<(ControlProfile Profile, ControlBinding Binding)>();
         if (appProfile != null)
         {
             bindings.AddRange(appProfile.Bindings
                 .Where(binding => binding.Enabled &&
-                    (!builtInAppProfile || IsContinuousAnalogBinding(binding)))
+                    (!builtInAppProfile || IsContinuousAnalogBinding(binding)) &&
+                    (!nativeYouTubeBackGesture ||
+                     (!IsYouTubeBackEscapeBinding(binding) && !IsYouTubeBackCloseBinding(binding))))
                 .Select(binding => (appProfile, binding)));
         }
         if (globalProfile != null)
@@ -2439,6 +2479,21 @@ public partial class MainWindow
             {
                 DispatchYouTubePlayPauseToRenderer();
             }
+            return;
+        }
+
+        // Editing the built-in YouTube controls creates an implicit reusable
+        // copy. That copy owns the default B binding, so its Escape action no
+        // longer reaches the media loop's YouTube-specific back handler. Route
+        // that exact action through WebView2 instead of sending a process-wide
+        // keyboard event. Long-press actions remain independent.
+        if (action.Type == "keyboard" &&
+            action.VirtualKeys.Count == 1 &&
+            action.VirtualKeys[0] == 0x1B &&
+            _isCurrentSiteYouTube &&
+            _ytWebView?.CoreWebView2 != null)
+        {
+            DispatchYouTubeBackToRenderer();
             return;
         }
 

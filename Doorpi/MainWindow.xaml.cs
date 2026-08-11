@@ -41,7 +41,7 @@ namespace Doorpi
         public List<string> SharedWithUserNames { get; set; } = new();
         public bool IsSharedFromOtherUser { get; set; }
         public bool DisableGamepadControl { get; set; } = false;
-        public string MediaHistoryCategory { get; set; } = "auto"; // auto | video-live | film-series | disabled
+        public string MediaHistoryCategory { get; set; } = "auto"; // auto | music | video-live | film-series | disabled
         public string SharedFromUserName { get; set; } = "";
         public string GridImage { get; set; } = "";
         public string GridStaticImage { get; set; } = "";
@@ -18558,6 +18558,7 @@ namespace Doorpi
                     bool migrated = recoveredFromBackup || history.Count != loaded.Count;
                     foreach (var entry in history)
                         migrated |= EnsureDedicatedHistoryArtwork(entry);
+                    migrated |= OptimizeProfileGameArtworkCacheLocked(currentUserId, history);
                     if (migrated)
                     {
                         string json = JsonSerializer.Serialize(history, IndentedJsonOptions);
@@ -18586,6 +18587,7 @@ namespace Doorpi
                     .OrderByDescending(entry => entry.LastPlayed)
                     .ThenBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase)
                     .ToList();
+                OptimizeProfileGameArtworkCacheLocked(currentUserId, ordered);
                 string json = JsonSerializer.Serialize(ordered, IndentedJsonOptions);
                 SafeWriteAllText(gameHistoryFile, json);
 

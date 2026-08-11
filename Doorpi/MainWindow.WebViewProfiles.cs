@@ -31,12 +31,35 @@ namespace Doorpi
         private WebView2? _mediaWebViewGlobalWarmupView;
         private int _mediaWebViewWarmedEnvironmentMask;
         private int _mediaWebViewPrewarmStarted;
+        private readonly object _retainedMediaSessionCookieLock = new();
+        private readonly Dictionary<string, List<RetainedMediaSessionCookie>> _retainedMediaSessionCookies =
+            new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, Task> _retainedMediaSessionCookieCaptures =
+            new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, DateTime> _retainedMediaSessionCookieLastPersistedUtc =
+            new(StringComparer.OrdinalIgnoreCase);
+        private static readonly byte[] RetainedMediaSessionCookieEntropy =
+            Encoding.UTF8.GetBytes("Doorpi.WebViewSessionCookieVault.v1");
+
+        private sealed class RetainedMediaSessionCookie
+        {
+            public string Name { get; init; } = "";
+            public string Value { get; init; } = "";
+            public string Domain { get; init; } = "";
+            public string Path { get; init; } = "/";
+            public bool IsHttpOnly { get; init; }
+            public bool IsSecure { get; init; }
+            public CoreWebView2CookieSameSiteKind SameSite { get; init; }
+        }
 
         private string WebViewProfileSchemaMarkerPath =>
             Path.Combine(DoorpiPaths.BrowserProfilesFolder, ".profile-schema-v2");
 
         private string WebViewProfileIndexPath =>
             Path.Combine(DoorpiPaths.BrowserProfilesFolder, "profiles-v2.json");
+
+        private string RetainedMediaSessionCookieVaultFolder =>
+            Path.Combine(DoorpiPaths.BrowserProfilesFolder, "session-cookie-vault");
 
         private string GenericWebViewUserDataFolder =>
             Path.Combine(DoorpiPaths.BrowserProfilesFolder, GenericWebViewEnvironmentKind);
@@ -205,6 +228,245 @@ namespace Doorpi
             options.IsInPrivateModeEnabled = false;
             options.DefaultBackgroundColor = System.Drawing.Color.Black;
             return options;
+        }
+
+        private static bool ShouldRetainMediaSessionCookies(string? url)
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? uri)) return false;
+            return uri.Host.Equals("open.spotify.com", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private string GetRetainedMediaSessionCookieVaultPath(string profileName)
+        {
+            string safeProfileName = string.Concat((profileName ?? "")
+                .Where(character => char.IsLetterOrDigit(character) || character is '_' or '-'));
+            if (string.IsNullOrWhiteSpace(safeProfileName))
+                throw new InvalidOperationException("O perfil do cofre de sessão não é válido.");
+            return Path.Combine(RetainedMediaSessionCookieVaultFolder, safeProfileName + ".bin");
+        }
+
+        private void SaveRetainedMediaSessionCookieVault(
+            string profileName,
+            IReadOnlyCollection<RetainedMediaSessionCookie> cookies)
+        {
+            byte[] plaintext = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(cookies));
+            byte[] encrypted = Array.Empty<byte>();
+            string temporaryPath = "";
+            try
+            {
+                encrypted = ProtectedData.Protect(
+                    plaintext,
+                    RetainedMediaSessionCookieEntropy,
+                    DataProtectionScope.CurrentUser);
+                Directory.CreateDirectory(RetainedMediaSessionCookieVaultFolder);
+                string path = GetRetainedMediaSessionCookieVaultPath(profileName);
+                temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                File.WriteAllBytes(temporaryPath, encrypted);
+                File.Move(temporaryPath, path, overwrite: true);
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(plaintext);
+                if (encrypted.Length > 0) CryptographicOperations.ZeroMemory(encrypted);
+                if (!string.IsNullOrWhiteSpace(temporaryPath) && File.Exists(temporaryPath))
+                {
+                    try { File.Delete(temporaryPath); } catch { }
+                }
+            }
+        }
+
+        private List<RetainedMediaSessionCookie> LoadRetainedMediaSessionCookieVault(string profileName)
+        {
+            string path = GetRetainedMediaSessionCookieVaultPath(profileName);
+            if (!File.Exists(path)) return new();
+
+            byte[] encrypted = File.ReadAllBytes(path);
+            byte[] plaintext = Array.Empty<byte>();
+            try
+            {
+                plaintext = ProtectedData.Unprotect(
+                    encrypted,
+                    RetainedMediaSessionCookieEntropy,
+                    DataProtectionScope.CurrentUser);
+                return JsonSerializer.Deserialize<List<RetainedMediaSessionCookie>>(plaintext) ?? new();
+            }
+            catch (Exception ex)
+            {
+                LogWebViewDiagnostic(
+                    $"session-cookie-vault-read-failed profile={profileName} provider=spotify error={TruncateForLog(ex.Message)}");
+                return new();
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(encrypted);
+                if (plaintext.Length > 0) CryptographicOperations.ZeroMemory(plaintext);
+            }
+        }
+
+        private void DeleteRetainedMediaSessionCookieVault(string profileName)
+        {
+            if (string.IsNullOrWhiteSpace(profileName)) return;
+            try
+            {
+                string path = GetRetainedMediaSessionCookieVaultPath(profileName);
+                if (File.Exists(path)) File.Delete(path);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[WebViewProfiles] Falha ao excluir cofre da sessão: " + ex.Message);
+            }
+        }
+
+        private Task CaptureRetainedMediaSessionCookiesAsync(
+            CoreWebView2? core,
+            string profileName,
+            string sourceUrl,
+            bool force = false)
+        {
+            if (core == null || string.IsNullOrWhiteSpace(profileName) ||
+                !ShouldRetainMediaSessionCookies(sourceUrl)) return Task.CompletedTask;
+
+            lock (_retainedMediaSessionCookieLock)
+            {
+                if (_retainedMediaSessionCookieCaptures.TryGetValue(profileName, out Task? pending))
+                    return pending;
+                if (!force &&
+                    _retainedMediaSessionCookieLastPersistedUtc.TryGetValue(profileName, out DateTime lastPersisted) &&
+                    DateTime.UtcNow - lastPersisted < TimeSpan.FromSeconds(30))
+                {
+                    return Task.CompletedTask;
+                }
+
+                Task capture = CaptureRetainedMediaSessionCookiesCoreAsync(core, profileName);
+                _retainedMediaSessionCookieCaptures[profileName] = capture;
+                return capture;
+            }
+        }
+
+        private async Task CaptureRetainedMediaSessionCookiesAfterDelayAsync(
+            CoreWebView2 core,
+            string profileName,
+            string sourceUrl,
+            int delayMilliseconds = 2000)
+        {
+            try
+            {
+                await Task.Delay(Math.Max(0, delayMilliseconds));
+                await CaptureRetainedMediaSessionCookiesAsync(
+                    core,
+                    profileName,
+                    sourceUrl,
+                    force: true);
+            }
+            catch (Exception ex)
+            {
+                LogWebViewDiagnostic(
+                    $"session-cookie-delayed-retain-failed profile={profileName} provider=spotify error={TruncateForLog(ex.Message)}");
+            }
+        }
+
+        private async Task CaptureRetainedMediaSessionCookiesCoreAsync(
+            CoreWebView2 core,
+            string profileName)
+        {
+            await Task.Yield();
+            try
+            {
+                var retained = new Dictionary<string, RetainedMediaSessionCookie>(StringComparer.Ordinal);
+                foreach (string origin in new[]
+                         {
+                             "https://open.spotify.com/",
+                             "https://accounts.spotify.com/",
+                             "https://www.spotify.com/"
+                         })
+                {
+                    IReadOnlyList<CoreWebView2Cookie> cookies =
+                        await core.CookieManager.GetCookiesAsync(origin);
+                    foreach (CoreWebView2Cookie cookie in cookies.Where(item => item.IsSession))
+                    {
+                        var snapshot = new RetainedMediaSessionCookie
+                        {
+                            Name = cookie.Name,
+                            Value = cookie.Value,
+                            Domain = cookie.Domain,
+                            Path = string.IsNullOrWhiteSpace(cookie.Path) ? "/" : cookie.Path,
+                            IsHttpOnly = cookie.IsHttpOnly,
+                            IsSecure = cookie.IsSecure,
+                            SameSite = cookie.SameSite
+                        };
+                        retained[$"{snapshot.Domain}\u001f{snapshot.Path}\u001f{snapshot.Name}"] = snapshot;
+                    }
+                }
+
+                lock (_retainedMediaSessionCookieLock)
+                    _retainedMediaSessionCookies[profileName] = retained.Values.ToList();
+                SaveRetainedMediaSessionCookieVault(profileName, retained.Values.ToList());
+                lock (_retainedMediaSessionCookieLock)
+                    _retainedMediaSessionCookieLastPersistedUtc[profileName] = DateTime.UtcNow;
+                LogWebViewDiagnostic(
+                    $"session-cookie-retain profile={profileName} provider=spotify count={retained.Count} persisted=true");
+            }
+            catch (Exception ex)
+            {
+                LogWebViewDiagnostic(
+                    $"session-cookie-retain-failed profile={profileName} provider=spotify error={TruncateForLog(ex.Message)}");
+            }
+            finally
+            {
+                lock (_retainedMediaSessionCookieLock)
+                    _retainedMediaSessionCookieCaptures.Remove(profileName);
+            }
+        }
+
+        private async Task RestoreRetainedMediaSessionCookiesAsync(
+            CoreWebView2 core,
+            string profileName,
+            string sourceUrl)
+        {
+            if (string.IsNullOrWhiteSpace(profileName) || !ShouldRetainMediaSessionCookies(sourceUrl)) return;
+
+            Task? pending;
+            lock (_retainedMediaSessionCookieLock)
+                _retainedMediaSessionCookieCaptures.TryGetValue(profileName, out pending);
+            if (pending != null)
+            {
+                try { await pending; } catch { }
+            }
+
+            List<RetainedMediaSessionCookie> retained;
+            lock (_retainedMediaSessionCookieLock)
+            {
+                retained = _retainedMediaSessionCookies.TryGetValue(profileName, out var stored)
+                    ? stored.ToList()
+                    : new();
+                _retainedMediaSessionCookies.Remove(profileName);
+            }
+            if (retained.Count == 0)
+                retained = LoadRetainedMediaSessionCookieVault(profileName);
+
+            foreach (RetainedMediaSessionCookie snapshot in retained)
+            {
+                var cookie = core.CookieManager.CreateCookie(
+                    snapshot.Name,
+                    snapshot.Value,
+                    snapshot.Domain,
+                    snapshot.Path);
+                cookie.IsHttpOnly = snapshot.IsHttpOnly;
+                cookie.IsSecure = snapshot.IsSecure;
+                cookie.SameSite = snapshot.SameSite;
+                core.CookieManager.AddOrUpdateCookie(cookie);
+            }
+            if (retained.Count > 0)
+                LogWebViewDiagnostic(
+                    $"session-cookie-restore profile={profileName} provider=spotify count={retained.Count} vault=true");
+        }
+
+        private static async Task DisposeMediaWebViewAfterSessionCaptureAsync(
+            WebView2 view,
+            Task sessionCapture)
+        {
+            try { await sessionCapture; } catch { }
+            try { view.Dispose(); } catch { }
         }
 
         private async Task EnsureWebViewWithProfileAsync(
@@ -412,6 +674,13 @@ namespace Doorpi
                         string.Equals(profile.EnvironmentKind, target.EnvironmentKind, StringComparison.OrdinalIgnoreCase));
                     SaveStoredWebViewProfilesUnsafe(profiles);
                 }
+                lock (_retainedMediaSessionCookieLock)
+                {
+                    _retainedMediaSessionCookies.Remove(target.ProfileName);
+                    _retainedMediaSessionCookieCaptures.Remove(target.ProfileName);
+                    _retainedMediaSessionCookieLastPersistedUtc.Remove(target.ProfileName);
+                }
+                DeleteRetainedMediaSessionCookieVault(target.ProfileName);
             }
             catch (Exception ex)
             {
