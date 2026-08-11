@@ -12,13 +12,13 @@ public static class UpdateManifestValidator
         ArgumentNullException.ThrowIfNull(policy);
 
         if (manifest.SchemaVersion < manifest.MinimumSupportedManifestVersion)
-            throw new InvalidDataException("Versao de manifesto nao suportada.");
+            throw new InvalidDataException("Versão de manifesto não suportada.");
 
         if (manifest.ManifestVersion <= 0)
-            throw new InvalidDataException("Manifesto sem manifestVersion valido.");
+            throw new InvalidDataException("Manifesto sem manifestVersion válido.");
 
         if (policy.RequireManifestFreshness && manifest.ExpiresAt <= now)
-            throw new InvalidDataException("Manifesto de update expirado.");
+            throw new InvalidDataException("Manifesto de atualização expirado.");
 
         if (policy.RequireManifestFreshness
             && previousState != null
@@ -44,7 +44,7 @@ public static class UpdateManifestValidator
 
         int comparison = UpdateVersionComparer.Compare(release.Version, localVersion);
         if (comparison < 0 && !release.AllowRollback)
-            throw new InvalidDataException($"{componentName} rejeitou downgrade sem allowRollback assinado.");
+            throw new InvalidDataException($"A reversão de versão do {componentName} não foi autorizada pelo manifesto assinado.");
     }
 
     private static void ValidateOfficialPackageUrl(string downloadUrl, UpdateSecurityPolicy policy)

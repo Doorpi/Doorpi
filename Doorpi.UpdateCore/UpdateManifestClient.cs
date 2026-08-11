@@ -28,14 +28,14 @@ public sealed class UpdateManifestClient
         var manifest = await JsonSerializer.DeserializeAsync<UpdateManifest>(stream, JsonOptions, cancellationToken)
             .ConfigureAwait(false);
 
-        return manifest ?? throw new InvalidDataException("Manifesto de update vazio ou invalido.");
+        return manifest ?? throw new InvalidDataException("Manifesto de atualização vazio ou inválido.");
     }
 
     public static UpdateManifest LoadFromFile(string path)
     {
         using var stream = File.OpenRead(path);
         return JsonSerializer.Deserialize<UpdateManifest>(stream, JsonOptions)
-            ?? throw new InvalidDataException("Manifesto de update vazio ou invalido.");
+            ?? throw new InvalidDataException("Manifesto de atualização vazio ou inválido.");
     }
 
     public static void SaveToFile(UpdateManifest manifest, string path)

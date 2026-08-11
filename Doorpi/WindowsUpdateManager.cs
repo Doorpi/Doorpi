@@ -44,7 +44,7 @@ internal sealed class WindowsUpdateManager
                     if (status.RebootRequired && status.Status is "idle" or "up-to-date")
                     {
                         status.Status = "reboot-required";
-                        status.Message = "Reinicio necessario para concluir atualizacoes do Windows.";
+                        status.Message = "Reinício necessário para concluir as atualizações do Windows.";
                     }
 
                     return status;
@@ -75,7 +75,7 @@ internal sealed class WindowsUpdateManager
 
             var checking = LoadStatus();
             checking.Status = "checking";
-            checking.Message = "Verificando atualizacoes do Windows...";
+            checking.Message = "Verificando atualizações do Windows...";
             checking.Error = "";
             checking.PackageProgress = new List<WindowsUpdatePackageProgress>();
             progress?.Report(checking);
@@ -89,9 +89,11 @@ internal sealed class WindowsUpdateManager
                     ? "reboot-required"
                     : updates.Count > 0 ? "available" : "up-to-date",
                 Message = rebootRequired
-                    ? "Reinicio necessario para concluir atualizacoes do Windows."
+                    ? "Reinício necessário para concluir as atualizações do Windows."
                     : updates.Count > 0
-                        ? $"{updates.Count} atualizacao(oes) disponivel(is) pelo Windows Update."
+                        ? updates.Count == 1
+                            ? "1 atualização disponível pelo Windows Update."
+                            : $"{updates.Count} atualizações disponíveis pelo Windows Update."
                         : "Windows atualizado.",
                 LastCheckedAt = DateTimeOffset.UtcNow,
                 RebootRequired = rebootRequired,
@@ -107,8 +109,8 @@ internal sealed class WindowsUpdateManager
             var error = LoadStatus();
             error.Status = IsAccessDenied(ex) ? "access-denied" : "error";
             error.Message = IsAccessDenied(ex)
-                ? "O Windows bloqueou a operacao automatica. Abra o Windows Update para continuar."
-                : "Nao foi possivel verificar atualizacoes do Windows.";
+                ? "O Windows bloqueou a operação automática. Abra o Windows Update para continuar."
+                : "Não foi possível verificar as atualizações do Windows.";
             error.Error = ex.Message;
             SaveStatus(error);
             progress?.Report(error);
@@ -129,7 +131,7 @@ internal sealed class WindowsUpdateManager
         {
             var starting = LoadStatus();
             starting.Status = "checking";
-            starting.Message = "Preparando atualizacoes do Windows...";
+            starting.Message = "Preparando atualizações do Windows...";
             starting.Error = "";
             progress?.Report(starting);
             SaveStatus(starting);
@@ -141,7 +143,7 @@ internal sealed class WindowsUpdateManager
                 {
                     Status = IsRebootRequired() ? "reboot-required" : "up-to-date",
                     Message = IsRebootRequired()
-                        ? "Reinicio necessario para concluir atualizacoes do Windows."
+                        ? "Reinício necessário para concluir as atualizações do Windows."
                         : "Windows atualizado.",
                     LastCheckedAt = DateTimeOffset.UtcNow,
                     RebootRequired = IsRebootRequired(),
@@ -155,7 +157,7 @@ internal sealed class WindowsUpdateManager
             var downloading = new WindowsUpdateStatus
             {
                 Status = "downloading",
-                Message = "Baixando atualizacoes do Windows...",
+                Message = "Baixando atualizações do Windows...",
                 LastCheckedAt = DateTimeOffset.UtcNow,
                 Updates = updates,
                 RebootRequired = IsRebootRequired(),
@@ -176,10 +178,10 @@ internal sealed class WindowsUpdateManager
                 var failed = LoadStatus();
                 failed.Status = "error";
                 failed.Message = installResult.Phase == "download"
-                    ? "O Windows Update nao conseguiu baixar um ou mais pacotes."
+                    ? "O Windows Update não conseguiu baixar um ou mais pacotes."
                     : installResult.Phase == "cancelled"
-                        ? "A permissao administrativa foi cancelada."
-                        : "O Windows Update nao concluiu a instalacao automaticamente.";
+                        ? "A permissão administrativa foi cancelada."
+                        : "O Windows Update não concluiu a instalação automaticamente.";
                 failed.LastInstallResultCode = installResult.ResultCode;
                 failed.LastInstallHResult = installResult.HResult;
                 failed.LastInstallPhase = installResult.Phase;
@@ -199,10 +201,12 @@ internal sealed class WindowsUpdateManager
                     ? "reboot-required"
                     : finalUpdates.Count > 0 ? "available" : "up-to-date",
                 Message = rebootRequired
-                    ? "Atualizacoes instaladas. Reinicie para concluir."
+                    ? "Atualizações instaladas. Reinicie para concluir."
                     : finalUpdates.Count > 0
-                        ? $"{finalUpdates.Count} atualizacao(oes) ainda pendente(s)."
-                        : "Atualizacoes do Windows instaladas.",
+                        ? finalUpdates.Count == 1
+                            ? "1 atualização ainda pendente."
+                            : $"{finalUpdates.Count} atualizações ainda pendentes."
+                        : "Atualizações do Windows instaladas.",
                 LastCheckedAt = DateTimeOffset.UtcNow,
                 RebootRequired = rebootRequired,
                 Updates = finalUpdates,
@@ -223,8 +227,8 @@ internal sealed class WindowsUpdateManager
             var error = LoadStatus();
             error.Status = IsAccessDenied(ex) ? "access-denied" : "error";
             error.Message = IsAccessDenied(ex)
-                ? "O Windows bloqueou a instalacao automatica. Abra o Windows Update para continuar."
-                : "Falha ao instalar atualizacoes do Windows.";
+                ? "O Windows bloqueou a instalação automática. Abra o Windows Update para continuar."
+                : "Falha ao instalar as atualizações do Windows.";
             error.Error = ex.Message;
             SaveStatus(error);
             progress?.Report(error);
@@ -284,7 +288,7 @@ internal sealed class WindowsUpdateManager
         return new WindowsUpdateStatus
         {
             Status = "idle",
-            Message = "Atualizacoes do Windows ainda nao verificadas.",
+            Message = "As atualizações do Windows ainda não foram verificadas.",
             RebootRequired = false,
             Updates = new List<WindowsUpdateItem>()
         };

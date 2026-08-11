@@ -42,10 +42,10 @@ public static class ManifestSignatureVerifier
             throw new InvalidDataException("Manifesto sem assinatura.");
 
         if (!string.Equals(manifest.Signature.Algorithm, SupportedAlgorithm, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Algoritmo de assinatura do manifesto nao suportado.");
+            throw new InvalidDataException("Algoritmo de assinatura do manifesto não suportado.");
 
         if (string.IsNullOrWhiteSpace(publicKeyXml))
-            throw new InvalidDataException("Chave publica do manifesto nao configurada.");
+            throw new InvalidDataException("Chave pública do manifesto não configurada.");
 
         byte[] signature;
         try
@@ -54,7 +54,7 @@ public static class ManifestSignatureVerifier
         }
         catch (FormatException ex)
         {
-            throw new InvalidDataException("Assinatura do manifesto nao esta em Base64 valido.", ex);
+            throw new InvalidDataException("A assinatura do manifesto não está em Base64 válido.", ex);
         }
 
         using RSA rsa = RSA.Create();
@@ -63,7 +63,7 @@ public static class ManifestSignatureVerifier
         byte[] payload = Encoding.UTF8.GetBytes(BuildSigningPayload(manifest));
         bool valid = rsa.VerifyData(payload, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         if (!valid)
-            throw new InvalidDataException("Assinatura do manifesto invalida.");
+            throw new InvalidDataException("Assinatura do manifesto inválida.");
     }
 
     private static void AppendRelease(StringBuilder builder, string prefix, ComponentRelease release)

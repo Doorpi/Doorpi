@@ -139,7 +139,7 @@
 
         <TextBlock x:Name="EyebrowText"
                    Style="{StaticResource ProgressText}"
-                   Text="Doorpi System Update"
+                   Text="Atualização do sistema Doorpi"
                    FontSize="48"
                    Foreground="#F6F8FF"
                    Opacity="0.92"

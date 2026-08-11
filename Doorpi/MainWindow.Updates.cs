@@ -324,9 +324,9 @@ namespace Doorpi
 
         private async Task InstallUpdaterUpdateAsync(ComponentRelease release)
         {
-            SendUpdateStatusToUI("downloading", "Baixando atualização do Updater...", _lastUpdateDecision);
+            SendUpdateStatusToUI("downloading", "Baixando atualização do atualizador...", _lastUpdateDecision);
             ShowUpdateProgress("Atualizando componentes do sistema...",
-                "Baixando atualização do Updater...",
+                "Baixando atualização do atualizador...",
                 0.16);
 
             Directory.CreateDirectory(DoorpiRuntimePaths.UpdatesFolder);
@@ -347,7 +347,7 @@ namespace Doorpi
                 DoorpiRuntimePaths.DownloadsFolder,
                 fileName,
                 new Progress<double>(p => ShowUpdateProgress("Atualizando componentes do sistema...",
-                    "Baixando atualização do Updater...",
+                    "Baixando atualização do atualizador...",
                     0.16 + (p * 0.34))),
                 cancellationToken: CancellationToken.None).ConfigureAwait(false);
 
@@ -359,14 +359,14 @@ namespace Doorpi
 
             PackageExtractor.ExtractAndValidate(packagePath, state.StagingFolder, "updater", release.Version);
             ShowUpdateProgress("Atualizando componentes do sistema...",
-                "Validando e preparando novo Updater...",
+                "Validando e preparando o novo atualizador...",
                 0.62);
 
             state.Phase = "applying";
             stateStore.Save(state);
-            SendUpdateStatusToUI("installing", "Instalando novo Updater...", _lastUpdateDecision);
+            SendUpdateStatusToUI("installing", "Instalando o novo atualizador...", _lastUpdateDecision);
             ShowUpdateProgress("Atualizando componentes do sistema...",
-                "Instalando novo Updater...",
+                "Instalando o novo atualizador...",
                 0.78);
 
             var installer = new ComponentInstaller();
@@ -378,7 +378,7 @@ namespace Doorpi
             stateStore.Clear();
             UpdateArtifactCleaner.CleanupInactiveArtifacts();
             ShowUpdateProgress("Atualizando componentes do sistema...",
-                "Updater atualizado com sucesso.",
+                "Atualizador instalado com sucesso.",
                 0.92);
         }
 
@@ -391,7 +391,7 @@ namespace Doorpi
 
             string updaterPath = GetUpdaterExecutablePath();
             if (!File.Exists(updaterPath))
-                throw new FileNotFoundException("Updater.exe não encontrado.", updaterPath);
+                throw new FileNotFoundException("Executável do atualizador não encontrado.", updaterPath);
 
             string readySignal = Path.Combine(DoorpiRuntimePaths.UpdatesFolder, $"updater-ready-{Guid.NewGuid():N}.signal");
             if (File.Exists(readySignal)) File.Delete(readySignal);
@@ -427,7 +427,7 @@ namespace Doorpi
                 await Task.Delay(100).ConfigureAwait(false);
 
             if (!File.Exists(readySignal))
-                throw new TimeoutException("O Updater não sinalizou prontidão.");
+                throw new TimeoutException("O atualizador não sinalizou prontidão.");
 
             Dispatcher.Invoke(() =>
             {
@@ -448,12 +448,16 @@ namespace Doorpi
                 if (string.Equals(state.Component, "doorpi", StringComparison.OrdinalIgnoreCase)
                     && string.Equals(state.Phase, "doorpi-applied-pending-health-check", StringComparison.OrdinalIgnoreCase))
                 {
+                    DoorpiBootDiagnostics.Log(
+                        "update-health-check-pending",
+                        $"target={state.TargetVersion} running={DoorpiVersion}");
                     bool healthyVersion = !UpdateVersionComparer.IsRemoteNewer(state.TargetVersion, DoorpiVersion);
                     if (!healthyVersion)
                     {
                         state.Error = $"Versão iniciada ({DoorpiVersion}) não corresponde ao alvo ({state.TargetVersion}).";
                         state.Phase = "doorpi-health-check-failed";
                         stateStore.Save(state);
+                        DoorpiBootDiagnostics.Log("update-health-check-version-failed", state.Error);
                         return;
                     }
 
@@ -462,6 +466,7 @@ namespace Doorpi
                     {
                         Directory.CreateDirectory(Path.GetDirectoryName(healthSignal)!);
                         File.WriteAllText(healthSignal, DateTimeOffset.UtcNow.ToString("O"));
+                        DoorpiBootDiagnostics.Log("update-health-check-signaled", healthSignal);
                         return;
                     }
 
@@ -470,6 +475,7 @@ namespace Doorpi
                     UpdateArtifactCleaner.CleanupCompletedOperation(state);
                     stateStore.Clear();
                     UpdateArtifactCleaner.CleanupInactiveArtifacts();
+                    DoorpiBootDiagnostics.Log("update-health-check-recovered", "pending state completed without updater environment");
                 }
             }
             catch (Exception ex)

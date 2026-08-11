@@ -38,7 +38,7 @@ public sealed class PackageDownloader
         }
 
         if (!Uri.TryCreate(release.DownloadUrl, UriKind.Absolute, out var downloadUri))
-            throw new InvalidDataException("URL de download invalida.");
+            throw new InvalidDataException("URL de download inválida.");
 
         using var response = await _httpClient.GetAsync(
             downloadUri,
@@ -98,7 +98,7 @@ public sealed class PackageDownloader
         {
             long actualSize = new FileInfo(tempPath).Length;
             if (actualSize != release.SizeBytes.Value)
-                throw new InvalidDataException($"Tamanho do pacote invalido. Esperado {release.SizeBytes.Value}, recebido {actualSize}.");
+                throw new InvalidDataException($"Tamanho do pacote inválido. Esperado {release.SizeBytes.Value}, recebido {actualSize}.");
         }
 
         await PackageVerifier.VerifySha256Async(tempPath, release.Sha256, cancellationToken).ConfigureAwait(false);
