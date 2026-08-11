@@ -4500,6 +4500,8 @@ namespace Doorpi
                     _activeMediaWebViewProfileName);
 
                 await _popupWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync("window.name = 'doorpi_popup';");
+                if (!_isGenericBrowserMode && CanTrackRegisteredMediaWebApp(_currentWebAppUrl ?? ""))
+                    await InjectNativeMediaActivityTrackerAsync(_popupWebView.CoreWebView2);
                 try
                 {
                     var popupTrackingLevel = mainView.CoreWebView2.Profile.PreferredTrackingPreventionLevel;
@@ -7418,12 +7420,17 @@ namespace Doorpi
                 await YtInjectZoomHackAsync(_ytWebView.CoreWebView2);
                 await YtInjectForceUserSelectionAsync(_ytWebView.CoreWebView2);
                 await YtInjectPlayerBackgroundAsync(_ytWebView.CoreWebView2);
-                await YtInjectTitleTrackerAsync(_ytWebView.CoreWebView2);
                 _ytWebView.ZoomFactor = 0.3;
             }
             else
             {
                 await YtInjectGenericSiteAsync(_ytWebView.CoreWebView2, isGenericBrowser);
+            }
+
+            if (!isUtility && !isGenericBrowser && CanTrackRegisteredMediaWebApp(_currentWebAppUrl ?? url))
+            {
+                await InjectNativeMediaActivityTrackerAsync(_ytWebView.CoreWebView2);
+                AttachNativeMediaMetadataResponseProbe(_ytWebView.CoreWebView2, _currentWebAppUrl ?? url);
             }
 
             _ytWebView.CoreWebView2.NavigationCompleted += async (s, e) =>
@@ -7509,35 +7516,516 @@ namespace Doorpi
                 _ = PrewarmDoorpiFileBrowserOverlayAsync();
             SendRuntimeSessionsToUI();
         }
-        private static async Task YtInjectTitleTrackerAsync(CoreWebView2 cw)
+        private static async Task InjectNativeMediaActivityTrackerAsync(CoreWebView2 cw)
         {
-            const string script = @"
+            const string script = """
 (function() {
-    if (window.__doorpiYtTitle) return;
-    window.__doorpiYtTitle = true;
+    if (window.__doorpiMediaActivity) return;
+    window.__doorpiMediaActivity = true;
 
-    let _lastTitle = '';
-    let _lastArtist = '';
+    let lastState = '';
+    let lastPayload = '';
+    let publicMetadata = { key: '', title: '', image: '', sourceUrl: '' };
+    let publicMetadataRequest = null;
+    const networkMetadata = { title: '', seriesTitle: '', artwork: [], sourceUrl: '', matchedBy: '' };
 
-    function postTitle(title, artist) {
-        if (!title || (title === _lastTitle && artist === _lastArtist)) return;
-        _lastTitle = title;
-        _lastArtist = artist || '';
+    function clean(value, maxLength) {
+        const text = String(value || '').replace(/\s+/g, ' ').trim();
+        return text.length > maxLength ? text.slice(0, maxLength).trim() : text;
+    }
+
+    function activeVideo() {
+        return Array.from(document.querySelectorAll('video'))
+            .filter(video => !video.paused && !video.ended && video.readyState >= 2)
+            .sort((a, b) => (b.clientWidth * b.clientHeight) - (a.clientWidth * a.clientHeight))[0] || null;
+    }
+
+    function fallbackCreator() {
+        const parts = location.pathname.split('/').filter(Boolean);
+        if (!parts.length) return '';
+        const ignored = new Set(['videos', 'directory', 'search', 'browse', 'categories', 'watch', 'tv']);
+        const first = parts[0].toLowerCase();
+        if (ignored.has(first) || /^[a-z]{2}(?:-[a-z]{2})?$/.test(first) ||
+            /\.(?:php|html?|aspx?|jsp)$/i.test(first)) return '';
+        return decodeURIComponent(parts[0]).replace(/[-_]+/g, ' ');
+    }
+
+    function absoluteHttpUrl(value) {
         try {
-            window.chrome.webview.postMessage(
-                'smtc:playing:' + encodeURIComponent(title) + ':' + encodeURIComponent(artist || '')
-            );
+            const url = new URL(String(value || ''), location.href);
+            return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : '';
+        } catch (_) {
+            return '';
+        }
+    }
+
+    function looksLikeArtworkUrl(value) {
+        const url = absoluteHttpUrl(value);
+        if (!url || /(?:onetrust|helpcenter|consent|\/logos?\/|log\.go\.com)/i.test(url)) return false;
+        if (/\.(?:mp4|mp4a|m4s|m3u8|mpd)(?:[?#]|$)/i.test(url)) return false;
+        return /\.(?:jpe?g|png|webp|avif)(?:[?#]|$)/i.test(url) ||
+            /(?:nflximg|nflxso)\.net/i.test(url) ||
+            /disney\.images\.edge\.bamgrid\.com/i.test(url) ||
+            /prod-ripcut-delivery\.disney-plus\.net/i.test(url) ||
+            /(?:images?|artwork|thumbnail|thumb|poster|boxart)[\/.?=_-]/i.test(url);
+    }
+
+    function inspectNetworkMetadata(payload, responseUrl) {
+        if (!payload || typeof payload !== 'object') return;
+        const pathParts = location.pathname.split('/').filter(Boolean);
+        const targetId = clean(pathParts[pathParts.length - 1], 120).toLowerCase();
+        const pageTitle = clean(document.title, 180)
+            .replace(/\s*[|-]\s*(?:Netflix|Disney\+).*$/i, '').trim().toLowerCase();
+        const titleKeys = ['episodeTitle', 'videoTitle', 'fullTitle', 'seriesTitle', 'collectionTitle', 'title', 'name'];
+        const idKeyPattern = /^(?:id|videoId|movieId|contentId|entityId|encodedSeriesId|programId|mediaId)$/i;
+        let visited = 0;
+
+        function nearby(node, depth, result) {
+            if (!node || depth > 5 || result.visited++ > 1200) return;
+            if (Array.isArray(node)) {
+                node.slice(0, 80).forEach(item => nearby(item, depth + 1, result));
+                return;
+            }
+            if (typeof node !== 'object') return;
+            if (!result.title) {
+                const entries = Object.entries(node);
+                for (const preferredKey of titleKeys) {
+                    const match = entries.find(([key, value]) =>
+                        key.toLowerCase() === preferredKey.toLowerCase() && typeof value === 'string');
+                    const candidate = clean(match && match[1], 180);
+                    if (candidate.length >= 2 && !/^(?:netflix|disney\+|disney plus)$/i.test(candidate)) {
+                        result.title = candidate;
+                        break;
+                    }
+                }
+            }
+            for (const [key, value] of Object.entries(node)) {
+                if (typeof value === 'string') {
+                    if (!result.title && titleKeys.some(candidate => candidate.toLowerCase() === key.toLowerCase())) {
+                        const candidate = clean(value, 180);
+                        if (candidate.length >= 2 && !/^(?:netflix|disney\+|disney plus)$/i.test(candidate))
+                            result.title = candidate;
+                    }
+                    if (looksLikeArtworkUrl(value) && result.artwork.length < 12)
+                        result.artwork.push(absoluteHttpUrl(value));
+                } else if (typeof value === 'object') {
+                    nearby(value, depth + 1, result);
+                }
+            }
+        }
+
+        function visit(node, depth) {
+            if (!node || depth > 14 || visited++ > 30000) return;
+            if (Array.isArray(node)) {
+                node.slice(0, 500).forEach(item => visit(item, depth + 1));
+                return;
+            }
+            if (typeof node !== 'object') return;
+
+            let directIdMatch = false;
+            let directTitleMatch = false;
+            for (const [key, value] of Object.entries(node)) {
+                if (typeof value !== 'string' && typeof value !== 'number') continue;
+                const normalized = clean(value, 240).toLowerCase();
+                if (targetId && idKeyPattern.test(key) && normalized === targetId) directIdMatch = true;
+                if (pageTitle && titleKeys.some(candidate => candidate.toLowerCase() === key.toLowerCase()) && normalized === pageTitle)
+                    directTitleMatch = true;
+            }
+
+            if (directIdMatch || directTitleMatch) {
+                const result = { title: '', artwork: [], visited: 0 };
+                nearby(node, 0, result);
+                if (!networkMetadata.title && result.title) networkMetadata.title = result.title;
+                for (const artworkUrl of result.artwork) {
+                    if (!networkMetadata.artwork.includes(artworkUrl) && networkMetadata.artwork.length < 16)
+                        networkMetadata.artwork.push(artworkUrl);
+                }
+                networkMetadata.sourceUrl = clean(responseUrl, 1000);
+                networkMetadata.matchedBy = directIdMatch ? 'content-id' : 'page-title';
+            }
+
+            for (const value of Object.values(node)) {
+                if (typeof value === 'object') visit(value, depth + 1);
+            }
+        }
+        visit(payload, 0);
+    }
+
+    function installNetworkMetadataObserver() {
+        try {
+            const originalFetch = window.fetch;
+            if (typeof originalFetch === 'function') {
+                window.fetch = function(...args) {
+                    const promise = originalFetch.apply(this, args);
+                    promise.then(response => {
+                        try {
+                            const type = response.headers.get('content-type') || '';
+                            const length = Number(response.headers.get('content-length') || 0);
+                            if (/json/i.test(type) && (!length || length <= 6000000)) {
+                                response.clone().text().then(text => {
+                                    if (text.length > 6000000) return;
+                                    try { inspectNetworkMetadata(JSON.parse(text), response.url); } catch (_) {}
+                                }).catch(() => {});
+                            }
+                        } catch (_) {}
+                    }).catch(() => {});
+                    return promise;
+                };
+            }
+
+            const originalOpen = XMLHttpRequest.prototype.open;
+            XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+                this.__doorpiMetadataUrl = String(url || '');
+                this.addEventListener('load', function() {
+                    try {
+                        const type = this.getResponseHeader('content-type') || '';
+                        if (!/json/i.test(type)) return;
+                        if (this.responseType === 'json' && this.response) {
+                            inspectNetworkMetadata(this.response, this.responseURL || this.__doorpiMetadataUrl || '');
+                            return;
+                        }
+                        if (this.responseType && this.responseType !== 'text') return;
+                        const text = String(this.responseText || '');
+                        if (!text || text.length > 6000000) return;
+                        inspectNetworkMetadata(JSON.parse(text), this.responseURL || this.__doorpiMetadataUrl || '');
+                    } catch (_) {}
+                }, { once: true });
+                return originalOpen.call(this, method, url, ...rest);
+            };
+        } catch (_) {}
+    }
+
+    installNetworkMetadataObserver();
+
+    function readJsonLd() {
+        const result = { artwork: [], seriesTitle: '', seasonTitle: '', episodeNumber: '', contentType: '' };
+        const seenArtwork = new Set();
+        let visited = 0;
+
+        function addArtwork(value) {
+            const values = Array.isArray(value) ? value : [value];
+            for (const candidate of values) {
+                const raw = typeof candidate === 'string'
+                    ? candidate
+                    : candidate && typeof candidate === 'object'
+                        ? (candidate.url || candidate.contentUrl || candidate.thumbnailUrl)
+                        : '';
+                const src = absoluteHttpUrl(raw);
+                if (src && !seenArtwork.has(src) && result.artwork.length < 8) {
+                    seenArtwork.add(src);
+                    result.artwork.push(src);
+                }
+            }
+        }
+
+        function visit(node, depth) {
+            if (!node || depth > 6 || visited++ > 250) return;
+            if (Array.isArray(node)) {
+                node.slice(0, 40).forEach(item => visit(item, depth + 1));
+                return;
+            }
+            if (typeof node !== 'object') return;
+
+            const rawType = Array.isArray(node['@type']) ? node['@type'][0] : node['@type'];
+            const type = clean(rawType, 60);
+            if (!result.contentType && type) result.contentType = type;
+            addArtwork(node.image);
+            addArtwork(node.thumbnailUrl);
+            addArtwork(node.thumbnail);
+
+            if (!result.seriesTitle) {
+                result.seriesTitle = clean(node.partOfSeries && (node.partOfSeries.name || node.partOfSeries.headline), 180);
+            }
+            if (!result.seasonTitle) {
+                result.seasonTitle = clean(node.partOfSeason && (node.partOfSeason.name || node.partOfSeason.seasonNumber), 120);
+            }
+            if (!result.episodeNumber && node.episodeNumber != null) {
+                result.episodeNumber = clean(node.episodeNumber, 40);
+            }
+
+            for (const [key, value] of Object.entries(node)) {
+                if (key === 'image' || key === 'thumbnail' || key === 'thumbnailUrl') continue;
+                if (typeof value === 'object') visit(value, depth + 1);
+            }
+        }
+
+        for (const script of Array.from(document.querySelectorAll('script[type="application/ld+json"]')).slice(0, 12)) {
+            try { visit(JSON.parse(script.textContent || 'null'), 0); } catch (_) {}
+        }
+        return result;
+    }
+
+    function domTitle() {
+        const selectors = [
+            '[data-uia="video-title"]',
+            '[data-uia*="video-title"]',
+            '[data-testid*="video-title"]',
+            '[data-testid*="content-title"]',
+            '.video-title',
+            '.player-title',
+            '.ellipsize-text',
+            'img[class*="title"][alt]',
+            'img[class*="logo"][alt]',
+            'h1'
+        ];
+        const ignored = new Set(['netflix', 'disney+', 'disney plus', 'prime video', 'max', 'crunchyroll']);
+        for (const selector of selectors) {
+            for (const node of Array.from(document.querySelectorAll(selector)).slice(0, 12)) {
+                const value = clean(node.getAttribute?.('aria-label') || node.getAttribute?.('alt') || node.textContent, 180);
+                if (value.length >= 2 && !ignored.has(value.toLowerCase()) && !/^temporada\s+\d+$/i.test(value)) return value;
+            }
+        }
+        return '';
+    }
+
+    function refreshPublicMetadata() {
+        const match = location.hostname.endsWith('netflix.com') && location.pathname.match(/^\/watch\/(\d+)/i);
+        if (!match) return;
+        const key = `netflix:${match[1]}`;
+        if (publicMetadata.key === key || publicMetadataRequest) return;
+        publicMetadataRequest = fetch(`/title/${match[1]}?preventIntent=true`, { credentials: 'include' })
+            .then(response => response.ok ? response.text().then(html => ({ html, url: response.url })) : null)
+            .then(result => {
+                if (!result) return;
+                const page = new DOMParser().parseFromString(result.html, 'text/html');
+                const title = clean(page.querySelector('meta[property="og:title"]')?.content || page.title, 180)
+                    .replace(/\s*[|-]\s*Netflix.*$/i, '').trim();
+                const image = absoluteHttpUrl(page.querySelector('meta[property="og:image"]')?.content);
+                publicMetadata = {
+                    key,
+                    title: /^netflix$/i.test(title) ? '' : title,
+                    image,
+                    sourceUrl: result.url || ''
+                };
+            })
+            .catch(() => {})
+            .finally(() => { publicMetadataRequest = null; });
+    }
+
+    function snapshot(forcedState) {
+        const video = activeVideo();
+        const metadata = navigator.mediaSession && navigator.mediaSession.metadata;
+        const state = forcedState || (video ? 'playing' : 'paused');
+        const duration = video && Number.isFinite(video.duration) ? video.duration : 0;
+        const isLiveVideo = !!video && !Number.isFinite(video.duration);
+        const reliableDocumentFallback = !!video && !video.muted && (duration >= 60 || isLiveVideo);
+        const ogTitle = clean(document.querySelector('meta[property="og:title"]')?.content, 180);
+        const jsonLd = readJsonLd();
+        const mediaTitle = clean(metadata && metadata.title, 180);
+        refreshPublicMetadata();
+        const playerTitle = domTitle();
+        const documentTitle = clean(document.title, 180);
+        const isHumanTitle = value => {
+            const candidate = clean(value, 180);
+            return candidate.length >= 2 &&
+                !/^(?:netflix|disney\+|disney plus)$/i.test(candidate) &&
+                !/^(?:details?|standard|default|hero|tile|poster)(?:[_-](?:details?|standard|default|hero|tile|poster))*$/i.test(candidate) &&
+                !/^[a-z0-9]+(?:_[a-z0-9]+)+$/.test(candidate);
+        };
+        const networkTitleRaw = clean(networkMetadata.title, 180);
+        const networkTitle = isHumanTitle(networkTitleRaw) ? networkTitleRaw : '';
+        const publicTitle = publicMetadata.title;
+        const disneyDocumentTitle = location.hostname.endsWith('disneyplus.com') && isHumanTitle(documentTitle) ? documentTitle : '';
+        const title = mediaTitle || playerTitle || disneyDocumentTitle || networkTitle || publicTitle || (reliableDocumentFallback ? (ogTitle || documentTitle) : '');
+        const artist = clean(metadata && metadata.artist, 140);
+        const album = clean(metadata && metadata.album, 180);
+        const creator = artist || fallbackCreator();
+        const artwork = [];
+        const seenArtwork = new Set();
+
+        function addArtwork(src, source, sizes, type, score) {
+            const absolute = absoluteHttpUrl(src);
+            if (!absolute || seenArtwork.has(absolute) || artwork.length >= 16) return;
+            try {
+                const candidateUrl = new URL(absolute);
+                if (candidateUrl.origin === location.origin && candidateUrl.pathname === location.pathname &&
+                    !looksLikeArtworkUrl(absolute)) return;
+            } catch (_) { return; }
+            if (source === 'video-poster') {
+                try {
+                    const posterUrl = new URL(absolute);
+                    if (posterUrl.origin === location.origin && posterUrl.pathname === location.pathname) return;
+                } catch (_) { return; }
+            }
+            if (source !== 'media-session' && source !== 'video-poster' && !looksLikeArtworkUrl(absolute)) return;
+            seenArtwork.add(absolute);
+            artwork.push({ src: absolute, source, sizes: clean(sizes, 40), type: clean(type, 80), score });
+        }
+
+        const mediaSessionArtwork = Array.from((metadata && metadata.artwork) || []);
+        mediaSessionArtwork.forEach((item, index) =>
+            addArtwork(item && item.src, 'media-session', item && item.sizes, item && item.type, 100 - index));
+        addArtwork(video && (video.poster || video.getAttribute('poster')), 'video-poster', '', '', 90);
+        addArtwork(document.querySelector('meta[property="og:image:secure_url"]')?.content, 'open-graph', '', '', 82);
+        addArtwork(document.querySelector('meta[property="og:image"]')?.content, 'open-graph', '', '', 80);
+        addArtwork(document.querySelector('meta[name="twitter:image"]')?.content, 'twitter', '', '', 72);
+        jsonLd.artwork.forEach((src, index) => addArtwork(src, 'json-ld', '', '', 64 - index));
+        addArtwork(publicMetadata.image, 'public-page', '', '', 78);
+        networkMetadata.artwork.forEach((src, index) => addArtwork(src, 'network-metadata', '', '', 88 - index));
+
+        Array.from(document.images).slice(0, 300).forEach(image => {
+            const width = image.naturalWidth || image.width || 0;
+            const height = image.naturalHeight || image.height || 0;
+            const ratio = height > 0 ? width / height : 0;
+            if (width * height >= 70000 && ratio >= 0.8 && ratio <= 2.6)
+                addArtwork(image.currentSrc || image.src, 'dom-image', `${width}x${height}`, '', 76);
+        });
+
+        let inspectedBackgrounds = 0;
+        for (const element of Array.from(document.querySelectorAll('[style], [class]'))) {
+            if (inspectedBackgrounds++ >= 500) break;
+            const rect = element.getBoundingClientRect();
+            if (rect.width * rect.height < 70000 || rect.width < 260 || rect.height < 120) continue;
+            let background = '';
+            try { background = getComputedStyle(element).backgroundImage || ''; } catch (_) {}
+            const match = background.match(/url\(["']?([^"')]+)["']?\)/i);
+            if (match) addArtwork(match[1], 'css-background', `${Math.round(rect.width)}x${Math.round(rect.height)}`, '', 74);
+        }
+
+        Array.from(performance.getEntriesByType('resource')).slice(-3000).reverse().forEach(entry => {
+            const url = String(entry.name || '');
+            if (looksLikeArtworkUrl(url) && (entry.initiatorType === 'img' || /(?:nflximg|nflxso|bamgrid|disney-plus)/i.test(url)))
+                addArtwork(url, 'resource-image', '', '', entry.initiatorType === 'img' ? 58 : 48);
+        });
+
+        artwork.sort((a, b) => b.score - a.score);
+        const payload = JSON.stringify({
+            state,
+            title,
+            creator,
+            album,
+            seriesTitle: jsonLd.seriesTitle || album,
+            seasonTitle: jsonLd.seasonTitle,
+            episodeNumber: jsonLd.episodeNumber,
+            contentType: jsonLd.contentType,
+            pageUrl: location.href,
+            titleSource: mediaTitle ? 'media-session' : playerTitle ? 'player-dom' : networkTitle ? 'network-metadata' : publicTitle ? 'public-page' : ogTitle ? 'open-graph' : 'document-title',
+            networkMetadataMatchedBy: networkMetadata.matchedBy,
+            mediaSessionAvailable: !!metadata,
+            isLive: isLiveVideo,
+            mediaSessionArtworkCount: mediaSessionArtwork.length,
+            mediaSessionArtworkSchemes: [...new Set(mediaSessionArtwork.map(item => {
+                try { return new URL(String(item && item.src || ''), location.href).protocol.replace(':', ''); }
+                catch (_) { return 'invalid'; }
+            }))].join(','),
+            artwork,
+            position: video && Number.isFinite(video.currentTime) ? video.currentTime : 0,
+            duration
+        });
+
+        if (state !== 'playing' && lastState !== 'playing') return;
+        if (payload === lastPayload && state !== 'playing') return;
+        lastState = state;
+        lastPayload = payload;
+        try {
+            window.chrome.webview.postMessage('doorpi_media_activity:' + encodeURIComponent(payload));
         } catch(_) {}
     }
 
-    setInterval(() => {
-        const metadata = navigator.mediaSession?.metadata;
-        const title  = metadata?.title  || '';
-        const artist = metadata?.artist || '';
-        if (title) postTitle(title, artist);
-    }, 1500);
-})();";
+    setInterval(() => snapshot(''), 5000);
+    document.addEventListener('play', () => setTimeout(() => snapshot(''), 250), true);
+    document.addEventListener('pause', () => setTimeout(() => snapshot('paused'), 100), true);
+    window.addEventListener('pagehide', () => snapshot('stopped'));
+})();
+""";
             await cw.AddScriptToExecuteOnDocumentCreatedAsync(script);
+        }
+
+        private readonly HashSet<CoreWebView2> _nativeMediaMetadataProbeCores = new();
+        private readonly object _nativeMediaMetadataProbeCoresLock = new();
+
+        private void AttachNativeMediaMetadataResponseProbe(CoreWebView2 core, string sourceUrl)
+        {
+            string initialAppId = ResolveNativeMediaProbeAppId(sourceUrl);
+            if (initialAppId is not ("netflix" or "disneyplus")) return;
+            lock (_nativeMediaMetadataProbeCoresLock)
+            {
+                if (!_nativeMediaMetadataProbeCores.Add(core)) return;
+            }
+
+            core.WebResourceResponseReceived += async (_, args) =>
+            {
+                try
+                {
+                    string appId = ResolveNativeMediaProbeAppId(core.Source ?? "");
+                    if (appId is not ("netflix" or "disneyplus")) appId = initialAppId;
+                    string requestUrl = args.Request?.Uri ?? "";
+                    if (!IsPotentialNativeMediaMetadataResponse(appId, requestUrl) ||
+                        args.Response == null || args.Response.StatusCode is < 200 or >= 300) return;
+
+                    string contentType;
+                    string contentLengthValue;
+                    try { contentType = args.Response.Headers.GetHeader("Content-Type") ?? ""; }
+                    catch { contentType = ""; }
+                    try { contentLengthValue = args.Response.Headers.GetHeader("Content-Length") ?? ""; }
+                    catch { contentLengthValue = ""; }
+                    bool potentiallyJson = contentType.Contains("json", StringComparison.OrdinalIgnoreCase) ||
+                                           contentType.Contains("graphql", StringComparison.OrdinalIgnoreCase) ||
+                                           contentType.Contains("text/plain", StringComparison.OrdinalIgnoreCase) ||
+                                           requestUrl.Contains("graphql", StringComparison.OrdinalIgnoreCase) ||
+                                           requestUrl.Contains("pathEvaluator", StringComparison.OrdinalIgnoreCase) ||
+                                           requestUrl.Contains("memberapi", StringComparison.OrdinalIgnoreCase);
+                    if (!potentiallyJson) return;
+                    if (long.TryParse(contentLengthValue, out long contentLength) && contentLength > 6_000_000) return;
+
+                    await using Stream? content = await args.Response.GetContentAsync();
+                    if (content == null) return;
+                    using var reader = new StreamReader(content, System.Text.Encoding.UTF8, true, 8192, leaveOpen: false);
+                    var body = new System.Text.StringBuilder();
+                    char[] buffer = new char[8192];
+                    while (true)
+                    {
+                        int read = await reader.ReadAsync(buffer.AsMemory());
+                        if (read == 0) break;
+                        body.Append(buffer, 0, read);
+                        if (body.Length > 6_000_000) return;
+                    }
+
+                    string playerUrl = core.Source ?? "";
+                    await RecordNativeMediaNetworkProbeAsync(
+                        appId,
+                        playerUrl,
+                        requestUrl,
+                        contentType,
+                        body.ToString()).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[MediaNetworkProbe] Resposta ignorada: " + ex.Message);
+                }
+            };
+        }
+
+        private static string ResolveNativeMediaProbeAppId(string sourceUrl)
+        {
+            if (!Uri.TryCreate(sourceUrl, UriKind.Absolute, out Uri? uri)) return "";
+            if (uri.Host.EndsWith("netflix.com", StringComparison.OrdinalIgnoreCase)) return "netflix";
+            if (uri.Host.EndsWith("disneyplus.com", StringComparison.OrdinalIgnoreCase)) return "disneyplus";
+            return "";
+        }
+
+        private static bool IsPotentialNativeMediaMetadataResponse(string appId, string requestUrl)
+        {
+            if (!Uri.TryCreate(requestUrl, UriKind.Absolute, out Uri? uri)) return false;
+            string host = uri.Host;
+            string path = uri.AbsolutePath;
+            if (appId == "disneyplus")
+            {
+                if (!host.EndsWith("bamgrid.com", StringComparison.OrdinalIgnoreCase) &&
+                    !host.EndsWith("disneyplus.com", StringComparison.OrdinalIgnoreCase)) return false;
+                return !path.Contains("/dust", StringComparison.OrdinalIgnoreCase) &&
+                       !path.Contains("/telemetry", StringComparison.OrdinalIgnoreCase) &&
+                       !path.Contains("/log", StringComparison.OrdinalIgnoreCase);
+            }
+            if (appId == "netflix")
+            {
+                if (!host.EndsWith("netflix.com", StringComparison.OrdinalIgnoreCase)) return false;
+                return !path.Contains("/log", StringComparison.OrdinalIgnoreCase) &&
+                       !path.Contains("telemetry", StringComparison.OrdinalIgnoreCase) &&
+                       !path.Contains("/events", StringComparison.OrdinalIgnoreCase) &&
+                       !path.Contains("/tracking", StringComparison.OrdinalIgnoreCase);
+            }
+            return false;
         }
         // ── Fechar app ────────────────────────────────────────────────────────
         public void CloseYouTubeInline(bool skipStoreCompletion = false)
@@ -7548,6 +8036,7 @@ namespace Doorpi
             var ytWebView = _ytWebView;
             if (_ytClosing || ytWebView == null) return;
             _ytClosing = true;
+            FinalizeMediaHistorySession(saveEligibleActivity: true);
             bool shouldRefreshWatchedFoldersAfterClose = _isGenericBrowserMode;
             Application.Current.Deactivated -= OnApplicationDeactivated;
             bool shouldFinalizeStoreFromThisWebClose =
@@ -7822,6 +8311,83 @@ namespace Doorpi
 
             bool isPopup = (_popupWebView != null && sender == _popupWebView.CoreWebView2);
             WebView2 senderView = isPopup ? _popupWebView! : _ytWebView!;
+
+            if (msg.StartsWith("doorpi_media_activity:", StringComparison.Ordinal))
+            {
+                try
+                {
+                    string payload = Uri.UnescapeDataString(msg["doorpi_media_activity:".Length..]);
+                    var node = JsonNode.Parse(payload);
+                    string state = node?["state"]?.GetValue<string>() ?? "";
+                    string title = node?["title"]?.GetValue<string>() ?? "";
+                    string creator = node?["creator"]?.GetValue<string>() ?? "";
+                    string album = node?["album"]?.GetValue<string>() ?? "";
+                    string seriesTitle = node?["seriesTitle"]?.GetValue<string>() ?? "";
+                    string seasonTitle = node?["seasonTitle"]?.GetValue<string>() ?? "";
+                    string episodeNumber = node?["episodeNumber"]?.GetValue<string>() ?? "";
+                    string contentType = node?["contentType"]?.GetValue<string>() ?? "";
+                    string pageUrl = node?["pageUrl"]?.GetValue<string>() ?? "";
+                    string titleSource = node?["titleSource"]?.GetValue<string>() ?? "";
+                    bool mediaSessionAvailable = node?["mediaSessionAvailable"]?.GetValue<bool>() ?? false;
+                    bool isLive = node?["isLive"]?.GetValue<bool>() ?? false;
+                    int mediaSessionArtworkCount = node?["mediaSessionArtworkCount"]?.GetValue<int>() ?? 0;
+                    string mediaSessionArtworkSchemes = node?["mediaSessionArtworkSchemes"]?.GetValue<string>() ?? "";
+                    string networkMetadataMatchedBy = node?["networkMetadataMatchedBy"]?.GetValue<string>() ?? "";
+                    double position = node?["position"]?.GetValue<double>() ?? 0;
+                    double duration = node?["duration"]?.GetValue<double>() ?? 0;
+                    var artwork = new List<MediaArtworkCandidate>();
+                    if (node?["artwork"] is JsonArray artworkNodes)
+                    {
+                        foreach (JsonNode? artworkNode in artworkNodes.Take(16))
+                        {
+                            if (artworkNode == null) continue;
+                            artwork.Add(new MediaArtworkCandidate
+                            {
+                                Url = artworkNode["src"]?.GetValue<string>() ?? "",
+                                Source = artworkNode["source"]?.GetValue<string>() ?? "",
+                                Sizes = artworkNode["sizes"]?.GetValue<string>() ?? "",
+                                MimeType = artworkNode["type"]?.GetValue<string>() ?? "",
+                                Score = artworkNode["score"]?.GetValue<double>() ?? 0
+                            });
+                        }
+                    }
+                    ApplyResolvedNativeMediaMetadata(
+                        pageUrl,
+                        ref title,
+                        ref seriesTitle,
+                        ref seasonTitle,
+                        ref episodeNumber,
+                        ref contentType,
+                        ref titleSource,
+                        ref networkMetadataMatchedBy,
+                        artwork);
+                    string source = _currentWebAppUrl ?? "";
+                    TrackWebMediaActivity(source, state, title, creator, position, duration,
+                        new MediaMetadataSnapshot
+                        {
+                            AlbumTitle = album,
+                            SeriesTitle = seriesTitle,
+                            SeasonTitle = seasonTitle,
+                            EpisodeNumber = episodeNumber,
+                            ContentType = contentType,
+                            PageUrl = pageUrl,
+                            TitleSource = titleSource,
+                            MediaSessionAvailable = mediaSessionAvailable,
+                            IsLive = isLive,
+                            MediaSessionArtworkCount = Math.Max(0, mediaSessionArtworkCount),
+                            MediaSessionArtworkSchemes = mediaSessionArtworkSchemes,
+                            NetworkMetadataMatchedBy = networkMetadataMatchedBy,
+                            Artwork = artwork
+                        });
+                    if (string.Equals(state, "playing", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(title))
+                        DiscordRpcManager.Instance.UpdateState("media", source, title, creator);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[MediaHistory] Mensagem ignorada: " + ex.Message);
+                }
+                return;
+            }
 
             if (msg == "vkb_native_backspace")
             {

@@ -54,10 +54,13 @@ public static class ProfileSyncSerializer
         public string ProfileName { get; init; } = "";
         public string PinCode { get; init; } = "";
         public string SteamGridApiKey { get; init; } = "";
+        public bool ApplicationHistoryEnabled { get; init; } = true;
         public DateTimeOffset? CreatedAtUtc { get; init; }
         public long TotalPlaytimeSeconds { get; init; }
+        public long TotalMediaPlaybackSeconds { get; init; }
         public CanonicalProfilePhoto ProfilePhoto { get; init; } = new();
         public IReadOnlyList<CloudGameHistoryEntryV1> Games { get; init; } = Array.Empty<CloudGameHistoryEntryV1>();
+        public IReadOnlyList<CloudMediaHistoryEntryV1> MediaHistory { get; init; } = Array.Empty<CloudMediaHistoryEntryV1>();
         public IReadOnlyList<CloudControlProfileV1> ControlProfiles { get; init; } = Array.Empty<CloudControlProfileV1>();
         public IReadOnlyList<CloudControlAssignmentV1> ControlAssignments { get; init; } = Array.Empty<CloudControlAssignmentV1>();
 
@@ -68,13 +71,19 @@ public static class ProfileSyncSerializer
                 ProfileName = profile.ProfileName ?? "",
                 PinCode = profile.PinCode ?? "",
                 SteamGridApiKey = profile.SteamGridApiKey ?? "",
+                ApplicationHistoryEnabled = profile.ApplicationHistoryEnabled,
                 CreatedAtUtc = NormalizeUtc(profile.CreatedAtUtc),
                 TotalPlaytimeSeconds = Math.Max(0, profile.TotalPlaytimeSeconds),
+                TotalMediaPlaybackSeconds = Math.Max(0, profile.TotalMediaPlaybackSeconds),
                 ProfilePhoto = NormalizePhoto(profile.ProfilePhoto),
                 Games = (profile.Games ?? new List<CloudGameHistoryEntryV1>())
                     .Select(NormalizeGame)
                     .OrderBy(game => game.GameKey, StringComparer.Ordinal)
                     .ThenBy(game => game.Name, StringComparer.Ordinal)
+                    .ToList(),
+                MediaHistory = (profile.MediaHistory ?? new List<CloudMediaHistoryEntryV1>())
+                    .Select(NormalizeMedia)
+                    .OrderBy(entry => entry.MediaKey, StringComparer.Ordinal)
                     .ToList(),
                 ControlProfiles = (profile.ControlProfiles ?? new List<CloudControlProfileV1>())
                     .Where(item => !string.IsNullOrWhiteSpace(item.Id))
@@ -181,6 +190,35 @@ public static class ProfileSyncSerializer
                 HistoryHorizontalImageUrl = game.HistoryHorizontalImageUrl ?? "",
                 ProfileBannerImageUrl = game.ProfileBannerImageUrl ?? "",
                 SteamGridGameId = game.SteamGridGameId
+            };
+
+        private static CloudMediaHistoryEntryV1 NormalizeMedia(CloudMediaHistoryEntryV1 entry)
+            => new()
+            {
+                MediaKey = entry.MediaKey ?? "",
+                AppId = entry.AppId ?? "",
+                AppName = entry.AppName ?? "",
+                Category = entry.Category ?? "",
+                ContentTitle = entry.ContentTitle ?? "",
+                CreatorName = entry.CreatorName ?? "",
+                AlbumTitle = entry.AlbumTitle ?? "",
+                SeriesTitle = entry.SeriesTitle ?? "",
+                SeasonTitle = entry.SeasonTitle ?? "",
+                EpisodeNumber = entry.EpisodeNumber ?? "",
+                ContentType = entry.ContentType ?? "",
+                PageUrl = entry.PageUrl ?? "",
+                TitleSource = entry.TitleSource ?? "",
+                MediaSessionAvailable = entry.MediaSessionAvailable,
+                ArtworkRemoteUrl = entry.ArtworkRemoteUrl ?? "",
+                ArtworkSource = entry.ArtworkSource ?? "",
+                MetadataCapturedUtc = NormalizeUtc(entry.MetadataCapturedUtc),
+                TotalPlaybackSeconds = Math.Max(0, entry.TotalPlaybackSeconds),
+                LastSessionSeconds = Math.Max(0, entry.LastSessionSeconds),
+                SessionCount = Math.Max(0, entry.SessionCount),
+                LastPositionSeconds = Math.Max(0, entry.LastPositionSeconds),
+                DurationSeconds = Math.Max(0, entry.DurationSeconds),
+                FirstPlayedUtc = NormalizeUtc(entry.FirstPlayedUtc),
+                LastPlayedUtc = NormalizeUtc(entry.LastPlayedUtc)
             };
 
         private static DateTimeOffset? NormalizeUtc(DateTimeOffset? value)

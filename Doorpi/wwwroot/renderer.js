@@ -1356,6 +1356,9 @@ const CardRenderer = (() => {
         if (item.disableGamepadControl != null) {
             card.dataset.disableGamepadControl = item.disableGamepadControl ? 'true' : 'false';
         }
+        if (item.channel === 'media') {
+            card.dataset.mediaHistoryCategory = item.mediaHistoryCategory || item.MediaHistoryCategory || 'auto';
+        }
         card.dataset.isAdminLocked = item.isAdminLocked ? 'true' : 'false';
         card.dataset.adminLockReason = item.adminLockReason || '';
         card.classList.toggle('admin-locked', !!item.isAdminLocked);
@@ -1460,6 +1463,7 @@ const CardRenderer = (() => {
                 dgc = window._mediaGamepadConfig[item.id];
             }
             card.dataset.disableGamepadControl = dgc ? 'true' : 'false';
+            card.dataset.mediaHistoryCategory = item.mediaHistoryCategory || item.MediaHistoryCategory || 'auto';
 
         }
 
@@ -1679,6 +1683,7 @@ const CardRenderer = (() => {
         }
         if (patch.shareMode) card.dataset.shareMode = patch.shareMode;
         if (patch.disableGamepadControl != null) card.dataset.disableGamepadControl = String(patch.disableGamepadControl);
+        if (patch.mediaHistoryCategory) card.dataset.mediaHistoryCategory = patch.mediaHistoryCategory;
         const img = card.querySelector('img');
         if (img && artworkChanged) {
             const cardSrc = card.classList.contains('featured')

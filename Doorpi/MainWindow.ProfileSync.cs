@@ -158,6 +158,28 @@ public partial class MainWindow
         }
     }
 
+    private List<MediaActivityHistoryEntry> LoadProfileMediaHistoryForSync(string profileId)
+    {
+        string path = Path.Combine(dataFolder, "users", profileId, "media-history.json");
+        lock (_mediaHistoryFileLock)
+        {
+            foreach (string candidate in new[] { path, path + ".bak" })
+            {
+                try
+                {
+                    if (!File.Exists(candidate)) continue;
+                    return (JsonSerializer.Deserialize<List<MediaActivityHistoryEntry>>(SafeReadAllText(candidate)) ?? new())
+                        .Where(entry => !string.IsNullOrWhiteSpace(entry.AppId) &&
+                                        !string.IsNullOrWhiteSpace(entry.ContentTitle) &&
+                                        entry.TotalPlaybackSeconds > 0)
+                        .ToList();
+                }
+                catch { }
+            }
+            return new List<MediaActivityHistoryEntry>();
+        }
+    }
+
     private (CloudProfileV1 Snapshot, byte[]? Photo)? CreateLocalProfileSyncSnapshot(string profileId)
     {
         UserProfile? profile = FindProfileForSync(profileId);
@@ -169,7 +191,8 @@ public partial class MainWindow
             GetProfileSyncDeviceId(),
             DateTimeOffset.UtcNow,
             controls.Profiles,
-            controls.Assignments);
+            controls.Assignments,
+            LoadProfileMediaHistoryForSync(profileId));
         return (snapshot, DecodeProfilePhoto(profile.PhotoBase64));
     }
 
@@ -672,6 +695,8 @@ public partial class MainWindow
             profile.Name = remote.ProfileName;
             profile.PinCode = NormalizePinCode(remote.PinCode);
             profile.SteamGridApiKey = remote.SteamGridApiKey ?? "";
+            if (remote.SchemaVersion >= 3)
+                profile.ApplicationHistoryEnabled = remote.ApplicationHistoryEnabled;
             profile.DateCreated = remote.CreatedAtUtc?.LocalDateTime ?? profile.DateCreated;
             profile.PhotoSource = remote.ProfilePhoto.Source ?? "";
             profile.PhotoSourceUrl = remote.ProfilePhoto.SourceUrl ?? "";
@@ -739,6 +764,75 @@ public partial class MainWindow
 
             string historyPath = Path.Combine(dataFolder, "users", profileId, "game-history.json");
             SafeWriteAllText(historyPath, JsonSerializer.Serialize(appliedHistory, IndentedJsonOptions));
+
+            Dictionary<string, MediaActivityHistoryEntry> previousMediaByKey = LoadProfileMediaHistoryForSync(profileId)
+                .GroupBy(entry => ProfileSyncSnapshotFactory.NormalizeMediaKey(entry.AppId, entry.ContentTitle, entry.CreatorName), StringComparer.Ordinal)
+                .Where(group => !string.IsNullOrWhiteSpace(group.Key))
+                .ToDictionary(group => group.Key, group => group.OrderByDescending(item => item.LastPlayed).First(), StringComparer.Ordinal);
+            List<MediaActivityHistoryEntry> appliedMediaHistory = remote.SchemaVersion >= 3
+                ? (remote.MediaHistory ?? new List<CloudMediaHistoryEntryV1>())
+                    .Where(entry => !string.IsNullOrWhiteSpace(entry.AppId) &&
+                                    !string.IsNullOrWhiteSpace(entry.ContentTitle) &&
+                                    !IsInvalidTrackedMediaTitle(entry.ContentTitle) &&
+                                    entry.TotalPlaybackSeconds > 0)
+                    .Select(entry =>
+                    {
+                        string appId = entry.AppId ?? "";
+                        string contentTitle = entry.ContentTitle ?? "";
+                        string creatorName = entry.CreatorName ?? "";
+                        previousMediaByKey.TryGetValue(
+                            ProfileSyncSnapshotFactory.NormalizeMediaKey(appId, contentTitle, creatorName),
+                            out MediaActivityHistoryEntry? local);
+                        bool hasCloudMetadata = remote.SchemaVersion >= 4;
+                        string artworkRemoteUrl = hasCloudMetadata
+                            ? entry.ArtworkRemoteUrl ?? ""
+                            : local?.ArtworkRemoteUrl ?? "";
+                        return new MediaActivityHistoryEntry
+                        {
+                            AppId = appId,
+                            AppName = entry.AppName ?? "",
+                            Category = entry.Category ?? "",
+                            ContentTitle = contentTitle,
+                            CreatorName = creatorName,
+                            AlbumTitle = hasCloudMetadata ? entry.AlbumTitle ?? "" : local?.AlbumTitle ?? "",
+                            SeriesTitle = hasCloudMetadata ? entry.SeriesTitle ?? "" : local?.SeriesTitle ?? "",
+                            SeasonTitle = hasCloudMetadata ? entry.SeasonTitle ?? "" : local?.SeasonTitle ?? "",
+                            EpisodeNumber = hasCloudMetadata ? entry.EpisodeNumber ?? "" : local?.EpisodeNumber ?? "",
+                            ContentType = hasCloudMetadata ? entry.ContentType ?? "" : local?.ContentType ?? "",
+                            PageUrl = hasCloudMetadata ? entry.PageUrl ?? "" : local?.PageUrl ?? "",
+                            TitleSource = hasCloudMetadata ? entry.TitleSource ?? "" : local?.TitleSource ?? "",
+                            MediaSessionAvailable = hasCloudMetadata
+                                ? entry.MediaSessionAvailable
+                                : local?.MediaSessionAvailable ?? false,
+                            ArtworkRemoteUrl = artworkRemoteUrl,
+                            ArtworkLocalUrl = PreserveArtworkCache(
+                                local?.ArtworkRemoteUrl,
+                                artworkRemoteUrl,
+                                local?.ArtworkLocalUrl),
+                            ArtworkSource = hasCloudMetadata ? entry.ArtworkSource ?? "" : local?.ArtworkSource ?? "",
+                            MetadataCapturedUtc = hasCloudMetadata
+                                ? entry.MetadataCapturedUtc?.LocalDateTime
+                                : local?.MetadataCapturedUtc,
+                            TotalPlaybackSeconds = Math.Max(0, entry.TotalPlaybackSeconds),
+                            LastSessionSeconds = Math.Max(0, entry.LastSessionSeconds),
+                            SessionCount = Math.Max(0, entry.SessionCount),
+                            LastPositionSeconds = Math.Max(0, entry.LastPositionSeconds),
+                            DurationSeconds = Math.Max(0, entry.DurationSeconds),
+                            FirstPlayed = entry.FirstPlayedUtc?.LocalDateTime ?? DateTime.MinValue,
+                            LastPlayed = entry.LastPlayedUtc?.LocalDateTime ?? DateTime.MinValue
+                        };
+                    })
+                    .ToList()
+                : LoadProfileMediaHistoryForSync(profileId);
+            string mediaHistoryPath = Path.Combine(dataFolder, "users", profileId, "media-history.json");
+            lock (_mediaHistoryFileLock)
+            {
+                string mediaJson = JsonSerializer.Serialize(appliedMediaHistory, IndentedJsonOptions);
+                SafeWriteAllText(mediaHistoryPath, mediaJson);
+                if (string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase))
+                    SafeWriteAllText(Path.Combine(dataFolder, "media-history.json"), mediaJson);
+            }
+
             if (string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase))
             {
                 SaveUserProfile(profile);
@@ -776,7 +870,8 @@ public partial class MainWindow
                 GetProfileSyncDeviceId(),
                 DateTimeOffset.UtcNow,
                 appliedControls.Profiles,
-                appliedControls.Assignments);
+                appliedControls.Assignments,
+                appliedMediaHistory);
             await ProfileSyncService.ConfirmRemoteAppliedAsync(profileId, appliedSnapshot, result.RemoteRevision)
                 .ConfigureAwait(false);
         }
@@ -845,6 +940,15 @@ public partial class MainWindow
                     await Task.Delay(180).ConfigureAwait(false);
                 }
 
+                List<MediaActivityHistoryEntry> mediaHistory = LoadProfileMediaHistoryForSync(profileId);
+                foreach (MediaActivityHistoryEntry entry in mediaHistory
+                             .OrderByDescending(item => Math.Max(0, item.TotalPlaybackSeconds))
+                             .ThenByDescending(item => item.LastPlayed))
+                {
+                    await DownloadProfileMediaArtworkAsync(profileId, entry).ConfigureAwait(false);
+                    await Task.Delay(180).ConfigureAwait(false);
+                }
+
                 // One delayed retry handles transient network failures in the same
                 // session. Missing local files remain pending and are retried again
                 // whenever this profile is opened in a future session.
@@ -859,6 +963,14 @@ public partial class MainWindow
                         entry.HistoryHorizontalImageUrl, entry.HistoryHorizontalLocalImage).ConfigureAwait(false);
                     await DownloadProfileHistoryArtworkAsync(profileId, entry.Name, "banner",
                         entry.ProfileBannerImageUrl, entry.ProfileBannerLocalImage).ConfigureAwait(false);
+                    await Task.Delay(180).ConfigureAwait(false);
+                }
+                mediaHistory = LoadProfileMediaHistoryForSync(profileId);
+                foreach (MediaActivityHistoryEntry entry in mediaHistory
+                             .OrderByDescending(item => Math.Max(0, item.TotalPlaybackSeconds))
+                             .ThenByDescending(item => item.LastPlayed))
+                {
+                    await DownloadProfileMediaArtworkAsync(profileId, entry).ConfigureAwait(false);
                     await Task.Delay(180).ConfigureAwait(false);
                 }
             }
@@ -1022,6 +1134,78 @@ public partial class MainWindow
             remoteUrl,
             localUrl = savedUrl
         });
+    }
+
+    private async Task DownloadProfileMediaArtworkAsync(
+        string profileId,
+        MediaActivityHistoryEntry entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry.AppId) ||
+            string.IsNullOrWhiteSpace(entry.ContentTitle) ||
+            string.IsNullOrWhiteSpace(entry.ArtworkRemoteUrl) ||
+            MediaArtworkLocalFileExists(entry.ArtworkLocalUrl)) return;
+        if (!IsSafeMediaArtworkUri(entry.ArtworkRemoteUrl, out _)) return;
+
+        string mediaKey = ProfileSyncSnapshotFactory.NormalizeMediaKey(
+            entry.AppId,
+            entry.ContentTitle,
+            entry.CreatorName);
+        if (string.IsNullOrWhiteSpace(mediaKey)) return;
+
+        string destinationFolder = Path.Combine(dataFolder, "users", profileId, "media-artwork");
+        string stableName = "cloud_" + StableAssetName(mediaKey);
+        string? localPath;
+        try
+        {
+            localPath = await DownloadMediaArtworkAsync(
+                entry.ArtworkRemoteUrl,
+                entry.PageUrl,
+                destinationFolder,
+                stableName).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[ProfileSync] Arte de mídia não baixada ({entry.AppId}): {ex.Message}");
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(localPath)) return;
+
+        string relative = Path.GetRelativePath(dataFolder, localPath).Replace(Path.DirectorySeparatorChar, '/');
+        string savedUrl = "https://data.local/" +
+            Uri.EscapeDataString(relative).Replace("%2F", "/", StringComparison.OrdinalIgnoreCase);
+
+        lock (_mediaHistoryFileLock)
+        {
+            string historyPath = Path.Combine(dataFolder, "users", profileId, "media-history.json");
+            List<MediaActivityHistoryEntry> latest;
+            try
+            {
+                latest = File.Exists(historyPath)
+                    ? JsonSerializer.Deserialize<List<MediaActivityHistoryEntry>>(SafeReadAllText(historyPath)) ?? new()
+                    : new();
+            }
+            catch { return; }
+
+            MediaActivityHistoryEntry? target = latest.FirstOrDefault(item =>
+                string.Equals(
+                    ProfileSyncSnapshotFactory.NormalizeMediaKey(item.AppId, item.ContentTitle, item.CreatorName),
+                    mediaKey,
+                    StringComparison.Ordinal));
+            if (target == null || !string.Equals(
+                    target.ArtworkRemoteUrl?.Trim(),
+                    entry.ArtworkRemoteUrl.Trim(),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                try { File.Delete(localPath); } catch { }
+                return;
+            }
+
+            target.ArtworkLocalUrl = savedUrl;
+            string json = JsonSerializer.Serialize(latest, IndentedJsonOptions);
+            SafeWriteAllText(historyPath, json);
+            if (string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase))
+                SafeWriteAllText(Path.Combine(dataFolder, "media-history.json"), json);
+        }
     }
 
     private bool HasUsableProfileArtwork(string localUrl)

@@ -185,7 +185,7 @@ function getNavigableItems() {
                 .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0 && !el.disabled);
         }
 
-        return Array.from(document.querySelectorAll('.edit-modal-input, .edit-artwork-btn, .doorpi-choice-trigger, .doorpi-choice-option, #editSharingBtn, #editExtensionsBtn, .edit-toggle-row, .edit-modal-actions button'))
+        return Array.from(document.querySelectorAll('.edit-modal-input, .edit-category-option, .edit-artwork-btn, .doorpi-choice-trigger, .doorpi-choice-option, #editSharingBtn, #editExtensionsBtn, .edit-toggle-row, .edit-modal-actions button'))
             .filter(el => el.offsetWidth > 0 && !el.disabled && !el.closest('.doorpi-choice-wrap.is-disabled'));
     }
     if (window.isSessionConflictPopupOpen?.()) {

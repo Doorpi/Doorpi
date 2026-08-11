@@ -41,6 +41,7 @@ namespace Doorpi
         public List<string> SharedWithUserNames { get; set; } = new();
         public bool IsSharedFromOtherUser { get; set; }
         public bool DisableGamepadControl { get; set; } = false;
+        public string MediaHistoryCategory { get; set; } = "auto"; // auto | video-live | film-series | disabled
         public string SharedFromUserName { get; set; } = "";
         public string GridImage { get; set; } = "";
         public string GridStaticImage { get; set; } = "";
@@ -104,6 +105,7 @@ namespace Doorpi
         public bool IsAdmin { get; set; } = false;
         public List<string> AdminBlockedStoreIds { get; set; } = new();
         public bool SteamForceAccountSelection { get; set; } = false;
+        public bool ApplicationHistoryEnabled { get; set; } = true;
         public DateTime DateCreated { get; set; } = DateTime.Now;
         public DateTime LastUsed { get; set; } = DateTime.MinValue;
 
@@ -199,10 +201,12 @@ namespace Doorpi
         private string mediaFile;
         private readonly object _gamesFileLock = new();
         private readonly object _gameHistoryFileLock = new();
+        private readonly object _mediaHistoryFileLock = new();
         private readonly object _artworkReplacementLock = new();
         private readonly Dictionary<string, HashSet<string>> _pendingArtworkCleanup =
             new(StringComparer.OrdinalIgnoreCase);
         private string gameHistoryFile = "";
+        private string mediaHistoryFile = "";
 
         private string _currentToastTitle = "";
         private bool _useNativeBootIntro = false;
@@ -675,6 +679,7 @@ namespace Doorpi
             userFile = Path.Combine(dataFolder, "user.json");
             gamesFile = Path.Combine(dataFolder, "games.json");
             gameHistoryFile = Path.Combine(dataFolder, "game-history.json");
+            mediaHistoryFile = Path.Combine(dataFolder, "media-history.json");
             foldersFile = Path.Combine(dataFolder, "folders.json");
             appCacheFile = Path.Combine(dataFolder, "appcache.json");
             mediaFile = Path.Combine(dataFolder, "media.json");
@@ -1960,6 +1965,11 @@ namespace Doorpi
             bool migrateLegacyFiles,
             bool startSessionTasks = true)
         {
+            if (!string.IsNullOrWhiteSpace(currentUserId) &&
+                !string.Equals(currentUserId, profile.Id, StringComparison.OrdinalIgnoreCase))
+            {
+                FinalizeMediaHistorySession(saveEligibleActivity: true);
+            }
             if (string.IsNullOrWhiteSpace(profile.Id)) profile.Id = MakeUserId(profile.Name);
             currentUserId = profile.Id;
             currentUserDataFolder = Path.Combine(dataFolder, "users", currentUserId);
@@ -1969,6 +1979,7 @@ namespace Doorpi
             userFile = Path.Combine(currentUserDataFolder, "user.json");
             gamesFile = Path.Combine(currentUserDataFolder, "games.json");
             gameHistoryFile = Path.Combine(currentUserDataFolder, "game-history.json");
+            mediaHistoryFile = Path.Combine(currentUserDataFolder, "media-history.json");
             foldersFile = Path.Combine(currentUserDataFolder, "folders.json");
             appCacheFile = Path.Combine(currentUserDataFolder, "appcache.json");
             mediaFile = Path.Combine(currentUserDataFolder, "media.json");
@@ -1979,6 +1990,7 @@ namespace Doorpi
             {
                 CopyLegacyFile("games.json", gamesFile);
                 CopyLegacyFile("game-history.json", gameHistoryFile);
+                CopyLegacyFile("media-history.json", mediaHistoryFile);
                 CopyLegacyFile("folders.json", foldersFile);
                 CopyLegacyFile("appcache.json", appCacheFile);
                 CopyLegacyFile("media.json", mediaFile);
@@ -1986,6 +1998,8 @@ namespace Doorpi
 
             if (!File.Exists(gamesFile)) SafeWriteAllText(gamesFile, "[]");
             InitializeGameHistoryForActiveUser();
+            if (!File.Exists(mediaHistoryFile)) SafeWriteAllText(mediaHistoryFile, "[]");
+            SanitizeMediaHistoryForActiveUser();
             if (!File.Exists(foldersFile)) SafeWriteAllText(foldersFile, "[]");
             if (!File.Exists(mediaFile)) SafeWriteAllText(mediaFile, "[]");
             if (!File.Exists(storesFile)) SafeWriteAllText(storesFile, "[]");
@@ -2009,6 +2023,8 @@ namespace Doorpi
                     SafeWriteAllText(Path.Combine(dataFolder, "games.json"), SafeReadAllText(gamesFile));
                 if (File.Exists(gameHistoryFile))
                     SafeWriteAllText(Path.Combine(dataFolder, "game-history.json"), SafeReadAllText(gameHistoryFile));
+                if (File.Exists(mediaHistoryFile))
+                    SafeWriteAllText(Path.Combine(dataFolder, "media-history.json"), SafeReadAllText(mediaHistoryFile));
                 if (File.Exists(foldersFile))
                     SafeWriteAllText(Path.Combine(dataFolder, "folders.json"), SafeReadAllText(foldersFile));
                 if (File.Exists(mediaFile))
@@ -2435,6 +2451,7 @@ namespace Doorpi
                     user.IsAdmin,
                     user.DateCreated,
                     user.LastUsed,
+                    user.ApplicationHistoryEnabled,
                     HasSteamGridApiKey = !string.IsNullOrWhiteSpace(user.SteamGridApiKey),
                     HasPin = !string.IsNullOrWhiteSpace(user.PinCode)
                 },
@@ -2773,6 +2790,7 @@ namespace Doorpi
             userFile = Path.Combine(dataFolder, "user.json");
             gamesFile = Path.Combine(dataFolder, "games.json");
             gameHistoryFile = Path.Combine(dataFolder, "game-history.json");
+            mediaHistoryFile = Path.Combine(dataFolder, "media-history.json");
             foldersFile = Path.Combine(dataFolder, "folders.json");
             appCacheFile = Path.Combine(dataFolder, "appcache.json");
             mediaFile = Path.Combine(dataFolder, "media.json");
@@ -2792,7 +2810,7 @@ namespace Doorpi
                 Debug.WriteLine($"[Users] Falha ao limpar current-user.json: {ex.Message}");
             }
 
-            string[] ghostFiles = { "user.json", "games.json", "game-history.json", "folders.json", "appcache.json", "media.json" };
+            string[] ghostFiles = { "user.json", "games.json", "game-history.json", "media-history.json", "media-metadata-probe.json", "folders.json", "appcache.json", "media.json" };
             foreach (var file in ghostFiles)
             {
                 try
@@ -2850,6 +2868,7 @@ namespace Doorpi
 
                 await WaitForUserLogoutSessionsToCloseAsync(closeTasks).ConfigureAwait(false);
                 await Task.Delay(350).ConfigureAwait(false);
+                FinalizeMediaHistorySession(saveEligibleActivity: true);
 
                 users = LoadUserProfiles();
                 userToRemove = users.FirstOrDefault(u => string.Equals(u.Id, currentUserId, StringComparison.OrdinalIgnoreCase));
@@ -6524,6 +6543,7 @@ namespace Doorpi
                 SharedWithUserName = existingEntry.SharedWithUserName,
                 SharedWithUserNames = existingEntry.SharedWithUserNames,
                 DisableGamepadControl = existingEntry.DisableGamepadControl,
+                MediaHistoryCategory = NormalizeMediaHistoryCategory(existingEntry.MediaHistoryCategory),
                 GridImage = !string.IsNullOrEmpty(localGrid) ? localGrid : existingEntry.GridImage,
                 GridHorizontalImage = !string.IsNullOrEmpty(localHorizontal) ? localHorizontal : existingEntry.GridHorizontalImage,
                 HeroImage = !string.IsNullOrEmpty(localHero) ? localHero : existingEntry.HeroImage,
@@ -6789,6 +6809,7 @@ namespace Doorpi
                    name.Equals("user.json", StringComparison.OrdinalIgnoreCase) ||
                    name.Equals("games.json", StringComparison.OrdinalIgnoreCase) ||
                    name.Equals("game-history.json", StringComparison.OrdinalIgnoreCase) ||
+                   name.Equals("media-history.json", StringComparison.OrdinalIgnoreCase) ||
                    name.Equals("controls.json", StringComparison.OrdinalIgnoreCase) ||
                    name.Equals("folders.json", StringComparison.OrdinalIgnoreCase) ||
                    name.Equals("media.json", StringComparison.OrdinalIgnoreCase) ||
@@ -15497,6 +15518,10 @@ namespace Doorpi
                     bool hasNewUrl = root.TryGetProperty("newUrl", out var editUrlEl);
                     string newUrl = hasNewUrl ? (editUrlEl.GetString() ?? "").Trim() : "";
                     bool hasDisableGamepad = root.TryGetProperty("disableGamepadControl", out var dgcEl);
+                    bool hasMediaHistoryCategory = root.TryGetProperty("mediaHistoryCategory", out var mediaHistoryCategoryEl);
+                    string newMediaHistoryCategory = hasMediaHistoryCategory
+                        ? NormalizeMediaHistoryCategory(mediaHistoryCategoryEl.GetString())
+                        : "auto";
                     bool hasNewTrailerSource = root.TryGetProperty("newTrailerSource", out var trailerSourceEl);
                     string newTrailerSource = hasNewTrailerSource ? (trailerSourceEl.GetString() ?? "").Trim() : "";
                     string newTrailerType = root.TryGetProperty("newTrailerType", out var trailerTypeEl)
@@ -15609,6 +15634,16 @@ namespace Doorpi
                                 {
                                     SaveMediaApps(medias);
                                     SendMediaAppUpdateToUI(media, gameId);
+                                }
+                                if (hasMediaHistoryCategory &&
+                                    (string.Equals(media.Type, "browser", StringComparison.OrdinalIgnoreCase) ||
+                                     string.Equals(media.Type, "webview", StringComparison.OrdinalIgnoreCase)) &&
+                                    !string.Equals(media.Id, DoorpiBrowserAppId, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    media.MediaHistoryCategory = newMediaHistoryCategory;
+                                    changed = true;
+                                    ApplyMediaHistoryCategoryPreferenceToExistingHistory(media);
+                                    Debug.WriteLine($"[editGame] Categoria do histórico={media.MediaHistoryCategory} para: {gameId}");
                                 }
                             }
                         }
@@ -15739,6 +15774,8 @@ namespace Doorpi
                     bool skipTasks = root.TryGetProperty("skipTasks", out var skipEl) && skipEl.GetBoolean();
                     bool hasPin = root.TryGetProperty("pin", out _);
                     bool hasApiKey = root.TryGetProperty("apiKey", out _);
+                    bool hasApplicationHistoryEnabled = root.TryGetProperty("applicationHistoryEnabled", out var historyEnabledEl) &&
+                                                        (historyEnabledEl.ValueKind == JsonValueKind.True || historyEnabledEl.ValueKind == JsonValueKind.False);
                     bool hasPhotoMetadata = root.TryGetProperty("photoSource", out _) ||
                                             root.TryGetProperty("photoSourceUrl", out _) ||
                                             root.TryGetProperty("photoSteamGridAssetId", out _) ||
@@ -15761,6 +15798,7 @@ namespace Doorpi
                         PhotoZoom = root.TryGetProperty("photoZoom", out var photoZoomEl) && photoZoomEl.TryGetDouble(out double photoZoom) ? photoZoom : 1,
                         SteamGridApiKey = hasApiKey ? GetStr(root, "apiKey") : "",
                         PinCode = requestedPin,
+                        ApplicationHistoryEnabled = !hasApplicationHistoryEnabled || historyEnabledEl.GetBoolean(),
                         DateCreated = DateTime.Now,
                         LastUsed = DateTime.Now,
                     };
@@ -15785,6 +15823,11 @@ namespace Doorpi
                         }
                         if (hasApiKey) existingUser.SteamGridApiKey = profile.SteamGridApiKey;
                         if (hasPin) existingUser.PinCode = requestedPin;
+                        if (hasApplicationHistoryEnabled)
+                        {
+                            existingUser.ApplicationHistoryEnabled = historyEnabledEl.GetBoolean();
+                            if (!existingUser.ApplicationHistoryEnabled) FinalizeMediaHistorySession(saveEligibleActivity: true);
+                        }
                         existingUser.LastUsed = DateTime.Now;
                         profile.DateCreated = existingUser.DateCreated;
                         profile = existingUser;

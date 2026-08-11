@@ -98,6 +98,7 @@ window.AppStore = (() => {
             iconBase64: raw.IconBase64 || raw.iconBase64 || '',
             assetQuery: raw.AssetQuery || raw.assetQuery || '',
             disableGamepadControl: raw.DisableGamepadControl ?? raw.disableGamepadControl ?? false,
+            mediaHistoryCategory: raw.MediaHistoryCategory || raw.mediaHistoryCategory || 'auto',
             isAnimated: raw.isAnimated || false,
         };
     }
@@ -309,6 +310,7 @@ window.AppStore = (() => {
             if (hasOwn('hasBeenPlayed') || hasOwn('HasBeenPlayed')) normalizedPatch.hasBeenPlayed = !!firstPresent('hasBeenPlayed', 'HasBeenPlayed');
             if (hasOwn('isAnimated') || hasOwn('IsAnimated')) normalizedPatch.isAnimated = !!firstPresent('isAnimated', 'IsAnimated');
             if (patch.disableGamepadControl != null || patch.DisableGamepadControl != null) normalizedPatch.disableGamepadControl = patch.disableGamepadControl ?? patch.DisableGamepadControl;
+            if (patch.mediaHistoryCategory || patch.MediaHistoryCategory) normalizedPatch.mediaHistoryCategory = patch.mediaHistoryCategory || patch.MediaHistoryCategory;
             if (patch.isAdminLocked != null || patch.IsAdminLocked != null) normalizedPatch.isAdminLocked = patch.isAdminLocked ?? patch.IsAdminLocked;
             if (patch.adminStoreBlocked != null || patch.AdminStoreBlocked != null) normalizedPatch.adminStoreBlocked = patch.adminStoreBlocked ?? patch.AdminStoreBlocked;
             if (patch.steamForceAccountSelection != null || patch.SteamForceAccountSelection != null) normalizedPatch.steamForceAccountSelection = patch.steamForceAccountSelection ?? patch.SteamForceAccountSelection;
