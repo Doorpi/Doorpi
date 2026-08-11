@@ -126,8 +126,11 @@ namespace Doorpi
         private bool _genericBrowserExtensionOutsideCloseHooked;
         private DateTime _genericBrowserIgnoreOutsideClickUntilUtc = DateTime.MinValue;
         private bool _isGenericBrowserMode;
-        private bool _genericBrowserCaptureWebAppUrl;
+        private volatile bool _genericBrowserCaptureWebAppUrl;
         private string _genericBrowserCaptureTarget = "webApp";
+        private bool IsTrailerBrowserCaptureActive =>
+            _genericBrowserCaptureWebAppUrl &&
+            string.Equals(_genericBrowserCaptureTarget, "gameTrailer", StringComparison.OrdinalIgnoreCase);
         private string _activeMediaWebViewProfileName = "";
         private CoreWebView2Environment? _activeMediaWebViewEnvironment;
         private string _genericBrowserCaptureInitialClipboard = "";
@@ -136,6 +139,10 @@ namespace Doorpi
         private DateTime _genericBrowserVkbSuppressUntilUtc = DateTime.MinValue;
         private bool _genericBrowserVkbSuppressAUntilRelease;
         private int _genericBrowserVkbOpenRequestId;
+        // Fonte de verdade thread-safe para o loop do controle. Consultar
+        // Window.IsVisible via Dispatcher a cada frame criava uma race em PCs
+        // lentos: o timeout apagava o estado, mas deixava a janela visivel.
+        private volatile bool _genericBrowserNativeVkbCaptureActive;
         private volatile bool _genericBrowserNativeVkbWebInputValid;
         private long _genericBrowserNativeVkbValidationInFlight;
         private DateTime _genericBrowserNativeVkbLastValidationUtc = DateTime.MinValue;
@@ -413,21 +420,9 @@ namespace Doorpi
                 else if (GetCursorPos(out var pt)) _desktopVkb.AutoPosition(pt.Y);
                 else _desktopVkb.SetFixedPosition();
 
-                if (!_desktopVkb.IsVisible)
-                    _desktopVkb.Show();
-
-                if (_desktopVkb?.IsVisible != true)
-                {
-                    _genericBrowserKeyboardTarget = GenericBrowserKeyboardTarget.None;
-                    _vkbIsOpen = false;
-                    _vkbOwnerView = null;
-                    _vkbHasFocus = false;
-                    _genericBrowserVkbSuppressAUntilRelease = false;
-                    _genericBrowserNativeVkbWebInputValid = false;
-                    _genericBrowserNativeVkbOpenedAtUtc = DateTime.MinValue;
-                    return;
-                }
-
+                // Arma a captura antes de mostrar a janela. Show() pode levar mais
+                // de um frame em hardware lento; nesse intervalo nenhum input deve
+                // continuar vazando para o mouse ou para a pagina.
                 _genericBrowserKeyboardTarget = target;
                 _vkbIsOpen = true;
                 _vkbOwnerView = webOwner;
@@ -438,6 +433,25 @@ namespace Doorpi
                 _genericBrowserNativeVkbOpenedAtUtc = target == GenericBrowserKeyboardTarget.WebInput
                     ? DateTime.UtcNow
                     : DateTime.MinValue;
+                _genericBrowserNativeVkbCaptureActive = true;
+
+                try
+                {
+                    if (!_desktopVkb.IsVisible)
+                        _desktopVkb.Show();
+                }
+                catch (Exception ex)
+                {
+                    LogMediaControllerDiagnostic("native-vkb-show-error", extra: ex.Message);
+                    ClearGenericBrowserKeyboardStateForControllerAbort();
+                    return;
+                }
+
+                if (_desktopVkb?.IsVisible != true)
+                {
+                    ClearGenericBrowserKeyboardStateForControllerAbort();
+                    return;
+                }
 
                 if (target == GenericBrowserKeyboardTarget.AddressBar && _genericBrowserAddressBox != null)
                 {
@@ -476,6 +490,7 @@ namespace Doorpi
 
         private void ClearGenericBrowserKeyboardStateForControllerAbort()
         {
+            _genericBrowserNativeVkbCaptureActive = false;
             if (!_isGenericBrowserMode &&
                 _vkbOwnerView != null &&
                 (_vkbIsOpen || _webJsVkbVisibleValid))
@@ -493,6 +508,24 @@ namespace Doorpi
             _webJsVkbOwnerInChildFrame = false;
             _webJsVkbVisibleValid = false;
             _webJsVkbOpenedAtUtc = DateTime.MinValue;
+
+            // Nunca deixe uma janela nativa orfa se algum watchdog ou excecao
+            // abortar seu estado. Era esse estado que tornava B inoperante.
+            var nativeWindow = _desktopVkb;
+            if (nativeWindow != null)
+            {
+                void CloseOrphanedNativeWindow()
+                {
+                    if (!ReferenceEquals(_desktopVkb, nativeWindow)) return;
+                    try { nativeWindow.StopHold(); } catch { }
+                    try { nativeWindow.Close(); } catch { }
+                    if (ReferenceEquals(_desktopVkb, nativeWindow))
+                        _desktopVkb = null;
+                }
+
+                if (Dispatcher.CheckAccess()) CloseOrphanedNativeWindow();
+                else _ = Dispatcher.BeginInvoke(CloseOrphanedNativeWindow);
+            }
         }
 
         private void RequestMediaMouseInputAbort()
@@ -532,6 +565,7 @@ namespace Doorpi
             _genericBrowserVkbSuppressAUntilRelease = false;
             _genericBrowserNativeVkbWebInputValid = false;
             _genericBrowserNativeVkbOpenedAtUtc = DateTime.MinValue;
+            _genericBrowserNativeVkbCaptureActive = false;
         }
 
         private void OpenGenericBrowserAddressKeyboard() =>
@@ -552,7 +586,7 @@ namespace Doorpi
                 try
                 {
                     markerTask = view.CoreWebView2?.ExecuteScriptAsync(
-                        "try{window.__doorpiVkbControllerIntentAt=Date.now();}catch(e){}");
+                        "try{window.__doorpiMarkVkbControllerIntent?.();}catch(e){}");
                 }
                 catch { }
             });
@@ -825,6 +859,7 @@ namespace Doorpi
         }
         private Grid BuildGenericBrowserShell(WebView2 browser, string appName, string logoImg)
         {
+            bool isTrailerCapture = IsTrailerBrowserCaptureActive;
             browser.PreviewMouseDown += (_, _) =>
             {
                 if (_genericBrowserKeyboardTarget == GenericBrowserKeyboardTarget.AddressBar)
@@ -846,6 +881,8 @@ namespace Doorpi
             _genericBrowserToolbarRow = new RowDefinition { Height = new GridLength(64) };
             shell.RowDefinitions.Add(_genericBrowserToolbarRow);
             shell.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            if (isTrailerCapture)
+                shell.RowDefinitions.Add(new RowDefinition { Height = new GridLength(72) });
 
             var toolbar = new Border
             {
@@ -901,8 +938,11 @@ namespace Doorpi
             Grid.SetColumn(reloadButton, 2);
             row.Children.Add(reloadButton);
 
-            var homeButton = MakeButton(CreateBrowserIcon("M4 11 L12 4 L20 11 M6 10 V20 H18 V10 M10 20 V14 H14 V20"), "Google");
-            homeButton.Click += (_, _) => browser.CoreWebView2?.Navigate(DoorpiBrowserHomeUrl);
+            var homeButton = MakeButton(
+                CreateBrowserIcon("M4 11 L12 4 L20 11 M6 10 V20 H18 V10 M10 20 V14 H14 V20"),
+                isTrailerCapture ? "YouTube" : "Google");
+            homeButton.Click += (_, _) => browser.CoreWebView2?.Navigate(
+                isTrailerCapture ? "https://www.youtube.com/" : DoorpiBrowserHomeUrl);
             Grid.SetColumn(homeButton, 3);
             row.Children.Add(homeButton);
 
@@ -971,15 +1011,43 @@ namespace Doorpi
             var addressHost = new Grid();
             addressHost.Children.Add(_genericBrowserAddressBox);
             addressHost.Children.Add(_genericBrowserAddressPlaceholder);
+            addressHost.Visibility = isTrailerCapture ? Visibility.Collapsed : Visibility.Visible;
             UpdateAddressPlaceholder();
             Grid.SetColumn(addressHost, 4);
             row.Children.Add(addressHost);
+
+            if (isTrailerCapture)
+            {
+                var captureContext = new StackPanel
+                {
+                    Orientation = Orientation.Vertical,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(12, 0, 20, 0)
+                };
+                captureContext.Children.Add(new TextBlock
+                {
+                    Text = "Selecionar trailer",
+                    Foreground = Brushes.White,
+                    FontSize = 17,
+                    FontWeight = FontWeights.SemiBold
+                });
+                captureContext.Children.Add(new TextBlock
+                {
+                    Text = "Abra o vídeo que deseja usar",
+                    Margin = new Thickness(0, 2, 0, 0),
+                    Foreground = new SolidColorBrush(Color.FromArgb(150, 255, 255, 255)),
+                    FontSize = 12
+                });
+                Grid.SetColumn(captureContext, 4);
+                row.Children.Add(captureContext);
+            }
 
             _genericBrowserDownloadsButton = MakeButton(
                 CreateGenericBrowserDownloadsButtonContent(),
                 "Downloads",
                 46);
             _genericBrowserDownloadsButton.Click += (_, _) => ToggleGenericBrowserDownloadsPanel();
+            _genericBrowserDownloadsButton.Visibility = isTrailerCapture ? Visibility.Collapsed : Visibility.Visible;
             Grid.SetColumn(_genericBrowserDownloadsButton, 5);
             row.Children.Add(_genericBrowserDownloadsButton);
 
@@ -988,6 +1056,7 @@ namespace Doorpi
                 "Ver extensoes instaladas",
                 46);
             widgetsButton.Click += (_, _) => ToggleGenericBrowserWidgetsPanel();
+            widgetsButton.Visibility = isTrailerCapture ? Visibility.Collapsed : Visibility.Visible;
             Grid.SetColumn(widgetsButton, 6);
             row.Children.Add(widgetsButton);
 
@@ -1008,6 +1077,7 @@ namespace Doorpi
                 }
                 catch { }
             };
+            copyButton.Visibility = isTrailerCapture ? Visibility.Collapsed : Visibility.Visible;
             Grid.SetColumn(copyButton, 7);
             row.Children.Add(copyButton);
 
@@ -1018,8 +1088,44 @@ namespace Doorpi
             Grid.SetRow(browser, 1);
             shell.Children.Add(browser);
 
-            bool isTrailerCapture = _genericBrowserCaptureWebAppUrl &&
-                                    string.Equals(_genericBrowserCaptureTarget, "gameTrailer", StringComparison.OrdinalIgnoreCase);
+            if (isTrailerCapture)
+            {
+                var footer = new Border
+                {
+                    Background = new SolidColorBrush(Color.FromRgb(10, 14, 24)),
+                    BorderBrush = new SolidColorBrush(Color.FromArgb(34, 255, 255, 255)),
+                    BorderThickness = new Thickness(0, 1, 0, 0),
+                    Padding = new Thickness(18, 12, 18, 12)
+                };
+                var footerRow = new Grid();
+                footerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                footerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                footerRow.Children.Add(new TextBlock
+                {
+                    Text = "Ao abrir um vídeo, ele será selecionado automaticamente.",
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Foreground = new SolidColorBrush(Color.FromArgb(160, 255, 255, 255)),
+                    FontSize = 13
+                });
+
+                var cancelButton = new Button
+                {
+                    Content = "Cancelar",
+                    MinWidth = 132,
+                    Height = 44,
+                    Padding = new Thickness(22, 0, 22, 0),
+                    FontSize = 14,
+                    FontWeight = FontWeights.SemiBold,
+                    Style = CreateBrowserToolbarButtonStyle()
+                };
+                cancelButton.Click += (_, _) => CloseYouTubeInline(skipStoreCompletion: true);
+                Grid.SetColumn(cancelButton, 1);
+                footerRow.Children.Add(cancelButton);
+                footer.Child = footerRow;
+                Grid.SetRow(footer, 2);
+                shell.Children.Add(footer);
+            }
+
             if (!isTrailerCapture)
             {
                 _webAppLoadingOverlay = BuildWebAppLoadingOverlay(appName, logoImg);
@@ -2198,6 +2304,12 @@ namespace Doorpi
         {
             _genericBrowserCaptureWebAppUrl = true;
             _genericBrowserCaptureTarget = string.IsNullOrWhiteSpace(target) ? "webApp" : target.Trim();
+            if (IsTrailerBrowserCaptureActive)
+            {
+                ReleaseConfiguredControlOutputs();
+                if (Volatile.Read(ref _nativeTaskSwitcherActive) == 1)
+                    EndNativeTaskSwitcher(cancelSelection: true);
+            }
             try { _genericBrowserCaptureInitialClipboard = Clipboard.ContainsText() ? Clipboard.GetText().Trim() : ""; }
             catch { _genericBrowserCaptureInitialClipboard = ""; }
 
@@ -2821,43 +2933,23 @@ namespace Doorpi
 
             bool TryReadControllerVkbUiVisible(out bool visible)
             {
-                visible = false;
-
-                bool ReadVisibleOnUiThread() =>
-                    _genericBrowserKeyboardTarget != GenericBrowserKeyboardTarget.None &&
-                    _desktopVkb?.IsVisible == true &&
-                    (_vkbOwnerView ?? _ytWebView)?.CoreWebView2 != null;
-
-                try
-                {
-                    if (Dispatcher.CheckAccess())
-                    {
-                        visible = ReadVisibleOnUiThread();
-                        return true;
-                    }
-
-                    var op = Dispatcher.BeginInvoke(new Func<bool>(ReadVisibleOnUiThread));
-                    var status = op.Wait(TimeSpan.FromMilliseconds(45));
-                    if (status == System.Windows.Threading.DispatcherOperationStatus.Completed)
-                    {
-                        visible = op.Result is bool value && value;
-                        return true;
-                    }
-
-                    try { op.Abort(); } catch { }
-                    LogMediaControllerDiagnostic("vkb-ui-visible-timeout");
-                    return false;
-                }
-                catch
-                {
-                    LogMediaControllerDiagnostic("vkb-ui-visible-error");
-                    return false;
-                }
+                // O ciclo de vida e publicado pela UI antes de Show() e limpo em
+                // todos os caminhos de fechamento. Assim o polling de 8-12 ms nao
+                // depende da disponibilidade da thread de renderizacao.
+                visible = _genericBrowserNativeVkbCaptureActive &&
+                          _genericBrowserKeyboardTarget != GenericBrowserKeyboardTarget.None &&
+                          _desktopVkb != null &&
+                          (_vkbOwnerView ?? _ytWebView) != null;
+                return true;
             }
 
             bool IsControllerVkbActuallyVisible()
             {
-                if (!_vkbIsOpen)
+                // A flag volatil e publicada por ultimo na abertura. Consulte-a
+                // tambem quando o estado de sessao ainda nao ficou visivel para a
+                // thread de polling.
+                if (!_vkbIsOpen &&
+                    !(_isGenericBrowserMode && _genericBrowserNativeVkbCaptureActive))
                     return false;
 
                 if (!_isGenericBrowserMode)
@@ -2916,7 +3008,10 @@ namespace Doorpi
                 {
                     double dt = sw.Elapsed.TotalSeconds;
                     sw.Restart();
-                    if (dt > 0.08) dt = 0.016;
+                    // Keep a bounded amount of catch-up after renderer stalls.
+                    // Resetting slow frames to 16 ms made pointer movement feel
+                    // frozen while a heavy web app was laying out or painting.
+                    dt = Math.Clamp(dt, 0, 0.05);
 
                     long nowMs = Environment.TickCount64;
                     bool keyboardBackConsumed = ProcessKeyboardBackHold(nowMs);
@@ -2949,8 +3044,10 @@ namespace Doorpi
                     var input = GetUnifiedControllerInput();
                     ushort btn = input.Buttons;
                     buttonTracker.Update(input.Source ?? XInputControllerHub.Read());
-                    if (buttonTracker.TaskSwitcherShortcutJustPressed ||
-                        Volatile.Read(ref _nativeTaskSwitcherActive) == 1)
+                    bool trailerBrowserCaptureActive = IsTrailerBrowserCaptureActive;
+                    if (!trailerBrowserCaptureActive &&
+                        (buttonTracker.TaskSwitcherShortcutJustPressed ||
+                         Volatile.Read(ref _nativeTaskSwitcherActive) == 1))
                     {
                         ReleaseMediaLeftMouseIfDown();
                         ResetMediaControllerTransientState();
@@ -2964,8 +3061,9 @@ namespace Doorpi
 
                     bool Pressed(ushort mask) => buttonTracker.AnyPressed(mask);
                     bool Held(ushort mask) => (btn & mask) != 0;
-                    anyReturnShortcut = buttonTracker.ReturnShortcutJustPressed ||
-                                        (syntheticReturnDown && !previousSyntheticReturnDown);
+                    anyReturnShortcut = !trailerBrowserCaptureActive &&
+                                        (buttonTracker.ReturnShortcutJustPressed ||
+                                         (syntheticReturnDown && !previousSyntheticReturnDown));
                     anyAPressed = Pressed(XI_A); anyAHeld = Held(XI_A);
                     anyPhysicalAPressed = buttonTracker.AnyPhysicalPressed(XI_A);
                     anyBPressed = Pressed(XI_B); anyBHeld = Held(XI_B);
@@ -2990,11 +3088,14 @@ namespace Doorpi
                     else if (dpadDown) { currentNavDirBtn = XI_DPAD_DOWN; currentNavVk = 0x28; }
                     else if (dpadLeft) { currentNavDirBtn = XI_DPAD_LEFT; currentNavVk = 0x25; }
                     else if (dpadRight) { currentNavDirBtn = XI_DPAD_RIGHT; currentNavVk = 0x27; }
-                    bool configuredRuntimeOwnsAnalog = !IsControllerVkbActuallyVisible() &&
+                    bool configuredRuntimeOwnsAnalog = !trailerBrowserCaptureActive &&
+                        !IsControllerVkbActuallyVisible() &&
                         ConfiguredControlRuntimeOwnsAnalog(GetActiveControlTargetKey());
                     if (!configuredRuntimeOwnsAnalog)
                     {
-                        double configuredMouseDeadZone = GetActiveControlMouseDeadZone(0.14);
+                        double configuredMouseDeadZone = trailerBrowserCaptureActive
+                            ? 0.14
+                            : GetActiveControlMouseDeadZone(0.14);
                         if (Math.Sqrt(input.ThumbLX * input.ThumbLX + input.ThumbLY * input.ThumbLY) > configuredMouseDeadZone)
                         {
                             totalMlx = input.ThumbLX;
@@ -3079,7 +3180,9 @@ namespace Doorpi
                         continue;
                     }
 
-                    bool useNativeMouse = !_isCurrentSiteYouTube || _popupWindow != null;
+                    bool useNativeMouse = trailerBrowserCaptureActive ||
+                                          !_isCurrentSiteYouTube ||
+                                          _popupWindow != null;
                     bool isMainYouTube = _isCurrentSiteYouTube && _popupWindow == null && !_isGenericBrowserMode;
                     bool useNativeWebNavigation = true;
                     if (isMainYouTube && currentNavDirBtn == 0)
@@ -3090,7 +3193,8 @@ namespace Doorpi
                         else if (input.ThumbLX > mergedDeadZone) { currentNavDirBtn = XI_DPAD_RIGHT; currentNavVk = 0x27; }
                     }
                     bool vkbInputVisible = IsControllerVkbActuallyVisible();
-                    bool customProfileOwnsDefaultButtons = !vkbInputVisible &&
+                    bool customProfileOwnsDefaultButtons = !trailerBrowserCaptureActive &&
+                        !vkbInputVisible &&
                         GetCustomAssignedRuntimeControlProfile(GetActiveControlTargetKey()) != null;
                     if (!isMainYouTube || vkbInputVisible)
                         ReleaseYouTubeHeldKeys();
@@ -3150,7 +3254,23 @@ namespace Doorpi
                         continue;
                     }
 
-                    if (!vkbInputVisible && !useJavaScriptCloseHold && !customProfileOwnsDefaultButtons)
+                    if (trailerBrowserCaptureActive && !vkbInputVisible && anyBPressed)
+                    {
+                        Dispatcher.Invoke(() =>
+                        {
+                            try
+                            {
+                                if (_ytWebView?.CoreWebView2?.CanGoBack == true)
+                                    _ytWebView.CoreWebView2.GoBack();
+                            }
+                            catch { }
+                        });
+                    }
+
+                    if (!trailerBrowserCaptureActive &&
+                        !vkbInputVisible &&
+                        !useJavaScriptCloseHold &&
+                        !customProfileOwnsDefaultButtons)
                     {
                         if (anyBPressed)
                         {
@@ -3331,7 +3451,7 @@ namespace Doorpi
                             speedMult = Math.Min(speedMult + (0.8 * dt), 2.5);
                             double sense = CONTROLLER_MOUSE_BASE_SPEED *
                                            CONTROLLER_MOUSE_SENSITIVITY_SCALE *
-                                           GetActiveControlMouseSensitivity();
+                                           (trailerBrowserCaptureActive ? 1 : GetActiveControlMouseSensitivity());
 
                             TryShapeControllerPointerVector(totalMlx, totalMly, 0, out double curvedX, out double curvedY);
                             double moveX = curvedX * sense * speedMult * dt + mouseRemainderX;
@@ -3342,7 +3462,12 @@ namespace Doorpi
                             mouseRemainderY = moveY - dy;
 
                             if (dx != 0 || dy != 0)
-                                SendMediaMouse(dx, dy, MOUSEEVENTF_MOVE | MOUSEEVENTF_MOVE_NOCOALESCE, 0);
+                            {
+                                uint moveFlags = MOUSEEVENTF_MOVE;
+                                if (leftMouseDown)
+                                    moveFlags |= MOUSEEVENTF_MOVE_NOCOALESCE;
+                                SendMediaMouse(dx, dy, moveFlags, 0);
+                            }
                         }
                         else
                         {
@@ -3353,7 +3478,10 @@ namespace Doorpi
 
                         if (totalScrollY != 0)
                         {
-                            int scroll = (int)(totalScrollY * 2800 * GetActiveControlScrollSensitivity() * dt);
+                            double scrollSensitivity = trailerBrowserCaptureActive
+                                ? 1
+                                : GetActiveControlScrollSensitivity();
+                            int scroll = (int)(totalScrollY * 2800 * scrollSensitivity * dt);
                             if (scroll != 0) SendMediaMouse(0, 0, MOUSEEVENTF_WHEEL, (uint)scroll);
                         }
                     }
@@ -3393,12 +3521,16 @@ namespace Doorpi
                             if (_genericBrowserVkbSuppressAUntilRelease && !anyAHeld)
                                 _genericBrowserVkbSuppressAUntilRelease = false;
 
+                            if (anyAPressed)
+                                SuppressConfiguredControlButtonsUntilRelease(XI_A);
+
                             HandleNativeVkbHold(
                                 VkbHoldAction.Press,
                                 anyAHeld && !_genericBrowserVkbSuppressAUntilRelease);
 
                             if (anyBPressed)
                             {
+                                SuppressConfiguredControlButtonsUntilRelease(XI_B);
                                 bool notifyWeb = _genericBrowserKeyboardTarget == GenericBrowserKeyboardTarget.WebInput;
                                 CloseGenericBrowserKeyboard(notifyWeb);
                             }
@@ -3407,7 +3539,10 @@ namespace Doorpi
                                 _ = Dispatcher.BeginInvoke(() => HandleGenericBrowserKeyboardKey("SPACE"));
 
                             if (anyStartPressed)
+                            {
+                                SuppressConfiguredControlButtonsUntilRelease(XI_START);
                                 _ = Dispatcher.BeginInvoke(() => HandleGenericBrowserKeyboardKey("ENTER"));
+                            }
 
                             if (anyLtHeld && !ltWasHeld)
                                 _ = Dispatcher.BeginInvoke(() => _desktopVkb?.ToggleAlphaSpecialLayer());
@@ -3462,6 +3597,7 @@ namespace Doorpi
 
                         if (anyAPressed)
                         {
+                            SuppressConfiguredControlButtonsUntilRelease(XI_A);
                             if (_vkbHasFocus)
                                 SendVkbCommand("confirm");
                             else
@@ -3473,8 +3609,16 @@ namespace Doorpi
                             }
                         }
 
-                        if (anyBPressed) SendVkbCommand("close");
-                        if (anyStartPressed) SendVkbCommand("enter");
+                        if (anyBPressed)
+                        {
+                            SuppressConfiguredControlButtonsUntilRelease(XI_B);
+                            SendVkbCommand("close");
+                        }
+                        if (anyStartPressed)
+                        {
+                            SuppressConfiguredControlButtonsUntilRelease(XI_START);
+                            SendVkbCommand("enter");
+                        }
 
                         if (_vkbHasFocus)
                         {
@@ -3516,7 +3660,9 @@ namespace Doorpi
                     bool continuousNativeMouseActive = useNativeMouse &&
                         !vkbInputVisible &&
                         (totalMlx != 0 || totalMly != 0 || totalScrollY != 0);
-                    Thread.Sleep(continuousNativeMouseActive ? 1 : 10);
+                    // Controller snapshots are refreshed every 8 ms. Matching that
+                    // cadence avoids a busy loop without adding input latency.
+                    Thread.Sleep(continuousNativeMouseActive ? 8 : 12);
                 }
                 catch (Exception ex)
                 {
@@ -4239,7 +4385,7 @@ namespace Doorpi
             Task<string>? markerTask = null;
             Dispatcher.Invoke(() =>
             {
-                try { markerTask = view.CoreWebView2?.ExecuteScriptAsync("try{window.__doorpiVkbControllerIntentAt=Date.now();}catch(e){}"); }
+                try { markerTask = view.CoreWebView2?.ExecuteScriptAsync("try{window.__doorpiMarkVkbControllerIntent?.();}catch(e){}"); }
                 catch { }
             });
             try { markerTask?.Wait(180); } catch { }
@@ -4679,11 +4825,16 @@ namespace Doorpi
         let positionAnchored = false;
         let lastRenderedState = null;
         let detailPageEnteredAt = 0;
+        let cachedInstallButton = null;
+        let checkStateTimer = 0;
+        let lastPromoScanAt = 0;
 
         function isDetailPage() {{ return location.href.includes('chromewebstore.google.com/detail/'); }}
         function getExtId() {{ return (location.href.match(/\/detail\/[^/]+\/([a-z]{{32}})/) || [])[1] || null; }}
 
         function findInstallButton() {{
+            if (cachedInstallButton?.isConnected) return cachedInstallButton;
+            cachedInstallButton = null;
             const installLabels = [
                 'add to chrome', 'remove from chrome', 'use in chrome',
                 'adicionar ao chrome', 'remover do chrome', 'usar no chrome',
@@ -4696,19 +4847,22 @@ namespace Doorpi
             }};
             for (const b of document.querySelectorAll('button')) {{
                 if (b.id === 'doorpi-ext-btn') continue;
-                if (isInstallButton(b)) return b;
+                if (isInstallButton(b)) {{ cachedInstallButton = b; return b; }}
             }}
             for (const host of document.querySelectorAll('*')) {{
                 if (!host.shadowRoot) continue;
                 for (const b of host.shadowRoot.querySelectorAll('button')) {{
                     if (b.id === 'doorpi-ext-btn') continue;
-                    if (isInstallButton(b)) return b;
+                    if (isInstallButton(b)) {{ cachedInstallButton = b; return b; }}
                 }}
             }}
             return null;
         }}
 
-        function dismissChromePromos() {{
+        function dismissChromePromos(force = false) {{
+            const now = Date.now();
+            if (!force && now - lastPromoScanAt < 4000) return;
+            lastPromoScanAt = now;
             const promoTerms = ['download chrome', 'get chrome', 'use chrome', 'baixe o chrome', 'usar o chrome', 'use o chrome'];
             const roots = [document];
             for (let i = 0; i < roots.length; i++) {{
@@ -4740,7 +4894,7 @@ namespace Doorpi
         function applyButtonBase() {{
             if (btn.dataset.doorpiStyled === 'true') return;
             btn.style.cssText = 'align-items:center;gap:11px;padding:11px 18px 11px 14px;' +
-                'backdrop-filter:blur(20px);border-radius:12px;' +
+                'border-radius:12px;' +
                 'color:rgba(255,255,255,0.88);font-family:Outfit,sans-serif;font-size:13px;' +
                 'transition:background .15s,border-color .15s;outline:none;box-sizing:border-box;' +
                 'z-index:2147483646;position:fixed;';
@@ -4806,7 +4960,58 @@ namespace Doorpi
 
             if (!isInstalled) {{
                 btn.onclick = () => {{
-                    window.chrome.webview.postMessage('auto_install_extension:' + location.href);
+                    const cleanText = value => String(value || '').replace(/\s+/g, ' ').trim();
+                    const normalizeTitle = value => cleanText(value)
+                        .replace(/\s*[-|]\s*Chrome Web Store.*$/i, '')
+                        .trim();
+                    const isGenericTitle = value => {{
+                        const normalized = cleanText(value).toLocaleLowerCase();
+                        return !normalized || normalized === 'chrome web store' ||
+                            normalized === 'chrome web store - extensÃµes' ||
+                            normalized === 'chrome web store - extensions' ||
+                            normalized === 'extensÃµes' || normalized === 'extensions';
+                    }};
+                    const extensionId = getExtId();
+                    const pathParts = location.pathname.split('/').filter(Boolean);
+                    const idIndex = pathParts.findIndex(part =>
+                        part.toLocaleLowerCase() === String(extensionId || '').toLocaleLowerCase());
+                    const slug = idIndex > 0 ? decodeURIComponent(pathParts[idIndex - 1]) : '';
+                    const slugTitle = slug.split('-').filter(Boolean)
+                        .map(word => word.charAt(0).toLocaleUpperCase() + word.slice(1)).join(' ');
+                    const titleCandidates = [
+                        normalizeTitle(document.title),
+                        ...Array.from(document.querySelectorAll('h1'))
+                            .map(node => normalizeTitle(node.textContent)),
+                        normalizeTitle(document.querySelector('meta[property=""og:title""]')?.content),
+                        slugTitle,
+                        ...Array.from(document.querySelectorAll('h2'))
+                            .map(node => normalizeTitle(node.textContent))
+                    ];
+                    const pageTitle = titleCandidates.find(value => !isGenericTitle(value)) ||
+                        slugTitle || 'ExtensÃ£o selecionada';
+                    const iconCandidates = Array.from(document.images).filter(image => {{
+                        const source = image.currentSrc || image.src || '';
+                        const width = image.naturalWidth || image.width || 0;
+                        const height = image.naturalHeight || image.height || 0;
+                        const label = cleanText(image.alt || image.title).toLocaleLowerCase();
+                        return /googleusercontent\.com/i.test(source) &&
+                            !label.includes('chrome web store') && width >= 48 && height >= 48 &&
+                            Math.abs(width - height) <= Math.max(width, height) * .16;
+                    }});
+                    const namedIcon = iconCandidates.find(image =>
+                        cleanText(image.alt || image.title).toLocaleLowerCase()
+                            .includes(pageTitle.toLocaleLowerCase()));
+                    const extensionIcon = namedIcon || iconCandidates[0];
+                    const extension = {{
+                        url: location.href,
+                        name: pageTitle,
+                        description: cleanText(document.querySelector('[itemprop=""description""]')?.textContent) ||
+                                     document.querySelector('meta[property=""og:description""]')?.content ||
+                                     document.querySelector('meta[name=""description""]')?.content || '',
+                        imageUrl: extensionIcon?.currentSrc || extensionIcon?.src || ''
+                    }};
+                    window.chrome.webview.postMessage(
+                        'auto_install_extension_json:' + encodeURIComponent(JSON.stringify(extension)));
                     showConsoleToast('{_extToastTitle}', '{_extToastSub}');
                     setTimeout(() => window.chrome.webview.postMessage('close_app'), 1800);
                 }};
@@ -4816,14 +5021,16 @@ namespace Doorpi
         }}
 
         function checkState(forceUpdate = false) {{
-            dismissChromePromos();
+            if (window._vkbIsOpen) return;
             ensureStoreCloseButton();
             if (!isDetailPage()) {{
                 if (btn && btn.style.display !== 'none') btn.style.display = 'none';
                 detailPageEnteredAt = 0;
+                cachedInstallButton = null;
                 return;
             }}
 
+            dismissChromePromos(forceUpdate);
             if (!detailPageEnteredAt) detailPageEnteredAt = Date.now();
             const target = findInstallButton();
             if (target) {{
@@ -4843,14 +5050,33 @@ namespace Doorpi
             }}
         }}
 
+        function scheduleCheck(forceUpdate = false, delay = 180) {{
+            clearTimeout(checkStateTimer);
+            checkStateTimer = setTimeout(() => {{
+                checkStateTimer = 0;
+                requestAnimationFrame(() => checkState(forceUpdate));
+            }}, delay);
+        }}
+
+        function isDoorpiUiMutation(mutation) {{
+            const target = mutation?.target;
+            if (!(target instanceof Element)) return false;
+            return target.id === 'doorpi-ext-btn' ||
+                   !!target.closest?.('#doorpi-ext-btn,.doorpi-vkb-overlay');
+        }}
+
         buildInitialBtn();
-        const obs = new MutationObserver(() => {{ checkState(false); }});
+        const obs = new MutationObserver(mutations => {{
+            if (mutations.length && mutations.every(isDoorpiUiMutation)) return;
+            scheduleCheck(false);
+        }});
         obs.observe(document.body, {{ childList:true, subtree:true }});
-        window.addEventListener('scroll', () => checkState(false), {{ passive:true }});
-        window.addEventListener('resize', () => checkState(false));
+        window.addEventListener('scroll', () => scheduleCheck(false, 80), {{ passive:true }});
+        window.addEventListener('resize', () => scheduleCheck(false, 100));
         window.setInterval(() => {{
-            if (location.hostname === 'chromewebstore.google.com') checkState(false);
-        }}, 750);
+            if (location.hostname === 'chromewebstore.google.com' && !window._vkbIsOpen)
+                scheduleCheck(false, 0);
+        }}, 2500);
 
         const origPush = history.pushState.bind(history);
         history.pushState = function() {{
@@ -4858,16 +5084,20 @@ namespace Doorpi
             positionAnchored = false;
             detailPageEnteredAt = 0;
             lastRenderedState = null;
-            setTimeout(() => checkState(false), 150);
+            cachedInstallButton = null;
+            scheduleCheck(true, 150);
         }};
         window.addEventListener('popstate', () => {{
             positionAnchored = false;
             detailPageEnteredAt = 0;
             lastRenderedState = null;
-            setTimeout(() => checkState(false), 150);
+            cachedInstallButton = null;
+            scheduleCheck(true, 150);
         }});
 
-        window.__doorpiUpdateExtBtn = (force) => checkState(force);
+        window.__doorpiUpdateExtBtn = (force) => scheduleCheck(!!force, 0);
+        window.__doorpiScheduleCwsCheck = () => scheduleCheck(false, 80);
+        scheduleCheck(true, 0);
     }}
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -4913,6 +5143,27 @@ namespace Doorpi
         window.__doorpiVkbControllerIntentAt = 0;
         return true;
     }}
+
+    function _doorpiForwardVkbControllerIntent() {{
+        document.querySelectorAll('iframe,frame').forEach(frame => {{
+            try {{
+                frame.contentWindow?.postMessage({{ type:'doorpiVkbControllerIntent' }}, '*');
+            }} catch(_) {{}}
+        }});
+    }}
+
+    window.__doorpiMarkVkbControllerIntent = () => {{
+        window.__doorpiVkbControllerIntentAt = Date.now();
+        _doorpiForwardVkbControllerIntent();
+    }};
+
+    window.addEventListener('message', event => {{
+        const data = event.data;
+        if (!data || data.type !== 'doorpiVkbControllerIntent') return;
+        if (window.top === window || event.source !== window.parent) return;
+        window.__doorpiVkbControllerIntentAt = Date.now();
+        _doorpiForwardVkbControllerIntent();
+    }});
 
     if (__doorpiUseNativeKeyboard) {{
         let _nativeVkbInputEl = null;
@@ -5158,12 +5409,11 @@ namespace Doorpi
             'color:rgba(255,255,255,0.88);font-size:clamp(13px,1.2vw,18px);font-weight:500;font-family:inherit;',
             'display:flex;align-items:center;justify-content:center;cursor:pointer;outline:none;',
             'min-width:0;box-sizing:border-box;',
-            'transition:background 0.07s,transform 0.07s,border-color 0.07s,color 0.07s,box-shadow 0.07s;}}',
+            'contain:layout paint style;transition:background-color 0.05s,border-color 0.05s,color 0.05s;}}',
             '.doorpi-vkb-key:hover{{background:rgba(255,255,255,0.13);color:#fff;}}',
             '.doorpi-vkb-key.focused{{background:rgba(255,255,255,0.97);color:#080810;border-color:transparent;',
-            'border-bottom-color:rgba(0,0,0,0.25);transform:scale(1.1) translateY(-3px);',
-            'box-shadow:0 8px 24px rgba(0,0,0,0.55),0 0 0 2px rgba(255,255,255,0.35);z-index:1;position:relative;}}',
-            '.doorpi-vkb-key:active{{transform:scale(0.96) translateY(0);box-shadow:none;}}',
+            'border-bottom-color:rgba(0,0,0,0.25);outline:2px solid rgba(255,255,255,0.72);outline-offset:1px;z-index:1;}}',
+            '.doorpi-vkb-key:active{{background:rgba(255,255,255,0.82);}}',
             '.doorpi-vkb-key[data-controller-hint]::after{{content:attr(data-controller-hint);position:absolute;right:5px;top:4px;font-size:9px;font-weight:800;opacity:.55;}}',
             '.doorpi-vkb-key.accent-pending{{background:rgba(255,145,45,.4);border-color:rgba(255,175,85,.82);color:#fff;}}',
             '.doorpi-vkb-key[data-key=BKSP],.doorpi-vkb-key[data-key=ENTER],.doorpi-vkb-key[data-key=CANCEL],.doorpi-vkb-key[data-key=SHIFT],.doorpi-vkb-key[data-key=SYM],.doorpi-vkb-key[data-key=ABC],.doorpi-vkb-key[data-key$=com]{{grid-column:span 2;width:100%;}}',
@@ -5176,7 +5426,7 @@ namespace Doorpi
             'background:rgba(50,110,255,0.32);border-color:rgba(50,110,255,0.55);',
             'color:rgba(170,205,255,0.95);font-weight:650;font-size:clamp(12px,1.2vw,16px);width:100%;}}',
             '.doorpi-vkb-key[data-key=ENTER].focused{{background:rgb(50,110,255);color:#fff;border-color:transparent;',
-            'box-shadow:0 8px 28px rgba(50,110,255,0.55),0 0 0 2px rgba(50,110,255,0.4);}}',
+            'outline-color:rgba(115,165,255,.9);}}',
             '.doorpi-vkb-overlay.numeric .doorpi-vkb-key[data-key=ENTER],.doorpi-vkb-overlay.numeric .doorpi-vkb-key[data-key=BKSP]{{grid-column:span 1!important;width:clamp(64px,5.6vw,120px)!important;height:clamp(54px,5.2vw,86px)!important;}}',
             '.doorpi-vkb-overlay.numeric .doorpi-vkb-key[data-key=CANCEL]{{grid-column:span 3!important;width:100%!important;height:clamp(54px,5.2vw,86px)!important;}}',
             '.doorpi-vkb-key[data-key=SHIFT]{{font-size:clamp(15px,1.6vw,22px);}}',
@@ -5188,7 +5438,7 @@ namespace Doorpi
             // troca de foco da tecla. Em páginas pesadas isso torna a navegação do
             // VKB perceptivelmente lenta; a superfície opaca preserva o visual sem
             // esse custo de composição.
-            'border-radius:clamp(14px,1.1vw,20px);box-shadow:0 26px 84px rgba(0,0,0,.52),inset 0 1px 0 rgba(255,255,255,.10);will-change:transform,opacity;',
+            'border-radius:clamp(14px,1.1vw,20px);box-shadow:0 18px 42px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.10);will-change:transform,opacity;',
             'contain:layout paint style;isolation:isolate;opacity:0;transform:translate(-50%,10px) scale(.985);transition:opacity .16s ease,transform .16s ease;}}',
             '.doorpi-vkb-overlay.visible{{opacity:1;transform:translate(-50%,0) scale(1);}}',
             '.doorpi-vkb-preview-wrap{{gap:clamp(8px,.8vw,14px);margin-bottom:clamp(8px,1vh,14px);}}',
@@ -5196,7 +5446,7 @@ namespace Doorpi
             '.doorpi-vkb-preview-text{{font-size:clamp(14px,1.05vw,20px);padding:clamp(7px,.8vh,10px) clamp(10px,1vw,16px);min-height:clamp(34px,4vh,48px);}}',
             '.doorpi-vkb-grid{{display:grid;grid-template-columns:repeat(13,minmax(0,1fr));gap:clamp(5px,.55vh,7px) clamp(5px,.36vw,7px);width:auto;margin:0;}}',
             '.doorpi-vkb-key{{height:var(--doorpi-vkb-key-h);border-bottom-width:2px;font-size:var(--doorpi-vkb-key-font);}}',
-            '.doorpi-vkb-key.focused{{transform:scale(1.06) translateY(-2px);}}',
+            '.doorpi-vkb-key.focused{{transform:none;}}',
             '.doorpi-vkb-key[data-controller-hint]::after{{top:4px;right:5px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:rgba(255,255,255,.12);font-size:8px;display:flex;align-items:center;justify-content:center;}}',
             '.doorpi-vkb-key[data-key=SPACE]{{height:var(--doorpi-vkb-key-h);font-size:clamp(12px,.9vw,15px);}}',
             '.doorpi-vkb-key[data-key=CANCEL],.doorpi-vkb-key[data-key=ENTER],.doorpi-vkb-key[data-key=BKSP],.doorpi-vkb-key[data-key=SHIFT]{{height:var(--doorpi-vkb-key-h)!important;font-size:clamp(12px,.92vw,15px);}}',
@@ -5601,6 +5851,7 @@ namespace Doorpi
         window._vkbIsOpen = false;
         _vkbEl.classList.remove('visible');
         _vkbNotifyHost('vkb_closed' + (window.top === window ? '' : ':frame'));
+        window.__doorpiScheduleCwsCheck?.();
 
         if (_vkbInputEl) {{
             _vkbInputEl.removeEventListener('input', _vkbRenderPreview);
@@ -6985,7 +7236,8 @@ namespace Doorpi
                 if (isGenericBrowser)
                 {
                     var browserShell = BuildGenericBrowserShell(_ytWebView, appName, logoImg);
-                    AttachWebAppCloseHoldOverlay(browserShell);
+                    if (!isTrailerCapture)
+                        AttachWebAppCloseHoldOverlay(browserShell);
                     _webAppWindow.Content = browserShell;
                 }
                 else
@@ -6997,6 +7249,17 @@ namespace Doorpi
                 {
                     if (!_ytClosing) Dispatcher.Invoke(() => CloseYouTubeInline());
                 };
+                if (isTrailerCapture)
+                {
+                    _webAppWindow.PreviewKeyDown += (_, e) =>
+                    {
+                        if (e.Key != Key.Escape || _ytClosing)
+                            return;
+
+                        e.Handled = true;
+                        CloseYouTubeInline(skipStoreCompletion: true);
+                    };
+                }
                 _webAppWindow.Deactivated += (s, e) =>
                 {
                     Interlocked.Exchange(ref _lastWebAppDeactivatedUtcTicks, DateTime.UtcNow.Ticks);
@@ -7736,6 +7999,77 @@ namespace Doorpi
                     try { System.Windows.Clipboard.SetText(key); }
                     catch (Exception ex) { Debug.WriteLine($"[Doorpi] Erro ao copiar: {ex.Message}"); }
                 });
+            }
+            else if (msg.StartsWith("auto_install_extension_json:"))
+            {
+                if (!IsWebMessageFromHost(e, "chromewebstore.google.com")) return;
+                try
+                {
+                    string encoded = msg["auto_install_extension_json:".Length..];
+                    string payload = Uri.UnescapeDataString(encoded);
+                    using var document = System.Text.Json.JsonDocument.Parse(payload);
+                    var root = document.RootElement;
+                    string extUrl = root.TryGetProperty("url", out var urlValue) ? urlValue.GetString() ?? "" : "";
+                    string extName = root.TryGetProperty("name", out var nameValue) ? nameValue.GetString() ?? "" : "";
+                    string extDescription = root.TryGetProperty("description", out var descriptionValue) ? descriptionValue.GetString() ?? "" : "";
+                    string extImageUrl = root.TryGetProperty("imageUrl", out var imageValue) ? imageValue.GetString() ?? "" : "";
+
+                    if (!Uri.TryCreate(extUrl, UriKind.Absolute, out var parsedUrl) ||
+                        !string.Equals(parsedUrl.Host, "chromewebstore.google.com", StringComparison.OrdinalIgnoreCase)) return;
+
+                    extName = extName.Trim();
+                    bool genericExtensionName = string.IsNullOrWhiteSpace(extName) ||
+                        extName.Equals("Chrome Web Store", StringComparison.OrdinalIgnoreCase) ||
+                        extName.StartsWith("Chrome Web Store -", StringComparison.OrdinalIgnoreCase) ||
+                        extName.Equals("ExtensÃµes", StringComparison.OrdinalIgnoreCase) ||
+                        extName.Equals("Extensions", StringComparison.OrdinalIgnoreCase);
+                    if (genericExtensionName)
+                    {
+                        string[] segments = parsedUrl.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                        int extensionIdIndex = Array.FindIndex(segments, segment =>
+                            segment.Length == 32 && segment.All(character => character is >= 'a' and <= 'p'));
+                        if (extensionIdIndex > 0)
+                        {
+                            string slug = Uri.UnescapeDataString(segments[extensionIdIndex - 1]).Replace('-', ' ').Trim();
+                            if (!string.IsNullOrWhiteSpace(slug))
+                                extName = System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(slug);
+                        }
+                    }
+                    if (string.IsNullOrWhiteSpace(extName)) extName = "ExtensÃ£o selecionada";
+                    extDescription = extDescription.Trim();
+                    extImageUrl = extImageUrl.Trim();
+                    if (extName.Length > 200) extName = extName[..200];
+                    if (extDescription.Length > 1000) extDescription = extDescription[..1000];
+                    if (!Uri.TryCreate(extImageUrl, UriKind.Absolute, out var parsedImage) ||
+                        (parsedImage.Scheme != Uri.UriSchemeHttps && parsedImage.Scheme != Uri.UriSchemeHttp))
+                        extImageUrl = "";
+
+                    Dispatcher.Invoke(() =>
+                    {
+                        try
+                        {
+                            System.Windows.Clipboard.SetText(extUrl);
+                            webView.CoreWebView2.PostWebMessageAsString(
+                                System.Text.Json.JsonSerializer.Serialize(new
+                                {
+                                    type = "clipboardText",
+                                    text = extUrl,
+                                    extensionCandidate = new
+                                    {
+                                        url = extUrl,
+                                        name = extName,
+                                        description = extDescription,
+                                        imageUrl = extImageUrl
+                                    }
+                                }));
+                        }
+                        catch { }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[Doorpi] Não foi possível preparar a extensão selecionada: {ex.Message}");
+                }
             }
             else if (msg.StartsWith("auto_install_extension:"))
             {

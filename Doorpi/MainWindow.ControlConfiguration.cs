@@ -34,6 +34,7 @@ public partial class MainWindow
     private ControlBindingRoute[] _controlRuntimeRoutes = Array.Empty<ControlBindingRoute>();
     private string _controlRuntimeRoutesKey = "";
     private string _lastRuntimeControlTargetKey = "";
+    private int _configuredControlButtonsSuppressedUntilRelease;
     private bool _configuredCloseHoldOverlayVisible;
     private long _configuredCloseHoldOverlayLastUpdateMs;
     private string _controlTargetResolutionIdentity = "";
@@ -397,14 +398,24 @@ public partial class MainWindow
             }
 
             ControlConfigurationDocument document = CreateDefaultControlConfiguration();
+            bool recoveredFromBackup = false;
             if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
             {
                 try
                 {
-                    document = JsonSerializer.Deserialize<ControlConfigurationDocument>(
-                                   File.ReadAllText(path),
-                                   ControlJsonOptions)
-                               ?? CreateDefaultControlConfiguration();
+                    if (TryDeserializeJsonFile(path, ControlJsonOptions, out ControlConfigurationDocument? loaded))
+                    {
+                        document = loaded!;
+                    }
+                    else if (TryDeserializeJsonFile(
+                                 path + ".bak",
+                                 ControlJsonOptions,
+                                 out ControlConfigurationDocument? backup))
+                    {
+                        document = backup!;
+                        recoveredFromBackup = true;
+                        DoorpiBootDiagnostics.Log("controls-recovered", $"path={path}");
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -413,7 +424,7 @@ public partial class MainWindow
             }
 
             int loadedSchemaVersion = document.SchemaVersion;
-            bool requiresMigration = loadedSchemaVersion < 8;
+            bool requiresMigration = recoveredFromBackup || loadedSchemaVersion < 8;
             document.Profiles ??= new List<ControlProfile>();
             document.Assignments ??= new List<ControlProfileAssignment>();
             if (!document.Profiles.Any(profile =>
@@ -581,9 +592,7 @@ public partial class MainWindow
             document.SchemaVersion = 8;
             document.UpdatedAtUtc = DateTimeOffset.UtcNow;
             string json = JsonSerializer.Serialize(document, ControlJsonOptions);
-            string temporaryPath = path + ".tmp";
-            File.WriteAllText(temporaryPath, json);
-            File.Move(temporaryPath, path, overwrite: true);
+            DurableFileStore.WriteAllText(path, json, keepBackup: true);
             _controlConfigurationCachePath = path;
             _controlConfigurationCache = document;
             Volatile.Write(
@@ -1523,6 +1532,19 @@ public partial class MainWindow
                 return ControlTarget.MakeKey("game", _activeSessionGameId);
             }
 
+            // A sessão da loja também cobre processos externos abertos por ela
+            // (login, checkout, suporte). Resolva-a antes de web apps/executáveis
+            // para preservar o mesmo perfil, sensibilidade e atalhos nesse handoff.
+            if (_isStoreLauncherSession &&
+                !_storePausedByDoorpi &&
+                !string.IsNullOrWhiteSpace(_activeStoreId) &&
+                !IsStoreChildGameBlockingStoreControls() &&
+                !IsForegroundDoorpi())
+            {
+                _controlTargetResolutionCategory = "store";
+                return ControlTarget.MakeKey("store", _activeStoreId);
+            }
+
             ExecutableAppSession? executable = ActiveExecutableAppSession;
             if (executable != null &&
                 !executable.DoorpiSuspended &&
@@ -1536,14 +1558,6 @@ public partial class MainWindow
                 return ResolveActiveControlTargetKey("media", _currentWebAppUrl);
             }
 
-            if (_isStoreLauncherSession &&
-                !_storePausedByDoorpi &&
-                !string.IsNullOrWhiteSpace(_activeStoreId) &&
-                IsForegroundOwnedByActiveStore())
-            {
-                _controlTargetResolutionCategory = "store";
-                return ControlTarget.MakeKey("store", _activeStoreId);
-            }
         }
         catch { }
 
@@ -1686,6 +1700,13 @@ public partial class MainWindow
     {
         if (ProcessControlCapture(snapshot))
             return false;
+        // The trailer picker is a modal selection flow, not an active app. User
+        // and global runtime bindings must not execute behind that dialog.
+        if (IsTrailerBrowserCaptureActive)
+        {
+            ReleaseConfiguredControlOutputs();
+            return false;
+        }
         // The editor owns the controller while it is open. Letting an app or a
         // global pointer binding run here moves the Windows cursor at the same
         // time as the WebView navigates focus, producing seemingly random jumps.
@@ -1885,6 +1906,19 @@ public partial class MainWindow
         EnsureControlRuntimeProfilesLoaded();
         ControlProfile[] profiles = Volatile.Read(ref _controlRuntimeProfiles);
         bool virtualKeyboardOpen = _vkbIsOpen || _desktopVkb != null;
+        int suppressedButtons = Volatile.Read(ref _configuredControlButtonsSuppressedUntilRelease);
+        if (suppressedButtons != 0)
+        {
+            int buttonsStillDown = 0;
+            for (int slot = 0; slot < XInputControllerHub.SlotCount; slot++)
+            {
+                if ((snapshot.ConnectedMask & (1 << slot)) != 0)
+                    buttonsStillDown |= snapshot.Slots[slot].NativeButtons;
+            }
+
+            Interlocked.And(ref _configuredControlButtonsSuppressedUntilRelease, buttonsStillDown);
+            suppressedButtons = Volatile.Read(ref _configuredControlButtonsSuppressedUntilRelease);
+        }
         ControlBindingRoute[] routes = GetCachedControlBindingRoutes(
             targetKey,
             virtualKeyboardOpen,
@@ -1921,6 +1955,21 @@ public partial class MainWindow
                     profile.MouseDeadZone);
                 bool pressed = active && !runtime.Active;
                 bool released = !active && runtime.Active;
+                bool suppressForKeyboardClose = suppressedButtons != 0 &&
+                    route.ControllerButtons.Any(button =>
+                        (NativeControllerButtonMask(button) & suppressedButtons) != 0);
+
+                if (suppressForKeyboardClose)
+                {
+                    // A route removed while the VKB is open becomes "new" as soon
+                    // as it closes. Consume the already-held button so that the
+                    // close press cannot fire Back/Click in the page underneath.
+                    runtime.Active = active;
+                    runtime.Suppressed = active;
+                    runtime.LongPressFired = false;
+                    runtime.PressedAt = 0;
+                    continue;
+                }
 
                 bool continuousAnalogAction = route.ControllerButtons.Any(IsAnalogControlInput) &&
                                               binding.Action.Type is "pointer" or "wheel";
@@ -2036,6 +2085,32 @@ public partial class MainWindow
 
         return continuousAnalogActive;
     }
+
+    private void SuppressConfiguredControlButtonsUntilRelease(ushort buttons)
+    {
+        if (buttons != 0)
+            Interlocked.Or(ref _configuredControlButtonsSuppressedUntilRelease, buttons);
+    }
+
+    private static int NativeControllerButtonMask(string button) => button switch
+    {
+        "dpad-up" => 0x0001,
+        "dpad-down" => 0x0002,
+        "dpad-left" => 0x0004,
+        "dpad-right" => 0x0008,
+        "start" => 0x0010,
+        "back" => 0x0020,
+        "l3" => 0x0040,
+        "r3" => 0x0080,
+        "lb" => 0x0100,
+        "rb" => 0x0200,
+        "guide" => 0x0400,
+        "a" => 0x1000,
+        "b" => 0x2000,
+        "x" => 0x4000,
+        "y" => 0x8000,
+        _ => 0
+    };
 
     private ControlBindingRoute[] GetCachedControlBindingRoutes(
         string targetKey,
@@ -2308,7 +2383,7 @@ public partial class MainWindow
             runtime.RemainderX = moveX - dx;
             runtime.RemainderY = moveY - dy;
             if (dx != 0 || dy != 0)
-                SendConfiguredMouseInput(dx, dy, MOUSEEVENTF_MOVE | MOUSEEVENTF_MOVE_NOCOALESCE, 0);
+                SendConfiguredMouseInput(dx, dy, MOUSEEVENTF_MOVE, 0);
             return;
         }
 
@@ -2404,7 +2479,7 @@ public partial class MainWindow
                 _ => (0, 0)
             };
             if (dx != 0 || dy != 0)
-                SendConfiguredMouseInput(dx, dy, MOUSEEVENTF_MOVE | MOUSEEVENTF_MOVE_NOCOALESCE, 0);
+                SendConfiguredMouseInput(dx, dy, MOUSEEVENTF_MOVE, 0);
         }
     }
 
@@ -2436,6 +2511,19 @@ public partial class MainWindow
 
     private void SendConfiguredMouseButton(string button, bool keyUp)
     {
+        bool primaryButton = string.IsNullOrWhiteSpace(button) ||
+                             button.Equals("left", StringComparison.OrdinalIgnoreCase);
+        if (!keyUp && primaryButton && (_popupWebView != null || _ytWebView != null))
+        {
+            // Custom control profiles bypass the media loop's default A-button
+            // handler. Mark their primary click too, otherwise web inputs receive
+            // focus but the controller-only virtual keyboard never opens.
+            if (_isGenericBrowserMode)
+                MarkGenericBrowserControllerInputIntent();
+            else
+                MarkCurrentWebViewControllerInputIntent();
+        }
+
         (uint down, uint up, uint data) = button switch
         {
             "right" => (0x0008u, 0x0010u, 0u),

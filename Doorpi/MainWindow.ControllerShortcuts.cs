@@ -60,12 +60,28 @@ namespace Doorpi
 
             while (_globalControllerShortcutMonitorActive)
             {
-                bool continuousAnalogActive = false;
                 try
                 {
                     var snapshot = XInputControllerHub.Read();
                     buttonTracker.Update(snapshot);
-                    continuousAnalogActive = ProcessConfiguredControlBindings(snapshot);
+                    // Trailer selection owns its interaction locally. Do not let
+                    // task switching or configured global shortcuts treat it as a
+                    // regular browser/app session.
+                    if (IsTrailerBrowserCaptureActive)
+                    {
+                        Thread.Sleep(8);
+                        continue;
+                    }
+
+                    // During gameplay the native main loop owns the one shortcut
+                    // that must remain responsive. Avoid resolving profiles and
+                    // processing pointer bindings while the Home UI is asleep.
+                    if (IsGameplayBackgroundMode)
+                    {
+                        Thread.Sleep(16);
+                        continue;
+                    }
+                    ProcessConfiguredControlBindings(snapshot);
 
                     if (Volatile.Read(ref _nativeTaskSwitcherActive) == 1)
                     {
@@ -79,11 +95,9 @@ namespace Doorpi
                     Debug.WriteLine("[GlobalControllerShortcuts] " + ex.Message);
                 }
 
-                // Interpolate configured pointer/scroll output at the same cadence
-                // used by Doorpi's native mouse loop. XInput remains cached at its
-                // normal sampling rate, so this smooths output without over-polling
-                // the controller or increasing idle CPU usage.
-                Thread.Sleep(continuousAnalogActive ? 1 : 8);
+                // XInput publishes at 8 ms; reprocessing its cached snapshot more
+                // often only increases CPU use and duplicate pointer work.
+                Thread.Sleep(8);
             }
         }
 

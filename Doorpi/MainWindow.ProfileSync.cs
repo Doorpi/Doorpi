@@ -463,6 +463,7 @@ public partial class MainWindow
         bool notifyFailure,
         CancellationToken cancellationToken = default)
     {
+        await WaitForGameplayBackgroundEndAsync(cancellationToken).ConfigureAwait(false);
         if (Volatile.Read(ref _profileSyncApplyingRemote) == 1) return;
         if (!string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase)) return;
         (CloudProfileV1 Snapshot, byte[]? Photo)? local = CreateLocalProfileSyncSnapshot(profileId);
@@ -585,6 +586,7 @@ public partial class MainWindow
             try
             {
                 await Task.Delay(Math.Max(0, delayMs), cts.Token).ConfigureAwait(false);
+                await WaitForGameplayBackgroundEndAsync(cts.Token).ConfigureAwait(false);
                 if (!string.Equals(id, currentUserId, StringComparison.OrdinalIgnoreCase)) return;
                 ProfileConnectionStatus status = await ProfileSyncService.GetConnectionStatusAsync(id, cts.Token)
                     .ConfigureAwait(false);
@@ -741,7 +743,20 @@ public partial class MainWindow
             {
                 SaveUserProfile(profile);
                 SaveGameHistory(appliedHistory);
-                await Dispatcher.InvokeAsync(LoadCurrentUserIntoUI);
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    if (!_interactiveUserSessionStarted)
+                    {
+                        LoadCurrentUserIntoUI();
+                        return;
+                    }
+
+                    // A sincronização pode concluir enquanto o usuário navega pela
+                    // Home. Atualize somente os dados do perfil; limpar e reconstruir
+                    // as grades aqui derrubava o foco após qualquer edição local.
+                    webView.CoreWebView2.PostWebMessageAsString(
+                        JsonSerializer.Serialize(BuildCurrentUserPayload(profile)));
+                });
             }
 
             ApplyCloudControlConfiguration(remote);

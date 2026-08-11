@@ -1201,7 +1201,7 @@ namespace Doorpi
             _activeSessionGameName = candidate.Game.Name;
             _gameSessionParentKind = "store";
             _forceDoorpiReturnOnGameClose = false;
-            _sessionStartUtc = DateTime.UtcNow;
+            StartActiveSessionClock(confirmed: true);
             DelayGameMinimizeAvailability();
 
             DiscordRpcManager.Instance.UpdateState("game", candidate.Game.Name);
@@ -1209,6 +1209,8 @@ namespace Doorpi
             if (IsForegroundDoorpi())
                 ShowExecutionLockForGame();
             SendRuntimeSessionsToUI();
+            if (IsForegroundOwnedByCurrentGame())
+                ScheduleGameplayBackgroundMode();
             _ = Task.Run(() => MonitorStoreChildGameAsync(candidate.Game, candidate.ProcessName, cts.Token));
         }
 
@@ -1273,7 +1275,7 @@ namespace Doorpi
             _activeSessionGameName = candidate.Game.Name;
             _gameSessionParentKind = "store";
             _forceDoorpiReturnOnGameClose = false;
-            _sessionStartUtc = DateTime.UtcNow;
+            StartActiveSessionClock();
 
             DiscordRpcManager.Instance.UpdateState("game", candidate.Game.Name);
             SendGameLaunchStatus("gameLaunchDone");
@@ -1450,6 +1452,7 @@ namespace Doorpi
             {
                 int missingChecks = 0;
                 bool launchDoneSent = _currentGameHwnd != IntPtr.Zero;
+                DateTime stableMonitorEligibleUtc = DateTime.UtcNow.AddSeconds(10);
 
                 while (!token.IsCancellationRequested &&
                        _storeChildGameActive &&
@@ -1470,6 +1473,27 @@ namespace Doorpi
                         missingChecks = 0;
                         await Task.Delay(500, token).ConfigureAwait(false);
                         continue;
+                    }
+
+                    if (DateTime.UtcNow >= stableMonitorEligibleUtc &&
+                        _currentGameHwnd != IntPtr.Zero &&
+                        IsWindow(_currentGameHwnd))
+                    {
+                        GetWindowProcessId(_currentGameHwnd, out uint stablePidRaw);
+                        if (stablePidRaw != 0)
+                        {
+                            try
+                            {
+                                using var stableProcess = Process.GetProcessById((int)stablePidRaw);
+                                if (!SafeHasExited(stableProcess))
+                                {
+                                    missingChecks = 0;
+                                    await Task.Delay(1000, token).ConfigureAwait(false);
+                                    continue;
+                                }
+                            }
+                            catch { }
+                        }
                     }
 
                     CaptureStoreAttachedSessionArtifacts();
@@ -1565,6 +1589,8 @@ namespace Doorpi
             {
                 return;
             }
+
+            ResumeGameplayBackgroundMode();
 
             string storeId = _storeChildGameStoreId;
             if (IsGogStoreId(storeId))

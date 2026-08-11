@@ -11,6 +11,14 @@
     window._pendingExtensionUpdates = {};
     window.DoorpiDisplayMetrics = { dpiScale: 1 };
 
+    window.setDoorpiSessionLocked = function (locked) {
+        const shouldLock = locked === true;
+        document.body.classList.toggle('doorpi-session-locked', shouldLock);
+        if (shouldLock) {
+            window.stopHomeFeatureTrailer?.({ resumeAudio: false });
+        }
+    };
+
     window.DoorpiLayoutScale = (() => {
         const KEY = 'doorpi.layoutScale.v1';
         const MIN = 0.25;
@@ -1146,6 +1154,7 @@
         if (window.isGlobalLoading) return;
 
         if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+            if (window.DoorpiControls?.isOpen?.()) return;
             window.DoorpiUiSound?.play('move');
         } else if (e.key === 'Enter') {
             window.DoorpiUiSound?.play('confirm');
@@ -3236,12 +3245,13 @@
                     position: absolute;
                     top: calc(100% + 12px);
                     left: 0;
-                    width: min(430px, 86vw);
-                    max-height: min(520px, 62vh);
+                    width: clamp(480px, 31vw, 660px);
+                    max-width: 86vw;
+                    max-height: min(620px, 68vh);
                     overflow: hidden;
                     display: none;
                     border: 1px solid rgba(255,255,255,.16);
-                    border-radius: 8px;
+                    border-radius: 10px;
                     background: rgba(8, 10, 18, .94);
                     box-shadow: 0 28px 72px rgba(0,0,0,.52);
                     backdrop-filter: blur(22px);
@@ -3249,50 +3259,59 @@
                 }
                 .doorpi-notification-center.is-open .doorpi-notification-panel { display: block; }
                 .doorpi-notification-panel-title {
-                    padding: 15px 16px 11px;
+                    padding: 20px 22px 15px;
                     border-bottom: 1px solid rgba(255,255,255,.09);
-                    font-size: 12px;
-                    font-weight: 800;
+                    font-size: clamp(12px, .72vw, 14px);
+                    font-weight: 760;
                     text-transform: uppercase;
-                    letter-spacing: .08em;
-                    color: rgba(255,255,255,.54);
+                    letter-spacing: .11em;
+                    color: rgba(255,255,255,.62);
                 }
                 .doorpi-notification-list {
                     display: grid;
-                    max-height: calc(min(520px, 62vh) - 45px);
+                    max-height: calc(min(620px, 68vh) - 58px);
                     overflow: auto;
+                    overscroll-behavior: contain;
                 }
                 .doorpi-notification-item {
                     display: grid;
                     grid-template-columns: 1fr auto;
-                    gap: 12px;
-                    padding: 13px 14px;
+                    align-items: center;
+                    gap: clamp(16px, 1.15vw, 22px);
+                    min-height: clamp(82px, 8.5vh, 112px);
+                    padding: clamp(16px, 1.35vw, 22px);
+                    border: 0;
                     border-bottom: 1px solid rgba(255,255,255,.075);
                     background: transparent;
                     color: inherit;
                     text-align: left;
                     cursor: pointer;
+                    outline: none;
+                    transition: background .16s ease, box-shadow .16s ease, transform .16s ease;
                 }
                 .doorpi-notification-item:last-child { border-bottom: 0; }
                 .doorpi-notification-item:focus,
                 .doorpi-notification-item:hover {
-                    outline: none;
-                    background: rgba(255,255,255,.055);
+                    background: rgba(255,255,255,.115);
+                    box-shadow: inset 3px 0 0 rgba(255,255,255,.92), inset 0 0 0 1px rgba(255,255,255,.18);
                 }
                 .doorpi-notification-title {
-                    font-size: 14px;
-                    font-weight: 750;
-                    color: rgba(255,255,255,.9);
+                    display: block;
+                    font-size: clamp(15px, .9vw, 18px);
+                    font-weight: 680;
+                    line-height: 1.25;
+                    color: rgba(255,255,255,.94);
                 }
                 .doorpi-notification-message {
-                    margin-top: 3px;
-                    font-size: 13px;
-                    line-height: 1.35;
-                    color: rgba(255,255,255,.62);
+                    display: block;
+                    margin-top: 6px;
+                    font-size: clamp(13px, .77vw, 15px);
+                    line-height: 1.46;
+                    color: rgba(255,255,255,.66);
                 }
                 .doorpi-notification-close {
-                    width: 28px;
-                    height: 28px;
+                    width: clamp(32px, 2vw, 38px);
+                    height: clamp(32px, 2vw, 38px);
                     display: inline-flex;
                     align-items: center;
                     justify-content: center;
@@ -3311,12 +3330,19 @@
                 .doorpi-notification-close:hover {
                     outline: none;
                     color: #fff;
-                    border-color: rgba(255,255,255,.48);
+                    border-color: #fff;
+                    background: rgba(255,255,255,.14);
+                    box-shadow: 0 0 0 3px rgba(255,255,255,.14);
                 }
                 .doorpi-notification-empty {
-                    padding: 18px 16px;
+                    padding: 28px 22px;
                     color: rgba(255,255,255,.48);
-                    font-size: 13px;
+                    font-size: 14px;
+                }
+
+                @media (max-width: 720px) {
+                    .doorpi-notification-panel { width: min(430px, 88vw); }
+                    .doorpi-notification-item { min-height: 74px; }
                 }
             `;
             document.head.appendChild(style);
@@ -3436,16 +3462,23 @@
                 if (isForCurrentProfile(n) && !n.persistent) n.read = true;
             });
             render();
+            requestAnimationFrame(() => {
+                root.querySelector('#doorpiNotificationList .doorpi-notification-item')?.focus?.({ preventScroll: true });
+            });
         }
 
         function close() {
             const root = ensureRoot();
+            const restoreButtonFocus = root.querySelector('#doorpiNotificationPanel')?.contains(document.activeElement);
             isOpen = false;
             root.classList.remove('is-open');
             Array.from(items.values()).forEach(n => {
                 if (isForCurrentProfile(n) && !n.persistent && n.read) items.delete(n.id);
             });
             render();
+            if (restoreButtonFocus) {
+                requestAnimationFrame(() => root.querySelector('#doorpiNotificationButton')?.focus?.({ preventScroll: true }));
+            }
         }
 
         function toggle() {
@@ -4241,11 +4274,23 @@
             }
             return `${raw.slice(0, Math.max(1, low)).trimEnd()}…`;
         };
-        const genericIcon = `<g fill="none" stroke="#eef4ff" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="150" y="210" width="300" height="300" rx="72"/>
-            <path d="M210 330h180M300 270v180"/>
-            <path d="M210 600h180M300 540v120"/>
-        </g>`;
+        const fitFallbackTypography = (value, maxWidth, maxFontSize, minFontSize) => {
+            const raw = String(value || 'App').trim() || 'App';
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            if (!context) return { text: raw, fontSize: minFontSize };
+
+            let fontSize = maxFontSize;
+            while (fontSize > minFontSize) {
+                context.font = `650 ${fontSize}px Arial, sans-serif`;
+                if (context.measureText(raw).width <= maxWidth) break;
+                fontSize -= 2;
+            }
+            return {
+                text: fitFallbackName(raw, maxWidth, fontSize),
+                fontSize
+            };
+        };
         const iconSvg = (w, h, mainSize, blurSize, fontSize, textY, horizontalPadding) => {
             const xMain = (w - mainSize) / 2;
             const yMain = (h - mainSize) / 2;
@@ -4267,35 +4312,30 @@
                 <text x="${w / 2}" y="${textY}" text-anchor="middle" fill="#eef4ff" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="600">${fittedName}</text>
             </svg>`;
         };
-        const genericSvg = (w, h, scale, fontSize, textY, horizontalPadding) => {
-            const iconW = 600 * scale;
-            const iconH = 900 * scale;
-            const tx = (w - iconW) / 2;
-            const ty = (h - iconH) / 2;
-            const fittedName = escapeSvgText(fitFallbackName(name, w - (horizontalPadding * 2), fontSize));
+        const genericSvg = (w, h, maxFontSize, minFontSize, horizontalPadding) => {
+            const fitted = fitFallbackTypography(name, w - (horizontalPadding * 2), maxFontSize, minFontSize);
+            const fittedName = escapeSvgText(fitted.text);
             return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}">
                 <defs>
-                    <radialGradient id="doorpiGenericShade" cx="50%" cy="35%" r="78%">
-                        <stop offset="0%" stop-color="#30365f"/>
-                        <stop offset="55%" stop-color="#11162c"/>
-                        <stop offset="100%" stop-color="#070812"/>
-                    </radialGradient>
-                    <filter id="doorpiGenericGlow"><feGaussianBlur stdDeviation="${Math.round(Math.min(w, h) * 0.045)}"/></filter>
+                    <linearGradient id="doorpiGenericShade" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0%" stop-color="#202638"/>
+                        <stop offset="52%" stop-color="#121827"/>
+                        <stop offset="100%" stop-color="#090d17"/>
+                    </linearGradient>
                 </defs>
                 <rect width="${w}" height="${h}" fill="url(#doorpiGenericShade)"/>
-                <g transform="translate(${tx} ${ty}) scale(${scale})" opacity="0.16" filter="url(#doorpiGenericGlow)">${genericIcon}</g>
-                <g transform="translate(${tx} ${ty}) scale(${scale})" opacity="0.78">${genericIcon}</g>
-                <text x="${w / 2}" y="${textY}" text-anchor="middle" fill="#eef4ff" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="600">${fittedName}</text>
+                <path d="M${horizontalPadding} ${h * 0.5 + fitted.fontSize * 0.92}H${w - horizontalPadding}" stroke="#eef4ff" stroke-opacity="0.14" stroke-width="2"/>
+                <text x="${w / 2}" y="${h * 0.5}" dominant-baseline="middle" text-anchor="middle" fill="#eef4ff" font-family="Arial, sans-serif" font-size="${fitted.fontSize}" font-weight="650" letter-spacing="0.2">${fittedName}</text>
             </svg>`;
         };
 
         if (type === 'grid') {
             if (hasIcon) return makeSvg(iconSvg(600, 900, 190, 760, 34, 820, 42));
-            return makeSvg(genericSvg(600, 900, 0.82, 34, 820, 42));
+            return makeSvg(genericSvg(600, 900, 54, 32, 54));
 
         } else if (type === 'horizontal') {
             if (hasIcon) return makeSvg(iconSvg(920, 430, 150, 560, 28, 376, 46));
-            return makeSvg(genericSvg(920, 430, 0.38, 28, 376, 46));
+            return makeSvg(genericSvg(920, 430, 58, 34, 72));
 
         } else if (type === 'logo') {
             if (hasIcon) return makeSvg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 150"><image href="data:image/png;base64,${safeIcon}" x="0" y="18" width="112" height="112" preserveAspectRatio="xMidYMid meet"/></svg>`);
@@ -4376,17 +4416,27 @@
             else if (data.type === 'gameTrailerSelected') {
                 window._editTrailerBrowseResult?.(data.path || '');
             }
+            else if (data.type === 'gameUpdated') {
+                const gameId = data.gameId || '';
+                const patch = data.game || {};
+                if (gameId && window.AppStore) {
+                    applyFallbacks(patch);
+                    window.AppStore.mutations.patchItem('games', gameId, patch);
+                }
+            }
+            else if (data.type === 'mediaUpdated') {
+                const appId = data.appId || '';
+                const patch = data.app || {};
+                if (appId && window.AppStore) {
+                    applyFallbacks(patch);
+                    window.AppStore.mutations.patchItem('media', appId, patch);
+                }
+            }
             else if (data.type === 'gameTrailerUpdated') {
                 const gameId = data.gameId || '';
                 const source = data.source || '';
                 const trailerType = data.trailerType || '';
-                document.querySelectorAll('.card').forEach(candidate => {
-                    if ((candidate.dataset.gameId || candidate.dataset.id) !== gameId) return;
-                    candidate.dataset.trailerSource = source;
-                    candidate.dataset.trailerType = trailerType;
-                });
                 window.AppStore?.mutations?.patchItem?.('games', gameId, { trailerSource: source, trailerType });
-                window.stopHomeFeatureTrailer?.();
             }
             else if (data.type === 'gameTrailerUpdateFailed') {
                 console.error('[Trailer] Não foi possível salvar o trailer selecionado.');
@@ -4597,7 +4647,10 @@
                 const open = () => {
                     if (typeof openSetup === 'function') openSetup();
                 };
-                if (window.DoorpiIntro?.isRunning?.()) window.DoorpiIntro.runAfterIntro(open);
+                if (window.DoorpiIntro?.isRunning?.()) {
+                    window.DoorpiIntro.prepareSetupHandoff?.();
+                    window.DoorpiIntro.runAfterIntro(open);
+                }
                 else open();
             }
             else if (data.type === 'profilePhotoSelected') {
@@ -4704,6 +4757,7 @@
                 window._doorpiProfile = data.user;
                 window._doorpiCurrentUserId = nextUserId;
                 window._doorpiUserSessionReady = !!nextUserId;
+                window.setDoorpiSessionLocked?.(!window._doorpiUserSessionReady);
                 window._doorpiIsAdmin = !!data.isAdmin || !!(data.user?.IsAdmin || data.user?.isAdmin);
                 window._adminBlockedStoreIds = new Set(data.blockedStoreIds || []);
                 window._steamForceAccountSelection = !!data.steamForceAccountSelection;
@@ -4873,11 +4927,17 @@
                 window.setInlineScanStatus?.(false);
             }
             else if (data.type === 'usersList') {
+                // A lista de perfis já é uma tela interativa completa. Mantê-la
+                // sob o estado global de loading fazia o controle parecer travado
+                // até outro evento assíncrono liberar a navegação.
+                hideGlobalLoading();
+                window._doorpiIntroInputBlockUntil = 0;
                 window._doorpiUsers = data.users || [];
                 window._doorpiUserSessionReady = data.sessionActive === true;
                 window._doorpiCurrentUserId = window._doorpiUserSessionReady
                     ? (data.currentUserId || '')
                     : '';
+                window.setDoorpiSessionLocked?.(!window._doorpiUserSessionReady);
                 showUserPicker(data.users || [], !!data.requireSelection);
             }
             else if (data.type === 'closeNavMenu') {
@@ -4929,16 +4989,13 @@
                     }
                     else if (window._isPastingExtensionUrl || (document.getElementById('navExtUrlInput') && data.text.includes('chromewebstore'))) {
                         window._isPastingExtensionUrl = false;
-                        const input = document.getElementById('navExtUrlInput');
-                        if (input) {
-                            input.value = data.text.trim();
-                            const btnInstall = document.getElementById('navExtInstallBtn');
-                            if (btnInstall) {
-                                btnInstall.focus();
-                                // Força o foco devido ao delay do navegador que fecha após ler o clipboard
-                                setTimeout(() => { if (document.getElementById('navExtUrlInput')) btnInstall.focus(); }, 1900);
-                                setTimeout(() => { if (document.getElementById('navExtUrlInput')) btnInstall.focus(); }, 2300);
-                            }
+                        const candidate = data.extensionCandidate || { url: clipboardText };
+                        candidate.url = candidate.url || clipboardText;
+                        if (typeof window._showNavExtensionInstallCandidate === 'function') {
+                            window._showNavExtensionInstallCandidate(candidate);
+                        } else {
+                            const input = document.getElementById('navExtUrlInput');
+                            if (input) input.value = clipboardText;
                         }
                     }
                     // Configuração Inicial (Setup)
@@ -5167,8 +5224,13 @@
                 requestAnimationFrame(() => window.focusFeaturedCard?.());
             }
             else if (data.type === 'userSwitchStart') {
+                const hadInteractiveSession = window._doorpiUserSessionReady === true &&
+                    !!String(window._doorpiCurrentUserId || '').trim();
+                const transitionMode = data.mode === 'delete'
+                    ? 'delete'
+                    : (hadInteractiveSession && data.mode === 'switch' ? 'switch' : 'initial');
                 window._doorpiUserSessionReady = false;
-                _userSwitchFadeOut(data);
+                _userSwitchFadeOut({ ...data, mode: transitionMode });
             }
             else if (data.type === 'userSwitchComplete') {
                 _userSwitchFadeIn(data);
@@ -5566,13 +5628,13 @@
         min-width: 0;
         overflow-x: auto;
         overflow-y: hidden;
-        scroll-behavior: smooth;
+        scroll-behavior: auto;
 
         /* Reserva vertical para o leve aumento do item focado sem alterar o centro. */
         padding: 22px 15px;
         box-sizing: border-box;
 
-        scroll-snap-type: x mandatory;
+        scroll-snap-type: x proximity;
         scroll-padding-inline: 50%;
 
         scrollbar-width: none;
@@ -5614,7 +5676,7 @@
         outline: none;
         padding: 0;
         opacity: var(--doorpi-card-opacity, 0.42);
-        transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease;
+        transition: transform .2s cubic-bezier(0.22, 1, 0.36, 1), opacity .18s ease;
         position: relative;
         animation: doorpiCardRise 0.3s cubic-bezier(0.16, 1, 0.3, 1) backwards;
         will-change: transform;
@@ -5715,12 +5777,104 @@
         transform: rotate(90deg) scale(1.1);
     }
 
+    /* Seletor de perfil: cabeçalho editorial e mais identidades visíveis por linha. */
+    .doorpi-user-panel {
+        --doorpi-user-avatar-size: clamp(200px, min(14vw, 27vh), 280px);
+    }
+
+    .doorpi-user-main {
+        align-items: center;
+        justify-content: center;
+        gap: clamp(24px, 3.6vh, 48px);
+        padding-inline: clamp(28px, 5vw, 96px);
+        box-sizing: border-box;
+    }
+
+    .doorpi-user-panel .doorpi-panel-head {
+        width: 100%;
+        margin-inline: auto;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+    }
+
+    .doorpi-user-panel .doorpi-panel-title {
+        font-size: clamp(2.25rem, 3.45vw, 4.7rem);
+    }
+
+    .doorpi-user-panel .doorpi-panel-sub {
+        font-size: clamp(.92rem, 1.06vw, 1.3rem);
+    }
+
+    .doorpi-user-picker-layout {
+        --doorpi-user-gap: clamp(24px, 3vw, 48px);
+        --doorpi-user-edge-margin: clamp(72px, 7vw, 280px);
+        margin-top: 0;
+    }
+
+    .doorpi-user-scroll-area {
+        padding-block: 18px 24px;
+    }
+
+    .doorpi-user-card {
+        gap: clamp(18px, 1.9vw, 24px);
+        opacity: var(--doorpi-card-opacity, .58);
+    }
+
+    .doorpi-user-card:focus,
+    .doorpi-user-card:hover {
+        transform: translateY(-5px) scale(1.04);
+    }
+
+    .doorpi-user-name {
+        font-size: clamp(1rem, 1.14vw, 1.3rem);
+    }
+
+    .doorpi-user-card.create-card .doorpi-avatar {
+        transform: scale(.72);
+        background: rgba(255,255,255,.075);
+        border-color: rgba(255,255,255,.08);
+        transition: transform .2s cubic-bezier(.22,1,.36,1), border-color .2s, background .2s;
+    }
+
+    .doorpi-user-card.create-card:focus .doorpi-avatar,
+    .doorpi-user-card.create-card:hover .doorpi-avatar {
+        transform: scale(.8);
+        background: rgba(255,255,255,.12);
+    }
+
+    .doorpi-user-footer {
+        position: relative;
+        width: 100%;
+        max-width: none;
+        margin-inline: auto;
+        padding: 0 clamp(28px, 5vw, 96px) clamp(12px, 2vh, 28px);
+        box-sizing: border-box;
+        flex-direction: row;
+        justify-content: center;
+        align-items: center;
+    }
+
+    .doorpi-user-footer #doorpiCloseUsers {
+        position: absolute;
+        left: clamp(28px, 5vw, 96px);
+        bottom: clamp(12px, 2vh, 28px);
+    }
+
+    .doorpi-user-footer .doorpi-power-row {
+        margin: 0;
+    }
+
 
 
         @media(max-width: 760px) {
             .doorpi-manager-form, .doorpi-share-grid { grid-template-columns: 1fr; }
             .doorpi-user-overlay, .doorpi-manager-overlay { padding: 24px; }
             .doorpi-user-panel .doorpi-panel-title { font-size: 2.5rem; }
+            .doorpi-user-main { padding-inline: 18px; }
+            .doorpi-user-panel .doorpi-panel-head { align-items: center; text-align: center; }
+            .doorpi-user-footer { padding-inline: 18px; flex-direction: column; justify-content: center; }
+            .doorpi-user-footer #doorpiCloseUsers { position: static; }
         }
         `;
         document.head.appendChild(s);
@@ -6222,7 +6376,10 @@ function showUserPicker(users, requireSelection = false) {
         return;
     }
 
-    if (requireSelection) window._doorpiUserSessionReady = false;
+    if (requireSelection) {
+        window._doorpiUserSessionReady = false;
+        window.setDoorpiSessionLocked?.(true);
+    }
     const openedAt = performance.now();
     const blockInheritedActivationUntil = openedAt + 420;
     const blockStrayPointerReleaseUntil = openedAt + 1500;
@@ -6253,12 +6410,7 @@ function showUserPicker(users, requireSelection = false) {
                 if (isUserCard) {
                     e.preventDefault();
                     e.stopPropagation();
-                    const backBtn = overlay.querySelector('#doorpiCloseUsers');
-                    if (backBtn) {
-                        backBtn.focus();
-                    } else {
-                        overlay.querySelector('.doorpi-power-btn')?.focus();
-                    }
+                    overlay.querySelector('.doorpi-power-btn')?.focus();
                 } else if (isBackBtn) {
                     e.preventDefault();
                     e.stopPropagation();
@@ -6271,12 +6423,6 @@ function showUserPicker(users, requireSelection = false) {
                 if (isPowerBtn || isBackBtn) {
                     e.preventDefault();
                     e.stopPropagation();
-                    const backBtn = overlay.querySelector('#doorpiCloseUsers');
-
-                    if (isPowerBtn && backBtn) {
-                        backBtn.focus();
-                        return;
-                    }
 
                     const userCards = Array.from(overlay.querySelectorAll('.doorpi-user-card'));
                     if (userCards.length) {
@@ -6291,9 +6437,8 @@ function showUserPicker(users, requireSelection = false) {
                                 bestCard = c;
                             }
                         });
+                        overlay._doorpiUserCenterBehavior = 'smooth';
                         bestCard.focus({ preventScroll: true });
-                        // nearest faz rolar apenas o necessário para mostrar o card
-                        bestCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
                     }
                 }
             } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
@@ -6305,14 +6450,13 @@ function showUserPicker(users, requireSelection = false) {
                     const currentIndex = userCards.indexOf(isUserCard);
 
                     if (currentIndex !== -1) {
+                        overlay._doorpiUserCenterBehavior = 'smooth';
                         if (e.key === 'ArrowLeft') {
                             const prevIndex = currentIndex > 0 ? currentIndex - 1 : userCards.length - 1;
                             userCards[prevIndex].focus({ preventScroll: true });
-                            centerUserCard(userCards[prevIndex], 'smooth');
                         } else {
                             const nextIndex = currentIndex < userCards.length - 1 ? currentIndex + 1 : 0;
                             userCards[nextIndex].focus({ preventScroll: true });
-                            centerUserCard(userCards[nextIndex], 'smooth');
                         }
                     }
                 }
@@ -6455,6 +6599,13 @@ function showUserPicker(users, requireSelection = false) {
     window.dispatchEvent(new CustomEvent('doorpi:initial-ui-ready', { detail: { target: 'user-picker' } }));
     document.body.classList.add('user-picker-open');
 
+    // No retorno da criacao de perfil, o seletor deve estar composto antes de
+    // remover o setup. Assim nunca existe um frame intermediario com a Home.
+    if (window._doorpiSetupReturningToUserPicker === true) {
+        window._doorpiSetupReturningToUserPicker = false;
+        closeSetup?.({ force: true, skipHomeFocus: true });
+    }
+
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
 
     const hidePicker = (options = {}) => {
@@ -6467,14 +6618,57 @@ function showUserPicker(users, requireSelection = false) {
         }
     };
 
+    let userCenterRaf = 0;
+    let userCenterTargetLeft = null;
+    let userCenterLastFrameAt = 0;
     const centerUserCard = (card, behavior = 'smooth') => {
         const scrollArea = overlay.querySelector('.doorpi-user-scroll-area');
         if (!card || !scrollArea || !scrollArea.contains(card)) return;
         const cardRect = card.getBoundingClientRect();
         const areaRect = scrollArea.getBoundingClientRect();
-        const delta = (cardRect.left + cardRect.width / 2) - (areaRect.left + areaRect.width / 2);
-        if (Math.abs(delta) < 1) return;
-        scrollArea.scrollBy({ left: delta, behavior });
+        const centerDelta = (cardRect.left + cardRect.width / 2) - (areaRect.left + areaRect.width / 2);
+        const maxScrollLeft = Math.max(0, scrollArea.scrollWidth - scrollArea.clientWidth);
+        const targetLeft = Math.max(0, Math.min(maxScrollLeft, scrollArea.scrollLeft + centerDelta));
+        if (behavior !== 'smooth') {
+            cancelAnimationFrame(userCenterRaf);
+            userCenterRaf = 0;
+            userCenterTargetLeft = null;
+            userCenterLastFrameAt = 0;
+            scrollArea.scrollLeft = targetLeft;
+            return;
+        }
+
+        // Um único movimento acompanha o destino mais recente. Entradas rápidas
+        // atualizam o alvo sem cancelar o frame atual ou trocar para scroll seco.
+        userCenterTargetLeft = targetLeft;
+        if (userCenterRaf) return;
+        userCenterLastFrameAt = performance.now();
+        const animate = frameTime => {
+            const destination = userCenterTargetLeft;
+            if (destination === null) {
+                userCenterRaf = 0;
+                return;
+            }
+            const elapsed = Math.max(1, Math.min(34, frameTime - userCenterLastFrameAt));
+            userCenterLastFrameAt = frameTime;
+            const distance = destination - scrollArea.scrollLeft;
+            if (Math.abs(distance) <= 0.55) {
+                scrollArea.scrollLeft = destination;
+                userCenterTargetLeft = null;
+                userCenterRaf = 0;
+                return;
+            }
+            const follow = 1 - Math.exp(-elapsed / 58);
+            scrollArea.scrollLeft += distance * follow;
+            userCenterRaf = requestAnimationFrame(animate);
+        };
+        userCenterRaf = requestAnimationFrame(animate);
+    };
+
+    const takeUserCenterBehavior = () => {
+        const behavior = overlay._doorpiUserCenterBehavior || 'smooth';
+        overlay._doorpiUserCenterBehavior = '';
+        return behavior;
     };
 
     const updateUserCarouselState = (focusedCard) => {
@@ -6529,14 +6723,14 @@ function showUserPicker(users, requireSelection = false) {
         // Quando a navegação for feita pelo ponteiro (mouse/toque)
         btn.addEventListener('focus', () => {
             updateUserCarouselState(btn);
-            centerUserCard(btn, 'smooth');
+            centerUserCard(btn, takeUserCenterBehavior());
         });
     });
 
     const createUserCard = overlay.querySelector('#doorpiCreateUserCard');
     createUserCard?.addEventListener('focus', () => {
         updateUserCarouselState(createUserCard);
-        centerUserCard(createUserCard, 'smooth');
+        centerUserCard(createUserCard, takeUserCenterBehavior());
     });
     createUserCard?.addEventListener('click', (event) => {
         if (shouldBlockInheritedUserPickerActivation(event)) {
@@ -6590,7 +6784,7 @@ function showUserPicker(users, requireSelection = false) {
         let wifiStatus = null;
         let soundStatus = null;
         let section = null;
-        let updateView = 'hub';
+        let updateView = 'doorpi';
         let connectivityView = 'hub';
         let depth = 'menu';
         let bluetoothPatchTimer = 0;
@@ -6678,7 +6872,7 @@ function showUserPicker(users, requireSelection = false) {
                 .dq-menu-label { display:flex; align-items:center; gap:14px; min-width:0; font-size:1.02rem; font-weight:560; }
                 .dq-menu-ico { width:28px; height:28px; display:flex; align-items:center; justify-content:center; color:rgba(255,255,255,.84); flex:0 0 auto; }
                 .dq-menu-ico svg { width:26px; height:26px; stroke-width:1.85; }
-                .dq-dot { width:9px; height:9px; border-radius:50%; background:rgba(255,78,94,.86); box-shadow:0 0 6px rgba(255,78,94,.28); }
+                .dq-dot { width:3px; height:18px; border-radius:1px; background:rgba(255,255,255,.72); }
                 .dq-content {
                     flex: 1;
                     min-width: 0;
@@ -6730,24 +6924,44 @@ function showUserPicker(users, requireSelection = false) {
                 }
                 .dq-card h3 { margin:0; font-size:1.22rem; font-weight:650; line-height:1.2; }
                 .dq-card p { margin:7px 0 0; color:rgba(255,255,255,.58); line-height:1.38; max-width:32ch; }
-                .dq-pill { display:inline-flex; align-self:flex-start; padding:0 0 5px; border-radius:0; background:transparent; color:rgba(255,255,255,.72); box-shadow:inset 0 -1px 0 rgba(255,255,255,.34); font-size:.68rem; font-weight:760; letter-spacing:.10em; text-transform:uppercase; }
-                .dq-pill.warn { background:transparent; color:#ffd872; box-shadow:inset 0 -1px 0 rgba(255,216,114,.48); }
-                .dq-pill.err { background:transparent; color:#ff9696; box-shadow:inset 0 -1px 0 rgba(255,150,150,.48); }
-                .dq-panel { width:100%; max-width:880px; border:1px solid rgba(255,255,255,.14); border-radius:8px; background:rgba(255,255,255,.065); padding:20px; }
-                .dq-tabs { display:flex; gap:8px; margin:4px 0 2px; }
-                .dq-tab { min-width:132px; min-height:42px; border-radius:8px; border:1px solid rgba(255,255,255,.10); background:rgba(255,255,255,.035); color:rgba(255,255,255,.74); font:inherit; outline:none; cursor:pointer; }
-                .dq-tab.active { color:#fff; background:rgba(125,203,255,.10); border-color:rgba(125,203,255,.36); }
-                .dq-tab.nav-focused-el, .dq-tab:focus { border-color:#fff; background:rgba(255,255,255,.15); box-shadow:0 0 0 2px rgba(255,255,255,.16); }
+                .dq-pill { display:inline-flex; align-self:flex-start; padding:0 0 5px; border-radius:0; background:transparent; color:rgba(255,255,255,.58); box-shadow:inset 0 -1px 0 rgba(255,255,255,.24); font-size:.66rem; font-weight:750; letter-spacing:.11em; text-transform:uppercase; }
+                .dq-pill.warn { background:transparent; color:rgba(255,226,164,.78); box-shadow:inset 0 -1px 0 rgba(255,226,164,.32); }
+                .dq-pill.err { background:transparent; color:rgba(244,168,168,.82); box-shadow:inset 0 -1px 0 rgba(244,168,168,.32); }
+                .dq-panel { width:100%; max-width:1040px; border:1px solid rgba(255,255,255,.1); border-left:3px solid rgba(255,255,255,.52); border-radius:8px; background:linear-gradient(105deg,rgba(255,255,255,.06),rgba(255,255,255,.016) 78%); padding:clamp(20px,2vw,30px); }
+                .dq-tabs { display:flex; gap:26px; margin:4px 0 8px; border-bottom:1px solid rgba(255,255,255,.09); }
+                .dq-tab { min-height:44px; padding:0 2px; border:0; border-bottom:2px solid transparent; background:transparent; color:rgba(255,255,255,.48); font:inherit; font-weight:560; outline:none; cursor:pointer; }
+                .dq-tab.active { color:#fff; border-bottom-color:#fff; }
+                .dq-tab.nav-focused-el, .dq-tab:focus { color:#fff; border-bottom-color:#fff; text-shadow:0 0 14px rgba(255,255,255,.2); }
+                .dq-update-tabs { width:100%; max-width:1040px; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:0; margin:6px 0 4px; }
+                .dq-update-tabs .dq-tab { min-width:0; min-height:66px; padding:10px 16px 12px; display:flex; align-items:flex-start; justify-content:space-between; gap:12px; text-align:left; }
+                .dq-update-tabs .dq-tab strong { padding-top:3px; color:inherit; font-size:.94rem; font-weight:620; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+                .dq-update-tabs .dq-pill { flex:0 0 auto; max-width:48%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+                .dq-update-tabs .dq-tab.active { background:linear-gradient(180deg,rgba(255,255,255,.05),transparent); }
+                .dq-update-tabs .dq-tab.nav-focused-el, .dq-update-tabs .dq-tab:focus { background:rgba(255,255,255,.075); text-shadow:none; }
                 .dq-meta { display:flex; flex-wrap:wrap; gap:10px 18px; color:rgba(255,255,255,.55); font-size:.9rem; margin-top:10px; }
                 .dq-list { display:grid; gap:8px; margin-top:12px; }
                 .dq-update-row { display:flex; justify-content:space-between; gap:14px; padding:9px 0; border-top:1px solid rgba(255,255,255,.07); color:rgba(255,255,255,.72); }
+                .dq-release-notes { margin-top:16px; padding:0 16px 2px; border:1px solid rgba(255,255,255,.08); border-radius:7px; background:rgba(4,7,15,.16); }
+                .dq-release-head { min-height:46px; display:flex; align-items:center; background:linear-gradient(180deg,rgba(25,29,43,.99),rgba(20,24,36,.96)); color:rgba(255,255,255,.72); font-size:.7rem; font-weight:740; letter-spacing:.1em; text-transform:uppercase; }
+                .dq-release-entry { padding:13px 0 15px; border-top:1px solid rgba(255,255,255,.07); }
+                .dq-release-title { display:flex; align-items:baseline; gap:9px; color:#fff; font-size:.96rem; font-weight:630; }
+                .dq-release-version { color:rgba(255,255,255,.42); font-size:.75rem; font-weight:600; }
+                .dq-release-entry ul { display:grid; gap:7px; margin:9px 0 0; padding-left:19px; color:rgba(255,255,255,.64); font-size:.86rem; line-height:1.44; }
                 .dq-update-progress { display:grid; gap:7px; padding:10px 0; border-top:1px solid rgba(255,255,255,.07); }
                 .dq-update-progress-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; color:rgba(255,255,255,.74); }
                 .dq-update-progress-title { min-width:0; line-height:1.35; }
                 .dq-update-progress-state { flex:0 0 auto; color:rgba(255,255,255,.52); font-size:.82rem; }
                 .dq-update-progress-state.restart { color:#ffd872; }
                 .dq-progress-track { height:4px; overflow:hidden; border-radius:2px; background:rgba(255,255,255,.10); }
-                .dq-progress-fill { height:100%; width:var(--progress); background:#7dcbff; transition:width .18s linear; }
+                .dq-progress-fill { height:100%; width:var(--progress); background:rgba(255,255,255,.72); transition:width .18s linear; }
+                .dq-update-directory { display:grid; gap:3px; width:min(100%,860px); margin-top:12px; }
+                .dq-update-entry { min-height:76px; padding:11px 15px; display:grid; grid-template-columns:minmax(0,1fr) auto 18px; align-items:center; gap:16px; border:1px solid transparent; border-radius:7px; background:transparent; }
+                .dq-update-entry::after { content:'›'; color:rgba(255,255,255,.28); font-size:1.25rem; }
+                .dq-update-entry > div { min-width:0; }
+                .dq-update-entry h3 { font-size:1rem; font-weight:580; }
+                .dq-update-entry p { max-width:none; margin-top:4px; font-size:.8rem; }
+                .dq-update-entry .dq-pill { justify-self:end; }
+                .dq-update-entry.nav-focused-el,.dq-update-entry:focus { transform:translateX(6px); background:rgba(255,255,255,.11); border-color:rgba(255,255,255,.7); }
                 .dq-actions { display:grid; grid-template-columns: repeat(2, minmax(210px, 1fr)); gap:12px; width:100%; max-width:740px; margin-top:6px; }
                 .dq-power-list { display: flex; flex-direction: column; gap: 12px; width:100%; max-width: 540px; margin-top: 12px; }
                 .dq-power-list .dq-action { width: 100%; justify-content: flex-start; gap: 18px; min-height: 64px; font-size: 1.05rem; }
@@ -6809,7 +7023,7 @@ function showUserPicker(users, requireSelection = false) {
                     box-shadow:inset 0 1px 0 rgba(255,255,255,.06), 0 18px 28px rgba(0,0,0,.16);
                 }
                 .dq-app-art img { width:min(72%, 108px); height:min(72%, 108px); object-fit:contain; filter:drop-shadow(0 14px 28px rgba(0,0,0,.34)); }
-                .dq-app-cover { width:100%; height:100%; background-size:contain; background-repeat:no-repeat; background-position:center; filter:drop-shadow(0 14px 24px rgba(90,180,255,.18)); transform:scale(1.03); }
+                .dq-app-cover { width:100%; height:100%; background-size:contain; background-repeat:no-repeat; background-position:center; filter:drop-shadow(0 14px 24px rgba(0,0,0,.24)); transform:scale(1.03); }
                 .dq-app-fallback { width:58px; height:58px; border-radius:16px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,.14); font-weight:800; letter-spacing:.04em; }
                 .dq-app-copy { display:grid; gap:6px; align-content:start; }
                 .dq-app-name { font-size:1rem; font-weight:650; line-height:1.24; overflow:hidden; }
@@ -6817,10 +7031,10 @@ function showUserPicker(users, requireSelection = false) {
                 .dq-app-add { border-style:dashed; }
                 .dq-app-add .dq-app-art { background:none; box-shadow:none; min-height:132px; }
                 .dq-app-add .dq-app-fallback { width:62px; height:62px; background:#fff; color:#0d1018; box-shadow:0 12px 28px rgba(255,255,255,.18); }
-                .dq-gpu-guidance { max-width:880px; display:grid; gap:8px; padding-left:14px; border-left:2px solid rgba(125,203,255,.48); }
+                .dq-gpu-guidance { max-width:1040px; display:grid; gap:8px; padding-left:14px; border-left:2px solid rgba(255,255,255,.38); }
                 .dq-gpu-guidance p { margin:0; color:rgba(255,255,255,.56); font-size:.86rem; line-height:1.42; }
                 .dq-gpu-guidance strong { color:rgba(255,255,255,.84); font-weight:650; }
-                .dq-windows-guidance { max-width:880px; padding-left:14px; border-left:2px solid rgba(125,203,255,.48); }
+                .dq-windows-guidance { max-width:1040px; padding-left:14px; border-left:2px solid rgba(255,255,255,.38); }
                 .dq-windows-guidance p { margin:0; color:rgba(255,255,255,.58); font-size:.86rem; line-height:1.42; }
                 .dq-windows-guidance strong { color:rgba(255,255,255,.86); font-weight:650; }
                 @media (min-width: 3000px) and (min-height: 1600px) {
@@ -6835,6 +7049,7 @@ function showUserPicker(users, requireSelection = false) {
                     .dq-sub { max-width:900px; }
                     .dq-grid { grid-template-columns:repeat(3,minmax(320px,1fr)); gap:22px; max-width:1240px; }
                     .dq-card { min-height:224px; padding:28px; gap:28px; }
+                    .dq-update-entry { min-height:92px; padding:14px 18px; gap:18px; }
                     .dq-action, .dq-power-list .dq-action { min-height:80px; padding:0 24px; font-size:1.2rem; }
                     .dq-panel, .dq-app-grid, .dq-gpu-guidance, .dq-windows-guidance { max-width:1100px; }
                     .dq-actions { max-width:920px; gap:16px; }
@@ -6863,6 +7078,7 @@ function showUserPicker(users, requireSelection = false) {
                     .dq-sub { font-size:.88rem; line-height:1.38; }
                     .dq-grid { grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; }
                     .dq-card { min-height:132px; padding:16px; gap:14px; }
+                    .dq-update-entry { min-height:62px; padding:8px 12px; gap:12px; }
                     .dq-card h3 { font-size:1rem; }
                     .dq-card p { font-size:.78rem; line-height:1.3; }
                     .dq-panel { padding:14px; }
@@ -7047,41 +7263,66 @@ function showUserPicker(users, requireSelection = false) {
                     <div class="dq-kicker">${t('quickPanel')}</div>
                     <h1 class="dq-heading">${t('updatesTitle')}</h1>
                     <p class="dq-sub">${t('quickUpdatesDesc')}</p>
-                    <div class="dq-grid">
-                        <button class="dq-card" data-update-view="doorpi" tabindex="0">
-                            ${statusPill('doorpi', doorpiStatus)}
+                    <div class="dq-update-directory">
+                        <button class="dq-card dq-update-entry" data-update-view="doorpi" tabindex="0">
                             <div><h3>Doorpi</h3><p>${t('quickDoorpiDesc')}</p></div>
+                            ${statusPill('doorpi', doorpiStatus)}
                         </button>
-                        <button class="dq-card" data-update-view="windows" tabindex="0">
-                            ${statusPill('windows', windowsStatus)}
+                        <button class="dq-card dq-update-entry" data-update-view="windows" tabindex="0">
                             <div><h3>Windows</h3><p>${t('quickWindowsDesc')}</p></div>
+                            ${statusPill('windows', windowsStatus)}
                         </button>
-                        <button class="dq-card" data-update-view="gpu" tabindex="0">
-                            ${statusPill('gpu', gpuStatus)}
+                        <button class="dq-card dq-update-entry" data-update-view="gpu" tabindex="0">
                             <div><h3>${t('videoCardTitle')}</h3><p>${t('quickGpuDesc')}</p></div>
+                            ${statusPill('gpu', gpuStatus)}
                         </button>
                     </div>
                 </section>
             `;
         }
 
+        function updateTabsMarkup(activeView) {
+            const tabs = [
+                ['doorpi', 'Doorpi', doorpiStatus],
+                ['windows', 'Windows', windowsStatus],
+                ['gpu', t('videoCardTitle'), gpuStatus]
+            ];
+            return `<div class="dq-tabs dq-update-tabs" role="tablist" aria-label="${t('updatesTitle')}">
+                ${tabs.map(([id, label, status]) => `
+                    <button class="dq-tab ${activeView === id ? 'active' : ''}" data-update-view="${id}" tabindex="0" role="tab" aria-selected="${activeView === id}">
+                        <strong>${esc(label)}</strong>${statusPill(id, status)}
+                    </button>`).join('')}
+            </div>`;
+        }
+
+        function doorpiReleaseNotes(status) {
+            const entries = Array.isArray(status?.changelog) ? status.changelog : [];
+            const markup = entries
+                .filter(entry => entry && (entry.title || entry.version || (entry.items || []).length))
+                .slice(0, 2)
+                .map(entry => {
+                    const items = Array.isArray(entry.items) ? entry.items.slice(0, 6) : [];
+                    return `<article class="dq-release-entry">
+                        <div class="dq-release-title"><span>${esc(entry.title || 'Doorpi')}</span>${entry.version ? `<span class="dq-release-version">${esc(entry.version)}</span>` : ''}</div>
+                        ${items.length ? `<ul>${items.map(item => `<li>${esc(item)}</li>`).join('')}</ul>` : ''}
+                    </article>`;
+                }).join('');
+            return `<div class="dq-release-notes">
+                <div class="dq-release-head">${t('sysUpdateReleaseNotes')}</div>
+                ${markup || `<div class="dq-release-entry"><span>${t('quickNoReleaseNotes')}</span></div>`}
+            </div>`;
+        }
+
         function doorpiDetail() {
             const s = doorpiStatus || {};
             const hasUpdate = !!(s.doorpiUpdateAvailable || s.updaterUpdateAvailable);
             const active = s.status === 'checking' || s.status === 'downloading' || s.status === 'installing';
-            const changelog = Array.isArray(s.changelog) && s.changelog[0]?.items
-                ? s.changelog[0].items.slice(0, 4)
-                : [];
             return `
                 <section class="dq-content">
                     <div class="dq-kicker">${t('updatesTitle')}</div>
                     <h1 class="dq-heading">Doorpi</h1>
                     <p class="dq-sub">${esc(s.message || t('sysUpdateIdle'))}</p>
-                    <div class="dq-tabs">
-                        <button class="dq-tab active" data-update-view="doorpi" tabindex="0">Doorpi</button>
-                        <button class="dq-tab" data-update-view="windows" tabindex="0">Windows</button>
-                        <button class="dq-tab" data-update-view="gpu" tabindex="0">${t('videoCardTitle')}</button>
-                    </div>
+                    ${updateTabsMarkup('doorpi')}
                     <div class="dq-panel">
                         ${statusPill('doorpi', s)}
                         <div class="dq-meta">
@@ -7089,9 +7330,7 @@ function showUserPicker(users, requireSelection = false) {
                             <span>Updater ${esc(s.localUpdaterVersion || '--')}${s.remoteUpdaterVersion ? ' -> ' + esc(s.remoteUpdaterVersion) : ''}</span>
                             <span>${t('windowsUpdateLastCheck', dateText(s.lastCheckedAt))}</span>
                         </div>
-                        <div class="dq-list">
-                            ${changelog.length ? changelog.map(item => `<div class="dq-update-row"><span>${esc(item)}</span></div>`).join('') : `<div class="dq-update-row"><span>${t('quickNoReleaseNotes')}</span></div>`}
-                        </div>
+                        ${doorpiReleaseNotes(s)}
                     </div>
                     <div class="dq-actions">
                         <button class="dq-action" data-action="check-doorpi" tabindex="0" ${active ? 'data-busy="true"' : ''}><span class="dq-action-label">${active ? t('quickChecking') : t('checkDoorpi')}</span><span class="dq-action-ico">${iconSvg('refresh', active ? 'dq-spin' : '')}</span></button>
@@ -7111,11 +7350,7 @@ function showUserPicker(users, requireSelection = false) {
                     <div class="dq-kicker">${t('updatesTitle')}</div>
                     <h1 class="dq-heading">Windows</h1>
                     <p class="dq-sub">${esc(s.message || t('windowsUpdateIdle'))}</p>
-                    <div class="dq-tabs">
-                        <button class="dq-tab" data-update-view="doorpi" tabindex="0">Doorpi</button>
-                        <button class="dq-tab active" data-update-view="windows" tabindex="0">Windows</button>
-                        <button class="dq-tab" data-update-view="gpu" tabindex="0">${t('videoCardTitle')}</button>
-                    </div>
+                    ${updateTabsMarkup('windows')}
                     <div class="dq-panel">
                         ${statusPill('windows', s)}
                         <div class="dq-meta">
@@ -7168,11 +7403,7 @@ function showUserPicker(users, requireSelection = false) {
                     <div class="dq-kicker">${t('updatesTitle')}</div>
                     <h1 class="dq-heading">${t('videoCardTitle')}</h1>
                     <p class="dq-sub">${esc(s.message || t('quickGpuIdle'))}</p>
-                    <div class="dq-tabs">
-                        <button class="dq-tab" data-update-view="doorpi" tabindex="0">Doorpi</button>
-                        <button class="dq-tab" data-update-view="windows" tabindex="0">Windows</button>
-                        <button class="dq-tab active" data-update-view="gpu" tabindex="0">${t('videoCardTitle')}</button>
-                    </div>
+                    ${updateTabsMarkup('gpu')}
                     <div class="dq-panel">
                         ${statusPill('gpu', s)}
                         <div class="dq-meta">
@@ -7324,7 +7555,8 @@ function showUserPicker(users, requireSelection = false) {
                 if (updateView === 'doorpi') return doorpiDetail();
                 if (updateView === 'windows') return windowsDetail();
                 if (updateView === 'gpu') return gpuDetail();
-                return updatesHub();
+                updateView = 'doorpi';
+                return doorpiDetail();
             }
             if (section === 'users') return simpleContent(t('navChangeUser'), t('quickSwitchUserDesc'), t('navChangeUser'), 'open-users');
             if (section === 'sound') return soundContent();
@@ -7404,7 +7636,7 @@ function showUserPicker(users, requireSelection = false) {
                 return;
             }
             if (section === 'connectivity' && !sameSection) connectivityView = 'hub';
-            if (section === 'updates' && !sameSection) updateView = 'hub';
+            if (section === 'updates' && !sameSection) updateView = 'doorpi';
             if (section === 'sound') postToHost?.({ action: 'requestSoundStatus' });
             depth = 'content';
             if (sameSection && depth === 'content') {
@@ -7662,12 +7894,15 @@ function showUserPicker(users, requireSelection = false) {
             });
         }
 
-        function open() {
+        function open(initialSection = null) {
             if (!canOpen()) return;
-            section = null;
-            updateView = 'hub';
+            const requestedSection = ['updates', 'sound', 'connectivity', 'power'].includes(initialSection)
+                ? initialSection
+                : null;
+            section = requestedSection;
+            updateView = 'doorpi';
             connectivityView = 'hub';
-            depth = 'menu';
+            depth = requestedSection ? 'content' : 'menu';
             const overlay = ensure();
             overlay.classList.remove('has-opened');
             overlay.classList.add('visible');
@@ -7678,13 +7913,13 @@ function showUserPicker(users, requireSelection = false) {
             postToHost?.({ action: 'requestWindowsUpdateStatus' });
             postToHost?.({ action: 'requestGpuUpdateStatus' });
             postToHost?.({ action: 'requestSoundStatus' });
-            render('.dq-menu-btn');
+            render(requestedSection ? contentFocusFor(requestedSection) : '.dq-menu-btn');
         }
 
         function openMenu() {
             if (!canOpen()) return;
             section = null;
-            updateView = 'hub';
+            updateView = 'doorpi';
             connectivityView = 'hub';
             depth = 'menu';
             const overlay = ensure();
@@ -7745,18 +7980,12 @@ function showUserPicker(users, requireSelection = false) {
                 render('.dq-card');
                 return true;
             }
-            if (section === 'updates' && updateView !== 'hub') {
-                updateView = 'hub';
-                depth = 'content';
-                render('.dq-card');
-                return true;
-            }
             if (depth === 'content') {
                 depth = 'menu';
                 const focusSelector = section ? `.dq-menu-btn[data-section="${section}"]` : '.dq-menu-btn';
                 if (section === 'sound') window.DoorpiSoundUI?.closeDrawer?.('quick');
                 section = null;
-                updateView = 'hub';
+                updateView = 'doorpi';
                 render(focusSelector);
                 return true;
             }
@@ -10015,7 +10244,8 @@ function renderFolderList(folders) {
             font-weight: 500; font-family: inherit;
             display: flex; align-items: center; justify-content: center;
             cursor: pointer;
-            transition: background 0.07s, transform 0.07s, border-color 0.07s, color 0.07s, box-shadow 0.07s;
+            contain: layout paint style;
+            transition: background-color 0.05s, border-color 0.05s, color 0.05s;
             outline: none;
             min-width: 0;
             box-sizing: border-box;
@@ -10026,12 +10256,12 @@ function renderFolderList(folders) {
             color: #080810;
             border-color: transparent;
             border-bottom-color: rgba(0,0,0,0.25);
-            transform: scale(1.1) translateY(-3px);
-            box-shadow: 0 8px 24px rgba(0,0,0,0.55), 0 0 0 2px rgba(255,255,255,0.35);
+            outline: 2px solid rgba(255,255,255,0.72);
+            outline-offset: 1px;
             z-index: 1;
             position: relative;
         }
-        .vkb-key:active { transform: scale(0.96) translateY(0); box-shadow: none; }
+        .vkb-key:active { background: rgba(255,255,255,0.82); }
 
         .vkb-key[data-key="space"] {
             grid-column: span 5;
@@ -10063,7 +10293,7 @@ function renderFolderList(folders) {
         .vkb-key[data-key="ok"]:focus {
             background: rgb(50,110,255); color: #fff;
             border-color: transparent;
-            box-shadow: 0 8px 28px rgba(50,110,255,0.55), 0 0 0 2px rgba(50,110,255,0.4);
+            outline-color: rgba(115,165,255,0.9);
         }
         .vkb-overlay.numeric .vkb-key[data-key="cancel"],
         .vkb-overlay.numeric .vkb-key[data-key="ok"] {
@@ -10091,8 +10321,9 @@ function renderFolderList(folders) {
                 linear-gradient(135deg, rgba(36,40,60,0.96), rgba(17,20,34,0.94));
             border: 1px solid rgba(255,255,255,0.17);
             border-radius: clamp(14px, 1.1vw, 20px);
-            box-shadow: 0 26px 84px rgba(0,0,0,0.52), inset 0 1px 0 rgba(255,255,255,0.10);
-            backdrop-filter: blur(22px) saturate(1.25);
+            box-shadow: 0 18px 42px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.10);
+            contain: layout paint style;
+            isolation: isolate;
             opacity: 0;
             transform: translate(-50%, 10px) scale(0.985);
             transition: opacity 0.16s ease, transform 0.16s ease;
@@ -10117,7 +10348,7 @@ function renderFolderList(folders) {
             border-bottom-width: 0;
             font-size: clamp(12px, 0.95vw, 17px);
         }
-        .vkb-key:focus { transform: scale(1.06) translateY(-2px); }
+        .vkb-key:focus { transform: none; }
         .vkb-key-label { pointer-events: none; white-space: nowrap; }
         .vkb-pad-icon {
             position: absolute; top: 4px; right: 5px;
@@ -10145,7 +10376,8 @@ function renderFolderList(folders) {
         }
         .vkb-key[data-key="ENTER"]:focus {
             background: rgb(50,110,255); color: #fff; border-color: transparent;
-            box-shadow: 0 8px 28px rgba(50,110,255,0.55), 0 0 0 2px rgba(50,110,255,0.4);
+            box-shadow: none;
+            outline-color: rgba(115,165,255,0.9);
         }
         .vkb-key[data-key="BKSP"] { color: rgba(255,110,110,0.85); font-size: clamp(11px, 0.85vw, 15px); }
         .vkb-key[data-key="BKSP"]:focus { color: #b00; }
@@ -12707,13 +12939,16 @@ function renderFolderList(folders) {
         const focused = document.activeElement;
         const isCard = focused?.classList?.contains('card');
         const isInGrid = focused?.closest('#gameGrid');
+        const keepPreparedHomeVisual = window.DoorpiFirstRunTutorial?.isOpen?.() === true
+            || window._userSwitching === true
+            || document.body.classList.contains('doorpi-session-transition');
 
         const isNavMenuActive =
             document.body.classList.contains('nav-menu-active') ||
             document.body.classList.contains('nav-menu-closing') ||
             window.isNavMenuOpen;
 
-        if (!isCard && !isInGrid && !isNavMenuActive) {
+        if (!isCard && !isInGrid && !isNavMenuActive && !keepPreparedHomeVisual) {
             window._heroCleanupTimer = setTimeout(() => {
                 const bgBlur = document.getElementById('bgBlur');
                 const heroImg = document.getElementById('heroImage');
@@ -12801,6 +13036,15 @@ function renderFolderList(folders) {
             await _delay(60);
         }
 
+        // Prepara o primeiro hero ainda atrás da tela "Entrando". Assim, quando
+        // ela desaparecer, a Home já possui card, banner e fundo decodificados.
+        _focusDoorpiInteractiveTarget();
+        await _delay(100);
+        await Promise.all([
+            _waitImageReady(document.getElementById('bgBlur')),
+            _waitImageReady(document.getElementById('heroImage')),
+            _waitImageReady(document.getElementById('gridBgImg'))
+        ]);
         await _afterFrames(2);
     }
 
@@ -13532,6 +13776,7 @@ function renderFolderList(folders) {
         const artBox = document.getElementById('gameArtBox');
         const nameEl = document.getElementById('overlayGameName');
         const statusEl = document.getElementById('overlayStatusText');
+        const contextEl = document.getElementById('overlayLaunchContext');
         const errTitle = document.getElementById('overlayErrorTitle');
         const errSub = document.getElementById('overlayErrorSub');
 
@@ -13540,18 +13785,17 @@ function renderFolderList(folders) {
             const s = document.createElement('style');
             s.textContent = `
                 #overlayCancelLaunchBtn {
-                    background: rgba(255, 255, 255, 0.05);
-                    border: 1px solid rgba(255, 255, 255, 0.12);
-                    border-bottom: 3px solid rgba(0,0,0,0.3);
-                    border-radius: 12px;
-                    color: rgba(255, 255, 255, 0.65);
+                    background: rgba(255, 255, 255, 0.11);
+                    border: 1px solid rgba(255, 255, 255, 0.28);
+                    border-radius: 9px;
+                    color: rgba(255, 255, 255, 0.9);
                     font-family: inherit;
                     font-size: clamp(0.85rem, 1vw, 1.05rem);
                     font-weight: 600;
                     padding: 12px 28px;
                     cursor: pointer;
                     outline: none;
-                    transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+                    transition: transform 0.18s ease, background 0.18s ease, color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
                     display: inline-flex;
                     align-items: center;
                     justify-content: center;
@@ -13562,10 +13806,10 @@ function renderFolderList(folders) {
                 #overlayCancelLaunchBtn:focus,
                 #overlayCancelLaunchBtn:hover {
                     background: #ffffff;
-                    color: #07071a;
+                    color: #16202e;
                     border-color: #ffffff;
-                    transform: scale(1.05) translateY(-2px);
-                    box-shadow: 0 10px 24px rgba(255, 255, 255, 0.2), 0 0 0 2px rgba(255, 255, 255, 0.1);
+                    transform: translateY(-2px);
+                    box-shadow: 0 10px 28px rgba(4, 8, 15, 0.28);
                 }
                 /* O botÃ£o focado Ã© branco; mantÃ©m o A legÃ­vel sem voltar para
                    a paleta colorida antiga. */
@@ -13577,7 +13821,7 @@ function renderFolderList(folders) {
                     box-shadow: none !important;
                 }
                 #overlayCancelLaunchBtn:active {
-                    transform: scale(0.98) translateY(0);
+                    transform: translateY(0);
                     box-shadow: none;
                 }
                 #gameLaunchOverlay.execution-lock-visible #overlayCancelLaunchBtn,
@@ -13721,9 +13965,9 @@ function renderFolderList(folders) {
                 postToHost({ action: 'cancelGameLaunch' });
             });
 
-            const statusContainer = statusEl?.parentElement;
-            if (statusContainer) {
-                statusContainer.appendChild(cancelBtn);
+            const actionContainer = document.getElementById('launchActions') || statusEl?.parentElement;
+            if (actionContainer) {
+                actionContainer.appendChild(cancelBtn);
             }
         }
 
@@ -13850,7 +14094,21 @@ function renderFolderList(folders) {
             cancel: t('launchCancelBtn'),
             returningStore: t('launchReturningStore') || t('launchWaitingStore') || t('launchWaiting'),
             closingStore: t('launchClosingStore') || t('launchWaitingStore') || t('launchWaiting'),
+            kindGame: t('launchKindGame'),
+            kindApp: t('launchKindApp'),
+            kindStore: t('launchKindStore'),
         });
+
+        function setLaunchContext(kind = 'game') {
+            const text = getI18n();
+            const normalizedKind = kind === 'store' ? 'store' : (kind === 'app' ? 'app' : 'game');
+            overlay.dataset.launchKind = normalizedKind;
+            if (contextEl) {
+                contextEl.textContent = normalizedKind === 'store'
+                    ? text.kindStore
+                    : (normalizedKind === 'app' ? text.kindApp : text.kindGame);
+            }
+        }
 
         function getWaitingText(text, launchKind) {
             if (launchKind === 'store') return text.waitingStore;
@@ -13900,6 +14158,7 @@ function renderFolderList(folders) {
             // Ao iniciar fluxo de launch/loading, sempre sai do modo execution-lock.
             hideExecutionLock();
             clearSessionPair();
+            setLaunchContext(launchKind);
 
             if (bg) bg.style.backgroundImage = heroImage ? `url('${heroImage}')` : 'none';
             setArt(gridImage);
@@ -13945,6 +14204,7 @@ function renderFolderList(folders) {
 
             hideExecutionLock();
             clearSessionPair();
+            setLaunchContext('store');
             if (overlay._waitTimer) clearTimeout(overlay._waitTimer);
 
             if (bg) bg.style.backgroundImage = data.heroImage ? `url('${data.heroImage}')` : 'none';
@@ -13965,6 +14225,7 @@ function renderFolderList(folders) {
             }
             clearExecutionLockFocusTimers();
             clearSessionPair();
+            setLaunchContext('app');
             overlay.classList.remove('execution-lock-visible', 'store-transition-visible', 'store-install-lock');
             overlay.dataset.executionLockKey = '';
 
@@ -14050,6 +14311,10 @@ function renderFolderList(folders) {
 
             const isStoreInstallLock = data.kind === 'storeInstall' || data.appType === 'storeInstall';
             const isGpuUpdaterLock = data.kind === 'gpuUpdater' || data.appType === 'gpuUpdater';
+            const executionKind = isStoreInstallLock || data.kind === 'store' || data.channel === 'stores'
+                ? 'store'
+                : (data.kind === 'game' || data.channel === 'games' ? 'game' : 'app');
+            setLaunchContext(executionKind);
             const nextContextKey = `${data.kind || ''}|${data.channel || ''}|${data.id || ''}|${data.url || ''}`;
             const currentContextKey = overlay.dataset.executionLockKey || '';
             const isAlreadyVisible =

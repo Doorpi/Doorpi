@@ -285,8 +285,12 @@ window.AppStore = (() => {
                 return key == null ? undefined : (patch[key] ?? '');
             };
             if (patch.name || patch.Name) normalizedPatch.name = patch.name || patch.Name;
-            if (hasOwn('staticVertical') || hasOwn('GridStaticImage')) normalizedPatch.staticVertical = firstPresent('staticVertical', 'GridStaticImage');
-            if (hasOwn('staticHorizontal') || hasOwn('GridHorizontalStaticImage')) normalizedPatch.staticHorizontal = firstPresent('staticHorizontal', 'GridHorizontalStaticImage');
+            if (hasOwn('staticVertical') || hasOwn('staticImageData') || hasOwn('GridStaticImage')) {
+                normalizedPatch.staticVertical = firstPresent('staticVertical', 'staticImageData', 'GridStaticImage');
+            }
+            if (hasOwn('staticHorizontal') || hasOwn('staticHorizontalImage') || hasOwn('GridHorizontalStaticImage')) {
+                normalizedPatch.staticHorizontal = firstPresent('staticHorizontal', 'staticHorizontalImage', 'GridHorizontalStaticImage');
+            }
             if (hasOwn('staticHero') || hasOwn('HeroStaticImage')) normalizedPatch.staticHero = firstPresent('staticHero', 'HeroStaticImage');
             if (hasOwn('staticLogo') || hasOwn('LogoStaticImage')) normalizedPatch.staticLogo = firstPresent('staticLogo', 'LogoStaticImage');
             if (hasOwn('vertical') || hasOwn('imageData') || hasOwn('GridImage')) normalizedPatch.vertical = firstPresent('vertical', 'imageData', 'GridImage');
@@ -297,6 +301,13 @@ window.AppStore = (() => {
             if (patch.assetQuery || patch.AssetQuery) normalizedPatch.assetQuery = patch.assetQuery || patch.AssetQuery;
             if (patch.url || patch.Url) normalizedPatch.url = patch.url || patch.Url;
             if (patch.launchCommand || patch.LaunchCommand) normalizedPatch.launchCommand = patch.launchCommand || patch.LaunchCommand;
+            if (hasOwn('trailerSource') || hasOwn('TrailerSource')) normalizedPatch.trailerSource = firstPresent('trailerSource', 'TrailerSource');
+            if (hasOwn('trailerType') || hasOwn('TrailerType')) normalizedPatch.trailerType = firstPresent('trailerType', 'TrailerType');
+            if (hasOwn('totalPlaytimeMinutes') || hasOwn('TotalPlaytimeMinutes')) normalizedPatch.totalPlaytimeMinutes = Number(firstPresent('totalPlaytimeMinutes', 'TotalPlaytimeMinutes')) || 0;
+            if (hasOwn('lastSessionMinutes') || hasOwn('LastSessionMinutes')) normalizedPatch.lastSessionMinutes = Number(firstPresent('lastSessionMinutes', 'LastSessionMinutes')) || 0;
+            if (hasOwn('lastPlayed') || hasOwn('LastPlayed')) normalizedPatch.lastPlayed = firstPresent('lastPlayed', 'LastPlayed');
+            if (hasOwn('hasBeenPlayed') || hasOwn('HasBeenPlayed')) normalizedPatch.hasBeenPlayed = !!firstPresent('hasBeenPlayed', 'HasBeenPlayed');
+            if (hasOwn('isAnimated') || hasOwn('IsAnimated')) normalizedPatch.isAnimated = !!firstPresent('isAnimated', 'IsAnimated');
             if (patch.disableGamepadControl != null || patch.DisableGamepadControl != null) normalizedPatch.disableGamepadControl = patch.disableGamepadControl ?? patch.DisableGamepadControl;
             if (patch.isAdminLocked != null || patch.IsAdminLocked != null) normalizedPatch.isAdminLocked = patch.isAdminLocked ?? patch.IsAdminLocked;
             if (patch.adminStoreBlocked != null || patch.AdminStoreBlocked != null) normalizedPatch.adminStoreBlocked = patch.adminStoreBlocked ?? patch.AdminStoreBlocked;

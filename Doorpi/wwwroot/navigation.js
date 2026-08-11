@@ -1468,7 +1468,7 @@ document.addEventListener('keydown', e => {
             const cancelBtn = document.getElementById('btnSetupCancel');
             if (backToAuth?.classList.contains('visible') && typeof setupBack === 'function') setupBack();
             else if (cancelBtn && cancelBtn.style.display !== 'none') cancelBtn.click();
-            else if (typeof setupBack === 'function') setupBack();
+            else if (typeof setupBack === 'function') setupBack(); // setup obrigatorio consome o retorno sem fechar
             return;
         }
         if (isCtxMenuOpen) { closeCtxMenu(); return; }
@@ -1731,6 +1731,11 @@ window.requestDoorpiBackAction = function () {
             cancelBtn.click();
             window.DoorpiUiSound?.play('back');
             return true;
+        }
+        if (typeof setupBack === 'function') {
+            const handled = setupBack() !== false;
+            if (handled) window.DoorpiUiSound?.play('back');
+            return handled;
         }
         return false;
     }
@@ -2343,17 +2348,21 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         }
 
         if (isVkbOpenForNavigation()) {
-            if (dir && dir !== _currentDirection) {
-                _currentDirection = dir;
+            // O D-pad já chega como pulsos Arrow* pelo navegador nativo. Ler os
+            // mesmos botões novamente pelo Gamepad API fazia cada direção andar
+            // duas vezes. Este loop fica responsável somente pelo analógico.
+            const vkbAnalogDir = axisDirection(gamepad, thr);
+            if (vkbAnalogDir && vkbAnalogDir !== _currentDirection) {
+                _currentDirection = vkbAnalogDir;
                 _controlsDirectionStartedAt = now;
                 _controlsDirectionLastMoveAt = now;
-                moveFocus(dir);
-            } else if (dir &&
+                moveFocus(vkbAnalogDir);
+            } else if (vkbAnalogDir &&
                        now - _controlsDirectionStartedAt >= GAMEPAD.INITIAL_DELAY &&
                        now - _controlsDirectionLastMoveAt >= GAMEPAD.REPEAT_DELAY) {
                 _controlsDirectionLastMoveAt = now;
-                moveFocus(dir);
-            } else if (!dir) {
+                moveFocus(vkbAnalogDir);
+            } else if (!vkbAnalogDir) {
                 _currentDirection = null;
                 _controlsDirectionStartedAt = 0;
                 _controlsDirectionLastMoveAt = 0;
