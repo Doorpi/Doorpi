@@ -1,54 +1,45 @@
 ﻿{
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202608110041,
-    "publishedAt":  "2026-08-11T03:42:49.4086964Z",
-    "expiresAt":  "2026-08-25T03:42:49.4086964Z",
+    "manifestVersion":  202608110117,
+    "publishedAt":  "2026-08-11T04:18:43.6001737Z",
+    "expiresAt":  "2026-08-25T04:18:43.6001737Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.4.25",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.25/doorpi-0.4.25.doorpiupdate.zip",
-                   "sha256":  "320bebe5ced133ef434683b852d196ea36741fe112dbdcef0938261b2e952664",
-                   "sizeBytes":  133765166,
-                   "minUpdaterVersion":  "0.1.0",
+                   "version":  "0.4.26",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.26/doorpi-0.4.26.doorpiupdate.zip",
+                   "sha256":  "523db7620009267745407c414bb79b437b0bfe6f5c9762a7422f25712e3e2ae3",
+                   "sizeBytes":  133765332,
+                   "minUpdaterVersion":  "0.1.1",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
-                    "version":  "0.1.0",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.25/updater-0.1.0.doorpiupdate.zip",
-                    "sha256":  "ccafe34b69905faa96854d04f2a381d61e97ecacc3602121d24976121bd20116",
-                    "sizeBytes":  69946127,
+                    "version":  "0.1.1",
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.26/updater-0.1.1.doorpiupdate.zip",
+                    "sha256":  "d38c0b7492f134c867dbf0c4c13234cb39ddf52400dbcf276d161b881c771f1c",
+                    "sizeBytes":  69946473,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.4.25",
-                          "title":  "Doorpi 0.4.25",
+                          "version":  "0.4.26",
+                          "title":  "Doorpi 0.4.26",
                           "items":  [
-                                        "Melhorias visuais gerais.",
-                                        "Otimizações nos controles de mouse e teclado nos aplicativos.",
-                                        "Gravação de horas dos jogos resiliente a crashs e travamentos.",
-                                        "Melhorias no consumo de recursos do Doorpi, reduzido em sessões de gameplay."
+                                        "Corrigido um problema que estava impedindo alguns usuários de completarem a atualização corretamente."
                                     ],
                           "locales":  {
                                           "pt-BR":  {
-                                                        "title":  "Doorpi 0.4.25",
+                                                        "title":  "Doorpi 0.4.26",
                                                         "items":  [
-                                                                      "Melhorias visuais gerais.",
-                                                                      "Otimizações nos controles de mouse e teclado nos aplicativos.",
-                                                                      "Gravação de horas dos jogos resiliente a crashs e travamentos.",
-                                                                      "Melhorias no consumo de recursos do Doorpi, reduzido em sessões de gameplay."
+                                                                      "Corrigido um problema que estava impedindo alguns usuários de completarem a atualização corretamente."
                                                                   ]
                                                     },
                                           "en":  {
-                                                     "title":  "Doorpi 0.4.25",
+                                                     "title":  "Doorpi 0.4.26",
                                                      "items":  [
-                                                                   "General visual improvements.",
-                                                                   "Optimizations for mouse and keyboard controls in applications.",
-                                                                   "Game playtime tracking is more resilient to crashes and freezes.",
-                                                                   "Improved Doorpi resource usage, reduced during gameplay sessions."
+                                                                   "Fixed an issue that was preventing some users from completing updates correctly."
                                                                ]
                                                  }
                                       }
@@ -57,6 +48,6 @@
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "lDTdrxr85cR4V4kHtZQW8Sp+f6OIbhXF6AsSWTFbiEIZnKVMm+ElDXQ1LNzhhqTMc0PbE4K/MfMyRxrJN3bgvvRfG6TjYdQzhphS8AfZJldeHMmFeIPTlqO2V8n01DKuxlAhGLG7oVUTaqgl2RWo7UYvXXoAsJd/QJsuF3oHqG5jgYPb7vkNaNrQKo96rIbDJxurNlUMzovZDWcMl2RYLAGPd3JwYayiS7M1bAV7N/kqY0MpPuxgZnnE+aG2StBu0DGD21d/PzsRdDONGOuLBmTWAMU/kxvyiNNmL0RYa9ZDWFve91YHx2lnT5qWokuwSz33n6apIep2wddpRF91xHVYtdzdRlYglZdwyeAAJJ3obMN5Nv97Z/BiV3Hitp2QZ80sFHrNuUvQ9BDTcxLilawavwIMP1sk3ANgQv5qqDvTDc22SSE4FEY+UdJ3WVXqc89VqyMNEJp0DbOOH0TqrO0GA1hzHbTjI1gIoKCzHSHsuX56UtzzzCk/66vzn9w4"
+                      "value":  "E8pOoybcksE64rYaswXAC4EqY5zHdOyhJvMKZ4qgEz9aBJg/HYI/TybHRyy1taBZkrF91Ok6UzD+WDqJCdteRNTB3FsdWsGfOuja2hVRmKabLTlVX5qXagxwbo2QNgRM0dnDjKcc9sUEpTwmhWauG35ekXqSOikzJmWy504PwG07ccZJHDavMTBqF3uTpcrRrv2g3Pwj0EP+TzGNwxJL5JO70TzYV92Emkbxg9eqnJFX5x3k1x/C7bKUorEdL7J3u+2BrUVtVnCVIikytnQZAAu5vvwH6askolr+do0ti7dwG8lAv1rwqpEAKPTrnFe0WQRognboYpnbhiXiLRiY4Viw2evwUKakz2GO/Bh8ygL3fCCq55PNB14BeIe5Yj8AnOHkeDuf9lryIvqvJgRqiJv8V0jAbL9OszhZAnIu3PrzCM/dgOhIFF4JPpWFwYPRrzeaMVyIn0qOiX5fKKmW2P11dkC6C6gHE1VeG5DTr4sFQdlsfwLLBRLtDmEnqPnw"
                   }
 }
