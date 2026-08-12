@@ -1,51 +1,45 @@
 {
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202608112033,
-    "publishedAt":  "2026-08-11T23:34:42.9964499Z",
-    "expiresAt":  "2026-08-25T23:34:42.9964499Z",
+    "manifestVersion":  202608121548,
+    "publishedAt":  "2026-08-12T18:49:41.2180759Z",
+    "expiresAt":  "2026-08-26T18:49:41.2180759Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.4.28",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.28/doorpi-0.4.28.doorpiupdate.zip",
-                   "sha256":  "7be5b1e18557a23cbb45ce23dcb2f243b5cd71e224b40cf8112e742c52b2a162",
-                   "sizeBytes":  133878377,
+                   "version":  "0.4.29",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.29/doorpi-0.4.29.doorpiupdate.zip",
+                   "sha256":  "b3c4dac9bc8ae39d605289aab4c7a3087a832df01161ce22aff6827be50094c2",
+                   "sizeBytes":  133879198,
                    "minUpdaterVersion":  "0.1.1",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
                     "version":  "0.1.1",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.28/updater-0.1.1.doorpiupdate.zip",
-                    "sha256":  "afa4ad216268e393f6ecd9b8da769ccc8655d4c498fc460ea990fbe14e4c6b67",
-                    "sizeBytes":  69967776,
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.29/updater-0.1.1.doorpiupdate.zip",
+                    "sha256":  "57f54a412fae43a4dea898d513ec12330eec8d4bafc5b0d2cd9b49c36b0b2f51",
+                    "sizeBytes":  69967778,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.4.28",
-                          "title":  "Doorpi 0.4.28",
+                          "version":  "0.4.29",
+                          "title":  "Doorpi 0.4.29",
                           "items":  [
-                                        "Novo perfil agora com informações para streamings, aplicativos e músicas (compatibilidade confirmada com YouTube, Spotify e YouTube Music).",
-                                        "Otimizações no consumo de memória.",
-                                        "Melhorada a resiliência da verificação de atualizações."
+                                        "Corrigida regressão na navegação do YouTube após a atualização dos controles."
                                     ],
                           "locales":  {
                                           "pt-BR":  {
-                                                        "title":  "Doorpi 0.4.28",
+                                                        "title":  "Doorpi 0.4.29",
                                                         "items":  [
-                                                                      "Novo perfil agora com informações para streamings, aplicativos e músicas (compatibilidade confirmada com YouTube, Spotify e YouTube Music).",
-                                                                      "Otimizações no consumo de memória.",
-                                                                      "Melhorada a resiliência da verificação de atualizações."
+                                                                      "Corrigida regressão na navegação do YouTube após a atualização dos controles."
                                                                   ]
                                                     },
                                           "en":  {
-                                                     "title":  "Doorpi 0.4.28",
+                                                     "title":  "Doorpi 0.4.29",
                                                      "items":  [
-                                                                   "New profile now includes information for streaming services, applications, and music (confirmed compatibility with YouTube, Spotify, and YouTube Music).",
-                                                                   "Memory usage optimizations.",
-                                                                   "Improved update check resilience."
+                                                                   "Fixed a YouTube navigation regression after the controls update."
                                                                ]
                                                  }
                                       }
@@ -54,6 +48,6 @@
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "a4rVsBWjbiD+vTg1E5PjlO4bLiFxqTVuhs/MmpBUlsL/04+/OJGlkRHjq94oEQ/iqE4R57tXnBLW4OGpaGXcxIZukCnyf6LOHhc/Eiz6vwGAvDAkKiyjuFBw+qZZb7jY00vPD04jFCff/l6hrOXwskiyBQwo5mYLMvAkiOKELDxdG/895eYbocEZHVHsKMaR71XKUwQENrebseKaeWNFL5Cgtm+Xm52fiOCwXMw3+tD4hMIboXr2+1P1KmGt0uqx3u7s+atValBza1zUx0Gj6jcbyWqkmX368yGwuDaUgISA3dhXqRww5iYOXMwGM2Mf+hUJpTSleBtu0+eoy+CrvMQV0ECkdAqnCwaN0WmVC/D4b08/NoluLrRJzv3cK5PINe8wC6A44cgL7IPRcIdYnYf1J2phtaHFn18qdRzYdo/tC2FsSBe7FdT7z7abZsL42ghsLE1dnksd1CEi6EfNCYXUWYoUd+1gEIzcevM3xbX3FpR3meHD3s9RwGSkkt/C"
+                      "value":  "j4OJqoOOLf1V0fuElRpz1xJ4+Ci+Dga6wzwbDzo6V8MTo2sOBuExVRxryrPjSb6m0IBad8svE/UbUFx+jwRtg4ShuIVbbWHyPn5XjwtYujypcfI760Gz3/XRtTCeRPkGfYwbJMrdoW/8lmHp5ZV6wLtCWwtQ6FKaBMG2xjl6jEJSLGzjNOGiZXDoOWRxHLdIW3h0BLio0tDpd+qZPBdbIWOkdLRFDmmADN3+/wayjWNxBQjR7LikLxbxCYLjTVJWvvAl0DyjdGguc7kFX4D2DJw0H6wxjZN6OnN0SnK8Ivf8VXvOXZA0uUP4KLEZoI7X31A9U50n2tx49WLPBeC7vvvo45cxuRhYM6E/2UECWdSKJdAGKqGEbfLqciPzJqoy30Mk4a303OiCN0mXC6gHEoPlEmUBeyPylwvO0S/E6C9vOpN5ijR/Qw+OSG7RUnKQqNM3hskzX+eO/OCQ4+GWpTE7V9iP4Nvlp8xtFUxcVMts16vIWlNsuzwXR0lv0sP2"
                   }
 }

@@ -51,6 +51,7 @@ public partial class MainWindow
         public bool OutputHeld;
         public bool LongPressFired;
         public long PressedAt;
+        public long LastHeldKeyRepeatAt;
         public long LastContinuousTimestamp;
         public double RemainderX;
         public double RemainderY;
@@ -2044,6 +2045,25 @@ public partial class MainWindow
                     if (!alreadyHeld)
                         BeginConfiguredControlAction(binding.Action);
                     runtime.OutputHeld = true;
+                    runtime.LastHeldKeyRepeatAt = now;
+                }
+                else if (active && route.Trigger == "hold" && runtime.OutputHeld &&
+                         IsYouTubeNavigationKeyHold(targetKey, binding.Action))
+                {
+                    long heldMs = now - runtime.PressedAt;
+                    if (heldMs >= 420)
+                    {
+                        int repeatInterval = GetYouTubeNavigationRepeatInterval(
+                            binding.Action.VirtualKeys[0],
+                            heldMs);
+                        if (now - runtime.LastHeldKeyRepeatAt >= repeatInterval)
+                        {
+                            runtime.LastHeldKeyRepeatAt = now;
+                            // YouTube TV uses repeated key-down events to keep a
+                            // physical D-pad/stick hold accelerating the seek.
+                            SendConfiguredKeyEvent(binding.Action.VirtualKeys[0], keyUp: false);
+                        }
+                    }
                 }
                 else if (pressed && route.Trigger == "press")
                 {
@@ -2095,6 +2115,7 @@ public partial class MainWindow
                     runtime.Suppressed = false;
                     runtime.LongPressFired = false;
                     runtime.PressedAt = 0;
+                    runtime.LastHeldKeyRepeatAt = 0;
                 }
                 runtime.Active = active;
             }
@@ -2316,20 +2337,57 @@ public partial class MainWindow
                 "dpad-right" => (state.NativeButtons & 0x0008) != 0,
                 "left-stick" => Math.Sqrt(state.ThumbLX * state.ThumbLX + state.ThumbLY * state.ThumbLY) > analogDeadZone,
                 "right-stick" => Math.Sqrt(state.ThumbRX * state.ThumbRX + state.ThumbRY * state.ThumbRY) > analogDeadZone,
-                "left-stick-up" => state.ThumbLY > analogDeadZone,
-                "left-stick-down" => state.ThumbLY < -analogDeadZone,
-                "left-stick-left" => state.ThumbLX < -analogDeadZone,
-                "left-stick-right" => state.ThumbLX > analogDeadZone,
-                "right-stick-up" => state.ThumbRY > analogDeadZone,
-                "right-stick-down" => state.ThumbRY < -analogDeadZone,
-                "right-stick-left" => state.ThumbRX < -analogDeadZone,
-                "right-stick-right" => state.ThumbRX > analogDeadZone,
+                "left-stick-up" => IsDominantStickDirection(state.ThumbLX, state.ThumbLY, analogDeadZone, "up"),
+                "left-stick-down" => IsDominantStickDirection(state.ThumbLX, state.ThumbLY, analogDeadZone, "down"),
+                "left-stick-left" => IsDominantStickDirection(state.ThumbLX, state.ThumbLY, analogDeadZone, "left"),
+                "left-stick-right" => IsDominantStickDirection(state.ThumbLX, state.ThumbLY, analogDeadZone, "right"),
+                "right-stick-up" => IsDominantStickDirection(state.ThumbRX, state.ThumbRY, analogDeadZone, "up"),
+                "right-stick-down" => IsDominantStickDirection(state.ThumbRX, state.ThumbRY, analogDeadZone, "down"),
+                "right-stick-left" => IsDominantStickDirection(state.ThumbRX, state.ThumbRY, analogDeadZone, "left"),
+                "right-stick-right" => IsDominantStickDirection(state.ThumbRX, state.ThumbRY, analogDeadZone, "right"),
                 _ => false
             };
             if (!pressed)
                 return false;
         }
         return true;
+    }
+
+    // Four-direction navigation must select one cardinal direction. Testing X and
+    // Y separately made a tiny diagonal component trigger a vertical route before
+    // the intended horizontal one.
+    private static bool IsDominantStickDirection(
+        double x,
+        double y,
+        double deadZone,
+        string direction)
+        => GetDominantStickDirection(x, y, deadZone) == direction;
+
+    private static string GetDominantStickDirection(double x, double y, double deadZone)
+    {
+        double horizontal = Math.Abs(x);
+        double vertical = Math.Abs(y);
+        if (Math.Max(horizontal, vertical) <= deadZone)
+            return "";
+
+        if (horizontal >= vertical)
+            return x < 0 ? "left" : "right";
+        return y < 0 ? "down" : "up";
+    }
+
+    private static bool IsYouTubeNavigationKeyHold(string targetKey, ControlAction action)
+        => targetKey.Equals("media:youtube", StringComparison.OrdinalIgnoreCase) &&
+           action.Type == "keyboard" &&
+           action.VirtualKeys.Count == 1 &&
+           action.VirtualKeys[0] is 0x25 or 0x26 or 0x27 or 0x28;
+
+    private static int GetYouTubeNavigationRepeatInterval(ushort virtualKey, long heldMs)
+    {
+        if (virtualKey is not (0x25 or 0x27))
+            return 82;
+        if (heldMs >= 3000) return 30;
+        if (heldMs >= 1600) return 52;
+        return 88;
     }
 
     private static bool IsAnalogControlInput(string button)
