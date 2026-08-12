@@ -3081,10 +3081,14 @@ namespace Doorpi
                     const double mergedDeadZone = 0.5;
                     bool dpadUp = Held(XI_DPAD_UP), dpadDown = Held(XI_DPAD_DOWN);
                     bool dpadLeft = Held(XI_DPAD_LEFT), dpadRight = Held(XI_DPAD_RIGHT);
-                    if (dpadUp || input.ThumbLY > mergedDeadZone) { anyVkbUp = true; currentVkbDirName = "UP"; currentVkbDirToken = XI_DPAD_UP; }
-                    else if (dpadDown || input.ThumbLY < -mergedDeadZone) { anyVkbDown = true; currentVkbDirName = "DOWN"; currentVkbDirToken = XI_DPAD_DOWN; }
-                    else if (dpadLeft || input.ThumbLX < -mergedDeadZone) { anyVkbLeft = true; currentVkbDirName = "LEFT"; currentVkbDirToken = XI_DPAD_LEFT; }
-                    else if (dpadRight || input.ThumbLX > mergedDeadZone) { anyVkbRight = true; currentVkbDirName = "RIGHT"; currentVkbDirToken = XI_DPAD_RIGHT; }
+                    string leftStickDirection = GetDominantStickDirection(
+                        input.ThumbLX,
+                        input.ThumbLY,
+                        mergedDeadZone);
+                    if (dpadUp || leftStickDirection == "up") { anyVkbUp = true; currentVkbDirName = "UP"; currentVkbDirToken = XI_DPAD_UP; }
+                    else if (dpadDown || leftStickDirection == "down") { anyVkbDown = true; currentVkbDirName = "DOWN"; currentVkbDirToken = XI_DPAD_DOWN; }
+                    else if (dpadLeft || leftStickDirection == "left") { anyVkbLeft = true; currentVkbDirName = "LEFT"; currentVkbDirToken = XI_DPAD_LEFT; }
+                    else if (dpadRight || leftStickDirection == "right") { anyVkbRight = true; currentVkbDirName = "RIGHT"; currentVkbDirToken = XI_DPAD_RIGHT; }
 
                     if (dpadUp) { currentNavDirBtn = XI_DPAD_UP; currentNavVk = 0x26; }
                     else if (dpadDown) { currentNavDirBtn = XI_DPAD_DOWN; currentNavVk = 0x28; }
@@ -3189,10 +3193,10 @@ namespace Doorpi
                     bool useNativeWebNavigation = true;
                     if (isMainYouTube && currentNavDirBtn == 0)
                     {
-                        if (input.ThumbLY > mergedDeadZone) { currentNavDirBtn = XI_DPAD_UP; currentNavVk = 0x26; }
-                        else if (input.ThumbLY < -mergedDeadZone) { currentNavDirBtn = XI_DPAD_DOWN; currentNavVk = 0x28; }
-                        else if (input.ThumbLX < -mergedDeadZone) { currentNavDirBtn = XI_DPAD_LEFT; currentNavVk = 0x25; }
-                        else if (input.ThumbLX > mergedDeadZone) { currentNavDirBtn = XI_DPAD_RIGHT; currentNavVk = 0x27; }
+                        if (leftStickDirection == "up") { currentNavDirBtn = XI_DPAD_UP; currentNavVk = 0x26; }
+                        else if (leftStickDirection == "down") { currentNavDirBtn = XI_DPAD_DOWN; currentNavVk = 0x28; }
+                        else if (leftStickDirection == "left") { currentNavDirBtn = XI_DPAD_LEFT; currentNavVk = 0x25; }
+                        else if (leftStickDirection == "right") { currentNavDirBtn = XI_DPAD_RIGHT; currentNavVk = 0x27; }
                     }
                     bool vkbInputVisible = IsControllerVkbActuallyVisible();
                     bool customProfileOwnsDefaultButtons = !trailerBrowserCaptureActive &&
@@ -3210,10 +3214,10 @@ namespace Doorpi
                     {
                         if (currentNavDirBtn == 0)
                         {
-                            if (input.ThumbLY > mergedDeadZone) { currentNavDirBtn = XI_DPAD_UP; currentNavVk = 0x26; }
-                            else if (input.ThumbLY < -mergedDeadZone) { currentNavDirBtn = XI_DPAD_DOWN; currentNavVk = 0x28; }
-                            else if (input.ThumbLX < -mergedDeadZone) { currentNavDirBtn = XI_DPAD_LEFT; currentNavVk = 0x25; }
-                            else if (input.ThumbLX > mergedDeadZone) { currentNavDirBtn = XI_DPAD_RIGHT; currentNavVk = 0x27; }
+                            if (leftStickDirection == "up") { currentNavDirBtn = XI_DPAD_UP; currentNavVk = 0x26; }
+                            else if (leftStickDirection == "down") { currentNavDirBtn = XI_DPAD_DOWN; currentNavVk = 0x28; }
+                            else if (leftStickDirection == "left") { currentNavDirBtn = XI_DPAD_LEFT; currentNavVk = 0x25; }
+                            else if (leftStickDirection == "right") { currentNavDirBtn = XI_DPAD_RIGHT; currentNavVk = 0x27; }
                         }
 
                         if (currentNavDirBtn != 0)
