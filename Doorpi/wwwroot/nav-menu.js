@@ -4366,6 +4366,14 @@ window.isNavMenuOpen = false;
             .nav-unified-hero>img.is-next-art { opacity:0; }
             .nav-unified-hero>img.is-next-art.is-visible { opacity:.72; }
             .nav-unified-hero>img.is-leaving-art { opacity:0; }
+            .nav-unified-hero.is-twitch-channel { background:#100c1b; }
+            .nav-unified-hero.is-twitch-channel::before { content:""; position:absolute; z-index:0; inset:0; background-image:radial-gradient(circle at 78% 46%,rgba(145,70,255,.3),transparent 34%),linear-gradient(112deg,rgba(7,6,14,.92) 0%,rgba(21,13,39,.76) 48%,rgba(70,36,126,.3) 100%),var(--twitch-channel-backdrop,none),url('https://app.local/native-assets/twitch/hero.png'); background-position:center; background-size:cover; background-repeat:no-repeat; opacity:.9; }
+            .nav-unified-hero.is-twitch-channel::after { background:linear-gradient(90deg,rgba(5,4,11,.82) 0%,rgba(8,6,16,.62) 44%,rgba(9,6,17,.06) 76%),linear-gradient(0deg,rgba(3,3,8,.42),transparent 58%); }
+            .nav-unified-hero>img.is-channel-avatar { inset:50% clamp(54px,7vw,122px) auto auto; width:clamp(164px,17vw,250px); height:clamp(164px,17vw,250px); transform:translateY(-50%); object-fit:cover; border-radius:50%; opacity:1; filter:saturate(1.02) contrast(1.02); border:clamp(3px,.26vw,5px) solid rgba(255,255,255,.9); box-shadow:0 0 0 8px rgba(145,70,255,.18),0 26px 68px rgba(0,0,0,.48); }
+            .nav-unified-hero>img.is-channel-avatar.is-next-art { opacity:0; }
+            .nav-unified-hero>img.is-channel-avatar.is-next-art.is-visible { opacity:1; }
+            .nav-unified-hero>img.is-channel-avatar.is-leaving-art { opacity:0; }
+            .nav-unified-hero.is-twitch-channel .nav-unified-hero-copy { z-index:3; width:min(58%,620px); }
             .nav-unified-art-fallback { position:absolute; z-index:0; inset:0; display:grid; place-items:center; padding:12px; box-sizing:border-box; color:rgba(255,255,255,.38); font-size:clamp(.62rem,.72vw,.82rem); font-weight:650; letter-spacing:.08em; text-align:center; text-transform:uppercase; }
             .nav-unified-art-fallback span { display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
             .nav-unified-hero>.nav-unified-art-fallback { justify-items:end; align-items:start; padding:clamp(22px,2.2vw,38px); color:rgba(255,255,255,.18); font-size:clamp(.72rem,.9vw,1rem); }
@@ -4431,7 +4439,7 @@ window.isNavMenuOpen = false;
             const hours = Math.floor(total / 3600);
             const minutes = Math.floor((total % 3600) / 60);
             if (!hours) return `${minutes} min`;
-            return minutes ? `${hours}h ${minutes}min` : `${hours}h`;
+            return `${hours}h ${String(minutes).padStart(2, '0')}min`;
         };
         const relDate = value => {
             const time = new Date(value || 0).getTime();
@@ -4450,6 +4458,8 @@ window.isNavMenuOpen = false;
                 date.getMonth() === now.getMonth() &&
                 date.getDate() === now.getDate();
         };
+        const nowForTodayKey = new Date();
+        const todayKey = `${nowForTodayKey.getFullYear()}-${String(nowForTodayKey.getMonth() + 1).padStart(2,'0')}-${String(nowForTodayKey.getDate()).padStart(2,'0')}`;
         const appFor = id => mediaApps.find(app => String(app.Id || app.id || '').toLowerCase() === String(id || '').toLowerCase()) || {};
         const appName = id => appFor(id).Name || mediaHistory.find(item => item.AppId === id)?.AppName || id || 'Doorpi';
         const appArt = app => app.HeroStaticImage || app.HeroImage || app.GridHorizontalStaticImage || app.GridHorizontalImage || app.GridStaticImage || app.GridImage || '';
@@ -4497,12 +4507,12 @@ window.isNavMenuOpen = false;
                 ? `${_t('navLastEpisode','Último episódio')}: ${lastEpisode} · ${watched}`
                 : watched;
         };
-        const artImage = (chain, lazy = false, fallbackLabel = '') => {
+        const artImage = (chain, lazy = false, fallbackLabel = '', imageClass = '') => {
             const candidates = Array.isArray(chain) ? chain.filter(Boolean) : [];
             const fallback = `<span class="nav-unified-art-fallback"><span>${_esc(fallbackLabel || 'Doorpi')}</span></span>`;
             if (!candidates.length) return fallback;
             const fallbacks = encodeURIComponent(JSON.stringify(candidates.slice(1)));
-            return `${fallback}<img src="${_esc(candidates[0])}" data-art-fallbacks="${_esc(fallbacks)}"${lazy ? ' loading="lazy" decoding="async"' : ''} alt="" />`;
+            return `${fallback}<img${imageClass ? ` class="${_esc(imageClass)}"` : ''} src="${_esc(candidates[0])}" data-art-fallbacks="${_esc(fallbacks)}"${lazy ? ' loading="lazy" decoding="async"' : ''} alt="" />`;
         };
         const gameMinutes = gameHistory.reduce((sum, item) => sum + (Number(item.TotalPlaytimeMinutes) || 0), 0);
         const mediaSeconds = mediaHistory.reduce((sum, item) => sum + (Number(item.TotalPlaybackSeconds) || 0), 0);
@@ -4555,31 +4565,38 @@ window.isNavMenuOpen = false;
                 appId:filmPlatform.id
             };
         })() : null;
-        const streamPlatformEntries = streamPlatform?.entries || [];
-        const streamCreatorGroups = [...streamPlatformEntries.reduce((map,item) => {
+        const streamCreatorGroups = [...streams.reduce((map,item) => {
             const label = (item.CreatorName || item.ContentTitle || '').trim();
-            if (label) map.set(label, (map.get(label) || 0) + Number(item.TotalPlaybackSeconds || 0));
+            const key = label.toLocaleLowerCase();
+            if (label) {
+                const current = map.get(key) || { label, seconds:0, entries:[] };
+                current.seconds += Number(item.TotalPlaybackSeconds || 0);
+                current.entries.push(item);
+                map.set(key, current);
+            }
             return map;
-        }, new Map()).entries()].sort((a,b) => b[1] - a[1]);
+        }, new Map()).values()].sort((a,b) => b.seconds - a.seconds);
         const favoriteCreator = streamCreatorGroups[0];
-        const favoriteCreatorEntry = favoriteCreator ? streamPlatformEntries
-            .filter(item => (item.CreatorName || item.ContentTitle || '').trim() === favoriteCreator[0])
+        const favoriteCreatorEntry = favoriteCreator ? favoriteCreator.entries
             .sort((a,b) => {
                 const aHasContentArt = !!(a.ArtworkLocalUrl || a.ArtworkRemoteUrl);
                 const bHasContentArt = !!(b.ArtworkLocalUrl || b.ArtworkRemoteUrl);
                 if (aHasContentArt !== bHasContentArt) return bHasContentArt - aHasContentArt;
                 return new Date(b.LastPlayed || 0) - new Date(a.LastPlayed || 0);
             })[0] : null;
-        const streamHighlight = streamPlatform && favoriteCreator ? (() => {
+        const streamHighlight = favoriteCreator && favoriteCreatorEntry ? (() => {
             const chain = mediaArtChain(favoriteCreatorEntry);
             return {
                 kind:'streaming',
-                kicker:`${_t('navMostWatched','Mais assistido')} · ${appName(streamPlatform.id)}`,
-                title:favoriteCreator[0],
-                meta:`${fmtSeconds(favoriteCreator[1])} ${_t('navProfileTotalSuffix','no total')}`,
-                art:chain[0] || appArt(appFor(streamPlatform.id)),
+                kicker:`${_t('navMostWatched','Mais assistido')} · ${appName(favoriteCreatorEntry.AppId)}`,
+                title:favoriteCreator.label,
+                meta:`${fmtSeconds(favoriteCreator.seconds)} ${_t('navProfileTotalSuffix','no total')}`,
+                art:chain[0] || appArt(appFor(favoriteCreatorEntry.AppId)),
                 artChain:chain,
-                appId:streamPlatform.id
+                appId:favoriteCreatorEntry.AppId,
+                channelHub:String(favoriteCreatorEntry.AppId || '').toLowerCase() === 'twitch' &&
+                    String(favoriteCreatorEntry.ArtworkSource || '').toLowerCase() === 'channel-avatar',
+                hubBackdrop:appArt(appFor(favoriteCreatorEntry.AppId))
             };
         })() : null;
         const musicArtistGroups = [...music.reduce((map,item) => {
@@ -4623,7 +4640,9 @@ window.isNavMenuOpen = false;
                 ? [mediaSecondaryTitle(item), appName(item.AppId)].filter(Boolean).join(' · ')
                 : [item.CreatorName, appName(item.AppId)].filter(Boolean).join(' · '),
             seconds:Number(item.TotalPlaybackSeconds),
-            recentSeconds:Number(item.LastSessionSeconds),
+            recentSeconds:isToday(item.LastPlayed) && String(item.DailyPlaybackDate || '') === todayKey
+                ? Number(item.DailyPlaybackSeconds)
+                : 0,
             date:item.LastPlayed,
             artChain:mediaArtChain(item),
             platform:appName(item.AppId),
@@ -4639,16 +4658,22 @@ window.isNavMenuOpen = false;
         }));
         const streamRows = [...streams.reduce((map, item) => {
             const title = String(item.CreatorName || item.ContentTitle || appName(item.AppId)).trim();
-            const key = `${String(item.AppId || '').toLowerCase()}\u001f${title.toLocaleLowerCase()}`;
-            const current = map.get(key) || { title, sub:appName(item.AppId), seconds:0, date:item.LastPlayed, latest:item, platform:appName(item.AppId) };
+            const key = title.toLocaleLowerCase();
+            const current = map.get(key) || { title, seconds:0, date:item.LastPlayed, latest:item, platforms:new Set() };
             current.seconds += Number(item.TotalPlaybackSeconds) || 0;
+            current.platforms.add(appName(item.AppId));
             if (new Date(item.LastPlayed || 0) > new Date(current.date || 0)) {
                 current.date = item.LastPlayed;
                 current.latest = item;
             }
             map.set(key, current);
             return map;
-        }, new Map()).values()].map(item => ({ ...item, artChain:mediaArtChain(item.latest) }));
+        }, new Map()).values()].map(item => ({
+            ...item,
+            sub:[...item.platforms].join(' · '),
+            platform:appName(item.latest?.AppId),
+            artChain:mediaArtChain(item.latest)
+        }));
         const musicRows = mediaRows(music);
 
         if (tab === 'gaming') {
@@ -4698,7 +4723,7 @@ window.isNavMenuOpen = false;
             }
             rows = [...gameRows, ...mediaRows(mediaHistory)]
                 .filter(item => isToday(item.date))
-                .map(item => ({ ...item, seconds:item.recentSeconds || item.seconds }))
+                .map(item => ({ ...item, seconds:Math.max(0, Number(item.recentSeconds) || 0) }))
                 .sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0));
             const latestGameToday = isToday(latestGame?.LastPlayed) ? latestGame : null;
             const latestMediaToday = isToday(latestMedia?.LastPlayed) ? latestMedia : null;
@@ -4713,6 +4738,12 @@ window.isNavMenuOpen = false;
         const accentByApp = { youtube:'255,68,68', netflix:'229,9,20', twitch:'145,70,255', kick:'83,252,24', disneyplus:'63,117,255', primevideo:'0,168,225', appletv:'235,235,240', max:'116,63,255', crunchyroll:'244,117,33' };
         const accentForHero = item => accentByApp[item?.appId] || (item?.kind === 'music' || tab === 'music' ? '52,211,120' : item?.kind === 'gaming' || tab === 'gaming' ? '92,154,255' : '110,156,255');
         const accent = accentForHero(hero);
+        const applyChannelBackdrop = (element, item) => {
+            if (!element) return;
+            const backdrop = item?.channelHub ? String(item.hubBackdrop || '').trim() : '';
+            if (backdrop) element.style.setProperty('--twitch-channel-backdrop', `url(${JSON.stringify(backdrop)})`);
+            else element.style.removeProperty('--twitch-channel-backdrop');
+        };
         const tabs = [
             ['overview', _t('navProfileOverview','Visão geral')],
             ['gaming', _t('navGames','Jogos')],
@@ -4743,11 +4774,13 @@ window.isNavMenuOpen = false;
                 </header>
                 <nav class="nav-unified-tabs" aria-label="${_t('navProfileSections','Seções do perfil')}">${tabs.map(([id,label]) => `<button class="nav-unified-tab${tab === id ? ' is-active' : ''}" data-profile-tab="${id}" tabindex="-1">${label}</button>`).join('')}</nav>
                 <div class="nav-unified-main">
-                    <section class="nav-unified-hero${hero.isEmpty ? ' is-empty' : ''}${heroCarouselEnabled ? ' is-carousel' : ''}"${heroCarouselEnabled ? ` id="btnProfileHero" role="button" aria-label="${_esc(_profileOverviewCarouselPaused ? _t('navPlayHighlights','Retomar troca automática') : _t('navPauseHighlights','Pausar troca automática'))}" tabindex="-1"` : ''}>${artImage(hero.artChain?.length ? hero.artChain : [hero.art].filter(Boolean), false, hero.appId ? appName(hero.appId) : _t('navGames','Jogos'))}<div class="nav-unified-hero-copy"><span class="nav-unified-kicker">${_esc(hero.kicker)}</span><h3>${_esc(hero.title)}</h3><span class="nav-unified-hero-meta">${_esc(hero.meta)}</span></div>${heroPager}</section>
+                    <section class="nav-unified-hero${hero.isEmpty ? ' is-empty' : ''}${heroCarouselEnabled ? ' is-carousel' : ''}${hero.channelHub ? ' is-twitch-channel' : ''}"${heroCarouselEnabled ? ` id="btnProfileHero" role="button" aria-label="${_esc(_profileOverviewCarouselPaused ? _t('navPlayHighlights','Retomar troca automática') : _t('navPauseHighlights','Pausar troca automática'))}" tabindex="-1"` : ''}>${artImage(hero.artChain?.length ? hero.artChain : [hero.art].filter(Boolean), false, hero.appId ? appName(hero.appId) : _t('navGames','Jogos'), hero.channelHub ? 'is-channel-avatar' : '')}<div class="nav-unified-hero-copy"><span class="nav-unified-kicker">${_esc(hero.kicker)}</span><h3>${_esc(hero.title)}</h3><span class="nav-unified-hero-meta">${_esc(hero.meta)}</span></div>${heroPager}</section>
                     <aside class="nav-unified-recent"${rows.length ? ` id="btnProfileRecent" role="listbox" aria-label="${_esc(sectionTitle)}" tabindex="-1"` : ''}><div class="nav-unified-section-head"><strong>${sectionTitle}</strong>${tab === 'gaming' && gameHistory.length ? `<button class="nav-unified-journey" id="btnGameHistory" tabindex="-1">${_t('navGameHistoryBtn','Ver jornada')}</button>` : ''}</div><div class="nav-unified-list">${rowHtml || `<div class="nav-unified-empty">${tab === 'overview' && trackingEnabled ? _t('navNoActivityToday','Nenhuma atividade hoje.') : trackingEnabled || tab === 'gaming' ? _t('navNoCategoryActivity','Nenhuma atividade nesta categoria ainda.') : _t('navHistoryPausedHint','A coleta está pausada nas configurações do perfil.')}</div>`}</div></aside>
                 </div>
                 <footer class="nav-unified-stats">${stats.map(([label,value,compact]) => `<div class="nav-unified-stat${compact ? ' is-compact' : ''}"><small>${label}</small><strong>${_esc(value)}</strong></div>`).join('')}</footer>
             </div>`;
+
+        applyChannelBackdrop(body.querySelector('.nav-unified-hero'), hero);
 
         const bindArtFallback = image => {
             let fallbacks = [];
@@ -4835,6 +4868,8 @@ window.isNavMenuOpen = false;
             const applyHighlightPresentation = (next, index) => {
                 const profile = heroButton.closest('.nav-unified-profile');
                 heroButton.classList.toggle('is-empty', !!next.isEmpty);
+                heroButton.classList.toggle('is-twitch-channel', !!next.channelHub);
+                applyChannelBackdrop(heroButton, next);
                 heroButton.querySelector('.nav-unified-kicker').textContent = next.kicker || '';
                 heroButton.querySelector('h3').textContent = next.title || '';
                 heroButton.querySelector('.nav-unified-hero-meta').textContent = next.meta || '';
@@ -4845,7 +4880,7 @@ window.isNavMenuOpen = false;
                     dot.classList.toggle('is-active', dotIndex === index);
                 });
             };
-            const commitHighlightArt = (loadedSource, durationMs, token, automatic) => new Promise(resolve => {
+            const commitHighlightArt = (loadedSource, durationMs, token, automatic, channelHub = false) => new Promise(resolve => {
                 if (!heroButton.isConnected || token !== highlightRequestToken) {
                     resolve(false);
                     return;
@@ -4857,6 +4892,7 @@ window.isNavMenuOpen = false;
                         const image = document.createElement('img');
                         image.src = loadedSource;
                         image.alt = '';
+                        if (channelHub) image.classList.add('is-channel-avatar');
                         heroButton.insertBefore(image, heroButton.firstChild);
                     }
                     heroButton.style.setProperty('--hero-fade-duration', '1600ms');
@@ -4870,7 +4906,7 @@ window.isNavMenuOpen = false;
                     nextImage = document.createElement('img');
                     nextImage.src = loadedSource;
                     nextImage.alt = '';
-                    nextImage.className = 'is-next-art';
+                    nextImage.className = `is-next-art${channelHub ? ' is-channel-avatar' : ''}`;
                     heroButton.insertBefore(nextImage, heroButton.firstChild);
                 }
 
@@ -4925,7 +4961,7 @@ window.isNavMenuOpen = false;
                 resolveLoadedArt(chain).then(async loadedSource => {
                     if (token !== highlightRequestToken || !heroButton.isConnected) return;
                     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
-                    const completed = await commitHighlightArt(loadedSource, reduceMotion ? 0 : 1600, token, automatic);
+                    const completed = await commitHighlightArt(loadedSource, reduceMotion ? 0 : 1600, token, automatic, !!next.channelHub);
                     if (completed && token === highlightRequestToken && heroButton.isConnected)
                         _scheduleProfileOverviewCarousel(overviewHighlights.length);
                 });

@@ -51,6 +51,7 @@ public enum ProfileDifferenceKind
     MediaRemoved,
     MediaPlayback,
     MediaLastSession,
+    MediaDailyPlayback,
     MediaSessionCount,
     MediaFirstPlayed,
     MediaLastPlayed,
@@ -182,6 +183,8 @@ public sealed class CloudMediaHistoryEntryV1
     public DateTimeOffset? MetadataCapturedUtc { get; set; }
     public long TotalPlaybackSeconds { get; set; }
     public long LastSessionSeconds { get; set; }
+    public string DailyPlaybackDate { get; set; } = "";
+    public long DailyPlaybackSeconds { get; set; }
     public int SessionCount { get; set; }
     public double LastPositionSeconds { get; set; }
     public double DurationSeconds { get; set; }
