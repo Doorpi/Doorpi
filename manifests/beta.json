@@ -1,45 +1,48 @@
 {
     "schemaVersion":  1,
     "channel":  "beta",
-    "manifestVersion":  202608121548,
-    "publishedAt":  "2026-08-12T18:49:41.2180759Z",
-    "expiresAt":  "2026-08-26T18:49:41.2180759Z",
+    "manifestVersion":  202608132218,
+    "publishedAt":  "2026-08-14T01:19:38.6540922Z",
+    "expiresAt":  "2026-08-28T01:19:38.6540922Z",
     "minimumSupportedManifestVersion":  1,
     "doorpi":  {
-                   "version":  "0.4.29",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.29/doorpi-0.4.29.doorpiupdate.zip",
-                   "sha256":  "b3c4dac9bc8ae39d605289aab4c7a3087a832df01161ce22aff6827be50094c2",
-                   "sizeBytes":  133879198,
+                   "version":  "0.4.30",
+                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.30/doorpi-0.4.30.doorpiupdate.zip",
+                   "sha256":  "bdb91aac43ba9606e760c0fc1445017ba127818fa507638a786c2b017e424156",
+                   "sizeBytes":  133887810,
                    "minUpdaterVersion":  "0.1.1",
                    "forceUpdate":  false,
                    "allowRollback":  false
                },
     "updater":  {
                     "version":  "0.1.1",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.29/updater-0.1.1.doorpiupdate.zip",
-                    "sha256":  "57f54a412fae43a4dea898d513ec12330eec8d4bafc5b0d2cd9b49c36b0b2f51",
-                    "sizeBytes":  69967778,
+                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.30/updater-0.1.1.doorpiupdate.zip",
+                    "sha256":  "00fb6eb72575796c9e844f38d361b826daf1fecfa44dbec9f9f83d0c45b99baa",
+                    "sizeBytes":  69967777,
                     "forceUpdate":  false,
                     "allowRollback":  false
                 },
     "changelog":  [
                       {
-                          "version":  "0.4.29",
-                          "title":  "Doorpi 0.4.29",
+                          "version":  "0.4.30",
+                          "title":  "Doorpi 0.4.30",
                           "items":  [
-                                        "Corrigida regressão na navegação do YouTube após a atualização dos controles."
+                                        "Correções na contagem de horas de mídias assistidas.",
+                                        "Mudanças na exibição das imagens de criadores."
                                     ],
                           "locales":  {
                                           "pt-BR":  {
-                                                        "title":  "Doorpi 0.4.29",
+                                                        "title":  "Doorpi 0.4.30",
                                                         "items":  [
-                                                                      "Corrigida regressão na navegação do YouTube após a atualização dos controles."
+                                                                      "Correções na contagem de horas de mídias assistidas.",
+                                                                      "Mudanças na exibição das imagens de criadores."
                                                                   ]
                                                     },
                                           "en":  {
-                                                     "title":  "Doorpi 0.4.29",
+                                                     "title":  "Doorpi 0.4.30",
                                                      "items":  [
-                                                                   "Fixed a YouTube navigation regression after the controls update."
+                                                                   "Fixes to watched media time tracking.",
+                                                                   "Changes to creator image display."
                                                                ]
                                                  }
                                       }
@@ -48,6 +51,6 @@
     "signature":  {
                       "algorithm":  "RSA-SHA256-PKCS1",
                       "keyId":  "6b65ba1c963d49d6",
-                      "value":  "j4OJqoOOLf1V0fuElRpz1xJ4+Ci+Dga6wzwbDzo6V8MTo2sOBuExVRxryrPjSb6m0IBad8svE/UbUFx+jwRtg4ShuIVbbWHyPn5XjwtYujypcfI760Gz3/XRtTCeRPkGfYwbJMrdoW/8lmHp5ZV6wLtCWwtQ6FKaBMG2xjl6jEJSLGzjNOGiZXDoOWRxHLdIW3h0BLio0tDpd+qZPBdbIWOkdLRFDmmADN3+/wayjWNxBQjR7LikLxbxCYLjTVJWvvAl0DyjdGguc7kFX4D2DJw0H6wxjZN6OnN0SnK8Ivf8VXvOXZA0uUP4KLEZoI7X31A9U50n2tx49WLPBeC7vvvo45cxuRhYM6E/2UECWdSKJdAGKqGEbfLqciPzJqoy30Mk4a303OiCN0mXC6gHEoPlEmUBeyPylwvO0S/E6C9vOpN5ijR/Qw+OSG7RUnKQqNM3hskzX+eO/OCQ4+GWpTE7V9iP4Nvlp8xtFUxcVMts16vIWlNsuzwXR0lv0sP2"
+                      "value":  "i+PDzEvc4TavvTo8ge85VL4RiFMogLeqe1aNQP4+ste968cgV4Dp1UxrByv5AgC8OVjW02+brcTGIJ9Hp0gQGXuRclwcMYqhTt/iz68d3fvAby2BzafHlTmQEuK2maXeuhkMzpKY+dmEFJtVWTc5Zo3CqDa7eRNHvaKWE+OlAQXLACfYEwxNOKT3lkxtYrHdddlMnTHHyeqrZ3NJeHEYwuZatG1a/j0Jx6TKHri4ANoqR2zY2wM596IU7NkMJtHTFWUaLHQyuExohi6eq/rjEUX00eWkun2yv6JtsDFATsR3r267Wma9Q6VfxMZ9Ebg+XBItcDPLsnynhG+9eOPS72tG8kw1/D50CF0+RlvE1bvRSuALkdGwZTTYR8LqUalKx5NmssiMM1UNswluDsjtva2UovXG/ysEZEoChMhqRiC0Ple4+bARq6UGMM/+OUDzDHkzDAEFkhlGcZ0EL85vZ1psmV2ZfSl6Y2OETS6wi0PmLyf9WgBnMu8YXhkJ9QtX"
                   }
 }
