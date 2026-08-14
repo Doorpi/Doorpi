@@ -904,6 +904,7 @@ public partial class MainWindow
                             ProfileSyncSnapshotFactory.NormalizeMediaKey(appId, contentTitle, creatorName),
                             out MediaActivityHistoryEntry? local);
                         bool hasCloudMetadata = remote.SchemaVersion >= 4;
+                        bool hasCloudDailyPlayback = remote.SchemaVersion >= 5;
                         string artworkRemoteUrl = hasCloudMetadata
                             ? entry.ArtworkRemoteUrl ?? ""
                             : local?.ArtworkRemoteUrl ?? "";
@@ -935,6 +936,12 @@ public partial class MainWindow
                                 : local?.MetadataCapturedUtc,
                             TotalPlaybackSeconds = Math.Max(0, entry.TotalPlaybackSeconds),
                             LastSessionSeconds = Math.Max(0, entry.LastSessionSeconds),
+                            DailyPlaybackDate = hasCloudDailyPlayback
+                                ? entry.DailyPlaybackDate ?? ""
+                                : local?.DailyPlaybackDate ?? "",
+                            DailyPlaybackSeconds = hasCloudDailyPlayback
+                                ? Math.Max(0, entry.DailyPlaybackSeconds)
+                                : Math.Max(0, local?.DailyPlaybackSeconds ?? 0),
                             SessionCount = Math.Max(0, entry.SessionCount),
                             LastPositionSeconds = Math.Max(0, entry.LastPositionSeconds),
                             DurationSeconds = Math.Max(0, entry.DurationSeconds),

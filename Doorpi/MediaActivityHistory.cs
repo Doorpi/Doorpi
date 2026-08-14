@@ -31,6 +31,8 @@ namespace Doorpi
         public DateTime? MetadataCapturedUtc { get; set; }
         public long TotalPlaybackSeconds { get; set; }
         public long LastSessionSeconds { get; set; }
+        public string DailyPlaybackDate { get; set; } = "";
+        public long DailyPlaybackSeconds { get; set; }
         public int SessionCount { get; set; }
         public double LastPositionSeconds { get; set; }
         public double DurationSeconds { get; set; }
@@ -58,6 +60,9 @@ namespace Doorpi
         public string TitleSource { get; set; } = "";
         public bool MediaSessionAvailable { get; set; }
         public bool IsLive { get; set; }
+        public bool PlaybackPositionAvailable { get; set; }
+        public bool PlaybackAdvanced { get; set; }
+        public bool IsBuffering { get; set; }
         public int MediaSessionArtworkCount { get; set; }
         public string MediaSessionArtworkSchemes { get; set; } = "";
         public string NetworkMetadataMatchedBy { get; set; } = "";
@@ -177,6 +182,7 @@ namespace Doorpi
         public double AccumulatedSeconds { get; set; }
         public double PersistedSeconds { get; set; }
         public bool SessionCountCommitted { get; set; }
+        public bool IsPaused { get; set; }
 
         public string Key => $"{AppId}\u001f{ContentTitle}\u001f{CreatorName}".ToUpperInvariant();
     }
@@ -405,7 +411,9 @@ namespace Doorpi
                     normalizedTitle);
                 if (string.IsNullOrWhiteSpace(metadata.ContentType) && IsTmdbMediaArtwork(selectedArtwork))
                     metadata.ContentType = "movie-or-series";
-                bool playing = string.Equals(state, "playing", StringComparison.OrdinalIgnoreCase);
+                bool playing = string.Equals(state, "playing", StringComparison.OrdinalIgnoreCase) &&
+                               !metadata.IsBuffering &&
+                               (!metadata.PlaybackPositionAvailable || metadata.PlaybackAdvanced);
                 if (playing)
                 {
                     WriteMediaMetadataProbeLocked(
@@ -426,7 +434,22 @@ namespace Doorpi
                 }
                 if (!playing)
                 {
-                    FinalizeMediaHistorySessionLocked(saveEligibleActivity: true);
+                    if (string.Equals(state, "stopped", StringComparison.OrdinalIgnoreCase))
+                    {
+                        FinalizeMediaHistorySessionLocked(saveEligibleActivity: true);
+                        return;
+                    }
+                    // Preserve o acumulado para que pause/buffering seja apenas
+                    // uma interrupÃ§Ã£o do relÃ³gio, nÃ£o uma nova sessÃ£o. Isso
+                    // tambÃ©m evita descartar trechos menores que 30 segundos.
+                    var paused = _activeMediaHistorySession;
+                    if (paused != null)
+                    {
+                        paused.LastSampleUtc = DateTime.UtcNow;
+                        paused.IsPaused = true;
+                        if (paused.AccumulatedSeconds >= MediaHistoryMinimumSessionSeconds)
+                            PersistMediaHistorySessionLocked(paused, isFinal: true);
+                    }
                     return;
                 }
 
@@ -465,6 +488,15 @@ namespace Doorpi
                 else
                 {
                     var active = _activeMediaHistorySession;
+                    if (active.IsPaused)
+                    {
+                        active.IsPaused = false;
+                        active.LastSampleUtc = now;
+                        active.PositionSeconds = Math.Max(0, position);
+                        active.DurationSeconds = Math.Max(0, duration);
+                        ApplyMetadataToActiveSession(active, next);
+                        return;
+                    }
                     int previousDiagnosticBucket = (int)(active.AccumulatedSeconds / 10);
                     double elapsed = Math.Clamp((now - active.LastSampleUtc).TotalSeconds, 0, 10);
                     active.AccumulatedSeconds += elapsed;
@@ -540,17 +572,35 @@ namespace Doorpi
             string appId,
             string contentTitle)
         {
-            static int SourcePriority(string source) => source switch
+            int SourcePriority(string source)
             {
-                "media-session" => 7,
-                "network-metadata" => 6,
-                "video-poster" => 6,
-                "dom-image" or "css-background" => 5,
-                "public-page" or "open-graph" => 4,
-                "twitter" or "json-ld" => 3,
-                "resource-image" => 1,
-                _ => 0
-            };
+                if (appId.Equals("twitch", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (source == "channel-avatar") return 12;
+                    if (source == "channel-banner") return 11;
+                }
+                else if (appId.Equals("kick", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (source == "channel-banner") return 12;
+                    if (source == "channel-avatar") return 11;
+                    if (source == "channel-live-preview") return 10;
+                }
+
+                return source switch
+                {
+                    "channel-banner" => 10,
+                    "channel-avatar" => 9,
+                    "channel-live-preview" => 8,
+                    "media-session" => 7,
+                    "network-metadata" => 6,
+                    "video-poster" => 6,
+                    "dom-image" or "css-background" => 5,
+                    "public-page" or "open-graph" => 4,
+                    "twitter" or "json-ld" => 3,
+                    "resource-image" => 1,
+                    _ => 0
+                };
+            }
 
             static long ArtworkArea(string sizes)
             {
@@ -576,6 +626,10 @@ namespace Doorpi
                     if (string.IsNullOrWhiteSpace(contentTitle)) return false;
                     return candidate.Source is "media-session" or "network-metadata" or "public-page";
                 }
+                if (appId.Equals("kick", StringComparison.OrdinalIgnoreCase))
+                    return candidate.Source is "channel-banner" or "channel-avatar" or "channel-live-preview";
+                if (appId.Equals("twitch", StringComparison.OrdinalIgnoreCase))
+                    return candidate.Source is "channel-banner" or "channel-avatar";
                 return true;
             }
 
@@ -719,6 +773,22 @@ namespace Doorpi
                 ? entry.LastPlayed.ToLocalTime()
                 : entry.LastPlayed;
             return local.Date == DateTime.Now.Date;
+        }
+
+        private static string MediaHistoryLocalDate(DateTime value)
+        {
+            if (value <= DateTime.MinValue) return "";
+            DateTime local = value.Kind == DateTimeKind.Utc ? value.ToLocalTime() : value;
+            return local.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        private static long InferLegacyDailyPlaybackSeconds(MediaActivityHistoryEntry entry)
+        {
+            string firstDate = MediaHistoryLocalDate(entry.FirstPlayed);
+            string lastDate = MediaHistoryLocalDate(entry.LastPlayed);
+            return !string.IsNullOrWhiteSpace(lastDate) && string.Equals(firstDate, lastDate, StringComparison.Ordinal)
+                ? Math.Max(0, entry.TotalPlaybackSeconds)
+                : Math.Max(0, entry.LastSessionSeconds);
         }
 
         private static List<MediaActivityHistoryEntry> SelectMediaArtworkCacheEntries(
@@ -2021,7 +2091,12 @@ namespace Doorpi
                     entry.ArtworkSource is not ("media-session" or "network-metadata");
                 bool untrustedNetflixArtwork = entry.AppId.Equals("netflix", StringComparison.OrdinalIgnoreCase) &&
                     entry.ArtworkSource is not ("media-session" or "network-metadata" or "public-page");
-                if (sameAsPage || untrustedDisneyArtwork || untrustedNetflixArtwork)
+                bool untrustedKickArtwork = entry.AppId.Equals("kick", StringComparison.OrdinalIgnoreCase) &&
+                    entry.ArtworkSource is not ("channel-banner" or "channel-avatar" or "channel-live-preview");
+                bool untrustedTwitchArtwork = entry.AppId.Equals("twitch", StringComparison.OrdinalIgnoreCase) &&
+                    entry.ArtworkSource is not ("channel-banner" or "channel-avatar");
+                if (sameAsPage || untrustedDisneyArtwork || untrustedNetflixArtwork ||
+                    untrustedKickArtwork || untrustedTwitchArtwork)
                 {
                     if (!string.IsNullOrWhiteSpace(entry.ArtworkRemoteUrl) ||
                         !string.IsNullOrWhiteSpace(entry.ArtworkLocalUrl) ||
@@ -2032,6 +2107,19 @@ namespace Doorpi
                         entry.ArtworkSource = "";
                         changed = true;
                     }
+                }
+
+                string lastPlayedDate = MediaHistoryLocalDate(entry.LastPlayed);
+                if (string.IsNullOrWhiteSpace(entry.DailyPlaybackDate) && !string.IsNullOrWhiteSpace(lastPlayedDate))
+                {
+                    entry.DailyPlaybackDate = lastPlayedDate;
+                    entry.DailyPlaybackSeconds = InferLegacyDailyPlaybackSeconds(entry);
+                    changed = true;
+                }
+                else if (entry.DailyPlaybackSeconds < 0)
+                {
+                    entry.DailyPlaybackSeconds = 0;
+                    changed = true;
                 }
             }
             return changed;
@@ -2086,6 +2174,13 @@ namespace Doorpi
                 entry.ArtworkLocalUrl = active.ArtworkLocalUrl;
 
             entry.TotalPlaybackSeconds += Math.Max(0, delta);
+            string playbackDate = DateTime.Now.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+            if (!string.Equals(entry.DailyPlaybackDate, playbackDate, StringComparison.Ordinal))
+            {
+                entry.DailyPlaybackDate = playbackDate;
+                entry.DailyPlaybackSeconds = 0;
+            }
+            entry.DailyPlaybackSeconds += Math.Max(0, delta);
             entry.LastPositionSeconds = active.PositionSeconds;
             entry.DurationSeconds = active.DurationSeconds;
             entry.LastPlayed = DateTime.UtcNow;

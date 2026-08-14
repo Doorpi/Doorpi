@@ -7562,20 +7562,56 @@ namespace Doorpi
     const networkMetadata = { title: '', seriesTitle: '', artwork: [], sourceUrl: '', matchedBy: '' };
     const youtubeCategoryByVideoId = new Map();
     const youtubeCategoryRequests = new Map();
+    let providerChannelMetadata = { key: '', avatar: '', banner: '', livePreview: '', requestedAt: 0 };
+    let providerChannelRequest = null;
+    let playbackProbeMedia = null;
+    let playbackProbePosition = 0;
+    let playbackProbeAt = 0;
 
     function clean(value, maxLength) {
         const text = String(value || '').replace(/\s+/g, ' ').trim();
         return text.length > maxLength ? text.slice(0, maxLength).trim() : text;
     }
 
-    function activeMedia() {
-        return Array.from(document.querySelectorAll('video, audio'))
-            .filter(media => !media.paused && !media.ended && media.readyState >= 2)
+    function mediaPlaybackProbe() {
+        const media = Array.from(document.querySelectorAll('video, audio'))
+            .filter(item => !item.ended && (!item.paused || item === playbackProbeMedia))
             .sort((a, b) => {
+                const activeOrder = Number(!b.paused) - Number(!a.paused);
+                if (activeOrder) return activeOrder;
                 const aVideoArea = a.tagName === 'VIDEO' ? a.clientWidth * a.clientHeight : 0;
                 const bVideoArea = b.tagName === 'VIDEO' ? b.clientWidth * b.clientHeight : 0;
                 return bVideoArea - aVideoArea;
             })[0] || null;
+
+        if (!media) {
+            playbackProbeMedia = null;
+            playbackProbePosition = 0;
+            playbackProbeAt = 0;
+            return { media: null, state: '', advanced: false, buffering: false };
+        }
+
+        const now = performance.now();
+        const position = Number.isFinite(media.currentTime) ? media.currentTime : 0;
+        const sameMedia = playbackProbeMedia === media;
+        const elapsed = sameMedia ? Math.max(0, (now - playbackProbeAt) / 1000) : 0;
+        const positionDelta = sameMedia ? position - playbackProbePosition : 0;
+        const eligible = !media.paused && !media.ended && !media.seeking && media.readyState >= 2;
+        const plausibleAdvance = positionDelta > 0.05 && positionDelta <= Math.max(15, elapsed * 4);
+        // Pequena tolerÃ¢ncia para eventos play/playing emitidos quase juntos.
+        // Fora dela, somente avanÃ§o real de currentTime confirma reproduÃ§Ã£o.
+        const advanced = eligible && (!sameMedia || elapsed < 0.75 || plausibleAdvance);
+        const buffering = eligible && sameMedia && elapsed >= 0.75 && !plausibleAdvance;
+
+        playbackProbeMedia = media;
+        playbackProbePosition = position;
+        playbackProbeAt = now;
+        return {
+            media,
+            state: advanced ? 'playing' : 'paused',
+            advanced,
+            buffering
+        };
     }
 
     function fallbackCreator() {
@@ -7586,6 +7622,100 @@ namespace Doorpi
         if (ignored.has(first) || /^[a-z]{2}(?:-[a-z]{2})?$/.test(first) ||
             /\.(?:php|html?|aspx?|jsp)$/i.test(first)) return '';
         return decodeURIComponent(parts[0]).replace(/[-_]+/g, ' ');
+    }
+
+    function providerChannelSlug() {
+        const host = location.hostname.toLowerCase();
+        if (!(host === 'kick.com' || host.endsWith('.kick.com') ||
+              host === 'twitch.tv' || host.endsWith('.twitch.tv'))) return '';
+        const parts = location.pathname.split('/').filter(Boolean);
+        if (!parts.length) return '';
+        const slug = clean(decodeURIComponent(parts[0]), 100).toLowerCase();
+        const reserved = new Set([
+            'browse', 'categories', 'category', 'directory', 'following', 'search',
+            'videos', 'clips', 'settings', 'subscriptions', 'wallet', 'dashboard'
+        ]);
+        return reserved.has(slug) || !/^[a-z0-9_-]+$/i.test(slug) ? '' : slug;
+    }
+
+    function largestSrcsetUrl(value) {
+        return String(value || '').split(',').map(item => {
+            const parts = item.trim().split(/\s+/);
+            const descriptor = parts[1] || '';
+            const size = parseFloat(descriptor) || 0;
+            return { url: parts[0] || '', size };
+        }).filter(item => item.url).sort((a, b) => b.size - a.size)[0]?.url || '';
+    }
+
+    function normalizeTwitchAvatarUrl(value) {
+        return absoluteHttpUrl(value).replace(
+            /-profile_image-\d+x\d+(\.(?:png|jpe?g|webp))(?:\?.*)?$/i,
+            '-profile_image-300x300$1');
+    }
+
+    function refreshProviderChannelMetadata() {
+        const host = location.hostname.toLowerCase();
+        const slug = providerChannelSlug();
+        const provider = host === 'kick.com' || host.endsWith('.kick.com')
+            ? 'kick'
+            : host === 'twitch.tv' || host.endsWith('.twitch.tv') ? 'twitch' : '';
+        const key = provider && slug ? `${provider}:${slug}` : '';
+        if (!key) return providerChannelMetadata;
+        if (providerChannelMetadata.key !== key) {
+            providerChannelMetadata = { key, avatar: '', banner: '', livePreview: '', requestedAt: 0 };
+            providerChannelRequest = null;
+        }
+
+        if (provider === 'twitch') {
+            // Para o perfil do Doorpi usamos identidade estÃ¡vel do canal,
+            // nunca um frame efÃªmero da transmissÃ£o.
+            providerChannelMetadata.livePreview = '';
+            for (const image of Array.from(document.images)) {
+                const alt = clean(image.alt, 100).toLowerCase();
+                const closestLink = image.closest('a[href]');
+                let linkedSlug = '';
+                try {
+                    linkedSlug = closestLink
+                        ? new URL(closestLink.href, location.href).pathname.split('/').filter(Boolean)[0]?.toLowerCase() || ''
+                        : '';
+                } catch (_) {}
+                const imageUrl = largestSrcsetUrl(image.srcset) || image.currentSrc || image.src;
+                if ((alt === slug || linkedSlug === slug) && /jtv_user_pictures|profile_image/i.test(imageUrl)) {
+                    providerChannelMetadata.avatar = normalizeTwitchAvatarUrl(imageUrl);
+                    break;
+                }
+            }
+            return providerChannelMetadata;
+        }
+
+        for (const image of Array.from(document.images)) {
+            const alt = clean(image.alt, 100).toLowerCase();
+            const imageUrl = largestSrcsetUrl(image.srcset) || image.currentSrc || image.src;
+            if (alt === slug && /files\.kick\.com\/images\/user\/|profile_image/i.test(imageUrl)) {
+                providerChannelMetadata.avatar = absoluteHttpUrl(imageUrl);
+                break;
+            }
+        }
+
+        if (!providerChannelRequest && Date.now() - providerChannelMetadata.requestedAt >= 60000) {
+            providerChannelMetadata.requestedAt = Date.now();
+            providerChannelRequest = fetch(`https://kick.com/api/v2/channels/${encodeURIComponent(slug)}`, { credentials: 'include' })
+                .then(response => response.ok ? response.json() : null)
+                .then(channel => {
+                    if (!channel || providerChannelMetadata.key !== key) return;
+                    const user = channel.user || {};
+                    providerChannelMetadata.avatar = absoluteHttpUrl(
+                        user.profile_pic || user.profile_picture || channel.profile_picture ||
+                        channel.profile_pic || providerChannelMetadata.avatar);
+                    providerChannelMetadata.banner = absoluteHttpUrl(
+                        channel.banner_image?.url || channel.offline_banner_image?.url || '');
+                    providerChannelMetadata.livePreview = absoluteHttpUrl(
+                        channel.livestream?.thumbnail?.url || channel.livestream?.thumbnail_url || '');
+                })
+                .catch(() => {})
+                .finally(() => { providerChannelRequest = null; });
+        }
+        return providerChannelMetadata;
     }
 
     function absoluteHttpUrl(value) {
@@ -8160,14 +8290,19 @@ namespace Doorpi
     }
 
     function snapshot(forcedState) {
-        const media = activeMedia();
+        const playbackProbe = mediaPlaybackProbe();
+        const media = playbackProbe.media;
         const video = media && media.tagName === 'VIDEO' ? media : null;
         const metadata = navigator.mediaSession && navigator.mediaSession.metadata;
         const mediaSessionState = navigator.mediaSession && navigator.mediaSession.playbackState;
         const musicHost = location.hostname === 'open.spotify.com' || location.hostname === 'music.youtube.com';
         const musicPlaybackState = musicHost ? domMusicPlaybackState() : '';
-        const state = forcedState ||
-            (media || mediaSessionState === 'playing' || musicPlaybackState === 'playing' ? 'playing' : 'paused');
+        // Quando o site expÃµe um elemento de mÃ­dia, o relÃ³gio real dele tem
+        // precedÃªncia sobre Media Session. Assim buffering e pause nÃ£o contam.
+        // Spotify e players isolados continuam usando Media Session/DOM.
+        const state = forcedState || (media
+            ? playbackProbe.state
+            : (mediaSessionState === 'playing' || musicPlaybackState === 'playing' ? 'playing' : 'paused'));
         const duration = media && Number.isFinite(media.duration) ? media.duration : 0;
         const isLiveVideo = !!video && !Number.isFinite(video.duration);
         const reliableDocumentFallback = !!video && !video.muted && (duration >= 60 || isLiveVideo);
@@ -8198,9 +8333,19 @@ namespace Doorpi
         const creator = artist || fallbackCreator();
         const artwork = [];
         const seenArtwork = new Set();
+        const providerArtwork = refreshProviderChannelMetadata();
 
         function addArtwork(src, source, sizes, type, score) {
-            const absolute = absoluteHttpUrl(src);
+            let absolute = absoluteHttpUrl(src);
+            const twitchChannelIdentity = providerArtwork.key.startsWith('twitch:') &&
+                /jtv_user_pictures|profile_image/i.test(absolute) &&
+                ['media-session', 'open-graph', 'twitter', 'public-page'].includes(source);
+            if (twitchChannelIdentity) {
+                absolute = normalizeTwitchAvatarUrl(absolute);
+                source = 'channel-avatar';
+                sizes = '300x300';
+                score = Math.max(135, Number(score) || 0);
+            }
             if (!absolute || seenArtwork.has(absolute) || artwork.length >= 16) return;
             try {
                 const candidateUrl = new URL(absolute);
@@ -8219,6 +8364,9 @@ namespace Doorpi
         }
 
         const mediaSessionArtwork = Array.from((metadata && metadata.artwork) || []);
+        addArtwork(providerArtwork.banner, 'channel-banner', '', '', 140);
+        addArtwork(providerArtwork.avatar, 'channel-avatar', '300x300', '', 135);
+        addArtwork(providerArtwork.livePreview, 'channel-live-preview', '1280x720', '', 130);
         mediaSessionArtwork.forEach((item, index) =>
             addArtwork(item && item.src, 'media-session', item && item.sizes, item && item.type, 100 - index));
         addArtwork(video && (video.poster || video.getAttribute('poster')), 'video-poster', '', '', 90);
@@ -8269,6 +8417,9 @@ namespace Doorpi
             networkMetadataMatchedBy: networkMetadata.matchedBy,
             mediaSessionAvailable: !!metadata,
             isLive: isLiveVideo,
+            playbackPositionAvailable: !!media && Number.isFinite(media.currentTime),
+            playbackAdvanced: playbackProbe.advanced,
+            isBuffering: playbackProbe.buffering,
             mediaSessionArtworkCount: mediaSessionArtwork.length,
             mediaSessionArtworkSchemes: [...new Set(mediaSessionArtwork.map(item => {
                 try { return new URL(String(item && item.src || ''), location.href).protocol.replace(':', ''); }
@@ -8290,7 +8441,10 @@ namespace Doorpi
 
     setInterval(() => snapshot(''), 5000);
     document.addEventListener('play', () => setTimeout(() => snapshot(''), 250), true);
+    document.addEventListener('playing', () => setTimeout(() => snapshot(''), 250), true);
     document.addEventListener('pause', () => setTimeout(() => snapshot('paused'), 100), true);
+    document.addEventListener('waiting', () => snapshot('paused'), true);
+    document.addEventListener('stalled', () => snapshot('paused'), true);
     window.addEventListener('pagehide', () => snapshot('stopped'));
 })();
 """;
@@ -8697,6 +8851,9 @@ namespace Doorpi
                     string titleSource = node?["titleSource"]?.GetValue<string>() ?? "";
                     bool mediaSessionAvailable = node?["mediaSessionAvailable"]?.GetValue<bool>() ?? false;
                     bool isLive = node?["isLive"]?.GetValue<bool>() ?? false;
+                    bool playbackPositionAvailable = node?["playbackPositionAvailable"]?.GetValue<bool>() ?? false;
+                    bool playbackAdvanced = node?["playbackAdvanced"]?.GetValue<bool>() ?? false;
+                    bool isBuffering = node?["isBuffering"]?.GetValue<bool>() ?? false;
                     int mediaSessionArtworkCount = node?["mediaSessionArtworkCount"]?.GetValue<int>() ?? 0;
                     string mediaSessionArtworkSchemes = node?["mediaSessionArtworkSchemes"]?.GetValue<string>() ?? "";
                     string networkMetadataMatchedBy = node?["networkMetadataMatchedBy"]?.GetValue<string>() ?? "";
@@ -8741,6 +8898,9 @@ namespace Doorpi
                             TitleSource = titleSource,
                             MediaSessionAvailable = mediaSessionAvailable,
                             IsLive = isLive,
+                            PlaybackPositionAvailable = playbackPositionAvailable,
+                            PlaybackAdvanced = playbackAdvanced,
+                            IsBuffering = isBuffering,
                             MediaSessionArtworkCount = Math.Max(0, mediaSessionArtworkCount),
                             MediaSessionArtworkSchemes = mediaSessionArtworkSchemes,
                             NetworkMetadataMatchedBy = networkMetadataMatchedBy,

@@ -6,7 +6,7 @@ namespace Doorpi.ProfileSync;
 
 public static class ProfileSyncSnapshotFactory
 {
-    public const int CurrentSchemaVersion = 4;
+    public const int CurrentSchemaVersion = 5;
 
     public static CloudProfileV1 Create(
         UserProfile profile,
@@ -140,6 +140,14 @@ public static class ProfileSyncSnapshotFactory
             .Select(entry => entry.MetadataCapturedUtc!.Value)
             .DefaultIfEmpty(DateTime.MinValue)
             .Max();
+        string dailyPlaybackDate = ordered
+            .Select(entry => entry.DailyPlaybackDate ?? "")
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .OrderByDescending(value => value, StringComparer.Ordinal)
+            .FirstOrDefault() ?? "";
+        long dailyPlaybackSeconds = SaturatingSum(ordered
+            .Where(entry => string.Equals(entry.DailyPlaybackDate, dailyPlaybackDate, StringComparison.Ordinal))
+            .Select(entry => Math.Max(0, entry.DailyPlaybackSeconds)));
         return new CloudMediaHistoryEntryV1
         {
             MediaKey = key,
@@ -161,6 +169,8 @@ public static class ProfileSyncSnapshotFactory
             MetadataCapturedUtc = ToUtc(metadataCaptured),
             TotalPlaybackSeconds = SaturatingSum(ordered.Select(entry => entry.TotalPlaybackSeconds)),
             LastSessionSeconds = Math.Max(0, latest.LastSessionSeconds),
+            DailyPlaybackDate = dailyPlaybackDate,
+            DailyPlaybackSeconds = dailyPlaybackSeconds,
             SessionCount = (int)Math.Min(int.MaxValue, sessionCount),
             LastPositionSeconds = Math.Max(0, latest.LastPositionSeconds),
             DurationSeconds = Math.Max(0, latest.DurationSeconds),
@@ -544,6 +554,7 @@ public static class ProfileSyncEngine
     {
         action = ProfileSyncAction.Conflict;
         if (comparison.Differences.Any(difference => difference.Kind is not (
+                ProfileDifferenceKind.SchemaVersion or
                 ProfileDifferenceKind.TotalPlaytime or
                 ProfileDifferenceKind.GameAdded or
                 ProfileDifferenceKind.GameRemoved or
@@ -556,6 +567,7 @@ public static class ProfileSyncEngine
                 ProfileDifferenceKind.MediaRemoved or
                 ProfileDifferenceKind.MediaPlayback or
                 ProfileDifferenceKind.MediaLastSession or
+                ProfileDifferenceKind.MediaDailyPlayback or
                 ProfileDifferenceKind.MediaSessionCount or
                 ProfileDifferenceKind.MediaFirstPlayed or
                 ProfileDifferenceKind.MediaLastPlayed or
@@ -621,7 +633,19 @@ public static class ProfileSyncEngine
             if (firstPlayedOrder < 0) remoteDominates = false;
         }
 
-        if (localDominates == remoteDominates) return false;
+        if (localDominates == remoteDominates)
+        {
+            // Se os dados sÃ£o equivalentes e sÃ³ a capacidade do formato mudou,
+            // a versÃ£o mais nova deve migrar a nuvem sem abrir um falso conflito.
+            if (localDominates && local.SchemaVersion != remote.SchemaVersion)
+            {
+                action = local.SchemaVersion > remote.SchemaVersion
+                    ? ProfileSyncAction.UploadLocal
+                    : ProfileSyncAction.DownloadRemote;
+                return true;
+            }
+            return false;
+        }
         action = localDominates ? ProfileSyncAction.UploadLocal : ProfileSyncAction.DownloadRemote;
         return true;
     }
@@ -787,6 +811,7 @@ public static class ProfileSyncEngine
     {
         int latestSide = CompareNullableDate(local.LastPlayedUtc, remote.LastPlayedUtc);
         CloudMediaHistoryEntryV1 latest = latestSide < 0 ? remote : local;
+        (string DailyDate, long DailySeconds) daily = MergeDailyPlayback(baseline, local, remote);
         return new CloudMediaHistoryEntryV1
         {
             MediaKey = key,
@@ -811,6 +836,8 @@ public static class ProfileSyncEngine
                 local.TotalPlaybackSeconds,
                 remote.TotalPlaybackSeconds),
             LastSessionSeconds = Math.Max(0, latest.LastSessionSeconds),
+            DailyPlaybackDate = daily.DailyDate,
+            DailyPlaybackSeconds = daily.DailySeconds,
             SessionCount = MergeAccumulatedCount(baseline.SessionCount, local.SessionCount, remote.SessionCount),
             LastPositionSeconds = Math.Max(0, latest.LastPositionSeconds),
             DurationSeconds = Math.Max(0, latest.DurationSeconds),
@@ -826,6 +853,8 @@ public static class ProfileSyncEngine
     {
         int latestSide = CompareNullableDate(local.LastPlayedUtc, remote.LastPlayedUtc);
         CloudMediaHistoryEntryV1 latest = latestSide < 0 ? remote : local;
+        (string DailyDate, long DailySeconds) daily = MergeDailyPlayback(
+            new CloudMediaHistoryEntryV1(), local, remote);
         return new CloudMediaHistoryEntryV1
         {
             MediaKey = key,
@@ -847,6 +876,8 @@ public static class ProfileSyncEngine
             MetadataCapturedUtc = Latest(local.MetadataCapturedUtc, remote.MetadataCapturedUtc),
             TotalPlaybackSeconds = Math.Max(Math.Max(0, local.TotalPlaybackSeconds), Math.Max(0, remote.TotalPlaybackSeconds)),
             LastSessionSeconds = Math.Max(0, latest.LastSessionSeconds),
+            DailyPlaybackDate = daily.DailyDate,
+            DailyPlaybackSeconds = daily.DailySeconds,
             SessionCount = Math.Max(Math.Max(0, local.SessionCount), Math.Max(0, remote.SessionCount)),
             LastPositionSeconds = Math.Max(0, latest.LastPositionSeconds),
             DurationSeconds = Math.Max(0, latest.DurationSeconds),
@@ -859,6 +890,32 @@ public static class ProfileSyncEngine
     {
         long merged = MergeAccumulatedPlaytime(baseline, local, remote);
         return (int)Math.Min(int.MaxValue, merged);
+    }
+
+    private static (string DailyDate, long DailySeconds) MergeDailyPlayback(
+        CloudMediaHistoryEntryV1 baseline,
+        CloudMediaHistoryEntryV1 local,
+        CloudMediaHistoryEntryV1 remote)
+    {
+        string baseDate = baseline.DailyPlaybackDate ?? "";
+        string localDate = local.DailyPlaybackDate ?? "";
+        string remoteDate = remote.DailyPlaybackDate ?? "";
+        string newestDate = new[] { baseDate, localDate, remoteDate }
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .OrderByDescending(value => value, StringComparer.Ordinal)
+            .FirstOrDefault() ?? "";
+        if (string.IsNullOrWhiteSpace(newestDate)) return ("", 0);
+
+        long baseSeconds = string.Equals(baseDate, newestDate, StringComparison.Ordinal)
+            ? Math.Max(0, baseline.DailyPlaybackSeconds)
+            : 0;
+        long localSeconds = string.Equals(localDate, newestDate, StringComparison.Ordinal)
+            ? Math.Max(0, local.DailyPlaybackSeconds)
+            : 0;
+        long remoteSeconds = string.Equals(remoteDate, newestDate, StringComparison.Ordinal)
+            ? Math.Max(0, remote.DailyPlaybackSeconds)
+            : 0;
+        return (newestDate, MergeAccumulatedPlaytime(baseSeconds, localSeconds, remoteSeconds));
     }
 
     private static string FirstNotBlank(params string?[] values)
@@ -1033,6 +1090,8 @@ public static class ProfileSyncEngine
             MetadataCapturedUtc = entry.MetadataCapturedUtc?.ToUniversalTime(),
             TotalPlaybackSeconds = Math.Max(0, entry.TotalPlaybackSeconds),
             LastSessionSeconds = Math.Max(0, entry.LastSessionSeconds),
+            DailyPlaybackDate = entry.DailyPlaybackDate ?? "",
+            DailyPlaybackSeconds = Math.Max(0, entry.DailyPlaybackSeconds),
             SessionCount = Math.Max(0, entry.SessionCount),
             LastPositionSeconds = Math.Max(0, entry.LastPositionSeconds),
             DurationSeconds = Math.Max(0, entry.DurationSeconds),
@@ -1076,6 +1135,8 @@ public static class ProfileSyncEngine
            NormalizeDate(left.MetadataCapturedUtc) == NormalizeDate(right.MetadataCapturedUtc) &&
            left.TotalPlaybackSeconds == right.TotalPlaybackSeconds &&
            left.LastSessionSeconds == right.LastSessionSeconds &&
+           string.Equals(left.DailyPlaybackDate ?? "", right.DailyPlaybackDate ?? "", StringComparison.Ordinal) &&
+           left.DailyPlaybackSeconds == right.DailyPlaybackSeconds &&
            left.SessionCount == right.SessionCount &&
            left.LastPositionSeconds.Equals(right.LastPositionSeconds) &&
            left.DurationSeconds.Equals(right.DurationSeconds) &&
@@ -1324,6 +1385,10 @@ public static class ProfileSyncEngine
             local.TotalPlaybackSeconds, remote.TotalPlaybackSeconds, FormatDuration);
         AddMediaValueDifference(differences, ProfileDifferenceKind.MediaLastSession, key, title, "lastSessionSeconds",
             local.LastSessionSeconds, remote.LastSessionSeconds, FormatDuration);
+        AddMediaValueDifference(differences, ProfileDifferenceKind.MediaDailyPlayback, key, title, "dailyPlaybackDate",
+            local.DailyPlaybackDate ?? "", remote.DailyPlaybackDate ?? "");
+        AddMediaValueDifference(differences, ProfileDifferenceKind.MediaDailyPlayback, key, title, "dailyPlaybackSeconds",
+            local.DailyPlaybackSeconds, remote.DailyPlaybackSeconds, FormatDuration);
         AddMediaValueDifference(differences, ProfileDifferenceKind.MediaSessionCount, key, title, "sessionCount",
             local.SessionCount, remote.SessionCount);
         AddMediaValueDifference(differences, ProfileDifferenceKind.MediaFirstPlayed, key, title, "firstPlayedUtc",
