@@ -1566,13 +1566,16 @@ window.isNavMenuOpen = false;
         if (_systemSubView === 'startup') { _renderSettingsSystemStartupV2(body); return; }
         if (_systemSubView === 'updates') { _renderSettingsSystemUpdatesV2(body); return; }
         if (_systemSubView === 'video') { _renderSettingsSystemVideo(body); return; }
+        if (_systemSubView === 'storage') { _renderSettingsSystemStorage(body); return; }
 
         const svgPower = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>`;
+        const svgStorage = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5.5" rx="8" ry="3.5"/><path d="M4 5.5v6c0 1.93 3.58 3.5 8 3.5s8-1.57 8-3.5v-6"/><path d="M4 11.5v6c0 1.93 3.58 3.5 8 3.5s8-1.57 8-3.5v-6"/></svg>`;
         const svgUpdate = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v6h-6"/></svg>`;
         const svgDevices = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5.2" width="9.4" height="13.6" rx="2.1"/><circle cx="7.7" cy="14.1" r="2.15"/><circle cx="7.7" cy="9.1" r=".72" fill="currentColor" stroke="none"/><path d="M16.5 6.2v11.6l3.6-3.6-3.6-2.2 3.6-2.2-3.6-3.6Z"/></svg>`;
         const svgVideo = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>`;
 
         const entries = [
+            { id:'setSystemStorage', icon:svgStorage, title:'Armazenamento', description:'Espaço dos discos, conteúdo do Doorpi e programas instalados.' },
             { id:'setSystemStartup', icon:svgPower, title:'Inicialização', description:'Comportamento de boot, modo console e atalhos para ajustes essenciais.' },
             { id:'setSystemUpdates', icon:svgUpdate, title:'Atualizações', description:'Doorpi, Updater e Windows Update reunidos em uma área dedicada.' },
             { id:'setSystemDevices', icon:svgDevices, title:_t('navSetDevices', 'Dispositivos'), description:_t('navSetDevicesDesc', 'Bluetooth, som e acessórios conectados') },
@@ -1581,12 +1584,19 @@ window.isNavMenuOpen = false;
         body.innerHTML = _settingsDirectoryMarkup('setBackSystemHub', _t('navSetSystem', 'Sistema'), entries);
         _wireSettingsDirectory(body, entries);
 
-        _wireSystemItems(body, ['#setBackSystemHub', '#setSystemStartup', '#setSystemUpdates', '#setSystemDevices', '#setSystemVideo']);
+        _wireSystemItems(body, ['#setBackSystemHub', '#setSystemStorage', '#setSystemStartup', '#setSystemUpdates', '#setSystemDevices', '#setSystemVideo']);
 
         body.querySelector('#setBackSystemHub')?.addEventListener('click', () => {
             _settingsReturnToRoot = false;
             _settingsSubView = null;
             _systemSubView = null;
+            _contentIdx = 0;
+            _renderContent('settings');
+            _updateContentFocus();
+        });
+        body.querySelector('#setSystemStorage')?.addEventListener('click', () => {
+            _systemSubView = 'storage';
+            _storageView = 'overview';
             _contentIdx = 0;
             _renderContent('settings');
             _updateContentFocus();
@@ -1618,6 +1628,761 @@ window.isNavMenuOpen = false;
             _updateContentFocus();
         });
     }
+
+    function _storageSizeText(value, fallback = '—') {
+        const bytes = Number(value || 0);
+        if (!Number.isFinite(bytes) || bytes <= 0) return fallback;
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const order = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+        const amount = bytes / Math.pow(1024, order);
+        const digits = order >= 3 && amount < 10 ? 1 : 0;
+        return `${amount.toFixed(digits)} ${units[order]}`;
+    }
+
+    function _storageStateLabel(state) {
+        if (state === 'informed') return 'Informado pelo aplicativo';
+        if (state === 'mixed') return 'Valores combinados';
+        if (state === 'estimated') return 'Estimativa';
+        if (state === 'partial') return 'Análise parcial';
+        if (state === 'pending') return 'Aguardando análise';
+        if (state === 'unavailable') return 'Tamanho indisponível';
+        if (state === 'residual') return 'Fora das categorias';
+        return 'Calculado pelo Doorpi';
+    }
+
+    function _storageCategoryIcon(key) {
+        const icons = {
+            games: '<path d="M7.5 9.5h9a4.5 4.5 0 0 1 4.2 6.1l-1 2.6a2 2 0 0 1-3.2.8L14.8 17H9.2l-1.7 2a2 2 0 0 1-3.2-.8l-1-2.6a4.5 4.5 0 0 1 4.2-6.1Z"/><path d="M7 13.3h3M8.5 11.8v3M15.8 13h.1M18 15h.1"/>',
+            applications: '<rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/>',
+            doorpi: '<path d="M7 3h10v18H7z"/><path d="M11 7h2M11 17h2"/>',
+            windows: '<path d="m3 5 8-1v8H3V5Zm10-1.2 8-1.1V12h-8V3.8ZM3 14h8v8l-8-1v-7Zm10 0h8v9.3l-8-1.1V14Z"/>',
+            other: '<path d="M4 7h6l2 2h8v10H4V7Z"/><path d="M4 7V5h6l2 2"/>'
+        };
+        return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[key] || icons.other}</svg>`;
+    }
+
+    function _storageStatusText() {
+        if (_storageStatus?.error) return _storageStatus.error;
+        if (_storageStatus?.calculating) {
+            const current = Number(_storageStatus.progressCurrent || 0);
+            const total = Number(_storageStatus.progressTotal || 0);
+            return total > 0 ? `Analisando ${current} de ${total} · ${_storageStatus.progressLabel || 'Lendo arquivos'}` : 'Preparando análise dos discos…';
+        }
+        if (_storageStatus?.complete === false && _storageStatus?.scannedAt) return 'Análise parcial preservada. Atualize para continuar.';
+        if (_storageStatus?.scannedAt) return `Analisado em ${new Date(_storageStatus.scannedAt).toLocaleString()}`;
+        return 'Os valores são calculados em segundo plano.';
+    }
+
+    function _storageSegments(drive) {
+        const total = Math.max(1, Number(drive?.totalBytes || 0));
+        const categories = Array.isArray(drive?.categories) ? drive.categories : [];
+        const used = categories.map(category => {
+            const width = Math.max(0, Math.min(100, Number(category?.sizeBytes || 0) / total * 100));
+            return width > 0 ? `<span class="nav-storage-segment is-${_esc(category.key || 'other')}" style="width:${width}%"></span>` : '';
+        }).join('');
+        const available = Math.max(0, Math.min(100, Number(drive?.availableBytes || 0) / total * 100));
+        return `${used}<span class="nav-storage-segment is-available" style="width:${available}%"></span>`;
+    }
+
+    function _renderSettingsSystemStorageLegacy(body, preferredSelector = '') {
+        if (!document.getElementById('nav-system-storage-styles')) {
+            const s = document.createElement('style');
+            s.id = 'nav-system-storage-styles';
+            s.textContent = `
+                .nav-storage-shell{width:100%;height:calc(100% - 72px);min-height:0;display:flex;flex-direction:column;gap:clamp(14px,1.6vh,22px);overflow:hidden}
+                .nav-storage-tabs{display:flex;align-items:center;gap:28px;border-bottom:1px solid rgba(255,255,255,.09);flex:0 0 auto}
+                .nav-storage-tab{min-height:48px;padding:0 2px;border:0;border-bottom:2px solid transparent;background:transparent;color:rgba(255,255,255,.48);font:inherit;font-size:.94rem;font-weight:620;outline:none;cursor:pointer}
+                .nav-storage-tab.is-active{color:#fff;border-bottom-color:#fff}.nav-storage-tab.nav-focused-el{color:#fff;border-bottom-color:#fff}
+                .nav-storage-overview{min-height:0;flex:1;display:grid;grid-template-columns:minmax(330px,.82fr) minmax(480px,1.18fr);gap:clamp(18px,2vw,32px)}
+                .nav-storage-capacity,.nav-storage-categories,.nav-storage-program-detail{min-height:0;border:1px solid rgba(255,255,255,.09);border-radius:10px;background:linear-gradient(145deg,rgba(255,255,255,.055),rgba(255,255,255,.014) 74%)}
+                .nav-storage-capacity{padding:clamp(22px,2.4vw,38px);display:flex;flex-direction:column;gap:clamp(16px,2vh,26px)}
+                .nav-storage-drive-tabs{display:flex;flex-wrap:wrap;gap:8px}.nav-storage-drive{min-height:38px;padding:0 13px;border:1px solid rgba(255,255,255,.11);border-radius:6px;background:rgba(255,255,255,.035);color:rgba(255,255,255,.62);font:inherit;font-size:.82rem;outline:none}
+                .nav-storage-drive.is-active{color:#fff;background:rgba(255,255,255,.1)}.nav-storage-drive.nav-focused-el{border-color:rgba(255,255,255,.76);color:#fff}
+                .nav-storage-kicker{color:rgba(255,255,255,.42);font-size:.69rem;font-weight:760;letter-spacing:.13em;text-transform:uppercase}
+                .nav-storage-available{display:grid;gap:3px}.nav-storage-available strong{font-size:clamp(2.15rem,3.3vw,4rem);line-height:1;font-weight:360}.nav-storage-available span{color:rgba(255,255,255,.56);font-size:.9rem}
+                .nav-storage-track{height:20px;display:flex;overflow:hidden;border-radius:5px;background:rgba(255,255,255,.08);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
+                .nav-storage-segment{height:100%;min-width:0;border-right:1px solid rgba(5,8,18,.44)}
+                .nav-storage-segment.is-games{background:#8475c7}.nav-storage-segment.is-applications{background:#6699bd}.nav-storage-segment.is-doorpi{background:#5c9c8b}.nav-storage-segment.is-windows{background:#b29b65}.nav-storage-segment.is-other{background:#a06f63}.nav-storage-segment.is-available{background:rgba(255,255,255,.2)}
+                .nav-storage-capacity-meta{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding-top:4px}.nav-storage-capacity-meta div{display:grid;gap:5px}.nav-storage-capacity-meta span{color:rgba(255,255,255,.42);font-size:.68rem;text-transform:uppercase;letter-spacing:.09em}.nav-storage-capacity-meta strong{font-size:1rem;font-weight:610}
+                .nav-storage-analysis{margin-top:auto;display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:16px;border-top:1px solid rgba(255,255,255,.08)}.nav-storage-analysis p{margin:0;color:rgba(255,255,255,.5);font-size:.78rem;line-height:1.4}
+                .nav-storage-refresh,.nav-storage-program-action{min-height:44px;padding:0 15px;border:1px solid rgba(255,255,255,.13);border-radius:6px;background:rgba(255,255,255,.06);color:#fff;font:inherit;font-weight:620;outline:none;white-space:nowrap}.nav-storage-refresh.nav-focused-el,.nav-storage-program-action.nav-focused-el{background:#fff;color:#10131d;border-color:#fff}
+                .nav-storage-categories{padding:clamp(16px,1.8vw,26px);display:flex;flex-direction:column;overflow:hidden}.nav-storage-section-head{display:flex;align-items:end;justify-content:space-between;gap:18px;padding:2px 4px 14px}.nav-storage-section-head h3{margin:0;font-size:1.18rem;font-weight:560}.nav-storage-section-head span{color:rgba(255,255,255,.42);font-size:.75rem}
+                .nav-storage-category-list{min-height:0;display:grid;gap:5px;overflow-y:auto;scrollbar-width:none}.nav-storage-category-list::-webkit-scrollbar{display:none}
+                .nav-storage-category{border:1px solid transparent;border-radius:7px;background:transparent}.nav-storage-category-button{width:100%;min-height:62px;padding:8px 12px;border:0;border-radius:7px;background:transparent;color:#fff;display:grid;grid-template-columns:38px minmax(0,1fr) auto;align-items:center;gap:12px;text-align:left;font:inherit;outline:none}.nav-storage-category-button.nav-focused-el{background:rgba(255,255,255,.1);box-shadow:inset 2px 0 0 rgba(255,255,255,.9)}
+                .nav-storage-category-icon{width:34px;height:34px;display:grid;place-items:center;color:rgba(255,255,255,.65)}.nav-storage-category-icon svg{width:25px;height:25px}.nav-storage-category-copy{min-width:0;display:grid;gap:3px}.nav-storage-category-copy strong{font-size:.94rem;font-weight:620}.nav-storage-category-copy small{color:rgba(255,255,255,.42);font-size:.72rem}.nav-storage-category-size{font-size:.94rem;font-variant-numeric:tabular-nums;color:rgba(255,255,255,.76)}
+                .nav-storage-category-children{margin:0 12px 9px 50px;padding:4px 0 3px 13px;border-left:1px solid rgba(255,255,255,.12);display:grid;gap:5px}.nav-storage-category-child{display:flex;justify-content:space-between;gap:16px;color:rgba(255,255,255,.54);font-size:.75rem}
+                .nav-storage-programs{min-height:0;flex:1;display:grid;grid-template-columns:minmax(360px,.92fr) minmax(390px,1.08fr);gap:clamp(18px,2vw,32px)}
+                .nav-storage-program-list{min-height:0;display:flex;flex-direction:column;gap:5px;overflow-y:auto;scrollbar-width:none;padding-right:4px}.nav-storage-program-list::-webkit-scrollbar{display:none}
+                .nav-storage-program{min-height:68px;padding:10px 14px;border:1px solid transparent;border-radius:7px;background:transparent;color:#fff;display:grid;grid-template-columns:40px minmax(0,1fr) auto;align-items:center;gap:12px;text-align:left;font:inherit;outline:none}.nav-storage-program.nav-focused-el,.nav-storage-program.is-selected{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.12)}.nav-storage-program.nav-focused-el{border-color:rgba(255,255,255,.72)}
+                .nav-storage-program-mark{width:38px;height:38px;border-radius:7px;background:rgba(255,255,255,.08);display:grid;place-items:center;color:rgba(255,255,255,.74);font-weight:720}.nav-storage-program-copy{min-width:0;display:grid;gap:4px}.nav-storage-program-copy strong,.nav-storage-program-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.nav-storage-program-copy strong{font-size:.9rem;font-weight:620}.nav-storage-program-copy small{color:rgba(255,255,255,.42);font-size:.72rem}.nav-storage-program-size{color:rgba(255,255,255,.66);font-size:.8rem}
+                .nav-storage-program-detail{padding:clamp(24px,2.5vw,42px);display:flex;flex-direction:column;gap:18px}.nav-storage-program-detail-mark{width:64px;height:64px;border-radius:10px;background:rgba(255,255,255,.08);display:grid;place-items:center;font-size:1.4rem;font-weight:700}.nav-storage-program-detail h3{margin:0;font-size:clamp(1.45rem,2vw,2.2rem);font-weight:430;line-height:1.15}.nav-storage-program-detail>p{margin:0;color:rgba(255,255,255,.54);line-height:1.5;max-width:52ch}.nav-storage-program-facts{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid rgba(255,255,255,.08)}.nav-storage-program-facts div{padding:13px 0;border-bottom:1px solid rgba(255,255,255,.08);display:grid;gap:4px}.nav-storage-program-facts div:nth-child(even){padding-left:18px}.nav-storage-program-facts span{color:rgba(255,255,255,.4);font-size:.68rem;text-transform:uppercase;letter-spacing:.08em}.nav-storage-program-facts strong{font-size:.83rem;font-weight:560;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.nav-storage-program-actions{margin-top:auto;display:grid;grid-template-columns:1fr 1fr;gap:9px}.nav-storage-program-actions .wide{grid-column:1/-1}.nav-storage-program-action.is-danger{color:#f1b6b6;border-color:rgba(238,143,143,.26)}.nav-storage-program-action[disabled]{opacity:.35}.nav-storage-program-message{padding:11px 13px;border-left:2px solid rgba(255,255,255,.45);background:rgba(255,255,255,.035);color:rgba(255,255,255,.62);font-size:.78rem;line-height:1.4}
+                @media(max-width:1200px){.nav-storage-overview,.nav-storage-programs{grid-template-columns:minmax(300px,.8fr) minmax(420px,1.2fr)}.nav-storage-capacity{padding:20px}.nav-storage-category-button{min-height:56px}.nav-storage-program-detail{padding:24px}}
+                @media(max-height:760px){.nav-storage-shell{gap:10px}.nav-storage-tabs{gap:22px}.nav-storage-tab{min-height:40px}.nav-storage-capacity,.nav-storage-categories{padding:15px}.nav-storage-available strong{font-size:2.15rem}.nav-storage-category-button{min-height:50px}.nav-storage-analysis{padding-top:10px}.nav-storage-program{min-height:58px}.nav-storage-program-detail-mark{width:50px;height:50px}}
+            `;
+            document.head.appendChild(s);
+        }
+
+        const drives = Array.isArray(_storageStatus?.drives) ? _storageStatus.drives : [];
+        if (!_storageSelectedRoot || !drives.some(drive => drive.root === _storageSelectedRoot))
+            _storageSelectedRoot = drives[0]?.root || '';
+        const drive = drives.find(item => item.root === _storageSelectedRoot) || drives[0] || null;
+        const programs = Array.isArray(_storagePrograms?.programs) ? _storagePrograms.programs : [];
+        if (_storageSelectedProgramId && !programs.some(program => program.id === _storageSelectedProgramId))
+            _storageSelectedProgramId = '';
+
+        const tabs = `
+            <div class="nav-storage-tabs" role="tablist" aria-label="Seções de armazenamento">
+                <button class="nav-storage-tab ${_storageView === 'overview' ? 'is-active' : ''}" id="navStorageTabOverview" data-storage-view="overview" tabindex="-1">Uso do disco</button>
+                <button class="nav-storage-tab ${_storageView === 'programs' ? 'is-active' : ''}" id="navStorageTabPrograms" data-storage-view="programs" tabindex="-1">Programas instalados</button>
+            </div>`;
+
+        let viewMarkup = '';
+        if (_storageView === 'overview') {
+            if (!drive) {
+                viewMarkup = `<div class="nav-storage-capacity"><span class="nav-storage-kicker">Discos</span><div class="nav-storage-available"><strong>—</strong><span>Nenhum disco disponível</span></div></div>`;
+            } else {
+                const categories = Array.isArray(drive.categories) ? drive.categories : [];
+                const total = Math.max(1, Number(drive.totalBytes || 0));
+                const usedPercent = Math.round(Math.max(0, Math.min(100, Number(drive.usedBytes || 0) / total * 100)));
+                const categoryMarkup = categories.map(category => {
+                    const expanded = _storageExpandedCategories.has(category.key);
+                    const children = Array.isArray(category.children) ? category.children : [];
+                    return `<article class="nav-storage-category">
+                        <button class="nav-storage-category-button" data-storage-category="${_esc(category.key || '')}" tabindex="-1" aria-expanded="${expanded}">
+                            <span class="nav-storage-category-icon">${_storageCategoryIcon(category.key)}</span>
+                            <span class="nav-storage-category-copy"><strong>${_esc(category.label || category.key || '')}</strong><small>${_esc(_storageStateLabel(category.state))}</small></span>
+                            <span class="nav-storage-category-size">${_esc(_storageSizeText(category.sizeBytes, '0 B'))}</span>
+                        </button>
+                        ${expanded && children.length ? `<div class="nav-storage-category-children">${children.map(child => `<div class="nav-storage-category-child"><span>${_esc(child.label || child.key || '')}</span><strong>${_esc(_storageSizeText(child.sizeBytes, '—'))}</strong></div>`).join('')}</div>` : ''}
+                    </article>`;
+                }).join('');
+                viewMarkup = `<div class="nav-storage-overview">
+                    <section class="nav-storage-capacity">
+                        <div class="nav-storage-drive-tabs">${drives.map(item => `<button class="nav-storage-drive ${item.root === drive.root ? 'is-active' : ''}" data-storage-root="${_esc(item.root)}" tabindex="-1">${_esc(item.label || item.root)}</button>`).join('')}</div>
+                        <div><span class="nav-storage-kicker">Espaço disponível</span><div class="nav-storage-available"><strong>${_esc(_storageSizeText(drive.availableBytes))}</strong><span>${usedPercent}% do disco em uso</span></div></div>
+                        <div class="nav-storage-track" aria-label="Distribuição do espaço">${_storageSegments(drive)}</div>
+                        <div class="nav-storage-capacity-meta">
+                            <div><span>Capacidade</span><strong>${_esc(_storageSizeText(drive.totalBytes))}</strong></div>
+                            <div><span>Em uso</span><strong>${_esc(_storageSizeText(drive.usedBytes))}</strong></div>
+                            <div><span>Reservado</span><strong>${_esc(_storageSizeText(drive.reservedBytes, '0 B'))}</strong></div>
+                        </div>
+                        <div class="nav-storage-analysis"><p>${_esc(_storageStatusText())}</p><button class="nav-storage-refresh" id="navStorageRefresh" tabindex="-1">${_storageStatus?.calculating ? 'Analisando…' : 'Atualizar análise'}</button></div>
+                    </section>
+                    <section class="nav-storage-categories"><div class="nav-storage-section-head"><h3>Distribuição do conteúdo</h3><span>Selecione para ver detalhes</span></div><div class="nav-storage-category-list">${categoryMarkup || '<p class="nav-storage-program-message">As categorias serão exibidas após a primeira análise.</p>'}</div></section>
+                </div>`;
+            }
+        } else {
+            const selected = programs.find(program => program.id === _storageSelectedProgramId) || programs[0] || null;
+            const listMarkup = programs.map(program => {
+                const meta = [program.publisher, program.version].filter(Boolean).join(' · ') || 'Programa do Windows';
+                return `<button class="nav-storage-program ${program.id === selected?.id ? 'is-selected' : ''}" data-storage-program="${_esc(program.id)}" tabindex="-1">
+                    <span class="nav-storage-program-mark">${_esc((program.name || '?').trim().charAt(0).toUpperCase())}</span>
+                    <span class="nav-storage-program-copy"><strong>${_esc(program.name || 'Programa')}</strong><small>${_esc(meta)}</small></span>
+                    <span class="nav-storage-program-size">${_esc(_storageSizeText(program.sizeBytes, '—'))}</span>
+                </button>`;
+            }).join('');
+            viewMarkup = `<div class="nav-storage-programs">
+                <section class="nav-storage-program-list" id="navStorageProgramList">${listMarkup || `<p class="nav-storage-program-message">${_esc(_storagePrograms?.error || (_storagePrograms ? 'Nenhum programa encontrado.' : 'Carregando programas do Windows…'))}</p>`}</section>
+                <section class="nav-storage-program-detail" id="navStorageProgramDetail"></section>
+            </div>`;
+        }
+
+        body.innerHTML = `<div class="nav-settings-subheader"><button class="nav-back-btn" id="setBackSystemStorage" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button><h2>Armazenamento</h2></div><main class="nav-storage-shell">${tabs}${viewMarkup}</main>`;
+
+        const renderProgramDetail = program => {
+            const detail = body.querySelector('#navStorageProgramDetail');
+            if (!detail) return;
+            if (!program) {
+                detail.innerHTML = '<span class="nav-storage-kicker">Programas instalados</span><h3>Nenhum programa selecionado</h3><p>Os programas reconhecidos pelo Windows aparecerão nesta lista.</p>';
+                return;
+            }
+            _storageSelectedProgramId = program.id;
+            const confirming = _storagePendingUninstallId === program.id;
+            const status = _storageUninstallStatus?.programId === program.id ? _storageUninstallStatus.message : '';
+            detail.innerHTML = `<div class="nav-storage-program-detail-mark">${_esc((program.name || '?').trim().charAt(0).toUpperCase())}</div>
+                <div><span class="nav-storage-kicker">Programa selecionado</span><h3>${_esc(program.name || 'Programa')}</h3></div>
+                <p>A remoção será concluída pelo desinstalador oficial deste programa fora do Doorpi.</p>
+                <div class="nav-storage-program-facts"><div><span>Editor</span><strong>${_esc(program.publisher || 'Não informado')}</strong></div><div><span>Versão</span><strong>${_esc(program.version || 'Não informada')}</strong></div><div><span>Tamanho</span><strong>${_esc(_storageSizeText(program.sizeBytes, 'Não informado'))}</strong></div><div><span>Origem</span><strong>Windows</strong></div></div>
+                ${status ? `<div class="nav-storage-program-message">${_esc(status)}</div>` : ''}
+                <div class="nav-storage-program-actions">${confirming
+                    ? `<button class="nav-storage-program-action" id="navStorageCancelUninstall" tabindex="-1">Cancelar</button><button class="nav-storage-program-action is-danger" id="navStorageConfirmUninstall" tabindex="-1">Confirmar remoção</button>`
+                    : `<button class="nav-storage-program-action wide is-danger" id="navStorageUninstall" tabindex="-1" ${program.canUninstall ? '' : 'disabled'}>${program.canUninstall ? 'Abrir desinstalador' : 'Desinstalação indisponível'}</button>`}</div>`;
+        };
+
+        const wire = (focusSelector = preferredSelector) => {
+            const selected = programs.find(program => program.id === _storageSelectedProgramId) || programs[0] || null;
+            renderProgramDetail(selected);
+            const collect = () => {
+                _contentItems = [
+                    body.querySelector('#setBackSystemStorage'),
+                    ...Array.from(body.querySelectorAll('.nav-storage-tab')),
+                    ...Array.from(body.querySelectorAll('.nav-storage-drive')),
+                    body.querySelector('#navStorageRefresh'),
+                    ...Array.from(body.querySelectorAll('.nav-storage-category-button')),
+                    ...Array.from(body.querySelectorAll('.nav-storage-program')),
+                    body.querySelector('#navStorageUninstall'),
+                    body.querySelector('#navStorageCancelUninstall'),
+                    body.querySelector('#navStorageConfirmUninstall')
+                ].filter(Boolean);
+                _contentItems.forEach((element, index) => element.addEventListener('mouseenter', () => { _topbarFocus = false; _contentIdx = index; _updateContentFocus(); }));
+            };
+            collect();
+            const target = focusSelector ? body.querySelector(focusSelector) : null;
+            _contentIdx = target ? Math.max(0, _contentItems.indexOf(target)) : Math.max(0, Math.min(_contentIdx, _contentItems.length - 1));
+            _updateContentFocus();
+
+            body.querySelectorAll('.nav-storage-program').forEach(button => {
+                const select = () => {
+                    const program = programs.find(item => item.id === button.dataset.storageProgram);
+                    if (!program) return;
+                    body.querySelectorAll('.nav-storage-program').forEach(item => item.classList.toggle('is-selected', item === button));
+                    renderProgramDetail(program);
+                    collect();
+                };
+                button.addEventListener('focus', select);
+                button.addEventListener('click', () => {
+                    select();
+                    const action = body.querySelector('#navStorageUninstall');
+                    if (action && !action.disabled) { _contentIdx = _contentItems.indexOf(action); _updateContentFocus(); }
+                });
+            });
+        };
+
+        body.querySelector('#setBackSystemStorage')?.addEventListener('click', _returnFromSystemDetail);
+        body.querySelectorAll('[data-storage-view]').forEach(button => button.addEventListener('click', () => {
+            _storageView = button.dataset.storageView || 'overview';
+            _storagePendingUninstallId = '';
+            if (_storageView === 'programs') postToHost?.({ action: 'requestStoragePrograms' });
+            _contentIdx = 1;
+            _renderSettingsSystemStorage(body, _storageView === 'programs' ? '#navStorageTabPrograms' : '#navStorageTabOverview');
+        }));
+        body.querySelectorAll('[data-storage-root]').forEach(button => button.addEventListener('click', () => {
+            _storageSelectedRoot = button.dataset.storageRoot || '';
+            _renderSettingsSystemStorage(body, `[data-storage-root="${CSS.escape(_storageSelectedRoot)}"]`);
+        }));
+        body.querySelector('#navStorageRefresh')?.addEventListener('click', () => postToHost?.({ action:'requestStorageStatus', forceRefresh:true }));
+        body.querySelectorAll('[data-storage-category]').forEach(button => button.addEventListener('click', () => {
+            const key = button.dataset.storageCategory || '';
+            if (_storageExpandedCategories.has(key)) _storageExpandedCategories.delete(key); else _storageExpandedCategories.add(key);
+            _renderSettingsSystemStorage(body, `[data-storage-category="${CSS.escape(key)}"]`);
+        }));
+        wire();
+        if (body._doorpiStorageClickHandler)
+            body.removeEventListener('click', body._doorpiStorageClickHandler);
+        body._doorpiStorageClickHandler = event => {
+            if (event.target.closest('#navStorageUninstall')) {
+                _storagePendingUninstallId = _storageSelectedProgramId;
+                _renderSettingsSystemStorage(body, '#navStorageConfirmUninstall');
+            } else if (event.target.closest('#navStorageCancelUninstall')) {
+                _storagePendingUninstallId = '';
+                _renderSettingsSystemStorage(body, `[data-storage-program="${CSS.escape(_storageSelectedProgramId)}"]`);
+            } else if (event.target.closest('#navStorageConfirmUninstall')) {
+                const id = _storagePendingUninstallId;
+                _storagePendingUninstallId = '';
+                _storageUninstallStatus = { programId:id, status:'starting', message:'Preparando o desinstalador e os controles…' };
+                postToHost?.({ action:'uninstallStorageProgram', programId:id });
+                _renderSettingsSystemStorage(body, `[data-storage-program="${CSS.escape(id)}"]`);
+            }
+        };
+        body.addEventListener('click', body._doorpiStorageClickHandler);
+
+        if (_storageView === 'overview' && !_storageStatus)
+            postToHost?.({ action:'requestStorageStatus', forceRefresh:false });
+        else if (_storageView === 'programs' && !_storagePrograms)
+            postToHost?.({ action:'requestStoragePrograms' });
+    }
+
+    function _storageDriveArtwork(kind = 'fixed', large = false) {
+        const removable = kind === 'removable';
+        return `<svg class="${large ? 'is-large' : ''}" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="8" y="8" width="32" height="32" rx="7"/>
+            <path d="M13 30h22M15 15h18l3 12H12l3-12Z"/>
+            <circle cx="32.5" cy="34.5" r="1.5" fill="currentColor" stroke="none"/>
+            ${removable ? '<path d="M21 34h6M24 27v7M21.5 29.5 24 27l2.5 2.5"/>' : '<path d="M15 35h9"/>'}
+        </svg>`;
+    }
+
+    function _storageProgramArtwork(program, large = false) {
+        const icon = String(program?.iconBase64 || '').trim();
+        if (icon)
+            return `<img src="data:image/png;base64,${_esc(icon)}" alt="" loading="lazy" />`;
+        return `<svg class="${large ? 'is-large' : ''}" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="22" height="22" rx="5"/><path d="M10 10h5v5h-5zM17 10h5v5h-5zM10 17h5v5h-5zM17 17h5v5h-5z"/></svg>`;
+    }
+
+    function _renderSettingsSystemStorageV2Legacy(body, preferredSelector = '') {
+        if (!document.getElementById('nav-system-storage-v2-styles')) {
+            const styles = document.createElement('style');
+            styles.id = 'nav-system-storage-v2-styles';
+            styles.textContent = `
+                .nav-content-body.storage-management-active{overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;padding-bottom:clamp(32px,5vh,72px);scrollbar-width:none}.nav-content-body.storage-management-active::-webkit-scrollbar{display:none}
+                .nav-storage-console{width:100%;height:auto;min-height:calc(100% - 60px);display:grid;grid-template-rows:minmax(300px,40vh) minmax(480px,62vh);gap:clamp(16px,2vh,28px)}
+                .nav-storage-overview-panel,.nav-storage-library-panel{min-width:0;min-height:0;border:1px solid rgba(255,255,255,.11);border-radius:12px;background:linear-gradient(135deg,rgba(255,255,255,.072),rgba(255,255,255,.018) 72%);overflow:hidden}
+                .nav-storage-overview-panel{padding:clamp(14px,1.35vw,22px);display:grid;grid-template-columns:minmax(230px,.58fr) minmax(470px,1.42fr);gap:clamp(16px,1.8vw,30px);align-items:stretch}
+                .nav-storage-drive-column{min-width:0;display:grid;grid-template-rows:auto 1fr auto;gap:10px}.nav-storage-drive-column-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.nav-storage-drive-column-head h3{margin:0;font-size:.92rem;font-weight:650}.nav-storage-drive-rail{display:flex;gap:7px;min-width:0;overflow-x:auto;padding:1px 2px 4px;scrollbar-width:none}.nav-storage-drive-rail::-webkit-scrollbar{display:none}
+                .nav-storage-drive-card{flex:0 0 clamp(200px,16vw,260px);min-height:64px;padding:8px 11px;border:1px solid rgba(255,255,255,.1);border-radius:9px;background:rgba(255,255,255,.025);color:#fff;display:grid;grid-template-columns:37px minmax(0,1fr);align-items:center;gap:10px;text-align:left;font:inherit;outline:none;transition:.15s ease}.nav-storage-drive-card.is-active{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.23)}.nav-storage-drive-card.nav-focused-el{border-color:#fff;background:rgba(255,255,255,.145)}
+                .nav-storage-drive-card svg{width:33px;height:33px;color:rgba(255,255,255,.78)}.nav-storage-drive-card-copy{min-width:0;display:grid;gap:3px}.nav-storage-drive-card-copy strong,.nav-storage-drive-card-copy>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.nav-storage-drive-card-copy strong{font-size:.8rem;font-weight:680}.nav-storage-drive-card-copy>span{color:rgba(255,255,255,.58);font-size:.66rem}.nav-storage-drive-mini-track{height:4px;margin-top:3px;border-radius:3px;background:rgba(255,255,255,.11);overflow:hidden}.nav-storage-drive-mini-track i{display:block;height:100%;background:#56a6ee}
+                .nav-storage-kicker{color:rgba(255,255,255,.5);font-size:.66rem;font-weight:780;letter-spacing:.13em;text-transform:uppercase}.nav-storage-refresh,.nav-storage-program-action{min-height:40px;padding:0 14px;border:1px solid rgba(255,255,255,.15);border-radius:7px;background:rgba(255,255,255,.06);color:#fff;font:inherit;font-size:.74rem;font-weight:650;outline:none;white-space:nowrap}.nav-storage-refresh.nav-focused-el,.nav-storage-program-action.nav-focused-el{background:#fff;color:#0b1120;border-color:#fff}.nav-storage-refresh{justify-self:start}
+                .nav-storage-summary{min-width:0;display:grid;grid-template-columns:minmax(350px,.96fr) minmax(390px,1.04fr);gap:clamp(22px,2vw,38px);align-items:center}.nav-storage-usage-hero{display:grid;grid-template-columns:clamp(92px,7vw,124px) minmax(0,1fr);align-items:center;gap:clamp(18px,1.6vw,28px)}.nav-storage-usage-visual{width:100%;aspect-ratio:1;border-radius:18px;display:grid;place-items:center;background:linear-gradient(145deg,rgba(82,154,221,.22),rgba(255,255,255,.035));border:1px solid rgba(110,183,244,.28)}.nav-storage-usage-visual svg{width:58%;height:58%;color:#9dcdf4}.nav-storage-usage-copy{min-width:0;display:grid;gap:6px}.nav-storage-usage-copy strong{font-size:clamp(2.25rem,3.25vw,4.2rem);font-weight:330;line-height:1.02;white-space:nowrap}.nav-storage-usage-copy>span{color:rgba(255,255,255,.66);font-size:.84rem;line-height:1.4}.nav-storage-usage-copy .nav-storage-total{color:rgba(255,255,255,.43);font-size:.74rem}
+                .nav-storage-breakdown{min-width:0;display:grid;gap:10px}.nav-storage-capacity-line{height:16px;display:flex;overflow:hidden;border-radius:5px;background:rgba(255,255,255,.08);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}.nav-storage-capacity-line .nav-storage-segment{height:100%}.nav-storage-capacity-line .is-games{background:#8876f3}.nav-storage-capacity-line .is-applications{background:#44a4e7}.nav-storage-capacity-line .is-doorpi{background:#36b88c}.nav-storage-capacity-line .is-windows{background:#e0a84d}.nav-storage-capacity-line .is-other{background:#d67870}.nav-storage-capacity-line .is-available{background:rgba(255,255,255,.18)}
+                .nav-storage-category-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 18px}.nav-storage-category{min-width:0}.nav-storage-category-static{min-width:0;min-height:28px;display:grid;grid-template-columns:10px minmax(0,1fr) auto;align-items:center;gap:9px;color:#fff;border-bottom:1px solid rgba(255,255,255,.055)}.nav-storage-category-dot{width:9px;height:9px;border-radius:50%;background:#d67870}.nav-storage-category.is-games .nav-storage-category-dot{background:#8876f3}.nav-storage-category.is-applications .nav-storage-category-dot{background:#44a4e7}.nav-storage-category.is-doorpi .nav-storage-category-dot{background:#36b88c}.nav-storage-category.is-windows .nav-storage-category-dot{background:#e0a84d}.nav-storage-category-static strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.74rem;font-weight:560;color:rgba(255,255,255,.72)}.nav-storage-category-static span:last-child{font-size:.74rem;font-weight:650;color:#fff;white-space:nowrap}
+                .nav-storage-usage-meta{display:flex;align-items:center;gap:18px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)}.nav-storage-usage-meta span{color:rgba(255,255,255,.46);font-size:.66rem}.nav-storage-usage-meta strong{margin-left:5px;color:rgba(255,255,255,.88);font-size:.72rem;font-weight:650}
+                .nav-storage-library-panel{padding:clamp(14px,1.35vw,22px);display:grid;grid-template-rows:auto minmax(0,1fr);gap:clamp(10px,1vh,14px)}.nav-storage-library-head{display:flex;align-items:end;justify-content:space-between;gap:16px;padding:0 2px}.nav-storage-library-head h3{margin:3px 0 2px;font-size:clamp(1.25rem,1.55vw,1.75rem);font-weight:500}.nav-storage-library-head p{margin:0;color:rgba(255,255,255,.52);font-size:.72rem}.nav-storage-library-stats{text-align:right;display:grid;gap:2px}.nav-storage-library-stats strong{font-size:.84rem;font-weight:680}.nav-storage-library-stats span{color:rgba(255,255,255,.45);font-size:.66rem}
+                .nav-storage-manager{min-width:0;min-height:0;display:grid;grid-template-columns:minmax(460px,1.28fr) minmax(340px,.72fr);gap:clamp(16px,1.5vw,26px)}.nav-storage-program-list{min-height:0;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:6px;padding:1px 6px 8px 1px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.3) transparent}.nav-storage-program-list::-webkit-scrollbar{width:5px}.nav-storage-program-list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.3);border-radius:5px}
+                .nav-storage-program{flex:0 0 auto;min-width:0;min-height:66px;padding:8px 11px;border:1px solid rgba(255,255,255,.055);border-radius:8px;background:rgba(255,255,255,.022);color:#fff;display:grid;grid-template-columns:46px minmax(0,1fr) auto;align-items:center;gap:11px;text-align:left;font:inherit;outline:none}.nav-storage-program.nav-focused-el{background:linear-gradient(90deg,rgba(255,255,255,.145),rgba(255,255,255,.075));border-color:rgba(255,255,255,.92);box-shadow:inset 3px 0 0 #fff}.nav-storage-program.is-selected:not(.nav-focused-el){background:rgba(255,255,255,.065);border-color:rgba(255,255,255,.11)}.nav-storage-program-mark,.nav-storage-program-detail-art{overflow:hidden;background:rgba(255,255,255,.07);display:grid;place-items:center;color:rgba(255,255,255,.55)}.nav-storage-program-mark{width:44px;height:44px;border-radius:9px}.nav-storage-program-mark img,.nav-storage-program-detail-art img{width:100%;height:100%;object-fit:contain}.nav-storage-program-mark svg{width:26px;height:26px}.nav-storage-program-copy{min-width:0;display:grid;gap:3px}.nav-storage-program-copy strong,.nav-storage-program-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.nav-storage-program-copy strong{font-size:.79rem;font-weight:650}.nav-storage-program-copy small{color:rgba(255,255,255,.48);font-size:.65rem}.nav-storage-program-intent{display:grid;justify-items:end;gap:3px}.nav-storage-program-size{color:rgba(255,255,255,.78);font-size:.7rem;font-variant-numeric:tabular-nums}.nav-storage-program-uninstall{color:#efaaaa;font-size:.62rem;font-weight:680;letter-spacing:.02em}.nav-storage-program-uninstall.is-disabled{color:rgba(255,255,255,.34)}
+                .nav-storage-program-detail{min-width:0;min-height:0;padding:clamp(15px,1.45vw,24px);border:1px solid rgba(255,255,255,.09);border-radius:10px;background:linear-gradient(155deg,rgba(255,255,255,.065),rgba(255,255,255,.02));display:flex;flex-direction:column;align-items:flex-start;gap:12px}.nav-storage-program-detail-art{width:68px;height:68px;border-radius:13px}.nav-storage-program-detail-art svg{width:37px;height:37px}.nav-storage-program-detail-copy{min-width:0;width:100%;display:grid;gap:5px}.nav-storage-program-detail-copy h4{margin:0;font-size:clamp(1.05rem,1.25vw,1.4rem);font-weight:620;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.nav-storage-program-detail-copy p{margin:0;color:rgba(255,255,255,.52);font-size:.7rem;line-height:1.4}.nav-storage-program-detail-meta{width:100%;display:grid;gap:0;margin-top:4px;border-top:1px solid rgba(255,255,255,.08)}.nav-storage-program-detail-meta span{padding:9px 0;border-bottom:1px solid rgba(255,255,255,.08);color:rgba(255,255,255,.67);font-size:.68rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.nav-storage-program-prompt{margin-top:auto;color:rgba(255,255,255,.5);font-size:.68rem;line-height:1.4}.nav-storage-program-actions{width:100%;display:grid;grid-template-columns:1fr 1fr;gap:8px}.nav-storage-program-actions .wide{grid-column:1/-1}.nav-storage-program-action.is-danger{color:#ffc0c0;border-color:rgba(247,143,143,.38);background:rgba(137,42,47,.16)}.nav-storage-program-action.is-danger.nav-focused-el{color:#461014;background:#ffd6d6;border-color:#fff}.nav-storage-program-action[disabled]{opacity:.35}.nav-storage-program-message{width:100%;padding:9px 11px;border-left:2px solid rgba(255,255,255,.46);background:rgba(255,255,255,.04);color:rgba(255,255,255,.64);font-size:.68rem;line-height:1.4}.nav-storage-empty{align-self:start;padding:18px;border:1px dashed rgba(255,255,255,.14);border-radius:8px;color:rgba(255,255,255,.55);font-size:.76rem}
+                .nav-content-body.storage-management-active{overflow:hidden;padding-bottom:clamp(10px,1.2vh,18px)}
+                .nav-storage-mode-tabs{height:48px;display:flex;align-items:end;gap:28px;border-bottom:1px solid rgba(255,255,255,.09)}
+                .nav-storage-mode-tab{height:48px;padding:0 2px;border:0;border-bottom:2px solid transparent;background:transparent;color:rgba(255,255,255,.48);font:inherit;font-size:.86rem;font-weight:610;outline:none}
+                .nav-storage-mode-tab.is-active,.nav-storage-mode-tab.nav-focused-el{color:#fff;border-bottom-color:#fff}
+                .nav-storage-console.is-overview,.nav-storage-console.is-programs{height:calc(100% - 108px);min-height:0;grid-template-rows:minmax(0,1fr);padding-top:14px}
+                .nav-storage-console.is-overview .nav-storage-overview-panel,.nav-storage-console.is-programs .nav-storage-library-panel{height:100%;min-height:0}
+                .nav-storage-console.is-overview .nav-storage-overview-panel{grid-template-columns:minmax(270px,.48fr) minmax(680px,1.52fr)}
+                .nav-storage-console.is-overview .nav-storage-summary{grid-template-columns:minmax(360px,.94fr) minmax(430px,1.06fr)}
+                .nav-storage-console.is-programs .nav-storage-manager{grid-template-columns:minmax(520px,1.32fr) minmax(340px,.68fr)}
+                @media(max-width:1250px){.nav-storage-overview-panel{grid-template-columns:1fr}.nav-storage-drive-column{grid-template-rows:auto auto;grid-template-columns:minmax(0,1fr) auto;align-items:end}.nav-storage-drive-column-head{grid-column:1/-1}.nav-storage-refresh{grid-column:2;grid-row:2}.nav-storage-summary{grid-template-columns:minmax(300px,.9fr) minmax(360px,1.1fr)}.nav-storage-manager{grid-template-columns:minmax(390px,1.2fr) minmax(300px,.8fr)}.nav-storage-category-list{grid-template-columns:repeat(2,minmax(0,1fr))}.nav-storage-program-detail{padding:16px}}
+                @media(max-height:820px){.nav-storage-console{grid-template-rows:minmax(300px,44vh) minmax(430px,68vh);gap:14px}.nav-storage-overview-panel{padding:13px 16px}.nav-storage-drive-card{min-height:54px}.nav-storage-usage-copy strong{font-size:2.2rem}.nav-storage-category-list{gap:6px 12px}.nav-storage-library-panel{padding:13px 16px}.nav-storage-program{min-height:58px}.nav-storage-program-detail-art{width:58px;height:58px}.nav-storage-program-detail{gap:9px}.nav-storage-program-detail-meta span{padding:7px 0}}
+            `;
+            document.head.appendChild(styles);
+        }
+
+        body.classList.add('storage-management-active');
+        const priorScroll = body.querySelector('#navStorageProgramList')?.scrollTop || 0;
+        const drives = Array.isArray(_storageStatus?.drives) ? _storageStatus.drives : [];
+        if (!_storageSelectedRoot || !drives.some(item => item.root === _storageSelectedRoot))
+            _storageSelectedRoot = drives[0]?.root || '';
+        const drive = drives.find(item => item.root === _storageSelectedRoot) || drives[0] || null;
+        const allPrograms = Array.isArray(_storagePrograms?.programs) ? _storagePrograms.programs : [];
+        const selectedRoot = String(drive?.root || '').toUpperCase();
+        const primaryRoot = String(drives[0]?.root || '').toUpperCase();
+        const programs = allPrograms.filter(program => {
+            const root = String(program.installRoot || '').toUpperCase();
+            return root ? root === selectedRoot : selectedRoot === primaryRoot;
+        }).sort((a, b) => Number(b.sizeBytes || 0) - Number(a.sizeBytes || 0) || String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR'));
+        if (!_storageSelectedProgramId || !programs.some(program => program.id === _storageSelectedProgramId))
+            _storageSelectedProgramId = programs[0]?.id || '';
+
+        const total = Math.max(1, Number(drive?.totalBytes || 0));
+        const usedPercent = drive ? Math.round(Math.max(0, Math.min(100, Number(drive.usedBytes || 0) / total * 100))) : 0;
+        const categories = Array.isArray(drive?.categories) ? drive.categories : [];
+        const knownProgramBytes = programs.reduce((sum, program) => sum + Math.max(0, Number(program.sizeBytes || 0)), 0);
+        const driveRail = drives.map(item => {
+            const itemTotal = Math.max(1, Number(item.totalBytes || 0));
+            const itemUsed = Math.round(Math.max(0, Math.min(100, Number(item.usedBytes || 0) / itemTotal * 100)));
+            return `<button class="nav-storage-drive-card ${item.root === drive?.root ? 'is-active' : ''}" data-storage-root="${_esc(item.root || '')}" tabindex="-1">
+                ${_storageDriveArtwork(item.kind)}<span class="nav-storage-drive-card-copy"><strong>${_esc(item.label || item.root || 'Disco')}</strong><span>${_esc(_storageSizeText(item.availableBytes))} livres de ${_esc(_storageSizeText(item.totalBytes))}</span><span class="nav-storage-drive-mini-track"><i style="width:${itemUsed}%"></i></span></span>
+            </button>`;
+        }).join('');
+        const categoryMarkup = categories.map(category => `<article class="nav-storage-category is-${_esc(category.key || 'other')}">
+            <div class="nav-storage-category-static"><span class="nav-storage-category-dot"></span><strong>${_esc(category.label || category.key || '')}</strong><span>${_esc(_storageSizeText(category.sizeBytes, '0 B'))}</span></div>
+        </article>`).join('');
+        const programMarkup = programs.map(program => `<button class="nav-storage-program ${program.id === _storageSelectedProgramId ? 'is-selected' : ''}" data-storage-program="${_esc(program.id)}" tabindex="-1">
+            <span class="nav-storage-program-mark">${_storageProgramArtwork(program)}</span><span class="nav-storage-program-copy"><strong>${_esc(program.name || 'Programa')}</strong><small>${_esc(program.publisher || 'Aplicativo do Windows')}</small></span><span class="nav-storage-program-intent"><span class="nav-storage-program-size">${_esc(_storageSizeText(program.sizeBytes, '—'))}</span><span class="nav-storage-program-uninstall ${program.canUninstall ? '' : 'is-disabled'}">${program.canUninstall ? 'Desinstalar  ›' : 'Indisponível'}</span></span>
+        </button>`).join('');
+
+        const overviewMarkup = `<section class="nav-storage-overview-panel">
+                    <div class="nav-storage-drive-column"><div class="nav-storage-drive-column-head"><div><span class="nav-storage-kicker">Unidades</span><h3>Escolha um disco</h3></div></div><section class="nav-storage-drive-rail" aria-label="Discos disponíveis">${driveRail || '<div class="nav-storage-empty">Nenhum disco disponível.</div>'}</section><button class="nav-storage-refresh" id="navStorageRefresh" tabindex="-1">${_storageStatus?.calculating ? 'Analisando…' : 'Atualizar análise'}</button></div>
+                    <div class="nav-storage-summary"><div class="nav-storage-usage-hero"><div class="nav-storage-usage-visual">${_storageDriveArtwork(drive?.kind, true)}</div><div class="nav-storage-usage-copy"><span class="nav-storage-kicker">${_esc(drive?.label || 'Armazenamento')}</span><strong>${_esc(_storageSizeText(drive?.availableBytes))} livres</strong><span>${usedPercent}% do disco está em uso</span><span class="nav-storage-total">${_esc(_storageSizeText(drive?.usedBytes))} usados de ${_esc(_storageSizeText(drive?.totalBytes))}${drive?.format ? ` · ${_esc(drive.format)}` : ''}</span></div></div><div class="nav-storage-breakdown"><div class="nav-storage-capacity-line" aria-label="Distribuição do espaço">${drive ? _storageSegments(drive) : ''}</div><div class="nav-storage-category-list">${categoryMarkup || '<div class="nav-storage-empty">As categorias aparecerão após a análise.</div>'}</div><div class="nav-storage-usage-meta"><span>Em uso <strong>${_esc(_storageSizeText(drive?.usedBytes))}</strong></span><span>Reservado <strong>${_esc(_storageSizeText(drive?.reservedBytes, '0 B'))}</strong></span><span>${_esc(_storageStatusText())}</span></div></div></div>
+                </section>`;
+        const programsMarkup = `<section class="nav-storage-library-panel">
+                    <header class="nav-storage-library-head"><div><span class="nav-storage-kicker">Gerenciamento de aplicativos</span><h3>Desinstalar programas</h3><p>Selecione um programa para revisar os detalhes e removê-lo deste computador.</p></div><div class="nav-storage-library-stats"><strong>${programs.length} ${programs.length === 1 ? 'programa' : 'programas'}</strong><span>${_esc(_storageSizeText(knownProgramBytes, 'Tamanho não informado'))} identificados</span></div></header>
+                    <div class="nav-storage-manager"><section class="nav-storage-program-list" id="navStorageProgramList">${programMarkup || `<div class="nav-storage-empty">${_esc(_storagePrograms?.error || (_storagePrograms ? 'Nenhum programa identificado neste disco.' : 'Carregando programas e ícones do Windows…'))}</div>`}</section><section class="nav-storage-program-detail" id="navStorageProgramDetail"></section></div>
+                </section>`;
+        const modeTabs = `<div class="nav-storage-mode-tabs"><button class="nav-storage-mode-tab ${_storageView === 'overview' ? 'is-active' : ''}" data-storage-view="overview" tabindex="-1">Uso do disco</button><button class="nav-storage-mode-tab ${_storageView === 'programs' ? 'is-active' : ''}" data-storage-view="programs" tabindex="-1">Programas instalados</button></div>`;
+        body.innerHTML = `<div class="nav-settings-subheader"><button class="nav-back-btn" id="setBackSystemStorage" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button><h2>Armazenamento</h2></div>${modeTabs}<main class="nav-storage-console is-${_storageView}">${_storageView === 'programs' ? programsMarkup : overviewMarkup}</main>`;
+
+        const renderProgramDetail = program => {
+            const detail = body.querySelector('#navStorageProgramDetail');
+            if (!detail) return;
+            if (!program) {
+                detail.innerHTML = `<span class="nav-storage-program-detail-art">${_storageProgramArtwork(null, true)}</span><div class="nav-storage-program-detail-copy"><span class="nav-storage-kicker">Gerenciador</span><h4>Nenhum programa selecionado</h4><p>Escolha um item da lista para conferir seus dados e iniciar a desinstalação.</p></div>`;
+                return;
+            }
+            _storageSelectedProgramId = program.id;
+            const status = _storageUninstallStatus?.programId === program.id ? _storageUninstallStatus.message : '';
+            detail.innerHTML = `<span class="nav-storage-program-detail-art">${_storageProgramArtwork(program, true)}</span><div class="nav-storage-program-detail-copy"><span class="nav-storage-kicker">Programa selecionado</span><h4>${_esc(program.name || 'Programa')}</h4><p>${_esc(program.publisher || 'Editor não informado')}${program.version ? ` · versão ${_esc(program.version)}` : ''}</p><span class="nav-storage-program-detail-meta"><span>Tamanho · ${_esc(_storageSizeText(program.sizeBytes, 'Não informado'))}</span><span>Unidade · ${_esc(program.installRoot || 'Não informada')}</span><span class="nav-storage-program-status" ${status ? '' : 'hidden'}>${_esc(status)}</span></span></div><p class="nav-storage-program-prompt">${program.canUninstall ? 'O desinstalador oficial será aberto em primeiro plano. O controle passa a operar o mouse até você voltar ao Doorpi.' : 'Este programa não informou um desinstalador ao Windows.'}</p><div class="nav-storage-program-actions"><button class="nav-storage-program-action" id="navStorageCancelUninstall" tabindex="-1">Cancelar</button><button class="nav-storage-program-action is-danger" id="navStorageConfirmUninstall" tabindex="-1" ${program.canUninstall ? '' : 'disabled'}>${program.canUninstall ? 'Abrir desinstalador' : 'Indisponível'}</button></div>`;
+        };
+
+        const rebuildItems = () => {
+            _contentItems = [body.querySelector('#setBackSystemStorage'), ...Array.from(body.querySelectorAll('.nav-storage-mode-tab')), ...Array.from(body.querySelectorAll('.nav-storage-drive-card')), body.querySelector('#navStorageRefresh'), ...Array.from(body.querySelectorAll('.nav-storage-program')), body.querySelector('#navStorageCancelUninstall'), body.querySelector('#navStorageConfirmUninstall')].filter(Boolean);
+            _contentItems.forEach((element, index) => {
+                if (element.dataset.storageHoverBound) return;
+                element.dataset.storageHoverBound = '1';
+                element.addEventListener('mouseenter', () => { _topbarFocus = false; _contentIdx = _contentItems.indexOf(element); _updateContentFocus(); });
+            });
+        };
+        const selected = programs.find(program => program.id === _storageSelectedProgramId) || programs[0] || null;
+        renderProgramDetail(selected);
+        rebuildItems();
+        const target = preferredSelector ? body.querySelector(preferredSelector) : null;
+        _contentIdx = target ? Math.max(0, _contentItems.indexOf(target)) : Math.max(0, Math.min(_contentIdx, _contentItems.length - 1));
+        const programList = body.querySelector('#navStorageProgramList');
+        if (programList) programList.scrollTop = priorScroll;
+        _updateContentFocus();
+
+        body.querySelector('#setBackSystemStorage')?.addEventListener('click', _returnFromSystemDetail);
+        body.querySelectorAll('[data-storage-view]').forEach(button => button.addEventListener('click', () => {
+            const nextView = button.dataset.storageView || 'overview';
+            if (_storageView === nextView) return;
+            _storageView = nextView;
+            _storagePendingUninstallId = '';
+            if (_storageView === 'programs') postToHost?.({ action:'requestStoragePrograms' });
+            _renderSettingsSystemStorage(body, `.nav-storage-mode-tab[data-storage-view="${CSS.escape(_storageView)}"]`);
+        }));
+        body.querySelectorAll('[data-storage-root]').forEach(button => button.addEventListener('click', () => {
+            _storageSelectedRoot = button.dataset.storageRoot || '';
+            _storageSelectedProgramId = '';
+            _renderSettingsSystemStorage(body, `[data-storage-root="${CSS.escape(_storageSelectedRoot)}"]`);
+        }));
+        body.querySelector('#navStorageRefresh')?.addEventListener('click', () => postToHost?.({ action:'requestStorageStatus', forceRefresh:true }));
+        body.querySelectorAll('.nav-storage-program').forEach(button => {
+            const select = () => {
+                const program = programs.find(item => item.id === button.dataset.storageProgram);
+                if (!program) return;
+                body.querySelectorAll('.nav-storage-program').forEach(item => item.classList.toggle('is-selected', item === button));
+                renderProgramDetail(program);
+                rebuildItems();
+            };
+            button.addEventListener('focus', select);
+            button.addEventListener('click', () => {
+                select();
+                const action = body.querySelector('#navStorageConfirmUninstall');
+                if (action && !action.disabled) { _contentIdx = _contentItems.indexOf(action); _updateContentFocus(); }
+            });
+        });
+        if (body._doorpiStorageClickHandler) body.removeEventListener('click', body._doorpiStorageClickHandler);
+        body._doorpiStorageClickHandler = event => {
+            if (event.target.closest('#navStorageCancelUninstall')) {
+                _storagePendingUninstallId = '';
+                const selectedButton = body.querySelector(`[data-storage-program="${CSS.escape(_storageSelectedProgramId)}"]`);
+                if (selectedButton) {
+                    _contentIdx = _contentItems.indexOf(selectedButton);
+                    _updateContentFocus();
+                }
+            } else if (event.target.closest('#navStorageConfirmUninstall')) {
+                const id = _storageSelectedProgramId;
+                if (!id) return;
+                _storagePendingUninstallId = '';
+                _storageUninstallStatus = { programId:id, status:'starting', message:'Preparando o desinstalador e liberando o mouse…' };
+                postToHost?.({ action:'uninstallStorageProgram', programId:id });
+                const program = programs.find(item => item.id === id);
+                renderProgramDetail(program);
+                rebuildItems();
+            }
+        };
+        body.addEventListener('click', body._doorpiStorageClickHandler);
+        if (!_storageStatus) postToHost?.({ action:'requestStorageStatus', forceRefresh:false });
+        if (!_storagePrograms) postToHost?.({ action:'requestStoragePrograms' });
+    }
+
+    function _renderSettingsSystemStorage(body, preferredSelector = '') {
+        if (!document.getElementById('nav-system-storage-v3-styles')) {
+            const styles = document.createElement('style');
+            styles.id = 'nav-system-storage-v3-styles';
+            styles.textContent = `
+                .nav-storage-v3,.nav-storage-v3 *{box-sizing:border-box}
+                .nav-storage-v3 button{appearance:none;-webkit-appearance:none}
+                .nav-storage-v3 .nav-storage-drive-card{flex:0 0 clamp(230px,18vw,310px);min-width:0;min-height:72px;padding:10px 14px;border:1px solid rgba(255,255,255,.11);border-radius:9px;background:rgba(255,255,255,.035);color:#fff;display:grid;grid-template-columns:42px minmax(0,1fr);align-items:center;gap:12px;text-align:left;font:inherit;outline:none;transition:background-color .13s ease,border-color .13s ease,transform .13s ease}
+                .nav-storage-v3 .nav-storage-drive-card.is-active{background:rgba(255,255,255,.075);border-color:rgba(255,255,255,.25)}
+                .nav-storage-v3 .nav-storage-drive-card.nav-focused-el{background:rgba(255,255,255,.14);border-color:#fff;box-shadow:inset 3px 0 0 #fff;transform:translateY(-1px)}
+                .nav-storage-v3 .nav-storage-drive-card svg{display:block;width:38px;height:38px;color:rgba(255,255,255,.78)}
+                .nav-storage-drive-card-copy{min-width:0;display:grid;gap:4px}.nav-storage-drive-card-copy strong,.nav-storage-drive-card-copy>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.nav-storage-drive-card-copy strong{font-size:.85rem;font-weight:650}.nav-storage-drive-card-copy>span{color:rgba(255,255,255,.56);font-size:.68rem}.nav-storage-drive-mini-track{display:block;height:4px;margin-top:2px;border-radius:3px;background:rgba(255,255,255,.12);overflow:hidden}.nav-storage-drive-mini-track i{display:block;height:100%;background:#65afea}
+                .nav-storage-kicker{color:rgba(255,255,255,.48);font-size:.68rem;font-weight:760;letter-spacing:.12em;text-transform:uppercase}
+                .nav-storage-refresh,.nav-storage-program-action{min-height:48px;padding:0 18px;border:1px solid rgba(255,255,255,.15);border-radius:7px;background:rgba(255,255,255,.055);color:#fff;font:inherit;font-size:.78rem;font-weight:650;outline:none;white-space:nowrap}.nav-storage-refresh.nav-focused-el,.nav-storage-program-action.nav-focused-el{background:#fff;color:#0b1120;border-color:#fff;box-shadow:0 8px 22px rgba(0,0,0,.24)}
+                .nav-storage-capacity-line{height:16px;display:flex;overflow:hidden;border-radius:5px;background:rgba(255,255,255,.08);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}.nav-storage-capacity-line .nav-storage-segment{height:100%}.nav-storage-capacity-line .is-games{background:#8876f3}.nav-storage-capacity-line .is-applications{background:#44a4e7}.nav-storage-capacity-line .is-doorpi{background:#36b88c}.nav-storage-capacity-line .is-windows{background:#e0a84d}.nav-storage-capacity-line .is-other{background:#d67870}.nav-storage-capacity-line .is-available{background:rgba(255,255,255,.2)}
+                .nav-storage-program{flex:0 0 auto;min-width:0;min-height:70px;padding:9px 13px;border:1px solid rgba(255,255,255,.06);border-radius:8px;background:rgba(255,255,255,.025);color:#fff;display:grid;grid-template-columns:48px minmax(0,1fr) auto;align-items:center;gap:13px;text-align:left;font:inherit;outline:none}.nav-storage-program.nav-focused-el{background:linear-gradient(90deg,rgba(255,255,255,.15),rgba(255,255,255,.075));border-color:rgba(255,255,255,.92);box-shadow:inset 3px 0 0 #fff}.nav-storage-program.is-selected:not(.nav-focused-el){background:rgba(255,255,255,.065);border-color:rgba(255,255,255,.13)}
+                .nav-storage-program-mark,.nav-storage-program-detail-art{overflow:hidden;background:rgba(255,255,255,.07);display:grid;place-items:center;color:rgba(255,255,255,.55)}.nav-storage-program-mark{width:46px;height:46px;border-radius:9px}.nav-storage-program-mark img,.nav-storage-program-detail-art img{display:block;width:100%;height:100%;object-fit:contain}.nav-storage-program-mark svg{width:27px;height:27px}.nav-storage-program-copy{min-width:0;display:grid;gap:4px}.nav-storage-program-copy strong,.nav-storage-program-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.nav-storage-program-copy strong{font-size:.83rem;font-weight:650}.nav-storage-program-copy small{color:rgba(255,255,255,.48);font-size:.68rem}.nav-storage-program-intent{display:grid;justify-items:end;gap:4px}.nav-storage-program-size{color:rgba(255,255,255,.78);font-size:.74rem;font-variant-numeric:tabular-nums}.nav-storage-program-uninstall{color:rgba(255,255,255,.48);font-size:.65rem;font-weight:650}
+                .nav-storage-program-actions{width:100%;display:grid;grid-template-columns:1fr 1fr;gap:9px}.nav-storage-program-action.is-danger{color:#ffc0c0;border-color:rgba(247,143,143,.38);background:rgba(137,42,47,.16)}.nav-storage-program-action.is-danger.nav-focused-el{color:#461014;background:#ffd6d6;border-color:#fff}.nav-storage-program-action[disabled]{opacity:.35}.nav-storage-program-status{width:100%;padding:10px 12px;border-left:2px solid rgba(255,255,255,.46);background:rgba(255,255,255,.04);color:rgba(255,255,255,.66);font-size:.72rem;line-height:1.45}.nav-storage-empty{align-self:start;padding:18px;border:1px dashed rgba(255,255,255,.14);border-radius:8px;color:rgba(255,255,255,.56);font-size:.78rem}
+                .nav-content-body.storage-management-active{width:100%;max-width:none;overflow:hidden;padding-bottom:clamp(10px,1.2vh,18px)}
+                .nav-storage-v3{width:min(100%,1680px);max-width:none;height:calc(100% - 64px);min-height:0;padding-top:14px;display:flex;flex-direction:column}
+                .nav-storage-v3-panel{min-width:0;min-height:0;flex:1;border:1px solid rgba(255,255,255,.11);border-radius:12px;background:linear-gradient(135deg,rgba(255,255,255,.068),rgba(255,255,255,.018) 72%);overflow:hidden}
+                .nav-storage-v3-overview{padding:clamp(18px,1.6vw,28px);display:grid;grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr);gap:14px}
+                .nav-storage-v3-drives{min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:16px;padding-bottom:14px;border-bottom:1px solid rgba(255,255,255,.08)}.nav-storage-v3-drives h3,.nav-storage-v3-breakdown h3{margin:3px 0 0;font-size:1.12rem;font-weight:600}
+                .nav-storage-v3-drive-list{display:flex;flex-direction:row;gap:10px;min-width:0;overflow-x:auto;overflow-y:hidden;padding:clamp(6px,.55vw,10px) 4px;scroll-padding-inline:4px;scrollbar-width:none}.nav-storage-v3-drive-list::-webkit-scrollbar{display:none}
+                .nav-storage-v3-drive-list .nav-storage-drive-card{flex:0 0 max(240px,calc((100% - 20px)/3));scroll-snap-align:start}
+                .nav-storage-v3 .nav-storage-drive-card{width:auto}.nav-storage-v3 .nav-storage-refresh{margin:0}
+                .nav-storage-v3-summary{min-width:0;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;gap:16px}.nav-storage-v3-hero{display:flex;align-items:end;justify-content:space-between;gap:24px}.nav-storage-v3-free{display:grid;gap:5px}.nav-storage-v3-free strong{font-size:clamp(3rem,4.6vw,6rem);font-weight:320;line-height:.95}.nav-storage-v3-free span{color:rgba(255,255,255,.56);font-size:.83rem}.nav-storage-v3-total{text-align:right;color:rgba(255,255,255,.56);font-size:.78rem;line-height:1.5}
+                .nav-storage-v3 .nav-storage-capacity-line{height:18px}.nav-storage-v3-breakdown{min-height:0;display:flex;flex-direction:column;gap:10px}.nav-storage-v3-category-list{min-height:0;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:6px;padding:1px 6px 2px 1px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.28) transparent}
+                .nav-storage-v3-category{flex:0 0 auto;min-height:58px;padding:8px 12px;border:1px solid transparent;border-radius:8px;background:transparent;color:#fff;display:grid;grid-template-columns:12px minmax(0,1fr) auto;align-items:center;gap:12px;text-align:left;font:inherit;outline:none}.nav-storage-v3-category.nav-focused-el{background:rgba(255,255,255,.11);border-color:rgba(255,255,255,.85);box-shadow:inset 3px 0 0 #fff}.nav-storage-v3-category-dot{width:10px;height:10px;border-radius:50%;background:#d67870}.nav-storage-v3-category.is-games .nav-storage-v3-category-dot{background:#8876f3}.nav-storage-v3-category.is-applications .nav-storage-v3-category-dot{background:#44a4e7}.nav-storage-v3-category.is-doorpi .nav-storage-v3-category-dot{background:#36b88c}.nav-storage-v3-category.is-windows .nav-storage-v3-category-dot{background:#e0a84d}.nav-storage-v3-category-copy{min-width:0;display:grid;gap:3px}.nav-storage-v3-category-copy strong{font-size:.86rem;font-weight:630}.nav-storage-v3-category-copy small{color:rgba(255,255,255,.45);font-size:.68rem}.nav-storage-v3-category-value{display:grid;justify-items:end;gap:2px}.nav-storage-v3-category-value strong{font-size:.82rem}.nav-storage-v3-category-value small{color:rgba(255,255,255,.48);font-size:.62rem}
+                .nav-storage-v3-remove{min-height:66px;padding:10px 14px;border:1px solid rgba(255,255,255,.18);border-radius:9px;background:rgba(255,255,255,.055);color:#fff;display:flex;align-items:center;justify-content:space-between;gap:18px;text-align:left;font:inherit;outline:none}.nav-storage-v3-remove span{display:grid;gap:4px}.nav-storage-v3-remove strong{font-size:.87rem}.nav-storage-v3-remove small{color:rgba(255,255,255,.5);font-size:.67rem}.nav-storage-v3-remove b{font-size:1.35rem;font-weight:400}.nav-storage-v3-remove.nav-focused-el{background:#fff;color:#10131d;border-color:#fff}.nav-storage-v3-remove.nav-focused-el small{color:rgba(16,19,29,.6)}
+                .nav-storage-v3-directory{padding:clamp(18px,1.7vw,30px);display:grid;grid-template-rows:auto minmax(0,1fr);gap:14px}.nav-storage-v3-directory-head{display:flex;align-items:end;justify-content:space-between;gap:24px}.nav-storage-v3-directory-head h3{margin:3px 0 2px;font-size:clamp(1.35rem,1.7vw,2rem);font-weight:500}.nav-storage-v3-directory-head p{margin:0;color:rgba(255,255,255,.5);font-size:.73rem}.nav-storage-v3-stats{text-align:right;display:grid;gap:3px}.nav-storage-v3-stats strong{font-size:.9rem}.nav-storage-v3-stats span{color:rgba(255,255,255,.45);font-size:.68rem}
+                .nav-storage-v3-list{min-height:0;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:7px;padding:1px 7px 8px 1px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.3) transparent}.nav-storage-v3-list::-webkit-scrollbar{width:5px}.nav-storage-v3-list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.3);border-radius:5px}
+                .nav-storage-v3-list[data-nav-storage-detail-scroll]:focus{outline:none}
+                .nav-storage-v3-program-row{flex:0 0 auto;width:100%;border:1px solid rgba(255,255,255,.055);border-radius:8px;overflow:hidden;background:rgba(255,255,255,.018)}.nav-storage-v3-program-row .nav-storage-program{width:100%;border:0;border-radius:0}.nav-storage-v3 .nav-storage-program{min-height:68px}.nav-storage-v3 .nav-storage-program-uninstall{color:rgba(255,255,255,.48)}
+                .nav-storage-v3-inline{padding:13px 14px 14px 68px;border-top:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.025);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px 22px}.nav-storage-v3-inline-copy{display:grid;gap:7px;color:rgba(255,255,255,.5);font-size:.7rem;line-height:1.45}.nav-storage-v3-inline-facts{display:flex;flex-wrap:wrap;gap:7px 18px;color:rgba(255,255,255,.68)}.nav-storage-v3-inline .nav-storage-program-actions{min-width:330px;align-self:center}.nav-storage-v3-inline .nav-storage-program-action{min-height:52px;padding:0 20px;font-size:.82rem;font-weight:690;transition:background-color .12s ease,color .12s ease,border-color .12s ease,transform .12s ease}.nav-storage-v3-inline .nav-storage-program-action.nav-focused-el{background:#fff;color:#0b1020;border-color:#fff;outline:3px solid rgba(255,255,255,.42);outline-offset:3px;box-shadow:0 12px 26px rgba(0,0,0,.3);transform:translateY(-2px)}.nav-storage-v3-inline .nav-storage-program-status{grid-column:1/-1}
+                .nav-storage-v3-node{flex:0 0 auto;padding:clamp(20px,1.55vw,30px) clamp(22px,1.8vw,34px);border:1px solid rgba(255,255,255,.07);border-radius:9px;background:rgba(255,255,255,.025);display:grid;gap:14px}.nav-storage-v3-node-head{display:flex;justify-content:space-between;gap:22px;align-items:center}.nav-storage-v3-node-head strong{font-size:clamp(1.08rem,1.12vw,1.42rem);font-weight:620}.nav-storage-v3-node-head span{font-size:clamp(1rem,1.02vw,1.28rem);font-weight:650}.nav-storage-v3-node-children{padding:12px 0 0 20px;border-top:1px solid rgba(255,255,255,.08);border-left:1px solid rgba(255,255,255,.12);display:grid;gap:10px}.nav-storage-v3-node-child{min-height:34px;display:flex;align-items:center;justify-content:space-between;gap:20px;color:rgba(255,255,255,.66);font-size:clamp(.94rem,.94vw,1.18rem);line-height:1.4}.nav-storage-v3-node-child strong{color:rgba(255,255,255,.84)}
+                .nav-storage-v3-detail{padding:clamp(24px,2.4vw,44px);display:flex;flex-direction:column;gap:20px}.nav-storage-v3-detail-hero{display:grid;grid-template-columns:96px minmax(0,1fr);align-items:center;gap:22px}.nav-storage-v3-detail-hero .nav-storage-program-detail-art{width:96px;height:96px;border-radius:18px}.nav-storage-v3-detail-hero h3{margin:5px 0 6px;font-size:clamp(1.8rem,2.6vw,3.2rem);font-weight:430}.nav-storage-v3-detail-hero p{margin:0;color:rgba(255,255,255,.54);font-size:.8rem}.nav-storage-v3-facts{max-width:760px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:1px solid rgba(255,255,255,.1)}.nav-storage-v3-facts span{padding:14px 16px 14px 0;border-bottom:1px solid rgba(255,255,255,.1);display:grid;gap:5px;color:rgba(255,255,255,.43);font-size:.67rem;text-transform:uppercase;letter-spacing:.07em}.nav-storage-v3-facts strong{color:rgba(255,255,255,.88);font-size:.78rem;text-transform:none;letter-spacing:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.nav-storage-v3-detail-note{max-width:760px;color:rgba(255,255,255,.54);font-size:.76rem;line-height:1.55}.nav-storage-v3-detail .nav-storage-program-actions{margin-top:auto;max-width:760px}.nav-storage-v3-detail .nav-storage-program-status{max-width:760px}
+                @media(max-width:1250px){.nav-storage-v3-free strong{font-size:3.5rem}}
+                @media(max-height:820px){.nav-storage-v3-overview,.nav-storage-v3-directory,.nav-storage-v3-detail{padding:14px 18px}.nav-storage-v3-category{min-height:50px}.nav-storage-v3-remove{min-height:56px}.nav-storage-v3-detail-hero .nav-storage-program-detail-art{width:72px;height:72px}.nav-storage-v3-detail-hero{grid-template-columns:72px minmax(0,1fr);gap:16px}.nav-storage-v3-detail-hero h3{font-size:1.7rem}}
+            `;
+            document.head.appendChild(styles);
+        }
+
+        body.classList.add('storage-management-active');
+        const priorScroll = body.querySelector('.nav-storage-v3-list')?.scrollTop || 0;
+        const drives = Array.isArray(_storageStatus?.drives) ? _storageStatus.drives : [];
+        if (!_storageSelectedRoot || !drives.some(item => item.root === _storageSelectedRoot))
+            _storageSelectedRoot = drives[0]?.root || '';
+        const drive = drives.find(item => item.root === _storageSelectedRoot) || drives[0] || null;
+        const categories = Array.isArray(drive?.categories) ? drive.categories : [];
+        if (!categories.some(item => item.key === _storageSelectedCategoryKey))
+            _storageSelectedCategoryKey = categories[0]?.key || '';
+        const category = categories.find(item => item.key === _storageSelectedCategoryKey) || categories[0] || null;
+        const allPrograms = Array.isArray(_storagePrograms?.programs) ? _storagePrograms.programs : [];
+        const selectedRoot = String(drive?.root || '').toUpperCase();
+        const primaryRoot = String(drives[0]?.root || '').toUpperCase();
+        const programs = allPrograms.filter(program => {
+            const root = String(program.installRoot || '').toUpperCase();
+            return root ? root === selectedRoot : selectedRoot === primaryRoot;
+        }).sort((a, b) => Number(b.sizeBytes || 0) - Number(a.sizeBytes || 0) || String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR'));
+        if (_storageSelectedProgramId && !programs.some(program => program.id === _storageSelectedProgramId))
+            _storageSelectedProgramId = '';
+        const selectedProgram = programs.find(program => program.id === _storageSelectedProgramId) || null;
+        const total = Math.max(1, Number(drive?.totalBytes || 0));
+        const usedPercent = drive ? Math.round(Math.max(0, Math.min(100, Number(drive.usedBytes || 0) / total * 100))) : 0;
+
+        const driveCards = drives.map(item => {
+            const itemTotal = Math.max(1, Number(item.totalBytes || 0));
+            const itemUsed = Math.round(Math.max(0, Math.min(100, Number(item.usedBytes || 0) / itemTotal * 100)));
+            return `<button class="nav-storage-drive-card ${item.root === drive?.root ? 'is-active' : ''}" data-storage-root="${_esc(item.root || '')}" tabindex="-1">${_storageDriveArtwork(item.kind)}<span class="nav-storage-drive-card-copy"><strong>${_esc(item.label || item.root || 'Disco')}</strong><span>${_esc(_storageSizeText(item.availableBytes))} livres de ${_esc(_storageSizeText(item.totalBytes))}</span><span class="nav-storage-drive-mini-track"><i style="width:${itemUsed}%"></i></span></span></button>`;
+        }).join('');
+        const categoryButtons = categories.map(item => `<button class="nav-storage-v3-category is-${_esc(item.key || 'other')}" data-storage-category="${_esc(item.key || '')}" tabindex="-1"><span class="nav-storage-v3-category-dot"></span><span class="nav-storage-v3-category-copy"><strong>${_esc(item.label || item.key || '')}</strong><small>${_esc(_storageStateLabel(item.state))}</small></span><span class="nav-storage-v3-category-value"><strong>${_esc(_storageSizeText(item.sizeBytes, '0 B'))}</strong><small>›</small></span></button>`).join('');
+        const programBytes = programs.reduce((sum, program) => sum + Math.max(0, Number(program.sizeBytes || 0)), 0);
+        const programButtons = programs.map(program => {
+            const expanded = program.id === _storageSelectedProgramId;
+            const status = _storageUninstallStatus?.programId === program.id ? _storageUninstallStatus.message : '';
+            const uninstallerActive = _storageUninstallStatus?.programId === program.id && _storageUninstallStatus?.status === 'started';
+            const inline = expanded ? `<div class="nav-storage-v3-inline"><div class="nav-storage-v3-inline-copy"><div class="nav-storage-v3-inline-facts"><span>Tamanho · ${_esc(_storageSizeText(program.sizeBytes, 'Não informado'))}</span><span>Unidade · ${_esc(program.installRoot || 'Não informada')}</span>${program.version ? `<span>Versão · ${_esc(program.version)}</span>` : ''}</div><span>${program.canUninstall ? (uninstallerActive ? 'Use Retornar para trazer o desinstalador novamente ao primeiro plano.' : 'O Windows pode remover este item diretamente ou abrir sua ferramenta oficial de desinstalação.') : 'Este programa não informou uma ação de desinstalação ao Windows.'}</span></div><div class="nav-storage-program-actions"><button class="nav-storage-program-action" id="navStorageCancelUninstall" tabindex="-1">Cancelar</button><button class="nav-storage-program-action" id="navStorageConfirmUninstall" data-can-uninstall="${program.canUninstall}" tabindex="-1" ${program.canUninstall ? '' : 'disabled'}>${program.canUninstall ? (uninstallerActive ? 'Retornar' : 'Desinstalar') : 'Indisponível'}</button></div><span class="nav-storage-program-status" ${status ? '' : 'hidden'}>${_esc(status)}</span></div>` : '';
+            return `<div class="nav-storage-v3-program-row"><button class="nav-storage-program ${expanded ? 'is-selected' : ''}" data-storage-program="${_esc(program.id)}" tabindex="-1" aria-expanded="${expanded}"><span class="nav-storage-program-mark">${_storageProgramArtwork(program)}</span><span class="nav-storage-program-copy"><strong>${_esc(program.name || 'Programa')}</strong><small>${_esc(program.publisher || 'Programa do Windows')}</small></span><span class="nav-storage-program-intent"><span class="nav-storage-program-size">${_esc(_storageSizeText(program.sizeBytes, '—'))}</span><span class="nav-storage-program-uninstall">${expanded ? 'Opções abertas' : 'Opções  ›'}</span></span></button>${inline}</div>`;
+        }).join('');
+
+        let mainMarkup = '';
+        if (_storageView === 'overview') {
+            mainMarkup = `<main class="nav-storage-v3"><section class="nav-storage-v3-panel nav-storage-v3-overview"><aside class="nav-storage-v3-drives"><div><span class="nav-storage-kicker">Unidades</span><h3>Escolha um disco</h3></div><div class="nav-storage-v3-drive-list">${driveCards || '<div class="nav-storage-empty">Nenhum disco disponível.</div>'}</div><button class="nav-storage-refresh" id="navStorageRefresh" tabindex="-1">${_storageStatus?.calculating ? 'Analisando…' : 'Atualizar análise'}</button></aside><section class="nav-storage-v3-summary"><div class="nav-storage-v3-hero"><div class="nav-storage-v3-free"><span class="nav-storage-kicker">Espaço disponível</span><strong data-nav-storage-available>${_esc(_storageSizeText(drive?.availableBytes))}</strong><span data-nav-storage-percent>${usedPercent}% do disco em uso</span></div><div class="nav-storage-v3-total" data-nav-storage-total>${_esc(_storageSizeText(drive?.usedBytes))} usados<br>de ${_esc(_storageSizeText(drive?.totalBytes))}</div></div><div class="nav-storage-capacity-line" data-nav-storage-bar>${drive ? _storageSegments(drive) : ''}</div><div class="nav-storage-v3-breakdown"><div><span class="nav-storage-kicker">Distribuição</span><h3>O que ocupa espaço</h3></div><div class="nav-storage-v3-category-list">${categoryButtons || '<div class="nav-storage-empty">As categorias aparecerão após a análise.</div>'}</div></div><button class="nav-storage-v3-remove" id="navStorageOpenPrograms" tabindex="-1"><span><strong>Remover programas</strong><small>Jogos, aplicativos e outros programas registrados no Windows</small></span><b>›</b></button></section></section></main>`;
+        } else if (_storageView === 'category') {
+            const children = Array.isArray(category?.children) ? category.children : [];
+            const nodes = (children.length ? children : (category ? [category] : [])).map(node => {
+                const nested = Array.isArray(node.children) ? node.children : [];
+                return `<article class="nav-storage-v3-node" data-nav-storage-node="${_esc(node.key || '')}"><div class="nav-storage-v3-node-head"><strong>${_esc(node.label || node.key || '')}</strong><span data-nav-storage-node-size>${_esc(_storageSizeText(node.sizeBytes, '—'))}</span></div>${nested.length ? `<div class="nav-storage-v3-node-children">${nested.map(child => `<div class="nav-storage-v3-node-child" data-nav-storage-child="${_esc(child.key || '')}"><span>${_esc(child.label || child.key || '')}</span><strong>${_esc(_storageSizeText(child.sizeBytes, '—'))}</strong></div>`).join('')}</div>` : ''}</article>`;
+            }).join('');
+            mainMarkup = `<main class="nav-storage-v3"><section class="nav-storage-v3-panel nav-storage-v3-directory" data-nav-storage-category="${_esc(category?.key || '')}"><header class="nav-storage-v3-directory-head"><div><span class="nav-storage-kicker">${_esc(drive?.label || 'Unidade')}</span><h3>${_esc(category?.label || 'Detalhes da categoria')}</h3><p>Distribuição desta categoria no disco selecionado.</p></div><div class="nav-storage-v3-stats"><strong data-nav-storage-category-size>${_esc(_storageSizeText(category?.sizeBytes, '0 B'))}</strong><span data-nav-storage-category-state>${_esc(_storageStateLabel(category?.state))}</span></div></header><div class="nav-storage-v3-list" data-nav-storage-detail-scroll tabindex="-1">${nodes || '<div class="nav-storage-empty">Nenhum detalhe disponível para esta categoria.</div>'}</div></section></main>`;
+        } else if (_storageView === 'program-detail') {
+            const status = _storageUninstallStatus?.programId === selectedProgram?.id ? _storageUninstallStatus.message : '';
+            mainMarkup = `<main class="nav-storage-v3"><section class="nav-storage-v3-panel nav-storage-v3-detail">${selectedProgram ? `<div class="nav-storage-v3-detail-hero"><span class="nav-storage-program-detail-art">${_storageProgramArtwork(selectedProgram, true)}</span><div><span class="nav-storage-kicker">Programa selecionado</span><h3>${_esc(selectedProgram.name || 'Programa')}</h3><p>${_esc(selectedProgram.publisher || 'Editor não informado')}${selectedProgram.version ? ` · versão ${_esc(selectedProgram.version)}` : ''}</p></div></div><div class="nav-storage-v3-facts"><span>Tamanho<strong>${_esc(_storageSizeText(selectedProgram.sizeBytes, 'Não informado'))}</strong></span><span>Unidade<strong>${_esc(selectedProgram.installRoot || 'Não informada')}</strong></span><span>Desinstalação<strong>${selectedProgram.canUninstall ? 'Disponível' : 'Indisponível'}</strong></span></div><div class="nav-storage-program-message nav-storage-program-status" ${status ? '' : 'hidden'}>${_esc(status)}</div><p class="nav-storage-v3-detail-note">${selectedProgram.canUninstall ? 'O desinstalador oficial será aberto em primeiro plano. O controle passará a operar o mouse até você retornar ao Doorpi.' : 'Este programa não informou um desinstalador ao Windows.'}</p><div class="nav-storage-program-actions"><button class="nav-storage-program-action" id="navStorageCancelUninstall" tabindex="-1">Voltar à lista</button><button class="nav-storage-program-action is-danger" id="navStorageConfirmUninstall" tabindex="-1" ${selectedProgram.canUninstall ? '' : 'disabled'}>${selectedProgram.canUninstall ? 'Abrir desinstalador' : 'Indisponível'}</button></div>` : '<div class="nav-storage-empty">O programa selecionado não está mais disponível.</div>'}</section></main>`;
+        } else {
+            mainMarkup = `<main class="nav-storage-v3"><section class="nav-storage-v3-panel nav-storage-v3-directory"><header class="nav-storage-v3-directory-head"><div><span class="nav-storage-kicker">Remover programas</span><h3>Programas nesta unidade</h3><p>Selecione um item para abrir seus detalhes.</p></div><div class="nav-storage-v3-stats"><strong>${programs.length} ${programs.length === 1 ? 'programa' : 'programas'}</strong><span>${_esc(_storageSizeText(programBytes, 'Tamanho não informado'))} identificados</span></div></header><div class="nav-storage-v3-list nav-storage-program-list" id="navStorageProgramList">${programButtons || `<div class="nav-storage-empty">${_esc(_storagePrograms?.error || (_storagePrograms ? 'Nenhum programa identificado neste disco.' : 'Carregando programas do Windows…'))}</div>`}</div></section></main>`;
+        }
+
+        const backLabel = _storageView === 'program-detail' ? 'Remover programas' : _storageView === 'overview' ? _t('navBack', 'Voltar') : 'Uso do disco';
+        body.innerHTML = `<div class="nav-settings-subheader"><button class="nav-back-btn" id="setBackSystemStorage" tabindex="-1">‹ ${backLabel}</button><h2>${_storageView === 'programs' ? 'Remover programas' : _storageView === 'category' ? _esc(category?.label || 'Armazenamento') : _storageView === 'program-detail' ? _esc(selectedProgram?.name || 'Programa') : 'Armazenamento'}</h2></div>${mainMarkup}`;
+
+        const rebuildItems = () => {
+            _contentItems = [body.querySelector('#setBackSystemStorage'), body.querySelector('[data-nav-storage-detail-scroll]'), ...Array.from(body.querySelectorAll('.nav-storage-drive-card')), body.querySelector('#navStorageRefresh'), ...Array.from(body.querySelectorAll('.nav-storage-v3-category')), body.querySelector('#navStorageOpenPrograms'), ...Array.from(body.querySelectorAll('.nav-storage-program')), body.querySelector('#navStorageCancelUninstall'), body.querySelector('#navStorageConfirmUninstall')].filter(Boolean);
+            _contentItems.forEach(element => element.addEventListener('mouseenter', () => { _topbarFocus = false; _contentIdx = _contentItems.indexOf(element); _updateContentFocus(); }, { once:false }));
+        };
+        rebuildItems();
+        const target = preferredSelector ? body.querySelector(preferredSelector) : null;
+        _contentIdx = target ? Math.max(0, _contentItems.indexOf(target)) : Math.max(0, Math.min(_contentIdx, _contentItems.length - 1));
+        const list = body.querySelector('.nav-storage-v3-list');
+        if (list) list.scrollTop = priorScroll;
+        _updateContentFocus();
+
+        body.querySelector('#setBackSystemStorage')?.addEventListener('click', () => {
+            if (_storageView === 'program-detail') { _storageView = 'programs'; _renderSettingsSystemStorage(body, `[data-storage-program="${CSS.escape(_storageSelectedProgramId)}"]`); }
+            else if (_storageView === 'category') { _storageView = 'overview'; _renderSettingsSystemStorage(body, `[data-storage-category="${CSS.escape(_storageSelectedCategoryKey)}"]`); }
+            else if (_storageView === 'programs') { _storageView = 'overview'; _renderSettingsSystemStorage(body, '#navStorageOpenPrograms'); }
+            else _returnFromSystemDetail();
+        });
+        body.querySelectorAll('[data-storage-root]').forEach(button => button.addEventListener('click', () => {
+            _storageSelectedRoot = button.dataset.storageRoot || '';
+            _storageSelectedProgramId = '';
+            _renderSettingsSystemStorage(body, `[data-storage-root="${CSS.escape(_storageSelectedRoot)}"]`);
+        }));
+        body.querySelector('#navStorageRefresh')?.addEventListener('click', () => postToHost?.({ action:'requestStorageStatus', forceRefresh:true }));
+        body.querySelectorAll('[data-storage-category]').forEach(button => button.addEventListener('click', () => {
+            _storageSelectedCategoryKey = button.dataset.storageCategory || '';
+            _storageView = 'category';
+            _renderSettingsSystemStorage(body, '[data-nav-storage-detail-scroll]');
+        }));
+        body.querySelector('#navStorageOpenPrograms')?.addEventListener('click', () => {
+            _storageSelectedProgramId = '';
+            _storageView = 'programs';
+            postToHost?.({ action:'requestStoragePrograms' });
+            _renderSettingsSystemStorage(body, '.nav-storage-program');
+        });
+        body.querySelectorAll('.nav-storage-program').forEach(button => button.addEventListener('click', () => {
+            const id = button.dataset.storageProgram || '';
+            _storageSelectedProgramId = _storageSelectedProgramId === id ? '' : id;
+            _storageView = 'programs';
+            _renderSettingsSystemStorage(body, _storageSelectedProgramId ? '#navStorageConfirmUninstall' : `[data-storage-program="${CSS.escape(id)}"]`);
+        }));
+        body.querySelector('#navStorageCancelUninstall')?.addEventListener('click', () => {
+            const id = _storageSelectedProgramId;
+            _storageSelectedProgramId = '';
+            _storageView = 'programs';
+            _renderSettingsSystemStorage(body, `[data-storage-program="${CSS.escape(id)}"]`);
+        });
+        body.querySelector('#navStorageConfirmUninstall')?.addEventListener('click', () => {
+            if (!_storageSelectedProgramId) return;
+            if (_storageUninstallStatus?.programId === _storageSelectedProgramId && _storageUninstallStatus?.status === 'started') {
+                postToHost?.({ action:'returnToStorageUninstaller', programId:_storageSelectedProgramId });
+                return;
+            }
+            _storageUninstallStatus = { programId:_storageSelectedProgramId, status:'preparing', message:'Solicitando a remoção ao Windows…' };
+            postToHost?.({ action:'uninstallStorageProgram', programId:_storageSelectedProgramId });
+            const message = body.querySelector('.nav-storage-program-status');
+            if (message) { message.hidden = false; message.textContent = _storageUninstallStatus.message; }
+            const action = body.querySelector('#navStorageConfirmUninstall');
+            if (action) { action.textContent = 'Solicitando…'; action.disabled = true; }
+        });
+
+        if (!_storageStatus) postToHost?.({ action:'requestStorageStatus', forceRefresh:false });
+        if ((_storageView === 'programs' || _storageView === 'program-detail') && !_storagePrograms)
+            postToHost?.({ action:'requestStoragePrograms' });
+    }
+
+    function _storageCurrentFocusSelector() {
+        const active = document.activeElement;
+        if (!active) return '';
+        if (active.id) return `#${CSS.escape(active.id)}`;
+        if (active.dataset?.storageView) return `[data-storage-view="${CSS.escape(active.dataset.storageView)}"]`;
+        if (active.dataset?.storageRoot) return `[data-storage-root="${CSS.escape(active.dataset.storageRoot)}"]`;
+        if (active.dataset?.storageCategory) return `[data-storage-category="${CSS.escape(active.dataset.storageCategory)}"]`;
+        if (active.dataset?.storageProgram) return `[data-storage-program="${CSS.escape(active.dataset.storageProgram)}"]`;
+        return '';
+    }
+
+    function _patchNavStorageStatus() {
+        if (!window.isNavMenuOpen || _settingsSubView !== 'system' || _systemSubView !== 'storage') return false;
+        const body = document.querySelector('.nav-content-body');
+        const drives = Array.isArray(_storageStatus?.drives) ? _storageStatus.drives : [];
+        const drive = drives.find(item => item.root === _storageSelectedRoot) || drives[0];
+        if (!body || !drive) return false;
+        if (_storageView === 'overview') {
+            const total = Math.max(1, Number(drive.totalBytes || 0));
+            const percent = Math.round(Math.max(0, Math.min(100, Number(drive.usedBytes || 0) / total * 100)));
+            const available = body.querySelector('[data-nav-storage-available]');
+            const percentLabel = body.querySelector('[data-nav-storage-percent]');
+            const totalLabel = body.querySelector('[data-nav-storage-total]');
+            const bar = body.querySelector('[data-nav-storage-bar]');
+            if (available) available.textContent = _storageSizeText(drive.availableBytes);
+            if (percentLabel) percentLabel.textContent = `${percent}% do disco em uso`;
+            if (totalLabel) totalLabel.innerHTML = `${_esc(_storageSizeText(drive.usedBytes))} usados<br>de ${_esc(_storageSizeText(drive.totalBytes))}`;
+            if (bar) bar.innerHTML = _storageSegments(drive);
+            const categories = new Map((drive.categories || []).map(item => [String(item.key || ''), item]));
+            body.querySelectorAll('[data-storage-category]').forEach(button => {
+                const item = categories.get(button.dataset.storageCategory || '');
+                const size = button.querySelector('.nav-storage-v3-category-value strong');
+                const state = button.querySelector('.nav-storage-v3-category-copy small');
+                if (item && size) size.textContent = _storageSizeText(item.sizeBytes, '0 B');
+                if (item && state) state.textContent = _storageStateLabel(item.state);
+            });
+            const refresh = body.querySelector('#navStorageRefresh');
+            if (refresh) refresh.textContent = _storageStatus?.calculating ? 'Analisando…' : 'Atualizar análise';
+            return true;
+        }
+        if (_storageView !== 'category') return true;
+        const category = (drive.categories || []).find(item => item.key === _storageSelectedCategoryKey);
+        const panel = body.querySelector('[data-nav-storage-category]');
+        if (!category || !panel) return true;
+        const size = panel.querySelector('[data-nav-storage-category-size]');
+        const state = panel.querySelector('[data-nav-storage-category-state]');
+        if (size) size.textContent = _storageSizeText(category.sizeBytes, '0 B');
+        if (state) state.textContent = _storageStateLabel(category.state);
+        const list = panel.querySelector('.nav-storage-v3-list');
+        const children = Array.isArray(category.children) ? category.children : [];
+        const nodes = children.length ? children : [category];
+        const currentKeys = Array.from(list?.querySelectorAll('[data-nav-storage-node]') || []).map(item => item.dataset.navStorageNode || '').join('|');
+        const nextKeys = nodes.map(item => String(item.key || '')).join('|');
+        if (list && currentKeys !== nextKeys) {
+            list.innerHTML = nodes.map(node => {
+                const nested = Array.isArray(node.children) ? node.children : [];
+                return `<article class="nav-storage-v3-node" data-nav-storage-node="${_esc(node.key || '')}"><div class="nav-storage-v3-node-head"><strong>${_esc(node.label || node.key || '')}</strong><span data-nav-storage-node-size>${_esc(_storageSizeText(node.sizeBytes, '—'))}</span></div>${nested.length ? `<div class="nav-storage-v3-node-children">${nested.map(child => `<div class="nav-storage-v3-node-child" data-nav-storage-child="${_esc(child.key || '')}"><span>${_esc(child.label || child.key || '')}</span><strong>${_esc(_storageSizeText(child.sizeBytes, '—'))}</strong></div>`).join('')}</div>` : ''}</article>`;
+            }).join('');
+        }
+        const nodeMap = new Map(nodes.map(node => [String(node.key || ''), node]));
+        list?.querySelectorAll('[data-nav-storage-node]').forEach(row => {
+            const node = nodeMap.get(row.dataset.navStorageNode || '');
+            const nodeSize = row.querySelector('[data-nav-storage-node-size]');
+            if (node && nodeSize) nodeSize.textContent = _storageSizeText(node.sizeBytes, '—');
+            const childMap = new Map((node?.children || []).map(child => [String(child.key || ''), child]));
+            row.querySelectorAll('[data-nav-storage-child]').forEach(childRow => {
+                const child = childMap.get(childRow.dataset.navStorageChild || '');
+                const childSize = childRow.querySelector('strong');
+                if (child && childSize) childSize.textContent = _storageSizeText(child.sizeBytes, '—');
+            });
+        });
+        return true;
+    }
+
+    window._navMenuSetStorageStatus = status => {
+        _storageStatus = status || null;
+        if (window.isNavMenuOpen && _settingsSubView === 'system' && _systemSubView === 'storage') {
+            const body = document.querySelector('.nav-content-body');
+            if (body && !_patchNavStorageStatus()) _renderSettingsSystemStorage(body, _storageCurrentFocusSelector());
+        }
+    };
+    window._navMenuSetStoragePrograms = status => {
+        _storagePrograms = status || { programs:[] };
+        if (window.isNavMenuOpen && _settingsSubView === 'system' && _systemSubView === 'storage') {
+            const body = document.querySelector('.nav-content-body');
+            const focusSelector = _storageView === 'program-detail'
+                ? '#navStorageConfirmUninstall'
+                : _storageView === 'programs' && _storageSelectedProgramId
+                    ? `[data-storage-program="${CSS.escape(_storageSelectedProgramId)}"]`
+                    : '#navStorageOpenPrograms';
+            if (body) _renderSettingsSystemStorage(body, focusSelector);
+        }
+    };
+    window._navMenuSetStorageUninstallStatus = status => {
+        _storageUninstallStatus = status || null;
+        if (window.isNavMenuOpen && _settingsSubView === 'system' && _systemSubView === 'storage') {
+            const message = document.querySelector('.nav-storage-program-status');
+            if (message && (!status?.programId || status.programId === _storageSelectedProgramId)) {
+                message.hidden = !status?.message;
+                message.textContent = status?.message || '';
+            }
+            const action = document.querySelector('#navStorageConfirmUninstall');
+            if (action && (!status?.programId || status.programId === _storageSelectedProgramId)) {
+                const phase = status?.status || '';
+                const active = phase === 'started';
+                const processing = phase === 'preparing' || phase === 'direct';
+                const canUninstall = action.dataset.canUninstall !== 'false';
+                action.disabled = processing || !canUninstall;
+                action.textContent = active
+                    ? 'Retornar'
+                    : phase === 'direct'
+                        ? 'Remoção solicitada'
+                        : phase === 'preparing'
+                            ? 'Solicitando…'
+                            : (canUninstall ? 'Desinstalar' : 'Indisponível');
+                const note = action.closest('.nav-storage-v3-inline')?.querySelector('.nav-storage-v3-inline-copy > span:last-child');
+                if (note && active) note.textContent = 'Use Retornar para trazer o desinstalador novamente ao primeiro plano.';
+                else if (note && phase === 'direct') note.textContent = 'O Windows recebeu a solicitação diretamente; nenhum helper foi necessário.';
+                if (active) {
+                    const list = action.closest('.nav-storage-v3-list');
+                    const scrollTop = list?.scrollTop || 0;
+                    const index = _contentItems.indexOf(action);
+                    if (index >= 0) _contentIdx = index;
+                    _updateContentFocus();
+                    requestAnimationFrame(() => { if (list) list.scrollTop = scrollTop; });
+                }
+            }
+        }
+    };
+    window._navMenuFocusStorageUninstallerReturn = programId => {
+        if (!window.isNavMenuOpen || _settingsSubView !== 'system' || _systemSubView !== 'storage' || !programId)
+            return false;
+        const action = document.querySelector('#navStorageConfirmUninstall');
+        if (!action || programId !== _storageSelectedProgramId) return false;
+        const list = action.closest('.nav-storage-v3-list');
+        const scrollTop = list?.scrollTop || 0;
+        const index = _contentItems.indexOf(action);
+        if (index >= 0) _contentIdx = index;
+        _topbarFocus = false;
+        _updateContentFocus();
+        if (list) list.scrollTop = scrollTop;
+        return true;
+    };
 
     function _renderSettingsSystemVideo(body) {
         if (!document.getElementById('nav-system-video-styles')) {
@@ -2440,6 +3205,15 @@ window.isNavMenuOpen = false;
     let _bluetoothUpdateStatus = null;
     let _bluetoothRenderTimer = 0;
     let _wifiUpdateStatus = null;
+    let _storageStatus = null;
+    let _storagePrograms = null;
+    let _storageView = 'overview';
+    let _storageSelectedRoot = '';
+    let _storageSelectedCategoryKey = 'applications';
+    let _storageSelectedProgramId = '';
+    let _storagePendingUninstallId = '';
+    let _storageUninstallStatus = null;
+    const _storageExpandedCategories = new Set();
     const NAV_MENU_TRANSITION_MS = 600;
     let _navMenuTransitionTimer = 0;
     let _navMenuTransitionToken = 0;
@@ -4300,6 +5074,7 @@ window.isNavMenuOpen = false;
         _overlay?.classList.toggle('settings-ambient-active', id === 'settings');
         body.classList.toggle('profile-showcase-active', id === 'profile' && _profileSubView !== 'history');
         body.classList.toggle('settings-home-active', id === 'settings' && !_settingsSubView);
+        body.classList.toggle('storage-management-active', id === 'settings' && _settingsSubView === 'system' && _systemSubView === 'storage');
 
         switch (id) {
             case 'games':
@@ -5506,6 +6281,7 @@ window.isNavMenuOpen = false;
         const svgControls = window.DoorpiControls?.controllerIcon?.('nav-settings-controller-svg') || `<svg viewBox="0 0 24 18" fill="currentColor" fill-opacity=".34" stroke="currentColor" stroke-width="1.4"><path d="M4 5h16c2.3 0 3.8 2.4 3 4.5l-1.5 4a2 2 0 0 1-3.2.8L16 12H8l-2.3 2.3a2 2 0 0 1-3.2-.8l-1.5-4C.2 7.4 1.7 5 4 5Z"/></svg>`;
         const svgDevices = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5.2" width="9.4" height="13.6" rx="2.1"/><circle cx="7.7" cy="14.1" r="2.15"/><circle cx="7.7" cy="9.1" r=".72" fill="currentColor" stroke="none"/><path d="M16.5 6.2v11.6l3.6-3.6-3.6-2.2 3.6-2.2-3.6-3.6Z"/></svg>`;
         const svgPower = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>`;
+        const svgStorage = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5.5" rx="8" ry="3.5"/><path d="M4 5.5v6c0 1.93 3.58 3.5 8 3.5s8-1.57 8-3.5v-6"/><path d="M4 11.5v6c0 1.93 3.58 3.5 8 3.5s8-1.57 8-3.5v-6"/></svg>`;
         const svgVideo = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>`;
         const svgUpdate = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v6h-6"/></svg>`;
         const svgExt = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`;
@@ -5550,6 +6326,14 @@ window.isNavMenuOpen = false;
                 description: 'Defina como o Doorpi inicia com o Windows e quais caminhos ficam disponíveis ao entrar no sistema.',
                 scope: ['Início automático', 'Modo console', 'Game Bar', 'Área de trabalho'],
                 action: 'startup'
+            },
+            {
+                id: 'setStorage', group: 'Sistema', icon: svgStorage,
+                title: 'Armazenamento',
+                short: 'Discos, espaço ocupado e programas',
+                description: 'Entenda como o espaço está sendo usado e abra o desinstalador oficial dos programas instalados no Windows.',
+                scope: ['Uso por categoria', 'Discos disponíveis', 'Programas instalados', 'Desinstalação assistida'],
+                action: 'storage'
             },
             {
                 id: 'setUpdates', group: 'Sistema', icon: svgUpdate,
@@ -5651,6 +6435,7 @@ window.isNavMenuOpen = false;
                         break;
                     case 'video': openSystemDetail('video'); break;
                     case 'startup': openSystemDetail('startup'); break;
+                    case 'storage': openSystemDetail('storage'); break;
                     case 'updates': openSystemDetail('updates'); break;
                     case 'extensions': window.openExtensionsManager?.(); break;
                 }
@@ -8091,6 +8876,22 @@ window.isNavMenuOpen = false;
             container.scrollBy({ top: delta, behavior: 'smooth' });
     }
 
+    function _centerInsideScrollContainer(element, container) {
+        if (!element || !container) return;
+        const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+        if (maxScroll <= 1) {
+            if (container.scrollTop !== 0) container.scrollTop = 0;
+            return;
+        }
+        const itemRect = element.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+        const target = Math.max(0, Math.min(maxScroll,
+            container.scrollTop + itemRect.top - containerRect.top
+            - (container.clientHeight - itemRect.height) / 2));
+        if (Math.abs(target - container.scrollTop) > 0.5)
+            container.scrollTo({ top: target, behavior: 'smooth' });
+    }
+
     function _updateContentFocus() {
         if (_topbarFocus) {
    
@@ -8197,6 +8998,9 @@ window.isNavMenuOpen = false;
                 const isProfileShowcase = CATS[_catIdx]?.id === 'profile' && _profileSubView !== 'history';
                 const isExtensionsView = CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'extensions';
                 const isSettingsHome = CATS[_catIdx]?.id === 'settings' && !_settingsSubView;
+                const isStorageView = CATS[_catIdx]?.id === 'settings'
+                    && _settingsSubView === 'system'
+                    && _systemSubView === 'storage';
                 if (isSettingsHome) {
                     // O hub possui seu proprio painel de rolagem. Nao use
                     // scrollIntoView aqui: ele tenta centralizar o item e acaba
@@ -8212,6 +9016,23 @@ window.isNavMenuOpen = false;
                             list.scrollBy({ top: itemRect.bottom - listRect.bottom + edge, behavior: 'smooth' });
                         } else if (itemRect.top < listRect.top + edge) {
                             list.scrollBy({ top: itemRect.top - listRect.top - edge, behavior: 'smooth' });
+                        }
+                    }
+                } else if (isStorageView) {
+                    const list = focused.closest?.('.nav-storage-v3-list, .nav-storage-v3-category-list, .nav-storage-v3-drive-list');
+                    if (list) {
+                        const itemRect = focused.getBoundingClientRect();
+                        const listRect = list.getBoundingClientRect();
+                        const edge = 10;
+                        if (list.classList.contains('nav-storage-v3-drive-list')) {
+                            if (itemRect.right > listRect.right - edge)
+                                list.scrollLeft += itemRect.right - listRect.right + edge;
+                            else if (itemRect.left < listRect.left + edge)
+                                list.scrollLeft += itemRect.left - listRect.left - edge;
+                        } else if (itemRect.bottom > listRect.bottom - edge) {
+                            list.scrollTop += itemRect.bottom - listRect.bottom + edge;
+                        } else if (itemRect.top < listRect.top + edge) {
+                            list.scrollTop += itemRect.top - listRect.top - edge;
                         }
                     }
                 } else if (!isProfileShowcase) {
@@ -9055,6 +9876,97 @@ window.isNavMenuOpen = false;
                     return;
                 }
 
+                if (_systemSubView === 'storage') {
+                    const active = _contentItems[_contentIdx];
+                    if (!active) return true;
+                    const back = document.getElementById('setBackSystemStorage');
+                    const drives = Array.from(document.querySelectorAll('.nav-storage-drive-card'));
+                    const refresh = document.getElementById('navStorageRefresh');
+                    const categories = Array.from(document.querySelectorAll('.nav-storage-v3-category'));
+                    const openPrograms = document.getElementById('navStorageOpenPrograms');
+                    const detailScroll = document.querySelector('[data-nav-storage-detail-scroll]');
+                    const programs = Array.from(document.querySelectorAll('.nav-storage-program'));
+                    const selectedProgram = programs.find(item => item.dataset.storageProgram === _storageSelectedProgramId) || null;
+                    const selectedProgramIndex = programs.indexOf(selectedProgram);
+                    const cancel = document.getElementById('navStorageCancelUninstall');
+                    const confirm = document.getElementById('navStorageConfirmUninstall');
+                    const moveTo = element => {
+                        const index = _contentItems.indexOf(element);
+                        if (index >= 0 && element && !element.disabled) {
+                            _contentIdx = index;
+                            _updateContentFocus();
+                        }
+                    };
+
+                    if (active === back) {
+                        if (key === 'ArrowUp' || key === 'ArrowLeft') _setTopbarFocus(true);
+                        else if (key === 'ArrowDown' || key === 'ArrowRight') moveTo(detailScroll || drives[0] || programs[0] || cancel || confirm);
+                        return true;
+                    }
+
+                    if (active === detailScroll) {
+                        if (key === 'ArrowUp' && detailScroll.scrollTop <= 1) moveTo(back);
+                        else if (key === 'ArrowUp' || key === 'ArrowDown') {
+                            const amount = Math.max(96, Math.round(detailScroll.clientHeight * .24));
+                            detailScroll.scrollTop += key === 'ArrowDown' ? amount : -amount;
+                        }
+                        return true;
+                    }
+
+                    const driveIndex = drives.indexOf(active);
+                    if (driveIndex >= 0) {
+                        if (key === 'ArrowUp') moveTo(back);
+                        else if (key === 'ArrowDown') moveTo(categories[0] || openPrograms || refresh);
+                        else if (key === 'ArrowLeft') moveTo(drives[driveIndex - 1] || back);
+                        else if (key === 'ArrowRight') moveTo(drives[driveIndex + 1] || refresh || categories[0] || openPrograms);
+                        return true;
+                    }
+
+                    if (active === refresh) {
+                        if (key === 'ArrowUp') moveTo(back);
+                        else if (key === 'ArrowLeft') moveTo(drives[drives.length - 1] || back);
+                        else if (key === 'ArrowDown' || key === 'ArrowRight') moveTo(categories[0] || openPrograms);
+                        return true;
+                    }
+
+                    const categoryIndex = categories.indexOf(active);
+                    if (categoryIndex >= 0) {
+                        if (key === 'ArrowUp') moveTo(categories[categoryIndex - 1] || drives[0] || back);
+                        else if (key === 'ArrowDown') moveTo(categories[categoryIndex + 1] || openPrograms);
+                        else if (key === 'ArrowLeft') moveTo(back);
+                        return true;
+                    }
+
+                    if (active === openPrograms) {
+                        if (key === 'ArrowUp') moveTo(categories[categories.length - 1] || drives[0] || back);
+                        else if (key === 'ArrowLeft') moveTo(back);
+                        return true;
+                    }
+
+                    const programIndex = programs.indexOf(active);
+                    if (programIndex >= 0) {
+                        if (key === 'ArrowUp') moveTo(programs[programIndex - 1] || back);
+                        else if (key === 'ArrowDown') moveTo(active === selectedProgram ? (cancel || confirm || programs[programIndex + 1]) : programs[programIndex + 1]);
+                        else if (key === 'ArrowLeft') moveTo(back);
+                        return true;
+                    }
+
+                    if (active === cancel) {
+                        if (key === 'ArrowRight') moveTo(confirm);
+                        else if (key === 'ArrowUp') moveTo(selectedProgram || back);
+                        else if (key === 'ArrowDown') moveTo(programs[selectedProgramIndex + 1]);
+                        else if (key === 'ArrowLeft') moveTo(back);
+                        return true;
+                    }
+                    if (active === confirm) {
+                        if (key === 'ArrowLeft') moveTo(cancel);
+                        else if (key === 'ArrowUp') moveTo(selectedProgram || back);
+                        else if (key === 'ArrowDown') moveTo(programs[selectedProgramIndex + 1]);
+                        return true;
+                    }
+                    return true;
+                }
+
                 if (_systemSubView === 'video') {
                     const activeItem = _contentItems[_contentIdx];
                     const presets = Array.from(document.querySelectorAll('.nav-video-preset'));
@@ -9265,7 +10177,15 @@ window.isNavMenuOpen = false;
             }
             case 'Escape':
             case 'Backspace':
-                if (CATS[_catIdx]?.id === 'profile' && _profileSubView === 'history') {
+                if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'system' && _systemSubView === 'storage' && _storageView !== 'overview') {
+                    document.getElementById('setBackSystemStorage')?.click();
+                    return true;
+                } else if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'system' && _systemSubView === 'storage' && _storagePendingUninstallId) {
+                    _storagePendingUninstallId = '';
+                    const body = document.querySelector('.nav-content-body');
+                    if (body) _renderSettingsSystemStorage(body, `[data-storage-program="${CSS.escape(_storageSelectedProgramId || '')}"]`);
+                    return true;
+                } else if (CATS[_catIdx]?.id === 'profile' && _profileSubView === 'history') {
                     _profileSubView = null;
                     _contentIdx = 0;
                     _renderContent('profile');

@@ -520,6 +520,11 @@ namespace Doorpi
                 if (DateTime.UtcNow.Ticks < Interlocked.Read(ref _returnFromExternalModeSuppressUntil))
                     return;
 
+                // Se o usuário clicar no Doorpi enquanto um desinstalador estiver
+                // aberto, preserve a tela e devolva o foco ao botão Retornar.
+                if (TryFocusStorageUninstallerReturnOnDoorpiActivation())
+                    return;
+
                 // O Alt+Tab aberto pelo controle decide a transição depois que o
                 // Windows confirma a janela escolhida. Não reconstrua "Em execução"
                 // no intervalo entre a ativação do Doorpi e essa confirmação.
@@ -8917,6 +8922,7 @@ namespace Doorpi
 
             if (type == "gameLaunching")
             {
+                CancelStorageRefreshForLaunch();
                 _launchAnimationStartedUtc = DateTime.UtcNow;
             }
 
@@ -14236,6 +14242,24 @@ namespace Doorpi
                 else if (action == "requestUpdateStatus")
                 {
                     SendCachedUpdateStatusToUI();
+                }
+                else if (action == "requestStorageStatus")
+                {
+                    bool forceRefresh = root.TryGetProperty("forceRefresh", out JsonElement refreshElement) &&
+                                        refreshElement.ValueKind == JsonValueKind.True;
+                    RequestStorageStatus(forceRefresh);
+                }
+                else if (action == "requestStoragePrograms")
+                {
+                    RequestStoragePrograms();
+                }
+                else if (action == "uninstallStorageProgram")
+                {
+                    UninstallStorageProgram(GetStr(root, "programId"));
+                }
+                else if (action == "returnToStorageUninstaller")
+                {
+                    ReturnToStorageUninstaller(GetStr(root, "programId"));
                 }
                 else if (action == "checkSystemUpdates")
                 {

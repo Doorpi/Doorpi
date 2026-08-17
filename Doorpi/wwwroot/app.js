@@ -4830,6 +4830,18 @@
                     window._navMenuSetSoundStatus?.(data);
                 }
             }
+            else if (data.type === 'storageSnapshot') {
+                window.DoorpiQuickPanel?.setStorageStatus?.(data);
+                window._navMenuSetStorageStatus?.(data);
+            }
+            else if (data.type === 'storagePrograms') {
+                window.DoorpiQuickPanel?.setStoragePrograms?.(data);
+                window._navMenuSetStoragePrograms?.(data);
+            }
+            else if (data.type === 'storageUninstallStatus') {
+                window.DoorpiQuickPanel?.setStorageUninstallStatus?.(data);
+                window._navMenuSetStorageUninstallStatus?.(data);
+            }
             else if (data.type === 'updateFeaturedCard') {
                 // 🔹 Avisa o Store: ele reordena o carrossel E atualiza o hero automaticamente
                 if (window.AppStore) window.AppStore.mutations.trackOpened(data.id);
@@ -6783,6 +6795,15 @@ function showUserPicker(users, requireSelection = false) {
         let bluetoothStatus = null;
         let wifiStatus = null;
         let soundStatus = null;
+        let storageStatus = null;
+        let storagePrograms = null;
+        let storageView = 'overview';
+        let selectedStorageRoot = '';
+        let selectedStorageCategoryKey = 'applications';
+        let selectedStorageProgramId = '';
+        let pendingUninstallId = '';
+        let uninstallStatus = null;
+        const expandedStorageCategories = new Set(['games', 'applications', 'doorpi']);
         let section = null;
         let updateView = 'doorpi';
         let connectivityView = 'hub';
@@ -7037,6 +7058,217 @@ function showUserPicker(users, requireSelection = false) {
                 .dq-windows-guidance { max-width:1040px; padding-left:14px; border-left:2px solid rgba(255,255,255,.38); }
                 .dq-windows-guidance p { margin:0; color:rgba(255,255,255,.58); font-size:.86rem; line-height:1.42; }
                 .dq-windows-guidance strong { color:rgba(255,255,255,.86); font-weight:650; }
+                .dq-storage-tabs { width:min(100%,1040px); display:flex; gap:8px; }
+                .dq-storage-tab, .dq-drive-tab {
+                    min-height:46px; padding:0 16px; border:1px solid rgba(255,255,255,.1); border-radius:7px;
+                    background:rgba(255,255,255,.035); color:rgba(255,255,255,.62); font:inherit; outline:none; cursor:pointer;
+                }
+                .dq-storage-tab.active, .dq-drive-tab.active { color:#fff; background:rgba(255,255,255,.12); border-color:rgba(255,255,255,.42); }
+                .dq-storage-tab:focus, .dq-drive-tab:focus { color:#fff; border-color:#fff; box-shadow:0 0 0 2px rgba(255,255,255,.14); }
+                .dq-drive-tabs { width:min(100%,1040px); min-width:0; display:flex; flex-wrap:nowrap; gap:10px; overflow-x:auto; overflow-y:hidden; padding:clamp(6px,.5vw,9px) 4px; scroll-padding-inline:4px; scrollbar-width:none; }
+                .dq-drive-tabs::-webkit-scrollbar { display:none; }
+                .dq-drive-tab { flex:0 0 clamp(230px,18vw,310px); min-width:0; min-height:72px; padding:10px 14px; display:grid; grid-template-columns:40px minmax(0,1fr); align-items:center; gap:12px; text-align:left; color:#fff; transition:background-color .13s ease,border-color .13s ease,transform .13s ease; }
+                .dq-drive-tab.active { background:rgba(255,255,255,.075); border-color:rgba(255,255,255,.25); }
+                .dq-drive-tab:focus,.dq-drive-tab.nav-focused-el { background:rgba(255,255,255,.14); border-color:#fff; box-shadow:inset 3px 0 0 #fff,0 10px 22px rgba(0,0,0,.22); transform:translateY(-1px); }
+                .dq-drive-tab.compact { flex-basis:clamp(190px,15vw,250px); min-height:56px; grid-template-columns:32px minmax(0,1fr); padding:7px 11px; gap:9px; }
+                .dq-storage-drive-art { width:40px; height:40px; display:grid; place-items:center; color:rgba(255,255,255,.76); }
+                .dq-storage-drive-art svg { display:block; width:100%; height:100%; }
+                .dq-drive-tab.compact .dq-storage-drive-art { width:32px; height:32px; }
+                .dq-storage-drive-copy { min-width:0; display:grid; gap:3px; }
+                .dq-storage-drive-copy strong,.dq-storage-drive-copy small { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+                .dq-storage-drive-copy strong { color:rgba(255,255,255,.92); font-size:.84rem; font-weight:650; }
+                .dq-storage-drive-copy small { color:rgba(255,255,255,.54); font-size:.67rem; }
+                .dq-storage-drive-track { display:block; height:4px; margin-top:2px; border-radius:3px; background:rgba(255,255,255,.12); overflow:hidden; }
+                .dq-storage-drive-track i { display:block; height:100%; background:#65afea; }
+                .dq-storage-summary { width:min(100%,1040px); display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+                .dq-storage-stat { padding:15px 16px; border:1px solid rgba(255,255,255,.08); border-radius:8px; background:rgba(255,255,255,.045); }
+                .dq-storage-stat span { display:block; color:rgba(255,255,255,.48); font-size:.72rem; letter-spacing:.08em; text-transform:uppercase; }
+                .dq-storage-stat strong { display:block; margin-top:7px; font-size:1.18rem; font-weight:620; white-space:nowrap; }
+                .dq-storage-bar { width:min(100%,1040px); height:13px; display:flex; overflow:hidden; border-radius:7px; background:rgba(255,255,255,.09); }
+                .dq-storage-segment { min-width:0; height:100%; border-right:1px solid rgba(5,7,14,.55); }
+                .dq-storage-segment.games { background:#8277aa; }
+                .dq-storage-segment.applications { background:#6689a1; }
+                .dq-storage-segment.doorpi { background:#5f8d82; }
+                .dq-storage-segment.windows { background:#9b8964; }
+                .dq-storage-segment.other { background:#8d6f68; }
+                .dq-storage-segment.available { background:rgba(255,255,255,.30); }
+                .dq-storage-segment.reading { background:repeating-linear-gradient(135deg, rgba(255,255,255,.08) 0 6px, rgba(255,255,255,.15) 6px 12px); }
+                .dq-storage-legend { width:min(100%,1040px); display:flex; flex-wrap:wrap; gap:8px 18px; color:rgba(255,255,255,.56); font-size:.78rem; }
+                .dq-storage-legend-item { display:inline-flex; align-items:center; gap:7px; }
+                .dq-storage-legend-dot { width:9px; height:9px; border-radius:50%; flex:0 0 auto; }
+                .dq-storage-legend-dot.games { background:#8277aa; }
+                .dq-storage-legend-dot.applications { background:#6689a1; }
+                .dq-storage-legend-dot.doorpi { background:#5f8d82; }
+                .dq-storage-legend-dot.windows { background:#9b8964; }
+                .dq-storage-legend-dot.other { background:#8d6f68; }
+                .dq-storage-legend-dot.available { background:rgba(255,255,255,.42); }
+                .dq-storage-legend-dot.reading { background:rgba(255,255,255,.14); border:1px dashed rgba(255,255,255,.42); }
+                .dq-storage-list, .dq-program-list { width:min(100%,1040px); display:grid; gap:7px; }
+                .dq-storage-category, .dq-program-row { width:100%; border:1px solid rgba(255,255,255,.075); border-radius:7px; background:rgba(255,255,255,.035); color:#fff; }
+                .dq-storage-category-head, .dq-program-main { width:100%; min-height:58px; padding:10px 14px; border:0; background:transparent; color:inherit; font:inherit; outline:none; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:14px; text-align:left; cursor:pointer; }
+                .dq-storage-category-head:focus, .dq-program-main:focus, .dq-program-action:focus { background:rgba(255,255,255,.12); box-shadow:inset 2px 0 0 #fff; }
+                .dq-storage-name, .dq-program-name { font-weight:610; }
+                .dq-storage-value { color:rgba(255,255,255,.72); font-variant-numeric:tabular-nums; }
+                .dq-storage-children { padding:0 14px 10px 30px; display:grid; gap:5px; }
+                .dq-storage-child { min-height:32px; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:12px; color:rgba(255,255,255,.61); border-top:1px solid rgba(255,255,255,.055); padding-top:5px; }
+                .dq-storage-grandchildren { grid-column:1 / -1; display:grid; gap:3px; padding-left:18px; color:rgba(255,255,255,.48); font-size:.84rem; }
+                .dq-storage-grandchild { display:flex; justify-content:space-between; gap:12px; }
+                .dq-storage-state { margin-left:8px; color:rgba(255,255,255,.36); font-size:.74rem; font-weight:500; }
+                .dq-program-main[disabled] { opacity:.55; cursor:default; }
+                .dq-program-copy { min-width:0; display:grid; gap:4px; }
+                .dq-program-meta { color:rgba(255,255,255,.46); font-size:.78rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+                .dq-program-intent { display:grid; justify-items:end; gap:3px; }
+                .dq-program-intent small { color:rgba(255,255,255,.48); font-size:.68rem; font-weight:620; }
+                .dq-program-main[disabled] .dq-program-intent small { color:rgba(255,255,255,.36); }
+                .dq-program-confirm { padding:0 14px 12px; display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+                .dq-program-action { min-height:46px; border:1px solid rgba(255,255,255,.12); border-radius:6px; background:rgba(255,255,255,.07); color:#fff; font:inherit; outline:none; cursor:pointer; }
+                .dq-program-action.danger { border-color:rgba(255,255,255,.18); color:#fff; }
+                .dq-storage-toolbar { width:min(100%,1040px); display:flex; justify-content:space-between; gap:10px; align-items:center; }
+                .dq-storage-message { color:rgba(255,255,255,.58); font-size:.86rem; }
+                .dq-storage-console { width:min(100%,1120px); min-height:0; display:grid; grid-template-columns:minmax(310px,.82fr) minmax(430px,1.18fr); gap:clamp(16px,2vw,28px); align-items:stretch; }
+                .dq-storage-capacity-panel, .dq-storage-category-panel { min-height:0; border:1px solid rgba(255,255,255,.09); border-radius:9px; background:linear-gradient(145deg,rgba(255,255,255,.055),rgba(255,255,255,.014) 76%); }
+                .dq-storage-capacity-panel { padding:clamp(19px,2vw,30px); display:flex; flex-direction:column; gap:18px; }
+                .dq-storage-capacity-main { display:grid; gap:3px; }
+                .dq-storage-capacity-main span { color:rgba(255,255,255,.43); font-size:.69rem; font-weight:720; letter-spacing:.11em; text-transform:uppercase; }
+                .dq-storage-capacity-main strong { font-size:clamp(2rem,3vw,3.45rem); font-weight:350; line-height:1.05; }
+                .dq-storage-capacity-main small { color:rgba(255,255,255,.52); font-size:.82rem; }
+                .dq-storage-console .dq-storage-summary { width:100%; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+                .dq-storage-console .dq-storage-stat { padding:10px 0; border:0; border-top:1px solid rgba(255,255,255,.08); border-radius:0; background:none; }
+                .dq-storage-console .dq-storage-stat strong { font-size:.96rem; }
+                .dq-storage-console .dq-storage-bar { width:100%; height:18px; border-radius:5px; }
+                .dq-storage-console .dq-storage-legend { width:100%; gap:7px 15px; }
+                .dq-storage-console .dq-storage-legend-dot { width:12px; height:4px; border-radius:1px; }
+                .dq-storage-console .dq-storage-toolbar { width:100%; margin-top:auto; padding-top:12px; border-top:1px solid rgba(255,255,255,.07); }
+                .dq-storage-category-panel { padding:clamp(14px,1.5vw,22px); display:flex; flex-direction:column; overflow:hidden; }
+                .dq-storage-category-title { display:flex; justify-content:space-between; align-items:end; gap:16px; padding:2px 4px 13px; }
+                .dq-storage-category-title strong { font-size:1.06rem; font-weight:590; }
+                .dq-storage-category-title span { color:rgba(255,255,255,.42); font-size:.73rem; }
+                .dq-storage-category-panel .dq-storage-list { width:100%; min-height:0; overflow-y:auto; scrollbar-width:none; }
+                .dq-storage-category-panel .dq-storage-list::-webkit-scrollbar { display:none; }
+                .dq-storage-category-panel .dq-storage-category { border-color:transparent; background:transparent; }
+                .dq-storage-category-panel .dq-storage-category-head { min-height:54px; border-radius:6px; }
+                .dq-storage-program-shell { width:min(100%,1120px); min-height:0; display:flex; flex-direction:column; gap:10px; }
+                .dq-content.dq-storage-page { padding-inline:clamp(28px,3vw,58px); }
+                .dq-storage-unified { width:min(100%,1680px); min-height:680px; flex:0 0 auto; display:grid; grid-template-columns:minmax(420px,.92fr) minmax(560px,1.08fr); gap:clamp(18px,2vw,30px); overflow:visible; }
+                .dq-storage-overview-stack { min-width:0; min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr); gap:10px; }
+                .dq-storage-unified .dq-storage-capacity-panel, .dq-storage-unified .dq-storage-category-panel, .dq-storage-unified .dq-storage-program-shell { width:100%; min-height:0; }
+                .dq-storage-unified .dq-storage-capacity-panel { padding:16px; gap:12px; }
+                .dq-storage-unified .dq-storage-category-panel { padding:11px; }
+                .dq-storage-unified .dq-storage-program-shell { padding:17px; border:1px solid rgba(255,255,255,.09); border-radius:9px; background:linear-gradient(145deg,rgba(255,255,255,.055),rgba(255,255,255,.014) 76%); overflow:hidden; }
+                .dq-storage-unified .dq-storage-category-title { min-height:44px; }
+                .dq-storage-unified .dq-storage-category-title > span { display:grid; gap:3px; }
+                .dq-storage-unified .dq-storage-category-title small { color:rgba(255,255,255,.42); font-size:.7rem; }
+                .dq-program-list { min-height:0; flex:1; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:rgba(255,255,255,.2) transparent; }
+                .dq-program-list::-webkit-scrollbar { width:5px; }.dq-program-list::-webkit-scrollbar-thumb { background:rgba(255,255,255,.2); border-radius:5px; }
+                .dq-program-main { grid-template-columns:42px minmax(0,1fr) auto; }
+                .dq-program-mark { width:36px; height:36px; display:grid; place-items:center; border-radius:7px; background:rgba(255,255,255,.075); color:rgba(255,255,255,.72); font-size:.8rem; font-weight:720; }
+                .dq-program-mark img { width:100%; height:100%; object-fit:contain; }
+                .dq-program-row { background:transparent; border-color:rgba(255,255,255,.055); }
+                .dq-program-row .dq-storage-value { color:rgba(255,255,255,.52); font-size:.8rem; }
+                .dq-program-row.is-selected { background:rgba(255,255,255,.065); border-color:rgba(255,255,255,.12); }
+                .dq-storage-program-manager { min-width:0; min-height:0; flex:1; display:grid; grid-template-columns:minmax(300px,1.18fr) minmax(250px,.82fr); gap:14px; }
+                .dq-storage-program-detail { min-width:0; min-height:0; padding:18px; border:1px solid rgba(255,255,255,.085); border-radius:8px; background:rgba(255,255,255,.032); display:flex; flex-direction:column; align-items:flex-start; gap:13px; }
+                .dq-storage-program-detail .dq-program-mark { width:62px; height:62px; border-radius:12px; font-size:1.1rem; }
+                .dq-storage-program-detail h3 { margin:0; max-width:100%; font-size:clamp(1.08rem,1.35vw,1.45rem); font-weight:570; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+                .dq-storage-program-detail p { margin:0; color:rgba(255,255,255,.52); font-size:.76rem; line-height:1.45; }
+                .dq-storage-program-facts { width:100%; display:grid; margin-top:3px; border-top:1px solid rgba(255,255,255,.075); }
+                .dq-storage-program-facts span { padding:9px 0; border-bottom:1px solid rgba(255,255,255,.075); color:rgba(255,255,255,.64); font-size:.72rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+                .dq-storage-program-actions { width:100%; margin-top:auto; display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+                .dq-storage-program-actions .dq-program-action { min-width:0; padding:0 9px; font-size:.76rem; }
+                .dq-content.dq-storage-page { height:100vh; max-height:100vh; min-height:0; overflow:hidden; }
+                .dq-storage-page .dq-heading { flex:0 0 auto; }
+                .dq-storage-page .dq-sub { flex:0 0 auto; max-width:880px; }
+                .dq-storage-overview-console { width:min(100%,1680px); min-height:0; flex:1; display:grid; grid-template-columns:1fr; grid-template-rows:auto minmax(0,1fr); gap:12px; }
+                .dq-storage-overview-console .dq-storage-capacity-panel { min-height:0; padding:clamp(16px,1.6vw,25px); display:grid; grid-template-columns:minmax(300px,.72fr) minmax(520px,1.28fr); grid-template-rows:auto auto auto auto; column-gap:clamp(28px,3vw,52px); row-gap:12px; align-items:center; }
+                .dq-storage-drive-strip { grid-column:1 / -1; grid-row:1; min-width:0; display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:clamp(14px,1.5vw,24px); padding-bottom:12px; border-bottom:1px solid rgba(255,255,255,.08); }
+                .dq-storage-drive-strip-title { display:grid; gap:4px; min-width:max-content; }
+                .dq-storage-drive-strip-title span { color:rgba(255,255,255,.44); font-size:.68rem; font-weight:720; letter-spacing:.11em; text-transform:uppercase; }
+                .dq-storage-drive-strip-title strong { font-size:1rem; font-weight:590; }
+                .dq-storage-drive-strip .dq-drive-tabs { width:auto; }
+                .dq-storage-drive-strip .dq-drive-tab { flex:0 0 max(240px,calc((100% - 20px)/3)); scroll-snap-align:start; }
+                .dq-storage-drive-strip [data-action="refresh-storage"] { min-width:clamp(190px,15vw,250px); min-height:56px; padding-inline:18px; }
+                .dq-storage-overview-console .dq-storage-capacity-main { grid-column:1; grid-row:2 / 4; }
+                .dq-storage-overview-console .dq-storage-capacity-main strong { font-size:clamp(3.2rem,5vw,6rem); white-space:nowrap; }
+                .dq-storage-overview-console .dq-storage-bar { grid-column:2; grid-row:2; align-self:end; }
+                .dq-storage-overview-console .dq-storage-summary { grid-column:2; grid-row:3; }
+                .dq-storage-overview-console .dq-storage-toolbar { grid-column:1 / -1; grid-row:4; width:100%; margin-top:0; padding-top:11px; }
+                .dq-storage-overview-console .dq-storage-category-panel { min-height:0; }
+                .dq-storage-console-list { min-height:0; display:flex; flex-direction:column; gap:7px; overflow-y:auto; scrollbar-width:none; }
+                .dq-storage-console-list::-webkit-scrollbar { display:none; }
+                .dq-storage-console-row { width:100%; min-height:68px; padding:9px 16px; border:1px solid transparent; border-radius:7px; background:transparent; color:#fff; display:grid; grid-template-columns:12px minmax(0,1fr) auto; align-items:center; gap:13px; text-align:left; font:inherit; outline:none; }
+                .dq-storage-console-row:focus,.dq-storage-console-row.nav-focused-el { background:rgba(255,255,255,.11); border-color:rgba(255,255,255,.74); box-shadow:inset 3px 0 0 #fff; }
+                .dq-storage-console-row .dq-storage-legend-dot { width:10px; height:10px; border-radius:50%; }
+                .dq-storage-console-copy { min-width:0; display:grid; gap:4px; }
+                .dq-storage-console-copy strong { font-size:1rem; font-weight:590; }
+                .dq-storage-console-copy small { color:rgba(255,255,255,.43); font-size:.72rem; }
+                .dq-storage-console-value { display:grid; justify-items:end; gap:3px; font-variant-numeric:tabular-nums; }
+                .dq-storage-console-value strong { font-size:.98rem; font-weight:590; }
+                .dq-storage-console-value small { color:rgba(255,255,255,.48); font-size:.68rem; font-weight:620; }
+                .dq-storage-category-actions { flex:0 0 auto; padding-top:12px; border-top:1px solid rgba(255,255,255,.08); }
+                .dq-storage-remove-programs { width:100%; min-height:58px; padding:0 16px; border:1px solid rgba(255,255,255,.13); border-radius:7px; background:rgba(255,255,255,.055); color:#fff; display:flex; align-items:center; justify-content:space-between; gap:18px; text-align:left; font:inherit; outline:none; }
+                .dq-storage-remove-programs span { display:grid; gap:3px; }.dq-storage-remove-programs strong { font-size:.94rem; }.dq-storage-remove-programs small { color:rgba(255,255,255,.45); font-size:.7rem; }
+                .dq-storage-remove-programs:focus,.dq-storage-remove-programs.nav-focused-el { background:#fff; color:#0b1020; border-color:#fff; }.dq-storage-remove-programs:focus small,.dq-storage-remove-programs.nav-focused-el small { color:rgba(11,16,32,.58); }
+                .dq-storage-programs-toolbar { width:min(100%,1680px); display:flex; align-items:center; gap:10px; }
+                .dq-storage-back { min-height:48px; padding:0 17px; border:1px solid rgba(255,255,255,.13); border-radius:7px; background:rgba(255,255,255,.05); color:#fff; font:inherit; outline:none; }
+                .dq-storage-back:focus,.dq-storage-back.nav-focused-el { background:#fff; color:#0b1020; }
+                .dq-storage-programs-toolbar .dq-drive-tabs { flex:1; width:auto; min-width:0; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
+                .dq-storage-programs-toolbar .dq-drive-tabs::-webkit-scrollbar { display:none; }
+                .dq-storage-programs-layout { width:min(100%,1680px); min-height:0; flex:1; display:grid; grid-template-columns:minmax(520px,1.32fr) minmax(340px,.68fr); gap:clamp(18px,2vw,30px); }
+                .dq-storage-programs-list-panel,.dq-storage-programs-layout .dq-storage-program-detail { min-height:0; border:1px solid rgba(255,255,255,.09); border-radius:10px; background:linear-gradient(145deg,rgba(255,255,255,.055),rgba(255,255,255,.014) 76%); }
+                .dq-storage-programs-list-panel { padding:16px; display:flex; flex-direction:column; gap:11px; overflow:hidden; }
+                .dq-storage-programs-list-head { display:flex; align-items:end; justify-content:space-between; gap:18px; }
+                .dq-storage-programs-list-head h2 { margin:3px 0 0; font-size:1.25rem; font-weight:530; }
+                .dq-storage-programs-list-head span:last-child { color:rgba(255,255,255,.48); font-size:.75rem; }
+                .dq-storage-programs-list-panel .dq-program-list { min-height:0; flex:1; }
+                .dq-storage-programs-layout .dq-storage-program-detail { padding:clamp(20px,2vw,30px); }
+                .dq-storage-level-toolbar { width:min(100%,1680px); display:flex; align-items:center; gap:10px; flex:0 0 auto; }
+                .dq-storage-level-toolbar .dq-drive-tabs { width:auto; min-width:0; flex:1; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
+                .dq-storage-level-toolbar .dq-drive-tabs::-webkit-scrollbar { display:none; }
+                .dq-storage-category-detail-panel { width:min(100%,1680px); min-height:0; flex:1; padding:clamp(18px,2vw,28px); border:1px solid rgba(255,255,255,.09); border-radius:10px; background:linear-gradient(145deg,rgba(255,255,255,.055),rgba(255,255,255,.014) 76%); display:flex; flex-direction:column; gap:14px; overflow:hidden; }
+                .dq-storage-category-detail-head { display:flex; align-items:end; justify-content:space-between; gap:24px; padding:0 2px 12px; border-bottom:1px solid rgba(255,255,255,.08); }
+                .dq-storage-category-detail-head h2 { margin:4px 0 0; font-size:clamp(1.35rem,1.8vw,2rem); font-weight:520; }
+                .dq-storage-category-detail-head>strong { font-size:clamp(1.4rem,2vw,2.25rem); font-weight:420; }
+                .dq-storage-vertical-list { min-height:0; flex:1; overflow-y:auto; overscroll-behavior:contain; display:flex; flex-direction:column; gap:7px; padding:1px 7px 8px 1px; scrollbar-width:thin; scrollbar-color:rgba(255,255,255,.28) transparent; }
+                .dq-storage-vertical-list::-webkit-scrollbar { width:5px; }.dq-storage-vertical-list::-webkit-scrollbar-thumb { background:rgba(255,255,255,.28); border-radius:5px; }
+                .dq-storage-vertical-list[data-storage-detail-scroll]:focus { outline:none; }
+                .dq-storage-programs-page .dq-storage-category-detail-panel { padding-right:clamp(18px,2vw,28px); }
+                .dq-storage-programs-page .dq-program-list { width:100%; }
+                .dq-program-inline-detail { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px 22px; padding:13px 14px 14px 64px; border-top:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.025); }
+                .dq-program-inline-copy { min-width:0; display:grid; gap:7px; align-content:start; }
+                .dq-program-inline-facts { display:flex; flex-wrap:wrap; gap:7px 18px; color:rgba(255,255,255,.55); font-size:.72rem; }
+                .dq-program-inline-note { margin:0; color:rgba(255,255,255,.47); font-size:.7rem; line-height:1.45; }
+                .dq-program-inline-detail .dq-storage-program-actions { width:auto; min-width:330px; margin:0; align-self:center; }
+                .dq-program-inline-detail .dq-program-action { min-height:54px; padding:0 20px; font-size:.88rem; font-weight:680; transition:background-color .12s ease,color .12s ease,border-color .12s ease,transform .12s ease; }
+                .dq-program-inline-detail .dq-program-action:focus { background:#fff; color:#0b1020; border-color:#fff; outline:3px solid rgba(255,255,255,.42); outline-offset:3px; box-shadow:0 12px 26px rgba(0,0,0,.3); transform:translateY(-2px); }
+                .dq-program-inline-detail .dq-program-action.danger:focus { background:#fff; color:#0b1020; border-color:#fff; }
+                .dq-program-inline-detail .dq-storage-program-status { grid-column:1 / -1; color:rgba(255,255,255,.7); font-size:.72rem; }
+                .dq-storage-node-group { flex:0 0 auto; display:grid; gap:6px; padding:14px 16px; border:1px solid rgba(255,255,255,.065); border-radius:8px; background:rgba(255,255,255,.025); color:#fff; text-align:left; font:inherit; outline:none; }
+                .dq-storage-node-group:focus,.dq-storage-node-group.nav-focused-el { background:rgba(255,255,255,.11); border-color:rgba(255,255,255,.78); box-shadow:inset 3px 0 0 #fff; }
+                .dq-storage-node-group-head,.dq-storage-node-item { display:flex; align-items:center; justify-content:space-between; gap:20px; }
+                .dq-storage-node-group-head strong { font-size:1rem; font-weight:600; }.dq-storage-node-group-head span { font-variant-numeric:tabular-nums; }
+                .dq-storage-node-items { display:grid; gap:4px; padding-top:8px; border-top:1px solid rgba(255,255,255,.065); }
+                .dq-storage-node-item { color:rgba(255,255,255,.56); font-size:.76rem; }
+                .dq-storage-category-view .dq-storage-category-detail-head { padding-bottom:16px; }
+                .dq-storage-category-view .dq-storage-category-detail-head h2 { font-size:clamp(1.55rem,1.75vw,2.25rem); }
+                .dq-storage-category-view .dq-storage-category-detail-head>strong { font-size:clamp(1.55rem,1.8vw,2.35rem); }
+                .dq-storage-category-view .dq-storage-node-group { gap:12px; padding:clamp(18px,1.4vw,26px) clamp(20px,1.7vw,32px); }
+                .dq-storage-category-view .dq-storage-node-group-head strong { font-size:clamp(1.12rem,1.15vw,1.48rem); }
+                .dq-storage-category-view .dq-storage-node-group-head>span { font-size:clamp(1.02rem,1.05vw,1.32rem); font-weight:620; }
+                .dq-storage-category-view .dq-storage-node-items { gap:9px; padding-top:13px; }
+                .dq-storage-category-view .dq-storage-node-item { min-height:34px; font-size:clamp(.96rem,.95vw,1.2rem); line-height:1.42; }
+                .dq-storage-category-view .dq-storage-node-item strong { color:rgba(255,255,255,.82); font-size:inherit; }
+                .dq-storage-loading-panel { width:min(100%,1680px); min-height:0; flex:1; border:1px solid rgba(255,255,255,.09); border-radius:10px; background:linear-gradient(145deg,rgba(255,255,255,.055),rgba(255,255,255,.014) 76%); display:grid; place-items:center; }
+                .dq-storage-loading-state { display:grid; justify-items:center; gap:16px; color:rgba(255,255,255,.68); font-size:clamp(1rem,1.05vw,1.3rem); }
+                .dq-storage-loading-ring { width:48px; height:48px; border:3px solid rgba(255,255,255,.16); border-top-color:rgba(255,255,255,.86); border-radius:50%; animation:dqSpin .8s linear infinite; }
+                .dq-program-row .dq-program-main { min-height:70px; }
+                .dq-storage-program-detail-page { width:min(100%,1120px); min-height:0; flex:1; padding:clamp(26px,3vw,48px); border:1px solid rgba(255,255,255,.09); border-radius:11px; background:linear-gradient(145deg,rgba(255,255,255,.065),rgba(255,255,255,.016) 76%); display:grid; grid-template-rows:auto auto minmax(0,1fr) auto; gap:clamp(18px,2.2vh,30px); overflow:hidden; }
+                .dq-storage-program-hero { display:grid; grid-template-columns:clamp(92px,8vw,132px) minmax(0,1fr); align-items:center; gap:clamp(22px,2.4vw,38px); }
+                .dq-storage-program-hero .dq-program-mark { width:100%; aspect-ratio:1; height:auto; border-radius:20px; font-size:2rem; }
+                .dq-storage-program-hero-copy { min-width:0; display:grid; gap:7px; }.dq-storage-program-hero-copy h2 { margin:0; font-size:clamp(2rem,3.2vw,4rem); font-weight:380; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.dq-storage-program-hero-copy p { margin:0; color:rgba(255,255,255,.55); }
+                .dq-storage-program-detail-page .dq-storage-program-facts { grid-template-columns:repeat(3,minmax(0,1fr)); gap:0 24px; }
+                .dq-storage-program-detail-page .dq-storage-program-facts span { font-size:.82rem; }
+                .dq-storage-program-guidance { align-self:start; max-width:70ch; color:rgba(255,255,255,.55); font-size:.88rem; line-height:1.55; }
+                .dq-storage-program-detail-page .dq-storage-program-actions { max-width:680px; justify-self:end; margin-top:0; }
                 @media (min-width: 3000px) and (min-height: 1600px) {
                     .dq-sidebar { width:480px; padding:64px 44px; gap:24px; }
                     .dq-brand { min-height:52px; margin-bottom:14px; }
@@ -7062,6 +7294,20 @@ function showUserPicker(users, requireSelection = false) {
                     .dq-sidebar { width: 230px; flex-basis:230px; padding-inline:18px; }
                     .dq-content { max-width:calc(100vw - 230px); padding-inline:26px; }
                     .dq-grid, .dq-actions { grid-template-columns:1fr; }
+                    .dq-storage-summary { grid-template-columns:repeat(2,minmax(0,1fr)); }
+                    .dq-storage-console { grid-template-columns:1fr; }
+                    .dq-storage-unified { grid-template-columns:1fr; min-height:0; overflow:visible; }
+                    .dq-storage-program-manager { grid-template-columns:minmax(300px,1.15fr) minmax(250px,.85fr); min-height:520px; }
+                    .dq-storage-overview-console,.dq-storage-programs-layout { grid-template-columns:1fr; }
+                    .dq-storage-overview-console .dq-storage-capacity-panel { grid-template-columns:1fr; grid-template-rows:auto auto auto auto auto; }
+                    .dq-storage-drive-strip { grid-column:1; grid-row:1; grid-template-columns:1fr auto; }
+                    .dq-storage-drive-strip-title { grid-column:1 / -1; }
+                    .dq-storage-overview-console .dq-storage-capacity-main { grid-column:1; grid-row:2; }
+                    .dq-storage-overview-console .dq-storage-bar { grid-column:1; grid-row:3; }
+                    .dq-storage-overview-console .dq-storage-summary { grid-column:1; grid-row:4; }
+                    .dq-storage-overview-console .dq-storage-toolbar { grid-column:1; grid-row:5; }
+                    .dq-program-inline-detail { grid-template-columns:1fr; padding-left:14px; }
+                    .dq-program-inline-detail .dq-storage-program-actions { width:100%; min-width:0; }
                     .dq-actions.windows-update-actions { grid-template-areas: none; }
                     .dq-action.verify, .dq-action.manual, .dq-action.install, .dq-action.restart { grid-area: auto; }
                 }
@@ -7112,7 +7358,14 @@ function showUserPicker(users, requireSelection = false) {
             overlay.className = 'doorpi-quick-panel doorpi-manager-overlay';
             overlay.dataset.required = 'false';
             overlay.addEventListener('click', (e) => {
-                if (e.target === overlay) close();
+                if (e.target !== overlay) return;
+                if (storageUninstallerIsActive(selectedStorageProgramId)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    requestAnimationFrame(() => api.focusStorageUninstallerReturn(selectedStorageProgramId));
+                    return;
+                }
+                close();
             });
             document.body.appendChild(overlay);
             return overlay;
@@ -7205,6 +7458,7 @@ function showUserPicker(users, requireSelection = false) {
                 updates: '<path d="M21 12a9 9 0 0 1-15.5 6.2"/><path d="M3 12A9 9 0 0 1 18.5 5.8"/><path d="M18.5 2.8v3h-3"/><path d="M5.5 21.2v-3h3"/>',
                 connectivity: '<path d="M12 2v20l6-6-6-4 6-4-6-6Z"/><path d="M6.5 6.5 12 12l-5.5 5.5"/>',
                 sound: '<path d="M4 9v6h4l5 4V5L8 9H4Z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/>',
+                storage: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v7c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12v7c0 1.7 3.6 3 8 3s8-1.3 8-3v-7"/>',
                 files: '<path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/><path d="M3 11h18"/>',
                 users: '<path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.85"/><path d="M16 3.15a4 4 0 0 1 0 7.7"/>',
                 power: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>',
@@ -7226,6 +7480,7 @@ function showUserPicker(users, requireSelection = false) {
             const updateDot = hasDoorpiUpdate || hasWindowsUpdate ? '<span class="dq-dot"></span>' : '';
             const items = [
                 ['updates', t('updatesTitle'), updateDot],
+                ['storage', 'Armazenamento', ''],
                 ['sound', t('soundTitle'), ''],
                 ['connectivity', t('navSetConnectivity'), ''],
                 ['files', t('fileExplorerTitle'), ''],
@@ -7536,6 +7791,309 @@ function showUserPicker(users, requireSelection = false) {
                 </section>`;
         }
 
+        function storageSizeText(bytes, empty = '0 B') {
+            const value = Number(bytes || 0);
+            if (!Number.isFinite(value) || value <= 0) return empty;
+            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            let amount = value;
+            let index = 0;
+            while (amount >= 1024 && index < units.length - 1) {
+                amount /= 1024;
+                index++;
+            }
+            const digits = index >= 3 ? 1 : index >= 2 ? 0 : 0;
+            return `${amount.toFixed(digits)} ${units[index]}`;
+        }
+
+        function storageStateText(state) {
+            if (state === 'informed') return 'informado pela origem';
+            if (state === 'mixed') return 'valores mistos';
+            if (state === 'estimated') return 'estimativa';
+            if (state === 'partial') return 'cálculo parcial';
+            if (state === 'pending') return 'pendente';
+            if (state === 'unavailable') return 'não calculado';
+            if (state === 'residual') return 'não classificado';
+            return 'calculado';
+        }
+
+        function storageNodeSizeText(node) {
+            const size = Number(node?.sizeBytes || 0);
+            if (node?.state === 'unavailable' && size <= 0) return 'Não calculado';
+            if (node?.state === 'pending' && size <= 0) return 'Pendente';
+            if (node?.state === 'partial') return size > 0 ? `${storageSizeText(size)}+` : 'Parcial';
+            return storageSizeText(size);
+        }
+
+        function storageTabs() {
+            return `<div class="dq-storage-tabs" role="tablist" aria-label="Armazenamento">
+                <button class="dq-storage-tab ${storageView === 'overview' ? 'active' : ''}" data-storage-view="overview" tabindex="0">Uso do disco</button>
+                <button class="dq-storage-tab ${storageView === 'programs' ? 'active' : ''}" data-storage-view="programs" tabindex="0">Programas instalados</button>
+            </div>`;
+        }
+
+        function storageStructureSignature(categories) {
+            return (categories || []).map(category => {
+                const children = Array.isArray(category?.children) ? category.children : [];
+                return `${category?.key || ''}:${children.map(child => {
+                    const items = Array.isArray(child?.children) ? child.children : [];
+                    return `${child?.key || ''}[${items.map(item => item?.key || '').join(',')}]`;
+                }).join(';')}`;
+            }).join('|');
+        }
+
+        function storageStatusMessage() {
+            if (storageStatus?.error) return storageStatus.error;
+            if (storageStatus?.calculating) {
+                if (Number(storageStatus?.progressTotal || 0) > 0)
+                    return `${Number(storageStatus?.progressCurrent || 0)}/${Number(storageStatus?.progressTotal || 0)} · ${storageStatus?.progressLabel || 'Lendo…'}`;
+                return 'Preparando leitura…';
+            }
+            if (storageStatus?.complete === false && storageStatus?.scannedAt)
+                return 'Leitura parcial salva; ela continuará na próxima atualização.';
+            if (storageStatus?.scannedAt) return `Última análise: ${dateText(storageStatus.scannedAt)}`;
+            return 'Os valores conhecidos serão calculados em segundo plano.';
+        }
+
+        function storageSegmentsMarkup(drive) {
+            const categories = Array.isArray(drive?.categories) ? drive.categories : [];
+            const total = Math.max(Number(drive?.totalBytes || 0), 1);
+            const known = categories.reduce((sum, item) => sum + Number(item?.sizeBytes || 0), 0);
+            const categorized = categories.filter(item => Number(item?.sizeBytes || 0) > 0).map(item => {
+                const width = Math.max(0, Math.min(100, Number(item.sizeBytes || 0) / total * 100));
+                return `<span class="dq-storage-segment ${esc(item.key || '')}" style="width:${width}%" title="${esc(item.label || '')}: ${esc(storageSizeText(item.sizeBytes))}"></span>`;
+            }).join('');
+            const readingBytes = storageStatus?.calculating
+                ? Math.max(0, Number(drive?.usedBytes || 0) - known)
+                : 0;
+            const reading = readingBytes > 0
+                ? `<span class="dq-storage-segment reading" style="width:${Math.min(100, readingBytes / total * 100)}%" title="Lendo: ${esc(storageSizeText(readingBytes))}"></span>`
+                : '';
+            const availableBytes = Math.max(0, Number(drive?.availableBytes || 0));
+            const available = `<span class="dq-storage-segment available" style="width:${Math.min(100, availableBytes / total * 100)}%" title="Disponível: ${esc(storageSizeText(availableBytes))}"></span>`;
+            return categorized + reading + available;
+        }
+
+        function storageLegendMarkup() {
+            const entries = [
+                ['games', 'Jogos'],
+                ['applications', 'Aplicativos'],
+                ['doorpi', 'Doorpi'],
+                ['windows', 'Windows e sistema'],
+                ['other', 'Outros arquivos'],
+                ['available', 'Disponível']
+            ];
+            if (storageStatus?.calculating) entries.push(['reading', 'Lendo']);
+            return entries.map(([key, label]) => `<span class="dq-storage-legend-item"><span class="dq-storage-legend-dot ${key}"></span>${label}</span>`).join('');
+        }
+
+        function storageDriveArtwork(kind = 'fixed') {
+            const removable = kind === 'removable';
+            return `<span class="dq-storage-drive-art" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="32" height="32" rx="7"/><path d="M13 30h22M15 15h18l3 12H12l3-12Z"/><circle cx="32.5" cy="34.5" r="1.5" fill="currentColor" stroke="none"/>${removable ? '<path d="M21 34h6M24 27v7M21.5 29.5 24 27l2.5 2.5"/>' : '<path d="M15 35h9"/>'}</svg></span>`;
+        }
+
+        function storageDriveTabMarkup(item, selectedDrive, compact = false) {
+            const total = Math.max(1, Number(item?.totalBytes || 0));
+            const usedPercent = Math.round(Math.max(0, Math.min(100, Number(item?.usedBytes || 0) / total * 100)));
+            return `<button class="dq-drive-tab ${compact ? 'compact ' : ''}${item?.root === selectedDrive?.root ? 'active' : ''}" data-storage-root="${esc(item?.root || '')}" tabindex="0">${storageDriveArtwork(item?.kind)}<span class="dq-storage-drive-copy"><strong>${esc(item?.label || item?.root || 'Disco')}</strong><small data-storage-drive-free>${esc(storageSizeText(item?.availableBytes))} livres de ${esc(storageSizeText(item?.totalBytes))}</small><span class="dq-storage-drive-track"><i data-storage-drive-track style="width:${usedPercent}%"></i></span></span></button>`;
+        }
+
+        function storageCategoryMarkup(category) {
+            const children = Array.isArray(category?.children) ? category.children : [];
+            const expanded = expandedStorageCategories.has(category?.key);
+            const childrenMarkup = expanded && children.length
+                ? `<div class="dq-storage-children">${children.map(child => {
+                    const grandchildren = Array.isArray(child?.children) ? child.children : [];
+                    const childNodeKey = `child|${category?.key || ''}|${child?.key || ''}`;
+                    return `<div class="dq-storage-child" data-storage-node="${esc(childNodeKey)}">
+                        <span>${esc(child.label || child.key || '')}<small class="dq-storage-state dq-storage-node-state">${esc(storageStateText(child.state))}</small></span>
+                        <span class="dq-storage-node-size">${esc(storageNodeSizeText(child))}</span>
+                        ${grandchildren.length ? `<div class="dq-storage-grandchildren">${grandchildren.map(item => `
+                            <div class="dq-storage-grandchild" data-storage-node="${esc(`item|${category?.key || ''}|${child?.key || ''}|${item?.key || ''}`)}"><span>${esc(item.label || item.key || '')}<small class="dq-storage-state dq-storage-node-state">${esc(storageStateText(item.state))}</small></span><span class="dq-storage-node-size">${esc(storageNodeSizeText(item))}</span></div>
+                        `).join('')}</div>` : ''}
+                    </div>`;
+                }).join('')}</div>`
+                : '';
+            return `<div class="dq-storage-category is-${esc(category?.key || 'other')}" data-storage-node="${esc(`category|${category?.key || ''}`)}">
+                <button class="dq-storage-category-head" data-storage-category="${esc(category?.key || '')}" tabindex="0" aria-expanded="${expanded}">
+                    <span class="dq-storage-name">${esc(category?.label || category?.key || '')}<small class="dq-storage-state dq-storage-node-state">${esc(storageStateText(category?.state))}</small></span>
+                    <span class="dq-storage-value dq-storage-node-size">${esc(storageNodeSizeText(category))}</span>
+                </button>
+                ${childrenMarkup}
+            </div>`;
+        }
+
+        function storageProgramArtwork(program) {
+            const icon = String(program?.iconBase64 || '').trim();
+            return icon
+                ? `<img src="data:image/png;base64,${esc(icon)}" alt="" loading="lazy" />`
+                : `<span>${esc((program?.name || '?').trim().charAt(0).toUpperCase())}</span>`;
+        }
+
+        function storageUninstallerIsActive(programId) {
+            return uninstallStatus?.programId === programId && uninstallStatus?.status === 'started';
+        }
+
+        function storageProgramDetailMarkup(program) {
+            if (!program) {
+                return `<span class="dq-kicker">Gerenciador</span><h3>Nenhum programa selecionado</h3><p>Escolha um item da lista para conferir seus dados.</p>`;
+            }
+            const status = uninstallStatus?.programId === program.id ? uninstallStatus.message : '';
+            const uninstallerActive = storageUninstallerIsActive(program.id);
+            return `<span class="dq-program-mark">${storageProgramArtwork(program)}</span>
+                <span class="dq-kicker">Programa selecionado</span>
+                <h3>${esc(program.name || 'Programa')}</h3>
+                <p>${esc(program.publisher || 'Editor não informado')}${program.version ? ` · versão ${esc(program.version)}` : ''}</p>
+                <div class="dq-storage-program-facts"><span>Tamanho · ${esc(storageSizeText(program.sizeBytes, 'Não informado'))}</span><span>Unidade · ${esc(program.installRoot || 'Não informada')}</span><span class="dq-storage-program-status" ${status ? '' : 'hidden'}>${esc(status)}</span></div>
+                <p>${program.canUninstall ? 'O desinstalador oficial abrirá em primeiro plano e o controle passará a operar o mouse.' : 'Este programa não informou um desinstalador ao Windows.'}</p>
+                <div class="dq-storage-program-actions"><button class="dq-program-action" data-cancel-storage-program="${esc(program.id)}" tabindex="0">Cancelar</button><button class="dq-program-action danger" data-confirm-uninstall="${esc(program.id)}" tabindex="0" ${program.canUninstall ? '' : 'disabled'}>${program.canUninstall ? (uninstallerActive ? 'Retornar' : 'Abrir desinstalador') : 'Indisponível'}</button></div>`;
+        }
+
+        function storageProgramsForSelectedDrive() {
+            const drives = Array.isArray(storageStatus?.drives) ? storageStatus.drives : [];
+            const drive = drives.find(item => item.root === selectedStorageRoot) || drives[0] || null;
+            const primaryRoot = String(drives[0]?.root || '').toUpperCase();
+            const currentRoot = String(drive?.root || '').toUpperCase();
+            return (Array.isArray(storagePrograms?.programs) ? storagePrograms.programs : [])
+                .filter(program => {
+                    const root = String(program.installRoot || '').toUpperCase();
+                    return root ? root === currentRoot : currentRoot === primaryRoot;
+                })
+                .sort((a, b) => Number(b.sizeBytes || 0) - Number(a.sizeBytes || 0) || String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR'));
+        }
+
+        function storageProgramRowsMarkup(programs) {
+            return programs.map(program => {
+                const expanded = program.id === selectedStorageProgramId;
+                const details = expanded ? storageProgramInlineDetailMarkup(program) : '';
+                return `<div class="dq-program-row ${expanded ? 'is-selected' : ''}"><button class="dq-program-main" data-storage-program="${esc(program.id)}" tabindex="0" aria-expanded="${expanded}"><span class="dq-program-mark">${storageProgramArtwork(program)}</span><span class="dq-program-copy"><span class="dq-program-name">${esc(program.name || 'Programa')}</span><span class="dq-program-meta">${esc(program.publisher || 'Aplicativo do Windows')}</span></span><span class="dq-program-intent"><span class="dq-storage-value">${esc(storageSizeText(program.sizeBytes, '—'))}</span><small>${expanded ? 'Opções abertas' : 'Opções  ›'}</small></span></button>${details}</div>`;
+            }).join('');
+        }
+
+        function storageProgramInlineDetailMarkup(program) {
+            const status = uninstallStatus?.programId === program.id ? uninstallStatus.message : '';
+            const uninstallerActive = storageUninstallerIsActive(program.id);
+            return `<div class="dq-program-inline-detail" data-storage-program-detail="${esc(program.id)}"><div class="dq-program-inline-copy"><div class="dq-program-inline-facts"><span>Tamanho · ${esc(storageSizeText(program.sizeBytes, 'Não informado'))}</span><span>Unidade · ${esc(program.installRoot || 'Não informada')}</span>${program.version ? `<span>Versão · ${esc(program.version)}</span>` : ''}</div><p class="dq-program-inline-note">${program.canUninstall ? (uninstallerActive ? 'Use Retornar para trazer o desinstalador novamente ao primeiro plano.' : 'O Windows pode remover este item diretamente ou abrir sua ferramenta oficial de desinstalação.') : 'Este programa não informou uma ação de desinstalação ao Windows.'}</p></div><div class="dq-storage-program-actions"><button class="dq-program-action" data-cancel-storage-program="${esc(program.id)}" tabindex="0">Cancelar</button><button class="dq-program-action danger" data-confirm-uninstall="${esc(program.id)}" data-can-uninstall="${program.canUninstall}" tabindex="0" ${program.canUninstall ? '' : 'disabled'}>${program.canUninstall ? (uninstallerActive ? 'Retornar' : 'Desinstalar') : 'Indisponível'}</button></div><span class="dq-storage-program-status" ${status ? '' : 'hidden'}>${esc(status)}</span></div>`;
+        }
+
+        function toggleStorageProgramExpansion(overlay, id, focusAction = true) {
+            const programs = storageProgramsForSelectedDrive();
+            const program = programs.find(item => item.id === id);
+            if (!program) return;
+            const opening = selectedStorageProgramId !== id;
+            selectedStorageProgramId = opening ? id : '';
+            overlay.querySelectorAll('.dq-program-row').forEach(row => {
+                const main = row.querySelector('[data-storage-program]');
+                const rowId = main?.dataset.storageProgram || '';
+                const expanded = opening && rowId === id;
+                row.classList.toggle('is-selected', expanded);
+                main?.setAttribute('aria-expanded', String(expanded));
+                const label = main?.querySelector('.dq-program-intent small');
+                if (label) label.textContent = expanded ? 'Opções abertas' : 'Opções  ›';
+                row.querySelector('.dq-program-inline-detail')?.remove();
+                if (expanded) row.insertAdjacentHTML('beforeend', storageProgramInlineDetailMarkup(program));
+            });
+            requestAnimationFrame(() => {
+                const target = opening && focusAction
+                    ? overlay.querySelector(`[data-confirm-uninstall="${CSS.escape(id)}"]`)
+                    : overlay.querySelector(`[data-storage-program="${CSS.escape(id)}"]`);
+                target?.focus();
+            });
+        }
+
+        function storageOverviewContent() {
+            const drives = Array.isArray(storageStatus?.drives) ? storageStatus.drives : [];
+            if (!selectedStorageRoot || !drives.some(drive => drive.root === selectedStorageRoot))
+                selectedStorageRoot = drives[0]?.root || '';
+            const drive = drives.find(item => item.root === selectedStorageRoot) || drives[0];
+            if (!drive) {
+                const loading = !storageStatus;
+                return `<section class="dq-content dq-storage-page"><div class="dq-kicker">Sistema</div><h1 class="dq-heading">Armazenamento</h1><p class="dq-sub">${loading ? 'Lendo unidades, capacidade e distribuição do conteúdo.' : 'Não foi possível encontrar uma unidade de armazenamento.'}</p><section class="dq-storage-loading-panel" aria-live="polite"><div class="dq-storage-loading-state">${loading ? '<span class="dq-storage-loading-ring" aria-hidden="true"></span>' : ''}<strong>${loading ? 'Carregando armazenamento…' : esc(storageStatus?.error || 'Nenhum disco disponível.')}</strong></div></section></section>`;
+            }
+            const categories = Array.isArray(drive.categories) ? drive.categories : [];
+            const structure = storageStructureSignature(categories);
+            const total = Math.max(1, Number(drive.totalBytes || 0));
+            const usedPercent = Math.round(Math.max(0, Math.min(100, Number(drive.usedBytes || 0) / total * 100)));
+            const programs = storageProgramsForSelectedDrive();
+            const categoryRows = categories.map(category => {
+                const detail = category?.state === 'pending' ? 'Análise em andamento' : 'Ver detalhes desta categoria';
+                return `<button class="dq-storage-console-row" data-storage-overview-category="${esc(category?.key || '')}" data-storage-open-category="${esc(category?.key || '')}" tabindex="0"><span class="dq-storage-legend-dot ${esc(category?.key || 'other')}"></span><span class="dq-storage-console-copy"><strong>${esc(category?.label || category?.key || '')}</strong><small>${esc(detail)}</small></span><span class="dq-storage-console-value"><strong>${esc(storageNodeSizeText(category))}</strong><small>›</small></span></button>`;
+            }).join('');
+            return `<section class="dq-content dq-storage-page">
+                <div class="dq-kicker">Sistema</div>
+                <h1 class="dq-heading">Armazenamento</h1>
+                <p class="dq-sub">Veja o uso desta unidade ou abra uma categoria para entender seus detalhes.</p>
+                <div class="dq-storage-overview-console">
+                    <section class="dq-storage-capacity-panel">
+                        <div class="dq-storage-drive-strip"><div class="dq-storage-drive-strip-title"><span>Unidades</span><strong>Escolha um disco</strong></div><div class="dq-drive-tabs">${drives.map(item => storageDriveTabMarkup(item, drive)).join('')}</div><button class="dq-action compact" data-action="refresh-storage" tabindex="0"><span class="dq-action-label">Atualizar análise</span><span class="dq-action-ico">${iconSvg('refresh', storageStatus?.calculating ? 'dq-spin' : '')}</span></button></div>
+                        <div class="dq-storage-capacity-main" data-storage-stat="availableBytes"><span>Espaço disponível</span><strong>${esc(storageSizeText(drive.availableBytes))}</strong><small data-storage-used-percent>${usedPercent}% do disco em uso</small></div>
+                        <div class="dq-storage-bar" aria-label="Distribuição do disco">${storageSegmentsMarkup(drive)}</div>
+                        <div class="dq-storage-summary">
+                            <div class="dq-storage-stat" data-storage-stat="totalBytes"><span>Capacidade</span><strong>${esc(storageSizeText(drive.totalBytes))}</strong></div>
+                            <div class="dq-storage-stat" data-storage-stat="usedBytes"><span>Em uso</span><strong>${esc(storageSizeText(drive.usedBytes))}</strong></div>
+                            <div class="dq-storage-stat" data-storage-stat="reservedBytes"><span>Reservado</span><strong>${esc(storageSizeText(drive.reservedBytes))}</strong></div>
+                        </div>
+                        <div class="dq-storage-toolbar"><span class="dq-storage-message dq-storage-progress">${esc(storageStatusMessage())}</span></div>
+                    </section>
+                    <section class="dq-storage-category-panel"><div class="dq-storage-category-title"><strong>O que ocupa espaço</strong><span>Selecione uma categoria para detalhar</span></div><div class="dq-storage-console-list">${categoryRows || `<div class="dq-storage-message">${esc(storageStatus?.error || 'Calculando categorias…')}</div>`}</div><div class="dq-storage-category-actions"><button class="dq-storage-remove-programs" data-storage-open-programs="true" tabindex="0"><span><strong>Remover programas</strong><small>Software registrado no Windows, incluindo jogos e aplicativos</small></span><b>›</b></button></div></section>
+                </div>
+            </section>`;
+        }
+
+        function storageProgramsContent() {
+            const drives = Array.isArray(storageStatus?.drives) ? storageStatus.drives : [];
+            if (!selectedStorageRoot || !drives.some(drive => drive.root === selectedStorageRoot))
+                selectedStorageRoot = drives[0]?.root || '';
+            const drive = drives.find(item => item.root === selectedStorageRoot) || drives[0] || null;
+            const programs = storageProgramsForSelectedDrive();
+            if (selectedStorageProgramId && !programs.some(program => program.id === selectedStorageProgramId))
+                selectedStorageProgramId = '';
+            const knownProgramBytes = programs.reduce((sum, program) => sum + Math.max(0, Number(program.sizeBytes || 0)), 0);
+            return `<section class="dq-content dq-storage-page dq-storage-programs-page">
+                <div class="dq-kicker">Armazenamento</div>
+                <h1 class="dq-heading">Remover programas</h1>
+                <p class="dq-sub">Software registrado no Windows. Selecione um item para ver seus detalhes e opções.</p>
+                <div class="dq-storage-level-toolbar"><button class="dq-storage-back" data-storage-view="overview" tabindex="0">‹ Uso do disco</button><div class="dq-drive-tabs">${drives.map(item => storageDriveTabMarkup(item, drive, true)).join('')}</div><button class="dq-action compact" data-action="refresh-programs" tabindex="0"><span class="dq-action-label">Atualizar</span><span class="dq-action-ico">${iconSvg('refresh')}</span></button></div>
+                <section class="dq-storage-category-detail-panel"><header class="dq-storage-category-detail-head"><div><span class="dq-storage-kicker">Nesta unidade</span><h2 data-storage-program-count>${programs.length} ${programs.length === 1 ? 'programa' : 'programas'}</h2></div><strong data-storage-program-total>${esc(storageSizeText(knownProgramBytes, 'Tamanho não informado'))}</strong></header><div class="dq-storage-vertical-list dq-program-list">${storageProgramRowsMarkup(programs) || `<div class="dq-storage-message">${esc(storagePrograms?.error || (storagePrograms ? 'Nenhum programa identificado nesta unidade.' : 'Carregando programas do Windows…'))}</div>`}</div></section>
+            </section>`;
+        }
+
+        function storageCategoryDetailRowsMarkup(category) {
+            const children = Array.isArray(category?.children) ? category.children : [];
+            if (!children.length) {
+                return `<article class="dq-storage-node-group" data-storage-detail-node="__self__"><span class="dq-storage-node-group-head"><strong>${esc(category?.label || 'Categoria')}</strong><span data-storage-detail-size>${esc(storageNodeSizeText(category))}</span></span><span class="dq-storage-node-items"><span class="dq-storage-node-item"><span>Nenhuma subdivisão disponível para esta categoria.</span></span></span></article>`;
+            }
+            return children.map(child => {
+                const items = Array.isArray(child?.children) ? child.children : [];
+                return `<article class="dq-storage-node-group" data-storage-detail-node="${esc(child?.key || '')}"><span class="dq-storage-node-group-head"><strong>${esc(child?.label || child?.key || 'Conteúdo')}</strong><span data-storage-detail-size>${esc(storageNodeSizeText(child))}</span></span>${items.length ? `<span class="dq-storage-node-items">${items.map(item => `<span class="dq-storage-node-item" data-storage-detail-item="${esc(item?.key || '')}"><span>${esc(item?.label || item?.key || 'Item')}</span><strong>${esc(storageNodeSizeText(item))}</strong></span>`).join('')}</span>` : ''}</article>`;
+            }).join('');
+        }
+
+        function storageCategoryContent() {
+            const drives = Array.isArray(storageStatus?.drives) ? storageStatus.drives : [];
+            const drive = drives.find(item => item.root === selectedStorageRoot) || drives[0] || null;
+            const categories = Array.isArray(drive?.categories) ? drive.categories : [];
+            const category = categories.find(item => item.key === selectedStorageCategoryKey) || categories[0] || null;
+            if (category) selectedStorageCategoryKey = category.key || '';
+            const rows = storageCategoryDetailRowsMarkup(category);
+            return `<section class="dq-content dq-storage-page dq-storage-category-view"><div class="dq-kicker">Armazenamento</div><h1 class="dq-heading">${esc(category?.label || 'Detalhes da categoria')}</h1><p class="dq-sub">Veja como esta categoria está distribuída na unidade selecionada.</p><div class="dq-storage-level-toolbar"><button class="dq-storage-back" data-storage-view="overview" tabindex="0">‹ Uso do disco</button><div class="dq-drive-tabs">${drives.map(item => storageDriveTabMarkup(item, drive, true)).join('')}</div></div><section class="dq-storage-category-detail-panel" data-storage-detail-category="${esc(category?.key || '')}"><header class="dq-storage-category-detail-head"><div><span class="dq-storage-kicker" data-storage-detail-drive>${esc(drive?.label || 'Unidade')}</span><h2>Distribuição da categoria</h2></div><strong data-storage-category-total>${esc(storageNodeSizeText(category))}</strong></header><div class="dq-storage-vertical-list" data-storage-detail-scroll tabindex="0" data-storage-detail-structure="${esc(storageStructureSignature([category]))}">${rows}</div></section></section>`;
+        }
+
+        function storageProgramDetailContent() {
+            const programs = storageProgramsForSelectedDrive();
+            const program = programs.find(item => item.id === selectedStorageProgramId) || programs[0] || null;
+            if (!program) { storageView = 'programs'; return storageProgramsContent(); }
+            selectedStorageProgramId = program.id;
+            const status = uninstallStatus?.programId === program.id ? uninstallStatus.message : '';
+            return `<section class="dq-content dq-storage-page dq-storage-program-detail-view"><div class="dq-kicker">Remover programas</div><h1 class="dq-heading">Detalhes do programa</h1><p class="dq-sub">Confira o item antes de abrir o desinstalador fornecido pelo Windows.</p><div class="dq-storage-level-toolbar"><button class="dq-storage-back" data-storage-view="programs" tabindex="0">‹ Lista de programas</button></div><section class="dq-storage-program-detail-page"><div class="dq-storage-program-hero"><span class="dq-program-mark">${storageProgramArtwork(program)}</span><div class="dq-storage-program-hero-copy"><span class="dq-storage-kicker">Programa selecionado</span><h2>${esc(program.name || 'Programa')}</h2><p>${esc(program.publisher || 'Editor não informado')}${program.version ? ` · versão ${esc(program.version)}` : ''}</p></div></div><div class="dq-storage-program-facts"><span>Tamanho · ${esc(storageSizeText(program.sizeBytes, 'Não informado'))}</span><span>Unidade · ${esc(program.installRoot || 'Não informada')}</span><span class="dq-storage-program-status" ${status ? '' : 'hidden'}>${esc(status)}</span></div><p class="dq-storage-program-guidance">${program.canUninstall ? 'O Doorpi abrirá o desinstalador oficial em primeiro plano e liberará o mouse. Ao voltar, a lista será atualizada automaticamente.' : 'Este item não informou uma ação de desinstalação ao Windows.'}</p><div class="dq-storage-program-actions"><button class="dq-program-action" data-cancel-storage-program="${esc(program.id)}" tabindex="0">Cancelar</button><button class="dq-program-action danger" data-confirm-uninstall="${esc(program.id)}" tabindex="0" ${program.canUninstall ? '' : 'disabled'}>${program.canUninstall ? 'Abrir desinstalador' : 'Indisponível'}</button></div></section></section>`;
+        }
+
+        function storageContent() {
+            if (storageView === 'category') return storageCategoryContent();
+            if (storageView === 'programs') return storageProgramsContent();
+            if (storageView === 'program-detail') return storageProgramDetailContent();
+            return storageOverviewContent();
+        }
+
         function simpleContent(title, sub, actionLabel, action) {
             return `
                 <section class="dq-content">
@@ -7559,6 +8117,7 @@ function showUserPicker(users, requireSelection = false) {
                 return doorpiDetail();
             }
             if (section === 'users') return simpleContent(t('navChangeUser'), t('quickSwitchUserDesc'), t('navChangeUser'), 'open-users');
+            if (section === 'storage') return storageContent();
             if (section === 'sound') return soundContent();
             if (section === 'connectivity') {
                 if (connectivityView === 'bluetooth') return bluetoothContent();
@@ -7576,6 +8135,12 @@ function showUserPicker(users, requireSelection = false) {
                 return '.dq-card';
             }
             if (sectionId === 'power') return '.dq-action';
+            if (sectionId === 'storage') {
+                if (storageView === 'programs') return '.dq-program-main';
+                if (storageView === 'program-detail') return '[data-storage-view="programs"]';
+                if (storageView === 'category') return '[data-storage-detail-scroll]';
+                return '.dq-drive-tab.active';
+            }
             if (sectionId === 'sound') return '.sound-focus';
             if (sectionId === 'connectivity') {
                 if (connectivityView === 'bluetooth') return '.bluetooth-focus';
@@ -7590,6 +8155,14 @@ function showUserPicker(users, requireSelection = false) {
             if (!el?.closest?.('#doorpiQuickPanel')) return null;
             if (el.dataset?.action) return `[data-action="${el.dataset.action}"]`;
             if (el.dataset?.updateView) return `[data-update-view="${el.dataset.updateView}"]`;
+            if (el.dataset?.storageView) return `[data-storage-view="${el.dataset.storageView}"]`;
+            if (el.dataset?.storageRoot) return `[data-storage-root="${CSS.escape(el.dataset.storageRoot)}"]`;
+            if (el.dataset?.storageCategory) return `[data-storage-category="${CSS.escape(el.dataset.storageCategory)}"]`;
+            if (el.dataset?.storageProgram) return `[data-storage-program="${CSS.escape(el.dataset.storageProgram)}"]`;
+            if (el.dataset?.cancelStorageProgram) return `[data-cancel-storage-program="${CSS.escape(el.dataset.cancelStorageProgram)}"]`;
+            if (el.dataset?.uninstallProgram) return `[data-uninstall-program="${CSS.escape(el.dataset.uninstallProgram)}"]`;
+            if (el.dataset?.confirmUninstall) return `[data-confirm-uninstall="${CSS.escape(el.dataset.confirmUninstall)}"]`;
+            if (el.dataset?.cancelUninstall) return `[data-cancel-uninstall="${CSS.escape(el.dataset.cancelUninstall)}"]`;
             if (el.dataset?.section) return `.dq-menu-btn[data-section="${el.dataset.section}"]`;
             if (el.dataset?.connectivityView) return `[data-connectivity-view="${el.dataset.connectivityView}"]`;
             if (el.dataset?.wifiNetworkId) return `[data-wifi-network-id="${CSS.escape(el.dataset.wifiNetworkId)}"]`;
@@ -7612,6 +8185,13 @@ function showUserPicker(users, requireSelection = false) {
             close();
             if (typeof window._navMenuOpenSettings === 'function') window._navMenuOpenSettings();
             else window.openNavMenu?.(2);
+        }
+
+        function requestStorageDataAfterPaint() {
+            requestAnimationFrame(() => {
+                postToHost?.({ action: 'requestStorageStatus', forceRefresh: false });
+                postToHost?.({ action: 'requestStoragePrograms' });
+            });
         }
 
         function enterSection(sectionId = section) {
@@ -7647,6 +8227,7 @@ function showUserPicker(users, requireSelection = false) {
                 }
             }
             render(contentFocusFor(section));
+            if (section === 'storage') requestStorageDataAfterPaint();
         }
 
         function render(focusSelector) {
@@ -7658,7 +8239,7 @@ function showUserPicker(users, requireSelection = false) {
             if (sidebarEl && overlay.style.display !== 'none' && overlay.classList.contains('visible') && !overlay.classList.contains('has-opened')) {
                 sidebarEl.addEventListener('animationend', () => overlay.classList.add('has-opened'), { once: true });
             }
-            const target = focusSelector ? overlay.querySelector(focusSelector) : overlay.querySelector('.dq-menu-btn.active, button');
+            const target = (focusSelector ? overlay.querySelector(focusSelector) : null) || overlay.querySelector('.dq-menu-btn.active, button');
             requestAnimationFrame(() => {
                 const executionLockOpen = document.getElementById('gameLaunchOverlay')
                     ?.classList.contains('execution-lock-visible');
@@ -7744,6 +8325,169 @@ function showUserPicker(users, requireSelection = false) {
             });
         }
 
+        function wireStorageCategoryButtons(root) {
+            root?.querySelectorAll?.('[data-storage-category]').forEach(btn => {
+                btn.onclick = () => {
+                    const key = btn.dataset.storageCategory || '';
+                    if (expandedStorageCategories.has(key)) expandedStorageCategories.delete(key);
+                    else expandedStorageCategories.add(key);
+                    render(`[data-storage-category="${CSS.escape(key)}"]`);
+                };
+            });
+        }
+
+        function storageNodeMap(categories) {
+            const result = new Map();
+            (categories || []).forEach(category => {
+                result.set(`category|${category?.key || ''}`, category);
+                (category?.children || []).forEach(child => {
+                    result.set(`child|${category?.key || ''}|${child?.key || ''}`, child);
+                    (child?.children || []).forEach(item => {
+                        result.set(`item|${category?.key || ''}|${child?.key || ''}|${item?.key || ''}`, item);
+                    });
+                });
+            });
+            return result;
+        }
+
+        function patchStorageOverview() {
+            const overlay = document.getElementById('doorpiQuickPanel');
+            const contentEl = overlay?.querySelector('.dq-content');
+            if (!contentEl || section !== 'storage' || storageView !== 'overview') return false;
+            const drives = Array.isArray(storageStatus?.drives) ? storageStatus.drives : [];
+            const drive = drives.find(item => item.root === selectedStorageRoot) || drives[0];
+            if (!drive) return false;
+            if (!selectedStorageRoot) selectedStorageRoot = drive.root || '';
+
+            const progress = contentEl.querySelector('.dq-storage-progress');
+            if (progress) progress.textContent = storageStatusMessage();
+            contentEl.querySelectorAll('.dq-drive-tab[data-storage-root]').forEach(tab => {
+                const item = drives.find(candidate => candidate.root === tab.dataset.storageRoot);
+                if (!item) return;
+                const free = tab.querySelector('[data-storage-drive-free]');
+                if (free) free.textContent = `${storageSizeText(item.availableBytes)} livres de ${storageSizeText(item.totalBytes)}`;
+                const itemTotal = Math.max(1, Number(item.totalBytes || 0));
+                const itemUsedPercent = Math.round(Math.max(0, Math.min(100, Number(item.usedBytes || 0) / itemTotal * 100)));
+                const track = tab.querySelector('[data-storage-drive-track]');
+                if (track) track.style.width = `${itemUsedPercent}%`;
+            });
+            ['totalBytes', 'usedBytes', 'availableBytes', 'reservedBytes'].forEach(key => {
+                const value = contentEl.querySelector(`[data-storage-stat="${key}"] strong`);
+                if (value) value.textContent = storageSizeText(drive[key]);
+            });
+            const usedPercent = Math.round(Math.max(0, Math.min(100, Number(drive.usedBytes || 0) / Math.max(1, Number(drive.totalBytes || 0)) * 100)));
+            const usedPercentLabel = contentEl.querySelector('[data-storage-used-percent]');
+            if (usedPercentLabel) usedPercentLabel.textContent = `${usedPercent}% do disco em uso`;
+            const bar = contentEl.querySelector('.dq-storage-bar');
+            if (bar) bar.innerHTML = storageSegmentsMarkup(drive);
+            const legend = contentEl.querySelector('.dq-storage-legend');
+            if (legend) legend.innerHTML = storageLegendMarkup();
+            const refreshIcon = contentEl.querySelector('[data-action="refresh-storage"] .dq-action-ico svg');
+            refreshIcon?.classList.toggle('dq-spin', !!storageStatus?.calculating);
+
+            const categories = Array.isArray(drive.categories) ? drive.categories : [];
+            const consoleList = contentEl.querySelector('.dq-storage-console-list');
+            if (consoleList) {
+                const categoryMap = new Map(categories.map(category => [category?.key || '', category]));
+                consoleList.querySelectorAll('[data-storage-overview-category]').forEach(row => {
+                    const category = categoryMap.get(row.dataset.storageOverviewCategory || '');
+                    const value = row.querySelector('.dq-storage-console-value strong');
+                    if (category && value) value.textContent = storageNodeSizeText(category);
+                });
+                return true;
+            }
+            const list = contentEl.querySelector('.dq-storage-list');
+            if (!list) return false;
+            const nextStructure = storageStructureSignature(categories);
+            if (list.dataset.storageStructure !== nextStructure) {
+                const active = document.activeElement;
+                const focusSelector = active?.closest?.('.dq-storage-list') ? currentFocusSelector() : '';
+                const previousScrollTop = contentEl.scrollTop;
+                list.innerHTML = categories.map(storageCategoryMarkup).join('');
+                list.dataset.storageStructure = nextStructure;
+                wireStorageCategoryButtons(list);
+                contentEl.scrollTop = previousScrollTop;
+                if (focusSelector) requestAnimationFrame(() => list.querySelector(focusSelector)?.focus());
+                return true;
+            }
+
+            const nodes = storageNodeMap(categories);
+            list.querySelectorAll('[data-storage-node]').forEach(element => {
+                const node = nodes.get(element.dataset.storageNode || '');
+                if (!node) return;
+                const size = element.querySelector(':scope > .dq-storage-node-size, :scope > button .dq-storage-node-size');
+                const state = element.querySelector(':scope > span .dq-storage-node-state, :scope > button .dq-storage-node-state');
+                if (size) size.textContent = storageNodeSizeText(node);
+                if (state) state.textContent = storageStateText(node.state);
+            });
+            return true;
+        }
+
+        function patchStorageCategoryDetail() {
+            const overlay = document.getElementById('doorpiQuickPanel');
+            const panel = overlay?.querySelector('[data-storage-detail-category]');
+            if (!panel || section !== 'storage' || storageView !== 'category') return false;
+            const drives = Array.isArray(storageStatus?.drives) ? storageStatus.drives : [];
+            const drive = drives.find(item => item.root === selectedStorageRoot) || drives[0];
+            const categories = Array.isArray(drive?.categories) ? drive.categories : [];
+            const category = categories.find(item => item.key === selectedStorageCategoryKey);
+            if (!category) return true;
+
+            const total = panel.querySelector('[data-storage-category-total]');
+            if (total) total.textContent = storageNodeSizeText(category);
+            const driveLabel = panel.querySelector('[data-storage-detail-drive]');
+            if (driveLabel) driveLabel.textContent = drive?.label || 'Unidade';
+            const list = panel.querySelector('.dq-storage-vertical-list');
+            if (!list) return true;
+            const nextStructure = storageStructureSignature([category]);
+            if (list.dataset.storageDetailStructure !== nextStructure) {
+                const focusedKey = document.activeElement?.closest?.('[data-storage-detail-node]')?.dataset.storageDetailNode || '';
+                const scrollTop = list.scrollTop;
+                list.innerHTML = storageCategoryDetailRowsMarkup(category);
+                list.dataset.storageDetailStructure = nextStructure;
+                list.scrollTop = scrollTop;
+                if (focusedKey) requestAnimationFrame(() => list.querySelector(`[data-storage-detail-node="${CSS.escape(focusedKey)}"]`)?.focus());
+                return true;
+            }
+
+            const children = Array.isArray(category.children) ? category.children : [];
+            const nodes = new Map((children.length ? children : [category]).map(node => [children.length ? String(node?.key || '') : '__self__', node]));
+            list.querySelectorAll('[data-storage-detail-node]').forEach(row => {
+                const node = nodes.get(row.dataset.storageDetailNode || '');
+                if (!node) return;
+                const size = row.querySelector('[data-storage-detail-size]');
+                if (size) size.textContent = storageNodeSizeText(node);
+                const items = new Map((node.children || []).map(item => [String(item?.key || ''), item]));
+                row.querySelectorAll('[data-storage-detail-item]').forEach(itemRow => {
+                    const item = items.get(itemRow.dataset.storageDetailItem || '');
+                    const itemSize = itemRow.querySelector('strong');
+                    if (item && itemSize) itemSize.textContent = storageNodeSizeText(item);
+                });
+            });
+            return true;
+        }
+
+        function patchStorageProgramsList() {
+            const overlay = document.getElementById('doorpiQuickPanel');
+            const contentEl = overlay?.querySelector('.dq-storage-programs-page');
+            const list = contentEl?.querySelector('.dq-program-list');
+            if (!contentEl || !list || section !== 'storage' || storageView !== 'programs') return false;
+            const programs = storageProgramsForSelectedDrive();
+            if (selectedStorageProgramId && !programs.some(program => program.id === selectedStorageProgramId))
+                selectedStorageProgramId = '';
+            const bytes = programs.reduce((sum, program) => sum + Math.max(0, Number(program.sizeBytes || 0)), 0);
+            const count = contentEl.querySelector('[data-storage-program-count]');
+            const total = contentEl.querySelector('[data-storage-program-total]');
+            if (count) count.textContent = `${programs.length} ${programs.length === 1 ? 'programa' : 'programas'}`;
+            if (total) total.textContent = storageSizeText(bytes, 'Tamanho não informado');
+            const focusedId = document.activeElement?.closest?.('[data-storage-program]')?.dataset.storageProgram || '';
+            const scrollTop = list.scrollTop;
+            list.innerHTML = storageProgramRowsMarkup(programs) || `<div class="dq-storage-message">${esc(storagePrograms?.error || (storagePrograms ? 'Nenhum programa identificado nesta unidade.' : 'Carregando programas do Windows…'))}</div>`;
+            list.scrollTop = scrollTop;
+            if (focusedId) requestAnimationFrame(() => list.querySelector(`[data-storage-program="${CSS.escape(focusedId)}"]`)?.focus());
+            return true;
+        }
+
         function setBusyAction(btn, message) {
             btn.dataset.busy = 'true';
             const label = btn.querySelector('.dq-action-label');
@@ -7821,11 +8565,108 @@ function showUserPicker(users, requireSelection = false) {
             wireBluetooth(overlay.querySelector('.dq-content'));
             wireWifi(overlay.querySelector('.dq-content'));
             wireSound(overlay.querySelector('.dq-content'));
+            wireStorageCategoryButtons(overlay);
+            overlay.onfocusin = event => {
+                const target = event.target;
+                if (!(target instanceof HTMLElement) || !target.closest('.dq-content')) return;
+                requestAnimationFrame(() => {
+                    const programList = target.closest('.dq-storage-vertical-list');
+                    if (programList) {
+                        const itemRect = target.getBoundingClientRect();
+                        const listRect = programList.getBoundingClientRect();
+                        const maxScroll = Math.max(0, programList.scrollHeight - programList.clientHeight);
+                        const top = Math.max(0, Math.min(maxScroll,
+                            programList.scrollTop + itemRect.top - listRect.top
+                            - (programList.clientHeight - itemRect.height) / 2));
+                        programList.scrollTop = top;
+                        return;
+                    }
+                    target.scrollIntoView?.({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+                });
+            };
             overlay.querySelectorAll('[data-section]').forEach(btn => {
                 btn.addEventListener('click', () => {
                     enterSection(btn.dataset.section || 'updates');
                 });
             });
+            overlay.querySelectorAll('[data-storage-view]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const previousView = storageView;
+                    storageView = btn.dataset.storageView || 'overview';
+                    pendingUninstallId = '';
+                    if (storageView === 'programs') postToHost?.({ action: 'requestStoragePrograms' });
+                    const focusSelector = storageView === 'programs'
+                        ? `[data-storage-program="${CSS.escape(selectedStorageProgramId || '')}"]`
+                        : previousView === 'category'
+                            ? `[data-storage-open-category="${CSS.escape(selectedStorageCategoryKey || '')}"]`
+                            : '[data-storage-open-programs]';
+                    render(focusSelector);
+                });
+            });
+            overlay.querySelectorAll('[data-storage-open-programs]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    storageView = 'programs';
+                    pendingUninstallId = '';
+                    postToHost?.({ action: 'requestStoragePrograms' });
+                    render('.dq-program-main');
+                });
+            });
+            overlay.querySelectorAll('[data-storage-open-category]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    selectedStorageCategoryKey = btn.dataset.storageOpenCategory || '';
+                    storageView = 'category';
+                    render('[data-storage-detail-scroll]');
+                });
+            });
+            overlay.querySelectorAll('[data-storage-root]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    selectedStorageRoot = btn.dataset.storageRoot || '';
+                    selectedStorageProgramId = '';
+                    overlay.querySelectorAll('[data-storage-root]').forEach(item => item.classList.toggle('active', item === btn));
+                    if (storageView === 'overview') patchStorageOverview();
+                    else if (storageView === 'programs') patchStorageProgramsList();
+                    else if (storageView === 'category') patchStorageCategoryDetail();
+                    btn.focus();
+                });
+            });
+            if (overlay._doorpiStorageActionHandler)
+                overlay.removeEventListener('click', overlay._doorpiStorageActionHandler);
+            overlay._doorpiStorageActionHandler = event => {
+                const programButton = event.target.closest?.('[data-storage-program]');
+                if (programButton) {
+                    storageView = 'programs';
+                    toggleStorageProgramExpansion(overlay, programButton.dataset.storageProgram || '', true);
+                    return;
+                }
+                const cancel = event.target.closest?.('[data-cancel-storage-program]');
+                if (cancel) {
+                    const id = cancel.dataset.cancelStorageProgram || selectedStorageProgramId;
+                    storageView = 'programs';
+                    toggleStorageProgramExpansion(overlay, id, false);
+                    return;
+                }
+                const confirm = event.target.closest?.('[data-confirm-uninstall]');
+                if (!confirm || confirm.disabled) return;
+                const id = confirm.dataset.confirmUninstall || selectedStorageProgramId;
+                if (!id) return;
+                selectedStorageProgramId = id;
+                if (storageUninstallerIsActive(id)) {
+                    const list = overlay.querySelector('.dq-program-list');
+                    const scrollTop = list?.scrollTop || 0;
+                    confirm.focus({ preventScroll:true });
+                    if (list) list.scrollTop = scrollTop;
+                    postToHost?.({ action: 'returnToStorageUninstaller', programId: id });
+                    return;
+                }
+                pendingUninstallId = '';
+                uninstallStatus = { status: 'preparing', message: 'Solicitando a remoção ao Windows…', programId: id };
+                const status = overlay.querySelector('.dq-storage-program-status');
+                if (status) { status.hidden = false; status.textContent = uninstallStatus.message; }
+                confirm.textContent = 'Solicitando…';
+                confirm.disabled = true;
+                postToHost?.({ action: 'uninstallStorageProgram', programId: id });
+            };
+            overlay.addEventListener('click', overlay._doorpiStorageActionHandler);
             overlay.querySelectorAll('[data-update-view]').forEach(btn => {
                 btn.addEventListener('click', () => {
                     section = 'updates';
@@ -7872,6 +8713,8 @@ function showUserPicker(users, requireSelection = false) {
                     else if (action === 'open-gpu-updater') { postToHost?.({ action: 'openGpuUpdater', updaterId: btn.dataset.updaterId || '' }); }
                     else if (action === 'add-gpu-updater') postToHost?.({ action: 'addGpuUpdater' });
                     else if (action === 'remove-gpu-updater') postToHost?.({ action: 'removeGpuUpdater', updaterId: btn.dataset.updaterId || '' });
+                    else if (action === 'refresh-storage') postToHost?.({ action: 'requestStorageStatus', forceRefresh: true });
+                    else if (action === 'refresh-programs') postToHost?.({ action: 'requestStoragePrograms' });
                     else if (action === 'restart') postToHost?.({ action: 'restartSystem' });
                     else if (action === 'suspend') postToHost?.({ action: 'suspendSystem' });
                     else if (action === 'shutdown') postToHost?.({ action: 'shutdownSystem' });
@@ -7896,7 +8739,7 @@ function showUserPicker(users, requireSelection = false) {
 
         function open(initialSection = null) {
             if (!canOpen()) return;
-            const requestedSection = ['updates', 'sound', 'connectivity', 'power'].includes(initialSection)
+            const requestedSection = ['updates', 'storage', 'sound', 'connectivity', 'power'].includes(initialSection)
                 ? initialSection
                 : null;
             section = requestedSection;
@@ -7914,6 +8757,7 @@ function showUserPicker(users, requireSelection = false) {
             postToHost?.({ action: 'requestGpuUpdateStatus' });
             postToHost?.({ action: 'requestSoundStatus' });
             render(requestedSection ? contentFocusFor(requestedSection) : '.dq-menu-btn');
+            if (requestedSection === 'storage') requestStorageDataAfterPaint();
         }
 
         function openMenu() {
@@ -7955,6 +8799,28 @@ function showUserPicker(users, requireSelection = false) {
         }
 
         function back() {
+            if (section === 'storage' && storageView === 'program-detail') {
+                storageView = 'programs';
+                render(`[data-storage-program="${CSS.escape(selectedStorageProgramId || '')}"]`);
+                return true;
+            }
+            if (section === 'storage' && storageView === 'category') {
+                storageView = 'overview';
+                render(`[data-storage-open-category="${CSS.escape(selectedStorageCategoryKey || '')}"]`);
+                return true;
+            }
+            if (section === 'storage' && storageView === 'programs') {
+                storageView = 'overview';
+                pendingUninstallId = '';
+                render('[data-storage-open-programs]');
+                return true;
+            }
+            if (section === 'storage' && pendingUninstallId) {
+                const id = pendingUninstallId;
+                pendingUninstallId = '';
+                render(`[data-uninstall-program="${CSS.escape(id)}"]`);
+                return true;
+            }
             if (section === 'sound') {
                 const soundFocusSelector = window.DoorpiSoundUI?.back?.('quick');
                 if (soundFocusSelector) {
@@ -7997,6 +8863,118 @@ function showUserPicker(users, requireSelection = false) {
             if (!api.isOpen()) return false;
             if (section === 'sound' && window.DoorpiSoundUI?.handleDirection?.('quick', direction)) return true;
             const active = document.activeElement;
+            if (section === 'storage' && direction === 'UP' && active?.matches?.('[data-confirm-uninstall]')) {
+                document.querySelector(`#doorpiQuickPanel [data-storage-program="${CSS.escape(selectedStorageProgramId || '')}"]`)?.focus();
+                return true;
+            }
+            if (section === 'storage' && storageView === 'category') {
+                const panel = document.getElementById('doorpiQuickPanel');
+                const list = panel?.querySelector('[data-storage-detail-scroll]');
+                if (active === list && (direction === 'UP' || direction === 'DOWN')) {
+                    if (direction === 'UP' && list.scrollTop <= 1) {
+                        panel.querySelector('.dq-storage-back')?.focus();
+                    } else {
+                        const amount = Math.max(96, Math.round(list.clientHeight * .24));
+                        list.scrollTop += direction === 'DOWN' ? amount : -amount;
+                    }
+                    return true;
+                }
+                if ((active?.classList?.contains('dq-storage-back') || active?.classList?.contains('dq-drive-tab')) && direction === 'DOWN') {
+                    list?.focus();
+                    return true;
+                }
+            }
+            if (section === 'storage' && active?.closest?.('.dq-storage-vertical-list')) {
+                const list = active.closest('.dq-storage-vertical-list');
+                const items = Array.from(list.querySelectorAll('button:not([disabled])'));
+                const index = items.indexOf(active);
+                if (index >= 0 && (direction === 'UP' || direction === 'DOWN')) {
+                    const target = items[index + (direction === 'DOWN' ? 1 : -1)];
+                    if (target) target.focus();
+                    else if (direction === 'UP') list.closest('.dq-content')?.querySelector('.dq-storage-back')?.focus();
+                    return true;
+                }
+            }
+            if (section === 'storage' && storageView === 'overview') {
+                const panel = document.getElementById('doorpiQuickPanel');
+                const refresh = panel?.querySelector('[data-action="refresh-storage"]');
+                const drives = Array.from(panel?.querySelectorAll('.dq-drive-tab') || []);
+                const activeDrive = panel?.querySelector('.dq-drive-tab.active');
+                const firstCategory = panel?.querySelector('.dq-storage-console-row');
+                const focusDrive = target => {
+                    if (!target) return;
+                    target.focus();
+                    requestAnimationFrame(() => target.scrollIntoView?.({ block:'nearest', inline:'nearest' }));
+                };
+                const driveIndex = drives.indexOf(active);
+                if (driveIndex >= 0 && direction === 'LEFT') {
+                    focusDrive(drives[driveIndex - 1]);
+                    return true;
+                }
+                if (driveIndex >= 0 && direction === 'RIGHT') {
+                    const nextDrive = drives[driveIndex + 1];
+                    if (nextDrive) focusDrive(nextDrive);
+                    else refresh?.focus();
+                    return true;
+                }
+                if (driveIndex >= 0 && direction === 'DOWN') {
+                    firstCategory?.focus();
+                    return true;
+                }
+                if (active === refresh && direction === 'UP') {
+                    activeDrive?.focus();
+                    return true;
+                }
+                if (active === refresh && direction === 'LEFT') {
+                    (drives[drives.length - 1] || activeDrive)?.focus();
+                    return true;
+                }
+                if (active === refresh && direction === 'DOWN') {
+                    firstCategory?.focus();
+                    return true;
+                }
+            }
+            if (section === 'storage' && active?.closest?.('.dq-storage-console-list')) {
+                const list = active.closest('.dq-storage-console-list');
+                const items = Array.from(list.querySelectorAll('.dq-storage-console-row'));
+                const index = items.indexOf(active);
+                if (index >= 0 && direction === 'UP') (items[index - 1] || document.querySelector('#doorpiQuickPanel [data-action="refresh-storage"]') || document.querySelector('#doorpiQuickPanel .dq-drive-tab.active'))?.focus();
+                else if (index >= 0 && direction === 'DOWN') (items[index + 1] || document.querySelector('#doorpiQuickPanel .dq-storage-remove-programs'))?.focus();
+                else return false;
+                return true;
+            }
+            if (section === 'storage' && active?.classList?.contains('dq-storage-remove-programs') && direction === 'UP') {
+                const rows = Array.from(document.querySelectorAll('#doorpiQuickPanel .dq-storage-console-row'));
+                rows[rows.length - 1]?.focus();
+                return true;
+            }
+            if (section === 'storage' && active?.closest?.('.dq-storage-program-manager')) {
+                const manager = active.closest('.dq-storage-program-manager');
+                const list = manager.querySelector('.dq-program-list');
+                const programs = Array.from(list?.querySelectorAll('.dq-program-main') || []);
+                const cancel = manager.querySelector('[data-cancel-storage-program]');
+                const confirm = manager.querySelector('[data-confirm-uninstall]');
+                const selectedProgram = manager.querySelector(`[data-storage-program="${CSS.escape(selectedStorageProgramId || '')}"]`) || programs[0];
+                const programIndex = programs.indexOf(active);
+                if (programIndex >= 0 && (direction === 'UP' || direction === 'DOWN')) {
+                    programs[programIndex + (direction === 'DOWN' ? 1 : -1)]?.focus();
+                    return true;
+                }
+                if (programIndex >= 0 && direction === 'RIGHT') {
+                    (cancel || confirm)?.focus();
+                    return true;
+                }
+                if (active === cancel) {
+                    if (direction === 'RIGHT') confirm?.focus();
+                    else if (direction === 'LEFT' || direction === 'UP' || direction === 'DOWN') selectedProgram?.focus();
+                    return true;
+                }
+                if (active === confirm) {
+                    if (direction === 'LEFT') cancel?.focus();
+                    else if (direction === 'UP' || direction === 'DOWN') selectedProgram?.focus();
+                    return true;
+                }
+            }
             if (active?.closest?.('#doorpiQuickPanel .dq-content')) {
                 if (direction === 'LEFT') {
                     if (hasContentTargetToLeft(active)) return false;
@@ -8078,6 +9056,73 @@ function showUserPicker(users, requireSelection = false) {
                 if (this.isOpen() && section === 'sound') {
                     patchSoundContent();
                 }
+            },
+            setStorageStatus(status) {
+                storageStatus = status || null;
+                if (this.isOpen() && section === 'storage') {
+                    const patched = storageView === 'overview'
+                        ? patchStorageOverview()
+                        : storageView === 'category'
+                            ? patchStorageCategoryDetail()
+                            : true;
+                    if (!patched) render('.dq-drive-tab.active');
+                }
+            },
+            setStoragePrograms(status) {
+                const focusSelector = currentFocusSelector();
+                storagePrograms = status || { programs: [] };
+                if (this.isOpen() && section === 'storage') {
+                    if (storageView === 'programs' && patchStorageProgramsList()) return;
+                    if (storageView === 'program-detail') render(focusSelector || '.dq-drive-tab.active');
+                }
+            },
+            setStorageUninstallStatus(status) {
+                uninstallStatus = status || null;
+                if (this.isOpen() && section === 'storage') {
+                    const detailStatus = document.querySelector('#doorpiQuickPanel .dq-storage-program-status');
+                    if (detailStatus && (!status?.programId || status.programId === selectedStorageProgramId)) {
+                        detailStatus.hidden = !status?.message;
+                        detailStatus.textContent = status?.message || '';
+                    }
+                    const action = status?.programId
+                        ? document.querySelector(`#doorpiQuickPanel [data-confirm-uninstall="${CSS.escape(status.programId)}"]`)
+                        : null;
+                    if (action) {
+                        const phase = status?.status || '';
+                        const active = phase === 'started';
+                        const processing = phase === 'preparing' || phase === 'direct';
+                        const canUninstall = action.dataset.canUninstall !== 'false';
+                        action.disabled = processing || !canUninstall;
+                        action.textContent = active
+                            ? 'Retornar'
+                            : phase === 'direct'
+                                ? 'Remoção solicitada'
+                                : phase === 'preparing'
+                                    ? 'Solicitando…'
+                                    : (canUninstall ? 'Desinstalar' : 'Indisponível');
+                        const note = action.closest('.dq-program-inline-detail')?.querySelector('.dq-program-inline-note');
+                        if (note && active) note.textContent = 'Use Retornar para trazer o desinstalador novamente ao primeiro plano.';
+                        else if (note && phase === 'direct') note.textContent = 'O Windows recebeu a solicitação diretamente; nenhuma ferramenta externa precisa ser controlada.';
+                        if (active) {
+                            const list = action.closest('.dq-program-list');
+                            const scrollTop = list?.scrollTop || 0;
+                            requestAnimationFrame(() => {
+                                action.focus({ preventScroll:true });
+                                if (list) list.scrollTop = scrollTop;
+                            });
+                        }
+                    }
+                }
+            },
+            focusStorageUninstallerReturn(programId) {
+                if (!this.isOpen() || section !== 'storage' || !programId) return false;
+                const action = document.querySelector(`#doorpiQuickPanel [data-confirm-uninstall="${CSS.escape(programId)}"]`);
+                if (!action) return false;
+                const list = action.closest('.dq-program-list');
+                const scrollTop = list?.scrollTop || 0;
+                action.focus({ preventScroll:true });
+                if (list) list.scrollTop = scrollTop;
+                return document.activeElement === action;
             }
         };
         return api;
